@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 /**
  * Renders the maintenance-built failure snapshot when present (Hybrid User-Driven
@@ -30,7 +31,14 @@ interface FailureSnapshot {
   missingSignals?: string[];
 }
 
-export default function FailureSnapshotBlock({ failureSnapshotJson }: { failureSnapshotJson?: string }) {
+export default function FailureSnapshotBlock({
+  failureSnapshotJson,
+  sessionId,
+}: {
+  failureSnapshotJson?: string;
+  /** Optional — when provided, renders a "View at lifecycle anchors" link into the Inspector. */
+  sessionId?: string;
+}) {
   const [expanded, setExpanded] = useState(false);
 
   if (!failureSnapshotJson || failureSnapshotJson.trim().length === 0) return null;
@@ -101,6 +109,20 @@ export default function FailureSnapshotBlock({ failureSnapshotJson }: { failureS
             <div className="text-xs text-rose-700 pt-1">
               Snapshot generated {new Date(snapshot.generatedAtUtc).toLocaleString()}
               {snapshot.schemaVersion !== undefined && <> · schema v{snapshot.schemaVersion}</>}
+            </div>
+          )}
+          {sessionId && (
+            <div className="pt-2">
+              <Link
+                href={`/sessions/${sessionId}/inspector?tab=anchors`}
+                className="inline-flex items-center gap-1 text-xs font-medium text-rose-800 underline hover:text-rose-900"
+                title="Open the Inspector and jump to the per-anchor DecisionState snapshots (Plan §A — Edge-Triggered State Snapshots)"
+              >
+                View at lifecycle anchors →
+              </Link>
+              <span className="ml-2 text-[11px] text-rose-700">
+                (Inspector · Global Admin only)
+              </span>
             </div>
           )}
         </div>

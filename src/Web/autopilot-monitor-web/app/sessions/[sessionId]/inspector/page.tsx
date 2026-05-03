@@ -2,23 +2,41 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDecisionGraph } from "./hooks/useDecisionGraph";
 import { useSessionSignals } from "./hooks/useSessionSignals";
+import { useSessionAnchorEvents } from "./hooks/useSessionAnchorEvents";
 import { DecisionGraph } from "./components/DecisionGraph";
 import { SignalStream } from "./components/SignalStream";
+import { LifecycleAnchors } from "./components/LifecycleAnchors";
 
-type Tab = "graph" | "signals" | "verifier";
+type Tab = "graph" | "signals" | "anchors" | "verifier";
+
+const TAB_IDS: ReadonlySet<Tab> = new Set<Tab>(["graph", "signals", "anchors", "verifier"]);
+
+function isTab(value: string | null): value is Tab {
+  return value !== null && (TAB_IDS as Set<string>).has(value);
+}
 
 export default function InspectorPage() {
   const params = useParams();
   const sessionId = (params?.sessionId as string) ?? "";
   const { getAccessToken } = useAuth();
-  const [activeTab, setActiveTab] = useState<Tab>("graph");
+
+  // Deep-link via ?tab=anchors (FailureSnapshotBlock uses this). Query is read
+  // once on mount; subsequent tab clicks live in component state only — no
+  // history churn for casual clicks.
+  const searchParams = useSearchParams();
+  const initialTab = (() => {
+    const fromQuery = searchParams?.get("tab") ?? null;
+    return isTab(fromQuery) ? fromQuery : "graph";
+  })();
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab);
 
   const decisionGraph = useDecisionGraph({ sessionId, getAccessToken });
   const signalsState = useSessionSignals({ sessionId, getAccessToken });
+  const anchorsState = useSessionAnchorEvents({ sessionId, getAccessToken });
 
   // Lineage check: an empty Nodes list means the session has no V2 decision
   // data. Either it's a V1-agent session, or the agent never emitted a
@@ -82,6 +100,15 @@ export default function InspectorPage() {
             />
           )}
 
+          {activeTab === "anchors" && (
+            <LifecycleAnchors
+              anchors={anchorsState.anchors}
+              totalEvents={anchorsState.totalEvents}
+              loading={anchorsState.loading}
+              error={anchorsState.error}
+            />
+          )}
+
           {activeTab === "verifier" && (
             <div className="rounded border border-gray-200 bg-white p-8 text-center text-gray-500">
               VerifierReport — not implemented in v1 (deferred)
@@ -103,6 +130,7 @@ function Tabs({
   const tabs: { id: Tab; label: string }[] = [
     { id: "graph", label: "Decision Graph" },
     { id: "signals", label: "Signal Stream" },
+    { id: "anchors", label: "Lifecycle Anchors" },
     { id: "verifier", label: "Verifier Report" },
   ];
 
