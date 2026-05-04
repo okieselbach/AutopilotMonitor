@@ -23,7 +23,9 @@ namespace AutopilotMonitor.DecisionCore.Tests
         {
             // Build a state where ESP has reached AccountSetup, EspExiting arrived, Hello has
             // already resolved — the reducer parks in AwaitingDesktop waiting for the desktop.
-            var state = DecisionState.CreateInitial("sess-fin", "tenant-fin");
+            // Pass T0 as the agent-boot anchor so the EffectiveDeadlineBase guard doesn't
+            // floor the deterministic T0-based deadline math at the test runner's wall clock.
+            var state = DecisionState.CreateInitial("sess-fin", "tenant-fin", T0);
 
             state = engine.Reduce(state, MakeSignal(0, DecisionSignalKind.SessionStarted, T0, null)).NewState;
             state = engine.Reduce(state, MakeSignal(1, DecisionSignalKind.EspPhaseChanged, T0.AddMinutes(1),

@@ -105,26 +105,58 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         /// <summary>Test-only hook to exercise <see cref="ReadHelloOutcome"/> + the full event-handler emit path without driving the inner HelloTracker's live event sources.</summary>
         internal void TriggerHelloFromCoordinatorPropertyForTest() => EmitHello(ReadHelloOutcome());
 
+        /// <summary>
+        /// Resolve the timestamp to stamp on a coordinator-forwarded signal: prefer the
+        /// originating sub-tracker's source-event time (mirrored on
+        /// <see cref="EspAndHelloTracker.LastEventOccurredAtUtc"/>) over wall-clock-now.
+        /// Critical on the Shell-Core backfill path where reading <c>_clock.UtcNow</c> would
+        /// collapse historical event timestamps to "agent woke up just now". Emits
+        /// <c>derivedTimestamp=true</c> in the evidence inputs when falling back so the
+        /// Inspector can flag non-source-grounded signals.
+        /// </summary>
+        private DateTime ResolveOccurredAt(out bool derivedFromClock)
+        {
+            var src = _coordinator.LastEventOccurredAtUtc;
+            if (src.HasValue)
+            {
+                derivedFromClock = false;
+                return src.Value.Kind == DateTimeKind.Utc
+                    ? src.Value
+                    : DateTime.SpecifyKind(src.Value, DateTimeKind.Utc);
+            }
+            derivedFromClock = true;
+            return _clock.UtcNow;
+        }
+
+        private static void TagDerivedTimestamp(IDictionary<string, string> data, bool derivedFromClock)
+        {
+            if (derivedFromClock) data["derivedTimestamp"] = "true";
+        }
+
         private void EmitHello(string? helloOutcome)
         {
             if (_helloPosted) return;
             _helloPosted = true;
 
             var outcome = string.IsNullOrEmpty(helloOutcome) ? "unknown" : helloOutcome!;
+            var now = ResolveOccurredAt(out var derivedFromClock);
+
+            var derivationInputs = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["subSource"] = "HelloTracker",
+                [SignalPayloadKeys.HelloOutcome] = outcome,
+            };
+            TagDerivedTimestamp(derivationInputs, derivedFromClock);
 
             _ingress.Post(
                 kind: DecisionSignalKind.HelloResolved,
-                occurredAtUtc: _clock.UtcNow,
+                occurredAtUtc: now,
                 sourceOrigin: SourceOrigin,
                 evidence: new Evidence(
                     kind: EvidenceKind.Derived,
                     identifier: DetectorId,
                     summary: $"Hello resolved via coordinator (outcome={outcome})",
-                    derivationInputs: new Dictionary<string, string>(StringComparer.Ordinal)
-                    {
-                        ["subSource"] = "HelloTracker",
-                        [SignalPayloadKeys.HelloOutcome] = outcome,
-                    }),
+                    derivationInputs: derivationInputs),
                 payload: new Dictionary<string, string>(StringComparer.Ordinal)
                 {
                     [SignalPayloadKeys.HelloOutcome] = outcome,
@@ -136,19 +168,23 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             if (_finalizingPosted) return;
             _finalizingPosted = true;
 
+            var now = ResolveOccurredAt(out var derivedFromClock);
+            var derivationInputs = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["subSource"] = "ShellCoreTracker",
+                ["phaseReason"] = reason ?? string.Empty,
+            };
+            TagDerivedTimestamp(derivationInputs, derivedFromClock);
+
             _ingress.Post(
                 kind: DecisionSignalKind.EspPhaseChanged,
-                occurredAtUtc: _clock.UtcNow,
+                occurredAtUtc: now,
                 sourceOrigin: SourceOrigin,
                 evidence: new Evidence(
                     kind: EvidenceKind.Derived,
                     identifier: DetectorId,
                     summary: "ESP Finalizing phase triggered (coordinator-forwarded)",
-                    derivationInputs: new Dictionary<string, string>(StringComparer.Ordinal)
-                    {
-                        ["subSource"] = "ShellCoreTracker",
-                        ["phaseReason"] = reason ?? string.Empty,
-                    }),
+                    derivationInputs: derivationInputs),
                 payload: new Dictionary<string, string>(StringComparer.Ordinal)
                 {
                     [SignalPayloadKeys.EspPhase] = EnrollmentPhase.FinalizingSetup.ToString(),
@@ -161,18 +197,22 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             if (_whiteGloveSuccessPosted) return;
             _whiteGloveSuccessPosted = true;
 
+            var now = ResolveOccurredAt(out var derivedFromClock);
+            var derivationInputs = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["subSource"] = "ShellCoreTracker",
+            };
+            TagDerivedTimestamp(derivationInputs, derivedFromClock);
+
             _ingress.Post(
                 kind: DecisionSignalKind.WhiteGloveShellCoreSuccess,
-                occurredAtUtc: _clock.UtcNow,
+                occurredAtUtc: now,
                 sourceOrigin: SourceOrigin,
                 evidence: new Evidence(
                     kind: EvidenceKind.Derived,
                     identifier: DetectorId,
                     summary: "WhiteGlove sealing success (coordinator-forwarded)",
-                    derivationInputs: new Dictionary<string, string>(StringComparer.Ordinal)
-                    {
-                        ["subSource"] = "ShellCoreTracker",
-                    }));
+                    derivationInputs: derivationInputs));
         }
 
         private void EmitEspFailure(string failureType)
@@ -181,20 +221,23 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _espFailurePosted = true;
 
             var safeType = string.IsNullOrEmpty(failureType) ? "unknown" : failureType!;
+            var now = ResolveOccurredAt(out var derivedFromClock);
+            var derivationInputs = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["subSource"] = "ShellCoreTracker+ProvisioningStatusTracker (merged)",
+                ["failureType"] = safeType,
+            };
+            TagDerivedTimestamp(derivationInputs, derivedFromClock);
 
             _ingress.Post(
                 kind: DecisionSignalKind.EspTerminalFailure,
-                occurredAtUtc: _clock.UtcNow,
+                occurredAtUtc: now,
                 sourceOrigin: SourceOrigin,
                 evidence: new Evidence(
                     kind: EvidenceKind.Derived,
                     identifier: DetectorId,
                     summary: $"ESP terminal failure (coordinator-merged, type={safeType})",
-                    derivationInputs: new Dictionary<string, string>(StringComparer.Ordinal)
-                    {
-                        ["subSource"] = "ShellCoreTracker+ProvisioningStatusTracker (merged)",
-                        ["failureType"] = safeType,
-                    }),
+                    derivationInputs: derivationInputs),
                 payload: new Dictionary<string, string>(StringComparer.Ordinal)
                 {
                     ["failureType"] = safeType,
@@ -212,21 +255,25 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
 
             var helloEnabledStr = helloEnabled ? "true" : "false";
             var safeSource = string.IsNullOrEmpty(source) ? "unknown" : source!;
+            var now = ResolveOccurredAt(out var derivedFromClock);
+
+            var derivationInputs = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["subSource"] = "HelloTracker",
+                [SignalPayloadKeys.HelloEnabled] = helloEnabledStr,
+                [SignalPayloadKeys.HelloPolicySource] = safeSource,
+            };
+            TagDerivedTimestamp(derivationInputs, derivedFromClock);
 
             _ingress.Post(
                 kind: DecisionSignalKind.HelloPolicyDetected,
-                occurredAtUtc: _clock.UtcNow,
+                occurredAtUtc: now,
                 sourceOrigin: SourceOrigin,
                 evidence: new Evidence(
                     kind: EvidenceKind.Derived,
                     identifier: DetectorId,
                     summary: $"Hello policy detected (helloEnabled={helloEnabledStr}, source={safeSource})",
-                    derivationInputs: new Dictionary<string, string>(StringComparer.Ordinal)
-                    {
-                        ["subSource"] = "HelloTracker",
-                        [SignalPayloadKeys.HelloEnabled] = helloEnabledStr,
-                        [SignalPayloadKeys.HelloPolicySource] = safeSource,
-                    }),
+                    derivationInputs: derivationInputs),
                 payload: new Dictionary<string, string>(StringComparer.Ordinal)
                 {
                     [SignalPayloadKeys.HelloEnabled] = helloEnabledStr,
@@ -244,20 +291,24 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 snapshot.TryGetValue("DeviceSetup", out var ds) && ds.HasValue
                     ? ds.Value.ToString().ToLowerInvariant()
                     : "unknown";
+            var now = ResolveOccurredAt(out var derivedFromClock);
+
+            var derivationInputs = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["subSource"] = "ProvisioningStatusTracker",
+                ["deviceSetupResolved"] = deviceSetupResolved,
+            };
+            TagDerivedTimestamp(derivationInputs, derivedFromClock);
 
             _ingress.Post(
                 kind: DecisionSignalKind.DeviceSetupProvisioningComplete,
-                occurredAtUtc: _clock.UtcNow,
+                occurredAtUtc: now,
                 sourceOrigin: SourceOrigin,
                 evidence: new Evidence(
                     kind: EvidenceKind.Derived,
                     identifier: DetectorId,
                     summary: "DeviceSetupCategory provisioning completed (coordinator-forwarded)",
-                    derivationInputs: new Dictionary<string, string>(StringComparer.Ordinal)
-                    {
-                        ["subSource"] = "ProvisioningStatusTracker",
-                        ["deviceSetupResolved"] = deviceSetupResolved,
-                    }),
+                    derivationInputs: derivationInputs),
                 payload: new Dictionary<string, string>(StringComparer.Ordinal)
                 {
                     ["deviceSetupResolved"] = deviceSetupResolved,

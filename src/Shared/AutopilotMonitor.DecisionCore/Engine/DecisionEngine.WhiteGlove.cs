@@ -281,7 +281,12 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
             if (!reachedTerminal)
             {
-                var rearm = BuildClassifierTickDeadline(signal.OccurredAtUtc);
+                // The DeadlineFired signal carries DueAtUtc as OccurredAtUtc, so for a tick
+                // armed in the current run this is already current-clock-equivalent. The
+                // EffectiveDeadlineBase guard still fires correctly across restart, where
+                // a stale DueAtUtc from the prior run could otherwise re-arm the next tick
+                // in the past.
+                var rearm = BuildClassifierTickDeadline(EffectiveDeadlineBase(state, signal));
                 builder.AddDeadline(rearm);
                 effects.Add(new DecisionEffect(DecisionEffectKind.ScheduleDeadline, deadline: rearm));
             }
@@ -319,7 +324,10 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
             if (!hasTick)
             {
-                var tick = BuildClassifierTickDeadline(triggerSignal.OccurredAtUtc);
+                // Replay-safety: a WG-relevant signal coming from a CMTrace replay would
+                // otherwise arm the first classifier tick in the past — fires immediately,
+                // pulls in a stale snapshot, no real harm but pollutes the timeline.
+                var tick = BuildClassifierTickDeadline(EffectiveDeadlineBase(state, triggerSignal));
                 state = state.ToBuilder().AddDeadline(tick).Build();
                 effects.Add(new DecisionEffect(DecisionEffectKind.ScheduleDeadline, deadline: tick));
             }

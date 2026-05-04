@@ -218,6 +218,64 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         internal void TriggerDoTelemetryFromTest(AppPackageState app) => EmitDoTelemetry(app);
         internal void TriggerScriptCompletedFromTest(ScriptExecutionState script) => EmitScriptCompleted(script);
 
+        /// <summary>
+        /// Prefer the CMTrace log entry timestamp recorded by the most recent pattern match
+        /// over <see cref="IClock.UtcNow"/>. Replay scenario (agent first boot reads
+        /// accumulated IME log content) needs the historical timestamp so the timeline shows
+        /// when activity actually happened, not when the agent woke up. Falls back to the
+        /// clock when no source timestamp is available (synthetic test events, callbacks not
+        /// driven by a pattern match). The fallback case sets <paramref name="derivedFromClock"/>
+        /// so the emitted event can flag itself as not-source-grounded for the Inspector.
+        /// <para>
+        /// Clamping: a source timestamp older than 24 h relative to the clock is treated as
+        /// pathological (skewed CMTrace clock, multi-day stale log) — the fallback to
+        /// <see cref="IClock.UtcNow"/> kicks in and <c>derivedFromClock</c> is set so the
+        /// anomaly is visible. Original value is recorded in the
+        /// <paramref name="rawSourceTimestamp"/> out param so the emit-site can attach it as
+        /// evidence (PR4 — preserve originals + flag for troubleshooting).
+        /// </para>
+        /// </summary>
+        private DateTime ResolveOccurredAt(out bool derivedFromClock, out DateTime? rawSourceTimestamp)
+        {
+            rawSourceTimestamp = _tracker.LastMatchedLogTimestamp;
+            if (rawSourceTimestamp.HasValue)
+            {
+                // CMTrace log timestamps from IME are emitted in UTC, but DateTimeKind may
+                // arrive as Unspecified depending on the parser path. Normalize via
+                // SpecifyKind=Utc rather than ToUniversalTime() to avoid double-conversion
+                // when Kind is already UTC.
+                var asUtc = rawSourceTimestamp.Value.Kind == DateTimeKind.Utc
+                    ? rawSourceTimestamp.Value
+                    : DateTime.SpecifyKind(rawSourceTimestamp.Value, DateTimeKind.Utc);
+
+                var clockNow = _clock.UtcNow;
+                var ageHours = (clockNow - asUtc).TotalHours;
+                if (ageHours > 24.0 || ageHours < -1.0)
+                {
+                    // Pathologically stale (>24h old) or in the future (>1h skew) — log,
+                    // fall back, and let the caller flag the event.
+                    _logger?.Warning(
+                        $"ImeAdapter: source timestamp {asUtc:o} rejected (ageHours={ageHours:F1}); falling back to clock");
+                    derivedFromClock = true;
+                    return clockNow;
+                }
+
+                derivedFromClock = false;
+                return asUtc;
+            }
+
+            derivedFromClock = true;
+            return _clock.UtcNow;
+        }
+
+        private static void TagDerivedTimestamp(IDictionary<string, string> data, bool derivedFromClock, DateTime? rawSourceTs)
+        {
+            if (!derivedFromClock) return;
+            data["derivedTimestamp"] = "true";
+            if (rawSourceTs.HasValue)
+                data["rejectedSourceTimestamp"] = rawSourceTs.Value.ToString("o", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
         private void EmitEspPhase(string phase)
         {
             if (string.IsNullOrEmpty(phase)) return;
@@ -231,7 +289,14 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 _lastEspPhase = phase;
             }
 
-            var now = _clock.UtcNow;
+            var now = ResolveOccurredAt(out var derivedFromClock, out var rawSourceTs);
+
+            var derivationInputs = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["detectionSource"] = "IME log regex pattern",
+                ["phase"] = phase,
+            };
+            TagDerivedTimestamp(derivationInputs, derivedFromClock, rawSourceTs);
 
             _ingress.Post(
                 kind: DecisionSignalKind.EspPhaseChanged,
@@ -241,11 +306,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                     kind: EvidenceKind.Derived,
                     identifier: "ime-log-tracker-v1",
                     summary: $"IME log phase transition → {phase}",
-                    derivationInputs: new Dictionary<string, string>(StringComparer.Ordinal)
-                    {
-                        ["detectionSource"] = "IME log regex pattern",
-                        ["phase"] = phase,
-                    }),
+                    derivationInputs: derivationInputs),
                 payload: new Dictionary<string, string>(StringComparer.Ordinal)
                 {
                     [SignalPayloadKeys.EspPhase] = phase,
@@ -262,6 +323,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             var patternId = _tracker.LastMatchedPatternId;
             if (!string.IsNullOrEmpty(patternId))
                 data["patternId"] = patternId!;
+            TagDerivedTimestamp(data, derivedFromClock, rawSourceTs);
 
             _post.Emit(
                 eventType: SharedEventTypes.EspPhaseChanged,
@@ -286,7 +348,13 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 _userSessionCompletedPosted = true;
             }
 
-            var now = _clock.UtcNow;
+            var now = ResolveOccurredAt(out var derivedFromClock, out var rawSourceTs);
+
+            var derivationInputs = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["detectionSource"] = "IME log pattern (UserSessionCompleted)",
+            };
+            TagDerivedTimestamp(derivationInputs, derivedFromClock, rawSourceTs);
 
             _ingress.Post(
                 kind: DecisionSignalKind.ImeUserSessionCompleted,
@@ -296,10 +364,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                     kind: EvidenceKind.Derived,
                     identifier: "ime-log-tracker-v1",
                     summary: "IME user session completed (all user-scope apps finished)",
-                    derivationInputs: new Dictionary<string, string>(StringComparer.Ordinal)
-                    {
-                        ["detectionSource"] = "IME log pattern (UserSessionCompleted)",
-                    }));
+                    derivationInputs: derivationInputs));
 
             var data = new Dictionary<string, string>(StringComparer.Ordinal)
             {
@@ -308,6 +373,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             var patternId = _tracker.LastMatchedPatternId;
             if (!string.IsNullOrEmpty(patternId))
                 data["patternId"] = patternId!;
+            TagDerivedTimestamp(data, derivedFromClock, rawSourceTs);
 
             _post.Emit(
                 eventType: SharedEventTypes.ImeUserSessionCompleted,
@@ -324,7 +390,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         {
             if (app == null || string.IsNullOrEmpty(app.Id)) return;
 
-            var now = _clock.UtcNow;
+            var now = ResolveOccurredAt(out var derivedFromClock, out var rawSourceTs);
 
             // Plan §5 Fix 2: first app activity in a given ESP phase opens the sub-phase on
             // the UI timeline via a `phase_transition` declaration event. Fire-once per ESP
@@ -348,6 +414,15 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
 
                 if (fireDecisionSignal)
                 {
+                    var appDerivationInputs = new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["appId"] = app.Id,
+                        ["appName"] = app.Name ?? string.Empty,
+                        ["previousState"] = oldState.ToString(),
+                        ["newState"] = newState.ToString(),
+                    };
+                    TagDerivedTimestamp(appDerivationInputs, derivedFromClock, rawSourceTs);
+
                     _ingress.Post(
                         kind: terminalKind.Value,
                         occurredAtUtc: now,
@@ -356,13 +431,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                             kind: EvidenceKind.Derived,
                             identifier: "ime-log-tracker-v1",
                             summary: $"App {app.Id} → {newState}",
-                            derivationInputs: new Dictionary<string, string>(StringComparer.Ordinal)
-                            {
-                                ["appId"] = app.Id,
-                                ["appName"] = app.Name ?? string.Empty,
-                                ["previousState"] = oldState.ToString(),
-                                ["newState"] = newState.ToString(),
-                            }),
+                            derivationInputs: appDerivationInputs),
                         payload: new Dictionary<string, string>(StringComparer.Ordinal)
                         {
                             ["appId"] = app.Id,
@@ -377,6 +446,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
 
             var (eventType, severity) = mapped.Value;
             var payload = BuildAppStatePayload(app, newState, timing);
+            TagDerivedTimestamp(payload, derivedFromClock, rawSourceTs);
             // All app-state transitions flush immediately, including `download_progress`:
             // progress ticks run every 3s and only while a download is actively in flight
             // (bounded by download duration), so live UI responsiveness wins over the small
@@ -549,19 +619,23 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 _sealingPatternPosted = true;
             }
 
+            var now = ResolveOccurredAt(out var derivedFromClock, out var rawSourceTs);
+            var derivationInputs = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["detectionSource"] = "IME log regex pattern (WG-sealing set)",
+                [SignalPayloadKeys.ImePatternId] = patternId,
+            };
+            TagDerivedTimestamp(derivationInputs, derivedFromClock, rawSourceTs);
+
             _ingress.Post(
                 kind: DecisionSignalKind.WhiteGloveSealingPatternDetected,
-                occurredAtUtc: _clock.UtcNow,
+                occurredAtUtc: now,
                 sourceOrigin: SourceLabel,
                 evidence: new Evidence(
                     kind: EvidenceKind.Derived,
                     identifier: "ime-log-tracker-v1",
                     summary: $"WG sealing pattern match → {patternId}",
-                    derivationInputs: new Dictionary<string, string>(StringComparer.Ordinal)
-                    {
-                        ["detectionSource"] = "IME log regex pattern (WG-sealing set)",
-                        [SignalPayloadKeys.ImePatternId] = patternId,
-                    }),
+                    derivationInputs: derivationInputs),
                 payload: new Dictionary<string, string>(StringComparer.Ordinal)
                 {
                     [SignalPayloadKeys.ImePatternId] = patternId,
@@ -575,6 +649,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         {
             if (string.IsNullOrEmpty(version)) return;
 
+            var now = ResolveOccurredAt(out var derivedFromClock, out var rawSourceTs);
             var data = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["agentVersion"] = version,
@@ -582,13 +657,14 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             var patternId = _tracker.LastMatchedPatternId;
             if (!string.IsNullOrEmpty(patternId))
                 data["patternId"] = patternId!;
+            TagDerivedTimestamp(data, derivedFromClock, rawSourceTs);
 
             _post.Emit(
                 eventType: SharedEventTypes.ImeAgentVersion,
                 source: SourceLabel,
                 message: $"IME Agent version: {version}",
                 data: data,
-                occurredAtUtc: _clock.UtcNow);
+                occurredAtUtc: now);
 
             // PR3-D4: fire-once and useful for compatibility-debugging — INFO level.
             _logger?.Info($"ImeAdapter: IME agent version detected: {version}");
@@ -627,6 +703,9 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             var patternId = _tracker.LastMatchedPatternId;
             if (!string.IsNullOrEmpty(patternId)) data["patternId"] = patternId!;
 
+            var now = ResolveOccurredAt(out var derivedFromClock, out var rawSourceTs);
+            TagDerivedTimestamp(data, derivedFromClock, rawSourceTs);
+
             var label = string.IsNullOrEmpty(app.Name) ? app.Id : app.Name;
             var msg = $"{label}: DO complete - {app.DoPercentPeerCaching}% peers, mode={app.DoDownloadMode}";
 
@@ -638,7 +717,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 // the UI sees peer-caching stats without waiting for the next batch.
                 immediateUpload: true,
                 data: data,
-                occurredAtUtc: _clock.UtcNow);
+                occurredAtUtc: now);
 
             // PR3-D4: per-app DO summary at DEBUG with the headline metrics.
             _logger?.Debug(
@@ -670,6 +749,9 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             var patternId = _tracker.LastMatchedPatternId;
             if (!string.IsNullOrEmpty(patternId)) data["patternId"] = patternId!;
 
+            var now = ResolveOccurredAt(out var derivedFromClock, out var rawSourceTs);
+            TagDerivedTimestamp(data, derivedFromClock, rawSourceTs);
+
             var label = IsRemediation(script.ScriptType) ? "Remediation script" : "Platform script";
             var shortId = script.PolicyId.Length >= 8 ? script.PolicyId.Substring(0, 8) : script.PolicyId;
             string messageCore;
@@ -694,7 +776,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 message: msg,
                 severity: severity,
                 data: data,
-                occurredAtUtc: _clock.UtcNow);
+                occurredAtUtc: now);
 
             // PR3-D4: per-script summary at DEBUG (failures already surface via Severity=Error
             // in the event itself; the log line carries forensic context for both outcomes).
@@ -814,7 +896,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             return $"{label}: {newState}";
         }
 
-        private static IReadOnlyDictionary<string, string> BuildAppStatePayload(
+        private static Dictionary<string, string> BuildAppStatePayload(
             AppPackageState app,
             AppInstallationState newState,
             AppInstallTiming timing)

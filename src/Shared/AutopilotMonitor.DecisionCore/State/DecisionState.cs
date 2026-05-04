@@ -55,6 +55,7 @@ namespace AutopilotMonitor.DecisionCore.State
             EnrollmentScenarioObservations? scenarioObservations = null,
             ClassifierOutcomes? classifierOutcomes = null,
             SignalFact<bool>? helloPolicyEnabled = null,
+            DateTime? agentBootUtc = null,
             string? schemaVersion = null)
         {
             if (string.IsNullOrEmpty(sessionId))
@@ -89,6 +90,7 @@ namespace AutopilotMonitor.DecisionCore.State
             ScenarioObservations = scenarioObservations ?? EnrollmentScenarioObservations.Empty;
             ClassifierOutcomes = classifierOutcomes ?? ClassifierOutcomes.Empty;
             HelloPolicyEnabled = helloPolicyEnabled;
+            AgentBootUtc = agentBootUtc;
             SchemaVersion = schemaVersion ?? CurrentSchemaVersion;
         }
 
@@ -170,6 +172,21 @@ namespace AutopilotMonitor.DecisionCore.State
         /// </remarks>
         public SignalFact<bool>? HelloPolicyEnabled { get; }
 
+        /// <summary>
+        /// UTC wall-clock instant at which the current agent process took ownership of this
+        /// session. Set by <see cref="CreateInitial"/> on first construction and re-stamped
+        /// by the orchestrator on rehydration so deadline-arming sites in the reducer can
+        /// floor their effective base at this anchor — preventing replayed signals from
+        /// historical log entries from collapsing window/timeout deadlines into immediate
+        /// fires when the agent first reads accumulated content.
+        /// <para>
+        /// Null means "agent never declared a boot anchor" — only possible on legacy
+        /// snapshots from before this field existed; the deadline helper falls back to
+        /// <c>signal.OccurredAtUtc</c> in that case (i.e. previous behavior).
+        /// </para>
+        /// </summary>
+        public DateTime? AgentBootUtc { get; }
+
         public string SchemaVersion { get; }
 
         /// <summary>
@@ -180,10 +197,26 @@ namespace AutopilotMonitor.DecisionCore.State
         public DecisionStateBuilder ToBuilder() => new DecisionStateBuilder(this);
 
         /// <summary>
+        /// Convenience overload — defaults <paramref name="sessionId"/>'s boot anchor to
+        /// <see cref="DateTime.UtcNow"/>. Used by tests and code paths that don't care about
+        /// replay-safety. Production callers (orchestrator, recovery) should use the explicit
+        /// <see cref="CreateInitial(string, string, DateTime)"/> overload so the boot anchor
+        /// is sourced from the agent's <c>IClock</c>.
+        /// </summary>
+        public static DecisionState CreateInitial(string sessionId, string tenantId) =>
+            CreateInitial(sessionId, tenantId, DateTime.UtcNow);
+
+        /// <summary>
         /// Construct the initial non-terminal state for a new session.
         /// Used by the reducer's <c>SessionStarted</c> handler in M3.
         /// </summary>
-        public static DecisionState CreateInitial(string sessionId, string tenantId) =>
+        /// <param name="agentBootUtc">
+        /// Wall-clock instant at which the current agent process started owning this session.
+        /// Stamped onto <see cref="AgentBootUtc"/> so the reducer can floor deadline-arming
+        /// timestamps at this anchor (replay-safety). Production callers must source this
+        /// from the same <c>IClock</c> the orchestrator uses.
+        /// </param>
+        public static DecisionState CreateInitial(string sessionId, string tenantId, DateTime agentBootUtc) =>
             new DecisionState(
                 sessionId: sessionId,
                 tenantId: tenantId,
@@ -206,6 +239,7 @@ namespace AutopilotMonitor.DecisionCore.State
                 scenarioProfile: EnrollmentScenarioProfile.Empty,
                 scenarioObservations: EnrollmentScenarioObservations.Empty,
                 classifierOutcomes: ClassifierOutcomes.Empty,
-                helloPolicyEnabled: null);
+                helloPolicyEnabled: null,
+                agentBootUtc: agentBootUtc);
     }
 }

@@ -86,6 +86,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         public event Action<bool, string> HelloPolicyDetected;
 
         /// <summary>
+        /// UTC timestamp of the most recent sub-tracker event currently being raised
+        /// (mirrored from <see cref="ShellCoreTracker.LastEventOccurredAtUtc"/> for ShellCore-
+        /// originated events). Read by <c>EspAndHelloTrackerAdapter</c> inside its synchronous
+        /// event handler so the emitted DecisionSignal carries the source-event time rather
+        /// than wall-clock-now — critical on the backfill path. Null when not currently
+        /// inside a forwarded event invocation, or when the originating sub-tracker doesn't
+        /// surface a timestamp (Hello / Provisioning trackers fall back to clock at the
+        /// adapter).
+        /// </summary>
+        public DateTime? LastEventOccurredAtUtc { get; private set; }
+
+        /// <summary>
         /// Outcome of Hello provisioning. Set when Hello resolves (via events, timeout, or not configured).
         /// Values: "completed", "skipped", "timeout", "not_configured", "wizard_not_started", null (not yet resolved).
         /// </summary>
@@ -313,12 +325,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         private void OnHelloCompleted(object sender, EventArgs e)
         {
+            // HelloTracker doesn't currently surface a per-event timestamp; adapter falls
+            // back to clock for Hello-originated events. Set null explicitly so a stale
+            // ShellCore value cannot bleed across.
+            LastEventOccurredAtUtc = null;
             try { HelloCompleted?.Invoke(this, EventArgs.Empty); }
             catch (Exception ex) { _logger.Error("Error forwarding HelloCompleted", ex); }
         }
 
         private void OnHelloPolicyDetected(bool helloEnabled, string source)
         {
+            LastEventOccurredAtUtc = null;
             try { HelloPolicyDetected?.Invoke(helloEnabled, source); }
             catch (Exception ex) { _logger.Error("Error forwarding HelloPolicyDetected", ex); }
         }
@@ -340,8 +357,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 return;
             }
 
+            // Mirror the originating ShellCoreTracker's source-event timestamp so adapters
+            // can read it via this coordinator's LastEventOccurredAtUtc. Backfill path keeps
+            // the historical timestamp; live path matches record.TimeCreated.
+            LastEventOccurredAtUtc = (sender as ShellCoreTracker)?.LastEventOccurredAtUtc;
             try { FinalizingSetupPhaseTriggered?.Invoke(this, reason); }
             catch (Exception ex) { _logger.Error("Error forwarding FinalizingSetupPhaseTriggered", ex); }
+            finally { LastEventOccurredAtUtc = null; }
         }
 
         /// <summary>
@@ -407,18 +429,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         private void OnWhiteGloveCompleted(object sender, EventArgs e)
         {
+            LastEventOccurredAtUtc = (sender as ShellCoreTracker)?.LastEventOccurredAtUtc;
             try { WhiteGloveCompleted?.Invoke(this, EventArgs.Empty); }
             catch (Exception ex) { _logger.Error("Error forwarding WhiteGloveCompleted", ex); }
+            finally { LastEventOccurredAtUtc = null; }
         }
 
         private void OnEspFailureDetected(object sender, string failureType)
         {
+            // EspFailureDetected fires from ShellCoreTracker (carries timestamp) AND
+            // ProvisioningStatusTracker (no timestamp surfaced today — adapter falls back
+            // to clock). Cast attempt below picks up the timestamp on the ShellCore path.
+            LastEventOccurredAtUtc = (sender as ShellCoreTracker)?.LastEventOccurredAtUtc;
             try { EspFailureDetected?.Invoke(this, failureType); }
             catch (Exception ex) { _logger.Error($"Error forwarding EspFailureDetected for '{failureType}'", ex); }
+            finally { LastEventOccurredAtUtc = null; }
         }
 
         private void OnDeviceSetupProvisioningComplete(object sender, EventArgs e)
         {
+            // Provisioning tracker doesn't surface a timestamp; adapter falls back to clock.
+            LastEventOccurredAtUtc = null;
             try { DeviceSetupProvisioningComplete?.Invoke(this, EventArgs.Empty); }
             catch (Exception ex) { _logger.Error("Error forwarding DeviceSetupProvisioningComplete", ex); }
         }

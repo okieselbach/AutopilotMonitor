@@ -41,6 +41,7 @@ namespace AutopilotMonitor.DecisionCore.State
             ScenarioObservations = source.ScenarioObservations;
             ClassifierOutcomes = source.ClassifierOutcomes;
             HelloPolicyEnabled = source.HelloPolicyEnabled;
+            AgentBootUtc = source.AgentBootUtc;
             SchemaVersion = source.SchemaVersion;
         }
 
@@ -66,6 +67,7 @@ namespace AutopilotMonitor.DecisionCore.State
         public EnrollmentScenarioObservations ScenarioObservations { get; set; } = EnrollmentScenarioObservations.Empty;
         public ClassifierOutcomes ClassifierOutcomes { get; set; } = ClassifierOutcomes.Empty;
         public SignalFact<bool>? HelloPolicyEnabled { get; set; }
+        public DateTime? AgentBootUtc { get; set; }
         public string SchemaVersion { get; set; }
 
         // ---------- fluent helpers for the most common reducer operations ----------
@@ -143,6 +145,17 @@ namespace AutopilotMonitor.DecisionCore.State
             return this;
         }
 
+        /// <summary>
+        /// Re-stamp the agent-boot anchor used for deadline arming. Called by the orchestrator
+        /// on rehydration so deadlines armed by replayed signals get floored at "now" (the
+        /// current run's boot time) rather than the prior session's boot time.
+        /// </summary>
+        public DecisionStateBuilder WithAgentBootUtc(DateTime agentBootUtc)
+        {
+            AgentBootUtc = agentBootUtc;
+            return this;
+        }
+
         public DecisionState Build() =>
             new DecisionState(
                 sessionId: SessionId,
@@ -167,6 +180,7 @@ namespace AutopilotMonitor.DecisionCore.State
                 scenarioObservations: ScenarioObservations,
                 classifierOutcomes: ClassifierOutcomes,
                 helloPolicyEnabled: HelloPolicyEnabled,
+                agentBootUtc: AgentBootUtc,
                 schemaVersion: SchemaVersion);
     }
 }

@@ -397,7 +397,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
             // Dispatch: pick the seed + signal stream per branch. Null seed is impossible past
             // this block (every path assigns it), but the compiler needs the explicit init.
-            DecisionState seed = DecisionState.CreateInitial(_sessionId, _tenantId);
+            // AgentBootUtc gets stamped from the live clock so reducer deadline-arming sites
+            // can floor replayed-signal timestamps at the current run's start (replay-safety).
+            var agentBootUtc = _clock.UtcNow;
+            DecisionState seed = DecisionState.CreateInitial(_sessionId, _tenantId, agentBootUtc);
             IReadOnlyList<DecisionSignal> signalsToReplay = Array.Empty<DecisionSignal>();
             string branchTag;
 
@@ -439,7 +442,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             else if (loadedState != null)
             {
                 // Branch (b) — Snapshot loaded. Catch up any SignalLog tail past the snapshot.
-                seed = loadedState;
+                // Re-stamp AgentBootUtc so the current run's deadlines floor at "now" — the
+                // persisted boot anchor is from the prior run and using it would let replayed
+                // tail signals arm deadlines that are already past-due (premature fire).
+                seed = loadedState.ToBuilder().WithAgentBootUtc(agentBootUtc).Build();
                 signalsToReplay = CollectSignalLogTailAfter(loadedState.LastAppliedSignalOrdinal);
                 branchTag = signalsToReplay.Count > 0 ? "b-tail-replay" : "b-snapshot-current";
             }

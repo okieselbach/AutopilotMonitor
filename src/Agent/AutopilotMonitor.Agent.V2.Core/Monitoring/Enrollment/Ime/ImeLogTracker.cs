@@ -107,9 +107,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private const int MaxScriptOutputLength = 2048;
         private const int MaxMultiLineBufferLines = 100;
 
-        // Set synchronously during HandlePatternMatch so callbacks can read it
-        public string LastMatchedPatternId { get; private set; }
-        public DateTime? LastMatchedLogTimestamp { get; private set; }
+        // Set synchronously during HandlePatternMatch so callbacks can read it.
+        // Setters are `internal` so V2.Core.Tests can drive the source-timestamp path
+        // through the adapter's TriggerXxxFromTest seams without spinning up a real log file.
+        public string LastMatchedPatternId { get; internal set; }
+        public DateTime? LastMatchedLogTimestamp { get; internal set; }
 
         // Callbacks to EnrollmentTracker
         public Action<string> OnEspPhaseChanged { get; set; }

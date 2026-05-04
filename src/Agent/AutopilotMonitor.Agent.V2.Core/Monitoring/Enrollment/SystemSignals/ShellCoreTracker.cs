@@ -47,6 +47,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private bool _whiteGloveDetected;
         private readonly object _stateLock = new object();
 
+        /// <summary>
+        /// UTC timestamp of the most recent event whose handlers are currently running.
+        /// Set immediately before each event is raised (live or backfill); cleared back to
+        /// <c>null</c> after the synchronous invoke chain returns. Subscribers read this
+        /// in their handler to get the source-event timestamp without a signature change
+        /// to the event delegates — preserves the historical time across backfill (where
+        /// we'd otherwise collapse to wall-clock-now) without touching every callsite.
+        /// </summary>
+        public DateTime? LastEventOccurredAtUtc { get; private set; }
+
         public event EventHandler<string> FinalizingSetupPhaseTriggered;
         public event EventHandler WhiteGloveCompleted;
         public event EventHandler<string> EspFailureDetected;
@@ -247,26 +257,37 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
             _logger.Info($"Shell-Core event detected: {eventType} (EventID {eventId})");
 
-            if (triggerFinalizingSetup)
+            // Set the source-event timestamp BEFORE each event raise so adapters / coordinators
+            // can read it during their synchronous handler. Cleared in finally so a stale value
+            // doesn't bleed across event types.
+            LastEventOccurredAtUtc = timestamp;
+            try
             {
-                try { FinalizingSetupPhaseTriggered?.Invoke(this, finalizingSetupReason); }
-                catch (Exception ex) { _logger.Error("FinalizingSetupPhaseTriggered handler failed", ex); }
-            }
+                if (triggerFinalizingSetup)
+                {
+                    try { FinalizingSetupPhaseTriggered?.Invoke(this, finalizingSetupReason); }
+                    catch (Exception ex) { _logger.Error("FinalizingSetupPhaseTriggered handler failed", ex); }
+                }
 
-            // Fire WhiteGloveCompleted AFTER event emission so the whiteglove_complete event
-            // is in the spool before the agent exits.
-            if (eventType == "whiteglove_complete")
-            {
-                try { WhiteGloveCompleted?.Invoke(this, EventArgs.Empty); }
-                catch (Exception ex) { _logger.Error("WhiteGloveCompleted handler failed", ex); }
-            }
+                // Fire WhiteGloveCompleted AFTER event emission so the whiteglove_complete event
+                // is in the spool before the agent exits.
+                if (eventType == "whiteglove_complete")
+                {
+                    try { WhiteGloveCompleted?.Invoke(this, EventArgs.Empty); }
+                    catch (Exception ex) { _logger.Error("WhiteGloveCompleted handler failed", ex); }
+                }
 
-            // Fire EspFailureDetected AFTER event emission so the esp_failure event is in the
-            // spool before the agent potentially shuts down.
-            if (eventType == "esp_failure" && detectedFailureType != null)
+                // Fire EspFailureDetected AFTER event emission so the esp_failure event is in the
+                // spool before the agent potentially shuts down.
+                if (eventType == "esp_failure" && detectedFailureType != null)
+                {
+                    try { EspFailureDetected?.Invoke(this, detectedFailureType); }
+                    catch (Exception ex) { _logger.Error($"EspFailureDetected handler failed for '{detectedFailureType}'", ex); }
+                }
+            }
+            finally
             {
-                try { EspFailureDetected?.Invoke(this, detectedFailureType); }
-                catch (Exception ex) { _logger.Error($"EspFailureDetected handler failed for '{detectedFailureType}'", ex); }
+                LastEventOccurredAtUtc = null;
             }
         }
 
@@ -295,7 +316,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         using (record)
                         {
                             var description = record.FormatDescription() ?? "";
-                            HandleBackfillRecord(description);
+                            // Preserve the historical event time across backfill so subscribers
+                            // (EspAndHelloTrackerAdapter) can stamp signals with the source time
+                            // rather than collapsing to wall-clock-now.
+                            var timestamp = (record.TimeCreated ?? DateTime.UtcNow).ToUniversalTime();
+                            HandleBackfillRecord(description, timestamp);
                         }
                     }
                 }
@@ -308,9 +333,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         /// <summary>
         /// Internal backfill record handler — extracted for testability and to keep the
-        /// backfill loop free of direct event-processing logic.
+        /// backfill loop free of direct event-processing logic. The
+        /// <paramref name="occurredAtUtc"/> is the original Shell-Core event time
+        /// (<c>record.TimeCreated</c>); subscribers read it via
+        /// <see cref="LastEventOccurredAtUtc"/> during their synchronous event handler.
         /// </summary>
-        internal void HandleBackfillRecord(string description)
+        internal void HandleBackfillRecord(string description, DateTime occurredAtUtc)
         {
             if (EspExitingPattern.IsMatch(description))
             {
@@ -326,18 +354,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 if (shouldNotify)
                 {
                     _helloTracker?.NotifyEspExited();
-                    _logger.Info("Backfill: ESP exit event found in recent Shell-Core logs");
+                    _logger.Info($"Backfill: ESP exit event found in recent Shell-Core logs (originalAt={occurredAtUtc:o})");
+                    LastEventOccurredAtUtc = occurredAtUtc;
                     try { FinalizingSetupPhaseTriggered?.Invoke(this, "esp_exiting"); }
                     catch (Exception ex) { _logger.Error("Backfill: FinalizingSetupPhaseTriggered handler failed", ex); }
+                    finally { LastEventOccurredAtUtc = null; }
                 }
             }
 
             if (HasEspFailurePattern(description))
             {
                 var failureType = ExtractEspFailureType(description);
-                _logger.Info($"Backfill: ESP failure event found in recent Shell-Core logs: {failureType}");
+                _logger.Info($"Backfill: ESP failure event found in recent Shell-Core logs: {failureType} (originalAt={occurredAtUtc:o})");
+                LastEventOccurredAtUtc = occurredAtUtc;
                 try { EspFailureDetected?.Invoke(this, failureType); }
                 catch (Exception ex) { _logger.Error($"Backfill: EspFailureDetected handler failed for '{failureType}'", ex); }
+                finally { LastEventOccurredAtUtc = null; }
             }
         }
 

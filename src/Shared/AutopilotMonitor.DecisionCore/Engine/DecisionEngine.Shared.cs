@@ -51,7 +51,9 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
             // Arm ClassifierTick up-front so the White-Glove classifier re-evaluates
             // periodically from the very start of the session — Plan §4.x M4.4.4.
-            var classifierTick = BuildClassifierTickDeadline(signal.OccurredAtUtc);
+            // Floor the base at AgentBootUtc to keep the tick anchored to "now" even when
+            // SessionStarted itself ever carries a replayed historical timestamp.
+            var classifierTick = BuildClassifierTickDeadline(EffectiveDeadlineBase(state, signal));
 
             // V2 race-fix (10c8e0bf debrief, 2026-04-26): SessionStarted is now a pure
             // lifecycle anchor (stage / classifier-tick deadline / step bookkeeping).
@@ -687,6 +689,29 @@ namespace AutopilotMonitor.DecisionCore.Engine
             if (state.AccountSetupEnteredUtc != null) return true;
             if (state.ScenarioObservations.SkipUserEsp?.Value == true) return true;
             return false;
+        }
+
+        /// <summary>
+        /// Floor a deadline-arming base timestamp at the current agent run's boot anchor.
+        /// Replay-safety guard: when a signal carries a historical <c>OccurredAtUtc</c> from
+        /// a CMTrace log entry or backfilled event-log record, naively using it as
+        /// <c>dueAtUtc = signal.OccurredAtUtc + window</c> would produce a past-due deadline
+        /// that the scheduler fires immediately, collapsing real-time semantics (Hello timeout,
+        /// device-only ESP detection, finalizing grace) into "agent woke up just now and
+        /// everything already expired".
+        /// <para>
+        /// Returns <c>signal.OccurredAtUtc</c> when it is at or after
+        /// <see cref="DecisionState.AgentBootUtc"/>, otherwise the boot anchor. Falls back to
+        /// the raw signal time when the state has no boot anchor (legacy snapshots from
+        /// before this field existed) — preserves the prior, pre-fix behavior on those.
+        /// </para>
+        /// </summary>
+        internal static DateTime EffectiveDeadlineBase(DecisionState state, DecisionSignal signal)
+        {
+            var boot = state.AgentBootUtc;
+            if (boot.HasValue && signal.OccurredAtUtc < boot.Value)
+                return boot.Value;
+            return signal.OccurredAtUtc;
         }
 
         /// <summary>

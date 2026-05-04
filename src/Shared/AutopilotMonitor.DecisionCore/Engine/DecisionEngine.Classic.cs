@@ -83,11 +83,15 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
             // Device-Only ESP detection (plan §2.7): arm on first DeviceSetup, cancel on AccountSetup.
             // See DecisionEngine.SelfDeploying.cs for the deadline-fired handler.
+            // EffectiveDeadlineBase floors the 5-min window at AgentBootUtc so a replayed
+            // DeviceSetup signal from an older CMTrace log entry doesn't collapse the deadline
+            // to immediate-fire — that would mark a perfectly normal Classic enrollment as
+            // device-only at boot (premature classifier promotion to DeviceOnly@Strong).
             var effectsList = new List<DecisionEffect>();
             if (enrollmentPhase == EnrollmentPhase.DeviceSetup &&
                 state.DeviceSetupEnteredUtc == null)
             {
-                var devOnlyDl = BuildDeviceOnlyEspDetectionDeadline(signal.OccurredAtUtc);
+                var devOnlyDl = BuildDeviceOnlyEspDetectionDeadline(EffectiveDeadlineBase(state, signal));
                 builder.AddDeadline(devOnlyDl);
                 effectsList.Add(new DecisionEffect(DecisionEffectKind.ScheduleDeadline, deadline: devOnlyDl));
             }
@@ -155,7 +159,10 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 return new DecisionStep(builder.Build(), noopTransition, Array.Empty<DecisionEffect>());
             }
 
-            var dueAtUtc = signal.OccurredAtUtc.Add(s_helloSafetyWindow);
+            // Replay-safety: floor the 300-s Hello-safety window at AgentBootUtc so a replayed
+            // EspExiting signal from CMTrace doesn't fire HelloSafety immediately at boot
+            // (which would mark Hello as Timeout the moment the agent reads the log tail).
+            var dueAtUtc = EffectiveDeadlineBase(state, signal).Add(s_helloSafetyWindow);
             var helloSafety = new ActiveDeadline(
                 name: DeadlineNames.HelloSafety,
                 dueAtUtc: dueAtUtc,
@@ -378,7 +385,10 @@ namespace AutopilotMonitor.DecisionCore.Engine
             int nextStepIndex,
             string trigger)
         {
-            var dueAtUtc = signal.OccurredAtUtc.Add(s_finalizingGraceWindow);
+            // Replay-safety: floor the 5-s grace window at AgentBootUtc so a replayed Hello/
+            // Desktop signal pair doesn't drive an immediate enrollment_complete the moment
+            // the agent boots and reads accumulated logs.
+            var dueAtUtc = EffectiveDeadlineBase(state, signal).Add(s_finalizingGraceWindow);
             var deadline = new ActiveDeadline(
                 name: DeadlineNames.FinalizingGrace,
                 dueAtUtc: dueAtUtc,
