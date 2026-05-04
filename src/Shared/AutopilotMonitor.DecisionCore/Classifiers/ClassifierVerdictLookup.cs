@@ -28,7 +28,6 @@ namespace AutopilotMonitor.DecisionCore.Classifiers
             return classifierId switch
             {
                 WhiteGloveSealingClassifier.ClassifierId => state.ClassifierOutcomes.WhiteGloveSealing.LastClassifierVerdictId,
-                WhiteGlovePart2CompletionClassifier.ClassifierId => state.ClassifierOutcomes.WhiteGlovePart2Completion.LastClassifierVerdictId,
                 _ => null,
             };
         }

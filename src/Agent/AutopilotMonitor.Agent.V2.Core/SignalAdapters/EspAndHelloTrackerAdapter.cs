@@ -21,7 +21,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
     /// <para>
     /// Signal-Mapping identisch zu den Sub-Tracker-Adaptern (Single-Tracker-Wiring-Szenarien):
     /// <list type="bullet">
-    ///   <item><c>HelloCompleted</c> → <see cref="DecisionSignalKind.HelloResolved"/> / <see cref="DecisionSignalKind.HelloResolvedPart2"/></item>
+    ///   <item><c>HelloCompleted</c> → <see cref="DecisionSignalKind.HelloResolved"/></item>
     ///   <item><c>FinalizingSetupPhaseTriggered</c> → <see cref="DecisionSignalKind.EspPhaseChanged"/> (phase=FinalizingSetup)</item>
     ///   <item><c>WhiteGloveCompleted</c> → <see cref="DecisionSignalKind.WhiteGloveShellCoreSuccess"/></item>
     ///   <item><c>EspFailureDetected</c> → <see cref="DecisionSignalKind.EspTerminalFailure"/> (merged aus ShellCore + Provisioning)</item>
@@ -43,7 +43,6 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private readonly EspAndHelloTracker _coordinator;
         private readonly ISignalIngressSink _ingress;
         private readonly IClock _clock;
-        private readonly bool _part2Mode;
 
         private bool _helloPosted;
         private bool _finalizingPosted;
@@ -56,13 +55,11 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         public EspAndHelloTrackerAdapter(
             EspAndHelloTracker coordinator,
             ISignalIngressSink ingress,
-            IClock clock,
-            bool part2Mode = false)
+            IClock clock)
         {
             _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
             _ingress = ingress ?? throw new ArgumentNullException(nameof(ingress));
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
-            _part2Mode = part2Mode;
 
             _coordinator.HelloCompleted += OnHelloCompleted;
             _coordinator.FinalizingSetupPhaseTriggered += OnFinalizing;
@@ -114,10 +111,9 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _helloPosted = true;
 
             var outcome = string.IsNullOrEmpty(helloOutcome) ? "unknown" : helloOutcome!;
-            var kind = _part2Mode ? DecisionSignalKind.HelloResolvedPart2 : DecisionSignalKind.HelloResolved;
 
             _ingress.Post(
-                kind: kind,
+                kind: DecisionSignalKind.HelloResolved,
                 occurredAtUtc: _clock.UtcNow,
                 sourceOrigin: SourceOrigin,
                 evidence: new Evidence(

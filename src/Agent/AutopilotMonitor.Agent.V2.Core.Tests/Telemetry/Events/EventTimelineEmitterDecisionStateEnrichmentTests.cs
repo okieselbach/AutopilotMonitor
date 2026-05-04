@@ -57,7 +57,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry.Events
             new object[] { SharedConstants.EventTypes.DesktopArrived },
             new object[] { SharedConstants.EventTypes.AadPlaceholderUserDetected },
             new object[] { SharedConstants.EventTypes.AadUserJoinedObserved },
-            new object[] { SharedConstants.EventTypes.UserAadSignInComplete },
             new object[] { SharedConstants.EventTypes.HybridLoginPending },
             new object[] { SharedConstants.EventTypes.AgentShuttingDown },
             new object[] { SharedConstants.EventTypes.SystemRebootDetected },

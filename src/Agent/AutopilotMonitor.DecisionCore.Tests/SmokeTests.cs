@@ -27,7 +27,6 @@ namespace AutopilotMonitor.DecisionCore.Tests
             // ScenarioProfile (derived classification) and ClassifierOutcomes (verdict storage).
             Assert.Equal(EnrollmentMode.Unknown, state.ScenarioProfile.Mode);
             Assert.Equal(HypothesisLevel.Unknown, state.ClassifierOutcomes.WhiteGloveSealing.Level);
-            Assert.Equal(HypothesisLevel.Unknown, state.ClassifierOutcomes.WhiteGlovePart2Completion.Level);
             Assert.Equal(HypothesisLevel.Unknown, state.ClassifierOutcomes.DeviceOnlyDeployment.Level);
             Assert.Empty(state.Deadlines);
             Assert.Equal(-1, state.LastAppliedSignalOrdinal);

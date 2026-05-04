@@ -43,6 +43,13 @@
 
   <ItemGroup>
     <Reference Include="System.Net.Http" />
+    <!--
+      System.Management is required by the WMI-detached runtime launch in
+      Program.InstallMode.cs (StartRuntimeDetached). WMI Win32_Process.Create
+      spawns the runtime outside the install-mode process tree so the agent
+      survives the bootstrap script + IntuneWindowsAgent unwinding.
+    -->
+    <Reference Include="System.Management" />
   </ItemGroup>
 
   <!--

@@ -14,8 +14,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
     /// Dispatches on <c>(<see cref="DecisionSignalKind"/>, <see cref="DecisionSignal.KindSchemaVersion"/>)</c>
     /// to partial-class handlers. All handlers live in sibling files named
     /// <c>DecisionEngine.Classic.cs</c>, <c>DecisionEngine.SelfDeploying.cs</c>,
-    /// <c>DecisionEngine.WhiteGlove.cs</c>, <c>DecisionEngine.WhiteGlovePart2.cs</c>,
-    /// <c>DecisionEngine.Shared.cs</c>.
+    /// <c>DecisionEngine.WhiteGlove.cs</c>, <c>DecisionEngine.Shared.cs</c>.
     /// </para>
     /// <para>
     /// Exception fail-safe (L.16): a handler exception never corrupts state; the kernel
@@ -57,7 +56,6 @@ namespace AutopilotMonitor.DecisionCore.Engine
             {
                 // ----- Lifecycle (DecisionEngine.Shared.cs) -----
                 (DecisionSignalKind.SessionStarted, 1)           => HandleSessionStartedV1(state, signal),
-                (DecisionSignalKind.SessionRecovered, 1)         => HandleSessionRecoveredV1(state, signal),
                 (DecisionSignalKind.SessionAborted, 1)           => HandleSessionAbortedV1(state, signal),
                 (DecisionSignalKind.AdminPreemptionDetected, 1)  => HandleAdminPreemptionDetectedV1(state, signal),
                 (DecisionSignalKind.DeadlineFired, 1)            => HandleDeadlineFiredV1(state, signal),
@@ -78,12 +76,6 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 (DecisionSignalKind.WhiteGloveShellCoreSuccess, 1)         => HandleWhiteGloveShellCoreSuccessV1(state, signal),
                 (DecisionSignalKind.WhiteGloveSealingPatternDetected, 1)   => HandleWhiteGloveSealingPatternDetectedV1(state, signal),
                 (DecisionSignalKind.ClassifierVerdictIssued, 1)            => HandleClassifierVerdictIssuedV1(state, signal),
-
-                // ----- WhiteGlove Part 2 (DecisionEngine.WhiteGlovePart2.cs) -----
-                (DecisionSignalKind.UserAadSignInComplete, 1)              => HandleUserAadSignInCompleteV1(state, signal),
-                (DecisionSignalKind.HelloResolvedPart2, 1)                 => HandleHelloResolvedPart2V1(state, signal),
-                (DecisionSignalKind.DesktopArrivedPart2, 1)                => HandleDesktopArrivedPart2V1(state, signal),
-                (DecisionSignalKind.AccountSetupCompletedPart2, 1)         => HandleAccountSetupCompletedPart2V1(state, signal),
 
                 // ----- Edge (DecisionEngine.Edge.cs) -----
                 (DecisionSignalKind.EspResumed, 1)                         => HandleEspResumedV1(state, signal),

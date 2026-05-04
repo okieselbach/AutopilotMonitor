@@ -101,7 +101,7 @@ namespace AutopilotMonitor.DecisionCore.Tests
             var state = DecisionState.CreateInitial("s", "t");
 
             var step1 = engine.Reduce(state, MakeSignal(DecisionSignalKind.SessionStarted, ordinal: 0));
-            var step2 = engine.Reduce(step1.NewState, MakeSignal(DecisionSignalKind.SessionRecovered, ordinal: 1));
+            var step2 = engine.Reduce(step1.NewState, MakeSignal(DecisionSignalKind.EnrollmentFactsObserved, ordinal: 1));
 
             Assert.Equal("2.0.0.0", engine.ReducerVersion);
             Assert.Equal("2.0.0.0", step1.Transition.ReducerVersion);

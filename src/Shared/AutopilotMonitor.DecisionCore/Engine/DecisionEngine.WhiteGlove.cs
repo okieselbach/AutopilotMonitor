@@ -197,12 +197,6 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 .WithStepIndex(nextStep)
                 .WithLastAppliedSignalOrdinal(signal.SessionSignalOrdinal);
 
-            // M3.4 Part-2 classifier runs through its own applier.
-            if (classifier == WhiteGlovePart2CompletionClassifier.ClassifierId)
-            {
-                return ApplyWhiteGlovePart2Verdict(state, signal, level, score, reason, inputHash);
-            }
-
             if (classifier == WhiteGloveSealingClassifier.ClassifierId)
             {
                 var updatedSealing = state.ClassifierOutcomes.WhiteGloveSealing.With(
@@ -283,8 +277,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
             var reachedTerminal = state.Stage == SessionStage.Completed
                                   || state.Stage == SessionStage.Failed
-                                  || state.Stage == SessionStage.WhiteGloveSealed
-                                  || state.Stage == SessionStage.WhiteGloveCompletedPart2;
+                                  || state.Stage == SessionStage.WhiteGloveSealed;
 
             if (!reachedTerminal)
             {

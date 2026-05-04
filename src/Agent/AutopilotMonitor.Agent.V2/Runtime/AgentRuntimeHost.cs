@@ -71,7 +71,6 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             var classifiers = new IClassifier[]
             {
                 new WhiteGloveSealingClassifier(),
-                new WhiteGlovePart2CompletionClassifier(),
             };
 
             var componentFactory = new DefaultComponentFactory(
@@ -300,7 +299,15 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                                 // spool-empty. Pair with off-worker dispatch in
                                 // EnrollmentOrchestrator.OnDecisionTerminalStage so the
                                 // wait can actually make progress.
-                                ingressPendingSignalCountAccessor: () => orchestrator.IngressPendingSignalCount);
+                                ingressPendingSignalCountAccessor: () => orchestrator.IngressPendingSignalCount,
+                                // V1-symmetric Part-2 hint accessor (plan §11). The orchestrator
+                                // does not reach a dedicated terminal stage for Part 2; instead
+                                // Part 2 runs as a fresh Classic enrollment after Archive-and-Reset
+                                // and ends on Completed/Failed. The shutdown analyzer pipeline
+                                // still needs the hint to tag findings with phase=2 so the backend
+                                // vulnerability correlation pipeline can filter Part-2 inventory
+                                // out of the Part-1 set.
+                                isWhiteGlovePart2Accessor: () => orchestrator.IsWhiteGlovePart2);
 
                             // ServerActionDispatcher (plan §5.3) — constructed inside this
                             // hook so lifecyclePost + terminationHandler are guaranteed
@@ -346,14 +353,23 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                             logger.Warning("WhiteGloveInventoryTrigger not wired — componentFactory.EspAndHelloHost is null after orchestrator.Start.");
                         }
 
-                        // WhiteGlove Part-2 resume: EnrollmentOrchestrator.Start already posts
-                        // SessionRecovered, which triggers HandleWhiteGlovePart1To2Bridge —
-                        // that reducer effect emits whiteglove_resumed on the timeline. We
-                        // only need to clear the persisted marker here.
+                        // WhiteGlove Part-2 resume: EnrollmentOrchestrator.Start (PR-A) detected
+                        // the persisted WhiteGloveSealed snapshot, archived the state folder,
+                        // and posted whiteglove_resumed via InformationalEventPost after the
+                        // onIngressReady hook ran. We clear the persisted marker file here so
+                        // the next run isn't classified as a Part-2 resume too, AND rebase the
+                        // session-age clock to the Part-2 boot moment. Without the rebase a
+                        // crash/reboot during Part-2 AccountSetup would let the next start
+                        // run the emergency-break watchdog against the original Part-1
+                        // session.created and trip too early. V1 parity:
+                        // SessionPersistence.ResetSessionCreatedAt() in
+                        // MonitoringService.cs:530.
                         if (isWhiteGloveResume)
                         {
                             try { sessionPersistence.ClearWhiteGloveComplete(logger); }
                             catch (Exception ex) { logger.Debug($"ClearWhiteGloveComplete threw: {ex.Message}"); }
+                            try { sessionPersistence.SaveSessionCreatedAt(DateTime.UtcNow); }
+                            catch (Exception ex) { logger.Debug($"SaveSessionCreatedAt threw: {ex.Message}"); }
                         }
 
                         // Reboot mid-session: post SystemRebootObserved so the reducer
@@ -380,31 +396,30 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                         }
 
                         // V2 race-fix follow-up (10c8e0bf review, 2026-04-27) —
-                        // EnrollmentFactsObserved is posted unconditionally except on
-                        // WhiteGlove Part-2 resume. The facts handler is stage-agnostic,
-                        // idempotent, and monotonic, so it composes cleanly with whatever
-                        // lifecycle anchor follows (SessionStarted, AdminPreemptionDetected).
-                        // Why also for AdminPreemption: even a session that goes straight to
+                        // EnrollmentFactsObserved is posted unconditionally. The facts handler
+                        // is stage-agnostic, idempotent, and monotonic, so it composes cleanly
+                        // with whatever lifecycle anchor follows (SessionStarted,
+                        // AdminPreemptionDetected). Even a session that goes straight to
                         // terminal benefits from a populated ScenarioProfile (JoinMode /
                         // EnrollmentType) for completion-event reporting and downstream
-                        // analytics. WhiteGlove Part-2 resume hydrates the profile from the
-                        // persisted snapshot and the SessionRecovered signal — re-posting
-                        // facts there would be a no-op via monotonicity but adds noise to
-                        // the Inspector trace, so the existing exclusion stays.
-                        if (!isWhiteGloveResume)
-                        {
-                            LifecycleEmitters.PostEnrollmentFactsObserved(orchestrator.IngressSink, logger);
-                        }
+                        // analytics. WhiteGlove Part-2 resume runs as a fresh Classic
+                        // enrollment after PR-A's archive-and-reset, so the engine state is
+                        // empty and needs the facts re-seeded — same as a first boot.
+                        LifecycleEmitters.PostEnrollmentFactsObserved(orchestrator.IngressSink, logger);
 
                         // V2 parity — post SessionStarted so the reducer establishes the session
-                        // anchor (HandleSessionStartedV1 in DecisionEngine.Shared.cs). Skipped on:
-                        //   - WhiteGlove Part-2 resume: EnrollmentOrchestrator.Start already
-                        //     posts SessionRecovered, which triggers
-                        //     HandleWhiteGlovePart1To2Bridge.
-                        //   - Admin preemption: the AdminPreemptionDetected signal below
-                        //     drives the session straight to a terminal stage; SessionStarted
-                        //     first would be noise.
-                        if (!isWhiteGloveResume && string.IsNullOrEmpty(registrationResult.AdminAction))
+                        // anchor (HandleSessionStartedV1 in DecisionEngine.Shared.cs). Skipped only
+                        // when the register-session response carried an AdminAction: the
+                        // AdminPreemptionDetected signal below drives the session straight to a
+                        // terminal stage; SessionStarted first would be noise.
+                        // WhiteGlove Part-2 resume is NOT excluded — after archive-and-reset the
+                        // decision state is empty, so the Classic flow needs its anchor (V1
+                        // emitted whiteglove_resumed AND continued through the normal start path).
+                        // The orchestrator's whiteglove_resumed event lands first via
+                        // onIngressReady (sequence < SessionStarted), so the Web splitter's
+                        // `splitSequence = resumed.sequence - 1` correctly puts SessionStarted
+                        // into the Part-2 timeline block.
+                        if (string.IsNullOrEmpty(registrationResult.AdminAction))
                         {
                             LifecycleEmitters.PostSessionStarted(orchestrator.IngressSink, registrationResult, agentConfig, agentVersion, logger);
                         }

@@ -103,11 +103,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             {
                 f.Coordinator.ForceMarkHelloCompleted("timeout");
 
-                using var adapter = new EspAndHelloTrackerAdapter(f.Coordinator, f.Ingress, f.Clock, part2Mode: true);
+                using var adapter = new EspAndHelloTrackerAdapter(f.Coordinator, f.Ingress, f.Clock);
                 adapter.TriggerHelloFromCoordinatorPropertyForTest();
 
                 var posted = Assert.Single(f.Ingress.Posted);
-                Assert.Equal(DecisionSignalKind.HelloResolvedPart2, posted.Kind);
+                Assert.Equal(DecisionSignalKind.HelloResolved, posted.Kind);
                 Assert.Equal("timeout", posted.Payload![SignalPayloadKeys.HelloOutcome]);
             }
             finally

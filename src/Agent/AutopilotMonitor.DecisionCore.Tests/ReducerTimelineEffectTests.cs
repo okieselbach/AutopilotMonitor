@@ -77,34 +77,11 @@ namespace AutopilotMonitor.DecisionCore.Tests
             Assert.False(timelineEffect.Parameters.ContainsKey("previousExitType"));
         }
 
-        // ------------------------------------------------------ WhiteGlovePart1To2 bridge
-
-        [Fact]
-        public void WhiteGlovePart1To2Bridge_emits_whiteglove_resumed_timeline_entry()
-        {
-            var engine = new DecisionEngine();
-            var sealedState = DecisionState.CreateInitial("s", "t")
-                .ToBuilder()
-                .WithStage(SessionStage.WhiteGloveSealed)
-                .Build();
-
-            var recoverSignal = BuildSignal(
-                DecisionSignalKind.SessionRecovered,
-                new DateTime(2026, 4, 22, 10, 0, 0, DateTimeKind.Utc),
-                sourceOrigin: "EnrollmentOrchestrator");
-
-            var step = engine.Reduce(sealedState, recoverSignal);
-
-            Assert.Equal(SessionStage.WhiteGloveAwaitingUserSignIn, step.NewState.Stage);
-
-            var timelineEffect = step.Effects.Single(e => e.Kind == DecisionEffectKind.EmitEventTimelineEntry);
-            Assert.Equal("whiteglove_resumed", timelineEffect.Parameters!["eventType"]);
-            Assert.Equal("2026-04-22T10:00:00.0000000Z", timelineEffect.Parameters["resumedAtUtc"]);
-            Assert.Equal("EnrollmentOrchestrator", timelineEffect.Parameters["sourceOrigin"]);
-
-            // ScheduleDeadline remains.
-            Assert.Contains(step.Effects, e => e.Kind == DecisionEffectKind.ScheduleDeadline);
-        }
+        // (PR-B 2026-05-04: WhiteGlovePart1To2 bridge test removed — the SessionRecovered
+        // signal kind + bridge handler were deleted with the rest of the V2 WG-Part-2
+        // apparatus. The post-reseal-reboot flow is now driven by the orchestrator-side
+        // archive-and-reset + a direct `whiteglove_resumed` InformationalEvent emit;
+        // EnrollmentOrchestratorPart2EmissionTests covers the new path.)
 
         // ---------------------------------------------------- AdminPreemptionDetected
 

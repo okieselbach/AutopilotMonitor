@@ -29,7 +29,7 @@ namespace AutopilotMonitor.DecisionCore.State
             FiresPayload = firesPayload;
         }
 
-        /// <summary>Unique deadline name within a session (e.g. "hello_safety", "part2_safety").</summary>
+        /// <summary>Unique deadline name within a session (e.g. "hello_safety", "esp_failure_grace").</summary>
         public string Name { get; }
 
         public DateTime DueAtUtc { get; }

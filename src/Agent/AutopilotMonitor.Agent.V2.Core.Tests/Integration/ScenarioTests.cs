@@ -163,45 +163,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Integration
             f.Stop();
         }
 
-        // ================================================================ 9) WhiteGlove Part-2 Happy
+        // (PR-B 2026-05-04: Scenario 9 "WhiteGlove Part-2 Happy" removed — the V2-only
+        // Part-2 apparatus (Spezial-Stages / Outcomes / Classifier / Safety-Deadline) was
+        // deleted along with the bridge-signal mechanic. Post-reseal-reboot Part-2 now
+        // runs as a fresh Classic enrollment driven by the orchestrator's archive-and-reset
+        // path; the fixture and a replacement classic-flow scenario test land in PR-E.)
 
-        [Fact]
-        public void Scenario09_WhiteGlovePart2_Happy_completes_part2()
-        {
-            using var f = new EnrollmentOrchestratorFixture();
-            f.Start();
-            f.PostFixture("whiteglove-part2-happy-v1.jsonl");
-
-            var reached = f.WaitForStage(
-                DefaultTerminalTimeoutMs,
-                SessionStage.WhiteGloveCompletedPart2,
-                SessionStage.Completed,
-                SessionStage.Failed);
-
-            Assert.True(reached,
-                $"Part-2 happy fixture did not reach a terminal stage within {DefaultTerminalTimeoutMs}ms; " +
-                $"stuck at {f.Orchestrator.CurrentState.Stage} (stepIndex={f.Orchestrator.CurrentState.StepIndex}). " +
-                $"Last transition: {f.LastTransition()?.Trigger}.");
-            Assert.Equal(SessionStage.WhiteGloveCompletedPart2, f.Orchestrator.CurrentState.Stage);
-            Assert.Equal(SessionOutcome.WhiteGlovePart2Complete, f.Orchestrator.CurrentState.Outcome);
-
-            f.Stop();
-        }
-
-        // ================================================================ 10) WhiteGlove Part-2 Stuck
-
-        [Fact]
-        public void Scenario10_WhiteGlovePart2_Stuck_fails_on_safety_deadline()
-        {
-            using var f = new EnrollmentOrchestratorFixture();
-            f.Start();
-            f.PostFixture("whiteglove-part2-stuck-v1.jsonl");
-
-            Assert.True(f.WaitForStage(DefaultTerminalTimeoutMs, SessionStage.Failed));
-            Assert.Equal(SessionOutcome.EnrollmentFailed, f.Orchestrator.CurrentState.Outcome);
-
-            f.Stop();
-        }
+        // (PR-B 2026-05-04: Scenario 10 "WhiteGlove Part-2 Stuck" removed — the 24h Part-2
+        // safety deadline that drove this scenario into Failed/EnrollmentFailed was deleted
+        // along with the rest of the WG-Part-2 apparatus. The new model treats Part-2 as a
+        // fresh Classic enrollment, so a stuck Part-2 sits on the existing max-lifetime
+        // watchdog instead of a Part-2-specific 24h deadline; coverage for that path lives
+        // in the orchestrator's lifetime tests.)
 
         // ================================================================ 11) Hybrid-Reboot
 

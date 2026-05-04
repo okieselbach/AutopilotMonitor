@@ -38,10 +38,11 @@
       PowerShell 5.1 (IME) reads scripts without BOM as ANSI, corrupting multi-byte chars.
 
 .CHANGELOG
+    2026-05-04  v2.0-pre  WMI-detached runtimelaunch (Program.InstallMode.cs PR1) instead 
+                          of schtasks /Run, and BootTrigger fallback via XML-hardened task (PR2).
     2026-04-20  v2.0-pre  Forked from Install-AutopilotMonitor.ps1 v1.1 for V2-Agent.
                           URL -> AutopilotMonitor-Agent-V2.zip, integrity file -> version-v2.json,
                           agent exe -> AutopilotMonitor.Agent.V2.exe. Same guards + install flow.
-                          Plan: plans/REFACTOR_AGENT_V2.md section 4 M2.
     2026-04-09  v1.1  Introduced explicit script version and log it on startup
     (all entries above were v1.0)
     2026-03-31  Replaced OS age + MDM pre-flight checks with multi-signal guard:
@@ -124,7 +125,6 @@ try {
     # Guard 4: Bootstrap window expired (device uptime > 12h without agent)
     # Guard 5: Agent binary already present from a previous run
     # NOTE: OOBEInProgress is NOT used -- it is unreliable (observed =0 during active enrollment).
-    # NOTE: explorer.exe is NOT used -- it runs even in early OOBE right after script execution.
 
     # Guard 1: Agent was already deployed on this device (registry marker survives self-destruct)
     $deployed = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\AutopilotMonitor' -Name 'Deployed' -ErrorAction SilentlyContinue).Deployed
@@ -296,12 +296,9 @@ try {
     }
 
     # TenantId-wait timeout (seconds). When the registry probe finds no TenantId on
-    # first try, the agent registers a RegistryWatcher on the Enrollments + CloudDomainJoin
-    # keys and waits up to this long for AAD/MDM enrollment to populate before bailing.
-    # 0 = no wait (legacy fast-fail). Increase here (and re-deploy via Intune) for tenants
-    # where hybrid join + auto-MDM enrollment regularly needs longer than 10 min.
-    # Field evidence (GardnerMedia, hybrid-AAD-joined, 2026-04-30): the AAD device cert
-    # landed ~5 min after the agent fired, so 600 s is comfortably sufficient.
+    # first try, the agent watches Enrollments + CloudDomainJoin until populated.
+    # Hybrid-AAD-joined devices typically need ~5 min for the AAD device cert, so
+    # 600 s leaves headroom. 0 = no wait (legacy fast-fail).
     $tenantIdWaitSec = 600
 
     # Let the agent install/deploy itself and manage its own Scheduled Task
@@ -313,11 +310,6 @@ try {
     }
     Write-Log "Agent install mode completed successfully"
 
-    # Verify the runtime process actually started after schtasks /Run.
-    # schtasks reports SUCCESS as soon as the run is queued, not once the process
-    # is alive. Silent launch failures (AV/EDR block, AppLocker/WDAC, scheduler
-    # defer during OOBE) would otherwise stay invisible until the next reboot
-    # triggers the task via /SC ONSTART.
     $runtimeProcessName = 'AutopilotMonitor.Agent.V2'
     $verifyTimeoutSec = 10
     $verifyDeadline = (Get-Date).AddSeconds($verifyTimeoutSec)
@@ -332,7 +324,7 @@ try {
         try { $startedUtc = $runtimeProc.StartTime.ToUniversalTime().ToString('o') } catch { }
         Write-Log ("Runtime process verified: name={0}.exe pid={1} startedUtc={2}" -f $runtimeProcessName, $runtimeProc.Id, $startedUtc)
     } else {
-        Write-Log ("WARNING: Runtime process verification FAILED. schtasks /Run was reported SUCCESS by --install, but no '{0}.exe' process appeared within {1}s. Likely silent block (AV/EDR, AppLocker/WDAC) or Task Scheduler defer. Agent may not start until next system boot ('/SC ONSTART'). Check Event Viewer > Microsoft > Windows > TaskScheduler/Operational and AV/EDR logs for '{0}.exe'." -f $runtimeProcessName, $verifyTimeoutSec)
+        Write-Log ("WARNING: Runtime process verification FAILED. Agent --install reported success but no '{0}.exe' process appeared within {1}s. Likely silent block (AV/EDR, AppLocker/WDAC) of the WMI-detached launch. Agent should still come up at next boot via the BootTrigger task. Check Event Viewer > Microsoft > Windows > TaskScheduler/Operational and AV/EDR logs for '{0}.exe'." -f $runtimeProcessName, $verifyTimeoutSec)
     }
 
     Write-Log "===== Bootstrap Completed Successfully ====="

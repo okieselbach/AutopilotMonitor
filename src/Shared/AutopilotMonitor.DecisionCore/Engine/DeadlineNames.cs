@@ -30,9 +30,6 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// <summary>Periodic classifier-tick every 30 s — replaces legacy signal-correlated loop.</summary>
         public const string ClassifierTick = "classifier_tick";
 
-        /// <summary>24 h watchdog after White-Glove Part 1 → reboot → awaiting user sign-in. Plan §2.3.</summary>
-        public const string WhiteGlovePart2Safety = "whiteglove_part2_safety";
-
         /// <summary>
         /// Brief grace window (~5 s) between both-prerequisites-resolved and Completed.
         /// Gives the reducer-emitted <c>phase_transition(FinalizingSetup)</c> and the terminal
@@ -54,7 +51,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// <summary>On <c>EspPhaseChanged</c>: the raw phase name as observed by the collector.</summary>
         public const string EspPhase = "phase";
 
-        /// <summary>On <c>HelloResolved</c> / <c>HelloResolvedPart2</c>: outcome string (e.g. Success, Timeout, Skipped).</summary>
+        /// <summary>On <c>HelloResolved</c>: outcome string (e.g. Success, Timeout, Skipped).</summary>
         public const string HelloOutcome = "outcome";
 
         /// <summary>On <c>AadUserJoinedLate</c>: user presence indicator ("true" / "false").</summary>

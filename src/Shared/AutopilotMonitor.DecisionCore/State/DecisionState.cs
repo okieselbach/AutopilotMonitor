@@ -13,7 +13,7 @@ namespace AutopilotMonitor.DecisionCore.State
     /// </para>
     /// <para>
     /// Codex follow-up #5 — the legacy 9-field hypothesis/fact mosaic
-    /// (<c>EnrollmentType</c>, <c>WhiteGloveSealing</c>, <c>WhiteGlovePart2Completion</c>,
+    /// (<c>EnrollmentType</c>, <c>WhiteGloveSealing</c>,
     /// <c>DeviceOnlyDeployment</c>, <c>SkipUserEsp</c>, <c>SkipDeviceEsp</c>,
     /// <c>AadJoinedWithUser</c>, <c>ShellCoreWhiteGloveSuccessSeen</c>,
     /// <c>WhiteGloveSealingPatternSeen</c>) has been replaced by three structured aggregates:
@@ -47,10 +47,6 @@ namespace AutopilotMonitor.DecisionCore.State
             SignalFact<DateTime>? systemRebootUtc,
             SignalFact<string>? helloOutcome,
             SignalFact<string>? imeMatchedPatternId,
-            SignalFact<DateTime>? userAadSignInCompleteUtc,
-            SignalFact<DateTime>? helloResolvedPart2Utc,
-            SignalFact<DateTime>? desktopArrivedPart2Utc,
-            SignalFact<DateTime>? accountSetupCompletedPart2Utc,
             IReadOnlyList<ActiveDeadline> deadlines,
             long lastAppliedSignalOrdinal,
             int stepIndex,
@@ -85,10 +81,6 @@ namespace AutopilotMonitor.DecisionCore.State
             SystemRebootUtc = systemRebootUtc;
             HelloOutcome = helloOutcome;
             ImeMatchedPatternId = imeMatchedPatternId;
-            UserAadSignInCompleteUtc = userAadSignInCompleteUtc;
-            HelloResolvedPart2Utc = helloResolvedPart2Utc;
-            DesktopArrivedPart2Utc = desktopArrivedPart2Utc;
-            AccountSetupCompletedPart2Utc = accountSetupCompletedPart2Utc;
             Deadlines = deadlines ?? throw new ArgumentNullException(nameof(deadlines));
             LastAppliedSignalOrdinal = lastAppliedSignalOrdinal;
             StepIndex = stepIndex;
@@ -132,12 +124,6 @@ namespace AutopilotMonitor.DecisionCore.State
 
         public SignalFact<string>? ImeMatchedPatternId { get; }
 
-        // --- WhiteGlove Part 2 (post-reboot user sign-in) facts ---
-        public SignalFact<DateTime>? UserAadSignInCompleteUtc { get; }
-        public SignalFact<DateTime>? HelloResolvedPart2Utc { get; }
-        public SignalFact<DateTime>? DesktopArrivedPart2Utc { get; }
-        public SignalFact<DateTime>? AccountSetupCompletedPart2Utc { get; }
-
         public IReadOnlyList<ActiveDeadline> Deadlines { get; }
 
         public long LastAppliedSignalOrdinal { get; }
@@ -166,7 +152,7 @@ namespace AutopilotMonitor.DecisionCore.State
         public EnrollmentScenarioObservations ScenarioObservations { get; }
 
         /// <summary>
-        /// Classifier verdict storage + anti-loop state (WhiteGlove sealing, WhiteGlove Part 2,
+        /// Classifier verdict storage + anti-loop state (WhiteGlove sealing,
         /// device-only deployment). Codex follow-up #5. Never null; defaults to
         /// <see cref="ClassifierOutcomes.Empty"/>.
         /// </summary>
@@ -213,10 +199,6 @@ namespace AutopilotMonitor.DecisionCore.State
                 systemRebootUtc: null,
                 helloOutcome: null,
                 imeMatchedPatternId: null,
-                userAadSignInCompleteUtc: null,
-                helloResolvedPart2Utc: null,
-                desktopArrivedPart2Utc: null,
-                accountSetupCompletedPart2Utc: null,
                 deadlines: Array.Empty<ActiveDeadline>(),
                 lastAppliedSignalOrdinal: -1,
                 stepIndex: 0,

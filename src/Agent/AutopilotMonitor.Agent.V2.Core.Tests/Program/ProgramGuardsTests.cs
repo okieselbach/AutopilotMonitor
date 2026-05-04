@@ -189,6 +189,43 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
         }
 
         [Fact]
+        public void CheckSessionAgeEmergencyBreak_does_not_trip_after_part2_resume_rebases_the_age_clock()
+        {
+            // V1-symmetric Part-2 resume contract: AgentRuntimeHost clears the
+            // whiteglove.complete marker AND rebases session.created to the Part-2 boot
+            // moment. Without the rebase, a crash/reboot during Part-2 AccountSetup
+            // would drop us back here with the original Part-1 timestamp and the
+            // emergency break would trip immediately. Verifies both halves of the
+            // contract by simulating: aged Part-1 session → Part-2 boot rebase →
+            // subsequent restart's emergency-break check.
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp.Path);
+            var persistence = new SessionIdPersistence(tmp.Path);
+
+            // Aged Part-1 session that already burned through most of the lifetime budget.
+            persistence.GetOrCreate();
+            persistence.SaveSessionCreatedAt(DateTime.UtcNow.AddHours(-47));
+
+            // Simulate AgentRuntimeHost's resume cleanup block (the marker no longer
+            // exists at this point — it has been cleared and the timer has been rebased).
+            persistence.ClearWhiteGloveComplete(logger);
+            persistence.SaveSessionCreatedAt(DateTime.UtcNow);
+
+            // Next restart's emergency-break check sees a fresh Part-2 timestamp.
+            var tripped = AutopilotMonitor.Agent.V2.Program.CheckSessionAgeEmergencyBreak(
+                dataDirectory: tmp.Path,
+                stateDirectory: Path.Combine(tmp.Path, "State"),
+                absoluteMaxSessionHours: 48,
+                selfDestructOnComplete: false,
+                cleanupServiceFactory: null,
+                logger: logger,
+                consoleMode: false);
+
+            Assert.False(tripped);
+            Assert.True(persistence.SessionExists());
+        }
+
+        [Fact]
         public void CheckSessionAgeEmergencyBreak_initialises_missing_session_created_on_first_miss()
         {
             using var tmp = new TempDirectory();

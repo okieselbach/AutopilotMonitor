@@ -11,10 +11,11 @@ namespace AutopilotMonitor.DecisionCore.State
         /// DiagnosticsPackageService) run, and no further signals are expected.
         /// <para>
         /// <see cref="SessionStage.WhiteGloveSealed"/> is terminal for Part 1 only — the agent
-        /// exits but the session is paused (Part 2 resumes after reboot). The distinction
-        /// matters for CleanupService: Part-1 exit must NOT self-destruct; Part-2 exit
-        /// (<see cref="SessionStage.WhiteGloveCompletedPart2"/>) and the classic terminals
-        /// (<see cref="SessionStage.Completed"/> / <see cref="SessionStage.Failed"/>) do.
+        /// exits but the session is paused. After the reseal-reboot, the orchestrator
+        /// archives the Part-1 state folder and runs Part 2 as a fresh Classic enrollment
+        /// (Plan §4 PR-A). The distinction still matters for CleanupService: Part-1 exit
+        /// must NOT self-destruct; the classic terminals (<see cref="SessionStage.Completed"/>
+        /// / <see cref="SessionStage.Failed"/>) do.
         /// </para>
         /// </summary>
         public static bool IsTerminal(this SessionStage stage)
@@ -24,7 +25,6 @@ namespace AutopilotMonitor.DecisionCore.State
                 case SessionStage.Completed:
                 case SessionStage.Failed:
                 case SessionStage.WhiteGloveSealed:
-                case SessionStage.WhiteGloveCompletedPart2:
                     return true;
                 default:
                     return false;

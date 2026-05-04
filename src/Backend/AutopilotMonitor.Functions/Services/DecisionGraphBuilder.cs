@@ -97,7 +97,6 @@ namespace AutopilotMonitor.Functions.Services
                 case "Completed":
                 case "Failed":
                 case "WhiteGloveSealed":
-                case "WhiteGloveCompletedPart2":
                     return true;
                 default:
                     return false;
@@ -114,7 +113,6 @@ namespace AutopilotMonitor.Functions.Services
             switch (stage)
             {
                 case "Completed":
-                case "WhiteGloveCompletedPart2":
                     return "Succeeded";
                 case "Failed":
                     return "Failed";

@@ -41,7 +41,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
         [InlineData(SessionStage.Completed, EnrollmentTerminationOutcome.Succeeded, "succeeded")]
         [InlineData(SessionStage.Failed, EnrollmentTerminationOutcome.Failed, "failed")]
         [InlineData(SessionStage.WhiteGloveSealed, EnrollmentTerminationOutcome.Succeeded, "whiteglove_part1")]
-        [InlineData(SessionStage.WhiteGloveCompletedPart2, EnrollmentTerminationOutcome.Succeeded, "whiteglove_part2")]
         public void Build_maps_outcome_from_terminal_stage(SessionStage stage, EnrollmentTerminationOutcome outcome, string expected)
         {
             var state = StateWith(stage);
@@ -280,7 +279,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
         [InlineData(SessionStage.Completed, EnrollmentTerminationOutcome.Succeeded, "succeeded")]
         [InlineData(SessionStage.Failed, EnrollmentTerminationOutcome.Failed, "failed")]
         [InlineData(SessionStage.WhiteGloveSealed, EnrollmentTerminationOutcome.Succeeded, "whiteglove_part1")]
-        [InlineData(SessionStage.WhiteGloveCompletedPart2, EnrollmentTerminationOutcome.Succeeded, "whiteglove_part2")]
         public void Build_outcome_carries_v2_granularity(SessionStage stage, EnrollmentTerminationOutcome outcome, string expected)
         {
             // Schema 2 keeps the V2-enum granularity in the wire format. The dialog reads

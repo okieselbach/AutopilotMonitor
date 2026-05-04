@@ -53,12 +53,6 @@ namespace AutopilotMonitor.DecisionCore.Signals
         // </para>
         EnrollmentFactsObserved,
 
-        // --- Raw — WhiteGlove Part 2 (Post-Reboot User-Sign-In) ---
-        UserAadSignInComplete,
-        HelloResolvedPart2,
-        DesktopArrivedPart2,
-        AccountSetupCompletedPart2,
-
         // --- Synthetic ---
         DeadlineFired,
         ClassifierVerdictIssued,
@@ -74,7 +68,6 @@ namespace AutopilotMonitor.DecisionCore.Signals
         // --- Lifecycle ---
         SessionStarted,
         SessionAborted,
-        SessionRecovered,
 
         // --- Admin-driven preemption (Plan §2.7 admin-action audit, V2 parity PR-B3) ---
         AdminPreemptionDetected,

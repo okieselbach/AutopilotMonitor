@@ -64,38 +64,87 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         // ================================================================= Sonderfall 1: WG Part-1 Resume
 
         [Fact]
-        public void Whiteglove_part1_snapshot_triggers_session_recovered_bridge_on_start()
+        public void Whiteglove_part1_snapshot_triggers_archive_and_reset_on_start()
         {
+            // PR-A V1-symmetric Archive-and-Reset: a persisted WhiteGloveSealed snapshot makes
+            // Start() move the reducer-state segment files into a `.part1-<ts>/` subfolder, set
+            // the IsWhiteGlovePart2 hint, and run the recovery pipeline as a fresh first-boot.
+            // The event-sequence counter is intentionally NOT archived — it stays put so the
+            // session-wide event sequence remains monotonic across the resume boundary.
             using var rig = new Rig();
             Directory.CreateDirectory(rig.StateDir);
 
-            // Seed a snapshot with stage = WhiteGloveSealed (Part 1 complete pre-reboot).
+            // Seed a snapshot with stage = WhiteGloveSealed (Part 1 complete pre-reboot) plus
+            // a non-empty signal-log + journal + event-sequence counter so we can verify which
+            // files get archived and which stay put.
             var sealedState = DecisionState.CreateInitial("S1", "T1")
                 .ToBuilder()
                 .WithStage(SessionStage.WhiteGloveSealed)
                 .WithStepIndex(5)
                 .Build();
             new SnapshotPersistence(Path.Combine(rig.StateDir, "snapshot.json")).Save(sealedState);
+            File.WriteAllText(
+                Path.Combine(rig.StateDir, "signal-log.jsonl"),
+                "{\"part1-leftover\":true}\n",
+                Encoding.UTF8);
+            File.WriteAllText(
+                Path.Combine(rig.StateDir, "journal.jsonl"),
+                "{\"part1-journal\":true}\n",
+                Encoding.UTF8);
+            File.WriteAllText(
+                Path.Combine(rig.StateDir, "event-sequence.json"),
+                "{\"LastAssignedSequence\":17}",
+                Encoding.UTF8);
 
             var sut = rig.Build();
             sut.Start();
 
-            Assert.True(sut.IsWhiteGlovePart2Resume);
+            Assert.True(sut.IsWhiteGlovePart2);
             Assert.False(sut.WasStartupQuarantine);
 
-            // After ingress start, the orchestrator posts SessionRecovered — the reducer bridges
-            // to WhiteGloveAwaitingUserSignIn. Wait for the signal-log to contain the signal.
-            var signalLog = GetSignalLog(sut);
-            Assert.True(SpinWait.SpinUntil(
-                () => signalLog.ReadAll().Any(s => s.Kind == DecisionSignalKind.SessionRecovered),
-                3000));
+            // The recovered state is fresh (StepIndex=0, Stage=SessionStarted) — no WhiteGlove
+            // stage on the live engine; the legacy bridge into AwaitingUserSignIn is gone.
+            Assert.Equal(0, sut.CurrentState.StepIndex);
+            Assert.NotEqual(SessionStage.WhiteGloveSealed, sut.CurrentState.Stage);
 
-            // State must have advanced past WhiteGloveSealed to WhiteGloveAwaitingUserSignIn.
-            Assert.True(SpinWait.SpinUntil(
-                () => sut.CurrentState.Stage == SessionStage.WhiteGloveAwaitingUserSignIn,
-                3000));
+            // Archive bucket exists and holds the reducer-state segments.
+            var part1Buckets = Directory.GetDirectories(rig.StateDir, ".part1-*");
+            Assert.Single(part1Buckets);
+            var bucket = part1Buckets[0];
+            Assert.True(File.Exists(Path.Combine(bucket, "snapshot.json")));
+            Assert.True(File.Exists(Path.Combine(bucket, "signal-log.jsonl")));
+            Assert.True(File.Exists(Path.Combine(bucket, "journal.jsonl")));
+            Assert.True(File.Exists(Path.Combine(bucket, "reason.txt")));
+
+            // event-sequence.json stayed in place with its Part-1 contents — Part-2
+            // emissions continue counting from there, preventing sequence collisions.
+            Assert.False(File.Exists(Path.Combine(bucket, "event-sequence.json")));
+            var preservedCounter = File.ReadAllText(Path.Combine(rig.StateDir, "event-sequence.json"));
+            Assert.Contains("17", preservedCounter);
+
+            // PR-B removed the SessionRecovered enum + handler entirely; nothing in the
+            // signal log on resume should match the now-deleted lifecycle bridge. Smoke-check:
+            // the only signal kinds we expect on a fresh start are the SessionStarted /
+            // EspConfigDetected bootstrap path — never anything carrying "session_recovered".
+            var signalLog = GetSignalLog(sut);
+            Thread.Sleep(100);
+            Assert.DoesNotContain(signalLog.ReadAll(),
+                s => s.SourceOrigin != null && s.SourceOrigin.Contains("session_recovered"));
 
             sut.Stop();
+
+            // After Stop+drain, the uploader must have received a whiteglove_resumed
+            // Event-kind item — Plan §4 acceptance criterion. (The corresponding
+            // InformationalEvent signal is also persisted but only the Event item is
+            // the wire-level enrollment event.)
+            Assert.True(SpinWait.SpinUntil(
+                () => rig.Uploader.Received
+                    .SelectMany(b => b)
+                    .Any(item =>
+                        item.Kind == TelemetryItemKind.Event &&
+                        item.PayloadJson != null &&
+                        item.PayloadJson.Contains("\"whiteglove_resumed\"")),
+                3000));
         }
 
         [Fact]
@@ -115,12 +164,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             var sut = rig.Build();
             sut.Start();
 
-            Assert.False(sut.IsWhiteGlovePart2Resume);
+            Assert.False(sut.IsWhiteGlovePart2);
 
-            // No SessionRecovered should have been posted.
-            Thread.Sleep(100);
-            var signalLog = GetSignalLog(sut);
-            Assert.DoesNotContain(signalLog.ReadAll(), s => s.Kind == DecisionSignalKind.SessionRecovered);
+            // No archive bucket: this is a regular non-WG snapshot, the orchestrator
+            // recovers in-place rather than archiving.
+            Assert.Empty(Directory.GetDirectories(rig.StateDir, ".part1-*"));
 
             sut.Stop();
         }
@@ -150,7 +198,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             sut.Start();
 
             Assert.True(sut.WasStartupQuarantine);
-            Assert.False(sut.IsWhiteGlovePart2Resume);
+            Assert.False(sut.IsWhiteGlovePart2);
 
             // Original snapshot + signal-log were moved aside.
             Assert.False(File.Exists(snapshotPath));
@@ -677,17 +725,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         {
             // Future re-arm: the rehydrated deadline is live on the scheduler (IsScheduled=true)
             // but no DeadlineFired signal has been emitted because its wall-clock due time
-            // has not arrived.
+            // has not arrived. Stage AwaitingHello (a regular Classic-flow stage that doesn't
+            // trigger PR-A's WhiteGlove archive-and-reset path) so the deadline survives recovery.
             using var rig = new Rig();
             Directory.CreateDirectory(rig.StateDir);
 
             var future = new ActiveDeadline(
-                name: "part2_safety",
+                name: "hello_safety",
                 dueAtUtc: DateTime.UtcNow.AddHours(2), // real wall-clock future (scheduler uses wall clock)
                 firesSignalKind: DecisionSignalKind.DeadlineFired);
             var seed = DecisionState.CreateInitial("S1", "T1")
                 .ToBuilder()
-                .WithStage(SessionStage.WhiteGloveSealed)
+                .WithStage(SessionStage.AwaitingHello)
                 .WithStepIndex(5)
                 .WithLastAppliedSignalOrdinal(4)
                 .AddDeadline(future)
@@ -701,7 +750,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
 
             // Scheduler must know about the re-armed deadline.
             var scheduler = GetScheduler(sut);
-            Assert.True(scheduler.IsScheduled("part2_safety"),
+            Assert.True(scheduler.IsScheduled("hello_safety"),
                 "Future-due persisted deadline was not re-armed on the scheduler.");
 
             // Give the ThreadPool a moment to prove we don't fire it prematurely.

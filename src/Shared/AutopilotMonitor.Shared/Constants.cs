@@ -247,8 +247,7 @@ namespace AutopilotMonitor.Shared
             // emits no timeline effect), so the AadJoinWatcherAdapter dual-emits them as
             // informational events too. Without this the FailureSnapshotBuilder cannot tell that
             // the real AAD user was ever observed (Codex review 2026-05-01).
-            public const string AadUserJoinedObserved      = "aad_user_joined_observed";     // Real user observed in JoinInfo (Part 1 path) — synchronous startup-read OR mid-session watcher fire
-            public const string UserAadSignInComplete      = "user_aad_signin_complete";     // Real user signs in post-reboot (Part 2 path)
+            public const string AadUserJoinedObserved      = "aad_user_joined_observed";     // Real user observed in JoinInfo — synchronous startup-read OR mid-session watcher fire
         }
 
         // -----------------------------------------------------------------------

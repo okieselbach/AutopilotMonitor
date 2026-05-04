@@ -74,25 +74,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             Assert.Equal("DesktopArrivalDetector", info.Payload![SignalPayloadKeys.Source]);
             // Fix 1 policy: desktop_arrived is a completion-gate event → flush immediately.
             Assert.Equal("true", info.Payload[SignalPayloadKeys.ImmediateUpload]);
-            Assert.Equal("false", info.Payload["part2Mode"]);
             Assert.Equal("explorer.exe process poll", info.Payload["detectionSource"]);
             Assert.True(info.Payload.ContainsKey("detectedAt"));
-        }
-
-        [Fact]
-        public void Part2Mode_emits_DesktopArrivedPart2_kind_and_part2_flagged_info_event()
-        {
-            using var f = new Fixture();
-            using var adapter = new DesktopArrivalDetectorAdapter(f.Detector, f.Ingress, f.Clock, part2Mode: true);
-
-            adapter.TriggerFromTest();
-
-            var decision = f.DecisionSignal(DecisionSignalKind.DesktopArrivedPart2);
-            Assert.Contains("Part 2", decision.Evidence.Summary);
-
-            var info = f.InfoEvent(SharedEventTypes.DesktopArrived);
-            Assert.Equal("true", info.Payload!["part2Mode"]);
-            Assert.Contains("Part 2", info.Payload[SignalPayloadKeys.Message]);
         }
 
         [Fact]

@@ -76,7 +76,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         [InlineData(SessionStage.Completed)]
         [InlineData(SessionStage.Failed)]
         [InlineData(SessionStage.WhiteGloveSealed)]
-        [InlineData(SessionStage.WhiteGloveCompletedPart2)]
         public void Terminal_stage_transition_fires_callback_with_terminal_state(SessionStage terminal)
         {
             using var rig = new Rig();

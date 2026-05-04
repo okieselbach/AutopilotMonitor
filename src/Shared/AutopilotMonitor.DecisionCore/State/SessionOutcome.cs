@@ -3,7 +3,7 @@ namespace AutopilotMonitor.DecisionCore.State
     /// <summary>
     /// Terminal outcome of a session. Plan §2.3.
     /// Non-null only when <see cref="SessionStage"/> is a terminal stage
-    /// (<c>Completed</c>, <c>Failed</c>, or <c>WhiteGloveCompletedPart2</c>).
+    /// (<c>Completed</c>, <c>Failed</c>, or <c>WhiteGloveSealed</c>).
     /// </summary>
     public enum SessionOutcome
     {
@@ -11,7 +11,6 @@ namespace AutopilotMonitor.DecisionCore.State
         EnrollmentComplete,
         EnrollmentFailed,
         WhiteGlovePart1Sealed,
-        WhiteGlovePart2Complete,
         Aborted,
 
         // V2 parity PR-B3 / plan §2.7 admin-action audit:

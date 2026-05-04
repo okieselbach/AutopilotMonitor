@@ -95,8 +95,10 @@ namespace AutopilotMonitor.DecisionCore.Tests
             var snapshot = DecisionStateSnapshotBuilder.Build(DecisionState.CreateInitial("s", "t"));
             var facts = (Dictionary<string, object?>)snapshot["facts"]!;
 
-            // All 15 SignalFact slots present and null.
-            Assert.Equal(15, facts.Count);
+            // The WG-resume cleanup (2026-05-04) dropped the four V2-only post-reseal
+            // SignalFacts along with the rest of the dedicated Part-2 apparatus; the
+            // Classic Hello/Desktop/AAD facts cover both runs now, leaving 11 slots.
+            Assert.Equal(11, facts.Count);
             Assert.All(facts.Values, v => Assert.Null(v));
         }
 
@@ -203,10 +205,11 @@ namespace AutopilotMonitor.DecisionCore.Tests
                 .OrderBy(k => k, StringComparer.Ordinal)
                 .ToList();
 
-            // Sanity: the plan says 15 SignalFact properties exist in DecisionState.
-            // If this number ever changes, both the count expectation AND the actual
-            // snapshot output need to evolve in lockstep.
-            Assert.Equal(15, expectedFactKeys.Count);
+            // PR-B (2026-05-04): 11 SignalFact properties on DecisionState (was 15;
+            // the 4 WG-Part-2 facts were removed). If this number ever changes, both
+            // the count expectation AND the actual snapshot output need to evolve in
+            // lockstep.
+            Assert.Equal(11, expectedFactKeys.Count);
 
             var snapshot = DecisionStateSnapshotBuilder.Build(DecisionState.CreateInitial("s", "t"));
             var facts = (Dictionary<string, object?>)snapshot["facts"]!;

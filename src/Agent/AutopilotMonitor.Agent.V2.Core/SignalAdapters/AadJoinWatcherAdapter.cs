@@ -14,8 +14,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
     /// Adapter for <see cref="AadJoinWatcher"/>:
     /// <list type="bullet">
     /// <item><description><see cref="AadJoinWatcher.AadUserJoined"/> →
-    ///   <see cref="DecisionSignalKind.AadUserJoinedLate"/> (Part 1) or
-    ///   <see cref="DecisionSignalKind.UserAadSignInComplete"/> (Part 2). Plan §2.1a / §2.2.</description></item>
+    ///   <see cref="DecisionSignalKind.AadUserJoinedLate"/>. Plan §2.1a / §2.2.</description></item>
     /// <item><description><see cref="AadJoinWatcher.PlaceholderUserDetected"/> → emits a
     ///   <c>aad_placeholder_user_detected</c> informational event for backend timeline
     ///   visibility (Hybrid User-Driven completion-gap fix, 2026-05-01). NOT a decision signal —
@@ -32,7 +31,6 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private readonly IClock _clock;
         private readonly InformationalEventPost _post;
         private readonly Action? _onRealUserJoined;
-        private readonly bool _part2Mode;
         private bool _fired;
         private bool _placeholderFired;
 
@@ -40,14 +38,12 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             AadJoinWatcher watcher,
             ISignalIngressSink ingress,
             IClock clock,
-            bool part2Mode = false,
             Action? onRealUserJoined = null)
         {
             _watcher = watcher ?? throw new ArgumentNullException(nameof(watcher));
             _ingress = ingress ?? throw new ArgumentNullException(nameof(ingress));
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
             _post = new InformationalEventPost(ingress, clock);
-            _part2Mode = part2Mode;
             _onRealUserJoined = onRealUserJoined;
 
             _watcher.AadUserJoined += OnAadUserJoined;
@@ -74,8 +70,6 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             if (_fired) return;
             _fired = true;
 
-            var kind = _part2Mode ? DecisionSignalKind.UserAadSignInComplete : DecisionSignalKind.AadUserJoinedLate;
-
             var payload = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 // Don't log the full email in decision signals — user PII. Keep domain only
@@ -92,15 +86,13 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             };
 
             _ingress.Post(
-                kind: kind,
+                kind: DecisionSignalKind.AadUserJoinedLate,
                 occurredAtUtc: _clock.UtcNow,
                 sourceOrigin: SourceLabel,
                 evidence: new Evidence(
                     kind: EvidenceKind.Derived,
                     identifier: "aad-join-watcher-v1",
-                    summary: _part2Mode
-                        ? "Post-reboot AAD user sign-in detected (JoinInfo registry key)"
-                        : "AAD user join observed (JoinInfo registry key)",
+                    summary: "AAD user join observed (JoinInfo registry key)",
                     derivationInputs: new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         ["registryKey"] = @"HKLM\SYSTEM\CurrentControlSet\Control\CloudDomainJoin\JoinInfo",
@@ -108,21 +100,15 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 payload: payload);
 
             // Codex review 2026-05-01 — also dual-emit as informational event.
-            // HandleAadUserJoinedLateV1 / Part 2 handler in DecisionEngine.Classic is
-            // observation-only (no timeline effect), so without this dual-emission the
-            // backend Events table never sees the real-user join. FailureSnapshotBuilder
-            // (and any other event-stream consumer) needs this anchor to correctly classify
-            // aadJoinState=real_user. Same PII-safe payload shape as the decision signal.
-            var infoEventType = _part2Mode
-                ? SharedConstants.EventTypes.UserAadSignInComplete
-                : SharedConstants.EventTypes.AadUserJoinedObserved;
-            var infoMessage = _part2Mode
-                ? $"Post-reboot AAD user sign-in detected (domain={payload["userDomain"]})"
-                : $"AAD user join observed (domain={payload["userDomain"]})";
+            // HandleAadUserJoinedLateV1 in DecisionEngine.Classic is observation-only (no
+            // timeline effect), so without this dual-emission the backend Events table never
+            // sees the real-user join. FailureSnapshotBuilder (and any other event-stream
+            // consumer) needs this anchor to correctly classify aadJoinState=real_user. Same
+            // PII-safe payload shape as the decision signal.
             _post.Emit(
-                eventType: infoEventType,
+                eventType: SharedConstants.EventTypes.AadUserJoinedObserved,
                 source: SourceLabel,
-                message: infoMessage,
+                message: $"AAD user join observed (domain={payload["userDomain"]})",
                 severity: EventSeverity.Info,
                 immediateUpload: true,
                 data: payload,

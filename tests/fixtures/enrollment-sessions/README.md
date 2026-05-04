@@ -21,9 +21,8 @@ A fixture may only land here when **all** of the following hold:
    - `selfdeploying-*`
    - `whiteglove-inline-*`
    - `whiteglove-signal-correlated-*`
-   - `whiteglove-part2-happy-*`
-   - `whiteglove-part2-stuck-*`
    - `whiteglove-false-positive-*`
+   - `whiteglove-antiloop-*`
    - `hybrid-reboot-*`
    - `esp-terminal-failure-*`
    - `hello-timeout-*`

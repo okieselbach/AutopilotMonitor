@@ -184,12 +184,6 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 seen.Add("ime_pattern_matched");
                 evidence["imePatternMatched"] = OrdinalEvidence(s.ImeMatchedPatternId.SourceSignalOrdinal);
             }
-            if (s.UserAadSignInCompleteUtc != null)
-            {
-                seen.Add("user_aad_sign_in_complete");
-                timestamps["userAadSignInComplete"] = FormatUtc(s.UserAadSignInCompleteUtc.Value);
-                evidence["userAadSignInComplete"] = TimestampedEvidence(s.UserAadSignInCompleteUtc);
-            }
             if (s.SystemRebootUtc != null)
             {
                 seen.Add("system_reboot");
@@ -224,26 +218,6 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     ["ordinal"] = s.ScenarioObservations.AadUserJoinWithUserObserved.SourceSignalOrdinal,
                     ["withUser"] = s.ScenarioObservations.AadUserJoinWithUserObserved.Value,
                 };
-            }
-
-            // WhiteGlove Part-2 facts.
-            if (s.HelloResolvedPart2Utc != null)
-            {
-                seen.Add("hello_resolved_part2");
-                timestamps["helloResolvedPart2"] = FormatUtc(s.HelloResolvedPart2Utc.Value);
-                evidence["helloResolvedPart2"] = TimestampedEvidence(s.HelloResolvedPart2Utc);
-            }
-            if (s.DesktopArrivedPart2Utc != null)
-            {
-                seen.Add("desktop_arrived_part2");
-                timestamps["desktopArrivedPart2"] = FormatUtc(s.DesktopArrivedPart2Utc.Value);
-                evidence["desktopArrivedPart2"] = TimestampedEvidence(s.DesktopArrivedPart2Utc);
-            }
-            if (s.AccountSetupCompletedPart2Utc != null)
-            {
-                seen.Add("account_setup_completed_part2");
-                timestamps["accountSetupCompletedPart2"] = FormatUtc(s.AccountSetupCompletedPart2Utc.Value);
-                evidence["accountSetupCompletedPart2"] = TimestampedEvidence(s.AccountSetupCompletedPart2Utc);
             }
 
             return (seen, evidence, timestamps);

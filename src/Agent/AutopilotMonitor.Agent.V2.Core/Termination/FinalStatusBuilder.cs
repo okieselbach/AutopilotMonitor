@@ -59,7 +59,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         /// <summary>
         /// Schema 2 — derives a human-readable explanation rendered as the dialog's failure
         /// banner. Returns <c>null</c> for successful terminal outcomes (succeeded /
-        /// whiteglove_part1 / whiteglove_part2) so the dialog skips the banner.
+        /// whiteglove_part1) so the dialog skips the banner. Part-2 reaches succeeded
+        /// through the Classic flow after Archive-and-Reset (PR-A).
         /// <para>
         /// Source priority:
         /// </para>
@@ -111,10 +112,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             Add("helloResolved", state.HelloResolvedUtc);
             Add("desktopArrived", state.DesktopArrivedUtc);
             Add("systemReboot", state.SystemRebootUtc);
-            Add("part2UserAadSignIn", state.UserAadSignInCompleteUtc);
-            Add("part2HelloResolved", state.HelloResolvedPart2Utc);
-            Add("part2DesktopArrived", state.DesktopArrivedPart2Utc);
-            Add("part2AccountSetupCompleted", state.AccountSetupCompletedPart2Utc);
 
             return ts.Count == 0 ? null : ts;
         }
@@ -122,7 +119,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         private static string MapOutcome(EnrollmentTerminationOutcome outcome, SessionStage stage)
         {
             if (stage == SessionStage.WhiteGloveSealed) return "whiteglove_part1";
-            if (stage == SessionStage.WhiteGloveCompletedPart2) return "whiteglove_part2";
             switch (outcome)
             {
                 case EnrollmentTerminationOutcome.Succeeded: return "succeeded";
@@ -146,10 +142,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             if (obs.WhiteGloveSealingPatternSeen != null && obs.WhiteGloveSealingPatternSeen.Value)
                 signals.Add("whiteglove_sealing_pattern");
             if (state.ImeMatchedPatternId != null) signals.Add($"ime_pattern:{state.ImeMatchedPatternId.Value}");
-            if (state.UserAadSignInCompleteUtc != null) signals.Add("part2_user_aad_signin");
-            if (state.HelloResolvedPart2Utc != null) signals.Add("part2_hello_resolved");
-            if (state.DesktopArrivedPart2Utc != null) signals.Add("part2_desktop_arrived");
-            if (state.AccountSetupCompletedPart2Utc != null) signals.Add("part2_account_setup_completed");
             return signals;
         }
 

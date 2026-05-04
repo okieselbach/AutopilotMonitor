@@ -144,7 +144,6 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 case "Completed":
                 case "Failed":
                 case "WhiteGloveSealed":
-                case "WhiteGloveCompletedPart2":
                     return true;
                 default:
                     return false;

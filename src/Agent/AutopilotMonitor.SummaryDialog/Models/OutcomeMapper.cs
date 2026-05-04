@@ -3,10 +3,10 @@ using System;
 namespace AutopilotMonitor.SummaryDialog.Models
 {
     /// <summary>
-    /// Six visual states the dialog can render. The mapping from the wire-format
+    /// Five visual states the dialog can render. The mapping from the wire-format
     /// <see cref="FinalStatus.Outcome"/> string depends on the schema version: V1 only
-    /// produces "completed"/"failed", V2 also uses "succeeded"/"timed_out"/"whiteglove_part1"/
-    /// "whiteglove_part2"/"unknown". The renderer chooses header text, icon and banner
+    /// produces "completed"/"failed", V2 uses "succeeded"/"failed"/"timed_out"/
+    /// "whiteglove_part1"/"unknown". The renderer chooses header text, icon and banner
     /// colour from this enum, not from the raw string.
     /// </summary>
     public enum OutcomeKind
@@ -66,13 +66,12 @@ namespace AutopilotMonitor.SummaryDialog.Models
                     : OutcomeKind.Failure;
             }
 
-            // V2 — six explicit states. Accept "completed" too, defensively, in case a
+            // V2 — five explicit states. Accept "completed" too, defensively, in case a
             // mixed environment ever surfaces (V1-style outcome string with V2 schema flag).
             switch (outcome.ToLowerInvariant())
             {
                 case "succeeded":
                 case "completed":
-                case "whiteglove_part2":
                     return OutcomeKind.Success;
 
                 case "whiteglove_part1":

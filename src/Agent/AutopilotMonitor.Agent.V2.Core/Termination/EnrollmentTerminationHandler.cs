@@ -106,6 +106,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         // is only written by the AppDomain.ProcessExit handler, which Windows can pre-empt.
         // Null = no early write (tests / parity with the original blind-exit path).
         private readonly Action _writeCleanExitMarker;
+        // V1-symmetric Part-2 hint accessor (plan §11). A Part-2 resume runs as a fresh
+        // Classic enrollment after Archive-and-Reset, so the terminal Stage is
+        // <c>Completed</c>/<c>Failed</c> like any first-run completion. The shutdown
+        // analyzer pipeline still needs to know it was a Part-2 run so SoftwareInventoryAnalyzer
+        // can tag findings with phase=2 and the backend's vulnerability-correlation pipeline
+        // can filter Part-2 inventory out of the Part-1 set. Wired by AgentRuntimeHost as
+        // <c>() =&gt; orchestrator.IsWhiteGlovePart2</c>; null in tests = legacy (always
+        // treats as Part-1/null).
+        private readonly Func<bool> _isWhiteGlovePart2Accessor;
 
         private int _handled;
 
@@ -132,7 +141,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             Func<int> ignoredCountAccessor = null,
             Func<int> pendingItemCountAccessor = null,
             Action writeCleanExitMarker = null,
-            Func<long> ingressPendingSignalCountAccessor = null)
+            Func<long> ingressPendingSignalCountAccessor = null,
+            Func<bool> isWhiteGlovePart2Accessor = null)
         {
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -161,6 +171,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             _pendingItemCountAccessor = pendingItemCountAccessor;
             _writeCleanExitMarker = writeCleanExitMarker;
             _ingressPendingSignalCountAccessor = ingressPendingSignalCountAccessor;
+            _isWhiteGlovePart2Accessor = isWhiteGlovePart2Accessor;
         }
 
         /// <summary>
@@ -197,7 +208,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 // reseal-rebooted) or fails outright; either way the enrollment_summary_shown
                 // event is semantically wrong and pollutes the timeline. Skip the dialog
                 // build + launch + final-status.json write entirely on Part 1; the regular
-                // Completed / Failed / WhiteGloveCompletedPart2 paths still run unchanged.
+                // Completed / Failed paths still run unchanged.
                 if (!isWhiteGlovePart1)
                 {
                     if (state == null)
@@ -323,10 +334,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 // SoftwareInventoryAnalyzer's per-phase idempotency guards make a second
                 // Part-1 call (when WhiteGloveInventoryTrigger fired earlier) a no-op for the
                 // inventory analyzer while still running LocalAdmin / IntegrityBypass.
+                //
+                // Part-2 detection comes from the orchestrator's
+                // <see cref="EnrollmentOrchestrator.IsWhiteGlovePart2"/> hint, not from a
+                // dedicated terminal stage. After Archive-and-Reset the V2 reducer drives
+                // Part 2 as a fresh Classic enrollment that terminates on <c>Completed</c>
+                // /<c>Failed</c>; the orchestrator preserves the Part-2 origin via the
+                // in-memory <c>_isWhiteGlovePart2</c> flag wired here. V1-symmetric:
+                // <c>runShutdownAnalyzers(_isWhiteGlovePart2 ? 2 : null)</c>.
                 int? wgPart;
                 if (args.StageName == SessionStage.WhiteGloveSealed.ToString())
                     wgPart = 1;
-                else if (args.StageName == SessionStage.WhiteGloveCompletedPart2.ToString())
+                else if (_isWhiteGlovePart2Accessor != null && _isWhiteGlovePart2Accessor())
                     wgPart = 2;
                 else
                     wgPart = null;

@@ -11,12 +11,11 @@ namespace AutopilotMonitor.DecisionCore.Tests.State
     public sealed class ClassifierOutcomesTests
     {
         [Fact]
-        public void Empty_allThreeHypothesesAreUnknown()
+        public void Empty_bothHypothesesAreUnknown()
         {
             var o = ClassifierOutcomes.Empty;
 
             Assert.Equal(HypothesisLevel.Unknown, o.WhiteGloveSealing.Level);
-            Assert.Equal(HypothesisLevel.Unknown, o.WhiteGlovePart2Completion.Level);
             Assert.Equal(HypothesisLevel.Unknown, o.DeviceOnlyDeployment.Level);
         }
 
@@ -32,7 +31,6 @@ namespace AutopilotMonitor.DecisionCore.Tests.State
             var outcomes = ClassifierOutcomes.Empty.WithWhiteGloveSealing(h);
 
             Assert.Equal(HypothesisLevel.Confirmed, outcomes.WhiteGloveSealing.Level);
-            Assert.Equal(HypothesisLevel.Unknown, outcomes.WhiteGlovePart2Completion.Level);
             Assert.Equal(HypothesisLevel.Unknown, outcomes.DeviceOnlyDeployment.Level);
         }
 
@@ -53,7 +51,6 @@ namespace AutopilotMonitor.DecisionCore.Tests.State
         {
             Assert.Throws<ArgumentNullException>(() => new ClassifierOutcomes(
                 whiteGloveSealing: null!,
-                whiteGlovePart2Completion: Hypothesis.UnknownInstance,
                 deviceOnlyDeployment: Hypothesis.UnknownInstance));
         }
 
@@ -61,7 +58,6 @@ namespace AutopilotMonitor.DecisionCore.Tests.State
         public void With_nullValue_throws()
         {
             Assert.Throws<ArgumentNullException>(() => ClassifierOutcomes.Empty.WithWhiteGloveSealing(null!));
-            Assert.Throws<ArgumentNullException>(() => ClassifierOutcomes.Empty.WithWhiteGlovePart2Completion(null!));
             Assert.Throws<ArgumentNullException>(() => ClassifierOutcomes.Empty.WithDeviceOnlyDeployment(null!));
         }
     }

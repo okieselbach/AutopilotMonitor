@@ -1,5 +1,41 @@
 import { EnrollmentEvent } from "@/types";
 
+// Pure helper — finds the WhiteGlove "Part 1 ends, Part 2 begins" split sequence.
+//
+// Returns the sequence number AT WHICH (inclusive) Part 1 ends; events with sequence
+// strictly greater belong to Part 2. Returns -1 when no split point can be derived
+// (Part 1 still in progress, or session is not WhiteGlove at all).
+//
+// Resolution order — mirrors the agent-side V1-symmetric resume mechanic (PR-A):
+//   1. `whiteglove_resumed` is the definitive Part 2 marker (emitted by the orchestrator
+//      after Archive-and-Reset detects WhiteGloveSealed snapshot). Returns its sequence - 1.
+//   2. Fallback for older agents that never emit `whiteglove_resumed`: the first
+//      `agent_started` AFTER `whiteglove_complete` is the Part 2 boot. Returns its sequence - 1.
+//   3. Pre-provisioning only (no Part 2 yet): the last cleanup event after `whiteglove_complete`
+//      (`agent_shutdown`) ends Part 1; otherwise the `whiteglove_complete` sequence itself.
+//   4. Nothing: -1.
+export function computeWhiteGloveSplitSequence(events: EnrollmentEvent[]): number {
+  const wgEvent = events.find(e => e.eventType === "whiteglove_complete");
+  const resumedEvent = events.find(e => e.eventType === "whiteglove_resumed");
+
+  if (resumedEvent) {
+    return resumedEvent.sequence - 1;
+  }
+
+  if (wgEvent) {
+    const nextStart = events.find(e =>
+      e.eventType === "agent_started" && e.sequence > wgEvent.sequence
+    );
+    if (nextStart) return nextStart.sequence - 1;
+
+    const shutdownAfterWg = events.find(e =>
+      e.eventType === "agent_shutdown" && e.sequence > wgEvent.sequence
+    );
+    return shutdownAfterWg?.sequence ?? wgEvent.sequence;
+  }
+  return -1;
+}
+
 // Pure helper — groups a flat event list into phase buckets.
 // Extracted from the useMemo so it can be called multiple times for WhiteGlove split timelines.
 //

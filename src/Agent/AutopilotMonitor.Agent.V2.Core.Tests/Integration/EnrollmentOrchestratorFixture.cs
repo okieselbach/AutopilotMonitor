@@ -22,7 +22,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Integration
     /// <para>
     /// <b>Drives the real pipeline</b>: DecisionEngine + DecisionStepProcessor + SignalIngress +
     /// EffectRunner + Persistence (SignalLog/Journal/Snapshot) + TelemetryTransport + production
-    /// Classifiers (WhiteGloveSealingClassifier + WhiteGlovePart2CompletionClassifier).
+    /// Classifiers (WhiteGloveSealingClassifier).
     /// </para>
     /// <para>
     /// <b>System-boundary fakes only</b>: HTTP upload (<see cref="FakeBackendTelemetryUploader"/>),
@@ -64,7 +64,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Integration
             var classifiers = new List<IClassifier>
             {
                 new WhiteGloveSealingClassifier(),
-                new WhiteGlovePart2CompletionClassifier(),
             };
 
             Orchestrator = new EnrollmentOrchestrator(

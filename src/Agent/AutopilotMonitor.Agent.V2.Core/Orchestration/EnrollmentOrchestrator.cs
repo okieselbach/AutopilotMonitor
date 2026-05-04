@@ -134,7 +134,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private string? _quarantineReason;
 
         // Recovery flags (populated during Start()).
-        private bool _isWhiteGlovePart2Resume;
+        // V1-symmetric Part-2 hint (analog to V1 MonitoringService._isWhiteGlovePart2):
+        // set when Start() detects a persisted WhiteGloveSealed snapshot and archives the
+        // state folder before fresh-starting the recovery pipeline. Read by
+        // AgentRuntimeHost (for "skip facts/SessionStarted on resume" semantics) and
+        // shutdown analyzers (V1: runShutdownAnalyzers(part: 2)).
+        private bool _isWhiteGlovePart2;
         private bool _wasStartupQuarantine;
 
         public EnrollmentOrchestrator(
@@ -224,11 +229,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         public string? QuarantineReason => _quarantineReason;
 
         /// <summary>
-        /// <c>true</c> wenn der Start mit einem persistierten <c>WhiteGloveSealed</c>-State
-        /// gelaufen ist und die Part-2-Bridge via <c>SessionRecovered</c>-Signal gezündet wurde.
-        /// Plan §2.7 Sonderfall 1.
+        /// <c>true</c> when Start() detected a persisted <see cref="SessionStage.WhiteGloveSealed"/>
+        /// snapshot, archived the prior state folder to <c>state/.part1-&lt;ts&gt;/</c>, and
+        /// began a fresh Classic enrollment flow. V1-symmetric to
+        /// <c>MonitoringService._isWhiteGlovePart2</c>. Plan §2.7 Sonderfall 1.
         /// </summary>
-        public bool IsWhiteGlovePart2Resume => _isWhiteGlovePart2Resume;
+        public bool IsWhiteGlovePart2 => _isWhiteGlovePart2;
 
         /// <summary>
         /// <c>true</c> wenn der Start auf einen korrupten State-Segment traf und
@@ -305,11 +311,46 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
             EnsureDirectories();
 
-            // 1) Persistenz. Writer scannen bestehende Files im Ctor (LastOrdinal / LastStepIndex).
             var snapshotPath = Path.Combine(_stateDirectory, "snapshot.json");
             var signalLogPath = Path.Combine(_stateDirectory, "signal-log.jsonl");
             var journalPath = Path.Combine(_stateDirectory, "journal.jsonl");
             var eventSequencePath = Path.Combine(_stateDirectory, "event-sequence.json");
+
+            // 0) WhiteGlove Part-2 resume detection. V1-symmetric Archive-and-Reset
+            //    pattern: peek the persisted snapshot via the lock-free static reader; if
+            //    the prior run sealed Part-1, move the reducer-state segment files
+            //    (snapshot, signal-log, journal) aside to a timestamped
+            //    <c>.part1-&lt;ts&gt;/</c> bucket BEFORE the writers below open them for
+            //    scanning. <c>event-sequence.json</c> is intentionally preserved so the
+            //    session-wide event sequence stays monotonic across the resume boundary
+            //    (the backend orders events by <c>(SessionId, Sequence)</c> and the
+            //    Web UI splits on <c>resumed.sequence - 1</c>). The orchestrator then
+            //    runs through the normal recovery branches as a fresh first-boot
+            //    (branch c1), re-emits a <c>whiteglove_resumed</c> lifecycle event
+            //    after the onIngressReady hook, and lets the standard Classic
+            //    enrollment flow drive completion.
+            //    Anti-loop: once archived, the WhiteGloveSealed snapshot is gone, so a
+            //    subsequent restart sees no marker and continues as a Classic session.
+            //    The hint bool is in-memory only — also matches V1 (which clears the
+            //    on-disk marker file before emitting <c>whiteglove_resumed</c>).
+            if (Directory.Exists(_stateDirectory))
+            {
+                var rawSnapshot = SnapshotPersistence.TryReadRaw(snapshotPath);
+                if (rawSnapshot != null && rawSnapshot.Stage == SessionStage.WhiteGloveSealed)
+                {
+                    StateArchiver.ArchiveStateFolder(
+                        stateDirectory: _stateDirectory,
+                        reason: "wg_part1_resume_archive",
+                        utcNow: () => _clock.UtcNow,
+                        logger: _logger);
+                    _isWhiteGlovePart2 = true;
+                    _logger.Info(
+                        "EnrollmentOrchestrator: WhiteGlove Part-1 resume detected — state archived; " +
+                        "starting fresh Classic enrollment flow for Part-2.");
+                }
+            }
+
+            // 1) Persistenz. Writer scannen bestehende Files im Ctor (LastOrdinal / LastStepIndex).
             _signalLog = new SignalLogWriter(signalLogPath);
             _journal = new JournalWriter(journalPath, () => _clock.UtcNow);
             _snapshot = new SnapshotPersistence(snapshotPath, () => _clock.UtcNow);
@@ -454,18 +495,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 $"stage={initialState.Stage}, stepIndex={initialState.StepIndex}, " +
                 $"signalsReplayed={signalsToReplay.Count}, " +
                 $"journal.LastStepIndex={_journal.LastStepIndex}.");
-
-            // Sonderfall 1 Detection: WG Part 1 -> Reboot -> Part 2 Resume.
-            // Self-destruct bleibt AUS (Caller ist zuständig — die Info wird via
-            // IsWhiteGlovePart2Resume exponiert); Session-Recovered-Signal wird gepostet
-            // nachdem Ingress gestartet ist.
-            if (initialState.Stage == SessionStage.WhiteGloveSealed)
-            {
-                _isWhiteGlovePart2Resume = true;
-                _logger.Info(
-                    "EnrollmentOrchestrator: White-Glove Part-1 resume detected — SessionRecovered signal " +
-                    "will be posted after ingress start; self-destruct handling is caller-owned.");
-            }
 
             // 3) Telemetry-Transport. Batch size flows from AgentConfiguration.MaxBatchSize
             //    via Program.cs (P1 fix: previously the remote-config knob was merged but
@@ -662,34 +691,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 }
             }
 
-            // 13a) Recovery Sonderfall 1: WG Part-1 → Part-2 bridge zünden. Das Signal muss
-            //      nach _ingress.Start laufen, aber VOR Collectors/Adapters — so sieht der
-            //      Reducer-Worker zuerst die Bridge-Transition (WhiteGloveSealed → AwaitingUserSignIn)
-            //      und erst danach kommende Real-Signals.
-            if (_isWhiteGlovePart2Resume)
-            {
-                try
-                {
-                    _ingress.Post(
-                        kind: DecisionSignalKind.SessionRecovered,
-                        occurredAtUtc: _clock.UtcNow,
-                        sourceOrigin: "EnrollmentOrchestrator",
-                        evidence: new Evidence(
-                            kind: EvidenceKind.Synthetic,
-                            identifier: "wg_part1_resume",
-                            summary: "White-Glove Part-1 state recovered from snapshot; Part-2 bridge triggered."),
-                        payload: new Dictionary<string, string>(StringComparer.Ordinal)
-                        {
-                            ["from"] = SessionStage.WhiteGloveSealed.ToString(),
-                            ["to"] = SessionStage.WhiteGloveAwaitingUserSignIn.ToString(),
-                        });
-                }
-                catch (Exception ex)
-                {
-                    _logger.Error("EnrollmentOrchestrator: failed to post SessionRecovered for WG Part-2 resume.", ex);
-                }
-            }
-
             // 13b) Caller-owned pre-collector hook. Single-rail refactor uses this slot to post
             //      agent-lifecycle signals (agent_started, agent_version_check, …) so they land
             //      on the signal log before any collector-generated signal — fixes the seq=13
@@ -704,6 +705,42 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 catch (Exception ex)
                 {
                     _logger.Error("EnrollmentOrchestrator: onIngressReady hook threw — continuing startup.", ex);
+                }
+            }
+
+            // 13b-WG) WhiteGlove Part-2 resume marker event. V1-symmetric to
+            //         MonitoringService.cs:518 — after Part-1 was sealed and the state
+            //         archived in step 0, announce the resume on the session timeline so
+            //         the backend can flip the session row from Pending → InProgress and
+            //         downstream UI splitters can render a "User Enrollment Part 2"
+            //         block. Posted AFTER the onIngressReady hook so agent_started lands
+            //         first (matches V1 ordering).
+            if (_isWhiteGlovePart2)
+            {
+                try
+                {
+                    var lifecyclePost = new InformationalEventPost(_ingress, _clock);
+                    var resumedAtUtc = _clock.UtcNow;
+                    lifecyclePost.Emit(
+                        eventType: "whiteglove_resumed",
+                        source: "Agent",
+                        message: "WhiteGlove Part 2 resumed after reseal-reboot; Part-1 state archived.",
+                        severity: Shared.Models.EventSeverity.Info,
+                        immediateUpload: true,
+                        data: new Dictionary<string, string>(StringComparer.Ordinal)
+                        {
+                            ["previousStage"] = SessionStage.WhiteGloveSealed.ToString(),
+                            ["resumedAtUtc"] = resumedAtUtc.ToString(
+                                "o", System.Globalization.CultureInfo.InvariantCulture),
+                        },
+                        occurredAtUtc: resumedAtUtc,
+                        sourceOrigin: "EnrollmentOrchestrator",
+                        evidenceSummary:
+                            "WhiteGlove Part-1 state archived; resuming as fresh Classic enrollment for Part-2.");
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error("EnrollmentOrchestrator: failed to post whiteglove_resumed for Part-2 resume.", ex);
                 }
             }
 
@@ -896,7 +933,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
             var outcome = terminalState.Stage switch
             {
-                SessionStage.Completed or SessionStage.WhiteGloveCompletedPart2 or SessionStage.WhiteGloveSealed
+                SessionStage.Completed or SessionStage.WhiteGloveSealed
                     => EnrollmentTerminationOutcome.Succeeded,
                 SessionStage.Failed => EnrollmentTerminationOutcome.Failed,
                 _ => EnrollmentTerminationOutcome.TimedOut,

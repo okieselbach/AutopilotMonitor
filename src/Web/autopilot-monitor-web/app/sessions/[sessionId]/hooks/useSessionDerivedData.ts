@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { EnrollmentEvent, Session } from "@/types";
 import { V1_PHASE_NAMES, V2_PHASE_NAMES, V1_PHASE_ORDER, V2_PHASE_ORDER } from "../utils/phaseConstants";
-import { groupEventsByPhase } from "../utils/eventHelpers";
+import { computeWhiteGloveSplitSequence, groupEventsByPhase } from "../utils/eventHelpers";
 
 interface PhaseGrouping {
   eventsByPhase: Record<string, EnrollmentEvent[]>;
@@ -147,34 +147,7 @@ export function useSessionDerivedData(
 
   const whiteGloveSplitSequence = useMemo(() => {
     if (!isWhiteGloveSession) return -1;
-    const wgEvent = events.find(e => e.eventType === "whiteglove_complete");
-    const resumedEvent = events.find(e => e.eventType === "whiteglove_resumed");
-
-    // whiteglove_resumed is the definitive Part 2 marker (emitted at Part 2 agent startup).
-    // This handles both normal ordering and the race condition where Windows writes the
-    // whiteglove_complete event (Event 62407) after the Part 2 reboot.
-    if (resumedEvent) {
-      return resumedEvent.sequence - 1;
-    }
-
-    // Fallback for old agents without whiteglove_resumed:
-    // first agent_started AFTER whiteglove_complete = Part 2 start.
-    // NOTE: We do NOT use the "last agent_started before whiteglove_complete" heuristic
-    // because reboots within Part 1 would be misidentified as Part 2.
-    if (wgEvent) {
-      const nextStart = events.find(e =>
-        e.eventType === "agent_started" && e.sequence > wgEvent.sequence
-      );
-      if (nextStart) return nextStart.sequence - 1;
-
-      // Pre-provisioning only (no Part 2 yet). Include cleanup events
-      // (local_admin_analysis, agent_shutdown) that follow whiteglove_complete.
-      const shutdownAfterWg = events.find(e =>
-        e.eventType === "agent_shutdown" && e.sequence > wgEvent.sequence
-      );
-      return shutdownAfterWg?.sequence ?? wgEvent.sequence;
-    }
-    return -1;
+    return computeWhiteGloveSplitSequence(events);
   }, [events, isWhiteGloveSession]);
 
   // For WhiteGlove sessions: split filtered events into pre-provisioning and user-enrollment parts.

@@ -83,38 +83,6 @@ namespace AutopilotMonitor.DecisionCore.Engine
         }
 
         /// <summary>
-        /// Handle <see cref="DecisionSignalKind.SessionRecovered"/>. Plan §2.7 sonder-case 1.
-        /// <para>
-        /// In M3.0 scope this is a generic bookkeeping handler. The White-Glove Part-1 →
-        /// Part-2 post-reboot transition is implemented in <c>DecisionEngine.WhiteGlovePart2.cs</c>
-        /// (M3.4) and takes precedence there when the prior stage was
-        /// <see cref="SessionStage.WhiteGloveSealed"/>.
-        /// </para>
-        /// </summary>
-        private DecisionStep HandleSessionRecoveredV1(DecisionState state, DecisionSignal signal)
-        {
-            // Plan §2.7 sonder-case 1: WhiteGlove Part 1 -> Reboot -> Part 2.
-            // If the recovered session was sealed, transition into the Part 2 awaiting-user
-            // stage and arm the 24h safety deadline. See DecisionEngine.WhiteGlovePart2.cs.
-            if (state.Stage == SessionStage.WhiteGloveSealed)
-            {
-                return HandleWhiteGlovePart1To2Bridge(state, signal);
-            }
-
-            // Otherwise the recovered state is already mid-flight elsewhere; the handler is
-            // a neutral "observed a restart" step — stage unchanged, bookkeeping advanced.
-            var newState = BumpStepBookkeeping(state, signal);
-            var transition = BuildTakenTransition(
-                before: state,
-                signal: signal,
-                toStage: state.Stage,
-                nextStepIndex: newState.StepIndex,
-                trigger: nameof(DecisionSignalKind.SessionRecovered));
-
-            return new DecisionStep(newState, transition, Array.Empty<DecisionEffect>());
-        }
-
-        /// <summary>
         /// Handle <see cref="DecisionSignalKind.EffectInfrastructureFailure"/>. Codex
         /// follow-up #2 — posted synchronously by the EffectRunner when a critical
         /// effect (ScheduleDeadline / CancelDeadline) cannot reach the scheduler.
@@ -370,14 +338,12 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     return HandleDeviceOnlyEspDetectionDeadlineFired(state, signal);
                 case DeadlineNames.ClassifierTick:
                     return HandleClassifierTickDeadlineFired(state, signal);
-                case DeadlineNames.WhiteGlovePart2Safety:
-                    return HandleWhiteGlovePart2SafetyDeadlineFired(state, signal);
                 case DeadlineNames.FinalizingGrace:
                     return HandleFinalizingGraceDeadlineFired(state, signal);
                 default:
                     // Deadline name not recognized in this sub-milestone. Cancel it from state
                     // and record a neutral taken transition — M3.3+ adds handlers for
-                    // ClassifierTick, M3.4 for WhiteGlovePart2Safety, etc.
+                    // ClassifierTick, etc.
                     var nextStepIgnored = state.StepIndex + 1;
                     var cancelled = state.ToBuilder()
                         .WithStepIndex(nextStepIgnored)

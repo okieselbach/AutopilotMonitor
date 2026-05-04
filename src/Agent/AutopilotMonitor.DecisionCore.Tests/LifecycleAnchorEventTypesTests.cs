@@ -21,7 +21,6 @@ namespace AutopilotMonitor.DecisionCore.Tests
         [InlineData(nameof(SharedConstants.EventTypes.DesktopArrived))]
         [InlineData(nameof(SharedConstants.EventTypes.AadPlaceholderUserDetected))]
         [InlineData(nameof(SharedConstants.EventTypes.AadUserJoinedObserved))]
-        [InlineData(nameof(SharedConstants.EventTypes.UserAadSignInComplete))]
         [InlineData(nameof(SharedConstants.EventTypes.HybridLoginPending))]
         [InlineData(nameof(SharedConstants.EventTypes.AgentShuttingDown))]
         [InlineData(nameof(SharedConstants.EventTypes.SystemRebootDetected))]
@@ -72,9 +71,11 @@ namespace AutopilotMonitor.DecisionCore.Tests
         [Fact]
         public void Allowlist_count_matches_planned_anchor_count()
         {
-            // Plan §A documents 13 anchors (12 Constants + the new prior_run_died_with_state).
-            // Drift from this number is a contract change that needs a paired plan update.
-            Assert.Equal(13, LifecycleAnchorEventTypes.Count);
+            // Plan §A originally documented 13 anchors; the WG-resume cleanup (2026-05-04)
+            // dropped the V2-only post-reseal real-user sign-in anchor — the Classic
+            // aad_user_joined_observed event covers both Part-1 and the post-reseal join
+            // now. Drift from 12 is a contract change that needs a paired plan update.
+            Assert.Equal(12, LifecycleAnchorEventTypes.Count);
         }
     }
 }

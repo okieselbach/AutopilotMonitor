@@ -89,26 +89,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
         }
 
         [Fact]
-        public void Part2Mode_emits_UserAadSignInComplete_kind()
-        {
-            using var f = new Fixture();
-            using var adapter = new AadJoinWatcherAdapter(f.Watcher, f.Ingress, f.Clock, part2Mode: true);
-
-            adapter.TriggerFromTest("bob@tailspin.com", "x");
-
-            var decisionSignal = f.Ingress.Posted.Single(p => p.Kind == DecisionSignalKind.UserAadSignInComplete);
-            Assert.Contains("Post-reboot", decisionSignal.Evidence.Summary);
-
-            // Part 2 mode also dual-emits the corresponding info event.
-            var info = f.Ingress.Posted.Single(p =>
-                p.Kind == DecisionSignalKind.InformationalEvent
-                && p.Payload != null
-                && p.Payload.TryGetValue(SignalPayloadKeys.EventType, out var et)
-                && et == SharedEventTypes.UserAadSignInComplete);
-            Assert.Equal("tailspin.com", info.Payload!["userDomain"]);
-        }
-
-        [Fact]
         public void Empty_thumbprint_is_reflected_in_payload()
         {
             using var f = new Fixture();

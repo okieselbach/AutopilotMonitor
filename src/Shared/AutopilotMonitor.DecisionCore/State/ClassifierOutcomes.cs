@@ -4,15 +4,15 @@ namespace AutopilotMonitor.DecisionCore.State
 {
     /// <summary>
     /// Container for the reducer-side classifier verdict + anti-loop state. Codex follow-up #5 —
-    /// replaces the legacy <c>WhiteGloveSealing</c> / <c>WhiteGlovePart2Completion</c> /
-    /// <c>DeviceOnlyDeployment</c> <see cref="Hypothesis"/> fields on <c>DecisionState</c> with a
-    /// single aggregate. Scoring logic, weights and thresholds live in the classifier
-    /// implementations (<c>WhiteGloveSealingClassifier</c>, <c>WhiteGlovePart2CompletionClassifier</c>)
-    /// and are not touched by this refactor — only the verdict storage moved.
+    /// replaces the legacy <c>WhiteGloveSealing</c> / <c>DeviceOnlyDeployment</c>
+    /// <see cref="Hypothesis"/> fields on <c>DecisionState</c> with a single aggregate. Scoring
+    /// logic, weights and thresholds live in the classifier implementations
+    /// (<c>WhiteGloveSealingClassifier</c>) and are not touched by this refactor — only the
+    /// verdict storage moved.
     /// <para>
     /// <b>Invariants</b>:
     /// <list type="bullet">
-    ///   <item>All three <see cref="Hypothesis"/> values are non-null; <see cref="Empty"/> uses <see cref="Hypothesis.UnknownInstance"/>.</item>
+    ///   <item>Both <see cref="Hypothesis"/> values are non-null; <see cref="Empty"/> uses <see cref="Hypothesis.UnknownInstance"/>.</item>
     ///   <item>Immutable; the <c>With…</c> methods return new instances.</item>
     ///   <item><see cref="DeviceOnlyDeployment"/> has no dedicated classifier — it's updated by the reducer (<c>DeviceSetupProvisioningComplete</c> handler + <c>DeviceOnlyEspDetection</c> deadline) but is modeled here for symmetry, because the WhiteGlove classifier reads it as an input.</item>
     /// </list>
@@ -22,24 +22,18 @@ namespace AutopilotMonitor.DecisionCore.State
     {
         public static readonly ClassifierOutcomes Empty = new ClassifierOutcomes(
             whiteGloveSealing: Hypothesis.UnknownInstance,
-            whiteGlovePart2Completion: Hypothesis.UnknownInstance,
             deviceOnlyDeployment: Hypothesis.UnknownInstance);
 
         public ClassifierOutcomes(
             Hypothesis whiteGloveSealing,
-            Hypothesis whiteGlovePart2Completion,
             Hypothesis deviceOnlyDeployment)
         {
             WhiteGloveSealing = whiteGloveSealing ?? throw new ArgumentNullException(nameof(whiteGloveSealing));
-            WhiteGlovePart2Completion = whiteGlovePart2Completion ?? throw new ArgumentNullException(nameof(whiteGlovePart2Completion));
             DeviceOnlyDeployment = deviceOnlyDeployment ?? throw new ArgumentNullException(nameof(deviceOnlyDeployment));
         }
 
         /// <summary>Verdict from <c>WhiteGloveSealingClassifier</c>. Plan §2.4.</summary>
         public Hypothesis WhiteGloveSealing { get; }
-
-        /// <summary>Verdict from <c>WhiteGlovePart2CompletionClassifier</c>. Plan §2.4 / §M3.4.</summary>
-        public Hypothesis WhiteGlovePart2Completion { get; }
 
         /// <summary>
         /// Reducer-maintained (no dedicated classifier) device-only hypothesis. Inputs into the
@@ -50,19 +44,11 @@ namespace AutopilotMonitor.DecisionCore.State
         public ClassifierOutcomes WithWhiteGloveSealing(Hypothesis value) =>
             new ClassifierOutcomes(
                 value ?? throw new ArgumentNullException(nameof(value)),
-                WhiteGlovePart2Completion,
-                DeviceOnlyDeployment);
-
-        public ClassifierOutcomes WithWhiteGlovePart2Completion(Hypothesis value) =>
-            new ClassifierOutcomes(
-                WhiteGloveSealing,
-                value ?? throw new ArgumentNullException(nameof(value)),
                 DeviceOnlyDeployment);
 
         public ClassifierOutcomes WithDeviceOnlyDeployment(Hypothesis value) =>
             new ClassifierOutcomes(
                 WhiteGloveSealing,
-                WhiteGlovePart2Completion,
                 value ?? throw new ArgumentNullException(nameof(value)));
     }
 }

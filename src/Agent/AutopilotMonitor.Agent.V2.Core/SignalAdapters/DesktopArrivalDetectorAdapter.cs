@@ -10,8 +10,7 @@ using SharedEventTypes = AutopilotMonitor.Shared.Constants.EventTypes;
 namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
 {
     /// <summary>
-    /// Adapter for <see cref="DesktopArrivalDetector"/> → <see cref="DecisionSignalKind.DesktopArrived"/>
-    /// (or <see cref="DecisionSignalKind.DesktopArrivedPart2"/> in post-reboot WhiteGlove-Part-2 mode).
+    /// Adapter for <see cref="DesktopArrivalDetector"/> → <see cref="DecisionSignalKind.DesktopArrived"/>.
     /// Plan §2.1a / §2.2.
     /// <para>
     /// Fire-once by design (the detector itself guards against duplicate fires; the adapter
@@ -33,20 +32,17 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private readonly ISignalIngressSink _ingress;
         private readonly IClock _clock;
         private readonly InformationalEventPost _post;
-        private readonly bool _part2Mode;
         private bool _fired;
 
         public DesktopArrivalDetectorAdapter(
             DesktopArrivalDetector detector,
             ISignalIngressSink ingress,
-            IClock clock,
-            bool part2Mode = false)
+            IClock clock)
         {
             _detector = detector ?? throw new ArgumentNullException(nameof(detector));
             _ingress = ingress ?? throw new ArgumentNullException(nameof(ingress));
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
             _post = new InformationalEventPost(ingress, clock);
-            _part2Mode = part2Mode;
 
             _detector.DesktopArrived += OnDesktopArrived;
         }
@@ -67,13 +63,10 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _fired = true;
 
             var now = _clock.UtcNow;
-            var kind = _part2Mode ? DecisionSignalKind.DesktopArrivedPart2 : DecisionSignalKind.DesktopArrived;
-            var summary = _part2Mode
-                ? "Desktop arrival observed (Part 2 — post-reboot user sign-in)"
-                : "Desktop arrival observed (explorer.exe under real user)";
+            const string summary = "Desktop arrival observed (explorer.exe under real user)";
 
             _ingress.Post(
-                kind: kind,
+                kind: DecisionSignalKind.DesktopArrived,
                 occurredAtUtc: now,
                 sourceOrigin: SourceLabel,
                 evidence: new Evidence(
@@ -83,7 +76,6 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                     derivationInputs: new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         ["detectionSource"] = "explorer.exe process poll",
-                        ["part2Mode"] = _part2Mode ? "true" : "false",
                     }));
 
             // Parity with V1: also emit a `desktop_arrived` InformationalEvent so the Events
@@ -93,7 +85,6 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             {
                 ["detectedAt"] = now.ToString("o"),
                 ["detectionSource"] = "explorer.exe process poll",
-                ["part2Mode"] = _part2Mode ? "true" : "false",
             };
 
             _post.Emit(

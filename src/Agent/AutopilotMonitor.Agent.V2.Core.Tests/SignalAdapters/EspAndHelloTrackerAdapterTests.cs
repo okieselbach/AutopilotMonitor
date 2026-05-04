@@ -58,18 +58,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
         }
 
         [Fact]
-        public void Part2Mode_Hello_emits_HelloResolvedPart2()
-        {
-            using var f = new Fixture();
-            using var adapter = new EspAndHelloTrackerAdapter(f.Coordinator, f.Ingress, f.Clock, part2Mode: true);
-
-            adapter.TriggerHelloFromTest("completed");
-
-            Assert.Equal(DecisionSignalKind.HelloResolvedPart2, f.Ingress.Posted[0].Kind);
-            Assert.Equal("completed", f.Ingress.Posted[0].Payload![SignalPayloadKeys.HelloOutcome]);
-        }
-
-        [Fact]
         public void FinalizingEvent_emits_EspPhaseChanged_with_FinalizingSetup_payload()
         {
             using var f = new Fixture();

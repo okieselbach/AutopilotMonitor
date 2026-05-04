@@ -9,8 +9,8 @@ using AutopilotMonitor.DecisionCore.Signals;
 namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
 {
     /// <summary>
-    /// Adapter for <see cref="HelloTracker"/> → <see cref="DecisionSignalKind.HelloResolved"/>
-    /// (Part 1) or <see cref="DecisionSignalKind.HelloResolvedPart2"/> (Part 2). Plan §2.1a / §2.2.
+    /// Adapter for <see cref="HelloTracker"/> → <see cref="DecisionSignalKind.HelloResolved"/>.
+    /// Plan §2.1a / §2.2.
     /// <para>
     /// Fires genau einmal, wenn der Tracker Hello-Abschluss feststellt. Payload enthält den
     /// <c>HelloOutcome</c>-String (<c>completed | skipped | timeout | not_configured | wizard_not_started</c>),
@@ -22,19 +22,16 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private readonly HelloTracker _tracker;
         private readonly ISignalIngressSink _ingress;
         private readonly IClock _clock;
-        private readonly bool _part2Mode;
         private bool _fired;
 
         public HelloTrackerAdapter(
             HelloTracker tracker,
             ISignalIngressSink ingress,
-            IClock clock,
-            bool part2Mode = false)
+            IClock clock)
         {
             _tracker = tracker ?? throw new ArgumentNullException(nameof(tracker));
             _ingress = ingress ?? throw new ArgumentNullException(nameof(ingress));
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
-            _part2Mode = part2Mode;
 
             _tracker.HelloCompleted += OnHelloCompleted;
         }
@@ -55,9 +52,8 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
 
             var outcome = string.IsNullOrEmpty(helloOutcome) ? "unknown" : helloOutcome!;
 
-            var kind = _part2Mode ? DecisionSignalKind.HelloResolvedPart2 : DecisionSignalKind.HelloResolved;
             _ingress.Post(
-                kind: kind,
+                kind: DecisionSignalKind.HelloResolved,
                 occurredAtUtc: _clock.UtcNow,
                 sourceOrigin: "HelloTracker",
                 evidence: new Evidence(

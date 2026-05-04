@@ -37,10 +37,6 @@ namespace AutopilotMonitor.DecisionCore.State
         WhiteGloveCandidate,
         WhiteGloveSealed,
 
-        // WhiteGlove Part 2 (post-reboot user sign-in)
-        WhiteGloveAwaitingUserSignIn,
-        WhiteGloveCompletedPart2,
-
         // Terminal
         Completed,
         Failed,

@@ -181,7 +181,7 @@ public class TelemetryPayloadParserTests
     [Fact]
     public void ParseTransition_projects_IsTerminal_true_for_terminal_stages()
     {
-        var terminalStages = new[] { "Completed", "Failed", "WhiteGloveSealed", "WhiteGloveCompletedPart2" };
+        var terminalStages = new[] { "Completed", "Failed", "WhiteGloveSealed" };
 
         foreach (var stage in terminalStages)
         {
@@ -246,7 +246,6 @@ public class TelemetryPayloadParserTests
     [InlineData("Completed",                 true)]
     [InlineData("Failed",                    true)]
     [InlineData("WhiteGloveSealed",          true)]
-    [InlineData("WhiteGloveCompletedPart2",  true)]
     [InlineData("EspInProgress",             false)]
     [InlineData("AccountSetup",              false)]
     [InlineData("",                          false)]

@@ -428,7 +428,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
         // WhiteGlove Part 1 must NOT launch the summary dialog or emit
         // enrollment_summary_shown — the device is about to be reseal-rebooted, the user
         // session does not exist yet, and apps have not installed. The other terminal
-        // stages (Completed / Failed / WhiteGloveCompletedPart2) still launch the dialog.
+        // stages (Completed / Failed) still launch the dialog. Part 2 reaches the same
+        // Completed stage as a fresh Classic enrollment after Archive-and-Reset (PR-A).
 
         [Fact]
         public void Handle_skips_summary_dialog_on_whiteglove_part1_even_with_dialog_enabled()
@@ -448,14 +449,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
         }
 
         [Fact]
-        public void Handle_emits_enrollment_summary_shown_on_whiteglove_part2_completion()
+        public void Handle_emits_enrollment_summary_shown_on_completed_termination_with_part2_hint()
         {
+            // PR-B: post WG-Part-2 cleanup, a Part-2 resume terminates with Stage=Completed
+            // (Classic flow). The orchestrator's IsWhiteGlovePart2 hint distinguishes a
+            // Part-2 run from a fresh first-boot Classic enrollment for the analyzer pipeline.
+            // From the dialog's perspective both Part-2 and a regular Completed look identical
+            // — final-status.json is written and enrollment_summary_shown is emitted.
             using var rig = new Rig();
-            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1")) { Stage = SessionStage.WhiteGloveCompletedPart2 }.Build();
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1")) { Stage = SessionStage.Completed }.Build();
             var cfg = rig.BuildConfig(showDialog: true, selfDestruct: false);
 
             rig.Build(cfg).Handle(sender: null!,
-                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.WhiteGloveCompletedPart2));
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.Completed));
 
             Assert.Contains("enrollment_summary_shown", rig.EmittedEventTypes);
             Assert.True(File.Exists(Path.Combine(rig.StateDir, SummaryDialogLauncher.FinalStatusFileName)));

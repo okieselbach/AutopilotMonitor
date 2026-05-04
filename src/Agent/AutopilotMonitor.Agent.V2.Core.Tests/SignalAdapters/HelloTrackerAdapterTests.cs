@@ -60,18 +60,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             Assert.Contains("completed", posted.Evidence.Summary);
         }
 
-        [Fact]
-        public void Part2Mode_emits_HelloResolvedPart2_kind()
-        {
-            using var f = new Fixture();
-            using var adapter = new HelloTrackerAdapter(f.Tracker, f.Ingress, f.Clock, part2Mode: true);
-
-            adapter.TriggerFromTest("completed");
-
-            var posted = f.Ingress.Posted.Single();
-            Assert.Equal(DecisionSignalKind.HelloResolvedPart2, posted.Kind);
-        }
-
         [Theory]
         [InlineData("completed")]
         [InlineData("skipped")]

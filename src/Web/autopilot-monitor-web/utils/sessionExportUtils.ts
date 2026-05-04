@@ -303,32 +303,28 @@ export function generateUiExport(
     //      (shown when no user-enrollment events
     //       exist and session status is "Pending")
     //
-    // SPLIT POINT CALCULATION (mirrors page.tsx):
-    //   Normal:   first agent_started AFTER whiteglove_complete  → split = that event's sequence - 1
-    //   Fallback: if whiteglove_complete arrived after Part 2 boot, the LAST agent_started
-    //             before whiteglove_complete is the Part 2 start  → split = that event's sequence - 1
-    //   Single:   only pre-prov part present                     → split = whiteglove_complete.sequence
+    // SPLIT POINT CALCULATION (mirrors useSessionDerivedData.ts via the agent-side
+    // V1-symmetric resume mechanic, PR-A):
+    //   Primary:  `whiteglove_resumed` is the definitive Part 2 marker (emitted by the
+    //             orchestrator after Archive-and-Reset detects WhiteGloveSealed snapshot)
+    //               → split = that event's sequence - 1
+    //   Fallback: older agents — first agent_started AFTER whiteglove_complete is Part 2 boot
+    //               → split = that event's sequence - 1
+    //   Single:   only pre-prov part present
+    //               → split = whiteglove_complete.sequence
     //
     //   Events are assigned to parts purely by sequence number (no whiteglove_complete override).
 
     const wgCompleteEv = sorted.find(e => e.eventType === "whiteglove_complete");
     const wgSeq = wgCompleteEv?.sequence ?? sorted[sorted.length - 1]?.sequence ?? 0;
-
-    const agentStartedEvs = sorted.filter(e => e.eventType === "agent_started");
-    const afterWg = agentStartedEvs.filter(e => e.sequence > wgSeq);
+    const resumedEv = sorted.find(e => e.eventType === "whiteglove_resumed");
 
     let splitSeq: number;
-    if (afterWg.length > 0) {
-      splitSeq = afterWg[0].sequence - 1;
+    if (resumedEv) {
+      splitSeq = resumedEv.sequence - 1;
     } else {
-      const beforeWg = agentStartedEvs.filter(e => e.sequence < wgSeq);
-      if (beforeWg.length >= 2) {
-        // Race condition: whiteglove_complete arrived after Part 2 boot.
-        // The LAST agent_started before wgEvent is the Part 2 start.
-        splitSeq = beforeWg[beforeWg.length - 1].sequence - 1;
-      } else {
-        splitSeq = wgSeq;
-      }
+      const afterWg = sorted.filter(e => e.eventType === "agent_started" && e.sequence > wgSeq);
+      splitSeq = afterWg.length > 0 ? afterWg[0].sequence - 1 : wgSeq;
     }
 
     // Events are assigned purely by sequence number — no special-casing for whiteglove_complete.

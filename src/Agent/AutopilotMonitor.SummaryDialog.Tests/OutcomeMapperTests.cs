@@ -67,14 +67,13 @@ namespace AutopilotMonitor.SummaryDialog.Tests
         [InlineData("succeeded", OutcomeKind.Success)]
         [InlineData("Succeeded", OutcomeKind.Success)]
         [InlineData("completed", OutcomeKind.Success)]   // defensive: accept V1 string under V2 schema
-        [InlineData("whiteglove_part2", OutcomeKind.Success)]
         [InlineData("whiteglove_part1", OutcomeKind.PreProvisioningComplete)]
         [InlineData("timed_out", OutcomeKind.TimedOut)]
         [InlineData("failed", OutcomeKind.Failure)]
         [InlineData("unknown", OutcomeKind.Unknown)]
         [InlineData("not_a_real_outcome", OutcomeKind.Unknown)]
         [InlineData("", OutcomeKind.Unknown)]
-        public void Map_v2_resolves_six_kinds(string outcome, OutcomeKind expected)
+        public void Map_v2_resolves_five_kinds(string outcome, OutcomeKind expected)
         {
             var status = new FinalStatus { SchemaVersion = 2, Outcome = outcome };
             Assert.Equal(expected, OutcomeMapper.Map(status));

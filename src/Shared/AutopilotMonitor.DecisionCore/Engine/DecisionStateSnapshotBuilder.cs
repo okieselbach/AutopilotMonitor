@@ -58,10 +58,6 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 ["systemRebootUtc"]                = SerializeFact(state.SystemRebootUtc, FormatUtc),
                 ["helloOutcome"]                   = SerializeFact(state.HelloOutcome, v => v),
                 ["imeMatchedPatternId"]            = SerializeFact(state.ImeMatchedPatternId, v => v),
-                ["userAadSignInCompleteUtc"]       = SerializeFact(state.UserAadSignInCompleteUtc, FormatUtc),
-                ["helloResolvedPart2Utc"]          = SerializeFact(state.HelloResolvedPart2Utc, FormatUtc),
-                ["desktopArrivedPart2Utc"]         = SerializeFact(state.DesktopArrivedPart2Utc, FormatUtc),
-                ["accountSetupCompletedPart2Utc"]  = SerializeFact(state.AccountSetupCompletedPart2Utc, FormatUtc),
                 ["helloPolicyEnabled"]             = SerializeFact(state.HelloPolicyEnabled, v => (object)v),
             };
 

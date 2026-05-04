@@ -11,13 +11,13 @@ using Xunit;
 namespace AutopilotMonitor.DecisionCore.Tests
 {
     /// <summary>
-    /// Coverage for <see cref="DecisionAuditTrailBuilder"/> and the six DecisionEngine emission
+    /// Coverage for <see cref="DecisionAuditTrailBuilder"/> and the DecisionEngine emission
     /// sites that previously published terminal / state-changing timeline events with empty
     /// or near-empty <c>EnrollmentEvent.Data</c>: <c>whiteglove_complete</c>,
-    /// <c>whiteglove_resumed</c>, <c>whiteglove_part2_complete</c>, <c>enrollment_failed</c>
-    /// (Part-2 safety / EspTerminalFailure / EffectInfrastructureFailure). Each test exercises
-    /// the reducer's typed-payload contract end-to-end so a regression to "empty Data on the
-    /// wire" is caught at the engine boundary instead of in a UI smoke test.
+    /// <c>whiteglove_resumed</c>, <c>enrollment_failed</c> (EspTerminalFailure /
+    /// EffectInfrastructureFailure). Each test exercises the reducer's typed-payload
+    /// contract end-to-end so a regression to "empty Data on the wire" is caught at the
+    /// engine boundary instead of in a UI smoke test.
     /// </summary>
     public sealed class DecisionAuditTrailTests
     {
@@ -302,116 +302,10 @@ namespace AutopilotMonitor.DecisionCore.Tests
             Assert.Equal(EnrollmentMode.WhiteGlove.ToString(), scenario["mode"]);
         }
 
-        // ============================================================ whiteglove_resumed
-
-        [Fact]
-        public void WhiteGloveResumed_attaches_audit_trail_alongside_legacy_scalar_parameters()
-        {
-            var engine = new DecisionEngine();
-            // Sealed Part-1 state recovered after reboot.
-            var sealedState = DecisionState.CreateInitial("sess-wgr", "tenant-wgr")
-                .ToBuilder()
-                .WithStage(SessionStage.WhiteGloveSealed)
-                .Build();
-            var resumeUtc = new DateTime(2026, 4, 30, 9, 0, 0, DateTimeKind.Utc);
-            var step = engine.Reduce(sealedState, MakeSignal(
-                10, DecisionSignalKind.SessionRecovered, resumeUtc, sourceOrigin: "EnrollmentOrchestrator"));
-
-            var effect = SingleTimelineEffect(step, "whiteglove_resumed");
-
-            // Legacy scalar parameters preserved (existing assertions in ReducerTimelineEffectTests).
-            Assert.Equal(resumeUtc.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
-                effect.Parameters!["resumedAtUtc"]);
-            Assert.Equal("EnrollmentOrchestrator", effect.Parameters["sourceOrigin"]);
-
-            // Newly-attached audit trail.
-            var payload = Assert.IsType<Dictionary<string, object>>(effect.TypedPayload);
-            Assert.Equal("SessionRecovered:WhiteGloveSealed->AwaitingUserSignIn", payload["trigger"]);
-            Assert.Equal(nameof(SessionStage.WhiteGloveAwaitingUserSignIn), payload["sessionStage"]);
-            // The bridge-specific scalars are present in the typed payload too.
-            Assert.Equal(resumeUtc.ToString("o", System.Globalization.CultureInfo.InvariantCulture), payload["resumedAtUtc"]);
-            Assert.Equal("EnrollmentOrchestrator", payload["sourceOrigin"]);
-        }
-
-        // ============================================================ whiteglove_part2_complete
-
-        [Fact]
-        public void WhiteGlovePart2Complete_carries_audit_trail_with_part2_verdict_and_facts()
-        {
-            var engine = new DecisionEngine();
-            // Establish Part-2 awaiting state with all four Part-2 facts in place so the
-            // verdict applier transitions to WhiteGloveCompletedPart2.
-            var state = DecisionState.CreateInitial("sess-wg2", "tenant-wg2")
-                .ToBuilder()
-                .WithStage(SessionStage.WhiteGloveAwaitingUserSignIn)
-                .Build();
-            state = engine.Reduce(state, MakeSignal(20, DecisionSignalKind.UserAadSignInComplete, T0.AddHours(2))).NewState;
-            state = engine.Reduce(state, MakeSignal(21, DecisionSignalKind.HelloResolvedPart2, T0.AddHours(2).AddSeconds(10))).NewState;
-            state = engine.Reduce(state, MakeSignal(22, DecisionSignalKind.DesktopArrivedPart2, T0.AddHours(2).AddSeconds(20))).NewState;
-            state = engine.Reduce(state, MakeSignal(23, DecisionSignalKind.AccountSetupCompletedPart2, T0.AddHours(2).AddSeconds(30))).NewState;
-
-            var verdictSignal = MakeSignal(24, DecisionSignalKind.ClassifierVerdictIssued, T0.AddHours(2).AddMinutes(1),
-                new Dictionary<string, string>
-                {
-                    ["classifier"] = WhiteGlovePart2CompletionClassifier.ClassifierId,
-                    ["level"] = "Confirmed",
-                    ["score"] = "100",
-                    ["reason"] = "all_part2_facts_present",
-                    ["inputHash"] = "feedface",
-                });
-
-            var step = engine.Reduce(state, verdictSignal);
-            Assert.Equal(SessionStage.WhiteGloveCompletedPart2, step.NewState.Stage);
-
-            var effect = SingleTimelineEffect(step, "whiteglove_part2_complete");
-            var payload = Assert.IsType<Dictionary<string, object>>(effect.TypedPayload);
-
-            Assert.Equal($"ClassifierVerdictIssued:{WhiteGlovePart2CompletionClassifier.ClassifierId}:Confirmed", payload["trigger"]);
-            Assert.Equal(nameof(SessionStage.WhiteGloveCompletedPart2), payload["sessionStage"]);
-
-            var signalsSeen = Assert.IsType<List<string>>(payload["signalsSeen"]);
-            Assert.Contains("user_aad_sign_in_complete", signalsSeen);
-            Assert.Contains("hello_resolved_part2", signalsSeen);
-            Assert.Contains("desktop_arrived_part2", signalsSeen);
-            Assert.Contains("account_setup_completed_part2", signalsSeen);
-
-            var classifier = Assert.IsType<Dictionary<string, object>>(payload["classifier"]);
-            Assert.Equal(WhiteGlovePart2CompletionClassifier.ClassifierId, classifier["id"]);
-            Assert.Equal("feedface", classifier["inputHash"]);
-        }
-
-        // ============================================================ enrollment_failed (Part-2 safety)
-
-        [Fact]
-        public void Part2SafetyDeadline_failure_event_carries_audit_trail_with_part2_user_absent_reason()
-        {
-            var engine = new DecisionEngine();
-            var state = DecisionState.CreateInitial("sess-p2s", "tenant-p2s")
-                .ToBuilder()
-                .WithStage(SessionStage.WhiteGloveAwaitingUserSignIn)
-                .AddDeadline(new ActiveDeadline(
-                    name: DeadlineNames.WhiteGlovePart2Safety,
-                    dueAtUtc: T0.AddHours(24),
-                    firesSignalKind: DecisionSignalKind.DeadlineFired,
-                    firesPayload: new Dictionary<string, string>
-                    {
-                        [SignalPayloadKeys.Deadline] = DeadlineNames.WhiteGlovePart2Safety,
-                    }))
-                .Build();
-
-            var step = engine.Reduce(state, MakeSignal(
-                30, DecisionSignalKind.DeadlineFired, T0.AddHours(24),
-                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.WhiteGlovePart2Safety }));
-
-            Assert.Equal(SessionStage.Failed, step.NewState.Stage);
-
-            var effect = SingleTimelineEffect(step, "enrollment_failed");
-            var payload = Assert.IsType<Dictionary<string, object>>(effect.TypedPayload);
-
-            Assert.Equal($"DeadlineFired:{DeadlineNames.WhiteGlovePart2Safety}", payload["trigger"]);
-            Assert.Equal("part2_user_absent", payload["reason"]);
-            Assert.Equal(nameof(SessionStage.Failed), payload["sessionStage"]);
-        }
+        // (PR-B 2026-05-04: WG-Part-2 audit-trail tests removed — `whiteglove_resumed` is
+        // now an InformationalEvent emitted directly by the orchestrator (PR-A) rather than
+        // a reducer-emitted timeline effect, and the Part-2 classifier / completion verdict /
+        // 24h safety deadline were all deleted with the rest of the V2 WG-Part-2 apparatus.)
 
         // ============================================================ enrollment_failed (ESP terminal)
 

@@ -75,7 +75,6 @@ public class DecisionGraphBuilderTests
     [InlineData("Completed",                 "Succeeded")]
     [InlineData("Failed",                    "Failed")]
     [InlineData("WhiteGloveSealed",          "PausedForPart2")]
-    [InlineData("WhiteGloveCompletedPart2",  "Succeeded")]
     public void Build_marks_terminal_stages_and_derives_outcome(string terminalStage, string expectedOutcome)
     {
         var transitions = new[]

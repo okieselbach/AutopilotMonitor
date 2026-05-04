@@ -10,9 +10,8 @@ namespace AutopilotMonitor.DecisionCore.Classifiers
     /// a classifier whose last verdict matches the current snapshot hash.
     /// </para>
     /// <para>
-    /// First implementations shipped in M3: <c>WhiteGloveSealingClassifier</c>,
-    /// <c>WhiteGlovePart2CompletionClassifier</c>. Future (v11.1+): <c>EnrollmentFailureCauseClassifier</c>,
-    /// <c>AppInstallOutcomeClassifier</c>.
+    /// First implementation shipped in M3: <c>WhiteGloveSealingClassifier</c>.
+    /// Future (v11.1+): <c>EnrollmentFailureCauseClassifier</c>, <c>AppInstallOutcomeClassifier</c>.
     /// </para>
     /// </summary>
     public interface IClassifier

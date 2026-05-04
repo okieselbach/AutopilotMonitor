@@ -23,6 +23,9 @@
       matches production behaviour on fresh images.
 
 .CHANGELOG
+    2026-05-04  v2.0-pre-dev  Verify-block message aligned with prod variant: WMI-detached
+                              runtime launch (Program.InstallMode.cs PR1) and XML-hardened
+                              BootTrigger fallback (PR2). Comment trimmed.
     2026-04-20  v2.0-pre-dev  Forked from Install-AutopilotMonitor-Dev.ps1 v1.1-dev for V2-Agent.
                               Default URL -> AutopilotMonitor-Agent-V2-dev.zip,
                               integrity file -> version-v2-dev.json,
@@ -261,11 +264,10 @@ try {
     }
     Write-Log "Agent install mode completed successfully"
 
-    # Verify the runtime process actually started after schtasks /Run.
-    # schtasks reports SUCCESS as soon as the run is queued, not once the process
-    # is alive. Silent launch failures (AV/EDR block, AppLocker/WDAC, scheduler
-    # defer during OOBE) would otherwise stay invisible until the next reboot
-    # triggers the task via /SC ONSTART.
+    # Belt-and-suspenders runtime verify. --install spawns the runtime via WMI
+    # (PR1, 2026-05-04), bypassing the schtasks /Run queue defer. This still
+    # catches AV/EDR or AppLocker/WDAC kills after spawn. On miss, the BootTrigger
+    # task (PR2 hardened) takes over at next boot.
     $runtimeProcessName = 'AutopilotMonitor.Agent.V2'
     $verifyTimeoutSec = 10
     $verifyDeadline = (Get-Date).AddSeconds($verifyTimeoutSec)
@@ -280,7 +282,7 @@ try {
         try { $startedUtc = $runtimeProc.StartTime.ToUniversalTime().ToString('o') } catch { }
         Write-Log ("Runtime process verified: name={0}.exe pid={1} startedUtc={2}" -f $runtimeProcessName, $runtimeProc.Id, $startedUtc)
     } else {
-        Write-Log ("WARNING: Runtime process verification FAILED. schtasks /Run was reported SUCCESS by --install, but no '{0}.exe' process appeared within {1}s. Likely silent block (AV/EDR, AppLocker/WDAC) or Task Scheduler defer. Agent may not start until next system boot ('/SC ONSTART'). Check Event Viewer > Microsoft > Windows > TaskScheduler/Operational and AV/EDR logs for '{0}.exe'." -f $runtimeProcessName, $verifyTimeoutSec)
+        Write-Log ("WARNING: Runtime process verification FAILED. Agent --install reported success but no '{0}.exe' process appeared within {1}s. Likely silent block (AV/EDR, AppLocker/WDAC) of the WMI-detached launch. Agent should still come up at next boot via the BootTrigger task. Check Event Viewer > Microsoft > Windows > TaskScheduler/Operational and AV/EDR logs for '{0}.exe'." -f $runtimeProcessName, $verifyTimeoutSec)
     }
 
     Write-Log "===== Bootstrap Completed Successfully (DEV) ====="

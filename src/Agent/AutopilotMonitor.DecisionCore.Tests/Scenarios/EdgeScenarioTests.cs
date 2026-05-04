@@ -20,7 +20,6 @@ namespace AutopilotMonitor.DecisionCore.Tests.Scenarios
                 new Dictionary<string, IClassifier>
                 {
                     [WhiteGloveSealingClassifier.ClassifierId] = new WhiteGloveSealingClassifier(),
-                    [WhiteGlovePart2CompletionClassifier.ClassifierId] = new WhiteGlovePart2CompletionClassifier(),
                 });
 
         [Fact]
@@ -65,7 +64,7 @@ namespace AutopilotMonitor.DecisionCore.Tests.Scenarios
             // Determinism: the same signal stream through a fresh engine + fresh state
             // yields the same FinalStepHash. Simulates the Orchestrator replaying a
             // persisted SignalLog after an agent crash. Plan L.2 Event-Sourcing.
-            var signals = LoadFixture("whiteglove-part2-happy-v1.jsonl");
+            var signals = LoadFixture("selfdeploying-happy-v1.jsonl");
 
             var r1 = NewHarness().Replay("session-anon-replay", "tenant-anon-replay", signals);
             var r2 = NewHarness().Replay("session-anon-replay", "tenant-anon-replay", signals);
@@ -94,7 +93,7 @@ namespace AutopilotMonitor.DecisionCore.Tests.Scenarios
         }
 
         [Fact]
-        public void AllSixCommittedFixtures_produceTerminalState()
+        public void AllCommittedFixtures_produceTerminalState()
         {
             // Global sanity: every committed anonymized fixture ends in a terminal stage.
             // This catches regressions where a new reducer change breaks a scenario end.
@@ -108,8 +107,6 @@ namespace AutopilotMonitor.DecisionCore.Tests.Scenarios
                 "whiteglove-inline-v1.jsonl",
                 "whiteglove-signal-correlated-v1.jsonl",
                 "whiteglove-false-positive-v1.jsonl",
-                "whiteglove-part2-happy-v1.jsonl",
-                "whiteglove-part2-stuck-v1.jsonl",
                 "hybrid-reboot-v1.jsonl",
                 "esp-terminal-failure-v1.jsonl",
             };
@@ -121,8 +118,7 @@ namespace AutopilotMonitor.DecisionCore.Tests.Scenarios
 
                 var isTerminal = result.FinalState.Stage == SessionStage.Completed
                                  || result.FinalState.Stage == SessionStage.Failed
-                                 || result.FinalState.Stage == SessionStage.WhiteGloveSealed
-                                 || result.FinalState.Stage == SessionStage.WhiteGloveCompletedPart2;
+                                 || result.FinalState.Stage == SessionStage.WhiteGloveSealed;
 
                 Assert.True(
                     isTerminal,

@@ -2,7 +2,10 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Management;
 using System.Reflection;
+using System.Security;
+using System.Text;
 using AutopilotMonitor.Agent.V2.Core.Configuration;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Security;
@@ -144,31 +147,36 @@ namespace AutopilotMonitor.Agent.V2
                 }
 
                 var taskName = Constants.ScheduledTaskName;
-                var taskCommand = $"\"{targetExePath}\"";
 
                 logger.Info($"Registering Scheduled Task '{taskName}' for executable: {targetExePath}");
 
-                var createExitCode = RunProcess(
-                    SystemPaths.Schtasks,
-                    $"/Create /TN \"{taskName}\" /TR \"{taskCommand}\" /SC ONSTART /RU SYSTEM /RL HIGHEST /F",
-                    logger);
-
-                if (createExitCode != 0)
-                    throw new InvalidOperationException(
-                        $"Failed to create/update Scheduled Task '{taskName}' (exit code {createExitCode}).");
+                // PR2: register the task from a hardened XML definition rather than the
+                // schtasks /Create CLI. The CLI defaults inherit DisallowStartIfOnBatteries
+                // = true and StopIfGoingOnBatteries = true, which queue the BootTrigger run
+                // indefinitely on a laptop that boots on battery in OOBE / WinPE (observed
+                // 2026-05-04, Event 325 'Launch request queued', task status = Queued).
+                // The XML below disables both, sets StartWhenAvailable, and pins
+                // ExecutionTimeLimit = PT0S so the long-running agent is never killed at
+                // 72h (the schtasks CLI default).
+                CreateScheduledTaskFromXml(taskName, targetExePath, logger);
 
                 logger.Info($"Scheduled Task '{taskName}' created/updated successfully.");
 
-                var startExitCode = RunProcess(
-                    SystemPaths.Schtasks,
-                    $"/Run /TN \"{taskName}\"",
-                    logger);
-
-                if (startExitCode != 0)
-                    throw new InvalidOperationException(
-                        $"Failed to start Scheduled Task '{taskName}' (exit code {startExitCode}).");
-
-                logger.Info($"Scheduled Task '{taskName}' started successfully.");
+                // PR1: launch the runtime directly via WMI Win32_Process.Create rather
+                // than 'schtasks /Run'. Two reasons:
+                //
+                //   1. schtasks /Run reports SUCCESS as soon as the run is queued. The
+                //      same battery / AV / OOBE-defer paths that motivate PR2 also queue
+                //      a manual /Run — observed in WinPE 2026-05-04 with the task stuck
+                //      in 'Queued' state (project_v2_install_runtime_handoff.md).
+                //   2. WMI spawns the process from the WBEM service context, outside the
+                //      install-mode process tree. A direct Process.Start would inherit
+                //      whatever Job Object IntuneWindowsAgent / the bootstrap script
+                //      sit in, and could be killed when those unwind. WMI gives us the
+                //      same isolation Task Scheduler uses for /Run, without the queue.
+                int runtimePid = StartRuntimeDetached(targetExePath, logger);
+                logger.Info(
+                    $"Runtime process launched (WMI-detached). PID={runtimePid}, exe={targetExePath}");
 
                 TryWriteDeploymentMarker(logger);
 
@@ -328,6 +336,148 @@ namespace AutopilotMonitor.Agent.V2
             catch (Exception ex)
             {
                 logger.Warning($"Failed to write deployment registry marker: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// PR2: registers the BootTrigger Scheduled Task from a hardened XML definition
+        /// rather than via <c>schtasks /Create /TR ... /SC ONSTART /RU SYSTEM /RL HIGHEST</c>.
+        /// The CLI form inherits XML schema defaults that queue the task indefinitely on a
+        /// laptop booting on battery (Event 325 'Launch request queued', observed
+        /// 2026-05-04 in WinPE) and kill long-running tasks at 72 h. This XML disables both
+        /// behaviours and makes the BootTrigger run robust across the OOBE → first-login
+        /// power transitions.
+        /// </summary>
+        private static void CreateScheduledTaskFromXml(string taskName, string exePath, AgentLogger logger)
+        {
+            var taskXml = BuildScheduledTaskXml(exePath);
+            var tempXmlPath = Path.Combine(
+                Path.GetTempPath(),
+                $"AutopilotMonitor-Task-{Guid.NewGuid():N}.xml");
+
+            try
+            {
+                // schtasks /XML expects UTF-16 LE with BOM (matches Task Scheduler exports).
+                File.WriteAllText(tempXmlPath, taskXml, Encoding.Unicode);
+
+                var createExitCode = RunProcess(
+                    SystemPaths.Schtasks,
+                    $"/Create /TN \"{taskName}\" /XML \"{tempXmlPath}\" /F",
+                    logger);
+
+                if (createExitCode != 0)
+                    throw new InvalidOperationException(
+                        $"Failed to create/update Scheduled Task '{taskName}' from XML " +
+                        $"(exit code {createExitCode}, xml='{tempXmlPath}').");
+            }
+            finally
+            {
+                try
+                {
+                    if (File.Exists(tempXmlPath)) File.Delete(tempXmlPath);
+                }
+                catch (Exception ex)
+                {
+                    logger.Warning($"Failed to delete temp task XML '{tempXmlPath}': {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Pure builder for the Task Scheduler 1.2 XML used by
+        /// <see cref="CreateScheduledTaskFromXml"/>. Kept <c>internal static</c> so unit
+        /// tests can pin the hardened settings — disabling these silently in a future
+        /// refactor would re-introduce the OOBE battery-queue failure mode.
+        /// </summary>
+        internal static string BuildScheduledTaskXml(string exePath)
+        {
+            if (string.IsNullOrEmpty(exePath))
+                throw new ArgumentException("exePath must be set.", nameof(exePath));
+
+            var escapedExe = SecurityElement.Escape(exePath);
+
+            return $@"<?xml version=""1.0"" encoding=""UTF-16""?>
+<Task version=""1.2"" xmlns=""http://schemas.microsoft.com/windows/2004/02/mit/task"">
+  <RegistrationInfo>
+    <Description>Autopilot Monitor enrollment observability agent.</Description>
+    <Author>AutopilotMonitor</Author>
+  </RegistrationInfo>
+  <Triggers>
+    <BootTrigger>
+      <Enabled>true</Enabled>
+    </BootTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id=""Author"">
+      <UserId>S-1-5-18</UserId>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context=""Author"">
+    <Exec>
+      <Command>{escapedExe}</Command>
+    </Exec>
+  </Actions>
+</Task>";
+        }
+
+        /// <summary>
+        /// PR1: launches the runtime out-of-band of the install-mode process tree via
+        /// WMI <c>Win32_Process.Create</c>. The WBEM service spawns the new process from
+        /// its own service context, giving the runtime the same Job-Object isolation that
+        /// <c>schtasks /Run</c> would (the Task Scheduler service is the parent there) —
+        /// without paying the scheduler's queue defer (battery / AV / OOBE).
+        /// </summary>
+        private static int StartRuntimeDetached(string exePath, AgentLogger logger)
+        {
+            using (var processClass = new ManagementClass("Win32_Process"))
+            using (var inParams = processClass.GetMethodParameters("Create"))
+            {
+                inParams["CommandLine"] = $"\"{exePath}\"";
+                inParams["CurrentDirectory"] = Path.GetDirectoryName(exePath) ?? string.Empty;
+
+                using (var outParams = processClass.InvokeMethod("Create", inParams, null))
+                {
+                    if (outParams == null)
+                        throw new InvalidOperationException(
+                            $"WMI Win32_Process.Create returned no out-parameters for '{exePath}'.");
+
+                    var returnValue = Convert.ToUInt32(outParams["ReturnValue"]);
+                    if (returnValue != 0u)
+                    {
+                        // WMI return codes: 0=ok, 2=access denied, 3=insufficient privilege,
+                        // 8=unknown failure, 9=path not found, 21=invalid parameter, 22=invalid name
+                        // (https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/create-method-in-class-win32-process).
+                        throw new InvalidOperationException(
+                            $"WMI Win32_Process.Create failed for '{exePath}': returnValue={returnValue}.");
+                    }
+
+                    var pid = Convert.ToInt32(outParams["ProcessId"]);
+                    if (pid <= 0)
+                        throw new InvalidOperationException(
+                            $"WMI Win32_Process.Create reported success but no ProcessId for '{exePath}'.");
+
+                    return pid;
+                }
             }
         }
     }
