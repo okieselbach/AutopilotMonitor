@@ -130,14 +130,17 @@ export default function GatherRulesPage() {
     }
   }, [effectiveTenantId, fetchRules]);
 
-  // Fetch unrestrictedMode from tenant config (for validation indicators)
+  // Fetch unrestrictedMode from tenant config (for validation indicators).
+  // The display flag lives in the member-readable feature-flags endpoint so that
+  // Operators/Viewers can load this page without 403'ing on the admin-only full config.
+  // GA-override path keeps using globalConfig.tenant (GA-only endpoint).
   useEffect(() => {
     if (!effectiveTenantId) return;
     const fetchConfig = async () => {
       try {
         const url = isGlobalOverride
           ? api.globalConfig.tenant(effectiveTenantId)
-          : api.config.tenant(effectiveTenantId);
+          : api.config.featureFlags(effectiveTenantId);
         const response = await authenticatedFetch(url, getAccessToken);
         if (response.ok) {
           const data = await response.json();

@@ -41,10 +41,13 @@ export function useTenantSecurityConfig(
   useEffect(() => {
     const fetchTenantSecurityConfig = async () => {
       if (!tenantId) return;
-      if (user && !user.isTenantAdmin && !user.isGlobalAdmin && user.role !== 'Operator') return;
+      // Read the validateAutopilotDevice flag from the member-readable feature-flags endpoint
+      // (admin-only fields stay behind /api/config/{tenantId}). Skip for unauthenticated users
+      // and users without a tenant role since they would just produce 401/403.
+      if (user && !user.isTenantAdmin && !user.isGlobalAdmin && user.role == null) return;
 
       try {
-        const response = await authenticatedFetch(api.config.tenant(tenantId), getAccessToken);
+        const response = await authenticatedFetch(api.config.featureFlags(tenantId), getAccessToken);
 
         if (!response.ok) {
           setSerialValidationEnabled(null);

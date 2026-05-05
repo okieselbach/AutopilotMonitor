@@ -28,7 +28,10 @@ export function useSessionTenantConfig(
     let cancelled = false;
     (async () => {
       try {
-        const res = await authenticatedFetch(api.config.tenant(sessionTenantId), getAccessToken);
+        // These three flags are exposed via the member-readable feature-flags endpoint so that
+        // Operators and Viewers can load session details without 403'ing on the admin-only
+        // full /api/config/{tenantId} response.
+        const res = await authenticatedFetch(api.config.featureFlags(sessionTenantId), getAccessToken);
         if (!res.ok || cancelled) return;
         const cfg = await res.json();
         if (cancelled) return;
