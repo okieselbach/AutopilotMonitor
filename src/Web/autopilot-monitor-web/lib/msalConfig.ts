@@ -5,17 +5,27 @@ import { Configuration, LogLevel, RedirectRequest } from "@azure/msal-browser";
  *
  * Environment Variables:
  * - NEXT_PUBLIC_ENTRA_CLIENT_ID: Application (client) ID from App Registration
- * - NEXT_PUBLIC_ENTRA_REDIRECT_URI: Redirect URI configured in App Registration
- * - NEXT_PUBLIC_ENTRA_POST_LOGOUT_REDIRECT_URI: Post logout redirect URI
+ * - NEXT_PUBLIC_ENTRA_REDIRECT_URI: Fallback redirect URI for SSR/dev (browser uses window.location.origin)
+ * - NEXT_PUBLIC_ENTRA_POST_LOGOUT_REDIRECT_URI: Fallback post-logout URI for SSR/dev
  */
+
+// Resolve the redirect URI from the current browser origin so multiple custom
+// domains (e.g. www.* and portal.*) keep the user on whichever host they started
+// on. Each origin must still be registered as a redirect URI in the App Registration.
+const resolveRedirectUri = (fallback: string | undefined): string => {
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return window.location.origin;
+  }
+  return fallback || "http://localhost:3000";
+};
 
 // MSAL Configuration
 export const msalConfig: Configuration = {
   auth: {
     clientId: process.env.NEXT_PUBLIC_ENTRA_CLIENT_ID || "YOUR_CLIENT_ID_HERE",
     authority: "https://login.microsoftonline.com/organizations", // Multi-tenant
-    redirectUri: process.env.NEXT_PUBLIC_ENTRA_REDIRECT_URI || "http://localhost:3000",
-    postLogoutRedirectUri: process.env.NEXT_PUBLIC_ENTRA_POST_LOGOUT_REDIRECT_URI || "http://localhost:3000",
+    redirectUri: resolveRedirectUri(process.env.NEXT_PUBLIC_ENTRA_REDIRECT_URI),
+    postLogoutRedirectUri: resolveRedirectUri(process.env.NEXT_PUBLIC_ENTRA_POST_LOGOUT_REDIRECT_URI),
     navigateToLoginRequestUrl: false,
   },
   cache: {
