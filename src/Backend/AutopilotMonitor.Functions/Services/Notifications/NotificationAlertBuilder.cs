@@ -120,7 +120,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
                 },
                 Actions = new List<NotificationAction>
                 {
-                    new() { Type = "openUrl", Title = "Open Autopilot Monitor", Url = "https://www.autopilotmonitor.com" },
+                    new() { Type = "openUrl", Title = "Open Autopilot Monitor", Url = "https://portal.autopilotmonitor.com" },
                 },
             };
         }

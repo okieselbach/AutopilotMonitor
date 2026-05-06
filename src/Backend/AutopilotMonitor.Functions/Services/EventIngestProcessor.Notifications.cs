@@ -28,7 +28,7 @@ namespace AutopilotMonitor.Functions.Services
 
             var providerType = (WebhookProviderType)providerTypeInt;
             var sessionUrl = updatedSession != null
-                ? $"https://www.autopilotmonitor.com/session/{request.TenantId}/{request.SessionId}"
+                ? $"https://portal.autopilotmonitor.com/session/{request.TenantId}/{request.SessionId}"
                 : null;
 
             if (statusTransitioned && (c.CompletionEvent != null || c.FailureEvent != null))

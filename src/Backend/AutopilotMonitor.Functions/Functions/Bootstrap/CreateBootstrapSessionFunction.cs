@@ -92,7 +92,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 {
                     Success = true,
                     ShortCode = session.ShortCode,
-                    BootstrapUrl = $"https://www.autopilotmonitor.com/go/{session.ShortCode}",
+                    BootstrapUrl = $"https://autopilotmonitor.com/go/{session.ShortCode}",
                     ExpiresAt = session.ExpiresAt,
                     Message = $"Bootstrap session created. Valid for {validityHours} hours."
                 };

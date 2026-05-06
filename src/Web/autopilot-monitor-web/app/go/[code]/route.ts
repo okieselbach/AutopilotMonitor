@@ -177,7 +177,7 @@ try {
     }
 
     Write-Log "===== OOBE Bootstrap Complete ====="
-    Write-Log "Agent is now monitoring. View progress at https://www.autopilotmonitor.com"
+    Write-Log "Agent is now monitoring. View progress at https://portal.autopilotmonitor.com"
     Write-Log ""
     Write-Log "The agent will:"
     Write-Log "  - Monitor enrollment from the very start"
@@ -186,7 +186,7 @@ try {
 
     Write-Host ""
     Write-Host "Autopilot Monitor agent installed successfully!" -ForegroundColor Green
-    Write-Host "View enrollment progress at https://www.autopilotmonitor.com" -ForegroundColor Cyan
+    Write-Host "View enrollment progress at https://portal.autopilotmonitor.com" -ForegroundColor Cyan
     Write-Host ""
 }
 catch {

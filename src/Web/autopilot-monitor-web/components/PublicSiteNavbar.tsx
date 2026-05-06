@@ -3,11 +3,22 @@
 import Link from "next/link";
 import { useAuth } from "../contexts/AuthContext";
 import { useTheme } from "../contexts/ThemeContext";
+import { getPortalLoginUrl, shouldCrossOriginToPortal } from "../lib/hostRouting";
 
 export function PublicSiteNavbar({ showSectionLinks, fullWidth = false }: { showSectionLinks: boolean; fullWidth?: boolean }) {
   const { login, isAuthenticated } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const isDark = theme === "dark";
+
+  // On www/apex, hand sign-in off to portal so MSAL fires on the right
+  // origin and the token lands in portal's sessionStorage directly.
+  const handleSignIn = () => {
+    if (shouldCrossOriginToPortal()) {
+      window.location.href = getPortalLoginUrl();
+      return;
+    }
+    void login();
+  };
 
   // Logged-in users should only see the main authenticated app navbar.
   if (isAuthenticated) {
@@ -129,7 +140,7 @@ export function PublicSiteNavbar({ showSectionLinks, fullWidth = false }: { show
             <span className="hidden sm:inline">GitHub</span>
           </a>
           <button
-            onClick={login}
+            onClick={handleSignIn}
             className="px-4 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg text-sm font-semibold shadow-sm hover:shadow-md transition-all"
           >
             Sign In

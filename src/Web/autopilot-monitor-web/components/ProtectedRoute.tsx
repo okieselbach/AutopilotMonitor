@@ -29,18 +29,18 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false }: Protect
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      if (wasAuthenticated.current && !reloginAttempted.current) {
-        // Session was lost (e.g. Safari tab suspension cleared sessionStorage).
-        // Trigger MSAL login redirect once to re-authenticate.
+      if (!reloginAttempted.current) {
+        // Trigger MSAL login redirect once. On portal this is also the
+        // entry-point flow for users who arrived via a www → portal
+        // cross-origin sign-in nav with no portal-side session yet.
         reloginAttempted.current = true;
         login().catch((err) => {
-          console.warn('[ProtectedRoute] Re-login redirect failed, navigating to landing:', err);
+          console.warn('[ProtectedRoute] Login redirect failed, navigating to landing:', err);
           router.push("/");
         });
       } else {
-        // Never authenticated in this session, or re-login already attempted.
-        // Small delay lets any in-flight MSAL redirect settle before we navigate
-        // away, preventing a race between router.push and MSAL redirect.
+        // Login redirect already attempted — fall back to the public landing.
+        // The 100ms timeout lets any in-flight MSAL redirect settle first.
         const id = setTimeout(() => router.push("/"), 100);
         return () => clearTimeout(id);
       }
