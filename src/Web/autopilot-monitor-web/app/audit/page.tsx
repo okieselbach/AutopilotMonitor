@@ -26,7 +26,7 @@ interface AuditLogEntry {
 type ActionFilter = 'ALL' | 'DELETE' | 'UPDATE' | 'CREATE';
 type EntityTypeFilter = string;
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 20;
 
 function defaultIsoDateFrom(): string {
   // 30 days ago, ISO 8601 UTC, midnight — matches the backend's default
@@ -122,13 +122,22 @@ export default function AuditPage() {
   }, [addNotification, dateFromIso, dateToIso, getAccessToken, globalAdminMode]);
 
   // Initial / window-change fetch resets pagination state.
+  // fetchPage is intentionally excluded from deps: its identity churns whenever
+  // MSAL refreshes the `accounts` array (getAccessToken → useCallback → fetchPage),
+  // which happens after every authenticatedFetch. With fetchPage in deps the
+  // effect fires immediately after each successful Next click, resets the
+  // pagination state, and races a fresh page-1 fetch against the in-flight
+  // page-N fetch — giving the visible "Next does nothing" symptom. The
+  // useCallback closure is rebuilt from the same window deps the effect
+  // already tracks, so the latest fetchPage is invoked when the effect runs.
   useEffect(() => {
     if (!globalAdminMode && !tenantId) return;
     setContinuation(null);
     setContinuationStack([]);
     setPageNumber(1);
     fetchPage(null, true);
-  }, [tenantId, globalAdminMode, dateFromIso, dateToIso, fetchPage]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, globalAdminMode, dateFromIso, dateToIso]);
 
   const handleRefresh = () => {
     fetchPage(continuation, false);

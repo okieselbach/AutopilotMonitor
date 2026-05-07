@@ -44,7 +44,7 @@ const CATEGORY_STYLES: Record<string, string> = {
 
 const ALL_CATEGORIES = ["Consent", "Maintenance", "Security", "Tenant", "Agent"];
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 20;
 
 function defaultIsoDateFrom(): string {
   const d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -169,12 +169,18 @@ export function OpsEventsSection({
   }, [categoryFilter, dateFromIso, dateToIso, getAccessToken, setError]);
 
   // Reset pagination + refetch whenever the filter window or category changes.
+  // fetchEvents is intentionally excluded from deps: getAccessToken's identity
+  // churns on every MSAL accounts-array refresh, which happens after each
+  // authenticatedFetch — leaving fetchEvents in deps causes the effect to
+  // re-fire after every successful page-N click, race a page-1 fetch against
+  // it, and snap the user back to page 1.
   useEffect(() => {
     setContinuation(null);
     setContinuationStack([]);
     setPageNumber(1);
     fetchEvents(null);
-  }, [categoryFilter, dateFromIso, dateToIso, fetchEvents]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categoryFilter, dateFromIso, dateToIso]);
 
   const handleNextPage = () => {
     const nextCont = extractContinuation(nextLink);

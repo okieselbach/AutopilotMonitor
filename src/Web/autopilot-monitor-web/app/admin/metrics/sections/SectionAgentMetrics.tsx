@@ -144,21 +144,26 @@ export function SectionAgentMetrics() {
 
   const [loading, setLoading] = useState(true);
   const [sessionMetrics, setSessionMetrics] = useState<SessionAgentMetrics[]>([]);
-  const [sampleSize, setSampleSize] = useState(100);
+  // sampleSize drives the backend `limit` query, windowDays drives the backend
+  // `days` query. Each picker change forces a fresh fetch (previous version
+  // sliced client-side over an unbounded backend fetch and timed out on busy
+  // installs). Defaults stay snappy: 20 sessions over 30 days.
+  const [sampleSize, setSampleSize] = useState(20);
+  const [windowDays, setWindowDays] = useState(30);
   const [error, setError] = useState<string | null>(null);
   const [versionFilter, setVersionFilter] = useState<string>('all');
   const [cacheInfo, setCacheInfo] = useState<{ fromCache: boolean; computeDurationMs: number; computedAt: string } | null>(null);
   const [deliveryLatency, setDeliveryLatency] = useState<DeliveryLatencyMetricsDTO | null>(null);
   const [crashRate, setCrashRate] = useState<CrashRateMetricsDTO | null>(null);
 
-  // ── Fetch pre-computed metrics from backend (with 5-min cache) ────────────
+  // ── Fetch pre-computed metrics from backend (with 5-min per-(days,limit) cache) ────────────
 
-  const fetchMetrics = useCallback(async () => {
+  const fetchMetrics = useCallback(async (limit: number, days: number) => {
     setLoading(true);
     setError(null);
 
     try {
-      const res = await authenticatedFetch(api.metrics.platform(), getAccessToken);
+      const res = await authenticatedFetch(api.metrics.platform({ limit, days }), getAccessToken);
 
       if (!res.ok) {
         if (res.status === 403) {
@@ -216,9 +221,15 @@ export function SectionAgentMetrics() {
     }
   }, [getAccessToken, addNotification]);
 
+  // Refetch whenever the user picks a new sample size or window (both drive
+  // backend params, not a client-side slice). fetchMetrics is intentionally
+  // excluded from deps: getAccessToken's identity churns on every MSAL
+  // accounts refresh which would otherwise re-fire the effect after each
+  // request and ping-pong the loading spinner.
   useEffect(() => {
-    fetchMetrics();
-  }, [fetchMetrics]);
+    fetchMetrics(sampleSize, windowDays);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sampleSize, windowDays]);
 
   // ── Resolve agent version per session (pre-resolved by backend) ──
 
@@ -236,16 +247,17 @@ export function SectionAgentMetrics() {
     return Array.from(versions).sort();
   }, [sessionMetrics, resolveVersion]);
 
-  // ── Filtered metrics based on sample size and version filter ────────────────
+  // ── Filtered metrics by version (sample-size cap is enforced server-side) ──
 
   const filteredMetrics = useMemo(() => {
-    // Sort by startedAt desc and take sampleSize most recent
-    const sorted = [...sessionMetrics]
-      .sort((a, b) => new Date(b.session.startedAt || 0).getTime() - new Date(a.session.startedAt || 0).getTime())
-      .slice(0, sampleSize);
+    // Backend already returns the newest `limit` sessions in startedAt-desc order;
+    // re-sorting client-side is just defensive against repository-order drift.
+    const sorted = [...sessionMetrics].sort(
+      (a, b) => new Date(b.session.startedAt || 0).getTime() - new Date(a.session.startedAt || 0).getTime()
+    );
     if (versionFilter === 'all') return sorted;
     return sorted.filter((sm) => resolveVersion(sm) === versionFilter);
-  }, [sessionMetrics, sampleSize, versionFilter, resolveVersion]);
+  }, [sessionMetrics, versionFilter, resolveVersion]);
 
   // ── Aggregated stats across filtered sessions ──────────────────────────────
 
@@ -319,6 +331,19 @@ export function SectionAgentMetrics() {
               )}
             </div>
             <div className="flex items-center gap-3">
+              <label className="text-sm text-gray-500">Window:</label>
+              <select
+                value={windowDays}
+                onChange={(e) => setWindowDays(Number(e.target.value))}
+                className="text-sm border border-gray-300 rounded-md px-2 py-1"
+              >
+                <option value={7}>7 days</option>
+                <option value={14}>14 days</option>
+                <option value={30}>30 days</option>
+                <option value={90}>90 days</option>
+                <option value={180}>180 days</option>
+                <option value={365}>365 days</option>
+              </select>
               <label className="text-sm text-gray-500">Sessions to analyze:</label>
               <select
                 value={sampleSize}
@@ -330,6 +355,8 @@ export function SectionAgentMetrics() {
                 <option value={100}>100</option>
                 <option value={200}>200</option>
                 <option value={500}>500</option>
+                <option value={1000}>1000</option>
+                <option value={2000}>2000</option>
               </select>
               {availableVersions.length > 1 && (
                 <>
@@ -347,7 +374,7 @@ export function SectionAgentMetrics() {
                 </>
               )}
               <button
-                onClick={fetchMetrics}
+                onClick={() => fetchMetrics(sampleSize, windowDays)}
                 disabled={loading}
                 className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 transition-colors"
               >

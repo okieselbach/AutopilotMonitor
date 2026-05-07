@@ -180,7 +180,11 @@ export const api = {
       `${API_BASE_URL}/api/metrics/geographic/sessions${qs({ tenantId, days: String(days), groupBy, locationKey })}`,
     globalGeographicSessions: (days: number, groupBy: string, locationKey: string) =>
       `${API_BASE_URL}/api/global/metrics/geographic/sessions${qs({ days: String(days), groupBy, locationKey })}`,
-    platform: () => `${API_BASE_URL}/api/global/metrics/platform`,
+    platform: (opts?: { limit?: number; days?: number }) =>
+      `${API_BASE_URL}/api/global/metrics/platform${qs({
+        limit: opts?.limit?.toString(),
+        days: opts?.days?.toString(),
+      })}`,
     ruleStats: (startDate?: string, endDate?: string, ruleType?: string) =>
       `${API_BASE_URL}/api/metrics/rule-stats${qs({ startDate, endDate, ruleType })}`,
     globalRuleStats: (startDate?: string, endDate?: string, ruleType?: string, tenantId?: string) =>

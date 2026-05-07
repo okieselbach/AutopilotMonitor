@@ -18,12 +18,23 @@ namespace AutopilotMonitor.Functions.Services
         private readonly ISessionRepository _sessionRepo;
         private readonly ILogger<PlatformMetricsService> _logger;
 
-        // In-memory per-window cache
-        private static readonly Dictionary<int, (PlatformAgentMetricsResponse metrics, DateTime expiry)> _cachedByDays = new();
+        // In-memory per-(days, limit) cache. Different `limit` values produce
+        // different aggregate stats (different N feeds the averages/percentiles)
+        // so they must not share a cache slot.
+        private static readonly Dictionary<(int days, int limit), (PlatformAgentMetricsResponse metrics, DateTime expiry)> _cachedByKey = new();
         private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
         private static readonly object _cacheLock = new object();
 
         private const int DefaultWindowDays = 90;
+        private const int DefaultSessionLimit = 100;
+        private const int MaxSessionLimit = 2000;
+
+        // Bounded concurrency for the per-session event-fetch fan-out. Without
+        // a cap, a 1000-session limit fires 1000 parallel storage calls — that
+        // both throttles Azure Tables and balloons memory transient. 32 is a
+        // gentle middle ground: enough overlap to hide latency, low enough to
+        // avoid 503s on busy installs.
+        private const int PerSessionFetchConcurrency = 32;
 
         public PlatformMetricsService(
             ISessionRepository sessionRepo,
@@ -34,39 +45,45 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Computes platform agent metrics over the last <paramref name="days"/> days (5-minute per-window cache).
+        /// Computes platform agent metrics over the last <paramref name="days"/> days,
+        /// limited to the newest <paramref name="limit"/> sessions (5-minute per-key cache).
         /// </summary>
-        public async Task<PlatformAgentMetricsResponse> ComputePlatformMetricsAsync(int days = DefaultWindowDays)
+        public async Task<PlatformAgentMetricsResponse> ComputePlatformMetricsAsync(
+            int days = DefaultWindowDays,
+            int limit = DefaultSessionLimit)
         {
             days = ClampDays(days);
+            limit = ClampLimit(limit);
+            var key = (days, limit);
 
             lock (_cacheLock)
             {
-                if (_cachedByDays.TryGetValue(days, out var entry) && DateTime.UtcNow < entry.expiry)
+                if (_cachedByKey.TryGetValue(key, out var entry) && DateTime.UtcNow < entry.expiry)
                 {
-                    _logger.LogInformation("Returning cached platform metrics for days={Days} (expires in {Seconds}s)",
-                        days, (entry.expiry - DateTime.UtcNow).TotalSeconds);
+                    _logger.LogInformation("Returning cached platform metrics for days={Days} limit={Limit} (expires in {Seconds}s)",
+                        days, limit, (entry.expiry - DateTime.UtcNow).TotalSeconds);
                     entry.metrics.FromCache = true;
                     return entry.metrics;
                 }
             }
 
-            _logger.LogInformation("Computing fresh platform agent metrics for days={Days}...", days);
+            _logger.LogInformation("Computing fresh platform agent metrics for days={Days} limit={Limit}...", days, limit);
             var stopwatch = Stopwatch.StartNew();
 
-            var metrics = await ComputePlatformMetricsInternalAsync(days);
+            var metrics = await ComputePlatformMetricsInternalAsync(days, limit);
 
             stopwatch.Stop();
             metrics.ComputeDurationMs = (int)stopwatch.ElapsedMilliseconds;
             metrics.ComputedAt = DateTime.UtcNow;
             metrics.FromCache = false;
             metrics.WindowDays = days;
+            metrics.SessionLimit = limit;
 
-            _logger.LogInformation("Platform agent metrics computed in {Ms}ms (days={Days})", metrics.ComputeDurationMs, days);
+            _logger.LogInformation("Platform agent metrics computed in {Ms}ms (days={Days} limit={Limit})", metrics.ComputeDurationMs, days, limit);
 
             lock (_cacheLock)
             {
-                _cachedByDays[days] = (metrics, DateTime.UtcNow.Add(CacheDuration));
+                _cachedByKey[key] = (metrics, DateTime.UtcNow.Add(CacheDuration));
             }
 
             return metrics;
@@ -79,243 +96,279 @@ namespace AutopilotMonitor.Functions.Services
             return days;
         }
 
-        private async Task<PlatformAgentMetricsResponse> ComputePlatformMetricsInternalAsync(int days)
+        private static int ClampLimit(int limit)
         {
-            // Fetch all sessions in the requested window across all tenants — drains
-            // every page so the platform metric covers the full date-bounded set
-            // (the previous maxResults:500 was a silent truncation on busy installs).
-            var allSessions = await _sessionRepo.GetAllSessionsAsync(tenantIdFilter: null, days: days);
+            if (limit < 1) return 1;
+            if (limit > MaxSessionLimit) return MaxSessionLimit;
+            return limit;
+        }
+
+        // Single-session result of one storage round-trip. Holds the per-session
+        // metric (or null when no agent_metrics_snapshot was emitted) plus the
+        // raw inputs needed by the global delivery-latency and crash-rate
+        // aggregations — so we never re-fetch the same session's events.
+        private sealed record PerSessionData(
+            SessionAgentMetric? Metric,
+            List<double> LatencyDeltasMs,
+            List<Dictionary<string, object>> AgentStartedEvents);
+
+        private async Task<PlatformAgentMetricsResponse> ComputePlatformMetricsInternalAsync(int days, int limit)
+        {
+            // Fetch only the newest `limit` sessions in the window. Each session below
+            // triggers its own GetSessionEventsAsync call; the per-session work is
+            // bounded by PerSessionFetchConcurrency so even 1000-session limits
+            // don't fan out 1000 simultaneous storage requests.
+            var sessionPage = await _sessionRepo.GetAllSessionsPageAsync(
+                tenantIdFilter: null, days: days, pageSize: limit, continuation: null);
+            var allSessions = sessionPage.Items;
 
             if (allSessions.Count == 0)
             {
                 return new PlatformAgentMetricsResponse { Sessions = new List<SessionAgentMetric>() };
             }
 
-            // 2. For each session, fetch events and extract agent_metrics_snapshot data
-            var sessionMetrics = new List<SessionAgentMetric>();
+            // Mark the first 20 sessions as the delivery-latency sample so we
+            // only compute deltas for them (preserves the legacy "20 most recent
+            // for latency" semantics without a second event fetch).
+            var latencySampleSessionIds = allSessions
+                .Take(20)
+                .Select(s => s.SessionId)
+                .ToHashSet(StringComparer.Ordinal);
 
-            var tasks = allSessions.Select(async session =>
-            {
-                try
-                {
-                    var events = await _sessionRepo.GetSessionEventsAsync(session.TenantId, session.SessionId);
-                    var snapshots = events
-                        .Where(e => e.EventType == "agent_metrics_snapshot" && e.Data != null)
-                        .Select(e => e.Data)
-                        .ToList();
+            var perSessionResults = await RunWithBoundedConcurrencyAsync(
+                allSessions,
+                PerSessionFetchConcurrency,
+                session => ProcessSessionAsync(session, latencySampleSessionIds));
 
-                    if (snapshots.Count == 0) return null;
+            var sessionMetrics = perSessionResults
+                .Where(r => r.Metric != null)
+                .Select(r => r.Metric!)
+                .ToList();
 
-                    var cpuValues = snapshots.Select(s => GetDouble(s, "agent_cpu_percent")).ToList();
-                    var wsValues = snapshots.Select(s => GetDouble(s, "agent_working_set_mb")).ToList();
-                    var pbValues = snapshots.Select(s => GetDouble(s, "agent_private_bytes_mb")).ToList();
-                    var latValues = snapshots.Select(s => GetDouble(s, "net_avg_latency_ms")).Where(v => v > 0).ToList();
-                    // V2 emits `spool_pending_item_count`; V1 emitted `spool_queue_depth`.
-                    // Read V2 primary, fall back to V1 so legacy sessions still aggregate.
-                    var spoolValues = snapshots.Select(s => GetDoubleFirst(s, "spool_pending_item_count", "spool_queue_depth")).ToList();
-
-                    // V2-only spool fields. Each has a different aggregation semantic:
-                    //   peak_pending_item_count → monotonic per-process counter; Last() = best estimate of intra-tick peak
-                    //   file_size_bytes        → instantaneous; Max() across snapshots
-                    //   total_enqueued_count   → monotonic counter; Last() = total events emitted in session
-                    var peakValues = snapshots.Select(s => GetDouble(s, "spool_peak_pending_item_count")).ToList();
-                    var fileSizeValues = snapshots.Select(s => GetDouble(s, "spool_file_size_bytes")).ToList();
-                    var totalEnqueuedValues = snapshots.Select(s => GetDouble(s, "spool_total_enqueued_count")).ToList();
-                    var spoolPressureDetected = events.Any(e => e.EventType == "spool_pressure_detected");
-
-                    var lastSnapshot = snapshots.Last();
-
-                    // Resolve agent version: prefer from snapshot, fallback to session
-                    var agentVersion = snapshots
-                        .Select(s => GetString(s, "agent_version"))
-                        .FirstOrDefault(v => !string.IsNullOrEmpty(v))
-                        ?? session.AgentVersion
-                        ?? "unknown";
-
-                    return new SessionAgentMetric
-                    {
-                        SessionId = session.SessionId,
-                        TenantId = session.TenantId,
-                        DeviceName = session.DeviceName,
-                        Manufacturer = session.Manufacturer,
-                        Model = session.Model,
-                        StartedAt = session.StartedAt.ToString("o"),
-                        Status = session.Status.ToString(),
-                        AgentVersion = agentVersion,
-                        SnapshotCount = snapshots.Count,
-                        TotalBytesUp = GetDouble(lastSnapshot, "net_total_bytes_up"),
-                        TotalBytesDown = GetDouble(lastSnapshot, "net_total_bytes_down"),
-                        TotalRequests = GetDouble(lastSnapshot, "net_total_requests"),
-                        AvgCpu = cpuValues.Count > 0 ? cpuValues.Average() : 0,
-                        MaxCpu = cpuValues.Count > 0 ? cpuValues.Max() : 0,
-                        AvgWorkingSet = wsValues.Count > 0 ? wsValues.Average() : 0,
-                        MaxWorkingSet = wsValues.Count > 0 ? wsValues.Max() : 0,
-                        AvgPrivateBytes = pbValues.Count > 0 ? pbValues.Average() : 0,
-                        AvgLatency = latValues.Count > 0 ? latValues.Average() : 0,
-                        AvgSpoolDepth = spoolValues.Count > 0 ? spoolValues.Average() : 0,
-                        MaxSpoolDepth = spoolValues.Count > 0 ? spoolValues.Max() : 0,
-                        PeakSpoolDepth = peakValues.Count > 0 ? peakValues.Last() : 0,
-                        MaxSpoolFileBytes = fileSizeValues.Count > 0 ? fileSizeValues.Max() : 0,
-                        TotalEventsEmitted = totalEnqueuedValues.Count > 0 ? totalEnqueuedValues.Last() : 0,
-                        SpoolPressureDetected = spoolPressureDetected
-                    };
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to fetch events for session {SessionId}", session.SessionId);
-                    return null;
-                }
-            }).ToList();
-
-            var results = await Task.WhenAll(tasks);
-            sessionMetrics = results.Where(r => r != null).ToList()!;
-
-            // Compute delivery latency from all events across sessions
-            var deliveryLatency = ComputeDeliveryLatency(allSessions, _sessionRepo);
-            var crashRate = ComputeCrashRate(allSessions, _sessionRepo);
-
-            // Run both in parallel
-            await Task.WhenAll(deliveryLatency, crashRate);
+            var deliveryLatency = AggregateDeliveryLatency(perSessionResults);
+            var crashRate = AggregateCrashRate(perSessionResults);
 
             return new PlatformAgentMetricsResponse
             {
                 Sessions = sessionMetrics,
-                DeliveryLatency = deliveryLatency.Result,
-                CrashRate = crashRate.Result
+                DeliveryLatency = deliveryLatency,
+                CrashRate = crashRate
             };
         }
 
-        private async Task<DeliveryLatencyMetrics> ComputeDeliveryLatency(
-            List<AutopilotMonitor.Shared.Models.SessionSummary> sessions,
-            ISessionRepository sessionRepo)
+        private async Task<PerSessionData> ProcessSessionAsync(
+            SessionSummary session,
+            HashSet<string> latencySampleSessionIds)
         {
             try
             {
-                // Sample up to 20 recent sessions for latency data
-                var sampleSessions = sessions.Take(20).ToList();
-                var allDeltas = new List<double>();
+                var events = await _sessionRepo.GetSessionEventsAsync(session.TenantId, session.SessionId);
 
-                var latencyTasks = sampleSessions.Select(async session =>
+                // ── Latency deltas (only for sample-set sessions) ───────────
+                List<double> latencyDeltas = new();
+                if (latencySampleSessionIds.Contains(session.SessionId))
                 {
-                    try
+                    foreach (var e in events)
                     {
-                        var events = await sessionRepo.GetSessionEventsAsync(session.TenantId, session.SessionId);
-                        return events
-                            .Where(e => e.ReceivedAt.HasValue && e.Timestamp != default)
-                            .Select(e => (e.ReceivedAt!.Value - e.Timestamp).TotalMilliseconds)
-                            .ToList();
-                    }
-                    catch { return new List<double>(); }
-                }).ToList();
-
-                var latencyResults = await Task.WhenAll(latencyTasks);
-                foreach (var deltas in latencyResults)
-                    allDeltas.AddRange(deltas);
-
-                if (allDeltas.Count == 0)
-                    return new DeliveryLatencyMetrics();
-
-                var negativeCount = allDeltas.Count(d => d < 0);
-                var validDeltas = allDeltas.Where(d => d >= 0).OrderBy(d => d).ToList();
-
-                if (validDeltas.Count == 0)
-                    return new DeliveryLatencyMetrics
-                    {
-                        SampleCount = allDeltas.Count,
-                        ClockSkewPercent = 100.0
-                    };
-
-                return new DeliveryLatencyMetrics
-                {
-                    P50Ms = Math.Round(Percentile(validDeltas, 0.50), 0),
-                    P95Ms = Math.Round(Percentile(validDeltas, 0.95), 0),
-                    P99Ms = Math.Round(Percentile(validDeltas, 0.99), 0),
-                    AvgMs = Math.Round(validDeltas.Average(), 0),
-                    SampleCount = allDeltas.Count,
-                    ClockSkewPercent = Math.Round((double)negativeCount / allDeltas.Count * 100, 1)
-                };
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to compute delivery latency");
-                return new DeliveryLatencyMetrics();
-            }
-        }
-
-        private async Task<CrashRateMetrics> ComputeCrashRate(
-            List<AutopilotMonitor.Shared.Models.SessionSummary> sessions,
-            ISessionRepository sessionRepo)
-        {
-            try
-            {
-                var metrics = new CrashRateMetrics();
-                var exceptionCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-
-                var crashTasks = sessions.Select(async session =>
-                {
-                    try
-                    {
-                        var events = await sessionRepo.GetSessionEventsAsync(session.TenantId, session.SessionId);
-                        return events
-                            .Where(e => e.EventType == "agent_started" && e.Data != null)
-                            .Select(e => e.Data)
-                            .ToList();
-                    }
-                    catch { return new List<Dictionary<string, object>>(); }
-                }).ToList();
-
-                var crashResults = await Task.WhenAll(crashTasks);
-                foreach (var startEvents in crashResults)
-                {
-                    foreach (var data in startEvents)
-                    {
-                        metrics.TotalStarts++;
-                        var exitType = GetString(data, "previousExitType");
-                        switch (exitType)
+                        if (e.ReceivedAt.HasValue && e.Timestamp != default)
                         {
-                            case "clean":
-                                metrics.CleanExits++;
-                                break;
-                            case "exception_crash":
-                                metrics.ExceptionCrashes++;
-                                var exType = GetString(data, "previousCrashException");
-                                if (!string.IsNullOrEmpty(exType))
-                                {
-                                    exceptionCounts.TryGetValue(exType, out var count);
-                                    exceptionCounts[exType] = count + 1;
-                                }
-                                break;
-                            case "hard_kill":
-                                metrics.HardKills++;
-                                break;
-                            case "reboot_kill":
-                                metrics.RebootKills++;
-                                break;
-                            default:
-                                metrics.FirstRuns++;
-                                break;
+                            latencyDeltas.Add((e.ReceivedAt.Value - e.Timestamp).TotalMilliseconds);
                         }
                     }
                 }
 
-                var nonFirstRuns = metrics.TotalStarts - metrics.FirstRuns;
-                metrics.CrashRatePercent = nonFirstRuns > 0
-                    ? Math.Round((double)metrics.ExceptionCrashes / nonFirstRuns * 100, 1)
-                    : 0;
-
-                metrics.TopExceptions = exceptionCounts
-                    .OrderByDescending(kv => kv.Value)
-                    .Take(5)
-                    .Select(kv => new CrashExceptionSummary { ExceptionType = kv.Key, Count = kv.Value })
+                // ── Agent-started events for crash rate ──────────────────────
+                var agentStartedEvents = events
+                    .Where(e => e.EventType == "agent_started" && e.Data != null)
+                    .Select(e => e.Data)
                     .ToList();
 
-                return metrics;
+                // ── Per-session metric (only when snapshots exist) ───────────
+                var snapshots = events
+                    .Where(e => e.EventType == "agent_metrics_snapshot" && e.Data != null)
+                    .Select(e => e.Data)
+                    .ToList();
+
+                if (snapshots.Count == 0)
+                {
+                    return new PerSessionData(null, latencyDeltas, agentStartedEvents);
+                }
+
+                var cpuValues = snapshots.Select(s => GetDouble(s, "agent_cpu_percent")).ToList();
+                var wsValues = snapshots.Select(s => GetDouble(s, "agent_working_set_mb")).ToList();
+                var pbValues = snapshots.Select(s => GetDouble(s, "agent_private_bytes_mb")).ToList();
+                var latValues = snapshots.Select(s => GetDouble(s, "net_avg_latency_ms")).Where(v => v > 0).ToList();
+                // V2 emits `spool_pending_item_count`; V1 emitted `spool_queue_depth`.
+                // Read V2 primary, fall back to V1 so legacy sessions still aggregate.
+                var spoolValues = snapshots.Select(s => GetDoubleFirst(s, "spool_pending_item_count", "spool_queue_depth")).ToList();
+
+                // V2-only spool fields. Each has a different aggregation semantic:
+                //   peak_pending_item_count → monotonic per-process counter; Last() = best estimate of intra-tick peak
+                //   file_size_bytes        → instantaneous; Max() across snapshots
+                //   total_enqueued_count   → monotonic counter; Last() = total events emitted in session
+                var peakValues = snapshots.Select(s => GetDouble(s, "spool_peak_pending_item_count")).ToList();
+                var fileSizeValues = snapshots.Select(s => GetDouble(s, "spool_file_size_bytes")).ToList();
+                var totalEnqueuedValues = snapshots.Select(s => GetDouble(s, "spool_total_enqueued_count")).ToList();
+                var spoolPressureDetected = events.Any(e => e.EventType == "spool_pressure_detected");
+
+                var lastSnapshot = snapshots.Last();
+
+                // Resolve agent version: prefer from snapshot, fallback to session
+                var agentVersion = snapshots
+                    .Select(s => GetString(s, "agent_version"))
+                    .FirstOrDefault(v => !string.IsNullOrEmpty(v))
+                    ?? session.AgentVersion
+                    ?? "unknown";
+
+                var metric = new SessionAgentMetric
+                {
+                    SessionId = session.SessionId,
+                    TenantId = session.TenantId,
+                    DeviceName = session.DeviceName,
+                    Manufacturer = session.Manufacturer,
+                    Model = session.Model,
+                    StartedAt = session.StartedAt.ToString("o"),
+                    Status = session.Status.ToString(),
+                    AgentVersion = agentVersion,
+                    SnapshotCount = snapshots.Count,
+                    TotalBytesUp = GetDouble(lastSnapshot, "net_total_bytes_up"),
+                    TotalBytesDown = GetDouble(lastSnapshot, "net_total_bytes_down"),
+                    TotalRequests = GetDouble(lastSnapshot, "net_total_requests"),
+                    AvgCpu = cpuValues.Count > 0 ? cpuValues.Average() : 0,
+                    MaxCpu = cpuValues.Count > 0 ? cpuValues.Max() : 0,
+                    AvgWorkingSet = wsValues.Count > 0 ? wsValues.Average() : 0,
+                    MaxWorkingSet = wsValues.Count > 0 ? wsValues.Max() : 0,
+                    AvgPrivateBytes = pbValues.Count > 0 ? pbValues.Average() : 0,
+                    AvgLatency = latValues.Count > 0 ? latValues.Average() : 0,
+                    AvgSpoolDepth = spoolValues.Count > 0 ? spoolValues.Average() : 0,
+                    MaxSpoolDepth = spoolValues.Count > 0 ? spoolValues.Max() : 0,
+                    PeakSpoolDepth = peakValues.Count > 0 ? peakValues.Last() : 0,
+                    MaxSpoolFileBytes = fileSizeValues.Count > 0 ? fileSizeValues.Max() : 0,
+                    TotalEventsEmitted = totalEnqueuedValues.Count > 0 ? totalEnqueuedValues.Last() : 0,
+                    SpoolPressureDetected = spoolPressureDetected
+                };
+
+                return new PerSessionData(metric, latencyDeltas, agentStartedEvents);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to compute crash rate");
-                return new CrashRateMetrics();
+                _logger.LogWarning(ex, "Failed to fetch events for session {SessionId}", session.SessionId);
+                return new PerSessionData(null, new List<double>(), new List<Dictionary<string, object>>());
             }
+        }
+
+        // Bounded fan-out: equivalent to Task.WhenAll over `body(item)` but with
+        // at most `maxConcurrency` tasks in flight. Without this guard a 1000-
+        // session metric query would fire 1000 simultaneous storage requests
+        // and either throttle Azure Tables or run the worker out of file
+        // handles before responding.
+        private static async Task<List<TResult>> RunWithBoundedConcurrencyAsync<TInput, TResult>(
+            IReadOnlyList<TInput> items,
+            int maxConcurrency,
+            Func<TInput, Task<TResult>> body)
+        {
+            using var sem = new SemaphoreSlim(maxConcurrency);
+            var tasks = items.Select(async item =>
+            {
+                await sem.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    return await body(item).ConfigureAwait(false);
+                }
+                finally
+                {
+                    sem.Release();
+                }
+            });
+            var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+            return results.ToList();
+        }
+
+        // Aggregate over the latency deltas already extracted by the per-session
+        // pass. No additional storage round-trips — the same events the metric
+        // pass walked have been pre-binned into PerSessionData.LatencyDeltasMs
+        // for the first-20-session sample.
+        private static DeliveryLatencyMetrics AggregateDeliveryLatency(IReadOnlyList<PerSessionData> perSession)
+        {
+            var allDeltas = new List<double>();
+            foreach (var r in perSession) allDeltas.AddRange(r.LatencyDeltasMs);
+
+            if (allDeltas.Count == 0) return new DeliveryLatencyMetrics();
+
+            var negativeCount = allDeltas.Count(d => d < 0);
+            var validDeltas = allDeltas.Where(d => d >= 0).OrderBy(d => d).ToList();
+
+            if (validDeltas.Count == 0)
+                return new DeliveryLatencyMetrics
+                {
+                    SampleCount = allDeltas.Count,
+                    ClockSkewPercent = 100.0
+                };
+
+            return new DeliveryLatencyMetrics
+            {
+                P50Ms = Math.Round(Percentile(validDeltas, 0.50), 0),
+                P95Ms = Math.Round(Percentile(validDeltas, 0.95), 0),
+                P99Ms = Math.Round(Percentile(validDeltas, 0.99), 0),
+                AvgMs = Math.Round(validDeltas.Average(), 0),
+                SampleCount = allDeltas.Count,
+                ClockSkewPercent = Math.Round((double)negativeCount / allDeltas.Count * 100, 1)
+            };
+        }
+
+        // Aggregate crash classifications over the agent_started events the
+        // per-session pass already collected — same idea as the latency
+        // aggregator: zero extra storage calls.
+        private static CrashRateMetrics AggregateCrashRate(IReadOnlyList<PerSessionData> perSession)
+        {
+            var metrics = new CrashRateMetrics();
+            var exceptionCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var r in perSession)
+            {
+                foreach (var data in r.AgentStartedEvents)
+                {
+                    metrics.TotalStarts++;
+                    var exitType = GetString(data, "previousExitType");
+                    switch (exitType)
+                    {
+                        case "clean":
+                            metrics.CleanExits++;
+                            break;
+                        case "exception_crash":
+                            metrics.ExceptionCrashes++;
+                            var exType = GetString(data, "previousCrashException");
+                            if (!string.IsNullOrEmpty(exType))
+                            {
+                                exceptionCounts.TryGetValue(exType, out var count);
+                                exceptionCounts[exType] = count + 1;
+                            }
+                            break;
+                        case "hard_kill":
+                            metrics.HardKills++;
+                            break;
+                        case "reboot_kill":
+                            metrics.RebootKills++;
+                            break;
+                        default:
+                            metrics.FirstRuns++;
+                            break;
+                    }
+                }
+            }
+
+            var nonFirstRuns = metrics.TotalStarts - metrics.FirstRuns;
+            metrics.CrashRatePercent = nonFirstRuns > 0
+                ? Math.Round((double)metrics.ExceptionCrashes / nonFirstRuns * 100, 1)
+                : 0;
+
+            metrics.TopExceptions = exceptionCounts
+                .OrderByDescending(kv => kv.Value)
+                .Take(5)
+                .Select(kv => new CrashExceptionSummary { ExceptionType = kv.Key, Count = kv.Value })
+                .ToList();
+
+            return metrics;
         }
 
         private static double Percentile(List<double> sortedValues, double percentile)
@@ -370,6 +423,7 @@ namespace AutopilotMonitor.Functions.Services
         public int ComputeDurationMs { get; set; }
         public bool FromCache { get; set; }
         public int WindowDays { get; set; }
+        public int SessionLimit { get; set; }
     }
 
     public class SessionAgentMetric

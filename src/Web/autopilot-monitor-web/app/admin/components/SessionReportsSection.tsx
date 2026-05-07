@@ -7,7 +7,7 @@ import { extractContinuation } from "@/lib/paginationLink";
 import { isGuid } from "@/utils/inputValidation";
 import { trackEvent } from "@/lib/appInsights";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 20;
 
 interface SessionReport {
   reportId: string;
@@ -174,12 +174,18 @@ export function SessionReportsSection({
   }, [getAccessToken, setError]);
 
   // Initial load + reload whenever the applied tenant filter changes.
+  // fetchReports is intentionally excluded from deps: getAccessToken's identity
+  // churns on every MSAL accounts-array refresh, which happens after each
+  // authenticatedFetch — leaving fetchReports in deps causes the effect to
+  // re-fire after every successful page-N click, race a page-1 fetch against
+  // it, and snap the user back to page 1.
   useEffect(() => {
     setContinuation(null);
     setContinuationStack([]);
     setPageNumber(1);
     fetchReports(null, tenantFilterApplied);
-  }, [tenantFilterApplied, fetchReports]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantFilterApplied]);
 
   const handleApplyTenantFilter = () => {
     const trimmed = tenantFilterInput.trim();
