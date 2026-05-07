@@ -171,7 +171,8 @@ public class McpUserFunction
             allowed = result.IsAllowed,
             upn = result.Upn,
             accessGrant = result.AccessGrant,
-            reason = result.Reason
+            reason = result.Reason,
+            isGlobalAdmin = result.IsGlobalAdmin
         });
         return response;
     }

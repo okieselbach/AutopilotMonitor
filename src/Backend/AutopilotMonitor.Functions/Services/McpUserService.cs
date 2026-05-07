@@ -46,6 +46,11 @@ public class McpUserService
 
         upn = upn.ToLowerInvariant();
 
+        // Always resolve GA status — needed by the MCP server for cross-tenant routing
+        // decisions (GA → /api/global/* with tenantId-as-filter; non-GA → /api/* JWT-bound).
+        // Resolved unconditionally so downstream consumers don't need to re-check.
+        var isGlobalAdmin = await _globalAdminService.IsGlobalAdminAsync(upn);
+
         var config = await _adminConfigService.GetConfigurationAsync();
         if (!Enum.TryParse<McpAccessPolicy>(config.McpAccessPolicy, out var policy))
             policy = McpAccessPolicy.WhitelistOnly;
@@ -56,13 +61,13 @@ public class McpUserService
                 return McpAccessCheckResult.Denied("MCP access is disabled");
 
             case McpAccessPolicy.AllMembers:
-                return McpAccessCheckResult.Allowed(upn, "AllMembers");
+                return McpAccessCheckResult.Allowed(upn, "AllMembers", isGlobalAdmin);
 
             case McpAccessPolicy.WhitelistOnly:
             default:
                 // Global Admins always have access
-                if (await _globalAdminService.IsGlobalAdminAsync(upn))
-                    return McpAccessCheckResult.Allowed(upn, "GlobalAdmin");
+                if (isGlobalAdmin)
+                    return McpAccessCheckResult.Allowed(upn, "GlobalAdmin", true);
 
                 // Check McpUsers whitelist (cached)
                 var cacheKey = $"mcp-user:{upn}";
@@ -73,7 +78,7 @@ public class McpUserService
                 }
 
                 return isMcpUser
-                    ? McpAccessCheckResult.Allowed(upn, "McpUser")
+                    ? McpAccessCheckResult.Allowed(upn, "McpUser", false)
                     : McpAccessCheckResult.Denied("Not authorized for MCP access");
         }
     }
@@ -153,12 +158,14 @@ public class McpAccessCheckResult
     public string Upn { get; init; } = string.Empty;
     public string Reason { get; init; } = string.Empty;
     public string AccessGrant { get; init; } = string.Empty;
+    public bool IsGlobalAdmin { get; init; }
 
-    public static McpAccessCheckResult Allowed(string upn, string accessGrant) => new()
+    public static McpAccessCheckResult Allowed(string upn, string accessGrant, bool isGlobalAdmin = false) => new()
     {
         IsAllowed = true,
         Upn = upn,
-        AccessGrant = accessGrant
+        AccessGrant = accessGrant,
+        IsGlobalAdmin = isGlobalAdmin
     };
 
     public static McpAccessCheckResult Denied(string reason) => new()
