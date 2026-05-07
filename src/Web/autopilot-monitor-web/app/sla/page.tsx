@@ -452,7 +452,7 @@ export default function SlaPage() {
                           <tr key={v.sessionId} className="hover:bg-gray-50 dark:hover:bg-gray-750">
                             <td className="px-6 py-4 whitespace-nowrap">
                               <Link
-                                href={`/session/${v.tenantId}/${v.sessionId}`}
+                                href={`/sessions/${v.sessionId}`}
                                 onClick={() => trackEvent('sla_violator_opened', {
                                   sessionId: v.sessionId,
                                   tenantId: v.tenantId,
