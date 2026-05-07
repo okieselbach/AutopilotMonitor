@@ -100,7 +100,8 @@ namespace AutopilotMonitor.Functions.Pagination
             string sessionId,
             int pageSize,
             string wireContinuation,
-            string? tenantId)
+            string? tenantId,
+            IEnumerable<KeyValuePair<string, string?>>? extras = null)
         {
             var sb = new StringBuilder();
             sb.Append("/api/sessions/").Append(sessionId).Append("/events");
@@ -109,6 +110,15 @@ namespace AutopilotMonitor.Functions.Pagination
             if (!string.IsNullOrEmpty(tenantId))
             {
                 sb.Append("&tenantId=").Append(System.Uri.EscapeDataString(tenantId));
+            }
+            if (extras != null)
+            {
+                foreach (var kv in extras)
+                {
+                    if (string.IsNullOrEmpty(kv.Key) || string.IsNullOrEmpty(kv.Value)) continue;
+                    sb.Append('&').Append(System.Uri.EscapeDataString(kv.Key))
+                      .Append('=').Append(System.Uri.EscapeDataString(kv.Value!));
+                }
             }
             return sb.ToString();
         }

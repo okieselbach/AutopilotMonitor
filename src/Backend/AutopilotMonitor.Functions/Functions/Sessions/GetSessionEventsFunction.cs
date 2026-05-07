@@ -3,6 +3,7 @@ using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Pagination;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -56,6 +57,43 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 var requestCtx = req.GetRequestContext();
                 var tenantIdQueryParam = query["tenantId"];
 
+                // Optional server-side filters (post-fetch). Previously these lived in the MCP
+                // tool layer, which made count and nextLink semantics inconsistent (filter →
+                // count: 0 + nextLink "more ahead" was confusing). Centralizing here keeps
+                // count and nextLink coherent for every consumer.
+                var filterEventType = query["eventType"];
+                var filterSeverity = query["severity"];
+                var filterSource = query["source"];
+                var hasFilters = !string.IsNullOrEmpty(filterEventType)
+                    || !string.IsNullOrEmpty(filterSeverity)
+                    || !string.IsNullOrEmpty(filterSource);
+
+                static IEnumerable<EnrollmentEvent> ApplyFilters(
+                    IEnumerable<EnrollmentEvent> source,
+                    string? eventType, string? severity, string? sourceFilter)
+                {
+                    EventSeverity? wantSeverity = null;
+                    if (!string.IsNullOrEmpty(severity)
+                        && Enum.TryParse<EventSeverity>(severity, ignoreCase: true, out var parsed))
+                    {
+                        wantSeverity = parsed;
+                    }
+
+                    foreach (var e in source)
+                    {
+                        if (!string.IsNullOrEmpty(eventType) &&
+                            !string.Equals(e.EventType, eventType, StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        if (wantSeverity.HasValue && e.Severity != wantSeverity.Value)
+                            continue;
+                        if (!string.IsNullOrEmpty(sourceFilter) &&
+                            (e.Source == null ||
+                             e.Source.IndexOf(sourceFilter, StringComparison.OrdinalIgnoreCase) < 0))
+                            continue;
+                        yield return e;
+                    }
+                }
+
                 if (pagination.PageSize == null)
                 {
                     // Legacy unpaginated path — full list, no nextLink.
@@ -70,12 +108,16 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                         }
                     }
 
+                    var filtered = hasFilters
+                        ? ApplyFilters(events, filterEventType, filterSeverity, filterSource).ToList()
+                        : events;
+
                     return await req.OkAsync(new
                     {
                         success = true,
                         sessionId,
-                        count = events.Count,
-                        events,
+                        count = filtered.Count,
+                        events = filtered,
                     });
                 }
 
@@ -137,21 +179,37 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 var page = await _sessionRepo.GetSessionEventsPageAsync(
                     effectiveTenantId, sessionId, pagination.PageSize.Value, azureToken);
 
+                var pageItems = hasFilters
+                    ? ApplyFilters(page.Items, filterEventType, filterSeverity, filterSource).ToList()
+                    : page.Items;
+
                 string? nextLink = null;
                 if (!string.IsNullOrEmpty(page.NextRawToken))
                 {
+                    // Filters are echoed onto the nextLink so the client doesn't have to
+                    // re-supply them when continuing pagination. Both BuildNextLink and the
+                    // client (MCP, UI) round-trip these via the continuation URL verbatim.
+                    var extras = new List<KeyValuePair<string, string?>>(3);
+                    if (!string.IsNullOrEmpty(filterEventType))
+                        extras.Add(new KeyValuePair<string, string?>("eventType", filterEventType));
+                    if (!string.IsNullOrEmpty(filterSeverity))
+                        extras.Add(new KeyValuePair<string, string?>("severity", filterSeverity));
+                    if (!string.IsNullOrEmpty(filterSource))
+                        extras.Add(new KeyValuePair<string, string?>("source", filterSource));
+
                     var fp = SessionEventsPagination.Fingerprint(effectiveTenantId, sessionId);
                     var wireToken = ContinuationToken.Encode(page.NextRawToken!, effectiveTenantId, fp);
                     nextLink = SessionEventsPagination.BuildNextLink(
-                        sessionId, pagination.PageSize.Value, wireToken, effectiveTenantId);
+                        sessionId, pagination.PageSize.Value, wireToken, effectiveTenantId,
+                        extras: extras.Count > 0 ? extras : null);
                 }
 
                 return await req.OkAsync(new
                 {
                     success = true,
                     sessionId,
-                    count = page.Items.Count,
-                    events = page.Items,
+                    count = pageItems.Count,
+                    events = pageItems,
                     nextLink,
                 });
             }
