@@ -44,13 +44,28 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                     return bad;
                 }
 
+                // Optional tenantId filter — when set, GA scopes the cross-tenant view to one
+                // tenant. Routing falls through to the tenant-scoped repository methods so
+                // the partition-key lookup stays cheap. Fingerprint scope is widened with the
+                // filter value so cross-token reuse is rejected.
+                var filterTenantId = query["tenantId"];
+                var fingerprintScope = string.IsNullOrEmpty(filterTenantId)
+                    ? "audit:global"
+                    : $"audit:global:tenant:{filterTenantId}";
+                var nextLinkExtras = string.IsNullOrEmpty(filterTenantId)
+                    ? null
+                    : new[] { new KeyValuePair<string, string?>("tenantId", filterTenantId) };
+
                 _logger.LogInformation(
-                    "Fetching global audit logs (dateFrom={DateFrom}, dateTo={DateTo}, pageSize={PageSize}) for {User}",
-                    parsed.DateFrom, parsed.DateTo, parsed.PageSize?.ToString() ?? "all", userEmail);
+                    "Fetching global audit logs (dateFrom={DateFrom}, dateTo={DateTo}, pageSize={PageSize}, filterTenant={Filter}) for {User}",
+                    parsed.DateFrom, parsed.DateTo, parsed.PageSize?.ToString() ?? "all",
+                    filterTenantId ?? "(none)", userEmail);
 
                 if (parsed.PageSize == null)
                 {
-                    var logs = await _maintenanceRepo.GetAllAuditLogsAsync(parsed.DateFrom, parsed.DateTo);
+                    var logs = string.IsNullOrEmpty(filterTenantId)
+                        ? await _maintenanceRepo.GetAllAuditLogsAsync(parsed.DateFrom, parsed.DateTo)
+                        : await _maintenanceRepo.GetAuditLogsAsync(filterTenantId, parsed.DateFrom, parsed.DateTo);
                     return await req.OkAsync(new { success = true, count = logs.Count, logs });
                 }
 
@@ -59,11 +74,11 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 {
                     if (!DateWindowPagination.TryAcceptContinuation(
                             parsed.Continuation,
-                            scope: "audit:global",
+                            scope: fingerprintScope,
                             callerTenantId: callerTenantId,
                             dateFrom: parsed.DateFrom,
                             dateTo: parsed.DateTo,
-                            extras: null,
+                            extras: nextLinkExtras,
                             out azureToken,
                             out var rejectReason))
                     {
@@ -78,24 +93,29 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                     }
                 }
 
-                var page = await _maintenanceRepo.GetAllAuditLogsPageAsync(
-                    parsed.DateFrom, parsed.DateTo, parsed.PageSize.Value, azureToken);
+                var page = string.IsNullOrEmpty(filterTenantId)
+                    ? await _maintenanceRepo.GetAllAuditLogsPageAsync(
+                        parsed.DateFrom, parsed.DateTo, parsed.PageSize.Value, azureToken)
+                    : await _maintenanceRepo.GetAuditLogsPageAsync(
+                        filterTenantId, parsed.DateFrom, parsed.DateTo, parsed.PageSize.Value, azureToken);
 
                 string? nextLink = null;
                 if (!string.IsNullOrEmpty(page.NextRawToken))
                 {
                     var fp = DateWindowPagination.Fingerprint(
-                        scope: "audit:global",
+                        scope: fingerprintScope,
                         callerTenantId: callerTenantId,
                         dateFrom: parsed.DateFrom,
-                        dateTo: parsed.DateTo);
+                        dateTo: parsed.DateTo,
+                        extras: nextLinkExtras);
                     var wireToken = ContinuationToken.Encode(page.NextRawToken!, callerTenantId, fp);
                     nextLink = DateWindowPagination.BuildNextLink(
                         basePath: "/api/global/audit/logs",
                         pageSize: parsed.PageSize.Value,
                         wireContinuation: wireToken,
                         dateFrom: parsed.DateFrom,
-                        dateTo: parsed.DateTo);
+                        dateTo: parsed.DateTo,
+                        extras: nextLinkExtras);
                 }
 
                 return await req.OkAsync(new

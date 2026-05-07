@@ -38,6 +38,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 var callerTenantId = TenantHelper.GetTenantId(req);
                 var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
                 var category = query["category"];
+                var filterTenantId = query["tenantId"];
 
                 var parsed = DateWindowPagination.ParseQuery(query);
                 if (parsed.Error != null)
@@ -47,14 +48,27 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                     return bad;
                 }
 
-                var extras = string.IsNullOrEmpty(category)
-                    ? null
-                    : new[] { new KeyValuePair<string, string?>("category", category) };
+                // OpsEvents are partitioned by category, not tenant — tenantId filter is applied
+                // post-fetch. Pages may report fewer items than pageSize when the filter is
+                // narrow (Azure scan returns pageSize raw rows; we filter and emit what passes).
+                var extrasList = new List<KeyValuePair<string, string?>>();
+                if (!string.IsNullOrEmpty(category))
+                    extrasList.Add(new KeyValuePair<string, string?>("category", category));
+                if (!string.IsNullOrEmpty(filterTenantId))
+                    extrasList.Add(new KeyValuePair<string, string?>("tenantId", filterTenantId));
+                var extras = extrasList.Count > 0 ? extrasList.ToArray() : null;
+
+                static IEnumerable<OpsEventEntry> ApplyTenantFilter(
+                    IEnumerable<OpsEventEntry> source, string? tenantFilter) =>
+                    string.IsNullOrEmpty(tenantFilter)
+                        ? source
+                        : source.Where(e => string.Equals(e.TenantId, tenantFilter, StringComparison.OrdinalIgnoreCase));
 
                 if (parsed.PageSize == null)
                 {
                     var events = await _repository.GetOpsEventsAsync(category, parsed.DateFrom, parsed.DateTo);
-                    return await req.OkAsync(new { success = true, count = events.Count, events });
+                    var filtered = ApplyTenantFilter(events, filterTenantId).ToList();
+                    return await req.OkAsync(new { success = true, count = filtered.Count, events = filtered });
                 }
 
                 string? azureToken = null;
@@ -84,6 +98,8 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 var page = await _repository.GetOpsEventsPageAsync(
                     category, parsed.DateFrom, parsed.DateTo, parsed.PageSize.Value, azureToken);
 
+                var pageItems = ApplyTenantFilter(page.Items, filterTenantId).ToList();
+
                 string? nextLink = null;
                 if (!string.IsNullOrEmpty(page.NextRawToken))
                 {
@@ -106,8 +122,8 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 return await req.OkAsync(new
                 {
                     success = true,
-                    count = page.Items.Count,
-                    events = page.Items,
+                    count = pageItems.Count,
+                    events = pageItems,
                     nextLink,
                 });
             }
