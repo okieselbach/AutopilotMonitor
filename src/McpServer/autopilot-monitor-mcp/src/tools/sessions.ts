@@ -227,8 +227,10 @@ export function registerSessionTools(server: McpServer): void {
     'get_session_summary',
     'Get a concise, structured summary of an enrollment session optimized for analysis. ' +
     'Returns: session overview (status, duration, device, enrollment config), ' +
-    'key events timeline (errors, warnings, phase transitions, app installs — noise filtered out), ' +
-    'rule analysis results (probable cause, remediation), and aggregate stats. ' +
+    'key events timeline (errors, warnings, phase transitions, app installs — noise filtered out, ' +
+    'capped at 50 most-relevant entries; stats.keyEventsTruncated indicates if more were dropped), ' +
+    'rule analysis results (probable cause, remediation), and aggregate stats. Heavy event payloads ' +
+    '(data JSON) are NOT included — pull them via get_session_events for the same sessionId when needed. ' +
     'Use this as the FIRST tool when investigating a session. ' +
     'For raw unfiltered events use get_session_events. For full metadata use get_session.',
     {
@@ -299,23 +301,50 @@ export function registerSessionTools(server: McpServer): void {
           if (et === 'app_install_skipped') appSkipped++;
         }
 
-        let keyEvents = allEvents.filter((e) => {
+        // Triage timeline: keep noise-free events, sort by relevance (errors >
+        // phase transitions > warnings > others, then chronological), cap at 50
+        // entries. Heavy `details` payloads are dropped by default — they were the
+        // root cause of the previous 80 KB+ responses; callers needing full payloads
+        // pull them via get_session_events with the same sessionId.
+        const KEY_EVENTS_CAP = 50;
+        const PHASE_EVENT_TYPES = new Set([
+          'phase_transition', 'esp_phase_changed', 'enrollment_type_detected',
+          'enrollment_complete', 'enrollment_failed', 'desktop_arrived',
+        ]);
+        const allKey = allEvents.filter((e) => {
           const et = String(e.eventType ?? '');
           if (EXCLUDED_EVENT_TYPES.has(et)) return false;
           if (KEY_EVENT_TYPES.has(et)) return true;
           return (SEVERITY_RANK[String(e.severity ?? '')] ?? -1) >= 2;
         });
 
-        const mappedEvents = keyEvents.map((e) => ({
+        const relevanceScore = (e: Record<string, unknown>): number => {
+          const sev = SEVERITY_RANK[String(e.severity ?? '')] ?? -1;
+          if (sev >= 3) return 100;                        // Error/Critical
+          if (PHASE_EVENT_TYPES.has(String(e.eventType ?? ''))) return 60;
+          if (sev === 2) return 30;                        // Warning
+          return 10;                                       // info-level key event
+        };
+
+        const sortedKey = [...allKey].sort((a, b) => {
+          const r = relevanceScore(b) - relevanceScore(a);
+          if (r !== 0) return r;
+          return String(a.timestamp ?? '').localeCompare(String(b.timestamp ?? ''));
+        });
+
+        const truncated = sortedKey.length > KEY_EVENTS_CAP;
+        const cappedKey = truncated ? sortedKey.slice(0, KEY_EVENTS_CAP) : sortedKey;
+
+        // Re-sort the displayed slice chronologically — easier to read as a timeline.
+        cappedKey.sort((a, b) => String(a.timestamp ?? '').localeCompare(String(b.timestamp ?? '')));
+
+        const mappedEvents = cappedKey.map((e) => ({
           timestamp: e.timestamp,
           eventType: e.eventType,
           severity: e.severity,
           phase: PHASE_NAMES[Number(e.phase)] ?? String(e.phase ?? ''),
           message: e.message,
           source: e.source,
-          details: e.data && typeof e.data === 'object' && Object.keys(e.data as object).length > 0
-            ? e.data
-            : (e.dataJson ? (() => { try { return JSON.parse(String(e.dataJson)); } catch { return null; } })() : null),
         }));
 
         let analysis = null;
@@ -342,7 +371,9 @@ export function registerSessionTools(server: McpServer): void {
           analysis,
           stats: {
             totalEvents: allEvents.length,
+            keyEventsTotal: sortedKey.length,
             keyEventsShown: mappedEvents.length,
+            keyEventsTruncated: truncated,
             errorCount,
             warningCount,
             appInstalls: { total: appTotal, succeeded: appSucceeded, failed: appFailed, skipped: appSkipped },
