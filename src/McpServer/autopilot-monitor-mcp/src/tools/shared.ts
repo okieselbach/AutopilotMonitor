@@ -1,4 +1,20 @@
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
+import { z } from 'zod';
+
+/**
+ * Zod validator for session IDs. Sessions are UUIDs and the value is
+ * interpolated unencoded into backend URL paths (`/api/sessions/{id}/...`).
+ * WHATWG-URL normalization collapses `..` segments before fetch sends the
+ * request, so an unvalidated value like `../admin/foo` would silently route
+ * to a different endpoint. The strict GUID pattern blocks both that path-
+ * traversal vector and accidental garbage inputs.
+ */
+export const SessionIdSchema = z
+  .string()
+  .regex(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    'sessionId must be a UUID (e.g. "e259c121-1234-4abc-9def-0123456789ab")',
+  );
 
 /** Read-only query tool — no side effects, idempotent, closed-world (our backend only). */
 export const READ_ONLY: ToolAnnotations = {

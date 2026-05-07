@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { apiFetch, buildQuery, followNextLink, pickGlobalOrTenantPath } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
-import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText } from './shared.js';
+import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema } from './shared.js';
 import { toolError } from './error-handler.js';
 
 // ── Session summary constants ───────────────────────────────────────────
@@ -153,7 +153,7 @@ export function registerSessionTools(server: McpServer): void {
     'get_session',
     'Get full details of a single enrollment session including all device metadata. Set includeAnalysis=true to also get AI rule analysis results explaining why the session failed and remediation suggestions.',
     {
-      sessionId: z.string().describe('Session UUID'),
+      sessionId: SessionIdSchema.describe('Session UUID'),
       tenantId: z.string().optional().describe('Tenant ID. If omitted, auto-resolved from the session (Global Admin can access any tenant).'),
       includeAnalysis: z.boolean().optional().default(false).describe('Include rule analysis results (failure explanations and remediation steps)'),
     },
@@ -192,7 +192,7 @@ export function registerSessionTools(server: McpServer): void {
     'filters, etc.) round-trip correctly. Stop when the response no longer contains a nextLink. Sessions with ' +
     'thousands of events are fully reachable across multiple calls.',
     {
-      sessionId: z.string().describe('Session UUID'),
+      sessionId: SessionIdSchema.describe('Session UUID'),
       tenantId: z.string().optional().describe('Tenant ID. If omitted, auto-resolved from the session.'),
       eventType: z.string().optional().describe('Filter to only events of this type'),
       severity: z.enum(['Info', 'Warning', 'Error', 'Critical']).optional(),
@@ -234,7 +234,7 @@ export function registerSessionTools(server: McpServer): void {
     'Use this as the FIRST tool when investigating a session. ' +
     'For raw unfiltered events use get_session_events. For full metadata use get_session.',
     {
-      sessionId: z.string().describe('Session UUID'),
+      sessionId: SessionIdSchema.describe('Session UUID'),
       tenantId: z.string().optional().describe('Tenant ID. If omitted, auto-resolved from the session (Global Admin can access any tenant).'),
     },
     READ_ONLY,

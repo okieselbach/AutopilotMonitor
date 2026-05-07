@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { apiFetch, buildQuery, pickGlobalOrTenantPath } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
 import type { SearchProvider } from '../search-provider.js';
-import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText } from './shared.js';
+import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema } from './shared.js';
 import { toolError } from './error-handler.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -241,7 +241,7 @@ export function registerSearchTools(server: McpServer, knowledgeBase?: SearchPro
     'If results seem incomplete, escalate to deep_search_events for exhaustive coverage.',
     {
       query: z.string().describe('Natural language description of what to find (e.g. "app download stuck", "certificate error", "disk space low")'),
-      sessionId: z.string().optional().describe('Search within a specific session. If omitted, searches across recent failed sessions.'),
+      sessionId: SessionIdSchema.optional().describe('Search within a specific session. If omitted, searches across recent failed sessions.'),
       tenantId: z.string().optional().describe('Tenant ID. Required for non-Global Admin users; Global Admin can omit to search across tenants.'),
       topK: z.coerce.number().min(1).max(30).optional().default(10).describe('Number of matching events to return (1-30, default 10)'),
       minScore: z.coerce.number().min(0).max(1).optional().default(0.1)
@@ -374,7 +374,7 @@ export function registerSearchTools(server: McpServer, knowledgeBase?: SearchPro
     'Omit tenantId for cross-tenant search (Global Admin), or specify tenantId for single-tenant.',
     {
       query: z.string().describe('Natural language description of what to find (e.g. "app download stuck", "certificate error", "disk space low")'),
-      sessionId: z.string().optional().describe('Search within a specific session. If omitted, searches across recent failed sessions.'),
+      sessionId: SessionIdSchema.optional().describe('Search within a specific session. If omitted, searches across recent failed sessions.'),
       tenantId: z.string().optional().describe('Tenant ID. Required for non-Global Admin users; Global Admin can omit to search across tenants.'),
       topK: z.coerce.number().min(1).max(50).optional().default(20)
         .describe('Max results to return (1-50, default 20). Higher default for thoroughness.'),

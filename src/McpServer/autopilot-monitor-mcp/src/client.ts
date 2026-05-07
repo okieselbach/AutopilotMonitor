@@ -142,6 +142,16 @@ function buildQuery(params: Record<string, string | number | boolean | undefined
  * binds the resolved tenantId into the token's fingerprint, so page 2 must
  * re-send `?tenantId=` to validate. Tools that strip everything except
  * `continuation` would silently fail token validation on follow-up calls.
+ *
+ * Security: the path of the supplied nextLink must equal the tool's
+ * <paramref name="basePath"/>. Without this, a caller could pass any
+ * `/api/...` value via the `continuation` argument and bend the request
+ * to a different backend endpoint — bypassing the tool's declared READ_ONLY
+ * + closed-world contract. Backend RBAC still gates cross-tenant access, but
+ * cross-tool path substitution is a defense-in-depth gap. Continuation-
+ * tokens are HMAC-bound to their endpoint scope; this guard prevents callers
+ * from bypassing them entirely by issuing a fresh, token-less request to a
+ * different path.
  */
 function followNextLink(
   basePath: string,
@@ -149,6 +159,16 @@ function followNextLink(
   continuationOrNextLink?: string,
 ): string {
   if (continuationOrNextLink && continuationOrNextLink.startsWith('/api/')) {
+    const queryStart = continuationOrNextLink.indexOf('?');
+    const pathOnly = queryStart === -1
+      ? continuationOrNextLink
+      : continuationOrNextLink.slice(0, queryStart);
+    if (pathOnly !== basePath) {
+      throw new Error(
+        `Continuation nextLink path "${pathOnly}" does not match the tool's expected base path "${basePath}". ` +
+        'Pass the full nextLink string from the SAME tool\'s prior response, not a synthesized or third-party path.',
+      );
+    }
     return continuationOrNextLink;
   }
   return `${basePath}${buildQuery({ ...extraParams, continuation: continuationOrNextLink })}`;

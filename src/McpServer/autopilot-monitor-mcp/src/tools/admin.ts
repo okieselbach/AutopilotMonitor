@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { apiFetch, buildQuery, followNextLink, pickGlobalOrTenantPath } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
 import { getResourceContent } from '../resource-catalog.js';
-import { READ_ONLY, READ_ONLY_OPEN, MAX_RESULT_SIZE_CHARS, toolResultText } from './shared.js';
+import { READ_ONLY, READ_ONLY_OPEN, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema } from './shared.js';
 import { toolError } from './error-handler.js';
 
 export function registerAdminTools(server: McpServer): void {
@@ -334,7 +334,7 @@ export function registerAdminTools(server: McpServer): void {
     'indexed session can contribute multiple events, so total events per page may exceed pageSize.',
     {
       tenantId: z.string().optional().describe('Tenant ID. Omit for cross-tenant search (Global Admin only).'),
-      sessionId: z.string().optional().describe('Filter to a specific session'),
+      sessionId: SessionIdSchema.optional().describe('Filter to a specific session'),
       eventType: z.string().optional().describe('Event type filter (e.g. "app_install_failed", "error_detected")'),
       severity: z.enum(['Info', 'Warning', 'Error', 'Critical']).optional(),
       source: z.string().optional().describe('Filter by event source/app name (substring match)'),
@@ -534,15 +534,14 @@ export function registerAdminTools(server: McpServer): void {
     READ_ONLY,
     async (args) => withToolTelemetry('get_rule_stats', async () => {
       try {
-        const params = buildQuery({
+        const params: Record<string, string | undefined> = {
           startDate: args.startDate,
           endDate: args.endDate,
           ruleType: args.ruleType,
-        });
-        const path = args.tenantId
-          ? `/api/metrics/rule-stats${params}`
-          : `/api/global/metrics/rule-stats${params}`;
-        const data = await apiFetch(path);
+        };
+        if (args.tenantId) params.tenantId = args.tenantId;
+        const prefix = pickGlobalOrTenantPath('/api/global/metrics', '/api/metrics');
+        const data = await apiFetch(`${prefix}/rule-stats${buildQuery(params)}`);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('get_rule_stats', args, error);

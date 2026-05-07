@@ -40,6 +40,15 @@ export function toolError(
       parts.push(`**Not found in ${toolName}**: The requested resource does not exist. Verify IDs, table names, or filters.`);
     } else if (error.status === 429) {
       parts.push(`**Rate limited in ${toolName}**: Too many requests. Wait a moment and retry.`);
+    } else if (error.status >= 500) {
+      // Don't relay 5xx response bodies to the model — unstructured server
+      // errors can occasionally leak internals (stack frames, connection
+      // strings, environment hints) that shouldn't reach a downstream caller.
+      // The status code + a stable hint is enough for the model to retry or
+      // fall back; deep diagnostics are available in backend logs by
+      // correlation id.
+      parts.push(`**Backend error in ${toolName}** (HTTP ${error.status}): the server returned an unstructured error.`);
+      parts.push('**Suggestion**: retry in a few seconds; if persistent, ask an operator to inspect backend logs.');
     } else {
       const body = error.body || 'No response body';
       const truncated = body.length > 500 ? body.slice(0, 500) + '…' : body;

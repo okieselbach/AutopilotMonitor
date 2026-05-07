@@ -147,17 +147,26 @@ export function accessGuard(req: Request, res: Response, next: NextFunction): vo
 
   const upn = claims.upn.toLowerCase();
 
-  // Rate limit check (sync — no backend call needed)
-  if (isRateLimited(upn)) {
-    res.status(429).json({ error: 'Rate limit exceeded', retryAfterSeconds: 60 });
-    return;
-  }
-
-  // Access check (async — calls backend, cached)
+  // Access check (async — calls backend, cached). Must run BEFORE rate-limit
+  // accounting: the JWT signature is not verified here (only the backend has
+  // JWKS access), so an attacker can forge an unsigned token with a victim's
+  // UPN. If rate-limit incremented before validation, those forgeries would
+  // burn the victim's per-minute budget and 429 their legitimate calls.
+  // checkAccess delegates signature verification to the backend; both
+  // allow- and deny-decisions are cached for 5min per UPN, so forged-token
+  // floods cost at most one backend call per fake UPN.
   checkAccess(upn, token)
     .then((result) => {
       if (!result.allowed) {
         res.status(403).json({ error: 'MCP access denied', reason: result.reason });
+        return;
+      }
+
+      // Rate-limit only validated identities. A forged JWT with someone
+      // else's UPN was already rejected above; only a real, allow-listed
+      // user reaches this counter.
+      if (isRateLimited(upn)) {
+        res.status(429).json({ error: 'Rate limit exceeded', retryAfterSeconds: 60 });
         return;
       }
 
