@@ -42,7 +42,7 @@
                           of schtasks /Run, and BootTrigger fallback via XML-hardened task (PR2).
     2026-04-20  v2.0-pre  Forked from Install-AutopilotMonitor.ps1 v1.1 for V2-Agent.
                           URL -> AutopilotMonitor-Agent-V2.zip, integrity file -> version-v2.json,
-                          agent exe -> AutopilotMonitor.Agent.V2.exe. Same guards + install flow.
+                          agent exe -> AutopilotMonitor.Agent.exe (V2 release line, identified via version-v2.json + AssemblyVersion 2.0.x). Same guards + install flow.
     2026-04-09  v1.1  Introduced explicit script version and log it on startup
     (all entries above were v1.0)
     2026-03-31  Replaced OS age + MDM pre-flight checks with multi-signal guard:

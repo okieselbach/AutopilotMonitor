@@ -74,7 +74,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
         public void Xml_embeds_exec_command_with_xml_special_chars_escaped()
         {
             // ProgramData is admin-set; defensive against `&` or `<` in custom paths.
-            const string trickyExe = @"C:\Program Files & Co\Auto<pilot>Monitor\Agent.V2.exe";
+            const string trickyExe = @"C:\Program Files & Co\Auto<pilot>Monitor\Agent.exe";
 
             var xml = AutopilotMonitor.Agent.V2.Program.BuildScheduledTaskXml(trickyExe);
 

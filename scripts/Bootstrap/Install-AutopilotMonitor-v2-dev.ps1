@@ -29,7 +29,7 @@
     2026-04-20  v2.0-pre-dev  Forked from Install-AutopilotMonitor-Dev.ps1 v1.1-dev for V2-Agent.
                               Default URL -> AutopilotMonitor-Agent-V2-dev.zip,
                               integrity file -> version-v2-dev.json,
-                              agent exe -> AutopilotMonitor.Agent.V2.exe.
+                              agent exe -> AutopilotMonitor.Agent.exe (V2 release line, identified via version-v2-dev.json + AssemblyVersion 2.0.x).
                               Plan: plans/REFACTOR_AGENT_V2.md section 4 M2.
     2026-04-14  v1.1-dev  Initial DEV variant forked from Install-AutopilotMonitor.ps1 v1.1.
                           Default URL -> AutopilotMonitor-Agent-dev.zip, integrity file -> version-dev.json.
