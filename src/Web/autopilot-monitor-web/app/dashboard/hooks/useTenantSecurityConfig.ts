@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { TokenExpiredError } from "@/lib/authenticatedFetch";
+import { dedupedAuthFetch } from "@/lib/dedupedAuthFetch";
 import type { NotificationType } from "@/contexts/NotificationContext";
 
 type AddNotification = (
@@ -50,7 +51,7 @@ export function useTenantSecurityConfig(
       if (!user.isTenantAdmin && !user.isGlobalAdmin && user.role == null) return;
 
       try {
-        const response = await authenticatedFetch(api.config.featureFlags(tenantId), getAccessToken);
+        const response = await dedupedAuthFetch(api.config.featureFlags(tenantId), getAccessToken);
 
         if (!response.ok) {
           setSerialValidationEnabled(null);
