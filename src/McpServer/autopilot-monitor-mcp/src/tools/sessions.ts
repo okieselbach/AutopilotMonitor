@@ -38,7 +38,7 @@ export function registerSessionTools(server: McpServer): void {
     'Search enrollment sessions. Omit tenantId for cross-tenant search (Global Admin), or specify tenantId for single-tenant. ' +
     'Basic properties (status, serial number, manufacturer, model, etc.) filter on the session index. ' +
     'Use deviceProperties for ANY device hardware/config filter — keys use "eventType.propertyName" notation. ' +
-    'Consult the device_properties resource for available keys. ' +
+    'Consult the device_properties catalog (call get_resource(name="device_properties")) for available keys. ' +
     'Examples: {"tpm_status.specVersion": "2.0"}, {"hardware_spec.ramTotalGB": ">=8"}, {"secureboot_status.uefiSecureBootEnabled": "True"}. ' +
     'Array values are searched as substring match (e.g. disks containing "NVMe"). ' +
     'For COUNTING / AGGREGATION queries (e.g. "how many V2 enrollments?", "how many failed in last 7 days?") ALWAYS pass ' +
@@ -78,7 +78,7 @@ export function registerSessionTools(server: McpServer): void {
                   'isUserDriven, isHybridJoin, agentVersion, imeAgentVersion, geoCountry.'),
       deviceProperties: z.record(z.string(), z.string()).optional().describe(
         'Dynamic device property filters. Keys use "eventType.propertyName" dot notation. ' +
-        'See the device_properties resource for all available keys and types. ' +
+        'See the device_properties catalog (call get_resource(name="device_properties")) for all available keys and types. ' +
         'Values: exact match by default. Prefix with >=, <=, >, < for numeric ranges (e.g. ">=8"). ' +
         'Booleans: use "True" or "False". Arrays: substring match in any element.'
       ),
@@ -116,14 +116,14 @@ export function registerSessionTools(server: McpServer): void {
   server.tool(
     'search_sessions_by_event',
     'Find sessions that contain a specific event type (e.g. app install failure, phase transitions, errors). ' +
-    'Omit tenantId for cross-tenant search (Global Admin). Check the event_types resource for valid eventType values. ' +
+    'Omit tenantId for cross-tenant search (Global Admin). Check the event_types catalog (call get_resource(name="event_types")) for valid eventType values. ' +
     'Use this to answer: which devices had a failed Teams install, which sessions had an error in DeviceSetup phase. ' +
     'This endpoint is fully paginated — there is no truncation. The default pageSize=200 is tuned for typical ' +
     'interactive queries; raise it (up to 1000) for full sweeps. For broad analysis, use pageSize=1000 and follow ' +
     'nextLink repeatedly until absent. Pass the whole nextLink string as "continuation" so all backend-echoed query ' +
     'params round-trip correctly.',
     {
-      eventType: z.string().describe('Event type string — see event_types resource for valid values (e.g. "app_install_failed", "enrollment_failed")'),
+      eventType: z.string().describe('Event type string — see event_types catalog (call get_resource(name="event_types")) for valid values (e.g. "app_install_failed", "enrollment_failed")'),
       tenantId: z.string().optional().describe('Tenant ID. Omit for cross-tenant search (Global Admin only).'),
       pageSize: z.coerce.number().int().min(1).max(1000).optional().default(200)
         .describe('Page size (1-1000, default 200). Returns this many sessions per call; follow nextLink to fetch more.'),

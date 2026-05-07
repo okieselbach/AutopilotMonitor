@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { apiFetch, buildQuery, followNextLink, pickGlobalOrTenantPath } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
+import { getResourceContent } from '../resource-catalog.js';
 import { READ_ONLY, READ_ONLY_OPEN, MAX_RESULT_SIZE_CHARS, toolResultText } from './shared.js';
 import { toolError } from './error-handler.js';
 
@@ -519,7 +520,10 @@ export function registerAdminTools(server: McpServer): void {
     'Get rule firing statistics for analyze and gather rules. Shows which rules fire most often, ' +
     'their hit rates (fires/evaluations), and daily trends. Use to identify commonly triggered rules, ' +
     'optimize rule definitions, or understand tenant-specific failure patterns. ' +
-    'Without tenantId returns global stats (cross-tenant). With tenantId returns tenant-specific stats.',
+    'Without tenantId returns global stats (cross-tenant). With tenantId returns tenant-specific stats. ' +
+    'NOTE: default window is 30 days × every rule × per-day trend rows — for 20+ rules the response ' +
+    'easily exceeds 70 KB and can trip the response cap. Pass a tighter `startDate`/`endDate` window ' +
+    '(7 days is usually plenty) and/or `ruleType` filter to keep responses lean.',
     {
       tenantId: z.string().optional().describe('Filter by tenant ID. Omit for global (cross-tenant) stats.'),
       ruleType: z.enum(['analyze', 'gather']).optional().describe('Filter by rule type'),
@@ -541,6 +545,30 @@ export function registerAdminTools(server: McpServer): void {
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('get_rule_stats', args, error);
+      }
+    })
+  );
+
+  // Tool: get_resource — returns the same content as the MCP `resources` would,
+  // but via a regular tool call. Workaround for clients (e.g. Claude Code's HTTP-MCP
+  // bridge in stateless mode) that don't expose `resources/list` reliably.
+  server.tool(
+    'get_resource',
+    'Returns the contents of a named static catalog resource. Use this when ' +
+    'the host MCP client cannot list/read MCP-protocol resources (common with ' +
+    'stateless HTTP MCP servers). Available names:\n' +
+    '  - "event_types": catalog of valid eventType strings for search_sessions_by_event\n' +
+    '  - "device_properties": catalog of dot-notation keys for the deviceProperties filter on search_sessions',
+    {
+      name: z.enum(['event_types', 'device_properties']).describe('Resource name'),
+    },
+    READ_ONLY_OPEN,
+    async (args) => withToolTelemetry('get_resource', async () => {
+      try {
+        const data = getResourceContent(args.name);
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
+      } catch (error: unknown) {
+        return toolError('get_resource', args, error);
       }
     })
   );
