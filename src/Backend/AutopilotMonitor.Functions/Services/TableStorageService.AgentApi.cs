@@ -542,6 +542,31 @@ namespace AutopilotMonitor.Functions.Services
                 var safeBuild = ODataSanitizer.EscapeValue(filter.OsBuild);
                 parts.Add($"OsBuild ge '{safeBuild}' and OsBuild lt '{safeBuild}~'");
             }
+            // AgentVersion: exact match wins over prefix. Both push to OData so a
+            // sparse subset (e.g. "all V2 enrollments" — typically <1% of sessions)
+            // doesn't burn N round-trips of empty pages while the index walks past
+            // the dense majority. Prefix uses the same `ge/lt {value}~` range
+            // trick that DeviceName / OsBuild already use — '~' (0x7E) sorts after
+            // every printable ASCII, so the upper bound captures every key starting
+            // with the prefix.
+            if (!string.IsNullOrEmpty(filter.AgentVersion))
+            {
+                parts.Add($"AgentVersion eq '{ODataSanitizer.EscapeValue(filter.AgentVersion)}'");
+            }
+            else if (!string.IsNullOrEmpty(filter.AgentVersionPrefix))
+            {
+                var safe = ODataSanitizer.EscapeValue(filter.AgentVersionPrefix);
+                parts.Add($"AgentVersion ge '{safe}' and AgentVersion lt '{safe}~'");
+            }
+            if (!string.IsNullOrEmpty(filter.ImeAgentVersion))
+            {
+                parts.Add($"ImeAgentVersion eq '{ODataSanitizer.EscapeValue(filter.ImeAgentVersion)}'");
+            }
+            else if (!string.IsNullOrEmpty(filter.ImeAgentVersionPrefix))
+            {
+                var safe = ODataSanitizer.EscapeValue(filter.ImeAgentVersionPrefix);
+                parts.Add($"ImeAgentVersion ge '{safe}' and ImeAgentVersion lt '{safe}~'");
+            }
             return parts.Count == 0 ? null : string.Join(" and ", parts);
         }
 
@@ -557,23 +582,9 @@ namespace AutopilotMonitor.Functions.Services
                 return false;
             if (filter.StartedAfter.HasValue && session.StartedAt < filter.StartedAfter.Value) return false;
             if (filter.StartedBefore.HasValue && session.StartedAt > filter.StartedBefore.Value) return false;
-            if (!string.IsNullOrEmpty(filter.AgentVersion) &&
-                !string.Equals(session.AgentVersion, filter.AgentVersion, StringComparison.OrdinalIgnoreCase))
-                return false;
-            if (!string.IsNullOrEmpty(filter.ImeAgentVersion) &&
-                !string.Equals(session.ImeAgentVersion, filter.ImeAgentVersion, StringComparison.OrdinalIgnoreCase))
-                return false;
-            // Prefix variants — only evaluated if the exact-match counterpart is unset.
-            if (string.IsNullOrEmpty(filter.AgentVersion)
-                && !string.IsNullOrEmpty(filter.AgentVersionPrefix)
-                && (session.AgentVersion == null
-                    || !session.AgentVersion.StartsWith(filter.AgentVersionPrefix!, StringComparison.OrdinalIgnoreCase)))
-                return false;
-            if (string.IsNullOrEmpty(filter.ImeAgentVersion)
-                && !string.IsNullOrEmpty(filter.ImeAgentVersionPrefix)
-                && (session.ImeAgentVersion == null
-                    || !session.ImeAgentVersion.StartsWith(filter.ImeAgentVersionPrefix!, StringComparison.OrdinalIgnoreCase)))
-                return false;
+            // AgentVersion / ImeAgentVersion (exact + prefix) are pushed to OData
+            // in BuildSearchScanFilter — the server has already filtered them out
+            // before we see the page. No client-side check needed.
             return true;
         }
 
