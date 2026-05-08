@@ -7,7 +7,15 @@ import { type OpsAlertRule } from "../AdminConfigContext";
 const OPS_EVENT_TYPES: Record<string, string[]> = {
   Consent: ["ConsentFlowStarted", "ConsentFlowSuccess", "ConsentFlowFailed", "ConsentRedirectUriMismatch"],
   Maintenance: ["MaintenanceCompleted", "MaintenanceFailed", "OpsEventCleanup", "SessionTimeouts"],
-  Security: ["DeviceBlocked", "ExcessiveDataBlocked", "VersionBlocked"],
+  Security: [
+    "DeviceBlocked",
+    "ExcessiveDataBlocked",
+    "VersionBlocked",
+    "EmbeddedCertExpiringSoon",
+    "EmbeddedCertExpiringUrgent",
+    "EmbeddedCertExpired",
+    "EmbeddedCertBundleEmpty",
+  ],
   Tenant: ["TenantOffboarded"],
   Agent: ["BlobStorageMissing", "BlobStorageUnreachable", "NewImeVersionDetected", "ExcessiveSessionEvents"],
 };
