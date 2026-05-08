@@ -5,7 +5,7 @@ import { type OpsAlertRule } from "../AdminConfigContext";
 
 // All known ops event types grouped by category
 const OPS_EVENT_TYPES: Record<string, string[]> = {
-  Consent: ["ConsentFlowStarted", "ConsentFlowFailed", "ConsentRedirectUriMismatch"],
+  Consent: ["ConsentFlowStarted", "ConsentFlowSuccess", "ConsentFlowFailed", "ConsentRedirectUriMismatch"],
   Maintenance: ["MaintenanceCompleted", "MaintenanceFailed", "OpsEventCleanup", "SessionTimeouts"],
   Security: ["DeviceBlocked", "ExcessiveDataBlocked", "VersionBlocked"],
   Tenant: ["TenantOffboarded"],

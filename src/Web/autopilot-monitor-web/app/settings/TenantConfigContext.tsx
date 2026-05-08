@@ -35,7 +35,7 @@ interface TenantConfigContextValue {
   /** Toggle + persist DevPrep Device Association validation in one shot (no consent flow needed). */
   handleToggleDeviceAssociationValidation: (newValue: boolean) => Promise<void>;
   autopilotConsentInProgress: boolean;
-  beginDeviceValidationConsentFlow: (trigger: "autopilot" | "corporate") => Promise<void>;
+  beginDeviceValidationConsentFlow: (trigger: "autopilot" | "corporate" | "device-preparation") => Promise<void>;
 
   // Hardware whitelist
   manufacturerWhitelist: string;
@@ -658,7 +658,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // -----------------------------------------------------------------------
   // Consent flow
   // -----------------------------------------------------------------------
-  const beginDeviceValidationConsentFlow = useCallback(async (trigger: "autopilot" | "corporate") => {
+  const beginDeviceValidationConsentFlow = useCallback(async (trigger: "autopilot" | "corporate" | "device-preparation") => {
     if (!tenantId) return;
     try {
       setAutopilotConsentInProgress(true);
@@ -758,6 +758,18 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         const statusData = await statusResponse.json();
         if (!statusData.isConsented) {
           throw new Error(statusData.message || "Consent is not active yet for this tenant.");
+        }
+
+        // Best-effort ops-event: pairs with ConsentFlowStarted/Failed so admins can see
+        // whether repeated failures eventually resolved. Don't block the UI if it fails.
+        try {
+          await authenticatedFetch(api.config.autopilotConsentSuccess(tenantId), getAccessToken, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ trigger }),
+          });
+        } catch {
+          // swallow — observability only
         }
 
         if (trigger === "corporate") {

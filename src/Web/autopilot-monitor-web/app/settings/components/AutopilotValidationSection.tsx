@@ -15,7 +15,7 @@ interface AutopilotValidationSectionProps {
   showDeviceAssociationToggle?: boolean;
   autopilotConsentInProgress: boolean;
   saving: boolean;
-  onBeginConsent: (trigger: 'autopilot' | 'corporate') => void;
+  onBeginConsent: (trigger: 'autopilot' | 'corporate' | 'device-preparation') => void;
 }
 
 export default function AutopilotValidationSection({

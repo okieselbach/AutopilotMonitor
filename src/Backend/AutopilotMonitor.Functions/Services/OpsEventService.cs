@@ -33,6 +33,11 @@ namespace AutopilotMonitor.Functions.Services
                 $"Admin consent flow started by {userId}",
                 tenantId, userId, new { redirectUri });
 
+        public Task RecordConsentFlowSuccessAsync(string tenantId, string userId, string trigger)
+            => WriteAsync(OpsEventCategory.Consent, "ConsentFlowSuccess", OpsEventSeverity.Info,
+                $"Admin consent confirmed for {trigger} by {userId}",
+                tenantId, userId, new { trigger });
+
         public Task RecordConsentFlowFailedAsync(string tenantId, string userId, string error, string errorDescription)
             => WriteAsync(OpsEventCategory.Consent, "ConsentFlowFailed", OpsEventSeverity.Error,
                 $"Admin consent failed: {error}",

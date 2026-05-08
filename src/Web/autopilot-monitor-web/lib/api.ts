@@ -96,6 +96,8 @@ export const api = {
       `${API_BASE_URL}/api/config/${tenantId}/autopilot-device-validation/consent-status`,
     autopilotConsentFailure: (tenantId: string) =>
       `${API_BASE_URL}/api/config/${tenantId}/autopilot-device-validation/consent-failure`,
+    autopilotConsentSuccess: (tenantId: string) =>
+      `${API_BASE_URL}/api/config/${tenantId}/autopilot-device-validation/consent-success`,
     testNotification: (tenantId: string) =>
       `${API_BASE_URL}/api/config/${tenantId}/test-notification`,
     latestVersions: (opts?: { refresh?: boolean }) =>

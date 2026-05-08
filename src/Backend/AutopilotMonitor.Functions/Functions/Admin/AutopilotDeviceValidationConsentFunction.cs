@@ -147,6 +147,67 @@ public class AutopilotDeviceValidationConsentFunction
     }
 
     /// <summary>
+    /// Known consent triggers — frontend flows that initiate the AAD admin-consent dialog.
+    /// "device-preparation" is reserved for a future DevPrep-specific consent flow; it is
+    /// accepted by the success endpoint so the value can land in ops events when wired up.
+    /// </summary>
+    internal static readonly HashSet<string> KnownConsentTriggers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "autopilot",
+        "corporate",
+        "device-preparation",
+    };
+
+    /// <summary>
+    /// Frontend confirms a consent flow succeeded — called from the post-redirect callback
+    /// after <c>consent-status</c> reports <c>isConsented=true</c>. Pairs with
+    /// <c>ConsentFlowStarted</c> / <c>ConsentFlowFailed</c> so ops can see whether
+    /// repeated failures eventually resolved into a success.
+    /// </summary>
+    [Function("ReportConsentSuccess")]
+    public async Task<HttpResponseData> ReportConsentSuccess(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "config/{tenantId}/autopilot-device-validation/consent-success")] HttpRequestData req,
+        string tenantId)
+    {
+        // Authentication enforced by PolicyEnforcementMiddleware
+        var requestCtx = req.GetRequestContext();
+
+        ConsentSuccessReport? report;
+        try
+        {
+            report = await req.ReadFromJsonAsync<ConsentSuccessReport>();
+        }
+        catch
+        {
+            report = null;
+        }
+
+        var rawTrigger = report?.Trigger ?? string.Empty;
+        var trigger = KnownConsentTriggers.Contains(rawTrigger) ? rawTrigger.ToLowerInvariant() : "unknown";
+
+        _logger.LogInformation(
+            "ConsentFlowSuccess: tenant={TenantId} user={UserId} trigger={Trigger}",
+            requestCtx.TargetTenantId, requestCtx.UserPrincipalName, trigger);
+
+        _telemetryClient.TrackEvent("ConsentFlowSuccess", new Dictionary<string, string>
+        {
+            ["TenantId"] = requestCtx.TargetTenantId,
+            ["UserId"]   = requestCtx.UserPrincipalName,
+            ["Trigger"]  = trigger,
+        });
+
+        await _opsEventService.RecordConsentFlowSuccessAsync(
+            requestCtx.TargetTenantId, requestCtx.UserPrincipalName, trigger);
+
+        return req.CreateResponse(HttpStatusCode.OK);
+    }
+
+    private sealed class ConsentSuccessReport
+    {
+        public string? Trigger { get; set; }
+    }
+
+    /// <summary>
     /// Frontend reports consent flow failures (Azure AD errors) so we have visibility
     /// into broken consent flows that never reach our callback.
     /// KQL: customEvents | where name == "ConsentFlowFailed"
