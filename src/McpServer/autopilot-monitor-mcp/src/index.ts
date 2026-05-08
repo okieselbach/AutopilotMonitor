@@ -19,6 +19,19 @@ const SERVER_VERSION: string = pkg.version;
 const PORT = parseInt(process.env.PORT ?? '8080', 10);
 const RULES_DIR = process.env.RULES_DIR ?? resolve(__dirname, '..', '..', '..', '..', 'rules');
 
+// Surface the MCP_PUBLIC_URL state at boot so a missing public-URL pin is
+// visible in container logs, not silently fallen back to forwarded-headers
+// in production. Two-stage deploy expectation: first deploy → containerAppUrl
+// output → second deploy with mcpPublicUrl pinned. See infra/mcp-server.bicep.
+if (!process.env.MCP_PUBLIC_URL) {
+  console.error(
+    '[startup] MCP_PUBLIC_URL is not set — OAuth issuer / WWW-Authenticate / ' +
+    'redirect metadata will be derived from X-Forwarded-* headers. This is ' +
+    'acceptable for local dev only; in production, set MCP_PUBLIC_URL to the ' +
+    'Container App FQDN (re-deploy with the bicep `mcpPublicUrl` parameter).',
+  );
+}
+
 // --- Load shared knowledge base (reused across all sessions) ---
 
 console.error('Loading knowledge base documents…');
@@ -40,6 +53,15 @@ function createMcpServer(): McpServer {
 // --- HTTP Server with Streamable HTTP Transport ---
 
 const app = express();
+
+// Tight body-size limit for /oauth/register, registered BEFORE the global
+// parser so the smaller limit wins (the global parser's body-already-parsed
+// short-circuit then skips re-parsing). RFC 7591 registration requests carry
+// only client_name + redirect_uris + a few flags — 8 KB is two orders of
+// magnitude over realistic; anything larger is a memory-pressure attempt
+// against the in-memory client registry.
+app.use('/oauth/register', express.json({ limit: '8kb' }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

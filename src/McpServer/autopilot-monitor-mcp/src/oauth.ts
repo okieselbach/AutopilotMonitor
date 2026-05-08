@@ -37,8 +37,100 @@ const SCOPES = `api://${CLIENT_ID}/access_as_user openid profile offline_access`
  * In-memory store for dynamically registered OAuth clients (RFC 7591).
  * Clients re-register after a server restart — this is fine because the MCP
  * server acts as an OAuth proxy and the real credentials live in Entra ID.
+ *
+ * TODO(oauth-map-ttl): TTL/LRU eviction is intentionally NOT enabled. With a
+ * stateless scale-to-zero Container App, an evicted client_id forces the user
+ * back through Claude Code's manual `/mcp` reconnect flow (no auto-recovery).
+ * The hard size cap (MAX_REGISTERED_CLIENTS) bounds memory; revisit TTL once
+ * the reconnect UX is debugged or the registry moves to persistent storage.
  */
 const registeredClients = new Map<string, { name: string; redirectUris: string[] }>();
+
+// ---- State signing (HMAC) -------------------------------------------------
+//
+// /oauth/authorize stores its proxy state in the OAuth `state` parameter that
+// transits the user-agent. Without integrity protection a tampered state can
+// inject a chosen redirectUri / clientId pair into /oauth/callback. The
+// downstream redirect_uri allowlist + per-client registry already block
+// hostile destinations, but signing the state is a cheap belt-and-suspenders
+// that also catches replay (via iat/exp) and detects accidental client bugs.
+//
+// HMAC key: prefer STATE_HMAC_KEY from the environment so all replicas agree;
+// fall back to a per-instance random key when unset (state has a 10 min
+// lifetime, so per-instance is acceptable for single-replica scale=0..1).
+const STATE_HMAC_KEY: Buffer = process.env.STATE_HMAC_KEY
+  ? Buffer.from(process.env.STATE_HMAC_KEY, 'utf-8')
+  : crypto.randomBytes(32);
+const STATE_MAX_AGE_SECONDS = 600;
+
+interface ProxyStatePayload {
+  originalState?: string;
+  redirectUri: string;
+  clientId: string | null;
+  iat: number; // unix seconds
+}
+
+export function signState(payload: Omit<ProxyStatePayload, 'iat'>): string {
+  const full: ProxyStatePayload = { ...payload, iat: Math.floor(Date.now() / 1000) };
+  const json = JSON.stringify(full);
+  const body = Buffer.from(json, 'utf-8').toString('base64url');
+  const sig = crypto.createHmac('sha256', STATE_HMAC_KEY).update(body).digest('base64url');
+  return `${body}.${sig}`;
+}
+
+export function verifyState(state: string, nowSeconds: number = Math.floor(Date.now() / 1000)): ProxyStatePayload | null {
+  const parts = state.split('.');
+  if (parts.length !== 2) return null;
+  const [body, sig] = parts;
+
+  const expected = crypto.createHmac('sha256', STATE_HMAC_KEY).update(body).digest('base64url');
+  // Constant-time compare; lengths must match before timingSafeEqual.
+  const sigBuf = Buffer.from(sig, 'utf-8');
+  const expBuf = Buffer.from(expected, 'utf-8');
+  if (sigBuf.length !== expBuf.length) return null;
+  if (!crypto.timingSafeEqual(sigBuf, expBuf)) return null;
+
+  let parsed: ProxyStatePayload;
+  try {
+    parsed = JSON.parse(Buffer.from(body, 'base64url').toString('utf-8')) as ProxyStatePayload;
+  } catch {
+    return null;
+  }
+
+  if (typeof parsed.iat !== 'number' || nowSeconds - parsed.iat > STATE_MAX_AGE_SECONDS) return null;
+  if (typeof parsed.redirectUri !== 'string') return null;
+
+  return parsed;
+}
+
+/**
+ * Hard cap on the dynamic-client registry. At ~300 bytes per entry this caps
+ * memory at ~3 MB worst case — well below the 0.5 GiB container budget. Real
+ * usage adds one entry per Claude-Code-session × server-URL, lifetime; even a
+ * busy deployment stays in the low thousands.
+ */
+export const MAX_REGISTERED_CLIENTS = 10_000;
+export const MAX_REDIRECT_URIS_PER_CLIENT = 10;
+export const MAX_REDIRECT_URI_LENGTH = 1024;
+export const MAX_CLIENT_NAME_LENGTH = 256;
+
+/**
+ * Test-only handle on the registry. Lets unit tests verify cap behavior
+ * without spinning up the full Express stack. Production code never imports
+ * this — it only ever touches the closure inside createOAuthRouter().
+ */
+export const _registryForTest = {
+  size: () => registeredClients.size,
+  fill: (count: number) => {
+    for (let i = 0; i < count; i++) {
+      registeredClients.set(`__test_${i}_${crypto.randomUUID()}`, {
+        name: '__test',
+        redirectUris: ['http://localhost:1/cb'],
+      });
+    }
+  },
+  clear: () => registeredClients.clear(),
+};
 
 /**
  * Strict allowlist of host patterns acceptable for OAuth redirect_uri.
@@ -186,13 +278,55 @@ export function createOAuthRouter(): Router {
 
   // --- Dynamic Client Registration (RFC 7591) ---
   router.post('/oauth/register', (req, res) => {
+    // Hard memory ceiling — refuse new registrations once the registry is at
+    // capacity. The endpoint is unauthenticated per RFC 7591, so without this
+    // a flood would push the 0.5 GiB container into OOM.
+    if (registeredClients.size >= MAX_REGISTERED_CLIENTS) {
+      console.error(
+        `[oauth/register] Registry at cap (${MAX_REGISTERED_CLIENTS}) — rejecting new registration`,
+      );
+      res.status(503).json({
+        error: 'temporarily_unavailable',
+        error_description: 'Registration capacity reached, please retry later',
+      });
+      return;
+    }
+
     const { client_name, redirect_uris, grant_types, response_types, token_endpoint_auth_method } = req.body ?? {};
+
+    // Field-level bounds — backstop the route-level body-size limit. The
+    // parser caps total body bytes; these caps stop a single registration
+    // from carrying e.g. a thousand redirect_uris that all individually
+    // pass the URI allowlist.
+    if (typeof client_name === 'string' && client_name.length > MAX_CLIENT_NAME_LENGTH) {
+      res.status(400).json({
+        error: 'invalid_client_metadata',
+        error_description: `client_name exceeds ${MAX_CLIENT_NAME_LENGTH} characters`,
+      });
+      return;
+    }
+
+    const uris = Array.isArray(redirect_uris) ? redirect_uris : [];
+    if (uris.length > MAX_REDIRECT_URIS_PER_CLIENT) {
+      res.status(400).json({
+        error: 'invalid_redirect_uri',
+        error_description: `Too many redirect_uris (max ${MAX_REDIRECT_URIS_PER_CLIENT})`,
+      });
+      return;
+    }
+    const oversized = uris.find((u: unknown) => typeof u === 'string' && u.length > MAX_REDIRECT_URI_LENGTH);
+    if (oversized !== undefined) {
+      res.status(400).json({
+        error: 'invalid_redirect_uri',
+        error_description: `redirect_uri exceeds ${MAX_REDIRECT_URI_LENGTH} characters`,
+      });
+      return;
+    }
 
     // Reject hostile redirect_uris at registration time so the registry can be
     // trusted by /oauth/authorize and /oauth/callback. The endpoint itself is
     // unauthenticated per RFC 7591, so this filter is the only lever stopping
     // an attacker from registering arbitrary post-callback destinations.
-    const uris = Array.isArray(redirect_uris) ? redirect_uris : [];
     const invalidUris = uris.filter((u: unknown) => typeof u !== 'string' || !isAllowedRedirectUri(u));
     if (invalidUris.length > 0) {
       console.error(
@@ -237,6 +371,26 @@ export function createOAuthRouter(): Router {
       code_challenge,
       code_challenge_method,
     } = req.query as Record<string, string>;
+
+    // PKCE is mandatory. The discovery doc advertises S256 only, so any client
+    // that omits the challenge or downgrades to `plain` is either misbehaving
+    // or attempting to weaken the flow. Reject before redirecting to Entra so
+    // the failure surfaces cleanly at the proxy boundary.
+    if (!code_challenge) {
+      res.status(400).json({
+        error: 'invalid_request',
+        error_description: 'code_challenge is required (PKCE S256 mandatory)',
+      });
+      return;
+    }
+    const method = code_challenge_method ?? 'S256';
+    if (method !== 'S256') {
+      res.status(400).json({
+        error: 'invalid_request',
+        error_description: `code_challenge_method must be S256 (got: ${method})`,
+      });
+      return;
+    }
 
     // Defense in depth: validate redirect_uri before we build the proxy state.
     // Without this, /oauth/callback would happily 302 to any URL the caller
@@ -287,16 +441,14 @@ export function createOAuthRouter(): Router {
       console.warn('[oauth/authorize] No client_id supplied — proceeding on host-allowlist gate only');
     }
 
-    // Store Claude Code's redirect_uri in state so we can forward the code back.
-    // The clientId is bound into the state so /oauth/callback can re-validate
-    // against the registry — the inbound request to /oauth/callback only sees
-    // the state, not the original query, and tampering with the state is
-    // harmless because the same allowlist + registry checks run there too.
-    const proxyState = Buffer.from(JSON.stringify({
+    // HMAC-signed state: tampering or replay (>10 min) fails verification at
+    // /oauth/callback. The original client state is preserved inside the
+    // signed payload and re-emitted to the client unchanged.
+    const proxyState = signState({
       originalState: state,
       redirectUri: redirect_uri,
       clientId: client_id ?? null,
-    })).toString('base64url');
+    });
 
     // Always use server-defined SCOPES — Claude Code may send scope values
     // (e.g. after dynamic registration) that trigger AADSTS90009 when forwarded
@@ -308,8 +460,8 @@ export function createOAuthRouter(): Router {
       redirect_uri: `${baseUrl}/oauth/callback`,
       scope: SCOPES,
       state: proxyState,
-      ...(code_challenge ? { code_challenge } : {}),
-      ...(code_challenge_method ? { code_challenge_method } : {}),
+      code_challenge,
+      code_challenge_method: 'S256',
     });
 
     res.redirect(`${AUTHORITY}/oauth2/v2.0/authorize?${entraParams}`);
@@ -324,19 +476,18 @@ export function createOAuthRouter(): Router {
       return;
     }
 
-    // Decode proxy state to get Claude Code's original redirect_uri
-    let originalState = state;
-    let redirectUri = '';
-    let clientId: string | null = null;
-    try {
-      const decoded = JSON.parse(Buffer.from(state, 'base64url').toString('utf-8'));
-      originalState = decoded.originalState;
-      redirectUri = decoded.redirectUri;
-      clientId = decoded.clientId ?? null;
-    } catch {
-      res.status(400).json({ error: 'invalid_state', error_description: 'Could not decode state' });
+    // verifyState rejects tampered, replayed-after-10-min, or malformed state.
+    const decoded = state ? verifyState(state) : null;
+    if (!decoded) {
+      res.status(400).json({
+        error: 'invalid_state',
+        error_description: 'state failed HMAC verification or expired',
+      });
       return;
     }
+    const originalState = decoded.originalState;
+    const redirectUri = decoded.redirectUri;
+    const clientId = decoded.clientId;
 
     // Re-validate the redirectUri at callback time too. Belt-and-suspenders:
     // /oauth/authorize already gated the URI, but the state value transits
@@ -380,9 +531,21 @@ export function createOAuthRouter(): Router {
   router.post('/oauth/token', async (req, res) => {
     const baseUrl = getPublicBaseUrl(req);
 
+    const params = req.body as Record<string, string>;
+
+    // Enforce PKCE finishing move on the authorization_code grant. /oauth/
+    // authorize already required code_challenge — accepting a token request
+    // without code_verifier here would defeat that gate.
+    if (params.grant_type === 'authorization_code' && !params.code_verifier) {
+      res.status(400).json({
+        error: 'invalid_request',
+        error_description: 'code_verifier is required for grant_type=authorization_code (PKCE)',
+      });
+      return;
+    }
+
     // Build form body for Entra ID token endpoint
     const body = new URLSearchParams();
-    const params = req.body as Record<string, string>;
 
     body.set('client_id', CLIENT_ID);
     if (CLIENT_SECRET) body.set('client_secret', CLIENT_SECRET);

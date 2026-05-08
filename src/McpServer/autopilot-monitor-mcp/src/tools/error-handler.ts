@@ -24,8 +24,19 @@ export function toolError(
 ): ToolErrorResult {
   const parts: string[] = [];
 
-  if (error instanceof ApiError && error.parsed) {
-    // Structured backend error — extract rich details
+  if (error instanceof ApiError && error.status >= 500) {
+    // Sanitize ALL 5xx — structured or not. Even structured backend errors
+    // can carry internal fingerprints (CLR exception types, stack frames,
+    // hint strings that name internal services), and the model has no
+    // legitimate reason to act on them. correlationId + errorCode stay —
+    // those are operational handles the operator can pivot on, not
+    // internals.
+    parts.push(`**Backend error in ${toolName}** (HTTP ${error.status}): the server returned an error.`);
+    if (error.parsed?.correlationId) parts.push(`**Correlation ID**: ${error.parsed.correlationId}`);
+    if (error.parsed?.errorCode) parts.push(`**Error code**: ${error.parsed.errorCode}`);
+    parts.push('**Suggestion**: retry in a few seconds; if persistent, ask an operator to inspect backend logs.');
+  } else if (error instanceof ApiError && error.parsed) {
+    // Structured backend error (4xx) — extract rich details
     const p = error.parsed;
     parts.push(`**Error in ${toolName}**: ${p.error ?? error.message}`);
     if (p.hint) parts.push(`**Suggestion**: ${p.hint}`);
@@ -40,15 +51,6 @@ export function toolError(
       parts.push(`**Not found in ${toolName}**: The requested resource does not exist. Verify IDs, table names, or filters.`);
     } else if (error.status === 429) {
       parts.push(`**Rate limited in ${toolName}**: Too many requests. Wait a moment and retry.`);
-    } else if (error.status >= 500) {
-      // Don't relay 5xx response bodies to the model — unstructured server
-      // errors can occasionally leak internals (stack frames, connection
-      // strings, environment hints) that shouldn't reach a downstream caller.
-      // The status code + a stable hint is enough for the model to retry or
-      // fall back; deep diagnostics are available in backend logs by
-      // correlation id.
-      parts.push(`**Backend error in ${toolName}** (HTTP ${error.status}): the server returned an unstructured error.`);
-      parts.push('**Suggestion**: retry in a few seconds; if persistent, ask an operator to inspect backend logs.');
     } else {
       const body = error.body || 'No response body';
       const truncated = body.length > 500 ? body.slice(0, 500) + '…' : body;

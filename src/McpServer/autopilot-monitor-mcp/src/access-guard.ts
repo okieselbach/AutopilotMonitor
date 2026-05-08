@@ -8,6 +8,7 @@
  *   4. Set token for pass-through to backend API
  */
 import type { Request, Response, NextFunction } from 'express';
+import crypto from 'node:crypto';
 import { extractTokenClaims, isTokenExpired } from './auth.js';
 import { runWithCaller } from './client.js';
 
@@ -34,6 +35,12 @@ interface AccessCacheEntry {
   expiresAt: number;
 }
 
+// Cache key includes a hash of the token, not just the UPN. The JWT signature
+// is verified by the backend, not here — so two tokens with the same UPN must
+// be treated as distinct cache entries. Without this, a forged token carrying
+// a victim's UPN would hit the legitimate user's cached `allowed: true` and
+// bypass the backend signature check for any local-only MCP operation
+// (tools/list, resources/list, etc.).
 const accessCache = new Map<string, AccessCacheEntry>();
 
 interface AccessCheckResult {
@@ -42,8 +49,14 @@ interface AccessCheckResult {
   isGlobalAdmin: boolean;
 }
 
+export function buildCacheKey(upn: string, token: string): string {
+  const h = crypto.createHash('sha256').update(token).digest('hex').slice(0, 32);
+  return `${upn}:${h}`;
+}
+
 async function checkAccess(upn: string, token: string): Promise<AccessCheckResult> {
-  const cached = accessCache.get(upn);
+  const cacheKey = buildCacheKey(upn, token);
+  const cached = accessCache.get(cacheKey);
   if (cached && Date.now() < cached.expiresAt) {
     return { allowed: cached.allowed, reason: cached.reason, isGlobalAdmin: cached.isGlobalAdmin };
   }
@@ -71,7 +84,7 @@ async function checkAccess(upn: string, token: string): Promise<AccessCheckResul
       isGlobalAdmin: data.isGlobalAdmin === true,
     };
 
-    accessCache.set(upn, { ...result, expiresAt: Date.now() + ACCESS_CACHE_TTL_MS });
+    accessCache.set(cacheKey, { ...result, expiresAt: Date.now() + ACCESS_CACHE_TTL_MS });
     return result;
   } catch (err) {
     console.error(`[access-guard] Backend check failed for ${upn}:`, err);
@@ -88,12 +101,20 @@ interface RateEntry {
 
 const rateBuckets = new Map<string, RateEntry>();
 
-// Cleanup stale entries every 5 minutes
+// Cleanup stale entries every 5 minutes. Both maps share this interval —
+// rateBuckets evicts empty windows, accessCache evicts expired entries
+// (the cache key now includes a token hash, so cardinality is one entry per
+// user×token-rotation; without proactive eviction the map would only shrink
+// when a key is re-fetched).
 setInterval(() => {
-  const cutoff = Date.now() - 60_000;
+  const now = Date.now();
+  const cutoff = now - 60_000;
   for (const [key, entry] of rateBuckets) {
     entry.timestamps = entry.timestamps.filter((t) => t > cutoff);
     if (entry.timestamps.length === 0) rateBuckets.delete(key);
+  }
+  for (const [key, entry] of accessCache) {
+    if (entry.expiresAt <= now) accessCache.delete(key);
   }
 }, 5 * 60_000);
 
@@ -153,8 +174,10 @@ export function accessGuard(req: Request, res: Response, next: NextFunction): vo
   // UPN. If rate-limit incremented before validation, those forgeries would
   // burn the victim's per-minute budget and 429 their legitimate calls.
   // checkAccess delegates signature verification to the backend; both
-  // allow- and deny-decisions are cached for 5min per UPN, so forged-token
-  // floods cost at most one backend call per fake UPN.
+  // allow- and deny-decisions are cached for 5 min keyed on UPN+tokenHash,
+  // so a forged token cannot piggyback on a legitimate user's cached
+  // `allowed: true`, and forged-token floods cost one backend call per
+  // distinct token.
   checkAccess(upn, token)
     .then((result) => {
       if (!result.allowed) {

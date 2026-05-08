@@ -3,7 +3,13 @@
  *   H1 — OAuth redirect_uri allowlist
  *   M1 — followNextLink basePath validation
  *   M2 — SessionIdSchema UUID enforcement
- *   L3 — error-handler 5xx body redaction
+ *   L3 — error-handler 5xx body redaction (also covers post-2026-05 review:
+ *        structured 5xx are now sanitized identically to unstructured)
+ *
+ * Plus 2026-05-08 security review fixes:
+ *   F1 — access-guard cache key includes token hash
+ *   F2 — /oauth/register field-level + registry-cap defenses
+ *   F4 — PKCE S256 enforcement + HMAC-signed state + state expiry
  *
  * These tests are pure functions; no live backend or token needed.
  */
@@ -16,7 +22,17 @@ import { toolError } from '../tools/error-handler.js';
 // Importing the OAuth helper requires the env var that gates module load.
 // Set a dummy value before the import resolves so the throw doesn't fire.
 process.env.AUTOPILOT_ENTRA_CLIENT_ID ??= '00000000-0000-0000-0000-000000000000';
-const { isAllowedRedirectUri, isAllowedRedirectUriWith, parseAllowedHosts } = await import('../oauth.js');
+const {
+  isAllowedRedirectUri,
+  isAllowedRedirectUriWith,
+  parseAllowedHosts,
+  signState,
+  verifyState,
+  MAX_REGISTERED_CLIENTS,
+  MAX_REDIRECT_URIS_PER_CLIENT,
+  MAX_REDIRECT_URI_LENGTH,
+  MAX_CLIENT_NAME_LENGTH,
+} = await import('../oauth.js');
 
 describe('M1 — followNextLink basePath validation', () => {
   const basePath = '/api/global/audit/logs';
@@ -245,12 +261,148 @@ describe('L3 — error-handler 5xx body redaction', () => {
     expect(text).toContain('invalid filter syntax');
   });
 
-  it('preserves structured 5xx errors with parsed body (parsed.error path)', () => {
-    // ApiError parses JSON bodies; structured errors flow through the parsed
-    // branch and are presentable.
-    const structured = new ApiError(503, JSON.stringify({ error: 'service unavailable', hint: 'retry in 30s' }));
+  it('sanitizes structured 5xx errors too — `error` and `hint` must NOT leak', () => {
+    // 2026-05-08 review: structured 5xx errors used to flow through the
+    // `parsed`-detail branch with full `error`/`hint`/`exceptionType` fields.
+    // The current handler treats all status >= 500 the same: generic message,
+    // correlationId + errorCode kept (operational handles), everything else
+    // dropped.
+    const structured = new ApiError(
+      503,
+      JSON.stringify({
+        error: 'service unavailable',
+        hint: 'retry in 30s',
+        exceptionType: 'System.Data.SqlClient.SqlException',
+        correlationId: 'corr-abc-123',
+        errorCode: 'SQL_TIMEOUT',
+      }),
+    );
     const text = toolError('test_tool', {}, structured).content[0].text;
-    expect(text).toContain('service unavailable');
-    expect(text).toContain('retry in 30s');
+
+    expect(text).toContain('HTTP 503');
+    // Operational handles still surface so an operator can pivot.
+    expect(text).toContain('corr-abc-123');
+    expect(text).toContain('SQL_TIMEOUT');
+    // Internal-detail fields must be dropped.
+    expect(text).not.toContain('service unavailable');
+    expect(text).not.toContain('retry in 30s');
+    expect(text).not.toContain('System.Data.SqlClient');
   });
+});
+
+// ---------------------------------------------------------------------------
+// 2026-05-08 security review fixes
+// ---------------------------------------------------------------------------
+
+const { buildCacheKey } = await import('../access-guard.js');
+
+describe('F1 — access-guard cache key includes token hash', () => {
+  it('produces stable keys for the same (upn, token) pair', () => {
+    const a = buildCacheKey('alice@contoso.com', 'header.payload.signature');
+    const b = buildCacheKey('alice@contoso.com', 'header.payload.signature');
+    expect(a).toBe(b);
+  });
+
+  it('distinguishes two tokens that share a UPN', () => {
+    // The whole point of the fix: a forged token with a victim UPN cannot
+    // piggyback on a legitimate user's cached `allowed: true`.
+    const legit = buildCacheKey('alice@contoso.com', 'legit-token-from-entra');
+    const forged = buildCacheKey('alice@contoso.com', 'forged-token-no-signature');
+    expect(legit).not.toBe(forged);
+  });
+
+  it('distinguishes UPNs with the same token (defensive)', () => {
+    const x = buildCacheKey('alice@contoso.com', 'shared-token');
+    const y = buildCacheKey('bob@contoso.com', 'shared-token');
+    expect(x).not.toBe(y);
+  });
+
+  it('keeps the UPN as the visible prefix (operability — log scanning)', () => {
+    const k = buildCacheKey('alice@contoso.com', 'whatever');
+    expect(k.startsWith('alice@contoso.com:')).toBe(true);
+  });
+});
+
+describe('F2 — /oauth/register defense constants', () => {
+  it('exposes a hard cap that bounds memory at ~3 MB worst case', () => {
+    // 0.5 GiB container budget × ~300 bytes/entry → 10k is two orders of
+    // magnitude below the OOM cliff and well above realistic peak.
+    expect(MAX_REGISTERED_CLIENTS).toBeGreaterThanOrEqual(1_000);
+    expect(MAX_REGISTERED_CLIENTS).toBeLessThanOrEqual(100_000);
+  });
+
+  it('caps redirect_uris per client (RFC 7591 typically lists 1-3)', () => {
+    expect(MAX_REDIRECT_URIS_PER_CLIENT).toBeGreaterThanOrEqual(2);
+    expect(MAX_REDIRECT_URIS_PER_CLIENT).toBeLessThanOrEqual(50);
+  });
+
+  it('caps individual redirect_uri length below practical browser URL limits', () => {
+    expect(MAX_REDIRECT_URI_LENGTH).toBeGreaterThanOrEqual(256);
+    expect(MAX_REDIRECT_URI_LENGTH).toBeLessThanOrEqual(8192);
+  });
+
+  it('caps client_name length below realistic display strings', () => {
+    expect(MAX_CLIENT_NAME_LENGTH).toBeGreaterThanOrEqual(64);
+    expect(MAX_CLIENT_NAME_LENGTH).toBeLessThanOrEqual(2048);
+  });
+});
+
+describe('F4 — HMAC-signed OAuth state', () => {
+  const validPayload = {
+    originalState: 'client-supplied-state-abc',
+    redirectUri: 'https://claude.ai/cb',
+    clientId: 'client-uuid-123',
+  };
+
+  it('round-trips a freshly signed state', () => {
+    const signed = signState(validPayload);
+    const verified = verifyState(signed);
+    expect(verified).not.toBeNull();
+    expect(verified!.redirectUri).toBe('https://claude.ai/cb');
+    expect(verified!.originalState).toBe('client-supplied-state-abc');
+    expect(verified!.clientId).toBe('client-uuid-123');
+    expect(typeof verified!.iat).toBe('number');
+  });
+
+  it('rejects state without an HMAC suffix', () => {
+    // Old behavior was bare base64url-JSON — must be rejected now.
+    const unsigned = Buffer.from(JSON.stringify(validPayload)).toString('base64url');
+    expect(verifyState(unsigned)).toBeNull();
+  });
+
+  it('rejects state where the body was tampered after signing', () => {
+    const signed = signState(validPayload);
+    const [body, sig] = signed.split('.');
+    // Flip a byte in the body but keep the original signature.
+    const tamperedBody = Buffer.from(body, 'base64url').toString('utf-8').replace('claude.ai', 'evil.tld');
+    const tampered = `${Buffer.from(tamperedBody).toString('base64url')}.${sig}`;
+    expect(verifyState(tampered)).toBeNull();
+  });
+
+  it('rejects state with a corrupt HMAC suffix', () => {
+    const signed = signState(validPayload);
+    const [body] = signed.split('.');
+    const corrupt = `${body}.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`;
+    expect(verifyState(corrupt)).toBeNull();
+  });
+
+  it('rejects state older than 10 minutes (replay window cap)', () => {
+    const signed = signState(validPayload);
+    // verifyState accepts an injectable clock for deterministic testing.
+    const elevenMinutesLater = Math.floor(Date.now() / 1000) + 11 * 60;
+    expect(verifyState(signed, elevenMinutesLater)).toBeNull();
+  });
+
+  it('accepts state at the 9-minute mark (still within window)', () => {
+    const signed = signState(validPayload);
+    const nineMinutesLater = Math.floor(Date.now() / 1000) + 9 * 60;
+    expect(verifyState(signed, nineMinutesLater)).not.toBeNull();
+  });
+
+  it('rejects malformed state strings that lack the dot separator', () => {
+    expect(verifyState('no-dot-no-signature')).toBeNull();
+    expect(verifyState('')).toBeNull();
+    expect(verifyState('a.b.c')).toBeNull(); // too many parts
+  });
+
 });
