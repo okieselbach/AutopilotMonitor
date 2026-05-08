@@ -92,14 +92,15 @@ public class ProgressPortalFunction
 
         try
         {
-            // Authentication + AuthenticatedUser authorization enforced by PolicyEnforcementMiddleware
+            // Authentication, AuthenticatedUser authz, AND cross-tenant access enforced by
+            // PolicyEnforcementMiddleware (catalog: TenantScoping.QueryParam).
+            // requestCtx.TargetTenantId is the middleware-validated tenantId from the
+            // ?tenantId= query param (GA bypass already applied).
             var requestCtx = req.GetRequestContext();
             var userIdentifier = requestCtx.UserPrincipalName;
 
             var query = HttpUtility.ParseQueryString(req.Url.Query);
-            var requestedTenantId = query["tenantId"];
-
-            if (string.IsNullOrEmpty(requestedTenantId))
+            if (string.IsNullOrEmpty(query["tenantId"]))
             {
                 var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
                 await badRequest.WriteAsJsonAsync(new
@@ -113,22 +114,10 @@ public class ProgressPortalFunction
                 return badRequest;
             }
 
-            // Cross-tenant access only for Global Admins
-            if (!requestCtx.IsGlobalAdmin && requestedTenantId != requestCtx.TenantId)
-            {
-                var forbiddenResponse = req.CreateResponse(HttpStatusCode.Forbidden);
-                await forbiddenResponse.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = "Access denied. You can only view events for sessions in your own tenant.",
-                    sessionId = sessionId,
-                    count = 0,
-                    events = Array.Empty<object>()
-                });
-                return forbiddenResponse;
-            }
+            var requestedTenantId = requestCtx.TargetTenantId;
 
-            if (requestCtx.IsGlobalAdmin && requestedTenantId != requestCtx.TenantId)
+            // Audit log for GA cross-tenant access (middleware allowed it; logged here for visibility).
+            if (requestCtx.IsGlobalAdmin && !string.Equals(requestedTenantId, requestCtx.TenantId, StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogInformation("{SessionPrefix} Global Admin {User} accessing cross-tenant progress events (tenant: {TenantId})",
                     sessionPrefix, userIdentifier, requestedTenantId);

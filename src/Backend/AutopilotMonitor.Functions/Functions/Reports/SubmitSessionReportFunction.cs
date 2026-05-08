@@ -71,9 +71,38 @@ namespace AutopilotMonitor.Functions.Functions.Reports
 
                 // Ensure sessionId consistency
                 request.SessionId = sessionId;
-                if (string.IsNullOrEmpty(request.TenantId))
+
+                // Tenant identity: enforce JWT tenantId for non-GAs (prevents body
+                // tampering / horizontal escalation). Global Admins MAY submit reports
+                // against foreign tenants — the UI sends the session's tenantId, which
+                // for cross-tenant GA views is the foreign tenant.
+                if (!requestCtx.IsGlobalAdmin)
                 {
+                    if (!string.IsNullOrEmpty(request.TenantId)
+                        && !string.Equals(request.TenantId, tenantId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.LogWarning(
+                            "SubmitSessionReport: BLOCKED cross-tenant body for non-GA user={User} jwtTenant={JwtTenant} bodyTenant={BodyTenant}",
+                            userIdentifier, tenantId, request.TenantId);
+                        var forbidden = req.CreateResponse(HttpStatusCode.Forbidden);
+                        await forbidden.WriteAsJsonAsync(new
+                        {
+                            success = false,
+                            message = "Body tenantId must match your authenticated tenant."
+                        });
+                        return forbidden;
+                    }
                     request.TenantId = tenantId;
+                }
+                else if (string.IsNullOrEmpty(request.TenantId))
+                {
+                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await bad.WriteAsJsonAsync(new
+                    {
+                        success = false,
+                        message = "tenantId is required in body for Global Admin submissions."
+                    });
+                    return bad;
                 }
 
                 // Submit report

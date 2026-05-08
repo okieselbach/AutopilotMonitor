@@ -44,27 +44,23 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
         {
             try
             {
-                // Authentication + MemberRead authorization enforced by PolicyEnforcementMiddleware
+                // Authentication, MemberRead authz, AND cross-tenant access enforced by
+                // PolicyEnforcementMiddleware (catalog: TenantScoping.QueryParam).
+                // requestCtx.TargetTenantId is the middleware-validated tenantId from the
+                // ?tenantId= query param (GA bypass already applied).
                 var requestCtx = req.GetRequestContext();
 
                 var query = HttpUtility.ParseQueryString(req.Url.Query);
-                var tenantId = query["tenantId"];
                 var blobName = query["blobName"];
 
-                if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(blobName))
+                if (string.IsNullOrEmpty(query["tenantId"]) || string.IsNullOrEmpty(blobName))
                 {
                     var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
                     await badRequest.WriteAsJsonAsync(new { success = false, message = "tenantId and blobName query parameters are required." });
                     return badRequest;
                 }
 
-                // Validate tenant access
-                if (!requestCtx.IsGlobalAdmin && tenantId != requestCtx.TenantId)
-                {
-                    var forbiddenResponse = req.CreateResponse(HttpStatusCode.Forbidden);
-                    await forbiddenResponse.WriteAsJsonAsync(new { success = false, message = "Access denied." });
-                    return forbiddenResponse;
-                }
+                var tenantId = requestCtx.TargetTenantId;
 
                 // Validate blob name (prevent path traversal, double-encoding, and null byte attacks)
                 var decodedBlobName = Uri.UnescapeDataString(blobName);

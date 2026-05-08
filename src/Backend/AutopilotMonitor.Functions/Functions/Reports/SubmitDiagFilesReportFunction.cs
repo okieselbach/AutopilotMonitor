@@ -74,9 +74,36 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                     return badRequestResponse;
                 }
 
-                if (string.IsNullOrEmpty(request.TenantId))
+                // Tenant identity: enforce JWT tenantId for non-GAs (prevents body
+                // tampering / horizontal escalation). Global Admins MAY submit reports
+                // on behalf of foreign tenants and MUST specify the target tenantId.
+                if (!requestCtx.IsGlobalAdmin)
                 {
+                    if (!string.IsNullOrEmpty(request.TenantId)
+                        && !string.Equals(request.TenantId, tenantId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.LogWarning(
+                            "SubmitDiagFilesReport: BLOCKED cross-tenant body for non-GA user={User} jwtTenant={JwtTenant} bodyTenant={BodyTenant}",
+                            userIdentifier, tenantId, request.TenantId);
+                        var forbidden = req.CreateResponse(HttpStatusCode.Forbidden);
+                        await forbidden.WriteAsJsonAsync(new
+                        {
+                            success = false,
+                            message = "Body tenantId must match your authenticated tenant."
+                        });
+                        return forbidden;
+                    }
                     request.TenantId = tenantId;
+                }
+                else if (string.IsNullOrEmpty(request.TenantId))
+                {
+                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await bad.WriteAsJsonAsync(new
+                    {
+                        success = false,
+                        message = "tenantId is required in body for Global Admin submissions."
+                    });
+                    return bad;
                 }
 
                 var metadata = await _sessionReportService.SubmitDiagFilesReportAsync(request, userIdentifier);

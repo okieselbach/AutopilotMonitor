@@ -137,7 +137,6 @@ public class CrossTenantAccessTests
     [InlineData("GET", "/api/metrics/app")]
     [InlineData("GET", "/api/audit/logs")]
     [InlineData("GET", "/api/rules/gather")]
-    [InlineData("GET", "/api/diagnostics/download-url")]
     public void JwtImplicitRoutes_NoCrossTenantCheck(string httpMethod, string path)
     {
         var (isBlocked, routeTenantId) = SimulateCrossTenantCheck(httpMethod, path, TenantA, isGlobalAdmin: false);
@@ -205,6 +204,8 @@ public class CrossTenantAccessTests
     [InlineData("GET", "/api/sessions/abc-123/analysis")]
     [InlineData("GET", "/api/sessions/abc-123/vulnerability-report")]
     [InlineData("GET", "/api/bootstrap/sessions")]
+    [InlineData("GET", "/api/diagnostics/download-url")]
+    [InlineData("GET", "/api/progress/sessions/abc-123/events")]
     public void QueryParam_NoQueryTenant_DefaultsToJwt(string httpMethod, string path)
     {
         var (isBlocked, targetTenantId) = SimulateQueryParamCheck(httpMethod, path, TenantA, isGlobalAdmin: false, queryTenantId: null);
@@ -219,6 +220,8 @@ public class CrossTenantAccessTests
     [InlineData("GET", "/api/sessions/abc-123")]
     [InlineData("GET", "/api/sessions/abc-123/events")]
     [InlineData("GET", "/api/bootstrap/sessions")]
+    [InlineData("GET", "/api/diagnostics/download-url")]
+    [InlineData("GET", "/api/progress/sessions/abc-123/events")]
     public void QueryParam_SameTenant_IsAllowed(string httpMethod, string path)
     {
         var (isBlocked, targetTenantId) = SimulateQueryParamCheck(httpMethod, path, TenantA, isGlobalAdmin: false, queryTenantId: TenantA);
@@ -236,6 +239,8 @@ public class CrossTenantAccessTests
     [InlineData("GET", "/api/sessions/abc-123/vulnerability-report")]
     [InlineData("GET", "/api/bootstrap/sessions")]
     [InlineData("DELETE", "/api/bootstrap/sessions/CODE123")]
+    [InlineData("GET", "/api/diagnostics/download-url")]
+    [InlineData("GET", "/api/progress/sessions/abc-123/events")]
     public void QueryParam_CrossTenant_NonGA_IsBlocked(string httpMethod, string path)
     {
         var (isBlocked, targetTenantId) = SimulateQueryParamCheck(httpMethod, path, TenantA, isGlobalAdmin: false, queryTenantId: TenantB);
@@ -250,6 +255,8 @@ public class CrossTenantAccessTests
     [InlineData("GET", "/api/sessions/abc-123")]
     [InlineData("GET", "/api/sessions/abc-123/events")]
     [InlineData("GET", "/api/bootstrap/sessions")]
+    [InlineData("GET", "/api/diagnostics/download-url")]
+    [InlineData("GET", "/api/progress/sessions/abc-123/events")]
     public void QueryParam_CrossTenant_GlobalAdmin_IsAllowed(string httpMethod, string path)
     {
         var (isBlocked, targetTenantId) = SimulateQueryParamCheck(httpMethod, path, TenantA, isGlobalAdmin: true, queryTenantId: TenantB);
@@ -268,6 +275,8 @@ public class CrossTenantAccessTests
     [InlineData("GET", "bootstrap/sessions")]
     [InlineData("POST", "bootstrap/sessions")]
     [InlineData("DELETE", "bootstrap/sessions/{code}")]
+    [InlineData("GET", "diagnostics/download-url")]
+    [InlineData("GET", "progress/sessions/{sessionId}/events")]
     public void QueryParamRoutes_HaveCorrectScoping(string httpMethod, string routeTemplate)
     {
         var entry = EndpointAccessPolicyCatalog.Entries
