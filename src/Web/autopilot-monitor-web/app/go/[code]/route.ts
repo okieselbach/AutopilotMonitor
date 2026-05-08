@@ -65,15 +65,27 @@ export async function GET(
   }
 }
 
+// Hard cap on error messages embedded in the generated PS script.
+// Defense against an upstream/backend bug or compromise emitting a multi-MB
+// `message` that would otherwise be inlined verbatim into the script body.
+const MAX_ERROR_MESSAGE_LENGTH = 200;
+
 function errorScript(message: string): Response {
+  // Cap length BEFORE quote-escaping so the cap is on raw input, not the
+  // post-escape size (which can double for ' -heavy strings).
+  const truncated =
+    message.length > MAX_ERROR_MESSAGE_LENGTH
+      ? message.slice(0, MAX_ERROR_MESSAGE_LENGTH) + "..."
+      : message;
   // Escape single quotes for PowerShell string
-  const safeMsg = message.replace(/'/g, "''");
+  const safeMsg = truncated.replace(/'/g, "''");
   const script = `Write-Host ''; Write-Host 'ERROR: ${safeMsg}' -ForegroundColor Red; Write-Host ''`;
   return new Response(script, {
     status: 200, // Return 200 so irm | iex works; the Write-Host will show the error
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-store, no-cache",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }
