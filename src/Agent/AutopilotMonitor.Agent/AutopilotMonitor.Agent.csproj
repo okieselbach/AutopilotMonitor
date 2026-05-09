@@ -39,13 +39,19 @@
     <Message Text="Build version: $(Version) (counter persisted)" Importance="high" />
   </Target>
 
-  <!-- Generate version.json into build output for self-update and deployment upload -->
+  <!--
+    Generate version-v1.json into build output. Symmetric to V2's version-v2.json
+    (see AutopilotMonitor.Agent.V2.csproj). The V1 build script enriches this with
+    the SHA-256 hash post-ZIP and uploads it under the per-line versioned namespace
+    (and additionally under the stable namespace when invoked with -PublishAsStable).
+    See .claude/plans/v2-cutover.md.
+  -->
   <Target Name="GenerateVersionJson" AfterTargets="Build">
     <WriteLinesToFile
-      File="$(OutputPath)version.json"
+      File="$(OutputPath)version-v1.json"
       Lines='{ "version": "$(Version)" }'
       Overwrite="true" />
-    <Message Text="Generated version.json: $(Version)" Importance="high" />
+    <Message Text="Generated version-v1.json: $(Version)" Importance="high" />
   </Target>
 
   <ItemGroup>

@@ -319,7 +319,7 @@ namespace AutopilotMonitor.Agent.V2
                 TenantId = tenantIdGiven ? tenantIdArg : existing?.TenantId,
                 TenantIdWaitSeconds = tenantIdWaitGiven
                     ? tenantIdWaitSeconds
-                    : (existing?.TenantIdWaitSeconds ?? 0),
+                    : (existing?.TenantIdWaitSeconds ?? 600),
             };
         }
 

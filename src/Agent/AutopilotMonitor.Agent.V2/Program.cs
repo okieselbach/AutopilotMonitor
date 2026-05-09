@@ -278,10 +278,13 @@ namespace AutopilotMonitor.Agent.V2
             else if (awaitConfig != null)
                 awaitTimeoutMinutes = awaitConfig.TimeoutMinutes;
 
-            // TenantId wait — CLI wins over persisted bootstrap-config.json. Default 0
-            // (no wait, legacy fast-fail) — the PS1 bootstrap owns the production default.
+            // TenantId wait — CLI wins over persisted bootstrap-config.json which wins
+            // over the agent-side default (600 s). Hybrid-AAD-joined devices typically
+            // need ~5 min for the AAD device cert to land in the registry; 600 s leaves
+            // headroom. Pass `--tenant-id-wait 0` to opt out (legacy fast-fail).
             var tenantIdWaitRaw = GetArgValue(args, "--tenant-id-wait");
-            int tenantIdWaitSeconds = 0;
+            const int tenantIdWaitDefaultSeconds = 600;
+            int tenantIdWaitSeconds = tenantIdWaitDefaultSeconds;
             if (!string.IsNullOrEmpty(tenantIdWaitRaw) && int.TryParse(tenantIdWaitRaw, out var parsedTenantIdWait))
                 tenantIdWaitSeconds = parsedTenantIdWait;
             else if (bootstrapConfig != null)

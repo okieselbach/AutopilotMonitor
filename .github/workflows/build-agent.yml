@@ -1,4 +1,4 @@
-name: Build & Release Agent
+name: Build & Release Agent (V2)
 
 on:
   workflow_dispatch:
@@ -8,10 +8,15 @@ on:
         required: false
         type: string
       upload_blob:
-        description: 'Upload ZIP + version.json to Azure Blob Storage'
+        description: 'Upload to versioned namespace (Agent-v2.zip + version-v2.json)'
         required: true
         type: boolean
         default: true
+      publish_as_stable:
+        description: 'CUTOVER: also push to stable namespace (Agent.zip + version.json) — customers immediately receive this build'
+        required: true
+        type: boolean
+        default: false
       create_release:
         description: 'Create a GitHub Release'
         required: true
@@ -25,6 +30,23 @@ on:
 
 permissions:
   contents: write
+
+env:
+  LINE_MAJOR: 2
+  AGENT_PROJECT: src/Agent/AutopilotMonitor.Agent.V2/AutopilotMonitor.Agent.V2.csproj
+  DIALOG_PROJECT: src/Agent/AutopilotMonitor.SummaryDialog/AutopilotMonitor.SummaryDialog.csproj
+  TEST_PROJECT: src/Agent/AutopilotMonitor.DecisionCore.Tests/AutopilotMonitor.DecisionCore.Tests.csproj
+  CSPROJ_PATH: src/Agent/AutopilotMonitor.Agent.V2/AutopilotMonitor.Agent.V2.csproj
+  COUNTER_FILE: src/Agent/AutopilotMonitor.Agent.V2/buildcounter.txt
+  BOOTSTRAP_SOURCE: scripts/Bootstrap/Install-AutopilotMonitor.ps1
+  AGENT_OUTPUT: src/Agent/AutopilotMonitor.Agent.V2/bin/Release/net48
+  DIALOG_OUTPUT: src/Agent/AutopilotMonitor.SummaryDialog/bin/Release/net48
+  MANIFEST_NAME: version-v2.json
+  VERSIONED_ZIP: AutopilotMonitor-Agent-v2.zip
+  STABLE_ZIP: AutopilotMonitor-Agent.zip
+  STABLE_MANIFEST: version.json
+  STABLE_BOOTSTRAP: Install-AutopilotMonitor.ps1
+  STABLE_BOOTSTRAP_DEV: Install-AutopilotMonitor-Dev.ps1
 
 jobs:
   build:
@@ -44,24 +66,21 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $counterFile = "src/Agent/AutopilotMonitor.Agent/buildcounter.txt"
           $inputBuildNumber = "${{ inputs.build_number }}"
-
           if ($inputBuildNumber -ne "") {
             $buildNumber = [int]$inputBuildNumber
             Write-Host "Using manual build number: $buildNumber"
           } else {
-            $current = [int](Get-Content $counterFile).Trim()
+            $current = [int](Get-Content $env:COUNTER_FILE).Trim()
             $buildNumber = $current + 1
             Write-Host "Auto-incremented build number: $current -> $buildNumber"
           }
 
-          # Read version prefix from csproj
-          $csproj = Get-Content "src/Agent/AutopilotMonitor.Agent/AutopilotMonitor.Agent.csproj" -Raw
+          $csproj = Get-Content $env:CSPROJ_PATH -Raw
           if ($csproj -match '<VersionPrefix>(\d+\.\d+)</VersionPrefix>') {
             $versionPrefix = $Matches[1]
           } else {
-            $versionPrefix = "1.0"
+            $versionPrefix = "$env:LINE_MAJOR.0"
           }
 
           $version = "$versionPrefix.$buildNumber"
@@ -73,41 +92,31 @@ jobs:
 
       - name: Restore dependencies
         run: |
-          dotnet restore src/Agent/AutopilotMonitor.Agent/AutopilotMonitor.Agent.csproj
-          dotnet restore src/Agent/AutopilotMonitor.SummaryDialog/AutopilotMonitor.SummaryDialog.csproj
-          dotnet restore src/Agent/AutopilotMonitor.Agent.Core.Tests/AutopilotMonitor.Agent.Core.Tests.csproj
+          dotnet restore ${{ env.AGENT_PROJECT }}
+          dotnet restore ${{ env.DIALOG_PROJECT }}
+          dotnet restore ${{ env.TEST_PROJECT }}
 
       - name: Build Agent
-        run: >
-          dotnet build src/Agent/AutopilotMonitor.Agent/AutopilotMonitor.Agent.csproj
-          --configuration Release
-          --no-restore
+        run: dotnet build ${{ env.AGENT_PROJECT }} --configuration Release --no-restore
         env:
           BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
 
       - name: Build SummaryDialog
-        run: >
-          dotnet build src/Agent/AutopilotMonitor.SummaryDialog/AutopilotMonitor.SummaryDialog.csproj
-          --configuration Release
-          --no-restore
+        run: dotnet build ${{ env.DIALOG_PROJECT }} --configuration Release --no-restore
 
       - name: Run Agent unit tests
-        run: >
-          dotnet test src/Agent/AutopilotMonitor.Agent.Core.Tests/AutopilotMonitor.Agent.Core.Tests.csproj
-          --configuration Release
-          --no-restore
-          --verbosity quiet
+        run: dotnet test ${{ env.TEST_PROJECT }} --configuration Release --no-restore --verbosity quiet
 
       - name: Update buildcounter.txt
         if: inputs.build_number == ''
         shell: pwsh
         run: |
           $buildNumber = "${{ steps.version.outputs.build_number }}"
-          Set-Content -Path "src/Agent/AutopilotMonitor.Agent/buildcounter.txt" -Value $buildNumber -NoNewline
+          Set-Content -Path $env:COUNTER_FILE -Value $buildNumber -NoNewline
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add src/Agent/AutopilotMonitor.Agent/buildcounter.txt
-          git commit -m "chore: bump build counter to $buildNumber"
+          git add $env:COUNTER_FILE
+          git commit -m "chore(v$env:LINE_MAJOR): bump build counter to $buildNumber"
           git push
 
       - name: Create release artifact
@@ -115,67 +124,78 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $agentOutput = "src/Agent/AutopilotMonitor.Agent/bin/Release/net48"
-          $dialogOutput = "src/Agent/AutopilotMonitor.SummaryDialog/bin/Release/net48"
           $stagingDir = "staging/agent"
 
-          # Verify build outputs exist
-          if (-not (Test-Path "$agentOutput/AutopilotMonitor.Agent.exe")) {
-            Write-Error "Agent build output not found at $agentOutput"
+          if (-not (Test-Path "$env:AGENT_OUTPUT/AutopilotMonitor.Agent.exe")) {
+            Write-Error "Agent build output not found at $env:AGENT_OUTPUT"
             exit 1
           }
-          if (-not (Test-Path "$dialogOutput/AutopilotMonitor.SummaryDialog.exe")) {
-            Write-Error "SummaryDialog build output not found at $dialogOutput"
+          if (-not (Test-Path "$env:DIALOG_OUTPUT/AutopilotMonitor.SummaryDialog.exe")) {
+            Write-Error "SummaryDialog build output not found at $env:DIALOG_OUTPUT"
             exit 1
           }
 
-          # Create staging directory with Agent output as base
           New-Item -Path $stagingDir -ItemType Directory -Force | Out-Null
-          Copy-Item -Path "$agentOutput/*" -Destination $stagingDir -Recurse -Force
+          Copy-Item -Path "$env:AGENT_OUTPUT/*" -Destination $stagingDir -Recurse -Force
+          Copy-Item -Path "$env:DIALOG_OUTPUT/AutopilotMonitor.SummaryDialog.exe" -Destination $stagingDir -Force
+          Copy-Item -Path "$env:DIALOG_OUTPUT/AutopilotMonitor.SummaryDialog.pdb" -Destination $stagingDir -Force -ErrorAction SilentlyContinue
 
-          # Copy SummaryDialog files into the same directory (Agent expects it next to itself)
-          Copy-Item -Path "$dialogOutput/AutopilotMonitor.SummaryDialog.exe" -Destination $stagingDir -Force
-          Copy-Item -Path "$dialogOutput/AutopilotMonitor.SummaryDialog.pdb" -Destination $stagingDir -Force -ErrorAction SilentlyContinue
-
-          # Create versioned ZIP for GitHub Release
           $versionedZip = "AutopilotMonitor-Agent-v$version.zip"
           Compress-Archive -Path "$stagingDir/*" -DestinationPath $versionedZip
-          Write-Host "Created release artifact: $versionedZip"
+          Write-Host "Created GitHub-Release artifact: $versionedZip"
 
-          # Create deployment ZIP with fixed name for Blob Storage (matches bootstrap script download URL)
-          $deployZip = "AutopilotMonitor-Agent.zip"
-          Copy-Item $versionedZip $deployZip
-          Write-Host "Created deployment artifact: $deployZip"
+          # Same bytes, blob-namespace name (versioned)
+          Copy-Item $versionedZip $env:VERSIONED_ZIP
+          Write-Host "Created blob deployment artifact: $env:VERSIONED_ZIP"
 
-          # Compute SHA-256 hash of the deployment ZIP for integrity verification
-          $sha256Hash = (Get-FileHash $deployZip -Algorithm SHA256).Hash.ToLowerInvariant()
-          Write-Host "ZIP SHA-256: $sha256Hash"
-
-          # Compute SHA-256 hash of the agent EXE for post-config binary integrity verification
+          $sha256Hash = (Get-FileHash $env:VERSIONED_ZIP -Algorithm SHA256).Hash.ToLowerInvariant()
           $exeSha256Hash = (Get-FileHash "$stagingDir/AutopilotMonitor.Agent.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "ZIP SHA-256: $sha256Hash"
           Write-Host "EXE SHA-256: $exeSha256Hash"
 
-          # Parse bootstrap script version from Install-AutopilotMonitor.ps1
           $bootstrapVersion = $null
-          $bootstrapContent = Get-Content "scripts/Bootstrap/Install-AutopilotMonitor.ps1" -Raw
-          if ($bootstrapContent -match '\$ScriptVersion\s*=\s*"([\d\.]+)"') {
+          $bootstrapContent = Get-Content $env:BOOTSTRAP_SOURCE -Raw
+          if ($bootstrapContent -match '\$ScriptVersion\s*=\s*"([\d\.\-a-zA-Z]+)"') {
             $bootstrapVersion = $Matches[1]
             Write-Host "Bootstrap script version: $bootstrapVersion"
           } else {
-            Write-Warning "Could not parse bootstrap `$ScriptVersion from Install-AutopilotMonitor.ps1"
+            Write-Warning "Could not parse bootstrap `$ScriptVersion from $env:BOOTSTRAP_SOURCE"
           }
 
-          # Enrich version.json with SHA-256 hash + bootstrap version (MSBuild only writes version, we add the rest post-ZIP)
-          $versionObj = Get-Content "$agentOutput/version.json" -Raw | ConvertFrom-Json
-          $versionObj | Add-Member -NotePropertyName "sha256" -NotePropertyValue $sha256Hash -Force
+          # Enrich the per-line manifest emitted by MSBuild (version-v2.json)
+          $manifestPath = "$env:AGENT_OUTPUT/$env:MANIFEST_NAME"
+          if (-not (Test-Path $manifestPath)) {
+            Write-Error "$env:MANIFEST_NAME not found at $manifestPath -- MSBuild GenerateVersionJson target may have failed"
+            exit 1
+          }
+          $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+          $manifest | Add-Member -NotePropertyName "sha256" -NotePropertyValue $sha256Hash -Force
           if ($bootstrapVersion) {
-            $versionObj | Add-Member -NotePropertyName "bootstrapVersion" -NotePropertyValue $bootstrapVersion -Force
+            $manifest | Add-Member -NotePropertyName "bootstrapVersion" -NotePropertyValue $bootstrapVersion -Force
           }
-          $versionObj | ConvertTo-Json -Compress | Set-Content "version.json" -Encoding UTF8
-          Write-Host "version.json content: $(Get-Content version.json)"
+          $manifest | ConvertTo-Json -Compress | Set-Content $env:MANIFEST_NAME -Encoding UTF8
+          Write-Host "$env:MANIFEST_NAME content: $(Get-Content $env:MANIFEST_NAME)"
 
-          "versioned_zip=$versionedZip" >> $env:GITHUB_OUTPUT
-          "deploy_zip=$deployZip" >> $env:GITHUB_OUTPUT
+          # Bootstrap = single generic source. Stable variant = source 1:1.
+          # Dev variant = literal-string substitution of the two URL/manifest defaults.
+          # Both are uploaded only on -PublishAsStable runs (versioned namespace doesn't carry bootstrap).
+          if ('${{ inputs.publish_as_stable }}' -eq 'true') {
+            $stableUrl = '$AgentDownloadUrl = "https://autopilotmonitor.blob.core.windows.net/agent/AutopilotMonitor-Agent.zip"'
+            $devUrl    = '$AgentDownloadUrl = "https://autopilotmonitor.blob.core.windows.net/agent/AutopilotMonitor-Agent-dev.zip"'
+            $stableMan = '$VersionJsonName = "version.json"'
+            $devMan    = '$VersionJsonName = "version-dev.json"'
+
+            Copy-Item $env:BOOTSTRAP_SOURCE $env:STABLE_BOOTSTRAP -Force
+            $content = Get-Content $env:BOOTSTRAP_SOURCE -Raw
+            if ($content.IndexOf($stableUrl) -lt 0 -or $content.IndexOf($stableMan) -lt 0) {
+              Write-Error "Bootstrap dev-render: anchor literal missing in $env:BOOTSTRAP_SOURCE"
+              exit 1
+            }
+            $devContent = $content.Replace($stableUrl, $devUrl).Replace($stableMan, $devMan)
+            [System.IO.File]::WriteAllText("$env:STABLE_BOOTSTRAP_DEV", $devContent, (New-Object System.Text.UTF8Encoding $false))
+          }
+
+          "versioned_zip_release=$versionedZip" >> $env:GITHUB_OUTPUT
           "sha256=$sha256Hash" >> $env:GITHUB_OUTPUT
           "exe_sha256=$exeSha256Hash" >> $env:GITHUB_OUTPUT
           "bootstrap_version=$bootstrapVersion" >> $env:GITHUB_OUTPUT
@@ -184,87 +204,78 @@ jobs:
         if: inputs.upload_blob
         shell: pwsh
         run: |
-          # Upload AutopilotMonitor-Agent.zip and version.json to blob container
           $containerUrl = "https://autopilotmonitor.blob.core.windows.net/agent"
           $sasToken = "${{ secrets.AZURE_BLOB_AGENT_SAS_TOKEN }}"
 
-          # Upload ZIP
-          $zipBlobUrl = "$containerUrl/AutopilotMonitor-Agent.zip?$sasToken"
-          $zipBytes = [System.IO.File]::ReadAllBytes("AutopilotMonitor-Agent.zip")
-          $zipHeaders = @{
-            "x-ms-blob-type" = "BlockBlob"
-            "Content-Type"   = "application/zip"
+          function Send-Blob {
+            param([string]$Local, [string]$BlobName, [string]$ContentType)
+            $url = "$containerUrl/$BlobName`?$sasToken"
+            $bytes = [System.IO.File]::ReadAllBytes($Local)
+            $headers = @{ "x-ms-blob-type" = "BlockBlob"; "Content-Type" = $ContentType }
+            if ($ContentType -eq "application/zip") {
+              $md5 = [System.Security.Cryptography.MD5]::Create()
+              $headers["Content-MD5"] = [Convert]::ToBase64String($md5.ComputeHash($bytes))
+              $md5.Dispose()
+            }
+            Write-Host "Uploading $BlobName ($([math]::Round($bytes.Length / 1MB, 2)) MB)..."
+            Invoke-RestMethod -Uri $url -Method Put -Headers $headers -Body $bytes
+            Write-Host "  uploaded $BlobName"
           }
-          # Compute Content-MD5 for integrity validation (bootstrap script checks this header)
-          $md5 = [System.Security.Cryptography.MD5]::Create()
-          $md5Hash = [Convert]::ToBase64String($md5.ComputeHash($zipBytes))
-          $zipHeaders["Content-MD5"] = $md5Hash
-          $md5.Dispose()
 
-          Write-Host "Uploading AutopilotMonitor-Agent.zip ($([math]::Round($zipBytes.Length / 1MB, 2)) MB, MD5: $md5Hash)..."
-          Invoke-RestMethod -Uri $zipBlobUrl -Method Put -Headers $zipHeaders -Body $zipBytes
-          Write-Host "ZIP uploaded successfully"
+          # Versioned namespace (always)
+          Send-Blob -Local $env:VERSIONED_ZIP -BlobName $env:VERSIONED_ZIP -ContentType "application/zip"
+          Send-Blob -Local $env:MANIFEST_NAME -BlobName $env:MANIFEST_NAME -ContentType "application/json"
 
-          # Upload version.json (enriched with SHA-256 hash)
-          $versionBlobUrl = "$containerUrl/version.json?$sasToken"
-          $versionContent = Get-Content "version.json" -Raw
-          $versionHeaders = @{
-            "x-ms-blob-type" = "BlockBlob"
-            "Content-Type"   = "application/json"
+          # Stable namespace (only on cutover)
+          if ('${{ inputs.publish_as_stable }}' -eq 'true') {
+            Write-Host "PUBLISH AS STABLE -- writing V2 into stable namespace (customer-facing)" -ForegroundColor Magenta
+            Send-Blob -Local $env:VERSIONED_ZIP -BlobName $env:STABLE_ZIP -ContentType "application/zip"
+            Send-Blob -Local $env:MANIFEST_NAME -BlobName $env:STABLE_MANIFEST -ContentType "application/json"
+            Send-Blob -Local $env:STABLE_BOOTSTRAP -BlobName $env:STABLE_BOOTSTRAP -ContentType "text/plain; charset=utf-8"
+            Send-Blob -Local $env:STABLE_BOOTSTRAP_DEV -BlobName $env:STABLE_BOOTSTRAP_DEV -ContentType "text/plain; charset=utf-8"
+
+            if (Test-Path "scripts/Bootstrap/Test-ShouldBootstrapAgent.ps1") {
+              Send-Blob -Local "scripts/Bootstrap/Test-ShouldBootstrapAgent.ps1" -BlobName "Test-ShouldBootstrapAgent.ps1" -ContentType "text/plain; charset=utf-8"
+            }
           }
-          Write-Host "Uploading version.json: $versionContent"
-          Invoke-RestMethod -Uri $versionBlobUrl -Method Put -Headers $versionHeaders -Body $versionContent
-          Write-Host "version.json uploaded successfully"
 
-          # Upload Test-ShouldBootstrapAgent.ps1 (dry-run bootstrap guard test)
-          $testScriptBlobUrl = "$containerUrl/Test-ShouldBootstrapAgent.ps1?$sasToken"
-          $testScriptContent = Get-Content "scripts/Bootstrap/Test-ShouldBootstrapAgent.ps1" -Raw
-          $testScriptHeaders = @{
-            "x-ms-blob-type" = "BlockBlob"
-            "Content-Type"   = "text/plain; charset=utf-8"
-          }
-          Write-Host "Uploading Test-ShouldBootstrapAgent.ps1..."
-          Invoke-RestMethod -Uri $testScriptBlobUrl -Method Put -Headers $testScriptHeaders -Body $testScriptContent
-          Write-Host "Test-ShouldBootstrapAgent.ps1 uploaded successfully"
-
-          # Update AdminConfiguration in Table Storage with latest agent hash
+          # Update AdminConfiguration LatestAgentV2* (always when uploading)
           $tableSasToken = "${{ secrets.AZURE_TABLE_ADMIN_SAS_TOKEN }}"
           if ([string]::IsNullOrEmpty($tableSasToken) -or $tableSasToken -eq "XXX") {
-            Write-Host "SKIPPED: Table SAS token not configured — set AZURE_TABLE_ADMIN_SAS_TOKEN secret to enable backend hash-oracle"
+            Write-Host "SKIPPED: Table SAS token not configured -- set AZURE_TABLE_ADMIN_SAS_TOKEN secret to enable backend hash-oracle"
           } else {
             $sha256 = "${{ steps.artifact.outputs.sha256 }}"
             $exeSha256 = "${{ steps.artifact.outputs.exe_sha256 }}"
             $agentVersion = "${{ steps.version.outputs.version }}"
             $bootstrapVersion = "${{ steps.artifact.outputs.bootstrap_version }}"
             $tableUrl = "https://autopilotmonitor.table.core.windows.net/AdminConfiguration(PartitionKey='GlobalConfig',RowKey='config')?$tableSasToken"
-            $tableBodyHash = @{
-              LatestAgentVersion    = $agentVersion
-              LatestAgentSha256     = $sha256
-              LatestAgentExeSha256  = $exeSha256
+            $tableBody = @{
+              LatestAgentV2Version    = $agentVersion
+              LatestAgentV2Sha256     = $sha256
+              LatestAgentV2ExeSha256  = $exeSha256
             }
             if ($bootstrapVersion) {
-              $tableBodyHash["LatestBootstrapScriptVersion"] = $bootstrapVersion
+              $tableBody["LatestBootstrapV2ScriptVersion"] = $bootstrapVersion
             }
-            $tableBody = $tableBodyHash | ConvertTo-Json
             Invoke-RestMethod -Uri $tableUrl -Method Merge -Headers @{
               "Content-Type" = "application/json"
               "Accept"       = "application/json;odata=nometadata"
               "If-Match"     = "*"
-            } -Body $tableBody
-            Write-Host "AdminConfiguration updated: version=$agentVersion, sha256=$sha256, exeSha256=$exeSha256, bootstrapVersion=$bootstrapVersion"
+            } -Body ($tableBody | ConvertTo-Json)
+            Write-Host "AdminConfiguration updated: V2 version=$agentVersion, sha256=$sha256, exeSha256=$exeSha256, bootstrapVersion=$bootstrapVersion"
           }
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: AutopilotMonitor-Agent-v${{ steps.version.outputs.version }}
-          path: ${{ steps.artifact.outputs.versioned_zip }}
+          path: ${{ steps.artifact.outputs.versioned_zip_release }}
 
       - name: Upload version metadata
         uses: actions/upload-artifact@v4
         with:
           name: version-metadata
-          path: version.json
+          path: ${{ env.MANIFEST_NAME }}
 
       - name: Create GitHub Release
         if: inputs.create_release
@@ -281,18 +292,19 @@ jobs:
             3. Run `AutopilotMonitor.Agent.exe --install` to register the Scheduled Task
 
             ### Included Components
-            - **AutopilotMonitor.Agent.exe** - Monitoring agent
+            - **AutopilotMonitor.Agent.exe** - Monitoring agent (V2 release line)
             - **AutopilotMonitor.SummaryDialog.exe** - Enrollment summary dialog (WPF)
-            - **version.json** - Version metadata for self-update
+            - **version-v2.json** - Per-line version manifest
 
             ### Version Info
             - **Version:** ${{ steps.version.outputs.version }}
             - **Build Number:** ${{ steps.version.outputs.build_number }}
             - **SHA-256:** `${{ steps.artifact.outputs.sha256 }}`
             - **Built from:** ${{ github.sha }}
+            - **Published as stable:** ${{ inputs.publish_as_stable }}
           draft: false
           prerelease: ${{ inputs.prerelease }}
           files: |
-            ${{ steps.artifact.outputs.versioned_zip }}
-            version.json
+            ${{ steps.artifact.outputs.versioned_zip_release }}
+            ${{ env.MANIFEST_NAME }}
           generate_release_notes: true

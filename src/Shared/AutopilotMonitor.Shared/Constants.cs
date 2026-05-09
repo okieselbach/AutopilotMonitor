@@ -81,27 +81,64 @@ namespace AutopilotMonitor.Shared
         /// </summary>
         public const string AgentBlobBaseUrl = "https://autopilotmonitor.blob.core.windows.net/agent";
 
+        // =====================================================================
+        // Stable namespace — what customer Intune Platform Scripts download.
+        // Blob names are FOREVER stable; content rotates per cutover (V1→V2→V3).
+        // Bootstrap-Script reads exclusively from these names. Build-script of
+        // the current "stable line" pushes here when invoked with -PublishAsStable.
+        // See .claude/plans/v2-cutover.md.
+        // =====================================================================
+
         /// <summary>
-        /// Version manifest filename in blob storage (JSON: { "version": "1.0.350" }) — Legacy V1 agent only.
+        /// Stable version manifest filename (JSON: { "version": "x.y.z", "sha256": "..." }).
+        /// Bootstrap-Script + LatestVersionsService + HealthCheck read this.
         /// </summary>
         public const string AgentVersionFileName = "version.json";
 
         /// <summary>
-        /// Agent ZIP filename in blob storage — Legacy V1 agent only.
+        /// Stable agent ZIP filename. Bootstrap-Script + HealthCheck read this.
         /// </summary>
         public const string AgentZipFileName = "AutopilotMonitor-Agent.zip";
 
         /// <summary>
-        /// V2 version manifest filename — separate release line from V1 to prevent
-        /// the V2 agent from being downgrade-blocked against V1 versions.
-        /// Matches what the V2 bootstrapper downloads (Install-AutopilotMonitor-v2.ps1).
+        /// Stable bootstrap PowerShell script filename. Customer Intune Platform Scripts
+        /// reference this URL — never rename, never version it.
         /// </summary>
-        public const string AgentVersionFileNameV2 = "version-v2.json";
+        public const string BootstrapScriptName = "Install-AutopilotMonitor.ps1";
 
-        /// <summary>
-        /// V2 agent ZIP filename — paired with <see cref="AgentVersionFileNameV2"/>.
-        /// </summary>
-        public const string AgentZipFileNameV2 = "AutopilotMonitor-Agent-V2.zip";
+        /// <summary>Parallel stable-dev manifest for preview/lab Intune assignments.</summary>
+        public const string AgentVersionFileNameDev = "version-dev.json";
+
+        /// <summary>Parallel stable-dev agent ZIP for preview/lab Intune assignments.</summary>
+        public const string AgentZipFileNameDev = "AutopilotMonitor-Agent-dev.zip";
+
+        /// <summary>Parallel stable-dev bootstrap script for preview/lab Intune assignments.</summary>
+        public const string BootstrapScriptNameDev = "Install-AutopilotMonitor-Dev.ps1";
+
+        // =====================================================================
+        // Per-line versioned namespace — SelfUpdater within a line + rollback reserve.
+        // Each major-line (V1, V2, future V3...) has identical shape. SelfUpdater
+        // of line N reads only its own namespace, never cross-line, never stable.
+        // Backend GetAgentConfig dispatches by X-Agent-Version-Major header.
+        // =====================================================================
+
+        /// <summary>Per-line version manifest, e.g. major=2 → "version-v2.json".</summary>
+        public static string AgentVersionFileNameForLine(int major) => $"version-v{major}.json";
+
+        /// <summary>Per-line agent ZIP, e.g. major=2 → "AutopilotMonitor-Agent-v2.zip".</summary>
+        public static string AgentZipFileNameForLine(int major) => $"AutopilotMonitor-Agent-v{major}.zip";
+
+        /// <summary>Per-line bootstrap script, e.g. major=2 → "Install-AutopilotMonitor-v2.ps1".</summary>
+        public static string BootstrapScriptNameForLine(int major) => $"Install-AutopilotMonitor-v{major}.ps1";
+
+        /// <summary>Per-line dev-channel version manifest, e.g. major=2 → "version-v2-dev.json".</summary>
+        public static string AgentVersionFileNameForLineDev(int major) => $"version-v{major}-dev.json";
+
+        /// <summary>Per-line dev-channel agent ZIP, e.g. major=2 → "AutopilotMonitor-Agent-v2-dev.zip".</summary>
+        public static string AgentZipFileNameForLineDev(int major) => $"AutopilotMonitor-Agent-v{major}-dev.zip";
+
+        /// <summary>Per-line dev-channel bootstrap script.</summary>
+        public static string BootstrapScriptNameForLineDev(int major) => $"Install-AutopilotMonitor-v{major}-Dev.ps1";
 
         /// <summary>
         /// Staging directory for self-update extraction

@@ -233,73 +233,71 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>Slack Incoming Webhook URL for ops alerts.</summary>
         public string OpsAlertSlackWebhookUrl { get; set; } = default!;
 
-        // ===== AGENT INTEGRITY SETTINGS =====
+        // ===== PER-LINE AGENT HASH ORACLE =====
+        // Symmetric per-major-line schema. Each line (V1, V2, future V3...) has its
+        // own field set. GetAgentConfigFunction parses X-Agent-Version-Major and
+        // dispatches via GetAgentLine(int major). Future V3 = add new field set + 1
+        // switch arm in GetAgentLine. See .claude/plans/v2-cutover.md.
 
-        /// <summary>
-        /// Version string of the latest published agent build (e.g. "1.0.706").
-        /// Written by CI/CD pipeline and PS build scripts after agent ZIP upload.
-        /// </summary>
-        public string LatestAgentVersion { get; set; } = default!;
+        /// <summary>Version string of the latest published V1 agent (e.g. "1.0.706").</summary>
+        public string LatestAgentV1Version { get; set; } = default!;
 
-        /// <summary>
-        /// SHA-256 hash (lowercase hex) of the latest published agent ZIP.
-        /// Used as a backend hash-oracle: the agent compares this against the
-        /// downloaded ZIP to verify integrity via a separate trust channel.
-        /// Written by CI/CD pipeline and PS build scripts after agent ZIP upload.
-        /// </summary>
-        public string LatestAgentSha256 { get; set; } = default!;
+        /// <summary>SHA-256 (lowercase hex) of the latest published V1 agent ZIP.</summary>
+        public string LatestAgentV1Sha256 { get; set; } = default!;
 
-        /// <summary>
-        /// SHA-256 hash (lowercase hex) of the latest published agent EXE (AutopilotMonitor.Agent.exe).
-        /// Used for post-config integrity verification: the running agent computes its own EXE hash
-        /// and compares against this value to detect tampering.
-        /// Written by CI/CD pipeline and PS build scripts after agent ZIP upload.
-        /// </summary>
-        public string LatestAgentExeSha256 { get; set; } = default!;
+        /// <summary>SHA-256 (lowercase hex) of the latest published V1 agent EXE.</summary>
+        public string LatestAgentV1ExeSha256 { get; set; } = default!;
+
+        /// <summary>Version string of the latest published V1 bootstrap script.</summary>
+        public string LatestBootstrapV1ScriptVersion { get; set; } = default!;
+
+        /// <summary>Version string of the latest published V2 agent (e.g. "2.0.647").</summary>
+        public string LatestAgentV2Version { get; set; } = default!;
+
+        /// <summary>SHA-256 (lowercase hex) of the latest published V2 agent ZIP.</summary>
+        public string LatestAgentV2Sha256 { get; set; } = default!;
+
+        /// <summary>SHA-256 (lowercase hex) of the latest published V2 agent EXE.</summary>
+        public string LatestAgentV2ExeSha256 { get; set; } = default!;
+
+        /// <summary>Version string of the latest published V2 bootstrap script.</summary>
+        public string LatestBootstrapV2ScriptVersion { get; set; } = default!;
 
         /// <summary>
         /// When true, the agent's self-updater is allowed to install a version strictly lower
         /// than the one it is currently running. Default: false (forward-only updates; prevents
-        /// dev builds from being silently downgraded to the production <c>version.json</c> via
-        /// the <c>runtime_hash_mismatch</c> force path). Set to true only for controlled rollback
-        /// scenarios — flip back to false immediately afterwards.
+        /// dev builds from being silently downgraded via the <c>runtime_hash_mismatch</c> force path).
+        /// Set to true only for controlled rollback scenarios — flip back to false immediately afterwards.
+        /// Single global flag; applies to whichever line the calling agent runs on.
         /// </summary>
         public bool AllowAgentDowngrade { get; set; } = false;
 
         /// <summary>
-        /// Version string of the latest published bootstrap script (Install-AutopilotMonitor.ps1).
-        /// Written by CI/CD pipeline and PS build scripts after bootstrap script upload.
-        /// Used by the web UI to flag outdated bootstrap scripts in session views.
+        /// Per-line view of the agent integrity fields. Backend dispatches by X-Agent-Version-Major.
+        /// Returns empty strings (not null) if the requested line has no published build yet.
         /// </summary>
-        public string LatestBootstrapScriptVersion { get; set; } = default!;
-
-        // ===== V2 AGENT HASH ORACLE =====
-        // Separate release line from V1 so V2 clients are not served V1 hashes (and vice versa).
-        // Written by scripts/Deployment/V2/build_and_upload_release_agent_build.ps1.
-        // GetAgentConfigFunction selects V1 vs V2 based on the X-Agent-Version header's major version.
-
-        /// <summary>
-        /// Version string of the latest published V2 agent (e.g. "2.0.114"). See <see cref="LatestAgentVersion"/> for V1.
-        /// </summary>
-        public string LatestAgentV2Version { get; set; } = default!;
-
-        /// <summary>
-        /// SHA-256 hash (lowercase hex) of the latest published V2 agent ZIP (AutopilotMonitor-Agent-V2.zip).
-        /// Mirror of <see cref="LatestAgentSha256"/> for the V2 release line.
-        /// </summary>
-        public string LatestAgentV2Sha256 { get; set; } = default!;
-
-        /// <summary>
-        /// SHA-256 hash (lowercase hex) of the latest published V2 agent EXE (AutopilotMonitor.Agent.exe, V2 release line).
-        /// Mirror of <see cref="LatestAgentExeSha256"/> for the V2 release line.
-        /// </summary>
-        public string LatestAgentV2ExeSha256 { get; set; } = default!;
-
-        /// <summary>
-        /// Version string of the latest published V2 bootstrap script (Install-AutopilotMonitor-v2.ps1).
-        /// Mirror of <see cref="LatestBootstrapScriptVersion"/> for the V2 release line.
-        /// </summary>
-        public string LatestBootstrapV2ScriptVersion { get; set; } = default!;
+        public AgentLineHashes GetAgentLine(int major)
+        {
+            switch (major)
+            {
+                case 1:
+                    return new AgentLineHashes(
+                        LatestAgentV1Version ?? string.Empty,
+                        LatestAgentV1Sha256 ?? string.Empty,
+                        LatestAgentV1ExeSha256 ?? string.Empty,
+                        LatestBootstrapV1ScriptVersion ?? string.Empty);
+                case 2:
+                    return new AgentLineHashes(
+                        LatestAgentV2Version ?? string.Empty,
+                        LatestAgentV2Sha256 ?? string.Empty,
+                        LatestAgentV2ExeSha256 ?? string.Empty,
+                        LatestBootstrapV2ScriptVersion ?? string.Empty);
+                default:
+                    // Unknown major (very old agent, or a future line not yet wired).
+                    // Return empty so callers degrade gracefully (skip integrity check).
+                    return new AgentLineHashes(string.Empty, string.Empty, string.Empty, string.Empty);
+            }
+        }
 
         // ===== MODERN DEPLOYMENT NOISE SUPPRESSION =====
 
@@ -422,6 +420,26 @@ namespace AutopilotMonitor.Shared.Models
                 MaxSessionWindowHours = 24,
                 MaintenanceBlockDurationHours = 12
             };
+        }
+    }
+
+    /// <summary>
+    /// Per-major-line snapshot of the agent integrity fields.
+    /// Returned by <see cref="AdminConfiguration.GetAgentLine(int)"/>.
+    /// </summary>
+    public sealed class AgentLineHashes
+    {
+        public string Version { get; }
+        public string ZipSha256 { get; }
+        public string ExeSha256 { get; }
+        public string BootstrapScriptVersion { get; }
+
+        public AgentLineHashes(string version, string zipSha256, string exeSha256, string bootstrapScriptVersion)
+        {
+            Version = version ?? string.Empty;
+            ZipSha256 = zipSha256 ?? string.Empty;
+            ExeSha256 = exeSha256 ?? string.Empty;
+            BootstrapScriptVersion = bootstrapScriptVersion ?? string.Empty;
         }
     }
 }

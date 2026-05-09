@@ -103,29 +103,26 @@ namespace AutopilotMonitor.Functions.Functions.Config
         }
 
         /// <summary>
-        /// Determines whether an X-Agent-Version header advertises the V2 release line.
-        /// V2 agents use a separate hash-oracle (LatestAgentV2Sha256 / LatestAgentV2ExeSha256)
-        /// so they are not served V1 hashes and vice versa.
+        /// Parses the major-version from an X-Agent-Version header value.
+        /// Accepts SemVer-ish strings like "2.0.114" or "2.0.114+abc123".
+        /// Missing/unparsable → returns 1 (backward-compat: very old agents may omit the header).
         /// </summary>
-        /// <remarks>
-        /// Accepts SemVer-ish version strings like "2.0.114" or "2.0.114+abc123".
-        /// Missing or unparsable header → treat as V1 (backward compat for older agents
-        /// that do not send the header).
-        /// </remarks>
-        internal static bool IsV2Client(string? agentVersion)
+        internal static int ParseAgentMajor(string? agentVersion)
         {
             if (string.IsNullOrWhiteSpace(agentVersion))
-                return false;
+                return 1;
 
             var dot = agentVersion.IndexOf('.');
             var majorStr = dot > 0 ? agentVersion.Substring(0, dot) : agentVersion;
-            return int.TryParse(majorStr, out var major) && major >= 2;
+            return int.TryParse(majorStr, out var major) ? major : 1;
         }
 
         /// <summary>
         /// Returns the (ZipSha256, ExeSha256) pair appropriate for the calling agent.
-        /// Reads the X-Agent-Version header and dispatches to the V1 or V2 fields on
-        /// <see cref="AdminConfiguration"/>.
+        /// Reads the X-Agent-Version header, parses the major, and dispatches to the
+        /// corresponding per-line field set on <see cref="AdminConfiguration"/> via
+        /// <see cref="AdminConfiguration.GetAgentLine(int)"/>. Future V3 = no change here;
+        /// add a switch arm in GetAgentLine and a field set on AdminConfiguration.
         /// </summary>
         internal static (string ZipSha256, string ExeSha256) SelectAgentHashesForClient(
             HttpRequestData req,
@@ -135,9 +132,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 ? req.Headers.GetValues("X-Agent-Version").FirstOrDefault()
                 : null;
 
-            return IsV2Client(agentVersion)
-                ? (adminConfig.LatestAgentV2Sha256, adminConfig.LatestAgentV2ExeSha256)
-                : (adminConfig.LatestAgentSha256, adminConfig.LatestAgentExeSha256);
+            var line = adminConfig.GetAgentLine(ParseAgentMajor(agentVersion));
+            return (line.ZipSha256, line.ExeSha256);
         }
 
         /// <summary>
@@ -176,9 +172,9 @@ namespace AutopilotMonitor.Functions.Functions.Config
             var tenantDiagPaths = tenantConfig.GetDiagnosticsLogPaths();
             var diagLogPaths = globalDiagPaths.Concat(tenantDiagPaths).ToList();
 
-            // Select V1 vs V2 hash oracle based on the X-Agent-Version header.
-            // V1 agents get LatestAgentSha256/ExeSha256; V2 agents get LatestAgentV2Sha256/V2ExeSha256.
-            // Response field names stay the same so the agent code is unchanged.
+            // Select per-line hash oracle from the X-Agent-Version header (parametric per major).
+            // The wire response keeps generic field names (LatestAgentSha256 / LatestAgentExeSha256)
+            // so agent code is unchanged across all major lines.
             var (latestAgentSha256, latestAgentExeSha256) = SelectAgentHashesForClient(req, adminConfig);
 
             var response = req.CreateResponse(HttpStatusCode.OK);

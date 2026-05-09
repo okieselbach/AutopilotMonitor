@@ -313,14 +313,16 @@ namespace AutopilotMonitor.Agent
         }
 
         /// <summary>
-        /// Fetches version.json from blob storage and returns the version string and optional SHA-256 hash.
-        /// Returns (null, null) if the check fails or times out.
+        /// Fetches the V1 line's version manifest (version-v1.json) from blob storage and returns
+        /// the version string and optional SHA-256 hash. Returns (null, null) if the check fails or times out.
+        /// V1 SelfUpdater is isolated to its versioned namespace so it never crosses into the
+        /// stable channel (which now serves V2 post-cutover). See .claude/plans/v2-cutover.md.
         /// </summary>
         private static async Task<(string version, string sha256)> GetLatestVersionAsync(Action<string> log)
         {
             try
             {
-                var versionUrl = $"{Constants.AgentBlobBaseUrl}/{Constants.AgentVersionFileName}";
+                var versionUrl = $"{Constants.AgentBlobBaseUrl}/{Constants.AgentVersionFileNameForLine(1)}";
 
                 using (var handler = new HttpClientHandler())
                 using (var client = new HttpClient(handler) { Timeout = TimeSpan.FromMilliseconds(VersionCheckTimeoutMs) })
@@ -447,7 +449,7 @@ namespace AutopilotMonitor.Agent
         {
             try
             {
-                var zipUrl = $"{Constants.AgentBlobBaseUrl}/{Constants.AgentZipFileName}";
+                var zipUrl = $"{Constants.AgentBlobBaseUrl}/{Constants.AgentZipFileNameForLine(1)}";
 
                 // Clean up any previous download
                 if (File.Exists(zipPath))

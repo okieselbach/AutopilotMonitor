@@ -3,55 +3,53 @@
     Bootstrap script to deploy and start the Autopilot Monitor agent.
 
 .DESCRIPTION
-    This script is designed to be deployed via Intune as a PowerShell Script during Autopilot.
-    It runs VERY EARLY in the enrollment process (first Intune action) and:
-    1. Creates a unique session ID for this enrollment
-    2. Downloads the monitoring agent binaries
-    3. Verifies integrity via SHA-256 hash from version.json
-    4. Installs agent binaries (agent uses built-in backend URL)
-    5. Registers agent as Scheduled Task (runs on computer startup)
-    6. Agent self-destructs when enrollment completes
-
-    INTEGRITY VERIFICATION:
-    The script downloads version.json from the same blob container as the agent ZIP.
-    If version.json contains a "sha256" field, the downloaded ZIP is verified against it
-    using SHA-256. This prevents tampering during download (MITM) and detects corrupted
-    downloads. If the hash does not match, installation is aborted.
-
-    For backward compatibility: if version.json does not contain a "sha256" field (older
-    builds), the script falls back to the legacy Content-MD5 header check.
+    Designed to be deployed via Intune as a PowerShell Script during Autopilot.
+    Runs very early in the enrollment process (first Intune action) and:
+      1. Runs five pre-flight guards to skip productive devices and ghost re-installs
+      2. Downloads the monitoring agent ZIP from Azure Blob Storage
+      3. Verifies integrity via SHA-256 hash from the version manifest
+         (legacy fallback: Content-MD5 header from the blob response)
+      4. Extracts the agent into %ProgramData%\AutopilotMonitor\Agent
+      5. Runs the agent in --install mode (registers Scheduled Task, spawns the runtime)
+      6. Verifies the runtime process actually launched
+    Agent self-destructs when enrollment completes.
 
 .PARAMETER AgentDownloadUrl
-    URL to download the agent binaries from (ZIP file)
+    URL to download the agent ZIP from. Defaults to the production blob; override only
+    for parallel lab/dev assignments that point at a separate pre-release ZIP.
 
-.EXAMPLE
-    .\Install-AutopilotMonitor.ps1
-    (Uses built-in backend URL from the agent)
+.PARAMETER VersionJsonName
+    Filename of the integrity manifest in the same blob container as the agent ZIP.
+    Defaults to "version.json"; override only for parallel lab/dev manifests.
+
+.PARAMETER MaxBootstrapWindowHours
+    Maximum device uptime (hours) within which the bootstrap is still considered
+    valid. Devices booted more than this many hours ago are skipped because we no
+    longer trust their OOBE state. Default: 12.
 
 .NOTES
-    - Agent is temporary and auto-removes after enrollment
-    - Everything in C:\ProgramData\AutopilotMonitor (easy cleanup)
-    - One Registry key left after removal: HKLM\SOFTWARE\AutopilotMonitor\Deployed (prevents ghost re-installs)
-    - Scheduled Task survives reboots during enrollment
-    - SHA-256 integrity verification since v1.0.706+
-    - IMPORTANT: This script MUST remain pure ASCII (no Unicode/UTF-8 special chars).
+    - Agent is temporary and auto-removes after enrollment.
+    - All files live under C:\ProgramData\AutopilotMonitor (easy cleanup).
+    - One registry key remains after removal: HKLM\SOFTWARE\AutopilotMonitor\Deployed
+      (prevents ghost re-installs on re-Autopilot of the same device).
+    - Scheduled Task survives reboots during enrollment.
+    - This script MUST remain pure ASCII (no Unicode/UTF-8 special chars).
       PowerShell 5.1 (IME) reads scripts without BOM as ANSI, corrupting multi-byte chars.
 
 .CHANGELOG
-    2026-04-09  v1.1  Introduced explicit script version and log it on startup
-    (all entries above were v1.0)
-    2026-03-31  Replaced OS age + MDM pre-flight checks with multi-signal guard:
-                registry deployment marker, WMI/filesystem user profile detection,
-                lastloggedonUser set, and 12h bootstrap window. 
-    2026-03-30  Fixed non-ASCII characters (em-dashes, Unicode symbols) that broke
-                script parsing under PowerShell 5.1 / IME AgentExecutor
-    2026-03-29  Hardened integrity check: SHA-256 verification via version.json
-    2026-02-16  Extended OS age default threshold
-    2026-02-13  Simplified bootstrapper, introduced --install parameter for agent
-    2026-02-12  More robust download with integrity check (Content-MD5)
-    2026-02-12  Enhanced pre-flight checks, boot time support
-    2026-02-12  Added pre-flight check: skip if agent already installed
-    2026-02-05  Initial version
+    2026-05-09  v2.0  Generic bootstrap: agent owns its own defaults (e.g. 600 s
+                      TenantId-wait), so the script only calls `--install` plain.
+                      Hardened post-install with a 10 s runtime-process verify.
+    2026-04-09  v1.1  Introduced explicit script version, logged on startup.
+    2026-03-31        Replaced OS age + MDM pre-flight checks with multi-signal guard
+                      (registry deployment marker, WMI/filesystem user profile, last
+                      logged-on user, 12 h bootstrap window).
+    2026-03-30        Fixed non-ASCII characters that broke parsing under PowerShell 5.1.
+    2026-03-29        Hardened integrity check: SHA-256 verification via version.json.
+    2026-02-13        Simplified bootstrapper, introduced --install parameter for agent.
+    2026-02-12        Robust download with integrity check (Content-MD5), boot time support,
+                      pre-flight check to skip if agent already installed.
+    2026-02-05        Initial version.
 #>
 
 [CmdletBinding()]
@@ -60,11 +58,14 @@ param(
     [string]$AgentDownloadUrl = "https://autopilotmonitor.blob.core.windows.net/agent/AutopilotMonitor-Agent.zip",
 
     [Parameter(Mandatory = $false)]
+    [string]$VersionJsonName = "version.json",
+
+    [Parameter(Mandatory = $false)]
     [int]$MaxBootstrapWindowHours = 12
 )
 
 # Script version (bump on meaningful changes; see .CHANGELOG above)
-$ScriptVersion = "1.1"
+$ScriptVersion = "2.0"
 
 # Configuration - Everything in ProgramData for easy cleanup
 $AgentBasePath = "$env:ProgramData\AutopilotMonitor"
@@ -72,7 +73,6 @@ $AgentBinPath = "$AgentBasePath\Agent"
 $AgentLogPath = "$AgentBasePath\Logs"
 $LogFile = "$AgentLogPath\bootstrap_agent.log"
 
-# Ensure directories exist
 New-Item -Path $AgentBasePath -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
 New-Item -Path $AgentBinPath -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
 New-Item -Path $AgentLogPath -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
@@ -112,16 +112,6 @@ try {
     Write-Log "===== Autopilot Monitor Bootstrap Started ====="
     Write-Log "Bootstrap script version: v$ScriptVersion"
 
-    # -- Pre-flight: Multi-signal guard to prevent installation on non-provisioning devices --
-    # Layered approach: each guard catches a different scenario.
-    # Guard 1: Ghost re-installs (registry marker from previous deployment)
-    # Guard 2: Productive devices (real user profile exists -- WMI + filesystem)
-    # Guard 3: Productive devices (a real user has logged on before)
-    # Guard 4: Bootstrap window expired (device uptime > 12h without agent)
-    # Guard 5: Agent binary already present from a previous run
-    # NOTE: OOBEInProgress is NOT used -- it is unreliable (observed =0 during active enrollment).
-    # NOTE: explorer.exe is NOT used -- it runs even in early OOBE right after script execution.
-
     # Guard 1: Agent was already deployed on this device (registry marker survives self-destruct)
     $deployed = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\AutopilotMonitor' -Name 'Deployed' -ErrorAction SilentlyContinue).Deployed
     if ($deployed) {
@@ -129,19 +119,17 @@ try {
         exit 0
     }
 
-    # Guard 2: No real user profile should exist yet (primary productive-device guard)
+    # Guard 2: No real user profile should exist yet (primary productive-device guard).
     # Combines WMI (Win32_UserProfile.Special flag) and filesystem for maximum reliability.
     $excludePattern = '^(defaultuser\d*|Public|Default( User)?|All Users)$'
 
     $profileNames = @(
-        # WMI/CIM view -- Special flag reliably excludes SYSTEM/LocalService/NetworkService
         try {
             Get-CimInstance Win32_UserProfile -ErrorAction Stop |
                 Where-Object { -not $_.Special -and $_.LocalPath -like 'C:\Users\*' } |
                 ForEach-Object { Split-Path $_.LocalPath -Leaf }
         } catch { Write-Log "INFO: WMI profile query failed, continuing with filesystem check." }
 
-        # Filesystem view -- catches profiles WMI might miss
         (Get-ChildItem 'C:\Users' -Directory -ErrorAction SilentlyContinue).Name
     ) | Where-Object { $_ -and $_ -notmatch $excludePattern } |
         Select-Object -Unique
@@ -152,18 +140,15 @@ try {
         exit 0
     }
 
-    # Guard 3: LastLoggedOnUser -- during Device ESP no real user has logged on yet
+    # Guard 3: LastLoggedOnUser - during Device ESP no real user has logged on yet.
     $lastLoggedOnUser = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI' -Name 'LastLoggedOnUser' -EA SilentlyContinue).LastLoggedOnUser
     if ($lastLoggedOnUser -and $lastLoggedOnUser -notmatch 'defaultuser\d*') {
         Write-Log "SKIP: LastLoggedOnUser found ($lastLoggedOnUser). Device appears productive."
         exit 0
     }
 
-    # Guard 4: Bootstrap window check (no key, no user profiles, but device running too long)
-    # NOT "how long may enrollment take" -- agent handles that internally (6h emergency break).
-    # This is "how old can the OOBE state be before I no longer trust it for initial install".
-    # 12h bootstrap window vs 6h agent emergency break = consistent layered approach.
-    # Sleep/standby does NOT reset uptime -- only real boot/restart does.
+    # Guard 4: Bootstrap window check - device uptime must be within accepted OOBE window.
+    # Sleep/standby does not reset uptime, only real boot/restart does.
     $lastBoot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
     $uptimeHours = ((Get-Date) - $lastBoot).TotalHours
     Write-Log "Device uptime: $([int]$uptimeHours)h (last boot: $lastBoot)"
@@ -193,26 +178,24 @@ try {
         Write-Log "Downloading agent from $AgentDownloadUrl..."
 
         try {
-            # Derive version.json URL from the agent download URL (same blob container)
-            $versionJsonUrl = $AgentDownloadUrl -replace '[^/]+$', 'version.json'
+            # Derive manifest URL from the agent download URL (same blob container)
+            $versionJsonUrl = $AgentDownloadUrl -replace '[^/]+$', $VersionJsonName
             $expectedSha256 = $null
 
-            # Download version.json for SHA-256 integrity verification
             try {
-                Write-Log "Fetching version.json from $versionJsonUrl for integrity verification..."
+                Write-Log "Fetching $VersionJsonName from $versionJsonUrl for integrity verification..."
                 $versionJsonResponse = Invoke-RestMethod -Uri $versionJsonUrl -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
                 if ($versionJsonResponse.sha256) {
                     $expectedSha256 = $versionJsonResponse.sha256.ToLowerInvariant()
-                    Write-Log "SHA-256 hash from version.json: $expectedSha256 (version: $($versionJsonResponse.version))"
+                    Write-Log "SHA-256 hash from manifest: $expectedSha256 (version: $($versionJsonResponse.version))"
                 } else {
-                    Write-Log "version.json has no sha256 field - falling back to legacy MD5 check (older build)"
+                    Write-Log "Manifest has no sha256 field - falling back to legacy MD5 check (older build)"
                 }
             }
             catch {
-                Write-Log "WARNING: Could not fetch version.json - falling back to legacy MD5 check: $($_.Exception.Message)"
+                Write-Log "WARNING: Could not fetch manifest - falling back to legacy MD5 check: $($_.Exception.Message)"
             }
 
-            # Download agent ZIP
             $zipPath = Join-Path $env:TEMP "AutopilotMonitor-Agent.zip"
             $maxDownloadAttempts = 3
             $downloadAttempt = 0
@@ -244,17 +227,15 @@ try {
                 }
             } while ($downloadAttempt -lt $maxDownloadAttempts)
 
-            # Integrity check: SHA-256 (preferred) or legacy Content-MD5 (fallback)
             if ($expectedSha256) {
                 $actualSha256 = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
-                Write-Log "Validating SHA-256 hash against version.json"
+                Write-Log "Validating SHA-256 hash against manifest"
                 if ($actualSha256 -ne $expectedSha256) {
                     throw "SHA-256 integrity check FAILED. Expected='$expectedSha256', Actual='$actualSha256'. Download may be tampered or corrupted."
                 }
                 Write-Log "SHA-256 integrity check passed"
             }
             else {
-                # Legacy fallback: Content-MD5 header check
                 $expectedMd5Header = $downloadResponse.Headers["Content-MD5"]
                 $expectedMd5 = if ($expectedMd5Header -is [System.Array]) { "$($expectedMd5Header[0])".Trim() } else { "$expectedMd5Header".Trim() }
                 if ($expectedMd5 -notmatch '\S') {
@@ -270,15 +251,12 @@ try {
                 }
             }
 
-            # Extract to agent bin path
             Expand-Archive -Path $zipPath -DestinationPath $AgentBinPath -Force
             Write-Log "Extracted agent to $AgentBinPath"
 
-            # Cleanup
             Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
             Write-Log "Cleaned up temporary files"
 
-            # Verify extraction
             if (-not (Test-Path $agentExePath)) {
                 throw "Agent executable not found after extraction at $agentExePath"
             }
@@ -291,7 +269,6 @@ try {
         }
     }
 
-    # Let the agent install/deploy itself and manage its own Scheduled Task
     Write-Log "Calling agent install mode (--install)..."
     & $agentExePath --install
     $installExitCode = $LASTEXITCODE
@@ -299,6 +276,24 @@ try {
         throw "Agent install failed with exit code $installExitCode"
     }
     Write-Log "Agent install mode completed successfully"
+
+    $runtimeProcessName = 'AutopilotMonitor.Agent'
+    $verifyTimeoutSec = 10
+    $verifyDeadline = (Get-Date).AddSeconds($verifyTimeoutSec)
+    $runtimeProc = $null
+    while ((Get-Date) -lt $verifyDeadline) {
+        $runtimeProc = Get-Process -Name $runtimeProcessName -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($null -ne $runtimeProc) { break }
+        Start-Sleep -Milliseconds 500
+    }
+    if ($null -ne $runtimeProc) {
+        $startedUtc = 'unavailable'
+        try { $startedUtc = $runtimeProc.StartTime.ToUniversalTime().ToString('o') } catch { }
+        Write-Log ("Runtime process verified: name={0}.exe pid={1} startedUtc={2}" -f $runtimeProcessName, $runtimeProc.Id, $startedUtc)
+    } else {
+        Write-Log ("WARNING: Runtime process verification FAILED. Agent --install reported success but no '{0}.exe' process appeared within {1}s. Likely silent block (AV/EDR, AppLocker/WDAC) of the runtime launch. Agent should still come up at next boot via the BootTrigger task. Check Event Viewer > Microsoft > Windows > TaskScheduler/Operational and AV/EDR logs for '{0}.exe'." -f $runtimeProcessName, $verifyTimeoutSec)
+    }
+
     Write-Log "===== Bootstrap Completed Successfully ====="
 
     exit 0
@@ -309,7 +304,6 @@ catch {
     Write-Log "Stack trace: $($_.ScriptStackTrace)"
     Write-Log "Please check log file: $LogFile"
 
-    # some errors are captured by Intune but not fully visible in the UI (truncated, no stack trace), so also write critical info to stderr for better visibility.
     $errMsg = "AutopilotMonitor bootstrap failed: $($_.Exception.Message)"
     if ($errMsg.Length -gt 2048) { $errMsg = $errMsg.Substring(0, 1045) + '...' }
     [Console]::Error.WriteLine($errMsg)
