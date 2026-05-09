@@ -31,6 +31,8 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
   const [joinedGroups, setJoinedGroups] = useState<string[]>([]);
   const retryCountRef = useRef(0);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Set in onreconnecting, read in onreconnected so we can report downtime as a measurement.
+  const disconnectStartedAtRef = useRef<number | null>(null);
   const maxRetries = 3;
 
   const syncJoinedGroups = useCallback(() => {
@@ -76,15 +78,21 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
       trackEvent("signalr_disconnected", { hasError: !!error });
       joinedGroupsRef.current.clear(); // Clear joined groups on disconnect
       syncJoinedGroups();
+      disconnectStartedAtRef.current = null;
     });
 
     newConnection.onreconnecting((error) => {
       setConnectionState(signalR.HubConnectionState.Reconnecting);
+      disconnectStartedAtRef.current = performance.now();
     });
 
     newConnection.onreconnected(async (connectionId) => {
       setConnectionState(signalR.HubConnectionState.Connected);
       retryCountRef.current = 0; // Reset retry count on successful reconnect
+      const downtimeMs = disconnectStartedAtRef.current !== null
+        ? Math.round(performance.now() - disconnectStartedAtRef.current)
+        : 0;
+      disconnectStartedAtRef.current = null;
 
       // Auto-rejoin all previously joined groups after reconnect.
       // The server-side connection ID changed, so all group memberships are lost.
@@ -118,7 +126,7 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
       if (previousGroups.length > 0) {
         console.log(`[SignalR] Rejoined ${joinedGroupsRef.current.size}/${previousGroups.length} groups after reconnect`);
       }
-      trackEvent("signalr_reconnected", { rejoinedGroups: joinedGroupsRef.current.size });
+      trackEvent("signalr_reconnected", { rejoinedGroups: joinedGroupsRef.current.size, downtimeMs });
     });
 
     // Start connection

@@ -78,10 +78,12 @@ export function useDashboardFilters({
     return DEFAULT_SESSIONS_PER_PAGE;
   });
 
-  // Track search usage (debounced — fires 1s after user stops typing)
+  // Track search usage (debounced — fires 1s after user stops typing).
+  // Skip empty query so initial mount and "clear search" don't pollute the event.
   useEffect(() => {
+    if (!searchQuery) return;
     const timer = setTimeout(() => {
-      trackEvent("session_searched", { hasQuery: searchQuery.length > 0 });
+      trackEvent("session_searched", { queryLength: searchQuery.length });
     }, 1000);
     return () => clearTimeout(timer);
   }, [searchQuery]);
