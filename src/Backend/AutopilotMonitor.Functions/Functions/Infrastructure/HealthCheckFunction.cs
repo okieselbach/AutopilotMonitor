@@ -14,6 +14,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
         private readonly HealthCheckService _healthCheckService;
         private readonly IMemoryCache _cache;
         private readonly BackendBuildInfo _buildInfo;
+        private readonly GlobalAdminService _globalAdminService;
 
         private const int MaxRequestsPerMinute = 30;
         private static readonly TimeSpan RateWindow = TimeSpan.FromMinutes(1);
@@ -22,12 +23,14 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
             ILogger<HealthCheckFunction> logger,
             HealthCheckService healthCheckService,
             IMemoryCache cache,
-            BackendBuildInfo buildInfo)
+            BackendBuildInfo buildInfo,
+            GlobalAdminService globalAdminService)
         {
             _logger = logger;
             _healthCheckService = healthCheckService;
             _cache = cache;
             _buildInfo = buildInfo;
+            _globalAdminService = globalAdminService;
         }
 
         /// <summary>
@@ -103,8 +106,11 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
             // SignalR Quota check exposes the subscription/resource-group path of the
             // backing SignalR resource — restrict to Global Admins. Non-GA callers
             // (Tenant Admins, Operators) get the rest of the report unchanged.
+            // The route is registered as AuthenticatedUser, so PolicyEnforcementMiddleware
+            // does NOT compute IsGlobalAdmin; resolve it directly via GlobalAdminService.
             var requestCtx = context.GetRequestContext();
-            var visibleChecks = requestCtx.IsGlobalAdmin
+            var isGlobalAdmin = await _globalAdminService.IsGlobalAdminAsync(requestCtx.UserPrincipalName);
+            var visibleChecks = isGlobalAdmin
                 ? healthCheckResult.Checks
                 : healthCheckResult.Checks.Where(c => c.Name != "SignalR Quota").ToList();
 
