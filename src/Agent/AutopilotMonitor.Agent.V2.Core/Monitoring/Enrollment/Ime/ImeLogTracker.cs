@@ -99,12 +99,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             "HealthScripts-????????-??????.log"
         };
 
-        // Platform-script multi-line state accumulator. Health-script (remediation) state is no
-        // longer accumulated line-by-line — the HS-NEW-RESULT pattern delivers the full
-        // pre-detection / remediation / post-detection JSON in one shot via HandleHealthScriptResult.
+        // Platform-script multi-line state accumulator (per-policy dict because PS-AGENT-* lines
+        // arrive across multiple log entries and IME may interleave platform scripts).
         private readonly Dictionary<string, ScriptExecutionState> _pendingPlatformScripts =
             new Dictionary<string, ScriptExecutionState>(StringComparer.OrdinalIgnoreCase);
         private string _lastPlatformScriptPolicyId;
+
+        // Health-script (remediation) line-by-line accumulator — single slot because IME
+        // executes health scripts SEQUENTIALLY within a session (verified across multiple
+        // diagnostic captures: ProcessScript → context → exit → stdout → stderr → compliance,
+        // one policy at a time). The slot fills as IME emits HS-RUN-CONTEXT / HS-EXITCODE /
+        // HS-STDOUT / HS-STDERR; HS-COMPLIANCE merges + emits + clears the slot. The full
+        // payload (RemediationStatus, TargetType, ErrorCode, plus the actual remediation
+        // phase's data) arrives later via HS-NEW-RESULT and replaces this entry through the
+        // UI dedupe (dataCompleteness scoring).
+        private ScriptExecutionState _pendingHealthScript;
         private const int MaxScriptOutputLength = 2048;
         private const int MaxMultiLineBufferLines = 100;
 

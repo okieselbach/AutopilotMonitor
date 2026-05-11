@@ -967,6 +967,87 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
         }
 
         [Fact]
+        public void HealthScriptDetectionResult_compliant_emits_sparse_completed_event_immediately()
+        {
+            // Early-signal fallback pattern (HS-COMPLIANCE) fires from the
+            // [HS] the pre-remdiation detection script compliance result line, ~30-90 s
+            // before the consolidated HS-NEW-RESULT JSON line. We emit a sparse
+            // script_completed so short Autopilot enrollments that end inside that gap
+            // still surface SOMETHING for each detection.
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            f.Tracker.HandleHealthScriptDetectionResultForTest("75d14a95-d49f-473d-9d65-d4b006bc7468", "True", "pre");
+
+            var info = Assert.Single(f.InfoEvents(SharedEventTypes.ScriptCompleted));
+            Assert.Equal("75d14a95-d49f-473d-9d65-d4b006bc7468", info.Payload!["policyId"]);
+            Assert.Equal("remediation", info.Payload["scriptType"]);
+            Assert.Equal("detection", info.Payload["scriptPart"]);
+            Assert.Equal("True", info.Payload["complianceResult"]);
+            Assert.Equal("0", info.Payload["exitCode"]);
+        }
+
+        [Fact]
+        public void HealthScriptDetectionResult_non_compliant_routes_to_script_failed_via_inferred_exit_1()
+        {
+            // The handler infers exit=1 from compliance=False. Phase-aware exit handling kicks
+            // in at the adapter — detection exit != 0 stays as script_completed (compliance
+            // verdict, not crash). Non-compliant report renders amber via isNonCompliantReport.
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            f.Tracker.HandleHealthScriptDetectionResultForTest("7980b14e-0e5a-48c7-a8e5-d6018407ca22", "False", "pre");
+
+            // Detection exit != 0 → still script_completed (compliance report, not crash).
+            Assert.Empty(f.InfoEvents(SharedEventTypes.ScriptFailed));
+            var info = Assert.Single(f.InfoEvents(SharedEventTypes.ScriptCompleted));
+            Assert.Equal("False", info.Payload!["complianceResult"]);
+            Assert.Equal("1", info.Payload["exitCode"]);
+        }
+
+        [Fact]
+        public void HealthScriptDetectionResult_enriches_event_with_slot_data_from_preceding_HS_lines()
+        {
+            // Real flow: HS-SCRIPT-START → HS-RUN-CONTEXT / HS-EXITCODE / HS-STDOUT / HS-STDERR
+            // → HS-COMPLIANCE. The compliance handler must merge the accumulated slot data so
+            // the early-signal event carries actual exit / context / stdout / stderr (not just
+            // the inferred compliance verdict). Same fields V1 used to surface.
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            f.Tracker.HandleHealthScriptDetectionResultForTest(
+                "e39d92ae-20bd-4b37-b36a-838abe50ac89",
+                "False", "pre",
+                exitCode: 7,
+                runContext: "System",
+                stdout: "Inventory Updated 2026-05-11",
+                stderr: "Invoke-WebRequest : The remote name could not be resolved");
+
+            // stderr present → adapter routes to script_failed (stderr-as-failure rule).
+            var info = Assert.Single(f.InfoEvents(SharedEventTypes.ScriptFailed));
+            Assert.Equal("e39d92ae-20bd-4b37-b36a-838abe50ac89", info.Payload!["policyId"]);
+            Assert.Equal("detection", info.Payload["scriptPart"]);
+            Assert.Equal("False", info.Payload["complianceResult"]);
+            Assert.Equal("7", info.Payload["exitCode"]); // real exit, not inferred
+            Assert.Equal("System", info.Payload["runContext"]);
+            Assert.Equal("Inventory Updated 2026-05-11", info.Payload["stdout"]);
+            Assert.Contains("Invoke-WebRequest", info.Payload["stderr"]);
+        }
+
+        [Fact]
+        public void HealthScriptDetectionResult_post_part_maps_to_post_detection_phase()
+        {
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            f.Tracker.HandleHealthScriptDetectionResultForTest("11111111-2222-3333-4444-555555555555", "True", "post");
+
+            var info = Assert.Single(f.InfoEvents(SharedEventTypes.ScriptCompleted));
+            Assert.Equal("post-detection", info.Payload!["scriptPart"]);
+            Assert.Equal("True", info.Payload["complianceResult"]);
+        }
+
+        [Fact]
         public void HealthScriptResult_remediation_phase_with_non_zero_exit_emits_script_failed()
         {
             // Phase-aware routing flip side: when the actual remediation script crashes

@@ -1,0 +1,10 @@
+{
+  "$schema": "../schema/ime-log-pattern.schema.json",
+  "patternId": "HS-COMPLIANCE",
+  "category": "always",
+  "pattern": "\\[HS\\] the (?<part>pre|post)-remdiation detection script compliance result for (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}) is (?<compliance>True|False)",
+  "action": "healthScriptDetectionResult",
+  "parameters": { "scriptType": "remediation" },
+  "description": "Early-signal fallback for health-script detection / post-detection results. Microsoft IME emits this line immediately after each detection script runs, ~30-90 seconds before the consolidated [HS] new result = JSON line is logged (which only fires after IME's batch-send to the Microsoft service). Short Autopilot enrollments often end inside that gap, so this pattern guarantees at least the compliance verdict is captured. The full data version arrives later via HS-NEW-RESULT and replaces this sparse entry through the UI dedupe (dataCompleteness scoring).",
+  "enabled": true
+}

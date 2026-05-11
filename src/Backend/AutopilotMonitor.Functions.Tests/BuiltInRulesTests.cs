@@ -137,7 +137,7 @@ public class BuiltInRulesTests
             "cancelStuckAndSetCurrent", "imeSessionChange", "imeImpersonation",
             "enrollmentCompleted", "updateDoTelemetry", "scriptStarted",
             "scriptContext", "scriptExitCode", "scriptOutput", "scriptCompleted",
-            "healthScriptResult",
+            "healthScriptResult", "healthScriptDetectionResult",
             "captureExitCode", "captureHResult",
             "captureAppVersion", "captureAppTypeWinGet", "captureAppTypeMsi",
             "captureAttemptNumber", "captureDetectionResult"

@@ -1,0 +1,10 @@
+{
+  "$schema": "../schema/ime-log-pattern.schema.json",
+  "patternId": "HS-STDOUT",
+  "category": "always",
+  "pattern": "\\[HS\\] std output = (?<output>.*)",
+  "action": "scriptOutput",
+  "parameters": { "scriptType": "remediation", "outputType": "stdout" },
+  "description": "Captures standard output from a health-script execution. Feeds the early-signal slot consumed by HS-COMPLIANCE so the user sees stdout immediately rather than waiting for HS-NEW-RESULT.",
+  "enabled": true
+}

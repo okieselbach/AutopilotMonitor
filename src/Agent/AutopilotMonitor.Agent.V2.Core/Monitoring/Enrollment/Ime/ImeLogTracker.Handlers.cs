@@ -186,9 +186,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             if (string.Equals(scriptType, "remediation", StringComparison.OrdinalIgnoreCase))
             {
                 // Health script: emit a live "started" signal so the UI can show a running
-                // indicator immediately. The consolidated outcome arrives later via the
-                // HS-NEW-RESULT pattern → HandleHealthScriptResult, typically 30 s – 3 min later.
+                // indicator immediately. Also (re)init the per-policy slot that the
+                // HS-RUN-CONTEXT / HS-EXITCODE / HS-STDOUT / HS-STDERR handlers fill, so the
+                // early-signal HS-COMPLIANCE event carries real exit / stdout / stderr / context
+                // instead of just the inferred compliance verdict. The consolidated outcome
+                // arrives later via HS-NEW-RESULT → HandleHealthScriptResult.
                 var policyType = match.Groups["policyType"]?.Value;
+                _pendingHealthScript = new ScriptExecutionState
+                {
+                    PolicyId = id,
+                    ScriptType = "remediation",
+                };
                 _logger.Info($"ImeLogTracker: health script started: {id}");
                 try { OnScriptStarted?.Invoke(new ScriptStartedInfo { PolicyId = id, ScriptType = "remediation", PolicyType = policyType }); }
                 catch (Exception ex) { _logger.Warning($"ImeLogTracker: OnScriptStarted handler threw: {ex.Message}"); }
@@ -212,13 +220,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             }
         }
 
+        // Routes line-by-line script-data handlers (context / exitCode / output) to the right
+        // accumulator based on the pattern's scriptType parameter. Health-script lines feed the
+        // single-slot _pendingHealthScript; platform-script lines feed _pendingPlatformScripts.
+        private ScriptExecutionState GetCurrentScriptForLineUpdate(Dictionary<string, string> parameters)
+        {
+            var scriptType = parameters != null && parameters.TryGetValue("scriptType", out var st) ? st : null;
+            return string.Equals(scriptType, "remediation", StringComparison.OrdinalIgnoreCase)
+                ? _pendingHealthScript
+                : GetCurrentPlatformScript();
+        }
+
         private void HandleScriptContext(Match match, Dictionary<string, string> parameters)
         {
             var context = match.Groups["context"]?.Value;
             if (string.IsNullOrEmpty(context)) return;
 
             var runContext = string.Equals(context, "machine", StringComparison.OrdinalIgnoreCase) ? "System" : "User";
-            var script = GetCurrentPlatformScript();
+            var script = GetCurrentScriptForLineUpdate(parameters);
             if (script != null)
             {
                 script.RunContext = runContext;
@@ -231,7 +250,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             var exitCodeStr = match.Groups["exitCode"]?.Value;
             if (string.IsNullOrEmpty(exitCodeStr) || !int.TryParse(exitCodeStr, out var exitCode)) return;
 
-            var script = GetCurrentPlatformScript();
+            var script = GetCurrentScriptForLineUpdate(parameters);
             if (script != null)
             {
                 script.ExitCode = exitCode;
@@ -242,7 +261,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private void HandleScriptOutput(Match match, Dictionary<string, string> parameters)
         {
             var outputType = parameters != null && parameters.TryGetValue("outputType", out var ot) ? ot : null;
-            var script = GetCurrentPlatformScript();
+            var script = GetCurrentScriptForLineUpdate(parameters);
             if (script == null) return;
 
             // PS-AGENT-OUTPUT captures both stdout and stderr in one pattern
@@ -315,6 +334,116 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// invalid JSON is logged once at warning level and counted via
         /// <see cref="ImeLogTracker.HealthScriptResultParseFailures"/>.
         /// </summary>
+        /// <summary>
+        /// Early-signal fallback emit for health-script detection / post-detection.
+        /// IME logs <c>[HS] the (pre|post)-remdiation detection script compliance result</c>
+        /// immediately after each script runs, but the consolidated <c>[HS] new result = {…}</c>
+        /// JSON line — the canonical source — only fires after IME's batch-send to the
+        /// Microsoft service, typically 30-90 s later. Short Autopilot enrollments often end
+        /// inside that gap, so this handler guarantees we have at least the compliance verdict
+        /// for each detection. When HS-NEW-RESULT later fires with the full payload, the UI
+        /// reducer's dataCompleteness scoring keeps the more complete entry.
+        /// </summary>
+        private void HandleHealthScriptDetectionResult(Match match, Dictionary<string, string> parameters)
+        {
+            var id = match.Groups["id"]?.Value;
+            var compliance = match.Groups["compliance"]?.Value;
+            var part = match.Groups["part"]?.Value; // "pre" or "post"
+
+            if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(compliance))
+            {
+                _logger.Debug("ImeLogTracker: HS-COMPLIANCE missing id or compliance, skipping");
+                return;
+            }
+
+            var isCompliant = string.Equals(compliance, "True", StringComparison.OrdinalIgnoreCase);
+            var scriptPart = string.Equals(part, "post", StringComparison.OrdinalIgnoreCase) ? "post-detection" : "detection";
+
+            // Pull line-by-line slot data accumulated since the matching HS-SCRIPT-START so the
+            // early-signal event carries real exit / stdout / stderr / context — same fields V1
+            // surfaced. The slot is keyed by the most recent script-start, so for the post-
+            // detection compliance line it may be empty (lines for the remediation phase that
+            // ran in between went into a different cycle's slot). That's fine: HS-NEW-RESULT
+            // arrives later and fills any gaps via the UI dataCompleteness dedupe.
+            int? exitCode = null;
+            string runContext = null;
+            string stdout = null;
+            string stderr = null;
+            if (_pendingHealthScript != null && string.Equals(_pendingHealthScript.PolicyId, id, StringComparison.OrdinalIgnoreCase))
+            {
+                exitCode = _pendingHealthScript.ExitCode;
+                runContext = _pendingHealthScript.RunContext;
+                stdout = _pendingHealthScript.Stdout;
+                stderr = _pendingHealthScript.Stderr;
+            }
+
+            // If we don't have a real exit code from the line-by-line capture, fall back to
+            // the inferred value: IME treats exit 0 = compliant, non-zero = non-compliant for
+            // detection / post-detection scripts.
+            if (exitCode == null) exitCode = isCompliant ? 0 : 1;
+
+            var enriched = new ScriptExecutionState
+            {
+                PolicyId = id,
+                ScriptType = "remediation",
+                ScriptPart = scriptPart,
+                ComplianceResult = isCompliant ? "True" : "False",
+                ExitCode = exitCode,
+                RunContext = runContext,
+                Stdout = stdout,
+                Stderr = stderr,
+            };
+
+            _logger.Info($"ImeLogTracker: health-script {scriptPart} early-signal for {id}: " +
+                         $"compliance={compliance}, exit={exitCode}, " +
+                         $"stdout={(stdout == null ? "n/a" : stdout.Length + " chars")}, " +
+                         $"stderr={(stderr == null ? "n/a" : stderr.Length + " chars")}");
+
+            EmitScriptEvent(enriched);
+
+            // Clear slot — next HS-SCRIPT-START reinitialises it for the next script.
+            _pendingHealthScript = null;
+        }
+
+        /// <summary>
+        /// Test seam: simulates the full HS-SCRIPT-START → HS-RUN-CONTEXT / HS-EXITCODE /
+        /// HS-STDOUT / HS-STDERR → HS-COMPLIANCE sequence by directly populating the
+        /// per-policy slot and then invoking the compliance handler. Lets unit tests verify
+        /// the early-signal enrichment without driving the full regex pipeline.
+        /// </summary>
+        internal void HandleHealthScriptDetectionResultForTest(
+            string id,
+            string compliance,
+            string part,
+            int? exitCode = null,
+            string runContext = null,
+            string stdout = null,
+            string stderr = null)
+        {
+            if (!string.IsNullOrEmpty(id) && (exitCode.HasValue || runContext != null || stdout != null || stderr != null))
+            {
+                _pendingHealthScript = new ScriptExecutionState
+                {
+                    PolicyId = id,
+                    ScriptType = "remediation",
+                    ExitCode = exitCode,
+                    RunContext = runContext,
+                    Stdout = stdout,
+                    Stderr = stderr,
+                };
+            }
+
+            // Build a synthetic Match with the named capture groups by running the regex on
+            // a constructed line — far simpler than building a Match instance directly.
+            var pcs = string.Equals(part, "post", StringComparison.OrdinalIgnoreCase) ? "post" : "pre";
+            var sample = $"[HS] the {pcs}-remdiation detection script compliance result for {id} is {compliance}";
+            var match = System.Text.RegularExpressions.Regex.Match(
+                sample,
+                @"\[HS\] the (?<part>pre|post)-remdiation detection script compliance result for (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}) is (?<compliance>True|False)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            HandleHealthScriptDetectionResult(match, new Dictionary<string, string>());
+        }
+
         private void HandleHealthScriptResult(Match match, Dictionary<string, string> parameters)
         {
             var json = match.Groups["json"]?.Value;

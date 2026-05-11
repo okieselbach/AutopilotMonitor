@@ -1,0 +1,10 @@
+{
+  "$schema": "../schema/ime-log-pattern.schema.json",
+  "patternId": "HS-STDERR",
+  "category": "always",
+  "pattern": "\\[HS\\] err output = (?<output>.*)",
+  "action": "scriptOutput",
+  "parameters": { "scriptType": "remediation", "outputType": "stderr" },
+  "description": "Captures standard error from a health-script execution. Feeds the early-signal slot consumed by HS-COMPLIANCE so stderr is visible immediately rather than waiting for HS-NEW-RESULT.",
+  "enabled": true
+}

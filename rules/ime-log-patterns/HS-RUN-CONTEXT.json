@@ -1,0 +1,10 @@
+{
+  "$schema": "../schema/ime-log-pattern.schema.json",
+  "patternId": "HS-RUN-CONTEXT",
+  "category": "always",
+  "pattern": "\\[HS\\] The policy needs be run as (?<context>System|User)",
+  "action": "scriptContext",
+  "parameters": { "scriptType": "remediation" },
+  "description": "Captures the execution context (System or User) for a health-script. Feeds the early-signal slot consumed by HS-COMPLIANCE so context is visible immediately rather than waiting for HS-NEW-RESULT (which exposes RunAsAccount).",
+  "enabled": true
+}

@@ -241,6 +241,51 @@ describe("reduceScriptEvents", () => {
     expect(items[0].stdout).toBe("first run details");
   });
 
+  it("HS-COMPLIANCE early-signal sparse event is replaced by HS-NEW-RESULT full payload via dataCompleteness dedupe", () => {
+    // Real-world health-script timing: HS-COMPLIANCE pattern fires immediately at the
+    // [HS] pre-remdiation line (~30-90 s before HS-NEW-RESULT JSON). Both events are
+    // emitted by the agent. The reducer must keep the entry with more complete data —
+    // the later JSON entry wins because it carries stdout/stderr/RemediationStatus too.
+    const items = reduceScriptEvents([
+      // Sparse early-signal entry: just policyId + scriptPart + compliance + inferred exit.
+      finalEvent({
+        eventType: "script_completed", ts: 0,
+        data: { policyId: "p1", scriptType: "remediation", scriptPart: "detection",
+                complianceResult: "True", exitCode: 0 },
+      }),
+      // Full payload arrives ~74 s later from the [HS] new result = JSON.
+      finalEvent({
+        eventType: "script_completed", ts: 74,
+        data: { policyId: "p1", scriptType: "remediation", scriptPart: "detection",
+                complianceResult: "True", exitCode: 0,
+                stdout: "LocalAdminIsEnabled=False",
+                remediationStatus: 4, targetType: 2, runContext: "System" },
+      }),
+    ]);
+    expect(items).toHaveLength(1);
+    expect(items[0].stdout).toBe("LocalAdminIsEnabled=False");
+    expect(items[0].remediationStatus).toBe(4);
+    expect(items[0].runContext).toBe("System");
+  });
+
+  it("HS-COMPLIANCE alone (session ended before HS-NEW-RESULT) still surfaces a row", () => {
+    // The whole point of the early-signal fallback: short Autopilot enrollments often
+    // end before IME emits the consolidated JSON. Without HS-COMPLIANCE we'd see no
+    // health-script rows at all in those cases. With it, we get the compliance verdict
+    // even though stdout / RemediationStatus are missing.
+    const items = reduceScriptEvents([
+      finalEvent({
+        eventType: "script_completed", ts: 0,
+        data: { policyId: "p1", scriptType: "remediation", scriptPart: "detection",
+                complianceResult: "False", exitCode: 1 },
+      }),
+    ]);
+    expect(items).toHaveLength(1);
+    expect(items[0].complianceResult).toBe("False");
+    expect(items[0].state).toBe("Success"); // detection exit != 0 is non-compliant report, not failure
+    expect(items[0].stdout).toBeUndefined();
+  });
+
   it("collapses platform-script re-emissions across ESP phases (real-world Autopilot pattern)", () => {
     // Pattern observed in session e2929c97: same platform script ran in DeviceSetup
     // (with full data) and again in AccountSetup (degraded data, no exit code). Earlier

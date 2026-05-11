@@ -2,6 +2,28 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "rules": [
     {
+      "patternId": "HS-COMPLIANCE",
+      "category": "always",
+      "pattern": "\\[HS\\] the (?<part>pre|post)-remdiation detection script compliance result for (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}) is (?<compliance>True|False)",
+      "action": "healthScriptDetectionResult",
+      "parameters": {
+        "scriptType": "remediation"
+      },
+      "description": "Early-signal fallback for health-script detection / post-detection results. Microsoft IME emits this line immediately after each detection script runs, ~30-90 seconds before the consolidated [HS] new result = JSON line is logged (which only fires after IME's batch-send to the Microsoft service). Short Autopilot enrollments often end inside that gap, so this pattern guarantees at least the compliance verdict is captured. The full data version arrives later via HS-NEW-RESULT and replaces this sparse entry through the UI dedupe (dataCompleteness scoring).",
+      "enabled": true
+    },
+    {
+      "patternId": "HS-EXITCODE",
+      "category": "always",
+      "pattern": "\\[HS\\] exit code of the script is (?<exitCode>-?\\d+)",
+      "action": "scriptExitCode",
+      "parameters": {
+        "scriptType": "remediation"
+      },
+      "description": "Captures the exit code of a health-script execution. Feeds the early-signal slot consumed by HS-COMPLIANCE so the user sees the real exit code (not just the inferred 0/1) before HS-NEW-RESULT arrives.",
+      "enabled": true
+    },
+    {
       "patternId": "HS-NEW-RESULT",
       "category": "always",
       "pattern": "\\[HS\\] new result = (?<json>\\{[\\s\\S]*\\})\\s*$",
@@ -13,6 +35,17 @@
       "enabled": true
     },
     {
+      "patternId": "HS-RUN-CONTEXT",
+      "category": "always",
+      "pattern": "\\[HS\\] The policy needs be run as (?<context>System|User)",
+      "action": "scriptContext",
+      "parameters": {
+        "scriptType": "remediation"
+      },
+      "description": "Captures the execution context (System or User) for a health-script. Feeds the early-signal slot consumed by HS-COMPLIANCE so context is visible immediately rather than waiting for HS-NEW-RESULT (which exposes RunAsAccount).",
+      "enabled": true
+    },
+    {
       "patternId": "HS-SCRIPT-START",
       "category": "always",
       "pattern": "\\[HS\\] ProcessScript PolicyId: (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}) PolicyType: (?<policyType>\\d+)",
@@ -21,6 +54,30 @@
         "scriptType": "remediation"
       },
       "description": "Detects when a Proactive Remediation (Health Script) starts processing. Captures PolicyId and PolicyType (6 = remediation). Drives the live script_started event for UI progress indication; the consolidated final result for the same PolicyId arrives later via HS-NEW-RESULT.",
+      "enabled": true
+    },
+    {
+      "patternId": "HS-STDERR",
+      "category": "always",
+      "pattern": "\\[HS\\] err output = (?<output>.*)",
+      "action": "scriptOutput",
+      "parameters": {
+        "scriptType": "remediation",
+        "outputType": "stderr"
+      },
+      "description": "Captures standard error from a health-script execution. Feeds the early-signal slot consumed by HS-COMPLIANCE so stderr is visible immediately rather than waiting for HS-NEW-RESULT.",
+      "enabled": true
+    },
+    {
+      "patternId": "HS-STDOUT",
+      "category": "always",
+      "pattern": "\\[HS\\] std output = (?<output>.*)",
+      "action": "scriptOutput",
+      "parameters": {
+        "scriptType": "remediation",
+        "outputType": "stdout"
+      },
+      "description": "Captures standard output from a health-script execution. Feeds the early-signal slot consumed by HS-COMPLIANCE so the user sees stdout immediately rather than waiting for HS-NEW-RESULT.",
       "enabled": true
     },
     {

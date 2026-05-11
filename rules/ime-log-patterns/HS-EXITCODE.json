@@ -1,0 +1,10 @@
+{
+  "$schema": "../schema/ime-log-pattern.schema.json",
+  "patternId": "HS-EXITCODE",
+  "category": "always",
+  "pattern": "\\[HS\\] exit code of the script is (?<exitCode>-?\\d+)",
+  "action": "scriptExitCode",
+  "parameters": { "scriptType": "remediation" },
+  "description": "Captures the exit code of a health-script execution. Feeds the early-signal slot consumed by HS-COMPLIANCE so the user sees the real exit code (not just the inferred 0/1) before HS-NEW-RESULT arrives.",
+  "enabled": true
+}
