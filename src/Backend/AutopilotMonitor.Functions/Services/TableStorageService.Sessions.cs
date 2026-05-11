@@ -841,8 +841,8 @@ namespace AutopilotMonitor.Functions.Services
                 switch (s.Status)
                 {
                     case SessionStatus.InProgress:
-                    case SessionStatus.Pending:
-                    case SessionStatus.Stalled:
+                    case SessionStatus.Pending:   // WhiteGlove pre-prov complete, waiting for user — still in flight
+                    case SessionStatus.Stalled:   // >60min no progress, non-terminal — can heal back to InProgress
                         active++;
                         break;
                     case SessionStatus.Succeeded:

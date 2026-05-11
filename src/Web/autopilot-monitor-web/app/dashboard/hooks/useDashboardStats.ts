@@ -175,9 +175,13 @@ export function useDashboardStats({
   }, [fetchStats]);
 
   // Refetch on scope change (tenant switch, GA toggle, filter Submit, days change).
+  // Reset stats synchronously so any previous-scope numbers (e.g. cross-tenant
+  // sums when toggling GA off) don't linger on the cards if the refetch errors
+  // out or returns nothing — the user sees "..." instead of stale data.
   useEffect(() => {
     if (disabled) return;
     if (!globalAdminMode && !tenantId) return;
+    setStats(null);
     fetchStats();
     // fetchStats is stable; intentionally not in deps to avoid re-running on identity flips.
     // eslint-disable-next-line react-hooks/exhaustive-deps

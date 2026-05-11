@@ -134,7 +134,7 @@ function HomeContent() {
   // the client has paginated into view. Refreshes on SignalR newSession/newevents
   // (debounced) and on SignalR reconnect to recover from any missed messages.
   const isRegularUser = !!user && !user.isTenantAdmin && !user.isGlobalAdmin && user.role !== "Operator";
-  const { stats: dashboardStats, loading: statsLoading } = useDashboardStats({
+  const { stats: dashboardStats } = useDashboardStats({
     tenantId,
     globalAdminMode,
     submittedTenantIdFilter,
@@ -348,35 +348,38 @@ function HomeContent() {
             </div>
           )}
 
-          {/* Stats cards — server-aggregated (see useDashboardStats) */}
+          {/* Stats cards — server-aggregated (see useDashboardStats).
+              `dashboardStats === null` covers both initial load and post-scope-change
+              reset; show a non-zero placeholder so a fetch error doesn't masquerade
+              as legitimate zeros. */}
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-5 mb-2">
             <StatsCard
               title="Active Sessions"
-              value={statsLoading && !dashboardStats ? "..." : (dashboardStats?.activeCount ?? 0).toString()}
+              value={dashboardStats ? dashboardStats.activeCount.toString() : "..."}
               description="Currently enrolling"
               color="blue"
             />
             <StatsCard
               title="Success Rate"
-              value={statsLoading && !dashboardStats ? "..." : `${dashboardStats?.successRatePct ?? 0}%`}
+              value={dashboardStats ? `${dashboardStats.successRatePct}%` : "..."}
               description="Last 7 days"
               color="green"
             />
             <StatsCard
               title="Avg. Duration"
-              value={statsLoading && !dashboardStats ? "..." : `${dashboardStats?.avgDurationMinutes ?? 0} min`}
+              value={dashboardStats ? `${dashboardStats.avgDurationMinutes} min` : "..."}
               description="Last 7 days"
               color="purple"
             />
             <StatsCard
               title="Total Today"
-              value={statsLoading && !dashboardStats ? "..." : (dashboardStats?.totalToday ?? 0).toString()}
+              value={dashboardStats ? dashboardStats.totalToday.toString() : "..."}
               description="Started today"
               color="indigo"
             />
             <StatsCard
               title="Failed Today"
-              value={statsLoading && !dashboardStats ? "..." : (dashboardStats?.failedToday ?? 0).toString()}
+              value={dashboardStats ? dashboardStats.failedToday.toString() : "..."}
               description="Needs attention"
               color="red"
             />

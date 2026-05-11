@@ -43,6 +43,10 @@ public class SessionStatsAggregationTests
     [Fact]
     public void Active_count_includes_InProgress_Pending_Stalled_but_not_terminal()
     {
+        // "Currently enrolling" covers everything still in flight: InProgress
+        // (mid-enrollment), Pending (WhiteGlove waiting for user), Stalled
+        // (>60min stale — non-terminal, can heal back to InProgress). Terminal
+        // states (Succeeded / Failed) and Unknown are NOT in flight.
         var now = DateTime.UtcNow;
         var sessions = new[]
         {
