@@ -41,26 +41,28 @@ public class SessionStatsAggregationTests
     }
 
     [Fact]
-    public void Active_count_includes_InProgress_Pending_Stalled_but_not_terminal()
+    public void Active_count_is_InProgress_only()
     {
-        // "Currently enrolling" covers everything still in flight: InProgress
-        // (mid-enrollment), Pending (WhiteGlove waiting for user), Stalled
-        // (>60min stale — non-terminal, can heal back to InProgress). Terminal
-        // states (Succeeded / Failed) and Unknown are NOT in flight.
+        // "Currently enrolling" must match LIVE activity. Pending (WhiteGlove
+        // pre-prov complete, awaiting user power-on) and Stalled (>60min no
+        // progress) are non-terminal but NOT actively enrolling — Pending in
+        // particular can sit for days/weeks and would dominate the count for
+        // any tenant with regular WhiteGlove provisioning.
         var now = DateTime.UtcNow;
         var sessions = new[]
         {
             MakeSession(SessionStatus.InProgress, now.AddHours(-1)),
-            MakeSession(SessionStatus.Pending, now.AddHours(-2)),
-            MakeSession(SessionStatus.Stalled, now.AddHours(-3)),
-            MakeSession(SessionStatus.Succeeded, now.AddHours(-4), 600),
-            MakeSession(SessionStatus.Failed, now.AddHours(-5)),
-            MakeSession(SessionStatus.Unknown, now.AddHours(-6)),
+            MakeSession(SessionStatus.InProgress, now.AddHours(-2)),
+            MakeSession(SessionStatus.Pending, now.AddHours(-3)),
+            MakeSession(SessionStatus.Stalled, now.AddHours(-4)),
+            MakeSession(SessionStatus.Succeeded, now.AddHours(-5), 600),
+            MakeSession(SessionStatus.Failed, now.AddHours(-6)),
+            MakeSession(SessionStatus.Unknown, now.AddHours(-7)),
         };
 
         var stats = TableStorageService.AggregateSessionStats(sessions, days: 7);
 
-        Assert.Equal(3, stats.ActiveCount);
+        Assert.Equal(2, stats.ActiveCount);
     }
 
     [Fact]

@@ -841,8 +841,11 @@ namespace AutopilotMonitor.Functions.Services
                 switch (s.Status)
                 {
                     case SessionStatus.InProgress:
-                    case SessionStatus.Pending:   // WhiteGlove pre-prov complete, waiting for user — still in flight
-                    case SessionStatus.Stalled:   // >60min no progress, non-terminal — can heal back to InProgress
+                        // Card label "Currently enrolling" — literal match to the agent's
+                        // in-flight status. Pending (WhiteGlove pre-prov complete, awaiting
+                        // user) often lingers for days/weeks and isn't actively enrolling;
+                        // Stalled (>60min stale) isn't either. Both belong on dedicated
+                        // breakdowns/filters, not on a card that implies live activity.
                         active++;
                         break;
                     case SessionStatus.Succeeded:
