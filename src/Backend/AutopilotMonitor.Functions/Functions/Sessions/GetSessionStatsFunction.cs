@@ -28,9 +28,15 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             _sessionRepo = sessionRepo;
         }
 
+        // Route is "stats/sessions" — NOT "sessions/stats". Azure Functions' route
+        // matcher does NOT honour literal-vs-parametric specificity the way ASP.NET
+        // attribute routing does: a literal "sessions/stats" gets eaten by the
+        // sibling GetSessionFunction's "sessions/{sessionId}" with sessionId="stats",
+        // which 404s when "stats" fails GUID validation. Verified live via App
+        // Insights (Functions.GetSession picked up /api/sessions/stats).
         [Function("GetSessionStats")]
         public async Task<HttpResponseData> Run(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "sessions/stats")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "stats/sessions")] HttpRequestData req)
         {
             try
             {

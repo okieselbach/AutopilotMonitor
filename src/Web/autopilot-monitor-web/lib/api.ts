@@ -58,8 +58,12 @@ export const api = {
       `${API_BASE_URL}/api/sessions/${sessionId}/report${qs({ tenantId })}`,
     quickSearch: (q: string) =>
       `${API_BASE_URL}/api/search/quick${qs({ q })}`,
+    // NOTE: lives under /api/stats/sessions (NOT /api/sessions/stats) — Azure
+    // Functions' router lets a literal "sessions/stats" be eaten by the sibling
+    // "sessions/{sessionId}" function, which then 404s on "stats" not parsing
+    // as a GUID. Symmetric path used for the GA variant in globalSessions.stats.
     stats: (opts?: { days?: number }) =>
-      `${API_BASE_URL}/api/sessions/stats${qs({ days: opts?.days?.toString() })}`,
+      `${API_BASE_URL}/api/stats/sessions${qs({ days: opts?.days?.toString() })}`,
   },
 
   // ── Inspector v1 (global admin only — Plan §M6) ───────────────────────────
@@ -86,7 +90,7 @@ export const api = {
         continuation: opts?.continuation,
       })}`,
     stats: (opts?: { tenantId?: string; days?: number }) =>
-      `${API_BASE_URL}/api/global/sessions/stats${qs({
+      `${API_BASE_URL}/api/global/stats/sessions${qs({
         tenantId: opts?.tenantId,
         days: opts?.days?.toString(),
       })}`,

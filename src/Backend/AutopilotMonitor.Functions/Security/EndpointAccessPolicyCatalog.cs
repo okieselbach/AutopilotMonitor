@@ -137,7 +137,7 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "search/sessions-by-cve",         EndpointPolicy.MemberRead),
         new("GET",    "metrics/summary",              EndpointPolicy.MemberRead),
         new("GET",    "sessions",                  EndpointPolicy.MemberRead),
-        new("GET",    "sessions/stats",            EndpointPolicy.MemberRead),
+        new("GET",    "stats/sessions",            EndpointPolicy.MemberRead),
         new("GET",    "sessions/{sessionId}",      EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         new("GET",    "sessions/{sessionId}/events", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         // sessions/{sessionId}/signals + /decision-graph live in the GlobalAdminOnly block below
@@ -236,7 +236,7 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "preview/notification-email/{tenantId}", EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
         new("POST",   "preview/send-welcome-email/{tenantId}", EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
         new("GET",    "global/sessions",            EndpointPolicy.GlobalAdminOnly),
-        new("GET",    "global/sessions/stats",      EndpointPolicy.GlobalAdminOnly),
+        new("GET",    "global/stats/sessions",      EndpointPolicy.GlobalAdminOnly),
         new("GET",    "global/audit/logs",          EndpointPolicy.GlobalAdminOnly),
         new("GET",    "global/metrics/platform",    EndpointPolicy.GlobalAdminOnly),
         new("GET",    "global/metrics/app",         EndpointPolicy.GlobalAdminOnly),

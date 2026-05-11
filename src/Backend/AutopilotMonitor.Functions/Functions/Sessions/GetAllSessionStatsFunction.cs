@@ -23,9 +23,12 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             _sessionRepo = sessionRepo;
         }
 
+        // Route moved to "global/stats/sessions" to keep symmetry with the
+        // per-tenant /api/stats/sessions endpoint — see GetSessionStatsFunction
+        // for the routing-collision rationale.
         [Function("GetAllSessionStats")]
         public async Task<HttpResponseData> Run(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/sessions/stats")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/stats/sessions")] HttpRequestData req)
         {
             try
             {
