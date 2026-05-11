@@ -35,12 +35,14 @@ export interface TenantConfiguration {
   teamsWebhookUrl?: string;
   teamsNotifyOnSuccess?: boolean;
   teamsNotifyOnFailure?: boolean;
+  teamsNotifyOnStart?: boolean;
   // Webhook notifications (new)
   webhookProviderType?: number;
   webhookUrl?: string;
   webhookNotifyOnSuccess?: boolean;
   webhookNotifyOnFailure?: boolean;
   webhookNotifyOnHardwareRejection?: boolean;
+  webhookNotifyOnStart?: boolean;
   // SLA targets
   slaTargetSuccessRate?: number;
   slaTargetMaxDurationMinutes?: number;

@@ -111,6 +111,8 @@ interface TenantConfigContextValue {
   setWebhookNotifyOnSuccess: (v: boolean) => void;
   webhookNotifyOnFailure: boolean;
   setWebhookNotifyOnFailure: (v: boolean) => void;
+  webhookNotifyOnStart: boolean;
+  setWebhookNotifyOnStart: (v: boolean) => void;
   testingWebhook: boolean;
   testWebhookResult: { success: boolean; message: string } | null;
   handleTestWebhook: () => Promise<void>;
@@ -282,6 +284,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const [webhookUrl, setWebhookUrl] = useState("");
   const [webhookNotifyOnSuccess, setWebhookNotifyOnSuccess] = useState(true);
   const [webhookNotifyOnFailure, setWebhookNotifyOnFailure] = useState(true);
+  const [webhookNotifyOnStart, setWebhookNotifyOnStart] = useState(false);
   const [testingWebhook, setTestingWebhook] = useState(false);
   const [testWebhookResult, setTestWebhookResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -380,16 +383,19 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
           setWebhookUrl(data.webhookUrl);
           setWebhookNotifyOnSuccess(data.webhookNotifyOnSuccess ?? true);
           setWebhookNotifyOnFailure(data.webhookNotifyOnFailure ?? true);
+          setWebhookNotifyOnStart(data.webhookNotifyOnStart ?? false);
         } else if (data.teamsWebhookUrl) {
           setWebhookProviderType(1); // TeamsLegacyConnector
           setWebhookUrl(data.teamsWebhookUrl);
           setWebhookNotifyOnSuccess(data.teamsNotifyOnSuccess ?? true);
           setWebhookNotifyOnFailure(data.teamsNotifyOnFailure ?? true);
+          setWebhookNotifyOnStart(data.teamsNotifyOnStart ?? false);
         } else {
           setWebhookProviderType(0);
           setWebhookUrl("");
           setWebhookNotifyOnSuccess(true);
           setWebhookNotifyOnFailure(true);
+          setWebhookNotifyOnStart(false);
         }
         // SLA Targets
         setSlaTargetSuccessRate(data.slaTargetSuccessRate ?? null);
@@ -583,10 +589,12 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         webhookUrl: webhookUrl || undefined,
         webhookNotifyOnSuccess,
         webhookNotifyOnFailure,
+        webhookNotifyOnStart,
         // Legacy compat: mirror to old fields during transition
         teamsWebhookUrl: webhookProviderType === 1 ? (webhookUrl || undefined) : undefined,
         teamsNotifyOnSuccess: webhookNotifyOnSuccess,
         teamsNotifyOnFailure: webhookNotifyOnFailure,
+        teamsNotifyOnStart: webhookNotifyOnStart,
         // SLA targets
         slaTargetSuccessRate: slaTargetSuccessRate ?? undefined,
         slaTargetMaxDurationMinutes: slaTargetMaxDurationMinutes ?? undefined,
@@ -646,7 +654,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     helloWaitTimeoutSeconds, selfDestructOnComplete, keepLogFile, rebootOnComplete, rebootDelaySeconds,
     enableGeoLocation, enableTimezoneAutoSet, enableImeMatchLog, logLevel, showScriptOutput, showEnrollmentSummary,
     enrollmentSummaryTimeoutSeconds, enrollmentSummaryBrandingImageUrl, enrollmentSummaryLaunchRetrySeconds,
-    webhookProviderType, webhookUrl, webhookNotifyOnSuccess, webhookNotifyOnFailure,
+    webhookProviderType, webhookUrl, webhookNotifyOnSuccess, webhookNotifyOnFailure, webhookNotifyOnStart,
     slaTargetSuccessRate, slaTargetMaxDurationMinutes, slaTargetAppInstallSuccessRate,
     slaNotifyOnSuccessRateBreach, slaSuccessRateNotifyThreshold, slaNotifyOnDurationBreach,
     slaNotifyOnAppInstallBreach, slaNotifyOnConsecutiveFailures, slaConsecutiveFailureThreshold,
@@ -866,16 +874,19 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       setWebhookUrl(config.webhookUrl);
       setWebhookNotifyOnSuccess(config.webhookNotifyOnSuccess ?? true);
       setWebhookNotifyOnFailure(config.webhookNotifyOnFailure ?? true);
+      setWebhookNotifyOnStart(config.webhookNotifyOnStart ?? false);
     } else if (config.teamsWebhookUrl) {
       setWebhookProviderType(1);
       setWebhookUrl(config.teamsWebhookUrl);
       setWebhookNotifyOnSuccess(config.teamsNotifyOnSuccess ?? true);
       setWebhookNotifyOnFailure(config.teamsNotifyOnFailure ?? true);
+      setWebhookNotifyOnStart(config.teamsNotifyOnStart ?? false);
     } else {
       setWebhookProviderType(0);
       setWebhookUrl("");
       setWebhookNotifyOnSuccess(true);
       setWebhookNotifyOnFailure(true);
+      setWebhookNotifyOnStart(false);
     }
   }, [config]);
 
@@ -1222,6 +1233,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       webhookUrl, setWebhookUrl,
       webhookNotifyOnSuccess, setWebhookNotifyOnSuccess,
       webhookNotifyOnFailure, setWebhookNotifyOnFailure,
+      webhookNotifyOnStart, setWebhookNotifyOnStart,
       testingWebhook, testWebhookResult,
       handleTestWebhook, handleSaveNotifications, handleResetNotifications,
 

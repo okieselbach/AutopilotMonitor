@@ -60,6 +60,49 @@ namespace AutopilotMonitor.Functions.Services.Notifications
             return alert;
         }
 
+        /// <summary>
+        /// Builds an "enrollment started" notification fired at session registration time.
+        /// <paramref name="isResume"/> distinguishes a fresh Autopilot run from the WhiteGlove
+        /// Part 2 resume (user-driven phase after a pre-provisioned device is delivered).
+        /// </summary>
+        public static NotificationAlert BuildEnrollmentStartedAlert(
+            string? deviceName,
+            string? serialNumber,
+            string? manufacturer,
+            string? model,
+            bool isResume,
+            string? sessionUrl = null)
+        {
+            var title = isResume
+                ? "▶️ Pre-Provisioning Resumed"
+                : "🚀 Enrollment Started";
+            var summary = isResume
+                ? $"Pre-Provisioning Resumed: {deviceName ?? "Unknown Device"}"
+                : $"Enrollment Started: {deviceName ?? "Unknown Device"}";
+
+            var hardwareText = BuildHardwareText(manufacturer, model);
+
+            var alert = new NotificationAlert
+            {
+                Title = title,
+                Summary = summary,
+                Severity = NotificationSeverity.Info,
+                ThemeColor = "0078D4",
+                Facts = new List<NotificationFact>
+                {
+                    new() { Name = "Device", Value = deviceName ?? "–" },
+                    new() { Name = "Serial", Value = serialNumber ?? "–" },
+                    new() { Name = "Hardware", Value = hardwareText },
+                    new() { Name = "Started At", Value = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm 'UTC'") },
+                },
+            };
+
+            if (!string.IsNullOrEmpty(sessionUrl))
+                alert.Actions.Add(new NotificationAction { Type = "openUrl", Title = "Open session", Url = sessionUrl });
+
+            return alert;
+        }
+
         public static NotificationAlert BuildWhiteGloveAlert(
             string? deviceName,
             string? serialNumber,

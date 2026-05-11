@@ -90,11 +90,13 @@ interface TenantConfig {
   webhookUrl?: string | null;
   webhookNotifyOnSuccess?: boolean;
   webhookNotifyOnFailure?: boolean;
+  webhookNotifyOnStart?: boolean;
 
   // Teams notifications (legacy)
   teamsWebhookUrl?: string | null;
   teamsNotifyOnSuccess?: boolean;
   teamsNotifyOnFailure?: boolean;
+  teamsNotifyOnStart?: boolean;
 }
 
 // ── Defaults (mirrors C# TenantConfiguration defaults) ──────────────────────
@@ -147,9 +149,11 @@ const DEFAULTS: Record<string, unknown> = {
   webhookUrl: null,
   webhookNotifyOnSuccess: true,
   webhookNotifyOnFailure: true,
+  webhookNotifyOnStart: false,
   teamsWebhookUrl: null,
   teamsNotifyOnSuccess: true,
   teamsNotifyOnFailure: true,
+  teamsNotifyOnStart: false,
 };
 
 // Runtime defaults (what the agent actually receives if tenant didn't set a value)
@@ -396,12 +400,12 @@ export function SectionTenantConfigReport() {
   const webhookDisplay = config
     ? (() => {
         if (config.webhookUrl && config.webhookProviderType) {
-          return { url: config.webhookUrl, provider: config.webhookProviderType, onSuccess: config.webhookNotifyOnSuccess, onFailure: config.webhookNotifyOnFailure };
+          return { url: config.webhookUrl, provider: config.webhookProviderType, onSuccess: config.webhookNotifyOnSuccess, onFailure: config.webhookNotifyOnFailure, onStart: config.webhookNotifyOnStart };
         }
         if (config.teamsWebhookUrl) {
-          return { url: config.teamsWebhookUrl, provider: 1, onSuccess: config.teamsNotifyOnSuccess, onFailure: config.teamsNotifyOnFailure };
+          return { url: config.teamsWebhookUrl, provider: 1, onSuccess: config.teamsNotifyOnSuccess, onFailure: config.teamsNotifyOnFailure, onStart: config.teamsNotifyOnStart };
         }
-        return { url: null, provider: 0, onSuccess: true, onFailure: true };
+        return { url: null, provider: 0, onSuccess: true, onFailure: true, onStart: false };
       })()
     : null;
 
@@ -575,6 +579,7 @@ export function SectionTenantConfigReport() {
               <Section title="Webhooks">
                 <ConfigRow label="Provider" value={WEBHOOK_PROVIDERS[webhookDisplay?.provider ?? 0] ?? 'Unknown'} />
                 <ConfigRow label="Webhook URL" value={webhookDisplay?.url} masked />
+                <ConfigRow label="Notify On Start" value={webhookDisplay?.onStart} />
                 <ConfigRow label="Notify On Success" value={webhookDisplay?.onSuccess} />
                 <ConfigRow label="Notify On Failure" value={webhookDisplay?.onFailure} />
               </Section>

@@ -1,8 +1,10 @@
 using System.Net;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared.Models.Notifications;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Azure.Functions.Worker.Extensions.SignalRService;
@@ -13,6 +15,11 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
 {
     public class RegisterSessionFunction
     {
+        // Set to false to suppress the start notification on WhiteGlove Part 2 resume
+        // (user-driven phase after a pre-provisioned device is delivered to the end user).
+        // The fresh-session start notification is unaffected.
+        private const bool NotifyOnWhiteGloveResume = true;
+
         private readonly ILogger<RegisterSessionFunction> _logger;
         private readonly ISessionRepository _sessionRepo;
         private readonly IMetricsRepository _metricsRepo;
@@ -22,6 +29,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         private readonly CorporateIdentifierValidator _corporateIdentifierValidator;
         private readonly DeviceAssociationValidator _deviceAssociationValidator;
         private readonly BootstrapSessionService _bootstrapSessionService;
+        private readonly WebhookNotificationService _webhookNotificationService;
 
         public RegisterSessionFunction(
             ILogger<RegisterSessionFunction> logger,
@@ -32,7 +40,8 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             AutopilotDeviceValidator autopilotDeviceValidator,
             CorporateIdentifierValidator corporateIdentifierValidator,
             DeviceAssociationValidator deviceAssociationValidator,
-            BootstrapSessionService bootstrapSessionService)
+            BootstrapSessionService bootstrapSessionService,
+            WebhookNotificationService webhookNotificationService)
         {
             _logger = logger;
             _sessionRepo = sessionRepo;
@@ -43,6 +52,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             _corporateIdentifierValidator = corporateIdentifierValidator;
             _deviceAssociationValidator = deviceAssociationValidator;
             _bootstrapSessionService = bootstrapSessionService;
+            _webhookNotificationService = webhookNotificationService;
         }
 
         [Function("RegisterSession")]
@@ -107,6 +117,15 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         internal async Task<RegisterSessionOutput> ProcessRegisterAsync(HttpRequestData req, SessionRegistration registration, SecurityValidationResult validation)
         {
             _logger.LogInformation($"Registering session {registration.SessionId} for tenant {registration.TenantId} (Device: {validation.CertificateThumbprint})");
+
+            // Pre-read the session row so we can distinguish three lifecycle entries:
+            //   - existing == null      → first-time registration (fresh enrollment)
+            //   - existing.Pending      → WhiteGlove Part 2 resume (user-driven phase)
+            //   - everything else       → agent restart / terminal re-register (no start signal)
+            // Used below to scope the opt-in "enrollment started" webhook to real start events.
+            var preExistingSession = await _sessionRepo.GetSessionAsync(registration.TenantId, registration.SessionId);
+            bool isFreshRegistration = preExistingSession == null;
+            bool isWhiteGloveResume = preExistingSession?.Status == SessionStatus.Pending;
 
             // Store session in Azure Table Storage
             var stored = await _sessionRepo.StoreSessionAsync(registration);
@@ -173,11 +192,54 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 Arguments = new[] { messagePayload }
             };
 
+            // Opt-in "Enrollment Started" webhook (Teams/Slack). Fired once per real start:
+            // fresh registration OR WhiteGlove Part 2 resume (suppressible via NotifyOnWhiteGloveResume).
+            // Agent restarts and re-registrations of terminal sessions never trigger this.
+            if ((isFreshRegistration || (isWhiteGloveResume && NotifyOnWhiteGloveResume))
+                && session != null)
+            {
+                _ = SendStartNotificationAsync(registration.TenantId, registration.SessionId, session, isWhiteGloveResume);
+            }
+
             return new RegisterSessionOutput
             {
                 HttpResponse = response,
                 SignalRMessages = new[] { tenantMessage, globalAdminMessage }
             };
+        }
+
+        /// <summary>
+        /// Fire-and-forget enrollment-started webhook. Loads tenant config, respects the
+        /// opt-in <c>WebhookNotifyOnStart</c>/<c>TeamsNotifyOnStart</c> toggle, and dispatches
+        /// through the same renderer pipeline (Teams Legacy / Workflow / Slack) as success/failure.
+        /// </summary>
+        private async Task SendStartNotificationAsync(string tenantId, string sessionId, SessionSummary session, bool isResume)
+        {
+            try
+            {
+                var tenantConfig = await _configService.GetConfigurationAsync(tenantId);
+                if (!tenantConfig.GetEffectiveNotifyOnStart())
+                    return;
+
+                var (webhookUrl, providerTypeInt) = tenantConfig.GetEffectiveWebhookConfig();
+                if (string.IsNullOrEmpty(webhookUrl) || providerTypeInt == 0)
+                    return;
+
+                var sessionUrl = $"https://portal.autopilotmonitor.com/session/{tenantId}/{sessionId}";
+                var alert = NotificationAlertBuilder.BuildEnrollmentStartedAlert(
+                    session.DeviceName,
+                    session.SerialNumber,
+                    session.Manufacturer,
+                    session.Model,
+                    isResume: isResume,
+                    sessionUrl: sessionUrl);
+
+                await _webhookNotificationService.SendNotificationAsync(webhookUrl, (WebhookProviderType)providerTypeInt, alert);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Fire-and-forget enrollment-started webhook failed for tenant {TenantId} session {SessionId}", tenantId, sessionId);
+            }
         }
 
         private async Task<HttpResponseData> CreateErrorResponse(HttpRequestData req, HttpStatusCode statusCode, string message)

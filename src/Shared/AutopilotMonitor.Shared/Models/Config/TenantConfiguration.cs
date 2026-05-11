@@ -441,6 +441,12 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public bool TeamsNotifyOnFailure { get; set; } = true;
 
+        /// <summary>
+        /// Send a Teams notification when an enrollment starts (session registration).
+        /// Opt-in: default false to avoid surprising existing tenants with a notification storm.
+        /// </summary>
+        public bool TeamsNotifyOnStart { get; set; } = false;
+
         // ===== WEBHOOK NOTIFICATIONS =====
 
         /// <summary>
@@ -471,6 +477,12 @@ namespace AutopilotMonitor.Shared.Models
         /// Default: false (opt-in).
         /// </summary>
         public bool WebhookNotifyOnHardwareRejection { get; set; } = false;
+
+        /// <summary>
+        /// Send a webhook notification when an enrollment starts (session registration on the backend).
+        /// Opt-in: default false to avoid surprising existing tenants with a notification storm.
+        /// </summary>
+        public bool WebhookNotifyOnStart { get; set; } = false;
 
         // ===== SLA TARGETS =====
 
@@ -557,6 +569,12 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public bool GetEffectiveNotifyOnFailure()
             => !string.IsNullOrEmpty(WebhookUrl) ? WebhookNotifyOnFailure : TeamsNotifyOnFailure;
+
+        /// <summary>
+        /// Returns effective notify-on-start setting, preferring new fields over legacy.
+        /// </summary>
+        public bool GetEffectiveNotifyOnStart()
+            => !string.IsNullOrEmpty(WebhookUrl) ? WebhookNotifyOnStart : TeamsNotifyOnStart;
 
         /// <summary>
         /// Checks if the tenant is currently disabled

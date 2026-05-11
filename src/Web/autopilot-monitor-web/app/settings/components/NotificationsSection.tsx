@@ -11,6 +11,8 @@ interface NotificationsSectionProps {
   setWebhookNotifyOnSuccess: (v: boolean) => void;
   webhookNotifyOnFailure: boolean;
   setWebhookNotifyOnFailure: (v: boolean) => void;
+  webhookNotifyOnStart: boolean;
+  setWebhookNotifyOnStart: (v: boolean) => void;
   onTestWebhook: () => Promise<void>;
   testingWebhook: boolean;
   testWebhookResult: { success: boolean; message: string } | null;
@@ -35,6 +37,8 @@ export default function NotificationsSection({
   setWebhookNotifyOnSuccess,
   webhookNotifyOnFailure,
   setWebhookNotifyOnFailure,
+  webhookNotifyOnStart,
+  setWebhookNotifyOnStart,
   onTestWebhook,
   testingWebhook,
   testWebhookResult,
@@ -124,6 +128,23 @@ export default function NotificationsSection({
                 )}
               </div>
             </label>
+          </div>
+        )}
+
+        {/* Notify on Start */}
+        {webhookProviderType !== 0 && (
+          <div className={`flex items-center justify-between p-4 rounded-lg border transition-colors ${isActive ? 'border-gray-200 hover:border-sky-200' : 'border-gray-100 opacity-50'}`}>
+            <div>
+              <p className="font-medium text-gray-900">Notify on Start</p>
+              <p className="text-sm text-gray-500">Send a notification when an enrollment starts (one signal per fresh session and per Pre-Provisioning resume)</p>
+            </div>
+            <button
+              onClick={() => isActive && setWebhookNotifyOnStart(!webhookNotifyOnStart)}
+              disabled={!isActive}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed ${webhookNotifyOnStart && isActive ? 'bg-sky-500' : 'bg-gray-300'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${webhookNotifyOnStart && isActive ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
           </div>
         )}
 
