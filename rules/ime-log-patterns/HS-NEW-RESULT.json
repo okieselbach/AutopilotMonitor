@@ -1,0 +1,10 @@
+{
+  "$schema": "../schema/ime-log-pattern.schema.json",
+  "patternId": "HS-NEW-RESULT",
+  "category": "always",
+  "pattern": "\\[HS\\] new result = (?<json>\\{[\\s\\S]*\\})\\s*$",
+  "action": "healthScriptResult",
+  "parameters": { "scriptType": "remediation" },
+  "description": "Atomic final JSON of a health script run, covering all three phases (pre-detection / remediation / post-detection) emitted by IME after the policy completes. Single source of truth for health-script outcomes — replaces the line-by-line HS-COMPLIANCE/HS-EXITCODE/HS-STDOUT/HS-STDERR patterns. The end-anchor and [\\s\\S] character class are defensive against future format changes and multi-line CMTrace buffering.",
+  "enabled": true
+}

@@ -549,12 +549,14 @@ export default function SessionDetailPage() {
             </div>
           )}
 
-          {/* Script Executions (from script_completed, script_failed events) */}
+          {/* Script Executions (from script_started, script_completed, script_failed events) */}
           {!isGatherRulesSession && (
             <div id="section-scripts">
             <ScriptExecutions
               events={events.filter(
-                e => e.eventType === "script_completed" || e.eventType === "script_failed"
+                e => e.eventType === "script_started"
+                  || e.eventType === "script_completed"
+                  || e.eventType === "script_failed"
               )}
               showScriptOutput={showScriptOutput}
               latestBootstrapVersion={latestBootstrapVersion}

@@ -130,3 +130,4 @@ tasks/
 db-backups/
 plans/REFACTOR_AGENT_V2.md
 .claude/scheduled_tasks.lock
+.claude/plans/health-script-remediation-fix.md

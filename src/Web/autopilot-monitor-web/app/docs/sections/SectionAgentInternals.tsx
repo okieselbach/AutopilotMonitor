@@ -305,7 +305,7 @@ export function SectionAgentInternals() {
             <p><span className="font-medium">Pattern-Based:</span> All regex patterns come from the backend &mdash; no hardcoded patterns. Allows updates without agent rebuild.</p>
             <p><span className="font-medium">Log Files Monitored:</span> IntuneManagementExtension.log, AppWorkload.log, AgentExecutor.log, HealthScripts.log (including rotated archives)</p>
             <p><span className="font-medium">App Lifecycle:</span> download_started &rarr; downloading &rarr; installing &rarr; installed / failed / skipped / postponed</p>
-            <p><span className="font-medium">Script Execution:</span> Platform Scripts + Remediation Scripts with exit code, stdout, stderr, compliance status</p>
+            <p><span className="font-medium">Script Execution:</span> Platform Scripts + Health Scripts (Proactive Remediations). Health scripts emit a live <code className="text-xs">script_started</code> indicator on policy start and up to three <code className="text-xs">script_completed</code> events per cycle (pre-detection / remediation / post-detection) parsed from the consolidated <code className="text-xs">[HS] new result</code> JSON line — exit code, stdout, stderr, compliance status, RemediationStatus.</p>
             <p><span className="font-medium">DO Telemetry:</span> Per-app Delivery Optimization data (bytes from peers/HTTP/LAN, peer caching %)</p>
             <p><span className="font-medium">Phase Isolation:</span> Device-phase apps do not bleed into AccountSetup tracking</p>
             <p><span className="font-medium">State Persistence:</span> Log positions + app states survive agent crashes/restarts</p>

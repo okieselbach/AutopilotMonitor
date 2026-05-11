@@ -27,7 +27,7 @@ const KNOWN_EVENT_TYPES = [
   'network_interface_info', 'aad_join_status', 'enrollment_type_detected',
   'error_detected', 'software_inventory_analysis', 'vulnerability_report',
   'performance_snapshot', 'log_entry', 'gather_result',
-  'script_completed', 'script_failed', 'ime_agent_version',
+  'script_started', 'script_completed', 'script_failed', 'ime_agent_version',
   'do_telemetry', 'download_progress', 'agent_started',
   'esp_phase_changed', 'shadow_discrepancy',
 ];

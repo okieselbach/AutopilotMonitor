@@ -362,8 +362,12 @@ function EventRow({ event, showScriptOutput }: { event: EnrollmentEvent; showScr
   const [copiedDetail, setCopiedDetail] = useState(false);
   const rawDetailData = useMemo(() => normalizeEventDataForDisplay(event.data), [event.data]);
 
-  // Filter stdout from script events when showScriptOutput is false
-  const isScriptEvent = event.eventType === "script_completed" || event.eventType === "script_failed";
+  // Filter stdout from script events when showScriptOutput is false.
+  // script_started has no stdout/stderr (live indicator only) but include it so the
+  // timeline still applies the same script-event styling/iconography.
+  const isScriptEvent = event.eventType === "script_started"
+    || event.eventType === "script_completed"
+    || event.eventType === "script_failed";
   const detailData = useMemo(() => {
     if (!rawDetailData || !isScriptEvent || showScriptOutput !== false) return rawDetailData;
     const filtered = { ...rawDetailData };

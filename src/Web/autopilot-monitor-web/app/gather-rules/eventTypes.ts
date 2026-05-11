@@ -82,10 +82,12 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
     description: "Delivery Optimization peer/mode telemetry for an application download." },
 
   // -------- Scripts --------
+  { value: "script_started", label: "script_started", category: "script",
+    description: "Live indicator: IME has started executing a platform or health (remediation) script. The consolidated outcome arrives later via script_completed / script_failed (typically 30s-3min for health scripts)." },
   { value: "script_completed", label: "script_completed", category: "script",
-    description: "A platform or remediation script completed successfully." },
+    description: "A platform script completed, or one phase (detection / remediation / post-detection) of a health script completed. Health scripts emit up to three of these per policy run." },
   { value: "script_failed", label: "script_failed", category: "script",
-    description: "A platform or remediation script failed." },
+    description: "A platform script crashed (exit code != 0), or the remediation phase of a health script crashed. Health-script detection / post-detection phases use exit code as a compliance verdict (non-zero = non-compliant) and emit script_completed even on non-zero exit; only a true script crash in those phases would surface here." },
 
   // -------- Diagnostics / misc --------
   { value: "error_detected", label: "error_detected", category: "diagnostics",

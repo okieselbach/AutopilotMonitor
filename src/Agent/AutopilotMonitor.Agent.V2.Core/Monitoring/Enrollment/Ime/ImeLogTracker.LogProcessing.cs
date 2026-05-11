@@ -403,6 +403,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                         HandleScriptCompleted(match, pattern.Parameters);
                         break;
 
+                    case "healthscriptresult":
+                        HandleHealthScriptResult(match, pattern.Parameters);
+                        break;
+
                     default:
                         _logger.Debug($"ImeLogTracker: unhandled action '{pattern.Action}' for pattern {pattern.PatternId}");
                         break;

@@ -99,13 +99,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             "HealthScripts-????????-??????.log"
         };
 
-        // Script execution state tracking (accumulates multi-line data before emitting events)
-        private ScriptExecutionState _currentRemediationScript;
+        // Platform-script multi-line state accumulator. Health-script (remediation) state is no
+        // longer accumulated line-by-line — the HS-NEW-RESULT pattern delivers the full
+        // pre-detection / remediation / post-detection JSON in one shot via HandleHealthScriptResult.
         private readonly Dictionary<string, ScriptExecutionState> _pendingPlatformScripts =
             new Dictionary<string, ScriptExecutionState>(StringComparer.OrdinalIgnoreCase);
         private string _lastPlatformScriptPolicyId;
         private const int MaxScriptOutputLength = 2048;
         private const int MaxMultiLineBufferLines = 100;
+
+        // Counter for HS-NEW-RESULT JSON parse failures — visible to operators via tracker
+        // metrics so we can detect IME log-format drift in production.
+        internal int HealthScriptResultParseFailures;
 
         // Set synchronously during HandlePatternMatch so callbacks can read it.
         // Setters are `internal` so V2.Core.Tests can drive the source-timestamp path
@@ -124,6 +129,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         public Action<string> OnImeSessionChange { get; set; }
         public Action<AppPackageState> OnDoTelemetryReceived { get; set; }
         public Action<ScriptExecutionState> OnScriptCompleted { get; set; }
+
+        /// <summary>
+        /// Fires when IME logs the start of a health script (HS-SCRIPT-START pattern).
+        /// Drives the live "running" indicator in the UI before the consolidated final result
+        /// (HS-NEW-RESULT) arrives — the latency between start and result is typically
+        /// 30 s – 3 min depending on script duration and IME's batched reporting cycle.
+        /// </summary>
+        public Action<ScriptStartedInfo> OnScriptStarted { get; set; }
 
         /// <summary>
         /// Fires on every pattern match with the matched <c>PatternId</c>. Plan §4.x M4.4.4.

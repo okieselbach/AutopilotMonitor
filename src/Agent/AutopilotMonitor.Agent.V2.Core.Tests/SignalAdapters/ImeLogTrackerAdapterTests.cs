@@ -517,7 +517,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
         }
 
         [Fact]
-        public void ScriptCompleted_platform_failure_marks_severity_Error()
+        public void ScriptCompleted_platform_failure_emits_script_failed_eventType_with_severity_Error()
         {
             using var f = new ImeLogTrackerAdapterFixture();
             using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
@@ -534,7 +534,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
 
             adapter.TriggerScriptCompletedFromTest(script);
 
-            var info = Assert.Single(f.InfoEvents(SharedEventTypes.ScriptCompleted));
+            // V1 parity: failures get a distinct eventType (script_failed) so the Web reducer
+            // — which keys on eventType, not severity — renders them as Failed rows. Without
+            // this, V2 failures would appear as green "Success" cards in the UI.
+            Assert.Empty(f.InfoEvents(SharedEventTypes.ScriptCompleted));
+            var info = Assert.Single(f.InfoEvents(SharedEventTypes.ScriptFailed));
             Assert.Equal(EventSeverity.Error.ToString(), info.Payload![SignalPayloadKeys.Severity]);
             Assert.Equal("Failed", info.Payload["result"]);
             Assert.Equal("1", info.Payload["exitCode"]);
@@ -703,6 +707,335 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             adapter.TriggerAppStateFromTest(MakeApp(AppInstallationState.Postponed), AppInstallationState.Installing, AppInstallationState.Postponed);
 
             Assert.Empty(f.InfoEvents(SharedEventTypes.DownloadProgress));
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Health-script live-progress + atomic-result tests (PR-HS1/HS4)
+        //
+        // The HS-NEW-RESULT pattern delivers the full pre-detection / remediation /
+        // post-detection JSON in one shot. HS-SCRIPT-START fires earlier and drives
+        // a live `script_started` event so the UI can show a "running" indicator
+        // before the consolidated final result arrives ~30 s – 3 min later.
+        // ─────────────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void ScriptStarted_remediation_emits_live_script_started_event()
+        {
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            adapter.TriggerScriptStartedFromTest(new ScriptStartedInfo
+            {
+                PolicyId = "75d14a95-d49f-473d-9d65-d4b006bc7468",
+                ScriptType = "remediation",
+                PolicyType = "6",
+            });
+
+            var info = Assert.Single(f.InfoEvents(SharedEventTypes.ScriptStarted));
+            Assert.Equal("ImeLogTracker", info.Payload![SignalPayloadKeys.Source]);
+            Assert.Equal("75d14a95-d49f-473d-9d65-d4b006bc7468", info.Payload["policyId"]);
+            Assert.Equal("remediation", info.Payload["scriptType"]);
+            Assert.Equal("6", info.Payload["policyType"]);
+            Assert.Contains("Health script 75d14a95: started", info.Payload[SignalPayloadKeys.Message]);
+        }
+
+        [Fact]
+        public void ScriptStarted_null_or_empty_policyId_is_ignored()
+        {
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            adapter.TriggerScriptStartedFromTest(null!);
+            adapter.TriggerScriptStartedFromTest(new ScriptStartedInfo { PolicyId = null });
+            adapter.TriggerScriptStartedFromTest(new ScriptStartedInfo { PolicyId = "" });
+
+            Assert.Empty(f.Ingress.Posted);
+        }
+
+        [Fact]
+        public void ScriptCompleted_remediation_post_detection_part_propagates_through_adapter()
+        {
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            var script = new ScriptExecutionState
+            {
+                PolicyId = "cafebabe-0000-0000-0000-000000000000",
+                ScriptType = "remediation",
+                ScriptPart = "post-detection",
+                ExitCode = 0,
+                RunContext = "System",
+                ComplianceResult = "True",
+                RemediationStatus = 2, // Remediated
+                TargetType = 2,         // Device
+                ErrorCode = 0,
+            };
+
+            adapter.TriggerScriptCompletedFromTest(script);
+
+            var info = Assert.Single(f.InfoEvents(SharedEventTypes.ScriptCompleted));
+            Assert.Equal("post-detection", info.Payload!["scriptPart"]);
+            Assert.Equal("True", info.Payload["complianceResult"]);
+            // Wire-format check: the new RemediationStatus / TargetType / ErrorCode fields
+            // must reach the UI via the event payload, otherwise the detect-only badge,
+            // status pills, and Target column in the detail panel can never light up.
+            Assert.Equal("2", info.Payload["remediationStatus"]);
+            Assert.Equal("2", info.Payload["targetType"]);
+            Assert.Equal("0", info.Payload["errorCode"]);
+        }
+
+        [Fact]
+        public void HealthScriptResult_propagates_RemediationStatus_TargetType_ErrorCode_to_event_payload()
+        {
+            // End-to-end: HandleHealthScriptResultJson → adapter → event payload. Detection-only
+            // policy from c1e714e6 with TargetType=2 (Device) and RemediationStatus=4 (NoRemediation).
+            const string json = @"{
+              ""PolicyId"": ""75d14a95-d49f-473d-9d65-d4b006bc7468"",
+              ""PreRemediationDetectScriptOutput"": ""LocalAdminIsEnabled=False"",
+              ""RemediationStatus"": 4,
+              ""ErrorCode"": 0,
+              ""Info"": { ""FirstDetectExitCode"": 0, ""ErrorDetails"": null },
+              ""TargetType"": 2,
+              ""RunAsAccount"": 1
+            }";
+
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            f.Tracker.HandleHealthScriptResultJson(json);
+
+            var info = Assert.Single(f.InfoEvents(SharedEventTypes.ScriptCompleted));
+            Assert.Equal("4", info.Payload!["remediationStatus"]);
+            Assert.Equal("2", info.Payload["targetType"]);
+            Assert.Equal("0", info.Payload["errorCode"]);
+            Assert.Equal("System", info.Payload["runContext"]);
+        }
+
+        [Fact]
+        public void HealthScriptResult_DetectionOnly_Compliant_emits_one_detection_event()
+        {
+            // Real JSON sample from session c1e714e6 (LocalAdmin compliance check).
+            // Detection-only policy: no remediation script attached → all
+            // RemediationScript* / PostRemediationDetectScript* fields are null
+            // and RemediationStatus = 4 (NoRemediation).
+            const string json = @"{
+              ""PolicyId"": ""75d14a95-d49f-473d-9d65-d4b006bc7468"",
+              ""UserId"": ""00000000-0000-0000-0000-000000000000"",
+              ""Result"": 3,
+              ""ResultType"": 1,
+              ""ErrorCode"": 0,
+              ""PreRemediationDetectScriptOutput"": ""LocalAdminIsEnabled=False, action list: Administrator|+Administrator,-"",
+              ""PreRemediationDetectScriptError"": """",
+              ""RemediationScriptOutputDetails"": null,
+              ""RemediationScriptErrorDetails"": null,
+              ""PostRemediationDetectScriptOutput"": null,
+              ""PostRemediationDetectScriptError"": null,
+              ""RemediationStatus"": 4,
+              ""Info"": {
+                ""RemediationExitCode"": null,
+                ""FirstDetectExitCode"": 0,
+                ""LastDetectExitCode"": null,
+                ""ErrorDetails"": null
+              },
+              ""TargetType"": 2,
+              ""RunAsAccount"": 1
+            }";
+
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            f.Tracker.HandleHealthScriptResultJson(json);
+
+            var infos = f.InfoEvents(SharedEventTypes.ScriptCompleted);
+            var single = Assert.Single(infos);
+            Assert.Equal("75d14a95-d49f-473d-9d65-d4b006bc7468", single.Payload!["policyId"]);
+            Assert.Equal("remediation", single.Payload["scriptType"]);
+            Assert.Equal("detection", single.Payload["scriptPart"]);
+            Assert.Equal("True", single.Payload["complianceResult"]);
+            Assert.Equal("0", single.Payload["exitCode"]);
+            Assert.Equal("System", single.Payload["runContext"]);
+        }
+
+        [Fact]
+        public void HealthScriptResult_DetectionOnly_NonCompliant_emits_one_completed_event_with_complianceFalse()
+        {
+            // Real JSON shape from dev-machine HealthScripts.log (BuiltInAdmin policy 7980b14e):
+            // FirstDetectExitCode = 1, RemediationStatus = 4 (NoRemediation = no remediation
+            // script attached), all Remediation* / Post* fields null. Phase-aware semantics:
+            // detection exit != 0 is a compliance verdict, not a script failure → event type
+            // is script_completed with complianceResult="False". UI styles this row amber via
+            // isNonCompliantReport() and surfaces the detect-only badge from RemediationStatus=4.
+            const string json = @"{
+              ""PolicyId"": ""7980b14e-0e5a-48c7-a8e5-d6018407ca22"",
+              ""UserId"": ""0234b7f4-f66c-4f82-a4e3-67411f22ba40"",
+              ""Result"": 4,
+              ""PreRemediationDetectScriptOutput"": ""BuiltInAdminEnabled=False"",
+              ""PreRemediationDetectScriptError"": """",
+              ""RemediationScriptOutputDetails"": null,
+              ""RemediationScriptErrorDetails"": null,
+              ""PostRemediationDetectScriptOutput"": null,
+              ""PostRemediationDetectScriptError"": null,
+              ""RemediationStatus"": 4,
+              ""Info"": {
+                ""RemediationExitCode"": null,
+                ""FirstDetectExitCode"": 1,
+                ""LastDetectExitCode"": null,
+                ""ErrorDetails"": null
+              },
+              ""TargetType"": 1,
+              ""RunAsAccount"": 1
+            }";
+
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            f.Tracker.HandleHealthScriptResultJson(json);
+
+            // Phase-aware routing: detection exit != 0 is a non-compliant compliance report,
+            // NOT a script crash. The script ran perfectly and reported the policy is in a
+            // non-compliant state. Cycle-level outcome lives in RemediationStatus (here = 4
+            // / NoRemediation = detect-only). Event type stays script_completed so metrics
+            // and the timeline don't render this as a failure.
+            Assert.Empty(f.InfoEvents(SharedEventTypes.ScriptFailed));
+            var single = Assert.Single(f.InfoEvents(SharedEventTypes.ScriptCompleted));
+            Assert.Equal("7980b14e-0e5a-48c7-a8e5-d6018407ca22", single.Payload!["policyId"]);
+            Assert.Equal("detection", single.Payload["scriptPart"]);
+            Assert.Equal("False", single.Payload["complianceResult"]);
+            Assert.Equal("1", single.Payload["exitCode"]);
+            Assert.Equal("4", single.Payload["remediationStatus"]);
+            Assert.Equal(EventSeverity.Info.ToString(), single.Payload[SignalPayloadKeys.Severity]);
+        }
+
+        [Fact]
+        public void HealthScriptResult_FullCycle_emits_three_events()
+        {
+            // Hand-constructed JSON modelling a full health-script cycle: pre-detection False
+            // → remediation script ran (exit 0) → post-detection now True. The handler must
+            // emit three ScriptCompleted events with scriptPart = detection / remediation /
+            // post-detection respectively.
+            const string json = @"{
+              ""PolicyId"": ""11111111-2222-3333-4444-555555555555"",
+              ""UserId"": ""user-1"",
+              ""Result"": 2,
+              ""ErrorCode"": 0,
+              ""PreRemediationDetectScriptOutput"": ""needs fix"",
+              ""PreRemediationDetectScriptError"": """",
+              ""RemediationScriptOutputDetails"": ""applied fix"",
+              ""RemediationScriptErrorDetails"": """",
+              ""PostRemediationDetectScriptOutput"": ""verified ok"",
+              ""PostRemediationDetectScriptError"": """",
+              ""RemediationStatus"": 2,
+              ""Info"": {
+                ""RemediationExitCode"": 0,
+                ""FirstDetectExitCode"": 1,
+                ""LastDetectExitCode"": 0,
+                ""ErrorDetails"": null
+              },
+              ""TargetType"": 2,
+              ""RunAsAccount"": 1
+            }";
+
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            f.Tracker.HandleHealthScriptResultJson(json);
+
+            // Phase-aware routing: ALL three phases of a successfully-remediated cycle emit
+            // script_completed. The detection's exit 1 is a non-compliance report (script ran
+            // fine), the remediation succeeded (exit 0), and the post-detection confirms the
+            // fix took. None of these are "script failures" — the cycle is healthy.
+            Assert.Empty(f.InfoEvents(SharedEventTypes.ScriptFailed));
+            var completed = f.InfoEvents(SharedEventTypes.ScriptCompleted);
+            Assert.Equal(3, completed.Count);
+
+            var detection = completed.Single(e => e.Payload!["scriptPart"] == "detection");
+            Assert.Equal("False", detection.Payload!["complianceResult"]);
+            Assert.Equal("1", detection.Payload["exitCode"]);
+            Assert.Equal("needs fix", detection.Payload["stdout"]);
+            Assert.Equal(EventSeverity.Info.ToString(), detection.Payload[SignalPayloadKeys.Severity]);
+
+            var remediation = completed.Single(e => e.Payload!["scriptPart"] == "remediation");
+            Assert.Equal("0", remediation.Payload!["exitCode"]);
+            Assert.Equal("applied fix", remediation.Payload["stdout"]);
+            Assert.False(remediation.Payload.ContainsKey("complianceResult"),
+                "remediation phase must not carry a compliance verdict");
+
+            var post = completed.Single(e => e.Payload!["scriptPart"] == "post-detection");
+            Assert.Equal("True", post.Payload!["complianceResult"]);
+            Assert.Equal("0", post.Payload["exitCode"]);
+            Assert.Equal("verified ok", post.Payload["stdout"]);
+        }
+
+        [Fact]
+        public void HealthScriptResult_remediation_phase_with_non_zero_exit_emits_script_failed()
+        {
+            // Phase-aware routing flip side: when the actual remediation script crashes
+            // (RemediationExitCode != 0), THAT phase emits script_failed because it's a
+            // genuine script failure, not a compliance report.
+            const string json = @"{
+              ""PolicyId"": ""22222222-2222-2222-2222-222222222222"",
+              ""PreRemediationDetectScriptOutput"": ""needs fix"",
+              ""RemediationScriptOutputDetails"": ""attempted fix"",
+              ""RemediationScriptErrorDetails"": ""error: access denied"",
+              ""RemediationStatus"": 3,
+              ""Info"": {
+                ""FirstDetectExitCode"": 1,
+                ""RemediationExitCode"": 1,
+                ""LastDetectExitCode"": null,
+                ""ErrorDetails"": ""Remediation crashed""
+              },
+              ""TargetType"": 2,
+              ""RunAsAccount"": 1
+            }";
+
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            f.Tracker.HandleHealthScriptResultJson(json);
+
+            // Detection: non-compliant report → script_completed (phase-aware exemption)
+            var detection = Assert.Single(f.InfoEvents(SharedEventTypes.ScriptCompleted));
+            Assert.Equal("detection", detection.Payload!["scriptPart"]);
+            Assert.Equal("False", detection.Payload["complianceResult"]);
+
+            // Remediation: actual script failure → script_failed (phase-aware exemption does NOT apply)
+            var remediation = Assert.Single(f.InfoEvents(SharedEventTypes.ScriptFailed));
+            Assert.Equal("remediation", remediation.Payload!["scriptPart"]);
+            Assert.Equal("1", remediation.Payload["exitCode"]);
+            Assert.Equal(EventSeverity.Error.ToString(), remediation.Payload[SignalPayloadKeys.Severity]);
+        }
+
+        [Fact]
+        public void HealthScriptResult_InvalidJson_increments_failure_counter_and_emits_nothing()
+        {
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            var before = f.Tracker.HealthScriptResultParseFailures;
+
+            f.Tracker.HandleHealthScriptResultJson("{not even valid json");
+
+            Assert.Equal(before + 1, f.Tracker.HealthScriptResultParseFailures);
+            Assert.Empty(f.Ingress.Posted);
+        }
+
+        [Fact]
+        public void HealthScriptResult_MissingPolicyId_emits_nothing()
+        {
+            // Defensive: the regex captured something json-shaped but the payload is missing
+            // the required PolicyId. Skip cleanly without emitting half-empty events.
+            const string json = @"{
+              ""PreRemediationDetectScriptOutput"": ""orphan output"",
+              ""RemediationStatus"": 4,
+              ""Info"": { ""FirstDetectExitCode"": 0 }
+            }";
+
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            f.Tracker.HandleHealthScriptResultJson(json);
+
+            Assert.Empty(f.Ingress.Posted);
         }
     }
 }

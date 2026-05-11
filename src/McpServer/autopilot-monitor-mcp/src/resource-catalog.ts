@@ -40,6 +40,7 @@ export const EVENT_TYPES_CATALOG = {
     'performance_snapshot',
     'log_entry',
     'gather_result',
+    'script_started',
     'script_completed',
     'script_failed',
     'ime_agent_version',

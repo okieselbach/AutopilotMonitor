@@ -2,37 +2,14 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "rules": [
     {
-      "patternId": "HS-COMPLIANCE",
+      "patternId": "HS-NEW-RESULT",
       "category": "always",
-      "pattern": "\\[HS\\] the pre-remdiation detection script compliance result for (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}) is (?<compliance>True|False)",
-      "action": "scriptCompleted",
-      "parameters": {
-        "scriptType": "remediation",
-        "part": "detection"
-      },
-      "description": "Captures the detection compliance result for a remediation script. True = compliant (no remediation needed), False = non-compliant (remediation will run).",
-      "enabled": true
-    },
-    {
-      "patternId": "HS-EXITCODE",
-      "category": "always",
-      "pattern": "\\[HS\\] exit code of the script is (?<exitCode>-?\\d+)",
-      "action": "scriptExitCode",
+      "pattern": "\\[HS\\] new result = (?<json>\\{[\\s\\S]*\\})\\s*$",
+      "action": "healthScriptResult",
       "parameters": {
         "scriptType": "remediation"
       },
-      "description": "Captures the exit code of a remediation script.",
-      "enabled": true
-    },
-    {
-      "patternId": "HS-RUN-CONTEXT",
-      "category": "always",
-      "pattern": "\\[HS\\] The policy needs be run as (?<context>System|User)",
-      "action": "scriptContext",
-      "parameters": {
-        "scriptType": "remediation"
-      },
-      "description": "Captures whether a remediation script runs as System or User context.",
+      "description": "Atomic final JSON of a health script run, covering all three phases (pre-detection / remediation / post-detection) emitted by IME after the policy completes. Single source of truth for health-script outcomes — replaces the line-by-line HS-COMPLIANCE/HS-EXITCODE/HS-STDOUT/HS-STDERR patterns. The end-anchor and [\\s\\S] character class are defensive against future format changes and multi-line CMTrace buffering.",
       "enabled": true
     },
     {
@@ -43,31 +20,7 @@
       "parameters": {
         "scriptType": "remediation"
       },
-      "description": "Detects when a Proactive Remediation (Health Script) starts processing. Captures PolicyId and PolicyType (6 = remediation).",
-      "enabled": true
-    },
-    {
-      "patternId": "HS-STDERR",
-      "category": "always",
-      "pattern": "\\[HS\\] err output = (?<output>.*)",
-      "action": "scriptOutput",
-      "parameters": {
-        "scriptType": "remediation",
-        "outputType": "stderr"
-      },
-      "description": "Captures standard error output (stderr) from a remediation script execution.",
-      "enabled": true
-    },
-    {
-      "patternId": "HS-STDOUT",
-      "category": "always",
-      "pattern": "\\[HS\\] std output = (?<output>.*)",
-      "action": "scriptOutput",
-      "parameters": {
-        "scriptType": "remediation",
-        "outputType": "stdout"
-      },
-      "description": "Captures standard output (stdout) from a remediation script execution.",
+      "description": "Detects when a Proactive Remediation (Health Script) starts processing. Captures PolicyId and PolicyType (6 = remediation). Drives the live script_started event for UI progress indication; the consolidated final result for the same PolicyId arrives later via HS-NEW-RESULT.",
       "enabled": true
     },
     {

@@ -157,14 +157,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // PowerShell script tracking handlers
         // -----------------------------------------------------------------------
 
-        private ScriptExecutionState GetCurrentScript(Dictionary<string, string> parameters)
-        {
-            var scriptType = parameters != null && parameters.TryGetValue("scriptType", out var st) ? st : null;
-            return string.Equals(scriptType, "remediation", StringComparison.OrdinalIgnoreCase)
-                ? _currentRemediationScript
-                : GetCurrentPlatformScript();
-        }
-
+        // Returns the current platform-script accumulator, or null when no platform script is active.
+        // Health-script (remediation) state is no longer tracked line-by-line — the HS-NEW-RESULT
+        // pattern delivers the full pre-detection / remediation / post-detection JSON in one shot
+        // via HandleHealthScriptResult. The platform branch keeps its line-by-line accumulator
+        // because PS-* patterns (PS-SCRIPT-CONTEXT / PS-SCRIPT-EXITCODE / PS-AGENT-OUTPUT / …) still
+        // arrive across multiple log lines.
         private ScriptExecutionState GetCurrentPlatformScript()
         {
             if (!string.IsNullOrEmpty(_lastPlatformScriptPolicyId) &&
@@ -187,20 +185,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
             if (string.Equals(scriptType, "remediation", StringComparison.OrdinalIgnoreCase))
             {
-                // Flush any pending remediation script (shouldn't happen normally, but defensive)
-                if (_currentRemediationScript != null)
-                {
-                    _logger.Debug($"ImeLogTracker: flushing pending remediation script {_currentRemediationScript.PolicyId}");
-                    EmitScriptEvent(_currentRemediationScript);
-                }
-
-                _currentRemediationScript = new ScriptExecutionState
-                {
-                    PolicyId = id,
-                    ScriptType = "remediation",
-                    ScriptPart = "detection" // detection runs first; updated if remediation runs
-                };
-                _logger.Info($"ImeLogTracker: remediation script started: {id}");
+                // Health script: emit a live "started" signal so the UI can show a running
+                // indicator immediately. The consolidated outcome arrives later via the
+                // HS-NEW-RESULT pattern → HandleHealthScriptResult, typically 30 s – 3 min later.
+                var policyType = match.Groups["policyType"]?.Value;
+                _logger.Info($"ImeLogTracker: health script started: {id}");
+                try { OnScriptStarted?.Invoke(new ScriptStartedInfo { PolicyId = id, ScriptType = "remediation", PolicyType = policyType }); }
+                catch (Exception ex) { _logger.Warning($"ImeLogTracker: OnScriptStarted handler threw: {ex.Message}"); }
             }
             else
             {
@@ -227,7 +218,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             if (string.IsNullOrEmpty(context)) return;
 
             var runContext = string.Equals(context, "machine", StringComparison.OrdinalIgnoreCase) ? "System" : "User";
-            var script = GetCurrentScript(parameters);
+            var script = GetCurrentPlatformScript();
             if (script != null)
             {
                 script.RunContext = runContext;
@@ -240,7 +231,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             var exitCodeStr = match.Groups["exitCode"]?.Value;
             if (string.IsNullOrEmpty(exitCodeStr) || !int.TryParse(exitCodeStr, out var exitCode)) return;
 
-            var script = GetCurrentScript(parameters);
+            var script = GetCurrentPlatformScript();
             if (script != null)
             {
                 script.ExitCode = exitCode;
@@ -251,7 +242,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private void HandleScriptOutput(Match match, Dictionary<string, string> parameters)
         {
             var outputType = parameters != null && parameters.TryGetValue("outputType", out var ot) ? ot : null;
-            var script = GetCurrentScript(parameters);
+            var script = GetCurrentPlatformScript();
             if (script == null) return;
 
             // PS-AGENT-OUTPUT captures both stdout and stderr in one pattern
@@ -278,55 +269,234 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
         private void HandleScriptCompleted(Match match, Dictionary<string, string> parameters)
         {
+            // Platform script only — the remediation path is now handled by HandleHealthScriptResult
+            // (single-source via HS-NEW-RESULT JSON). Any caller passing scriptType=remediation
+            // here is a stale pattern from a downgraded ruleset; ignore defensively.
             var scriptType = parameters != null && parameters.TryGetValue("scriptType", out var st) ? st : "platform";
-            var part = parameters != null && parameters.TryGetValue("part", out var p) ? p : null;
-
             if (string.Equals(scriptType, "remediation", StringComparison.OrdinalIgnoreCase))
             {
-                if (_currentRemediationScript == null) return;
-
-                var compliance = match.Groups["compliance"]?.Value;
-                var id = match.Groups["id"]?.Value;
-
-                _currentRemediationScript.ComplianceResult = compliance;
-                if (!string.IsNullOrEmpty(part))
-                    _currentRemediationScript.ScriptPart = part;
-                if (!string.IsNullOrEmpty(id))
-                    _currentRemediationScript.PolicyId = id; // confirm policyId from compliance line
-
-                _logger.Info($"ImeLogTracker: remediation detection completed: {_currentRemediationScript.PolicyId}, " +
-                    $"compliance={compliance}, exit={_currentRemediationScript.ExitCode}");
-
-                EmitScriptEvent(_currentRemediationScript);
-                _currentRemediationScript = null;
+                _logger.Debug("ImeLogTracker: ignoring remediation scriptCompleted from stale pattern (use HS-NEW-RESULT)");
+                return;
             }
-            else
+
+            // Platform script: final result from IntuneManagementExtension.log
+            var id = match.Groups["id"]?.Value;
+            var result = match.Groups["result"]?.Value;
+
+            if (string.IsNullOrEmpty(id)) return;
+
+            // Merge with pending AgentExecutor data if available
+            if (!_pendingPlatformScripts.TryGetValue(id, out var script))
             {
-                // Platform script: final result from IntuneManagementExtension.log
-                var id = match.Groups["id"]?.Value;
-                var result = match.Groups["result"]?.Value;
-
-                if (string.IsNullOrEmpty(id)) return;
-
-                // Merge with pending AgentExecutor data if available
-                if (!_pendingPlatformScripts.TryGetValue(id, out var script))
+                script = new ScriptExecutionState
                 {
-                    script = new ScriptExecutionState
-                    {
-                        PolicyId = id,
-                        ScriptType = "platform"
-                    };
-                }
-
-                script.Result = result;
-
-                _logger.Info($"ImeLogTracker: platform script completed: {id}, result={result}, exit={script.ExitCode}");
-
-                EmitScriptEvent(script);
-                _pendingPlatformScripts.Remove(id);
-                if (string.Equals(_lastPlatformScriptPolicyId, id, StringComparison.OrdinalIgnoreCase))
-                    _lastPlatformScriptPolicyId = null;
+                    PolicyId = id,
+                    ScriptType = "platform"
+                };
             }
+
+            script.Result = result;
+
+            _logger.Info($"ImeLogTracker: platform script completed: {id}, result={result}, exit={script.ExitCode}");
+
+            EmitScriptEvent(script);
+            _pendingPlatformScripts.Remove(id);
+            if (string.Equals(_lastPlatformScriptPolicyId, id, StringComparison.OrdinalIgnoreCase))
+                _lastPlatformScriptPolicyId = null;
+        }
+
+        /// <summary>
+        /// Parses the IME <c>[HS] new result = {…}</c> JSON and emits one to three
+        /// <see cref="ScriptExecutionState"/> events covering the pre-detection,
+        /// remediation, and post-detection phases of a health script run.
+        /// All three field groups (<c>PreRemediationDetectScript*</c> /
+        /// <c>RemediationScript*</c> / <c>PostRemediationDetectScript*</c>) are nullable —
+        /// only the populated phases produce an event. Defensive against parse errors:
+        /// invalid JSON is logged once at warning level and counted via
+        /// <see cref="ImeLogTracker.HealthScriptResultParseFailures"/>.
+        /// </summary>
+        private void HandleHealthScriptResult(Match match, Dictionary<string, string> parameters)
+        {
+            var json = match.Groups["json"]?.Value;
+            if (string.IsNullOrEmpty(json))
+            {
+                _logger.Debug("ImeLogTracker: HS-NEW-RESULT match had empty json group, skipping");
+                return;
+            }
+            HandleHealthScriptResultJson(json);
+        }
+
+        /// <summary>
+        /// Test seam that bypasses the regex-match plumbing and feeds a raw <c>[HS] new result</c>
+        /// JSON payload directly into the parser. Production code path runs through
+        /// <see cref="HandleHealthScriptResult(Match, Dictionary{string, string})"/>; this method
+        /// exists so unit tests can exercise the JSON parser + 1-3 phase emit logic without
+        /// having to write CMTrace log files into a temp directory.
+        /// </summary>
+        internal void HandleHealthScriptResultJson(string json)
+        {
+            if (string.IsNullOrEmpty(json))
+            {
+                _logger.Debug("ImeLogTracker: HandleHealthScriptResultJson received empty json, skipping");
+                return;
+            }
+
+            JsonElement root;
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                // Clone so the JsonElement outlives the using-scope (we read it after dispose).
+                root = doc.RootElement.Clone();
+            }
+            catch (Exception ex)
+            {
+                HealthScriptResultParseFailures++;
+                _logger.Warning($"ImeLogTracker: HS-NEW-RESULT JSON parse failed (failures so far: {HealthScriptResultParseFailures}): {ex.Message}");
+                return;
+            }
+
+            var policyId = TryGetString(root, "PolicyId");
+            if (string.IsNullOrEmpty(policyId))
+            {
+                _logger.Debug("ImeLogTracker: HS-NEW-RESULT JSON missing PolicyId, skipping");
+                return;
+            }
+
+            // Common metadata — applied to every emitted phase event.
+            var remediationStatus = TryGetInt(root, "RemediationStatus");
+            var targetType = TryGetInt(root, "TargetType");
+            var errorCode = TryGetInt(root, "ErrorCode");
+            var runAsAccount = TryGetInt(root, "RunAsAccount"); // 1 = System, 2 = User
+            var runContext = runAsAccount switch
+            {
+                1 => "System",
+                2 => "User",
+                _ => null
+            };
+
+            // Info sub-object holds the per-phase exit codes plus error details.
+            int? firstDetectExit = null;
+            int? remediationExit = null;
+            int? lastDetectExit = null;
+            string errorDetails = null;
+            if (root.TryGetProperty("Info", out var infoElement) && infoElement.ValueKind == JsonValueKind.Object)
+            {
+                firstDetectExit = TryGetInt(infoElement, "FirstDetectExitCode");
+                remediationExit = TryGetInt(infoElement, "RemediationExitCode");
+                lastDetectExit = TryGetInt(infoElement, "LastDetectExitCode");
+                errorDetails = TryGetString(infoElement, "ErrorDetails");
+            }
+
+            // Phase 1 (always): pre-detection — fires for every health-script run, including
+            // detect-only policies (RemediationStatus = 4 / NoRemediation).
+            var detection = BuildHealthScriptPhase(
+                policyId,
+                scriptPart: "detection",
+                exitCode: firstDetectExit,
+                stdout: TryGetString(root, "PreRemediationDetectScriptOutput"),
+                stderr: TryGetString(root, "PreRemediationDetectScriptError"),
+                runContext: runContext,
+                remediationStatus: remediationStatus,
+                targetType: targetType,
+                errorCode: errorCode,
+                errorDetails: errorDetails);
+            // complianceResult mirrors the legacy HS-COMPLIANCE event semantics: True when the
+            // pre-detection script reported compliant (exit 0), False otherwise.
+            detection.ComplianceResult = firstDetectExit == 0 ? "True" : (firstDetectExit.HasValue ? "False" : null);
+            EmitScriptEvent(detection);
+
+            // Phase 2 (conditional): remediation script — only when the policy attached one and
+            // detection returned non-compliant. Either Remediation* output/error is populated, or
+            // RemediationExitCode is non-null (the latter is the canonical "remediation actually ran" signal).
+            var remediationStdout = TryGetString(root, "RemediationScriptOutputDetails");
+            var remediationStderr = TryGetString(root, "RemediationScriptErrorDetails");
+            if (remediationExit.HasValue || !string.IsNullOrEmpty(remediationStdout) || !string.IsNullOrEmpty(remediationStderr))
+            {
+                var remediation = BuildHealthScriptPhase(
+                    policyId,
+                    scriptPart: "remediation",
+                    exitCode: remediationExit,
+                    stdout: remediationStdout,
+                    stderr: remediationStderr,
+                    runContext: runContext,
+                    remediationStatus: remediationStatus,
+                    targetType: targetType,
+                    errorCode: errorCode,
+                    errorDetails: errorDetails);
+                // No complianceResult on the remediation phase — there is nothing to be compliant about.
+                EmitScriptEvent(remediation);
+            }
+
+            // Phase 3 (conditional): post-detection — IME's re-run of the detection script after
+            // remediation completed, used to confirm the fix took effect. Same signal logic as phase 2.
+            var postStdout = TryGetString(root, "PostRemediationDetectScriptOutput");
+            var postStderr = TryGetString(root, "PostRemediationDetectScriptError");
+            if (lastDetectExit.HasValue || !string.IsNullOrEmpty(postStdout) || !string.IsNullOrEmpty(postStderr))
+            {
+                var postDetection = BuildHealthScriptPhase(
+                    policyId,
+                    scriptPart: "post-detection",
+                    exitCode: lastDetectExit,
+                    stdout: postStdout,
+                    stderr: postStderr,
+                    runContext: runContext,
+                    remediationStatus: remediationStatus,
+                    targetType: targetType,
+                    errorCode: errorCode,
+                    errorDetails: errorDetails);
+                postDetection.ComplianceResult = lastDetectExit == 0 ? "True" : (lastDetectExit.HasValue ? "False" : null);
+                EmitScriptEvent(postDetection);
+            }
+
+            _logger.Info($"ImeLogTracker: health-script result emitted for {policyId} " +
+                         $"(status={remediationStatus?.ToString() ?? "?"}, " +
+                         $"firstDetectExit={firstDetectExit?.ToString() ?? "n/a"}, " +
+                         $"remediationExit={remediationExit?.ToString() ?? "n/a"}, " +
+                         $"lastDetectExit={lastDetectExit?.ToString() ?? "n/a"})");
+        }
+
+        private static ScriptExecutionState BuildHealthScriptPhase(
+            string policyId,
+            string scriptPart,
+            int? exitCode,
+            string stdout,
+            string stderr,
+            string runContext,
+            int? remediationStatus,
+            int? targetType,
+            int? errorCode,
+            string errorDetails) =>
+            new ScriptExecutionState
+            {
+                PolicyId = policyId,
+                ScriptType = "remediation",
+                ScriptPart = scriptPart,
+                ExitCode = exitCode,
+                Stdout = TruncateOutput(stdout),
+                Stderr = TruncateOutput(stderr),
+                RunContext = runContext,
+                RemediationStatus = remediationStatus,
+                TargetType = targetType,
+                ErrorCode = errorCode,
+                ErrorDetails = errorDetails
+            };
+
+        private static string TryGetString(JsonElement parent, string name)
+        {
+            if (!parent.TryGetProperty(name, out var prop)) return null;
+            return prop.ValueKind switch
+            {
+                JsonValueKind.String => prop.GetString(),
+                JsonValueKind.Null => null,
+                _ => null
+            };
+        }
+
+        private static int? TryGetInt(JsonElement parent, string name)
+        {
+            if (!parent.TryGetProperty(name, out var prop)) return null;
+            if (prop.ValueKind != JsonValueKind.Number) return null;
+            return prop.TryGetInt32(out var value) ? value : (int?)null;
         }
 
         private void EmitScriptEvent(ScriptExecutionState script)

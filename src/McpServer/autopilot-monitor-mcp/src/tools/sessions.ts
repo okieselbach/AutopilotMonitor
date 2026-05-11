@@ -21,7 +21,7 @@ const KEY_EVENT_TYPES = new Set([
   'enrollment_complete', 'enrollment_failed', 'completion_check',
   'desktop_arrived', 'hello_policy_detected', 'waiting_for_hello', 'hello_completion_timeout',
   'agent_started', 'agent_shutdown', 'trace_event',
-  'script_completed', 'script_failed', 'vulnerability_report',
+  'script_started', 'script_completed', 'script_failed', 'vulnerability_report',
 ]);
 const SEVERITY_RANK: Record<string, number> = { Trace: -1, Debug: 0, Info: 1, Warning: 2, Error: 3, Critical: 4 };
 const PHASE_NAMES: Record<number, string> = {

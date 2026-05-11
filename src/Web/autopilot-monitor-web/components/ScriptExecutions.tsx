@@ -1,91 +1,38 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { compareVersions, extractBootstrapVersion } from "@/utils/bootstrapVersion";
-
-interface ScriptEvent {
-  timestamp: string;
-  eventType?: string;
-  data?: Record<string, any>;
-}
+import { useEffect, useMemo, useState } from "react";
+import { compareVersions } from "@/utils/bootstrapVersion";
+import {
+  buildScriptItemLabel,
+  isDetectOnlyRow,
+  isNonCompliantReport,
+  mapRemediationStatus,
+  reduceScriptEvents,
+  STALE_RUNNING_THRESHOLD_SECONDS,
+  type ScriptInputEvent,
+  type ScriptItem,
+} from "@/lib/scriptExecutions";
 
 interface ScriptExecutionsProps {
-  events: ScriptEvent[];
+  events: ScriptInputEvent[];
   showScriptOutput?: boolean;
   latestBootstrapVersion?: string | null;
 }
 
-interface ScriptItem {
-  policyId: string;
-  scriptType: string;        // "platform" or "remediation"
-  scriptPart?: string;        // "detection" or "remediation" (for remediation scripts)
-  runContext?: string;         // "System" or "User"
-  exitCode?: number;
-  result?: string;            // "Success" or "Failed"
-  complianceResult?: string;  // "True" or "False"
-  stdout?: string;
-  stderr?: string;
-  state: "Success" | "Failed";
-  timestamp: string;
-  firstSeenIndex: number;
-  bootstrapVersion?: string | null; // Parsed from stdout if this is the Autopilot-Monitor bootstrap script
-}
-
 export default function ScriptExecutions({ events, showScriptOutput, latestBootstrapVersion }: ScriptExecutionsProps) {
-  const scripts = useMemo(() => {
-    if (events.length === 0) return [];
-
-    const sorted = [...events].sort(
-      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
-
-    const items: ScriptItem[] = [];
-    const seen = new Set<string>();
-
-    for (let idx = 0; idx < sorted.length; idx++) {
-      const evt = sorted[idx];
-      const d = evt.data;
-      if (!d) continue;
-
-      const policyId = d.policyId ?? d.policy_id ?? "";
-
-      const scriptType = d.scriptType ?? d.script_type ?? "platform";
-      const scriptPart = d.scriptPart ?? d.script_part;
-      // Dedupe key includes scriptPart for remediation (detection vs remediation phase).
-      // Use eventId as fallback when policyId is missing to avoid collapsing unrelated scripts.
-      const dedupeId = policyId || `_noid_${idx}`;
-      const key = `${dedupeId}-${scriptType}-${scriptPart ?? ""}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-
-      const isSuccess = evt.eventType === "script_completed";
-
-      items.push({
-        policyId,
-        scriptType,
-        scriptPart,
-        runContext: d.runContext ?? d.run_context,
-        exitCode: d.exitCode ?? d.exit_code,
-        result: d.result,
-        complianceResult: d.complianceResult ?? d.compliance_result,
-        stdout: d.stdout,
-        stderr: d.stderr,
-        state: isSuccess ? "Success" : "Failed",
-        timestamp: evt.timestamp,
-        firstSeenIndex: items.length,
-        bootstrapVersion: scriptType === "platform" ? extractBootstrapVersion(d.stdout) : null,
-      });
-    }
-
-    return items;
-  }, [events]);
+  const scripts = useMemo(() => reduceScriptEvents(events), [events]);
 
   const [expanded, setExpanded] = useState(true);
 
   if (scripts.length === 0) return null;
 
-  const successCount = scripts.filter(s => s.state === "Success").length;
+  // Distinguish "script ran fine and was compliant" from "script ran fine but reported
+  // non-compliance" — the latter isn't a failure but deserves visibility (it's the
+  // "needs attention" middle ground for health-script detection / post-detection).
+  const nonCompliantCount = scripts.filter(isNonCompliantReport).length;
+  const successCount = scripts.filter(s => s.state === "Success").length - nonCompliantCount;
   const failedCount = scripts.filter(s => s.state === "Failed").length;
+  const runningCount = scripts.filter(s => s.state === "Running").length;
   const platformCount = scripts.filter(s => s.scriptType === "platform").length;
   const remediationCount = scripts.filter(s => s.scriptType === "remediation").length;
 
@@ -101,9 +48,19 @@ export default function ScriptExecutions({ events, showScriptOutput, latestBoots
           </svg>
           <h2 className="text-lg font-semibold text-gray-900">Script Executions</h2>
           <div className="flex items-center space-x-2 text-xs">
+            {runningCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium animate-pulse">
+                {runningCount} running
+              </span>
+            )}
             {successCount > 0 && (
               <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
                 {successCount} succeeded
+              </span>
+            )}
+            {nonCompliantCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium" title="Detection script ran successfully but reported a non-compliant state">
+                {nonCompliantCount} non-compliant
               </span>
             )}
             {failedCount > 0 && (
@@ -132,7 +89,7 @@ export default function ScriptExecutions({ events, showScriptOutput, latestBoots
         <div className="space-y-3 mt-4">
           {scripts.map((item) => (
             <ScriptItemRow
-              key={`${item.policyId}-${item.scriptPart ?? ""}-${item.firstSeenIndex}`}
+              key={`${item.policyId}-${item.scriptPart ?? "_running"}-${item.firstSeenIndex}`}
               item={item}
               showScriptOutput={showScriptOutput}
               latestBootstrapVersion={latestBootstrapVersion}
@@ -153,43 +110,68 @@ function getIntuneScriptUrl(policyId: string, scriptType: string): string | null
 
 function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion }: { item: ScriptItem; showScriptOutput?: boolean; latestBootstrapVersion?: string | null }) {
   const [showDetails, setShowDetails] = useState(false);
+  // Re-render every 5s while in Running state so elapsed-time updates live.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (item.state !== "Running") return;
+    const id = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(id);
+  }, [item.state]);
+
+  const elapsedSeconds = item.state === "Running"
+    ? Math.max(0, Math.floor((now - new Date(item.timestamp).getTime()) / 1000))
+    : null;
+  const isStale = elapsedSeconds !== null && elapsedSeconds > STALE_RUNNING_THRESHOLD_SECONDS;
+
+  const label = buildScriptItemLabel(item);
+  const isDetectOnly = isDetectOnlyRow(item);
+  const isNonCompliant = isNonCompliantReport(item);
 
   const containerClass = item.state === "Failed"
     ? "bg-red-50 border border-red-200"
-    : "bg-green-50 border border-green-200";
+    : item.state === "Running"
+      ? `bg-blue-50 border border-blue-200 ${isStale ? "" : "animate-pulse"}`
+      : isNonCompliant
+        ? "bg-amber-50 border border-amber-200"
+        : "bg-green-50 border border-green-200";
 
   const shortId = item.policyId
     ? (item.policyId.length >= 8 ? item.policyId.substring(0, 8) : item.policyId)
     : "unknown";
   const intuneUrl = getIntuneScriptUrl(item.policyId, item.scriptType);
 
-  // Build label: "Platform Script" or "Remediation Detection" / "Remediation"
-  let label: string;
-  if (item.scriptType === "remediation") {
-    label = item.scriptPart === "remediation" ? "Remediation Script" : "Remediation Detection";
-  } else {
-    label = "Platform Script";
-  }
-
-  // Build status text
+  // Status text for the right-hand summary cell
   let statusText: string;
-  if (item.scriptType === "remediation" && item.complianceResult) {
+  if (item.state === "Running") {
+    statusText = isStale ? `Running (${elapsedSeconds}s — stuck?)` : `Running (${elapsedSeconds}s)`;
+  } else if (item.scriptType === "remediation" && item.complianceResult) {
     statusText = item.complianceResult === "True" ? "Compliant" : "Non-compliant";
   } else {
     statusText = item.result ?? (item.state === "Success" ? "Success" : "Failed");
   }
 
-  const hasStdout = showScriptOutput !== false && item.stdout && item.stdout.trim().length > 0;
-  const hasStderr = item.stderr && item.stderr.trim().length > 0;
+  const hasStdout = item.state !== "Running" && showScriptOutput !== false && item.stdout && item.stdout.trim().length > 0;
+  const hasStderr = item.state !== "Running" && item.stderr && item.stderr.trim().length > 0;
   const hasOutput = hasStdout || hasStderr;
+  const remediationStatusLabel = mapRemediationStatus(item.remediationStatus);
 
   return (
     <div className={`rounded-lg p-3 ${containerClass}`}>
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2 min-w-0">
-          {item.state === "Failed" ? (
+          {item.state === "Running" ? (
+            <svg className={`w-4 h-4 text-blue-500 flex-shrink-0 ${isStale ? "" : "animate-spin"}`} fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+          ) : item.state === "Failed" ? (
             <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          ) : isNonCompliant ? (
+            // Triangle warning icon — script ran fine but reported non-compliant state.
+            <svg className="w-4 h-4 text-amber-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
           ) : (
             <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -209,6 +191,14 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion }: { ite
           }`}>
             {item.scriptType}
           </span>
+          {isDetectOnly && (
+            <span
+              className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-600"
+              title="Detection-only policy — no remediation script attached"
+            >
+              detect-only
+            </span>
+          )}
           {item.bootstrapVersion && (
             <span
               className="text-xs px-2 py-0.5 rounded-full font-medium bg-indigo-100 text-indigo-700"
@@ -230,24 +220,35 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion }: { ite
           )}
         </div>
         <div className="flex items-center space-x-3 text-xs text-gray-500 flex-shrink-0 ml-2">
-          <span className={`font-medium ${item.state === "Failed" ? "text-red-600" : "text-green-600"}`}>
+          <span className={`font-medium ${
+            item.state === "Failed" ? "text-red-600"
+            : item.state === "Running" ? (isStale ? "text-amber-600" : "text-blue-600")
+            : isNonCompliant ? "text-amber-700"
+            : "text-green-600"
+          }`}>
             {statusText}
           </span>
           {item.exitCode != null && (
-            <span className={`font-mono ${item.exitCode !== 0 ? "text-red-600" : "text-gray-500"}`}>
+            <span className={`font-mono ${
+              item.state === "Failed" && item.exitCode !== 0 ? "text-red-600"
+              : isNonCompliant ? "text-amber-700"
+              : "text-gray-500"
+            }`}>
               exit {item.exitCode}
             </span>
           )}
-          <button
-            onClick={() => setShowDetails(!showDetails)}
-            className="text-xs text-blue-600 hover:text-blue-800"
-          >
-            {showDetails ? 'Hide' : 'Details'}
-          </button>
+          {item.state !== "Running" && (
+            <button
+              onClick={() => setShowDetails(!showDetails)}
+              className="text-xs text-blue-600 hover:text-blue-800"
+            >
+              {showDetails ? 'Hide' : 'Details'}
+            </button>
+          )}
         </div>
       </div>
 
-      {showDetails && (
+      {showDetails && item.state !== "Running" && (
         <div className="mt-3 space-y-2">
           {/* Metadata */}
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600">
@@ -257,11 +258,22 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion }: { ite
               <span className="font-mono">{item.policyId}</span>
             )}</span>
             {item.runContext && <span><span className="font-medium text-gray-700">Context:</span> {item.runContext}</span>}
+            {item.targetType != null && <span><span className="font-medium text-gray-700">Target:</span> {item.targetType === 2 ? "Device" : "User"}</span>}
             {item.exitCode != null && <span><span className="font-medium text-gray-700">Exit Code:</span> <span className="font-mono">{item.exitCode}</span></span>}
             {item.result && <span><span className="font-medium text-gray-700">Result:</span> {item.result}</span>}
             {item.complianceResult && <span><span className="font-medium text-gray-700">Compliance:</span> {item.complianceResult === "True" ? "Compliant" : "Non-compliant"}</span>}
+            {remediationStatusLabel && <span><span className="font-medium text-gray-700">Status:</span> {remediationStatusLabel}</span>}
+            {item.errorCode != null && item.errorCode !== 0 && (
+              <span><span className="font-medium text-gray-700">Error Code:</span> <span className="font-mono">{item.errorCode}</span></span>
+            )}
             <span><span className="font-medium text-gray-700">Time:</span> {new Date(item.timestamp).toLocaleTimeString()}</span>
           </div>
+
+          {item.errorDetails && (
+            <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
+              <span className="font-medium">Error details:</span> {item.errorDetails}
+            </div>
+          )}
 
           {/* stdout */}
           {hasStdout && (

@@ -5,6 +5,6 @@
   "pattern": "\\[HS\\] ProcessScript PolicyId: (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}) PolicyType: (?<policyType>\\d+)",
   "action": "scriptStarted",
   "parameters": { "scriptType": "remediation" },
-  "description": "Detects when a Proactive Remediation (Health Script) starts processing. Captures PolicyId and PolicyType (6 = remediation).",
+  "description": "Detects when a Proactive Remediation (Health Script) starts processing. Captures PolicyId and PolicyType (6 = remediation). Drives the live script_started event for UI progress indication; the consolidated final result for the same PolicyId arrives later via HS-NEW-RESULT.",
   "enabled": true
 }

@@ -71,6 +71,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private readonly Action<string>? _prevOnImeAgentVersion;
         private readonly Action<AppPackageState>? _prevOnDoTelemetryReceived;
         private readonly Action<ScriptExecutionState>? _prevOnScriptCompleted;
+        private readonly Action<ScriptStartedInfo>? _prevOnScriptStarted;
 
         // Our own delegate instances — stored once so Dispose can compare by reference.
         private readonly Action<string> _ourOnEspPhaseChanged;
@@ -80,6 +81,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private readonly Action<string> _ourOnImeAgentVersion;
         private readonly Action<AppPackageState> _ourOnDoTelemetryReceived;
         private readonly Action<ScriptExecutionState> _ourOnScriptCompleted;
+        private readonly Action<ScriptStartedInfo> _ourOnScriptStarted;
 
         // Dedup state for DecisionSignals.
         private string? _lastEspPhase;
@@ -127,6 +129,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _prevOnImeAgentVersion = _tracker.OnImeAgentVersion;
             _prevOnDoTelemetryReceived = _tracker.OnDoTelemetryReceived;
             _prevOnScriptCompleted = _tracker.OnScriptCompleted;
+            _prevOnScriptStarted = _tracker.OnScriptStarted;
 
             // Store our delegate instances once — implicit method-group conversions
             // create a new delegate each time, which would break Dispose's reference check.
@@ -137,6 +140,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _ourOnImeAgentVersion = OnImeAgentVersion;
             _ourOnDoTelemetryReceived = OnDoTelemetryReceived;
             _ourOnScriptCompleted = OnScriptCompleted;
+            _ourOnScriptStarted = OnScriptStarted;
 
             _tracker.OnEspPhaseChanged = _ourOnEspPhaseChanged;
             _tracker.OnUserSessionCompleted = _ourOnUserSessionCompleted;
@@ -145,6 +149,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _tracker.OnImeAgentVersion = _ourOnImeAgentVersion;
             _tracker.OnDoTelemetryReceived = _ourOnDoTelemetryReceived;
             _tracker.OnScriptCompleted = _ourOnScriptCompleted;
+            _tracker.OnScriptStarted = _ourOnScriptStarted;
         }
 
         public void Dispose()
@@ -165,6 +170,8 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 _tracker.OnDoTelemetryReceived = _prevOnDoTelemetryReceived;
             if (ReferenceEquals(_tracker.OnScriptCompleted, _ourOnScriptCompleted))
                 _tracker.OnScriptCompleted = _prevOnScriptCompleted;
+            if (ReferenceEquals(_tracker.OnScriptStarted, _ourOnScriptStarted))
+                _tracker.OnScriptStarted = _prevOnScriptStarted;
         }
 
         private void OnEspPhaseChanged(string phase)
@@ -209,6 +216,12 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             EmitScriptCompleted(script);
         }
 
+        private void OnScriptStarted(ScriptStartedInfo info)
+        {
+            _prevOnScriptStarted?.Invoke(info);
+            EmitScriptStarted(info);
+        }
+
         internal void TriggerEspPhaseFromTest(string phase) => EmitEspPhase(phase);
         internal void TriggerUserSessionCompletedFromTest() => EmitUserSessionCompleted();
         internal void TriggerAppStateFromTest(AppPackageState app, AppInstallationState oldState, AppInstallationState newState) =>
@@ -217,6 +230,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         internal void TriggerImeAgentVersionFromTest(string version) => EmitImeAgentVersion(version);
         internal void TriggerDoTelemetryFromTest(AppPackageState app) => EmitDoTelemetry(app);
         internal void TriggerScriptCompletedFromTest(ScriptExecutionState script) => EmitScriptCompleted(script);
+        internal void TriggerScriptStartedFromTest(ScriptStartedInfo info) => EmitScriptStarted(info);
 
         /// <summary>
         /// Prefer the CMTrace log entry timestamp recorded by the most recent pattern match
@@ -731,10 +745,27 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         {
             if (script == null || string.IsNullOrEmpty(script.PolicyId)) return;
 
-            // Severity derived from script result; failure = exit code != 0 OR Result=Failed.
+            // Outcome classification — phase-aware. The Microsoft IME Health-Script (Proactive
+            // Remediation) lifecycle treats the detection scripts as compliance reporters:
+            //   - detection exit 0 = compliant
+            //   - detection exit non-zero = non-compliant (script ran perfectly, just reporting state)
+            //   - remediation exit 0 = remediation succeeded
+            //   - remediation exit non-zero = remediation script failed (real script crash)
+            //   - post-detection same as detection (exit non-zero = remediation didn't take, NOT a crash)
+            // So a non-compliant detection that gets remediated must NOT count as a script failure
+            // in metrics or render as red in the timeline. Only the remediation phase + platform
+            // scripts route non-zero exit to script_failed. The cycle-level outcome is conveyed
+            // separately via RemediationStatus (2=Remediated, 3=RemediationFailed) on each event.
+            var isHealthScript = IsRemediation(script.ScriptType);
+            var isHealthComplianceReport = isHealthScript
+                && (string.Equals(script.ScriptPart, "detection", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(script.ScriptPart, "post-detection", StringComparison.OrdinalIgnoreCase));
+
             var isFailure = string.Equals(script.Result, "Failed", StringComparison.OrdinalIgnoreCase)
-                            || (script.ExitCode.HasValue && script.ExitCode.Value != 0);
+                            || (!isHealthComplianceReport
+                                && script.ExitCode.HasValue && script.ExitCode.Value != 0);
             var severity = isFailure ? EventSeverity.Error : EventSeverity.Info;
+            var eventType = isFailure ? SharedEventTypes.ScriptFailed : SharedEventTypes.ScriptCompleted;
 
             var culture = System.Globalization.CultureInfo.InvariantCulture;
             var data = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -747,6 +778,10 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             if (!string.IsNullOrEmpty(script.RunContext)) data["runContext"] = script.RunContext!;
             if (!string.IsNullOrEmpty(script.Result)) data["result"] = script.Result!;
             if (!string.IsNullOrEmpty(script.ComplianceResult)) data["complianceResult"] = script.ComplianceResult!;
+            if (script.RemediationStatus.HasValue) data["remediationStatus"] = script.RemediationStatus.Value.ToString(culture);
+            if (script.TargetType.HasValue) data["targetType"] = script.TargetType.Value.ToString(culture);
+            if (script.ErrorCode.HasValue) data["errorCode"] = script.ErrorCode.Value.ToString(culture);
+            if (!string.IsNullOrEmpty(script.ErrorDetails)) data["errorDetails"] = script.ErrorDetails!;
             if (!string.IsNullOrEmpty(script.Stdout)) data["stdout"] = script.Stdout!;
             if (!string.IsNullOrEmpty(script.Stderr)) data["stderr"] = script.Stderr!;
             var patternId = _tracker.LastMatchedPatternId;
@@ -774,7 +809,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             var msg = $"{label} {shortId}: {messageCore}{exitSuffix}";
 
             _post.Emit(
-                eventType: SharedEventTypes.ScriptCompleted,
+                eventType: eventType,
                 source: SourceLabel,
                 message: msg,
                 severity: severity,
@@ -785,6 +820,38 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             // in the event itself; the log line carries forensic context for both outcomes).
             _logger?.Debug(
                 $"ImeAdapter: script completed policyId={shortId} type={script.ScriptType ?? "?"} result={script.Result ?? "?"} exit={(script.ExitCode.HasValue ? script.ExitCode.Value.ToString() : "n/a")}");
+        }
+
+        private void EmitScriptStarted(ScriptStartedInfo info)
+        {
+            if (info == null || string.IsNullOrEmpty(info.PolicyId)) return;
+
+            var data = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["policyId"] = info.PolicyId,
+            };
+            if (!string.IsNullOrEmpty(info.ScriptType)) data["scriptType"] = info.ScriptType!;
+            if (!string.IsNullOrEmpty(info.PolicyType)) data["policyType"] = info.PolicyType!;
+            var patternId = _tracker.LastMatchedPatternId;
+            if (!string.IsNullOrEmpty(patternId)) data["patternId"] = patternId!;
+
+            var now = ResolveOccurredAt(out var derivedFromClock, out var rawSourceTs);
+            TagDerivedTimestamp(data, derivedFromClock, rawSourceTs);
+
+            var label = IsRemediation(info.ScriptType) ? "Health script" : "Platform script";
+            var shortId = info.PolicyId.Length >= 8 ? info.PolicyId.Substring(0, 8) : info.PolicyId;
+
+            _post.Emit(
+                eventType: SharedEventTypes.ScriptStarted,
+                source: SourceLabel,
+                message: $"{label} {shortId}: started",
+                // Live UI indicator — flush immediately so the running card appears within seconds,
+                // not at the next batch boundary (which would defeat the purpose of a live signal).
+                immediateUpload: true,
+                data: data,
+                occurredAtUtc: now);
+
+            _logger?.Debug($"ImeAdapter: script started policyId={shortId} type={info.ScriptType ?? "?"} policyType={info.PolicyType ?? "?"}");
         }
 
         private static bool IsRemediation(string? scriptType) =>
