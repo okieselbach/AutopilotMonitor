@@ -24,6 +24,16 @@ namespace AutopilotMonitor.Agent.V2
     /// Intune Platform Script contract expect exactly this sequence and these file locations.
     /// The only delta is the V2 exe name / build-output directory.
     /// </para>
+    /// <para>
+    /// Exit code contract: <c>0</c> means deployment succeeded and the BootTrigger Scheduled
+    /// Task is registered, i.e. the agent is guaranteed to come up no later than the next
+    /// reboot. Whether the immediate runtime-spawn (WMI Win32_Process.Create or schtasks /Run
+    /// fallback) actually succeeded is logged as INFO / WARNING but does not change the exit
+    /// code — the bootstrap script's <c>Get-Process</c> probe is the canonical
+    /// "no runtime came up" signal. Returning <c>1</c> when only the immediate spawn failed
+    /// would trip the bootstrap's pre-flight on the next IME run (<c>SKIP: Agent already
+    /// installed</c>) and leave the device stuck until manual intervention.
+    /// </para>
     /// </summary>
     public static partial class Program
     {
@@ -162,21 +172,55 @@ namespace AutopilotMonitor.Agent.V2
 
                 logger.Info($"Scheduled Task '{taskName}' created/updated successfully.");
 
-                // PR1: launch the runtime directly via WMI Win32_Process.Create rather
-                // than 'schtasks /Run'. Two reasons:
+                // Two-tier runtime-launch fallback chain:
                 //
-                //   1. schtasks /Run reports SUCCESS as soon as the run is queued. The
-                //      same battery / AV / OOBE-defer paths that motivate PR2 also queue
-                //      a manual /Run — observed in WinPE 2026-05-04 with the task stuck
-                //      in 'Queued' state (project_v2_install_runtime_handoff.md).
-                //   2. WMI spawns the process from the WBEM service context, outside the
-                //      install-mode process tree. A direct Process.Start would inherit
-                //      whatever Job Object IntuneWindowsAgent / the bootstrap script
-                //      sit in, and could be killed when those unwind. WMI gives us the
-                //      same isolation Task Scheduler uses for /Run, without the queue.
-                int runtimePid = StartRuntimeDetached(targetExePath, logger);
-                logger.Info(
-                    $"Runtime process launched (WMI-detached). PID={runtimePid}, exe={targetExePath}");
+                //   1. WMI Win32_Process.Create (first choice). Spawns the process from
+                //      the WBEM service context, outside the install-mode process tree
+                //      and outside Task Scheduler's queue (which defers /Run on battery
+                //      / OOBE — observed WinPE 2026-05-04, project_v2_install_runtime_handoff.md).
+                //   2. schtasks /Run on the registered BootTrigger task (fallback).
+                //      Used when WMI is blocked, typically Defender ASR rule
+                //      d1e49aac-8f56-4280-b9ba-993a6d77406c ('Block process creations
+                //      originating from PSExec and WMI commands') — Access Denied at
+                //      WBEM ExecMethod, returnValue=2. Customer-observed 2026-05-11.
+                //      Task Scheduler spawns via its own service context, which ASR /
+                //      typical EDR hooks do not block.
+                //   3. Defer to BootTrigger on next reboot (final safety net). The
+                //      hardened Scheduled Task is already registered above and starts
+                //      the runtime via the Task Scheduler service — different
+                //      ATT&CK signature than either WMI or a manual schtasks /Run.
+                //
+                // Critical contract: --install returns 0 if deployment + task creation
+                // succeeded, even if both immediate launch paths failed. Returning 1
+                // here would make the bootstrap script throw, the next IME run would
+                // SKIP via pre-flight (agent already installed), and the device would
+                // sit without a runtime until manual intervention. The bootstrap
+                // script's Get-Process probe is the canonical "no runtime came up"
+                // signal — see Install-AutopilotMonitor.ps1 ~line 280.
+                var wmi = TryStartRuntimeViaWmi(targetExePath, logger);
+                var launch = DecideRuntimeLaunchOutcome(
+                    wmiReturnValue: wmi.ReturnValue,
+                    wmiPid: wmi.Pid,
+                    trySchtasks: () => TryStartRuntimeViaSchtasks(taskName, logger));
+
+                switch (launch.Method)
+                {
+                    case RuntimeLaunchMethod.Wmi:
+                        logger.Info(
+                            $"Runtime process launched (WMI-detached). PID={launch.Pid}, exe={targetExePath}");
+                        break;
+                    case RuntimeLaunchMethod.Schtasks:
+                        logger.Info(
+                            $"Runtime process queued via schtasks /Run fallback on task '{taskName}'. exe={targetExePath}. {launch.Diagnostic}");
+                        break;
+                    case RuntimeLaunchMethod.Deferred:
+                        logger.Warning(
+                            $"Runtime handoff deferred to BootTrigger Scheduled Task '{taskName}'. " +
+                            $"Runtime will start on next reboot. Check 'Microsoft-Windows-Windows Defender/Operational' " +
+                            $"event 1121/1122 and AV/EDR logs for '{InstalledAgentExeName}' if this repeats. " +
+                            $"Details: {launch.Diagnostic}");
+                        break;
+                }
 
                 TryWriteDeploymentMarker(logger);
 
@@ -441,44 +485,200 @@ namespace AutopilotMonitor.Agent.V2
         }
 
         /// <summary>
-        /// PR1: launches the runtime out-of-band of the install-mode process tree via
-        /// WMI <c>Win32_Process.Create</c>. The WBEM service spawns the new process from
-        /// its own service context, giving the runtime the same Job-Object isolation that
-        /// <c>schtasks /Run</c> would (the Task Scheduler service is the parent there) —
-        /// without paying the scheduler's queue defer (battery / AV / OOBE).
+        /// First-choice runtime launch path: spawn the runtime out-of-band of the
+        /// install-mode process tree via WMI <c>Win32_Process.Create</c>. The WBEM
+        /// service spawns the new process from its own service context, giving the
+        /// runtime Job-Object isolation without paying Task Scheduler's queue defer
+        /// (battery / OOBE) that motivated the move away from <c>schtasks /Run</c>.
+        /// <para>
+        /// Returns a result instead of throwing. The schtasks-fallback +
+        /// defer-to-BootTrigger orchestration in <see cref="DecideRuntimeLaunchOutcome"/>
+        /// needs to react to the WMI return code (esp. 2 = Access Denied, which is
+        /// the AV/EDR/ASR block signature we saw 2026-05-11), not be aborted by it.
+        /// Only genuinely unexpected WMI states (no out-params, pid=0 on returnValue=0)
+        /// still throw — those indicate WBEM itself misbehaving, not a policy block.
+        /// </para>
         /// </summary>
-        private static int StartRuntimeDetached(string exePath, AgentLogger logger)
+        private static WmiLaunchAttempt TryStartRuntimeViaWmi(string exePath, AgentLogger logger)
         {
-            using (var processClass = new ManagementClass("Win32_Process"))
-            using (var inParams = processClass.GetMethodParameters("Create"))
+            try
             {
-                inParams["CommandLine"] = $"\"{exePath}\"";
-                inParams["CurrentDirectory"] = Path.GetDirectoryName(exePath) ?? string.Empty;
-
-                using (var outParams = processClass.InvokeMethod("Create", inParams, null))
+                using (var processClass = new ManagementClass("Win32_Process"))
+                using (var inParams = processClass.GetMethodParameters("Create"))
                 {
-                    if (outParams == null)
-                        throw new InvalidOperationException(
-                            $"WMI Win32_Process.Create returned no out-parameters for '{exePath}'.");
+                    inParams["CommandLine"] = $"\"{exePath}\"";
+                    inParams["CurrentDirectory"] = Path.GetDirectoryName(exePath) ?? string.Empty;
 
-                    var returnValue = Convert.ToUInt32(outParams["ReturnValue"]);
-                    if (returnValue != 0u)
+                    using (var outParams = processClass.InvokeMethod("Create", inParams, null))
                     {
+                        if (outParams == null)
+                            throw new InvalidOperationException(
+                                $"WMI Win32_Process.Create returned no out-parameters for '{exePath}'.");
+
                         // WMI return codes: 0=ok, 2=access denied, 3=insufficient privilege,
                         // 8=unknown failure, 9=path not found, 21=invalid parameter, 22=invalid name
                         // (https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/create-method-in-class-win32-process).
-                        throw new InvalidOperationException(
-                            $"WMI Win32_Process.Create failed for '{exePath}': returnValue={returnValue}.");
+                        var returnValue = Convert.ToUInt32(outParams["ReturnValue"]);
+                        var pid = returnValue == 0u ? Convert.ToInt32(outParams["ProcessId"]) : 0;
+                        return new WmiLaunchAttempt(returnValue, pid);
                     }
-
-                    var pid = Convert.ToInt32(outParams["ProcessId"]);
-                    if (pid <= 0)
-                        throw new InvalidOperationException(
-                            $"WMI Win32_Process.Create reported success but no ProcessId for '{exePath}'.");
-
-                    return pid;
                 }
             }
+            catch (ManagementException ex)
+            {
+                logger.Warning($"WMI Win32_Process.Create threw ManagementException for '{exePath}': {ex.Message}. Treating as Access Denied for fallback purposes.");
+                return new WmiLaunchAttempt(2u, 0);
+            }
+            catch (System.Runtime.InteropServices.COMException ex)
+            {
+                logger.Warning($"WMI Win32_Process.Create threw COMException (HRESULT 0x{ex.HResult:X8}) for '{exePath}': {ex.Message}. Treating as Unknown failure for fallback purposes.");
+                return new WmiLaunchAttempt(8u, 0);
+            }
+        }
+
+        /// <summary>
+        /// Second-choice runtime launch path. Queues the registered Scheduled Task
+        /// via <c>schtasks /Run /TN "<see cref="Constants.ScheduledTaskName"/>"</c>.
+        /// Returns the schtasks exit code; <c>-1</c> means the schtasks process
+        /// itself could not be launched.
+        /// <para>
+        /// This is the fallback when WMI is blocked (e.g. Defender ASR rule
+        /// <c>d1e49aac-8f56-4280-b9ba-993a6d77406c</c>, *"Block process creations
+        /// originating from PSExec and WMI commands"*). Task Scheduler spawns the
+        /// runtime via its own service context — a different ATT&amp;CK signature
+        /// that ASR / typical EDR hooks do not block. The known downside (queue
+        /// defer on battery / OOBE that originally motivated PR1) is acceptable as
+        /// a fallback because the third tier (BootTrigger on next reboot) is also
+        /// in place.
+        /// </para>
+        /// </summary>
+        private static int TryStartRuntimeViaSchtasks(string taskName, AgentLogger logger)
+        {
+            try
+            {
+                return RunProcess(
+                    SystemPaths.Schtasks,
+                    $"/Run /TN \"{taskName}\"",
+                    logger);
+            }
+            catch (Exception ex)
+            {
+                logger.Warning($"schtasks /Run could not be launched: {ex.GetType().Name}: {ex.Message}");
+                return -1;
+            }
+        }
+
+        /// <summary>
+        /// Pure orchestration of the two-tier runtime-launch fallback chain. Decides
+        /// which outcome to report based on the WMI attempt and (lazily) the schtasks
+        /// fallback. Exposed <c>internal</c> for unit tests, in the same vein as
+        /// <see cref="MergeBootstrapConfig"/> and <see cref="BuildScheduledTaskXml"/>.
+        /// <para>
+        /// Contract:
+        /// <list type="bullet">
+        /// <item><description>If WMI succeeded with a valid pid, return <see cref="RuntimeLaunchMethod.Wmi"/> and DO NOT invoke <paramref name="trySchtasks"/>.</description></item>
+        /// <item><description>Otherwise invoke <paramref name="trySchtasks"/>; on exit code 0 return <see cref="RuntimeLaunchMethod.Schtasks"/>.</description></item>
+        /// <item><description>If both paths fail, return <see cref="RuntimeLaunchMethod.Deferred"/> — the BootTrigger Scheduled Task is the safety net on next reboot.</description></item>
+        /// </list>
+        /// The <see cref="RuntimeLaunchResult.Diagnostic"/> string is the single line
+        /// support reads from <c>agent_*.log</c>; when WMI returns 2 it explicitly
+        /// names the ASR rule GUID so the typical AV/EDR root cause is one log line away.
+        /// </para>
+        /// </summary>
+        internal static RuntimeLaunchResult DecideRuntimeLaunchOutcome(
+            uint wmiReturnValue,
+            int wmiPid,
+            Func<int> trySchtasks)
+        {
+            if (trySchtasks == null) throw new ArgumentNullException(nameof(trySchtasks));
+
+            if (wmiReturnValue == 0u && wmiPid > 0)
+            {
+                return new RuntimeLaunchResult(
+                    method: RuntimeLaunchMethod.Wmi,
+                    pid: wmiPid,
+                    wmiReturnValue: 0u,
+                    schtasksExitCode: 0,
+                    diagnostic: $"Runtime process launched via WMI Win32_Process.Create. PID={wmiPid}.");
+            }
+
+            var wmiHint = wmiReturnValue == 2u
+                ? "WMI returnValue=2 (Access Denied) — likely AV/EDR or Defender ASR rule d1e49aac-8f56-4280-b9ba-993a6d77406c ('Block process creations originating from PSExec and WMI commands')."
+                : $"WMI returnValue={wmiReturnValue} pid={wmiPid}.";
+
+            var schtasksExit = trySchtasks();
+
+            if (schtasksExit == 0)
+            {
+                return new RuntimeLaunchResult(
+                    method: RuntimeLaunchMethod.Schtasks,
+                    pid: 0,
+                    wmiReturnValue: wmiReturnValue,
+                    schtasksExitCode: 0,
+                    diagnostic: $"Runtime process queued via schtasks /Run fallback. {wmiHint}");
+            }
+
+            return new RuntimeLaunchResult(
+                method: RuntimeLaunchMethod.Deferred,
+                pid: 0,
+                wmiReturnValue: wmiReturnValue,
+                schtasksExitCode: schtasksExit,
+                diagnostic: $"Both immediate-launch paths failed; deferring runtime start to BootTrigger Scheduled Task on next reboot. {wmiHint} schtasks /Run exit={schtasksExit}.");
+        }
+
+        /// <summary>
+        /// Result of a single WMI <c>Win32_Process.Create</c> attempt. <see cref="Pid"/>
+        /// is <c>0</c> on any non-zero <see cref="ReturnValue"/>.
+        /// </summary>
+        private readonly struct WmiLaunchAttempt
+        {
+            public WmiLaunchAttempt(uint returnValue, int pid)
+            {
+                ReturnValue = returnValue;
+                Pid = pid;
+            }
+
+            public uint ReturnValue { get; }
+            public int Pid { get; }
+        }
+
+        /// <summary>Which path actually ended up (attempting to) start the runtime.</summary>
+        internal enum RuntimeLaunchMethod
+        {
+            /// <summary>WMI Win32_Process.Create succeeded and reported a real PID.</summary>
+            Wmi,
+            /// <summary>WMI failed, schtasks /Run was queued successfully (exit 0).</summary>
+            Schtasks,
+            /// <summary>Both immediate paths failed; runtime will start on next boot via BootTrigger.</summary>
+            Deferred,
+        }
+
+        /// <summary>
+        /// Aggregate result of the runtime-launch orchestration. Carries enough state
+        /// (both subsystem return codes + a one-line diagnostic) for support to triage
+        /// from <c>agent_*.log</c> alone.
+        /// </summary>
+        internal readonly struct RuntimeLaunchResult
+        {
+            public RuntimeLaunchResult(
+                RuntimeLaunchMethod method,
+                int pid,
+                uint wmiReturnValue,
+                int schtasksExitCode,
+                string diagnostic)
+            {
+                Method = method;
+                Pid = pid;
+                WmiReturnValue = wmiReturnValue;
+                SchtasksExitCode = schtasksExitCode;
+                Diagnostic = diagnostic ?? string.Empty;
+            }
+
+            public RuntimeLaunchMethod Method { get; }
+            public int Pid { get; }
+            public uint WmiReturnValue { get; }
+            public int SchtasksExitCode { get; }
+            public string Diagnostic { get; }
         }
     }
 }
