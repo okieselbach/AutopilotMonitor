@@ -38,28 +38,29 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         // Blocked Devices
         // -----------------------------------------------------------------------
 
-        public async Task<(bool isBlocked, DateTime? unblockAt, string action)> IsDeviceBlockedAsync(string tenantId, string serialNumber)
+        public async Task<(bool isBlocked, DateTime? unblockAt, string action, string? blockedSessionIds)> IsDeviceBlockedAsync(string tenantId, string serialNumber)
         {
             if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(serialNumber))
-                return (false, null, "Block");
+                return (false, null, "Block", null);
 
             try
             {
                 var response = await _blockedDevicesTable.GetEntityAsync<TableEntity>(tenantId, EncodeRowKey(serialNumber));
                 var entity = response?.Value;
                 if (entity == null)
-                    return (false, null, "Block");
+                    return (false, null, "Block", null);
 
                 var unblockAt = entity.GetDateTimeOffset("UnblockAt")?.UtcDateTime ?? DateTime.MinValue;
                 if (DateTime.UtcNow >= unblockAt)
-                    return (false, null, "Block");
+                    return (false, null, "Block", null);
 
                 var action = entity.GetString("Action") ?? "Block";
-                return (true, unblockAt, action);
+                var blockedSessionIds = entity.GetString("BlockedSessionIds");
+                return (true, unblockAt, action, blockedSessionIds);
             }
             catch (RequestFailedException ex) when (ex.Status == 404)
             {
-                return (false, null, "Block");
+                return (false, null, "Block", null);
             }
         }
 

@@ -18,8 +18,15 @@ namespace AutopilotMonitor.Functions.Services
         private readonly IDeviceSecurityRepository _securityRepo;
         private readonly ILogger<BlockedDeviceService> _logger;
 
-        // Cache key: "tenantId|serialNumber" (lower-cased serial number for case-insensitive matching)
-        // Cache value: BlockCacheEntry with UnblockAt and Action. Expired entries are treated as unblocked.
+        // Positive cache entries are re-validated against storage after this window so that
+        // cross-instance mutations (manual unblock, Action upgrade Block->Kill, UnblockAt change)
+        // propagate. Negative answers from a cache miss go through the storage point-read
+        // on every call (see IsBlockedAsync), so no TTL is needed there.
+        private static readonly TimeSpan EntryRevalidateAfter = TimeSpan.FromSeconds(30);
+
+        // Cache key: "tenantId|serialNumber" (upper-cased serial number for case-insensitive matching)
+        // Cache value: BlockCacheEntry with UnblockAt, Action, BlockedSessionIds, LastCheckedUtc.
+        // Expired entries (UnblockAt past) are treated as unblocked.
         private readonly ConcurrentDictionary<string, BlockCacheEntry> _cache = new(StringComparer.OrdinalIgnoreCase);
 
         // Tracks which tenants have had their block list loaded into the cache.
@@ -39,6 +46,21 @@ namespace AutopilotMonitor.Functions.Services
         /// When <paramref name="currentSessionId"/> is provided and the block is session-aware
         /// (BlockedSessionIds is set), auto-unblocks if the session is different.
         /// Kill actions are never auto-unblocked.
+        /// <para>
+        /// Cross-instance correctness: the cache is per Function App instance, but block-state
+        /// mutations from <see cref="BlockDeviceAsync"/> / <see cref="UnblockDeviceAsync"/> only
+        /// update the local instance's cache. Two safety nets bridge other instances to storage:
+        /// <list type="bullet">
+        ///   <item>Cache miss after the tenant was loaded → storage point-read on the spot,
+        ///   then promote into the cache. Lets a newly-set Block/Kill on another instance reach
+        ///   this instance immediately instead of waiting for the lazy load that never re-runs.</item>
+        ///   <item>Positive cache hit older than <see cref="EntryRevalidateAfter"/> → storage
+        ///   point-read to re-confirm. Lets manual Unblock, Action upgrade (Block→Kill), or
+        ///   UnblockAt changes from another instance propagate within seconds.</item>
+        /// </list>
+        /// Each safety net is one indexed point-read on the BlockedDevices table — negligible
+        /// next to ingest cost.
+        /// </para>
         /// </summary>
         public async Task<(bool isBlocked, DateTime? unblockAt, string action, string? blockedSessionIds)> IsBlockedAsync(
             string tenantId, string serialNumber, string? currentSessionId = null)
@@ -53,44 +75,91 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             var cacheKey = BuildCacheKey(tenantId, serialNumber);
-            if (_cache.TryGetValue(cacheKey, out var entry))
+            BlockCacheEntry? entry;
+
+            if (_cache.TryGetValue(cacheKey, out entry))
             {
-                if (DateTime.UtcNow >= entry.UnblockAt)
+                // Stale positive entry → revalidate against storage so cross-instance mutations
+                // (manual unblock, Block→Kill upgrade, UnblockAt change) propagate.
+                if (DateTime.UtcNow - entry.LastCheckedUtc > EntryRevalidateAfter)
                 {
-                    // Block has expired — remove from cache
-                    _cache.TryRemove(cacheKey, out _);
-                    return (false, null, "Block", null);
+                    entry = await RefreshCacheEntryFromStorageAsync(tenantId, serialNumber, cacheKey);
+                    if (entry == null)
+                        return (false, null, "Block", null);
                 }
+            }
+            else
+            {
+                // Cache miss after tenant was loaded — another instance may have added a block
+                // since our LoadTenantBlockListAsync ran. Fall through to storage for one point-read
+                // so we don't blindly return "not blocked" for the lifetime of this instance.
+                entry = await RefreshCacheEntryFromStorageAsync(tenantId, serialNumber, cacheKey);
+                if (entry == null)
+                    return (false, null, "Block", null);
+            }
 
-                // Kill actions are never auto-unblocked
-                if (string.Equals(entry.Action, "Kill", StringComparison.OrdinalIgnoreCase))
-                    return (true, entry.UnblockAt, entry.Action, null);
-
-                // Whole-device block (no session IDs) — always blocked
-                if (string.IsNullOrEmpty(entry.BlockedSessionIds))
-                    return (true, entry.UnblockAt, entry.Action, null);
-
-                // Session-aware block: caller hasn't provided session ID yet — return blocked with session IDs
-                // so the caller can parse the body and call again with the actual session ID
-                if (string.IsNullOrEmpty(currentSessionId))
-                    return (true, entry.UnblockAt, entry.Action, entry.BlockedSessionIds);
-
-                // Session-aware block: check if the current session is one of the blocked ones
-                if (TableDeviceSecurityRepository.SessionIdListContains(entry.BlockedSessionIds, currentSessionId))
-                    return (true, entry.UnblockAt, entry.Action, entry.BlockedSessionIds);
-
-                // Different session — auto-unblock: new enrollment on same device
-                _logger.LogWarning(
-                    "Auto-unblocked device (new session): TenantId={TenantId}, SerialNumber={SerialNumber}, " +
-                    "BlockedSessionIds={BlockedSessionIds}, NewSessionId={NewSessionId}",
-                    tenantId, serialNumber, entry.BlockedSessionIds, currentSessionId);
-
-                // Remove block from storage and cache
-                _ = UnblockDeviceAsync(tenantId, serialNumber);
+            if (DateTime.UtcNow >= entry.UnblockAt)
+            {
+                // Block has expired — remove from cache
+                _cache.TryRemove(cacheKey, out _);
                 return (false, null, "Block", null);
             }
 
+            // Kill actions are never auto-unblocked
+            if (string.Equals(entry.Action, "Kill", StringComparison.OrdinalIgnoreCase))
+                return (true, entry.UnblockAt, entry.Action, null);
+
+            // Whole-device block (no session IDs) — always blocked
+            if (string.IsNullOrEmpty(entry.BlockedSessionIds))
+                return (true, entry.UnblockAt, entry.Action, null);
+
+            // Session-aware block: caller hasn't provided session ID yet — return blocked with session IDs
+            // so the caller can parse the body and call again with the actual session ID
+            if (string.IsNullOrEmpty(currentSessionId))
+                return (true, entry.UnblockAt, entry.Action, entry.BlockedSessionIds);
+
+            // Session-aware block: check if the current session is one of the blocked ones
+            if (TableDeviceSecurityRepository.SessionIdListContains(entry.BlockedSessionIds, currentSessionId))
+                return (true, entry.UnblockAt, entry.Action, entry.BlockedSessionIds);
+
+            // Different session — auto-unblock: new enrollment on same device
+            _logger.LogWarning(
+                "Auto-unblocked device (new session): TenantId={TenantId}, SerialNumber={SerialNumber}, " +
+                "BlockedSessionIds={BlockedSessionIds}, NewSessionId={NewSessionId}",
+                tenantId, serialNumber, entry.BlockedSessionIds, currentSessionId);
+
+            // Remove block from storage and cache
+            _ = UnblockDeviceAsync(tenantId, serialNumber);
             return (false, null, "Block", null);
+        }
+
+        /// <summary>
+        /// Reads the current state of (tenant, serial) directly from storage and updates the
+        /// in-memory cache to match. Returns the fresh entry, or null if the device is not
+        /// blocked. Used for both cache-miss fallback and stale-positive revalidation so a
+        /// single instance can never get out of sync with storage by more than one read.
+        /// </summary>
+        private async Task<BlockCacheEntry?> RefreshCacheEntryFromStorageAsync(
+            string tenantId, string serialNumber, string cacheKey)
+        {
+            var (isBlocked, unblockAt, action, blockedSessionIds) =
+                await _securityRepo.IsDeviceBlockedAsync(tenantId, serialNumber);
+
+            if (!isBlocked || unblockAt == null)
+            {
+                _cache.TryRemove(cacheKey, out _);
+                return null;
+            }
+
+            var refreshed = new BlockCacheEntry
+            {
+                UnblockAt = unblockAt.Value,
+                Action = action ?? "Block",
+                BlockedSessionIds = blockedSessionIds,
+                LastCheckedUtc = DateTime.UtcNow,
+            };
+            _cache[cacheKey] = refreshed;
+            return refreshed;
         }
 
         /// <summary>
@@ -107,7 +176,13 @@ namespace AutopilotMonitor.Functions.Services
             var cacheKey = BuildCacheKey(tenantId, serialNumber);
 
             _cache.AddOrUpdate(cacheKey,
-                _ => new BlockCacheEntry { UnblockAt = unblockAt, Action = action ?? "Block", BlockedSessionIds = blockedSessionId },
+                _ => new BlockCacheEntry
+                {
+                    UnblockAt = unblockAt,
+                    Action = action ?? "Block",
+                    BlockedSessionIds = blockedSessionId,
+                    LastCheckedUtc = DateTime.UtcNow,
+                },
                 (_, existing) =>
                 {
                     existing.UnblockAt = unblockAt;
@@ -118,6 +193,7 @@ namespace AutopilotMonitor.Functions.Services
                     else if (blockedSessionId == null)
                         existing.BlockedSessionIds = null; // Manual/whole-device block overrides session-aware
                     // else: existing is null (whole-device) — keep it null
+                    existing.LastCheckedUtc = DateTime.UtcNow;
                     return existing;
                 });
 
@@ -177,7 +253,8 @@ namespace AutopilotMonitor.Functions.Services
                     {
                         UnblockAt = entry.UnblockAt.Value,
                         Action = entry.Action,
-                        BlockedSessionIds = entry.BlockedSessionIds
+                        BlockedSessionIds = entry.BlockedSessionIds,
+                        LastCheckedUtc = now,
                     };
                 }
 
@@ -196,6 +273,11 @@ namespace AutopilotMonitor.Functions.Services
             public DateTime UnblockAt { get; set; }
             public string Action { get; set; } = "Block";
             public string? BlockedSessionIds { get; set; }
+            /// <summary>
+            /// Last time this entry was either loaded from storage or re-validated against it.
+            /// Drives the EntryRevalidateAfter window so cross-instance mutations propagate.
+            /// </summary>
+            public DateTime LastCheckedUtc { get; set; }
         }
 
         private static string BuildCacheKey(string tenantId, string serialNumber)

@@ -22,7 +22,10 @@ namespace AutopilotMonitor.Functions.Services
         private readonly IDeviceSecurityRepository _securityRepo;
         private readonly ILogger<BlockedVersionService> _logger;
 
-        private static readonly TimeSpan CacheRefreshInterval = TimeSpan.FromMinutes(5);
+        // 30s window mirrors BlockedDeviceService.EntryRevalidateAfter so a freshly-added
+        // version Kill propagates across Function App instances within seconds, not minutes.
+        // Each refresh is one table scan; with global rules the row count is small.
+        private static readonly TimeSpan CacheRefreshInterval = TimeSpan.FromSeconds(30);
 
         // In-memory cache of all version block rules
         private readonly ConcurrentDictionary<string, VersionBlockCacheEntry> _cache = new(StringComparer.OrdinalIgnoreCase);

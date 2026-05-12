@@ -11,7 +11,7 @@ namespace AutopilotMonitor.Shared.DataAccess
     public interface IDeviceSecurityRepository
     {
         // --- Blocked Devices ---
-        Task<(bool isBlocked, DateTime? unblockAt, string action)> IsDeviceBlockedAsync(string tenantId, string serialNumber);
+        Task<(bool isBlocked, DateTime? unblockAt, string action, string? blockedSessionIds)> IsDeviceBlockedAsync(string tenantId, string serialNumber);
         Task<List<BlockedDeviceEntry>> GetBlockedDevicesAsync(string tenantId);
         Task<List<BlockedDeviceEntry>> GetAllBlockedDevicesAsync();
         Task BlockDeviceAsync(string tenantId, string serialNumber, int durationHours,
