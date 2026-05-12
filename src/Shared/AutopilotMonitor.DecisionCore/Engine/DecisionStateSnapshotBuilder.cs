@@ -59,6 +59,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 ["helloOutcome"]                   = SerializeFact(state.HelloOutcome, v => v),
                 ["imeMatchedPatternId"]            = SerializeFact(state.ImeMatchedPatternId, v => v),
                 ["helloPolicyEnabled"]             = SerializeFact(state.HelloPolicyEnabled, v => (object)v),
+                ["lastFailureTrigger"]             = SerializeFact(state.LastFailureTrigger, v => v),
             };
 
             var scenario = new Dictionary<string, object?>(StringComparer.Ordinal)

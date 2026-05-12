@@ -56,6 +56,13 @@ namespace AutopilotMonitor.DecisionCore.Tests.Scenarios
             var last = result.Transitions[^1];
             Assert.Equal("EspTerminalFailure", last.Trigger);
             Assert.True(last.Taken);
+
+            // c117946b debrief (2026-05-12) — EnrollmentTerminationHandler reads
+            // LastFailureTrigger to discriminate which terminal-failure path fired and
+            // gate the "promote installing apps to likely stuck" pre-hook. The fact
+            // must therefore be stamped by the reducer, not by the orchestrator.
+            Assert.NotNull(result.FinalState.LastFailureTrigger);
+            Assert.Equal("EspTerminalFailure", result.FinalState.LastFailureTrigger!.Value);
         }
 
         [Fact]

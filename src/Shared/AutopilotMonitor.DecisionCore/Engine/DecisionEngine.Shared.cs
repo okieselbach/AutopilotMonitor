@@ -114,6 +114,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 .WithOutcome(SessionOutcome.EnrollmentFailed)
                 .WithStepIndex(nextStep)
                 .WithLastAppliedSignalOrdinal(signal.SessionSignalOrdinal)
+                .WithLastFailureTrigger(nameof(DecisionSignalKind.EffectInfrastructureFailure), signal.SessionSignalOrdinal)
                 .ClearDeadlines()
                 .Build();
 
@@ -225,6 +226,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 .WithOutcome(SessionOutcome.Aborted)
                 .WithStepIndex(nextStep)
                 .WithLastAppliedSignalOrdinal(signal.SessionSignalOrdinal)
+                .WithLastFailureTrigger(nameof(DecisionSignalKind.SessionAborted), signal.SessionSignalOrdinal)
                 .ClearDeadlines()
                 .Build();
 

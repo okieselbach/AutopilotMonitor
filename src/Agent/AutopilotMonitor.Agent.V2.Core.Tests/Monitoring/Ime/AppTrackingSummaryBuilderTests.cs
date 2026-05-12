@@ -156,6 +156,65 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
         }
 
         [Fact]
+        public void Build_InFlightStates_PopulateInstallingAndDownloadingNameLists()
+        {
+            // c117946b debrief (2026-05-12) — UI needs a name (not just a counter) for
+            // apps still in-flight at session-close, so it can render "App XY still
+            // installing" instead of an opaque "installing: 1".
+            var packages = new List<AppPackageState>
+            {
+                NewPkg("a", AppTargeted.Device, AppInstallationState.Downloading, "DownloadingApp"),
+                NewPkg("b", AppTargeted.Device, AppInstallationState.Installing,  "InstallingApp"),
+                NewPkg("c", AppTargeted.Device, AppInstallationState.Installed,   "DoneApp"),
+            };
+
+            var data = AppTrackingSummaryBuilder.Build(packages);
+
+            Assert.Equal(new[] { "DownloadingApp" }, (List<string>)data["downloadingNames"]);
+            Assert.Equal(new[] { "InstallingApp" },  (List<string>)data["installingNames"]);
+        }
+
+        [Fact]
+        public void Build_EspAppsTimeoutErrors_LandInLikelyStuckBucket()
+        {
+            // c117946b debrief (2026-05-12) — when EnrollmentTerminationHandler promotes
+            // a still-installing app to Error on terminal ESP-Apps failure, it stamps
+            // ErrorPatternId=esp_apps_timeout via SetErrorContext. The summary must
+            // count + name these in `likelyStuckNames` *in addition to* the regular
+            // `failedNames` / `errorCount` so the UI can render them with hedged
+            // "Likely stuck" wording while the analytics surface still sees them as
+            // terminal-error states.
+            var stuck = NewPkg("a", AppTargeted.Device, AppInstallationState.Error, "StuckApp");
+            stuck.SetErrorContext("esp_apps_timeout", "Install status unconfirmed — ESP timed out while still installing.");
+
+            var realFail = NewPkg("b", AppTargeted.Device, AppInstallationState.Error, "RealFail");
+            realFail.SetErrorContext("IME-ERROR-ENFORCEMENT", "Enforcement failure");
+
+            var data = AppTrackingSummaryBuilder.Build(new List<AppPackageState> { stuck, realFail });
+
+            Assert.Equal(2, (int)data["failed"]);
+            Assert.Equal(2, (int)data["errorCount"]);
+            Assert.Equal(1, (int)data["likelyStuck"]);
+            Assert.Equal(new[] { "StuckApp", "RealFail" }, (List<string>)data["failedNames"]);
+            Assert.Equal(new[] { "StuckApp" }, (List<string>)data["likelyStuckNames"]);
+        }
+
+        [Fact]
+        public void Build_NonStuckErrorsOnly_LeavesLikelyStuckBucketEmpty()
+        {
+            // Regression guard: ordinary IME-reported error patterns must NOT be classified
+            // as likely-stuck. Only the canonical `esp_apps_timeout` tag opens that bucket.
+            var pkg = NewPkg("a", AppTargeted.Device, AppInstallationState.Error, "RealFail");
+            pkg.SetErrorContext("IME-ERROR-DOWNLOAD", "Content download failed");
+
+            var data = AppTrackingSummaryBuilder.Build(new List<AppPackageState> { pkg });
+
+            Assert.Equal(1, (int)data["failed"]);
+            Assert.Equal(0, (int)data["likelyStuck"]);
+            Assert.Empty((List<string>)data["likelyStuckNames"]);
+        }
+
+        [Fact]
         public void Build_DropsV2NestedKeys_EnsuresFlatSchema()
         {
             // The schema is intentionally flat — no perApp/byPhase nested objects. Pinning

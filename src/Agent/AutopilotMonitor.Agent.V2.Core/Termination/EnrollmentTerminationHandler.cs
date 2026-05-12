@@ -11,9 +11,11 @@ using AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Agent.V2.Core.Runtime;
 using AutopilotMonitor.Agent.V2.Core.Security;
+using AutopilotMonitor.DecisionCore.Signals;
 using AutopilotMonitor.DecisionCore.State;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
+using AppFailureTypes = AutopilotMonitor.Shared.Constants.AppFailureTypes;
 
 namespace AutopilotMonitor.Agent.V2.Core.Termination
 {
@@ -116,6 +118,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         // treats as Part-1/null).
         private readonly Func<bool> _isWhiteGlovePart2Accessor;
 
+        // c117946b debrief (2026-05-12): on terminal ESP-Apps failure, promote any apps the
+        // agent observed in <see cref="AppInstallationState.Installing"/> to Error so the
+        // user sees a name (not just an opaque "installing: 1" counter) and the
+        // app_install_failed event carries the canonical failureType. Accessor is invoked
+        // ONLY when the discriminator in <see cref="ShouldPromoteActiveInstallsAsStuck"/>
+        // matches — every other terminal path leaves app states untouched. Returns the list
+        // of promoted appIds for logging; null = legacy (no promotion).
+        private readonly Func<string, string, IReadOnlyList<string>> _promoteActiveInstallsToStuck;
+
         private int _handled;
 
         public EnrollmentTerminationHandler(
@@ -142,7 +153,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             Func<int> pendingItemCountAccessor = null,
             Action writeCleanExitMarker = null,
             Func<long> ingressPendingSignalCountAccessor = null,
-            Func<bool> isWhiteGlovePart2Accessor = null)
+            Func<bool> isWhiteGlovePart2Accessor = null,
+            Func<string, string, IReadOnlyList<string>> promoteActiveInstallsToStuck = null)
         {
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -172,6 +184,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             _writeCleanExitMarker = writeCleanExitMarker;
             _ingressPendingSignalCountAccessor = ingressPendingSignalCountAccessor;
             _isWhiteGlovePart2Accessor = isWhiteGlovePart2Accessor;
+            _promoteActiveInstallsToStuck = promoteActiveInstallsToStuck;
         }
 
         /// <summary>
@@ -227,6 +240,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 // (apps haven't installed yet — Part 2 is where user apps land).
                 if (!isWhiteGlovePart1)
                 {
+                    // c117946b debrief (2026-05-12): on terminal ESP-Apps failure, promote
+                    // any apps still in `Installing` to Error with the canonical
+                    // `esp_apps_timeout` failureType BEFORE the summary snapshot is built.
+                    // The promotion fires through ImeLogTracker.OnAppStateChanged so the
+                    // adapter emits regular `app_install_failed` events (carrying the
+                    // failureType + confidence=presumed tags) and the summary picks up
+                    // the new Error counts via the `likelyStuckNames` bucket.
+                    MaybePromoteActiveInstallsAsStuck(state, args);
+
                     EmitAppTrackingSummary();
                 }
 
@@ -446,6 +468,81 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 _logger.Warning($"EnrollmentTerminationHandler: ignoredCount accessor threw: {ex.Message}");
                 return 0;
             }
+        }
+
+        /// <summary>
+        /// c117946b debrief (2026-05-12) — pre-hook for <see cref="EmitAppTrackingSummary"/>.
+        /// On the terminal-ESP-Apps-failure path, promote every app still in
+        /// <see cref="AppInstallationState.Installing"/> to
+        /// <see cref="AppInstallationState.Error"/> with failureType
+        /// <see cref="AppFailureTypes.EspAppsTimeout"/>. The promotion fires through
+        /// <c>ImeLogTracker.OnAppStateChanged</c> so the adapter emits regular
+        /// <c>app_install_failed</c> events for each promoted app (carrying the canonical
+        /// failureType plus <c>confidence=presumed</c>), and the subsequent
+        /// <c>app_tracking_summary</c> picks them up in the <c>likelyStuckNames</c> bucket.
+        /// <para>
+        /// <b>Four-check discriminator</b> — all must match before promotion runs:
+        /// </para>
+        /// <list type="number">
+        ///   <item><c>args.Reason == DecisionTerminalStage</c> — excludes
+        ///         <c>MaxLifetimeExceeded</c> (watchdog notbremse, not a session verdict).</item>
+        ///   <item><c>args.Outcome == Failed</c> — excludes <c>Succeeded</c> /
+        ///         <c>TimedOut</c>.</item>
+        ///   <item><c>state.Outcome == EnrollmentFailed</c> — excludes
+        ///         <c>SessionOutcome.Aborted</c> (admin-kill, says nothing about apps).</item>
+        ///   <item><c>state.LastFailureTrigger.Value == "EspTerminalFailure"</c> — excludes
+        ///         <c>EffectInfrastructureFailure</c> (effect-runner couldn't schedule a
+        ///         deadline; the agent has stopped monitoring, not the ESP).</item>
+        /// </list>
+        /// <para>
+        /// Best-effort: any accessor failure is logged and swallowed. Skipped silently when
+        /// the host did not wire <see cref="_promoteActiveInstallsToStuck"/> (tests).
+        /// </para>
+        /// </summary>
+        private void MaybePromoteActiveInstallsAsStuck(DecisionState state, EnrollmentTerminatedEventArgs args)
+        {
+            if (_promoteActiveInstallsToStuck == null) return;
+            if (!ShouldPromoteActiveInstallsAsStuck(state, args)) return;
+
+            try
+            {
+                const string message = "Install status unconfirmed — ESP timed out while still installing.";
+                var promoted = _promoteActiveInstallsToStuck(AppFailureTypes.EspAppsTimeout, message);
+                var count = promoted?.Count ?? 0;
+                if (count > 0)
+                {
+                    _logger.Info(
+                        $"EnrollmentTerminationHandler: promoted {count} Installing app(s) to likely-stuck (failureType={AppFailureTypes.EspAppsTimeout}).");
+                }
+                else
+                {
+                    _logger.Debug(
+                        "EnrollmentTerminationHandler: ESP terminal-failure discriminator matched but no apps were in Installing state — no promotion.");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"EnrollmentTerminationHandler: promoteActiveInstallsToStuck threw: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Discriminator for <see cref="MaybePromoteActiveInstallsAsStuck"/>. Returns true
+        /// only on the explicit terminal-ESP-failure pathway — see method-level XML doc
+        /// for the four required conditions.
+        /// </summary>
+        private static bool ShouldPromoteActiveInstallsAsStuck(DecisionState state, EnrollmentTerminatedEventArgs args)
+        {
+            if (args == null) return false;
+            if (args.Reason != EnrollmentTerminationReason.DecisionTerminalStage) return false;
+            if (args.Outcome != EnrollmentTerminationOutcome.Failed) return false;
+            if (state == null) return false;
+            if (state.Outcome != SessionOutcome.EnrollmentFailed) return false;
+            if (state.LastFailureTrigger == null) return false;
+            return string.Equals(
+                state.LastFailureTrigger.Value,
+                nameof(DecisionSignalKind.EspTerminalFailure),
+                StringComparison.Ordinal);
         }
 
         private void RunUploadDiagnosticsWithEvents(EnrollmentTerminatedEventArgs args)

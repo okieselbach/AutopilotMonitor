@@ -1012,6 +1012,19 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 if (!string.IsNullOrEmpty(app.ErrorCode)) data["errorCode"] = app.ErrorCode!;
                 if (!string.IsNullOrEmpty(app.ExitCode)) data["exitCode"] = app.ExitCode!;
                 if (!string.IsNullOrEmpty(app.HResultFromWin32)) data["hresultFromWin32"] = app.HResultFromWin32!;
+
+                // Likely-stuck classification: when the agent itself promoted this app from
+                // Installing -> Error (because the ESP gave up before IME reported a final
+                // status), tag the event so the backend's AppInstallSummary carries the
+                // canonical failureType and the UI can render hedged "likely stuck" wording
+                // instead of a confirmed-failure label. See EnrollmentTerminationHandler for
+                // the discriminator that gates the promotion.
+                if (string.Equals(app.ErrorPatternId, AutopilotMonitor.Shared.Constants.AppFailureTypes.EspAppsTimeout, StringComparison.Ordinal))
+                {
+                    data["failureType"] = AutopilotMonitor.Shared.Constants.AppFailureTypes.EspAppsTimeout;
+                    data["confidence"] = "presumed";
+                    data["terminationTrigger"] = "EspTerminalFailure";
+                }
             }
 
             return data;

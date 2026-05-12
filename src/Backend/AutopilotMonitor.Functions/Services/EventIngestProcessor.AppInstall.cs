@@ -112,10 +112,25 @@ namespace AutopilotMonitor.Functions.Services
                     summary.CompletedAt = evt.Timestamp;
                     if (summary.StartedAt != DateTime.MinValue)
                         summary.DurationSeconds = Math.Max(1, EventTimestampValidator.SafeDurationSeconds(summary.StartedAt, evt.Timestamp));
-                    summary.FailureCode = evt.Data?.ContainsKey("errorCode") == true
-                        ? evt.Data["errorCode"]?.ToString() ?? string.Empty : string.Empty;
-                    summary.FailureMessage = evt.Data?.ContainsKey("errorMessage") == true
-                        ? evt.Data["errorMessage"]?.ToString() ?? string.Empty : evt.Message ?? string.Empty;
+                    // FailureCode preference: canonical `failureType` > raw `errorCode` > empty.
+                    // c117946b debrief (2026-05-12): the V2 termination handler tags promoted
+                    // "likely stuck" apps with failureType=esp_apps_timeout so the UI can
+                    // distinguish confirmed failures from ESP-timeout-induced presumptions.
+                    var failureType = evt.Data?.ContainsKey("failureType") == true
+                        ? evt.Data["failureType"]?.ToString() : null;
+                    var errorCodeRaw = evt.Data?.ContainsKey("errorCode") == true
+                        ? evt.Data["errorCode"]?.ToString() : null;
+                    summary.FailureCode = !string.IsNullOrWhiteSpace(failureType)
+                        ? failureType!
+                        : (errorCodeRaw ?? string.Empty);
+                    // FailureMessage preference: explicit `errorMessage` > `errorDetail` > evt.Message.
+                    var errorMessage = evt.Data?.ContainsKey("errorMessage") == true
+                        ? evt.Data["errorMessage"]?.ToString() : null;
+                    var errorDetail = evt.Data?.ContainsKey("errorDetail") == true
+                        ? evt.Data["errorDetail"]?.ToString() : null;
+                    summary.FailureMessage = !string.IsNullOrWhiteSpace(errorMessage)
+                        ? errorMessage!
+                        : (!string.IsNullOrWhiteSpace(errorDetail) ? errorDetail! : (evt.Message ?? string.Empty));
                     break;
 
                 case "app_install_skipped":

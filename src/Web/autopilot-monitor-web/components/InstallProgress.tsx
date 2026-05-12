@@ -14,6 +14,7 @@ interface SummaryStats {
   installing?: number;
   installed?: number;
   failed?: number;
+  likelyStuck?: number;
 }
 
 interface InstallProgressProps {
@@ -34,6 +35,14 @@ interface InstallItem {
   errorPatternId?: string;
   exitCode?: string;
   hresultFromWin32?: string;
+  // c117946b debrief (2026-05-12) — when the agent promotes an app from Installing
+  // to Error on terminal ESP-Apps-failure, it tags the event with
+  // failureType=esp_apps_timeout + confidence=presumed. UI renders these as a
+  // hedged "Likely stuck" badge with explanatory wording, separate from a hard
+  // "Failed" label, because we genuinely don't know the final outcome.
+  failureType?: string;
+  confidence?: string;
+  isLikelyStuck: boolean;
   firstSeenIndex: number;
   eventData?: Record<string, any>;
 }
@@ -83,6 +92,7 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
           startedAt: eventTs,
           isCompleted: false,
           isError: false,
+          isLikelyStuck: false,
           firstSeenIndex: existing?.firstSeenIndex ?? insertionIndex++,
           eventData: d,
         });
@@ -102,6 +112,7 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
           durationMs: duration,
           isCompleted: true,
           isError: false,
+          isLikelyStuck: false,
           exitCode: d.exitCode ?? d.exit_code,
           hresultFromWin32: d.hresultFromWin32 ?? d.hresult_from_win32,
           firstSeenIndex: existing?.firstSeenIndex ?? insertionIndex++,
@@ -114,6 +125,10 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
         const endTime = new Date(eventTs).getTime();
         const duration = startTime ? endTime - startTime : undefined;
 
+        const failureType = (d.failureType ?? d.failure_type) as string | undefined;
+        const confidence = (d.confidence) as string | undefined;
+        const isLikelyStuck = failureType === "esp_apps_timeout";
+
         installMap.set(appName, {
           appName,
           appId,
@@ -123,6 +138,9 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
           durationMs: duration,
           isCompleted: true,
           isError: true,
+          isLikelyStuck,
+          failureType,
+          confidence,
           errorDetail: d.errorDetail ?? d.error_detail,
           errorPatternId: d.errorPatternId ?? d.error_pattern_id,
           exitCode: d.exitCode ?? d.exit_code,
@@ -146,6 +164,7 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
           durationMs: duration,
           isCompleted: true,
           isError: false,
+          isLikelyStuck: false,
           firstSeenIndex: existing?.firstSeenIndex ?? insertionIndex++,
           eventData: d,
         });
@@ -158,6 +177,7 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
           state: "Skipped",
           isCompleted: true,
           isError: false,
+          isLikelyStuck: false,
           firstSeenIndex: existing?.firstSeenIndex ?? insertionIndex++,
           eventData: d,
         });
@@ -192,7 +212,10 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
 
   const activeCount = installs.filter(d => d.state === "Installing").length;
   const completedCount = installs.filter(d => d.state === "Installed").length;
-  const failedCount = installs.filter(d => d.state === "Failed").length;
+  // Separate confirmed failures from likely-stuck (esp_apps_timeout) so the user
+  // sees an honest count of "this really failed" vs "we don't actually know".
+  const failedCount = installs.filter(d => d.state === "Failed" && !d.isLikelyStuck).length;
+  const likelyStuckCount = installs.filter(d => d.isLikelyStuck).length;
   const postponedCount = installs.filter(d => d.state === "Postponed").length;
   const skippedCount = installs.filter(d => d.state === "Skipped").length;
 
@@ -235,6 +258,14 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
             {failedCount > 0 && (
               <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">
                 {failedCount} failed
+              </span>
+            )}
+            {likelyStuckCount > 0 && (
+              <span
+                className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium"
+                title="ESP timed out while these apps were still installing — final status couldn't be confirmed."
+              >
+                {likelyStuckCount} likely stuck
               </span>
             )}
             {postponedCount > 0 && (
@@ -285,11 +316,13 @@ function InstallItemRow({ item }: { item: InstallItem }) {
 
   const containerClass = item.state === "Skipped"
     ? "bg-gray-50 border border-gray-300"
-    : item.isError
-      ? "bg-red-50 border border-red-200"
-      : item.isCompleted
-        ? "bg-green-50 border border-green-200"
-        : "bg-gray-50 border border-gray-200";
+    : item.isLikelyStuck
+      ? "bg-orange-50 border border-orange-200"
+      : item.isError
+        ? "bg-red-50 border border-red-200"
+        : item.isCompleted
+          ? "bg-green-50 border border-green-200"
+          : "bg-gray-50 border border-gray-200";
 
   return (
     <div className={`rounded-lg p-3 ${containerClass}`}>
@@ -298,6 +331,12 @@ function InstallItemRow({ item }: { item: InstallItem }) {
           {item.state === "Skipped" ? (
             <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+            </svg>
+          ) : item.isLikelyStuck ? (
+            // Question-mark inside circle — explicit "we don't actually know" iconography,
+            // distinct from the hard X used for confirmed failures.
+            <svg className="w-4 h-4 text-orange-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           ) : item.isError ? (
             <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -318,7 +357,15 @@ function InstallItemRow({ item }: { item: InstallItem }) {
           {item.state === "Skipped" && (
             <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600 font-medium">Skipped</span>
           )}
-          {item.state === "Failed" && (
+          {item.state === "Failed" && item.isLikelyStuck && (
+            <span
+              className="text-xs px-2 py-0.5 rounded-full bg-orange-200 text-orange-800 font-medium"
+              title="ESP timed out while this app was still installing — final status couldn't be confirmed. Treat as a strong hint to investigate, not a confirmed failure."
+            >
+              Likely stuck
+            </span>
+          )}
+          {item.state === "Failed" && !item.isLikelyStuck && (
             <span className="text-xs px-2 py-0.5 rounded-full bg-red-200 text-red-700 font-medium">Failed</span>
           )}
           {item.state === "Postponed" && (
@@ -380,8 +427,13 @@ function InstallItemRow({ item }: { item: InstallItem }) {
               </div>
             );
           })()}
-          {item.isError && item.errorDetail && (
+          {item.isError && item.errorDetail && !item.isLikelyStuck && (
             <div className="text-xs text-red-600">{item.errorDetail}</div>
+          )}
+          {item.isLikelyStuck && (
+            <div className="text-xs text-orange-700">
+              ESP timed out while this app was still installing — final status couldn&apos;t be confirmed.
+            </div>
           )}
         </div>
       ) : null}

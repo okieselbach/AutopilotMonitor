@@ -125,6 +125,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// </summary>
         public int ImeIgnoredCount => _imeLogHost?.PackageStates?.IgnoreList?.Count ?? 0;
 
+        /// <summary>
+        /// c117946b debrief (2026-05-12) — bridge for the V2 EnrollmentTerminationHandler
+        /// pre-hook. Delegates to <c>ImeLogHost.PromoteActiveInstallsToStuck</c> which calls
+        /// the tracker directly so the standard <c>OnAppStateChanged</c> path fires and the
+        /// adapter emits regular <c>app_install_failed</c> events for every promoted app.
+        /// Returns an empty list when the host has not been created yet (start order).
+        /// </summary>
+        public IReadOnlyList<string> PromoteActiveInstallsToStuck(string failureType, string message) =>
+            _imeLogHost?.PromoteActiveInstallsToStuck(failureType, message) ?? Array.Empty<string>();
+
         public DefaultComponentFactory(
             AgentConfiguration agentConfig,
             AgentConfigResponse remoteConfig,

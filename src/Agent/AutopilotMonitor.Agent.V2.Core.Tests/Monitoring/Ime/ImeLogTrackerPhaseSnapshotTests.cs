@@ -208,5 +208,93 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             Assert.Equal(AppTargeted.User, entry.Targeted);
             Assert.Equal(AppInstallationState.Installed, entry.InstallationState);
         }
+
+        // ----------------------------------------------------------------
+        // c117946b debrief (2026-05-12): PromoteActiveInstallsToStuck
+        // ----------------------------------------------------------------
+
+        private static AppPackageState NewPkgInstalling(string id, string name)
+        {
+            var pkg = new AppPackageState(id, listPos: 0);
+            pkg.UpdateState(AppInstallationState.Installing);
+            typeof(AppPackageState).GetProperty(nameof(AppPackageState.Name))!.SetValue(pkg, name);
+            return pkg;
+        }
+
+        [Fact]
+        public void PromoteActiveInstallsToStuck_promotes_installing_apps_to_error_and_fires_callback()
+        {
+            using var tmp = new TempDirectory();
+            using var tracker = BuildTracker(tmp);
+
+            var stuck = NewPkgInstalling("app-1", "StuckApp");
+            tracker.PackageStates.Add(stuck);
+
+            var observed = new List<(string id, AppInstallationState oldState, AppInstallationState newState)>();
+            tracker.OnAppStateChanged = (pkg, oldS, newS) => observed.Add((pkg.Id, oldS, newS));
+
+            var result = tracker.PromoteActiveInstallsToStuck(
+                "esp_apps_timeout",
+                "Install status unconfirmed — ESP timed out while still installing.");
+
+            // Tracker state: app flipped to Error with the canonical ErrorPatternId + ErrorDetail.
+            Assert.Equal(AppInstallationState.Error, stuck.InstallationState);
+            Assert.Equal("esp_apps_timeout", stuck.ErrorPatternId);
+            Assert.Contains("ESP timed out", stuck.ErrorDetail);
+
+            // The standard state-change callback fired so the adapter can emit a regular
+            // app_install_failed event (carrying the new failureType/confidence tags).
+            Assert.Single(observed);
+            Assert.Equal("app-1", observed[0].id);
+            Assert.Equal(AppInstallationState.Installing, observed[0].oldState);
+            Assert.Equal(AppInstallationState.Error, observed[0].newState);
+
+            // Return value enumerates the promoted appIds for the caller's log line.
+            Assert.Equal(new[] { "app-1" }, result);
+        }
+
+        [Fact]
+        public void PromoteActiveInstallsToStuck_skips_apps_not_in_installing_state()
+        {
+            using var tmp = new TempDirectory();
+            using var tracker = BuildTracker(tmp);
+
+            // Per design (user vote, 2026-05-12): only `Installing` is promoted. Downloading,
+            // Postponed and pending stay untouched because the agent can't claim "likely
+            // stuck" with confidence about them.
+            var dl = new AppPackageState("a", 0);
+            dl.UpdateState(AppInstallationState.Downloading);
+            var done = new AppPackageState("b", 1);
+            done.UpdateState(AppInstallationState.Installing);
+            done.UpdateState(AppInstallationState.Installed);
+            var postponed = new AppPackageState("c", 2);
+            postponed.UpdateState(AppInstallationState.Postponed);
+
+            tracker.PackageStates.Add(dl);
+            tracker.PackageStates.Add(done);
+            tracker.PackageStates.Add(postponed);
+
+            var observed = new List<string>();
+            tracker.OnAppStateChanged = (pkg, _, _) => observed.Add(pkg.Id);
+
+            var result = tracker.PromoteActiveInstallsToStuck("esp_apps_timeout", "msg");
+
+            Assert.Empty(result);
+            Assert.Empty(observed);
+            Assert.Equal(AppInstallationState.Downloading, dl.InstallationState);
+            Assert.Equal(AppInstallationState.Installed, done.InstallationState);
+            Assert.Equal(AppInstallationState.Postponed, postponed.InstallationState);
+        }
+
+        [Fact]
+        public void PromoteActiveInstallsToStuck_empty_list_when_no_installing_apps()
+        {
+            using var tmp = new TempDirectory();
+            using var tracker = BuildTracker(tmp);
+
+            var result = tracker.PromoteActiveInstallsToStuck("esp_apps_timeout", "msg");
+
+            Assert.Empty(result);
+        }
     }
 }

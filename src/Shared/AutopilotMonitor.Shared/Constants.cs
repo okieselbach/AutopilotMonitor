@@ -305,6 +305,31 @@ namespace AutopilotMonitor.Shared
         }
 
         // -----------------------------------------------------------------------
+        // App failure types
+        // -----------------------------------------------------------------------
+
+        /// <summary>
+        /// Canonical failure-type identifiers carried on <c>app_install_failed</c>
+        /// events (DataJson.failureType) and on <see cref="Models.AppInstallSummary.FailureCode"/>.
+        /// Stable strings — UI and rule engine match on these.
+        /// </summary>
+        public static class AppFailureTypes
+        {
+            /// <summary>
+            /// The Enrollment Status Page Apps-subcategory timed out while this app was still
+            /// in an active install state. The agent cannot tell whether the install ultimately
+            /// would have succeeded, failed, or hung — the ESP gave up first. UI renders these
+            /// as "likely stuck" rather than confirmed failures.
+            /// <para>
+            /// Emitted only by the V2 EnrollmentTerminationHandler on the terminal-ESP-failure
+            /// path. Apps with this failureType always carry <c>confidence: "presumed"</c> in
+            /// their event payload.
+            /// </para>
+            /// </summary>
+            public const string EspAppsTimeout = "esp_apps_timeout";
+        }
+
+        // -----------------------------------------------------------------------
         // Tenant Roles
         // -----------------------------------------------------------------------
 

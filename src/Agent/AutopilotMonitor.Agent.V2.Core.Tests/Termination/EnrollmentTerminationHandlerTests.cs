@@ -143,6 +143,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
             public Func<long>? IngressPendingSignalCountAccessor;
             public Action? WriteCleanExitMarkerHook;
             public int CleanExitMarkerWrites;
+            // c117946b debrief (2026-05-12) — captures every PromoteActiveInstallsToStuck
+            // call so tests can assert the discriminator fired exactly when intended.
+            public List<(string failureType, string message)> PromotionCalls { get; } =
+                new List<(string failureType, string message)>();
+            public IReadOnlyList<string> PromotionReturnValue { get; set; } = Array.Empty<string>();
             public List<string> TerminationActionLog { get; } = new List<string>();
             public TimeSpan SpoolDrainPeriodOverride { get; set; } = TimeSpan.Zero;
 
@@ -195,7 +200,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
                         Interlocked.Increment(ref CleanExitMarkerWrites);
                         TerminationActionLog.Add("writeCleanExitMarker");
                     }),
-                    ingressPendingSignalCountAccessor: IngressPendingSignalCountAccessor);
+                    ingressPendingSignalCountAccessor: IngressPendingSignalCountAccessor,
+                    promoteActiveInstallsToStuck: (failureType, message) =>
+                    {
+                        PromotionCalls.Add((failureType, message));
+                        return PromotionReturnValue;
+                    });
             }
 
             public void Dispose() => Tmp.Dispose();
@@ -886,6 +896,119 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
                 Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.WhiteGloveSealed));
 
             Assert.Equal(1, rig.ShutdownSignalled);
+        }
+
+        // ----------------------------------------------------------------
+        // c117946b debrief (2026-05-12): promote-active-installs-as-stuck
+        // ----------------------------------------------------------------
+
+        /// <summary>
+        /// Helper — build a Failed-stage state with the full 4-check discriminator armed:
+        /// outcome = EnrollmentFailed and lastFailureTrigger = "EspTerminalFailure".
+        /// </summary>
+        private static DecisionState BuildEspTerminalFailureState() =>
+            new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1"))
+                .WithStage(SessionStage.Failed)
+                .WithOutcome(SessionOutcome.EnrollmentFailed)
+                .WithLastFailureTrigger(nameof(DecisionSignalKind.EspTerminalFailure), sourceSignalOrdinal: 42)
+                .Build();
+
+        [Fact]
+        public void PromoteActiveInstalls_fires_on_full_discriminator_match()
+        {
+            using var rig = new Rig();
+            rig.State = BuildEspTerminalFailureState();
+            rig.PromotionReturnValue = new[] { "app-stuck-1" };
+
+            rig.Build().Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Failed, SessionStage.Failed));
+
+            // Exactly one promotion call with the canonical failureType + the user-facing message.
+            Assert.Single(rig.PromotionCalls);
+            Assert.Equal(AutopilotMonitor.Shared.Constants.AppFailureTypes.EspAppsTimeout, rig.PromotionCalls[0].failureType);
+            Assert.Contains("ESP timed out", rig.PromotionCalls[0].message);
+        }
+
+        [Fact]
+        public void PromoteActiveInstalls_skipped_on_max_lifetime_terminate()
+        {
+            // MaxLifetimeExceeded → watchdog notbremse, not an ESP-Apps verdict; the
+            // agent stops monitoring but the installs may have continued. No promotion.
+            using var rig = new Rig();
+            rig.State = BuildEspTerminalFailureState(); // even with the fact set …
+
+            rig.Build().Handle(sender: null!,
+                Args(EnrollmentTerminationReason.MaxLifetimeExceeded, EnrollmentTerminationOutcome.TimedOut, SessionStage.EspDeviceSetup));
+
+            Assert.Empty(rig.PromotionCalls);
+        }
+
+        [Fact]
+        public void PromoteActiveInstalls_skipped_on_succeeded_outcome()
+        {
+            using var rig = new Rig();
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1"))
+                .WithStage(SessionStage.Completed)
+                .WithOutcome(SessionOutcome.EnrollmentComplete)
+                .Build();
+
+            rig.Build().Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.Completed));
+
+            Assert.Empty(rig.PromotionCalls);
+        }
+
+        [Fact]
+        public void PromoteActiveInstalls_skipped_on_aborted_outcome()
+        {
+            // Admin-kill → state.Outcome = Aborted (not EnrollmentFailed). Says nothing
+            // about app status — operator pulled the plug intentionally.
+            using var rig = new Rig();
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1"))
+                .WithStage(SessionStage.Failed)
+                .WithOutcome(SessionOutcome.Aborted)
+                .WithLastFailureTrigger(nameof(DecisionSignalKind.SessionAborted), sourceSignalOrdinal: 7)
+                .Build();
+
+            rig.Build().Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Failed, SessionStage.Failed));
+
+            Assert.Empty(rig.PromotionCalls);
+        }
+
+        [Fact]
+        public void PromoteActiveInstalls_skipped_on_effect_infrastructure_failure()
+        {
+            // Monitor-notbremse path: EnrollmentFailed outcome but trigger is not ESP.
+            // We have no signal that the apps themselves failed → no promotion.
+            using var rig = new Rig();
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1"))
+                .WithStage(SessionStage.Failed)
+                .WithOutcome(SessionOutcome.EnrollmentFailed)
+                .WithLastFailureTrigger(nameof(DecisionSignalKind.EffectInfrastructureFailure), sourceSignalOrdinal: 12)
+                .Build();
+
+            rig.Build().Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Failed, SessionStage.Failed));
+
+            Assert.Empty(rig.PromotionCalls);
+        }
+
+        [Fact]
+        public void PromoteActiveInstalls_skipped_when_LastFailureTrigger_is_null()
+        {
+            // Defensive guard for snapshots from older agents that don't carry the fact.
+            // Without trigger info we can't tell which Failed path fired — abstain.
+            using var rig = new Rig();
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1"))
+                .WithStage(SessionStage.Failed)
+                .WithOutcome(SessionOutcome.EnrollmentFailed)
+                .Build();
+
+            rig.Build().Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Failed, SessionStage.Failed));
+
+            Assert.Empty(rig.PromotionCalls);
         }
     }
 }

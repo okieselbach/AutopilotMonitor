@@ -60,6 +60,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 .WithOutcome(SessionOutcome.EnrollmentFailed)
                 .WithStepIndex(nextStep)
                 .WithLastAppliedSignalOrdinal(signal.SessionSignalOrdinal)
+                .WithLastFailureTrigger(nameof(DecisionSignalKind.EspTerminalFailure), signal.SessionSignalOrdinal)
                 .ClearDeadlines();
 
             var newState = builder.Build();

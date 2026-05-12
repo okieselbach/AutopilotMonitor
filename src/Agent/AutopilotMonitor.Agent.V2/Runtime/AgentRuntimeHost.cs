@@ -307,7 +307,16 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                                 // still needs the hint to tag findings with phase=2 so the backend
                                 // vulnerability correlation pipeline can filter Part-2 inventory
                                 // out of the Part-1 set.
-                                isWhiteGlovePart2Accessor: () => orchestrator.IsWhiteGlovePart2);
+                                isWhiteGlovePart2Accessor: () => orchestrator.IsWhiteGlovePart2,
+                                // c117646b debrief (2026-05-12) — on terminal ESP-Apps failure,
+                                // promote any apps in `Installing` to Error with the canonical
+                                // `esp_apps_timeout` failureType so the user sees a name + a
+                                // hedged "likely stuck" label, not just an opaque `installing: 1`
+                                // counter. Discriminator inside the handler gates this to the
+                                // EspTerminalFailure pathway only — other Failed paths leave the
+                                // app list untouched.
+                                promoteActiveInstallsToStuck: (failureType, message)
+                                    => componentFactory.PromoteActiveInstallsToStuck(failureType, message));
 
                             // ServerActionDispatcher (plan §5.3) — constructed inside this
                             // hook so lifecyclePost + terminationHandler are guaranteed

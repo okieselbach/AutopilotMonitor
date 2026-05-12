@@ -1,6 +1,7 @@
 #nullable enable
 using System.Collections.Generic;
 using System.Linq;
+using AppFailureTypes = AutopilotMonitor.Shared.Constants.AppFailureTypes;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 {
@@ -14,12 +15,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
     /// <list type="bullet">
     ///   <item>Aggregates: <c>totalApps</c>, <c>completedApps</c>, <c>errorCount</c>,
     ///         <c>deviceErrors</c>, <c>userErrors</c>, <c>hasErrors</c>,
-    ///         <c>isAllCompleted</c>, <c>ignoredCount</c></item>
+    ///         <c>isAllCompleted</c>, <c>ignoredCount</c>, <c>likelyStuck</c></item>
     ///   <item>State counters: <c>installed</c>, <c>skipped</c>, <c>failed</c>,
     ///         <c>postponed</c>, <c>downloading</c>, <c>installing</c>, <c>pending</c></item>
     ///   <item>App-name lists per bucket: <c>installedNames</c>, <c>failedNames</c>,
-    ///         <c>skippedNames</c>, <c>postponedNames</c>, <c>pendingNames</c></item>
+    ///         <c>skippedNames</c>, <c>postponedNames</c>, <c>pendingNames</c>,
+    ///         <c>installingNames</c>, <c>downloadingNames</c>, <c>likelyStuckNames</c></item>
     /// </list>
+    /// </para>
+    /// <para>
+    /// <b>Likely-stuck bucket</b>: subset of <c>Error</c>-state apps whose
+    /// <see cref="AppPackageState.ErrorPatternId"/> is
+    /// <see cref="AppFailureTypes.EspAppsTimeout"/>. These were promoted by the
+    /// <see cref="Termination.EnrollmentTerminationHandler"/> on terminal ESP-Apps failure,
+    /// not by an observed IME error pattern. Counted in <c>failed</c>/<c>errorCount</c> too
+    /// (they are real terminal states), but the dedicated bucket lets the UI render them
+    /// with hedged "likely stuck" wording instead of a hard "failed" label.
     /// </para>
     /// </summary>
     internal static class AppTrackingSummaryBuilder
@@ -37,12 +48,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             var installing = 0;
             var deviceErrors = 0;
             var userErrors = 0;
+            var likelyStuck = 0;
 
             var installedNames = new List<string>();
             var skippedNames = new List<string>();
             var failedNames = new List<string>();
             var postponedNames = new List<string>();
             var pendingNames = new List<string>();
+            var installingNames = new List<string>();
+            var downloadingNames = new List<string>();
+            var likelyStuckNames = new List<string>();
 
             if (packages != null)
             {
@@ -70,13 +85,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                             failedNames.Add(name);
                             if (pkg.Targeted == AppTargeted.Device) deviceErrors++;
                             else if (pkg.Targeted == AppTargeted.User) userErrors++;
+                            if (string.Equals(pkg.ErrorPatternId, AppFailureTypes.EspAppsTimeout, System.StringComparison.Ordinal))
+                            {
+                                likelyStuck++;
+                                likelyStuckNames.Add(name);
+                            }
                             break;
                         case AppInstallationState.Downloading:
                             downloading++;
+                            downloadingNames.Add(name);
                             break;
                         case AppInstallationState.Installing:
                         case AppInstallationState.InProgress:
                             installing++;
+                            installingNames.Add(name);
                             break;
                         default:
                             // Unknown / NotInstalled — counted as pending below; capture name so
@@ -108,11 +130,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 ["failed"] = failed,
                 ["postponed"] = postponed,
                 ["pending"] = pending,
+                ["likelyStuck"] = likelyStuck,
                 ["pendingNames"] = pendingNames,
                 ["failedNames"] = failedNames,
                 ["postponedNames"] = postponedNames,
                 ["installedNames"] = installedNames,
                 ["skippedNames"] = skippedNames,
+                ["installingNames"] = installingNames,
+                ["downloadingNames"] = downloadingNames,
+                ["likelyStuckNames"] = likelyStuckNames,
             };
         }
     }

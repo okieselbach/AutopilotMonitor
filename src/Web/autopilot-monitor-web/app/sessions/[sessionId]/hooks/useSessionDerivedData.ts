@@ -14,7 +14,7 @@ export interface UseSessionDerivedDataReturn {
   filteredEvents: EnrollmentEvent[];
   appSummaryStats: {
     totalApps: number; completedApps: number; downloading: number; installing: number;
-    installed: number; skipped: number; failed: number; pending: number;
+    installed: number; skipped: number; failed: number; pending: number; likelyStuck: number;
   } | null;
   ntpOffset: { offsetSeconds: number; ntpServer: string | undefined } | null;
   configMgrDetected: {
@@ -77,6 +77,10 @@ export function useSessionDerivedData(
       skipped: parseInt(d.skipped ?? "0", 10),
       failed: parseInt(d.failed ?? "0", 10),
       pending: parseInt(d.pending ?? "0", 10),
+      // c117946b debrief (2026-05-12) — subset of `failed` whose failureType is
+      // `esp_apps_timeout`; rendered separately by InstallProgress so the user
+      // sees confirmed failures and ESP-timeout-induced presumptions side by side.
+      likelyStuck: parseInt(d.likelyStuck ?? "0", 10),
     };
   }, [events]);
 

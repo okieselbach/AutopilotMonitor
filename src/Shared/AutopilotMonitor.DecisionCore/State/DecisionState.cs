@@ -56,6 +56,7 @@ namespace AutopilotMonitor.DecisionCore.State
             ClassifierOutcomes? classifierOutcomes = null,
             SignalFact<bool>? helloPolicyEnabled = null,
             DateTime? agentBootUtc = null,
+            SignalFact<string>? lastFailureTrigger = null,
             string? schemaVersion = null)
         {
             if (string.IsNullOrEmpty(sessionId))
@@ -91,6 +92,7 @@ namespace AutopilotMonitor.DecisionCore.State
             ClassifierOutcomes = classifierOutcomes ?? ClassifierOutcomes.Empty;
             HelloPolicyEnabled = helloPolicyEnabled;
             AgentBootUtc = agentBootUtc;
+            LastFailureTrigger = lastFailureTrigger;
             SchemaVersion = schemaVersion ?? CurrentSchemaVersion;
         }
 
@@ -186,6 +188,21 @@ namespace AutopilotMonitor.DecisionCore.State
         /// </para>
         /// </summary>
         public DateTime? AgentBootUtc { get; }
+
+        /// <summary>
+        /// Name of the DecisionSignalKind that drove the most recent transition into a
+        /// terminal failure stage. Set by <c>HandleEspTerminalFailureV1</c>,
+        /// <c>HandleEffectInfrastructureFailureV1</c> and <c>HandleSessionAbortedV1</c>.
+        /// Null while the session is non-terminal or terminated via success.
+        /// <para>
+        /// Consumed by the V2 EnrollmentTerminationHandler to discriminate which terminal-
+        /// failure pathways trigger downstream side-effects (e.g. promoting in-flight app
+        /// installs to "likely stuck" on ESP-Apps timeout). Stored as a string rather than
+        /// the enum so additions to <see cref="Signals.DecisionSignalKind"/> don't force a
+        /// snapshot-schema bump.
+        /// </para>
+        /// </summary>
+        public SignalFact<string>? LastFailureTrigger { get; }
 
         public string SchemaVersion { get; }
 

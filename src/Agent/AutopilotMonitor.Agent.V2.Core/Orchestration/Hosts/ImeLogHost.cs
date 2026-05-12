@@ -52,6 +52,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         internal ImeLogTracker Tracker => _tracker;
 
         /// <summary>
+        /// c117946b debrief (2026-05-12) — bridge for the <c>EnrollmentTerminationHandler</c>
+        /// pre-hook to promote apps still in <see cref="AppInstallationState.Installing"/>
+        /// to Error on terminal ESP-Apps failure. Delegates to
+        /// <see cref="ImeLogTracker.PromoteActiveInstallsToStuck"/> so the standard
+        /// <c>OnAppStateChanged</c> path emits the per-app <c>app_install_failed</c> events.
+        /// Returns the list of promoted appIds for logging.
+        /// </summary>
+        public IReadOnlyList<string> PromoteActiveInstallsToStuck(string failureType, string message) =>
+            _tracker.PromoteActiveInstallsToStuck(failureType, message);
+
+        /// <summary>
         /// Exposes the tracker's simulation flag so the Dev / Test CLI flag
         /// <c>--replay-log-dir</c> is testable without poking through reflection.
         /// </summary>

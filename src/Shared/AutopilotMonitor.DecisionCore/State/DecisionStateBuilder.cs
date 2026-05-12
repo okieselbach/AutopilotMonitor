@@ -42,6 +42,7 @@ namespace AutopilotMonitor.DecisionCore.State
             ClassifierOutcomes = source.ClassifierOutcomes;
             HelloPolicyEnabled = source.HelloPolicyEnabled;
             AgentBootUtc = source.AgentBootUtc;
+            LastFailureTrigger = source.LastFailureTrigger;
             SchemaVersion = source.SchemaVersion;
         }
 
@@ -68,6 +69,7 @@ namespace AutopilotMonitor.DecisionCore.State
         public ClassifierOutcomes ClassifierOutcomes { get; set; } = ClassifierOutcomes.Empty;
         public SignalFact<bool>? HelloPolicyEnabled { get; set; }
         public DateTime? AgentBootUtc { get; set; }
+        public SignalFact<string>? LastFailureTrigger { get; set; }
         public string SchemaVersion { get; set; }
 
         // ---------- fluent helpers for the most common reducer operations ----------
@@ -156,6 +158,19 @@ namespace AutopilotMonitor.DecisionCore.State
             return this;
         }
 
+        /// <summary>
+        /// Record the name of the DecisionSignalKind that drove the most recent transition
+        /// into a terminal failure stage. Called by <c>HandleEspTerminalFailureV1</c>,
+        /// <c>HandleEffectInfrastructureFailureV1</c> and <c>HandleSessionAbortedV1</c> so the
+        /// V2 EnrollmentTerminationHandler can discriminate failure pathways without parsing
+        /// the signal log.
+        /// </summary>
+        public DecisionStateBuilder WithLastFailureTrigger(string triggerName, long sourceSignalOrdinal)
+        {
+            LastFailureTrigger = new SignalFact<string>(triggerName, sourceSignalOrdinal);
+            return this;
+        }
+
         public DecisionState Build() =>
             new DecisionState(
                 sessionId: SessionId,
@@ -181,6 +196,7 @@ namespace AutopilotMonitor.DecisionCore.State
                 classifierOutcomes: ClassifierOutcomes,
                 helloPolicyEnabled: HelloPolicyEnabled,
                 agentBootUtc: AgentBootUtc,
+                lastFailureTrigger: LastFailureTrigger,
                 schemaVersion: SchemaVersion);
     }
 }

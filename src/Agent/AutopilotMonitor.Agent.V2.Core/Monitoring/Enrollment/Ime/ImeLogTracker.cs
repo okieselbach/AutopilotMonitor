@@ -219,6 +219,55 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             return result;
         }
 
+        /// <summary>
+        /// Promotes every app currently in <see cref="AppInstallationState.Installing"/> to
+        /// <see cref="AppInstallationState.Error"/>, stamping <paramref name="failureType"/>
+        /// onto <see cref="AppPackageState.ErrorPatternId"/> and <paramref name="message"/>
+        /// onto <see cref="AppPackageState.ErrorDetail"/>, and fires
+        /// <see cref="OnAppStateChanged"/> so the adapter emits a regular
+        /// <c>app_install_failed</c> event for each promoted app.
+        /// <para>
+        /// Used by the V2 EnrollmentTerminationHandler on the terminal-ESP-Apps-failure path
+        /// (when the ESP gave up while these apps were still installing). Only
+        /// <see cref="AppInstallationState.Installing"/> is targeted — <c>Downloading</c>,
+        /// <c>InProgress</c>, <c>Postponed</c> and pending states are left alone because the
+        /// agent cannot make a confident "likely stuck" claim about them.
+        /// </para>
+        /// <para>
+        /// Returns the list of <see cref="AppPackageState.Id"/> values that were promoted —
+        /// caller uses this for logging only; the actual events are emitted via the standard
+        /// <see cref="OnAppStateChanged"/> path so the adapter sees them as ordinary error-
+        /// state transitions and the DecisionEngine receives <c>AppInstallFailed</c> signals
+        /// (idempotent at the engine — promoted apps are post-terminal).
+        /// </para>
+        /// </summary>
+        public IReadOnlyList<string> PromoteActiveInstallsToStuck(string failureType, string message)
+        {
+            if (string.IsNullOrEmpty(failureType))
+                throw new ArgumentException("failureType is mandatory.", nameof(failureType));
+
+            // Snapshot the candidates first — UpdateState mutates the underlying list ordering
+            // (SortErrorsToTop), and we want a stable iteration target.
+            var candidates = _packageStates
+                .Where(p => p != null && p.InstallationState == AppInstallationState.Installing)
+                .ToList();
+
+            var promoted = new List<string>(candidates.Count);
+            foreach (var pkg in candidates)
+            {
+                var oldState = pkg.InstallationState;
+                pkg.SetErrorContext(failureType, message ?? string.Empty);
+                if (pkg.UpdateState(AppInstallationState.Error))
+                {
+                    promoted.Add(pkg.Id);
+                    _logger?.Info($"ImeLogTracker: promoted '{pkg.Name ?? pkg.Id}' Installing -> Error ({failureType}).");
+                    OnAppStateChanged?.Invoke(pkg, oldState, AppInstallationState.Error);
+                }
+            }
+
+            return promoted;
+        }
+
         public ImeLogTracker(string logFolder, List<ImeLogPattern> patterns, AgentLogger logger, int pollingIntervalMs = 100, string matchLogPath = null, string stateDirectory = null)
         {
             _logFolder = Environment.ExpandEnvironmentVariables(logFolder);
