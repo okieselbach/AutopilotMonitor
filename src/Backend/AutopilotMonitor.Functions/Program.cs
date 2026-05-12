@@ -126,6 +126,11 @@ builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<ResiliencePolicies>();
 builder.Services.AddSingleton<TableStorageService>();
+// Cascade-deletion read surface implemented by the TableStorageService partial (PR1).
+// No production caller in PR1; producer (PR3) + worker (PR4) consume it later.
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Deletion.ISessionDeletionInventoryReader>(
+    sp => sp.GetRequiredService<TableStorageService>());
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Deletion.DeletionManifestBuilder>();
 builder.Services.AddHostedService<TableInitializerService>(); // Initialize all tables at startup
 
 // Data Access Layer — repository interfaces backed by Table Storage.

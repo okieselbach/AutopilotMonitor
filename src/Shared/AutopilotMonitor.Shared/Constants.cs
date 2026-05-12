@@ -431,6 +431,12 @@ namespace AutopilotMonitor.Shared
             // Persistent software inventory per tenant (aggregated from enrollment snapshots)
             public const string SoftwareInventory = "SoftwareInventory";
 
+            // One side-row per inventory-correlated session, keyed by (tenantId, sessionId).
+            // Drives at-most-once-per-session inventory counter increments via delta-update,
+            // and gives the cascade-delete the exact decrement keys at preflight time.
+            // Written by VulnerabilityCorrelationService (PR2); read by DeletionManifestBuilder (PR1).
+            public const string SessionInventoryContributions = "SessionInventoryContributions";
+
             // SLA breach status per tenant (one row per tenant, RowKey = "status").
             // Persists across host recycles so SLA-breach notifications can be throttled
             // reliably and a GA cross-tenant overview can be served without re-aggregation.
@@ -507,6 +513,7 @@ namespace AutopilotMonitor.Shared
                 VulnerabilityCache,
                 VulnerabilityReports,
                 SoftwareInventory,
+                SessionInventoryContributions,
                 SlaTenantStatus,
                 EventTypeIndex,
                 DeviceSnapshot,
