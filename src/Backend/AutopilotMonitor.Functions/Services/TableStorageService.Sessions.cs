@@ -454,17 +454,69 @@ namespace AutopilotMonitor.Functions.Services
                 if (!string.IsNullOrEmpty(existingIndexRowKey))
                     entity["IndexRowKey"] = existingIndexRowKey;
 
-                // PR3: preserve cascade-delete state-machine columns through the UpsertEntity (Replace).
-                // Without this, an agent re-register during Preparing/Queued/Running would silently
-                // clear the lock — letting the agent's subsequent writes race the in-flight cascade.
-                // Empty/null on first registration is fine; the columns are written by the producer's
-                // CAS, not by the agent path.
-                if (!string.IsNullOrEmpty(existingDeletionState))
-                    entity["DeletionState"] = existingDeletionState;
-                if (!string.IsNullOrEmpty(existingPendingDeletionManifestId))
-                    entity["PendingDeletionManifestId"] = existingPendingDeletionManifestId;
+                // PR3 (codex round 2 follow-up): ETag-bound CAS write loop. The plain
+                // UpsertEntity (Replace) had a TOCTOU race against the cascade-delete producer:
+                // (T1) StoreSessionAsync reads row → DeletionState=None, captures preserved fields.
+                // (T2) Producer concurrently CAS-es None → Preparing.
+                // (T3) StoreSessionAsync writes Replace → silently clobbers DeletionState=Preparing.
+                // ETag-bound UpdateEntity makes T3 fail with 412 instead, the loop re-reads the
+                // fresh row (now DeletionState=Preparing), re-stamps the cascade-lock columns
+                // onto our entity, and retries. The initial-read extract above is preserved as a
+                // best-effort hint; the per-iteration fresh read is what actually wins the race.
+                const int MaxStoreSessionCasAttempts = 5;
+                for (var casAttempt = 0; ; casAttempt++)
+                {
+                    Azure.ETag? freshEtag = null;
+                    string? freshDeletionState = null;
+                    string? freshPendingDeletionManifestId = null;
+                    try
+                    {
+                        var freshResponse = await tableClient.GetEntityAsync<TableEntity>(
+                            registration.TenantId, registration.SessionId,
+                            select: new[] { "DeletionState", "PendingDeletionManifestId" });
+                        freshEtag = freshResponse.Value.ETag;
+                        freshDeletionState = freshResponse.Value.GetString("DeletionState");
+                        freshPendingDeletionManifestId = freshResponse.Value.GetString("PendingDeletionManifestId");
+                    }
+                    catch (RequestFailedException ex) when (ex.Status == 404)
+                    {
+                        // Row was deleted between the initial extract above and now (cascade
+                        // tombstone happened, or maintenance cleanup raced). Fall through to
+                        // AddEntity — re-creates the row from registration data only.
+                    }
 
-                await tableClient.UpsertEntityAsync(entity);
+                    // Stamp cascade-lock columns from the FRESH read so the Replace below
+                    // doesn't silently clear them. This kicks in even when the initial read
+                    // saw None and the producer transitioned to Preparing in between.
+                    if (!string.IsNullOrEmpty(freshDeletionState))
+                        entity["DeletionState"] = freshDeletionState;
+                    else if (!string.IsNullOrEmpty(existingDeletionState))
+                        entity["DeletionState"] = existingDeletionState;
+                    if (!string.IsNullOrEmpty(freshPendingDeletionManifestId))
+                        entity["PendingDeletionManifestId"] = freshPendingDeletionManifestId;
+                    else if (!string.IsNullOrEmpty(existingPendingDeletionManifestId))
+                        entity["PendingDeletionManifestId"] = existingPendingDeletionManifestId;
+
+                    try
+                    {
+                        if (freshEtag.HasValue)
+                        {
+                            await tableClient.UpdateEntityAsync(entity, freshEtag.Value, TableUpdateMode.Replace);
+                        }
+                        else
+                        {
+                            await tableClient.AddEntityAsync(entity);
+                        }
+                        break;
+                    }
+                    catch (RequestFailedException ex) when ((ex.Status == 412 || ex.Status == 409) && casAttempt < MaxStoreSessionCasAttempts - 1)
+                    {
+                        _logger.LogDebug(
+                            "StoreSessionAsync ETag CAS conflict (status={Status}, attempt={Attempt}); retrying for tenant={TenantId} session={SessionId}",
+                            ex.Status, casAttempt + 1, registration.TenantId, registration.SessionId);
+                        continue;
+                    }
+                }
 
                 // Dual-write: upsert into SessionsIndex for time-sorted listing
                 await UpsertSessionIndexAsync(entity, startedAt);

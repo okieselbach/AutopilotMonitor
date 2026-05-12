@@ -192,33 +192,59 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                         // worker picks it up. Idempotent — if the queue already has a message,
                         // duplicates are handled by the worker via the manifest's CAS-bound
                         // progress blob (Plan §5 PR3 step 4 + §16-R12).
-                        await EnsureQueueExistsAsync(cancellationToken).ConfigureAwait(false);
-                        var resumeEnvelope = new SessionDeletionEnvelope
+                        return await ResumeBySendingQueueMessageAsync(
+                            tenantId, sessionId, cas1.CurrentManifestId!, cas1.CurrentState!, reason, cancellationToken).ConfigureAwait(false);
+                    }
+                    if (cas1.CurrentState == SessionDeletionState.Preparing && !string.IsNullOrEmpty(cas1.CurrentManifestId))
+                    {
+                        // Codex round-2 follow-up F4: a prior producer crashed AFTER uploading
+                        // the snapshot + progress blobs but BEFORE the CAS Preparing→Queued
+                        // step. Plan §10 GC only clears Preparing rows without a progress blob,
+                        // so this case would otherwise sit forever. Probe the snapshot blob;
+                        // if present, attempt the missing CAS Preparing→Queued + queue send
+                        // to finish the resume. If absent (the prior crash was earlier in the
+                        // build/upload phase), bail out with AlreadyInFlight and let the
+                        // maintenance GC clean up.
+                        var snapshotExists = false;
+                        try
                         {
-                            TenantId = tenantId,
-                            SessionId = sessionId,
-                            ManifestId = cas1.CurrentManifestId!,
-                            Reason = reason + ":resume",
-                            EnqueuedAt = DateTime.UtcNow,
-                        };
-                        await _queueClient.SendMessageAsync(JsonConvert.SerializeObject(resumeEnvelope), cancellationToken).ConfigureAwait(false);
-                        _logger.LogInformation(
-                            "SessionDeletionProducer re-enqueued (resume) for stranded Queued: tenant={TenantId} session={SessionId} manifestId={ManifestId}",
-                            tenantId, sessionId, cas1.CurrentManifestId);
-                        return new SessionDeletionEnqueueResult
+                            snapshotExists = await _blob.DeletionSnapshotExistsAsync(
+                                tenantId, sessionId, cas1.CurrentManifestId!, cancellationToken).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
                         {
-                            Outcome = SessionDeletionEnqueueOutcome.Enqueued,
-                            ManifestId = cas1.CurrentManifestId,
-                            ExistingState = cas1.CurrentState,
-                            Reason = "resume",
-                        };
+                            _logger.LogWarning(ex,
+                                "DeletionSnapshotExistsAsync probe failed while attempting Preparing-resume; falling back to AlreadyInFlight. tenant={TenantId} session={SessionId} manifestId={ManifestId}",
+                                tenantId, sessionId, cas1.CurrentManifestId);
+                        }
+                        if (snapshotExists)
+                        {
+                            var resumeCas = await _storage.CasSetSessionDeletionStateAsync(
+                                tenantId, sessionId,
+                                fromState: SessionDeletionState.Preparing,
+                                toState: SessionDeletionState.Queued,
+                                newManifestId: null,
+                                cancellationToken).ConfigureAwait(false);
+                            if (resumeCas.Outcome == TableStorageService.SessionDeletionStateCasOutcome.Updated)
+                            {
+                                _logger.LogInformation(
+                                    "Preparing-resume: snapshot blob present, CAS Preparing→Queued succeeded. tenant={TenantId} session={SessionId} manifestId={ManifestId}",
+                                    tenantId, sessionId, cas1.CurrentManifestId);
+                                return await ResumeBySendingQueueMessageAsync(
+                                    tenantId, sessionId, cas1.CurrentManifestId!, SessionDeletionState.Preparing, reason, cancellationToken).ConfigureAwait(false);
+                            }
+                            _logger.LogInformation(
+                                "Preparing-resume: CAS Preparing→Queued lost (outcome={Outcome}, currentState={CurrentState}); reporting AlreadyInFlight",
+                                resumeCas.Outcome, resumeCas.CurrentState);
+                            // Fall through to AlreadyInFlight below.
+                        }
                     }
                     if (SessionDeletionState.IsLocked(cas1.CurrentState))
                     {
-                        // Preparing or Running — caller decides UX (admin → 409 Conflict,
-                        // maintenance → skip + audit). Preparing without progress blob is GC'd
-                        // after 1h by PR6's maintenance function; Running is the worker actively
-                        // processing.
+                        // Preparing without a snapshot blob (or Running) — caller decides UX
+                        // (admin → 409 Conflict, maintenance → skip + audit). Preparing without
+                        // progress blob is GC'd after 1h by PR6's maintenance function; Running
+                        // is the worker actively processing.
                         return new SessionDeletionEnqueueResult
                         {
                             Outcome = SessionDeletionEnqueueOutcome.AlreadyInFlight,
@@ -332,6 +358,38 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             {
                 Outcome = SessionDeletionEnqueueOutcome.Enqueued,
                 ManifestId = manifestId,
+            };
+        }
+
+        /// <summary>
+        /// Sends a SessionDeletionEnvelope with the SUPPLIED ManifestId (the stranded one we're
+        /// recovering) and returns <see cref="SessionDeletionEnqueueOutcome.Enqueued"/> with
+        /// <c>Reason="resume"</c>. Used by both the Queued-resume and Preparing-resume paths so
+        /// the recovery is consistent and the audit log shows a unified ":resume" marker.
+        /// </summary>
+        private async Task<SessionDeletionEnqueueResult> ResumeBySendingQueueMessageAsync(
+            string tenantId, string sessionId, string existingManifestId, string fromState,
+            string originalReason, CancellationToken cancellationToken)
+        {
+            await EnsureQueueExistsAsync(cancellationToken).ConfigureAwait(false);
+            var resumeEnvelope = new SessionDeletionEnvelope
+            {
+                TenantId = tenantId,
+                SessionId = sessionId,
+                ManifestId = existingManifestId,
+                Reason = originalReason + ":resume",
+                EnqueuedAt = DateTime.UtcNow,
+            };
+            await _queueClient.SendMessageAsync(JsonConvert.SerializeObject(resumeEnvelope), cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation(
+                "SessionDeletionProducer re-enqueued (resume) from {FromState}: tenant={TenantId} session={SessionId} manifestId={ManifestId}",
+                fromState, tenantId, sessionId, existingManifestId);
+            return new SessionDeletionEnqueueResult
+            {
+                Outcome = SessionDeletionEnqueueOutcome.Enqueued,
+                ManifestId = existingManifestId,
+                ExistingState = fromState,
+                Reason = "resume",
             };
         }
 

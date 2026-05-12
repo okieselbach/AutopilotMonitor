@@ -327,6 +327,36 @@ namespace AutopilotMonitor.Functions.Services
             return response.Value.ETag;
         }
 
+        /// <summary>
+        /// Lightweight existence check for a cascade-deletion snapshot blob. Used by the
+        /// producer's resume-from-Preparing path to distinguish "the prior producer crashed
+        /// before uploading the snapshot" (skip resume, let GC clean up) from "snapshot is
+        /// there, only the CAS Preparing→Queued failed" (safe to resume).
+        /// </summary>
+        public virtual async Task<bool> DeletionSnapshotExistsAsync(
+            string tenantId, string sessionId, string manifestId, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentException("tenantId is required", nameof(tenantId));
+            if (string.IsNullOrEmpty(sessionId)) throw new ArgumentException("sessionId is required", nameof(sessionId));
+            if (string.IsNullOrEmpty(manifestId)) throw new ArgumentException("manifestId is required", nameof(manifestId));
+
+            var blobName = BuildSnapshotBlobName(tenantId, sessionId, manifestId);
+            return await DeletionSnapshotBlobExistsAsync(blobName, cancellationToken);
+        }
+
+        /// <summary>
+        /// Test seam: the production override calls Azure Blob Storage's HEAD;
+        /// tests subclass to return canned true/false without spinning up an SDK client.
+        /// </summary>
+        protected internal virtual async Task<bool> DeletionSnapshotBlobExistsAsync(
+            string blobName, CancellationToken cancellationToken)
+        {
+            var containerClient = _blobServiceClient.GetBlobContainerClient(DeletionManifestsContainer);
+            var blobClient = containerClient.GetBlobClient(blobName);
+            var response = await blobClient.ExistsAsync(cancellationToken);
+            return response.Value;
+        }
+
         private static string BuildSnapshotBlobName(string tenantId, string sessionId, string manifestId)
             => $"{tenantId}/{sessionId}/{manifestId}.snapshot.json.gz";
 
