@@ -146,9 +146,10 @@ function cardStatusTextColor(state: ScriptCard["headerState"]): string {
  * cards collapse the parent header into the single phase row (no nesting).
  */
 function ScriptCardView({ card, showScriptOutput, latestBootstrapVersion }: { card: ScriptCard; showScriptOutput?: boolean; latestBootstrapVersion?: string | null }) {
-  // Cycles default to expanded (the user usually wants to see what happened in each
-  // phase); single-phase cards have nothing nested so the toggle would be a no-op.
-  const [phasesOpen, setPhasesOpen] = useState(true);
+  // Cycles default to COLLAPSED so a session with many remediation policies stays
+  // scannable — the header carries the cycle-level outcome which is the at-a-glance
+  // signal the user wants first. Click the chevron to drill into per-phase details.
+  const [phasesOpen, setPhasesOpen] = useState(false);
 
   if (!card.isCycle) {
     // Single-phase / platform: keep the existing row layout, no parent wrapper.
