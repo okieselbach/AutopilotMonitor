@@ -437,6 +437,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         internal void TriggerFinalizingSetupPhaseForTest(string reason) =>
             OnFinalizingSetupPhaseTriggered(this, reason);
 
+        // Test seam for EspExited — invokes the inner-handler with the exact signature the live
+        // ShellCoreTracker.EspExited event raises. Drives the full coordinator re-raise path so
+        // tests can assert LastEventOccurredAtUtc mirroring + the public EspExited event fire
+        // without needing a real ShellCoreTracker + Event-Log watcher.
+        internal void TriggerEspExitedForTest(DateTime occurredAtUtc) =>
+            OnEspExited(this, new EspExitedEventArgs(occurredAtUtc));
+
         private void OnWhiteGloveCompleted(object sender, EventArgs e)
         {
             LastEventOccurredAtUtc = (sender as ShellCoreTracker)?.LastEventOccurredAtUtc;

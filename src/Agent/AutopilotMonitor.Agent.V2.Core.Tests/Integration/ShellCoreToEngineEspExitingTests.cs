@@ -119,14 +119,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Integration
         }
 
         // -------------------------------------------- Coordinator-pfad (production wiring) --
+        //
+        // These tests drive the coordinator's OnEspExited inner-handler via the
+        // EspAndHelloTracker.TriggerEspExitedForTest seam, which matches the live signature
+        // (DateTime args) used by the inner ShellCoreTracker.EspExited event. Going through
+        // the coordinator handler exercises:
+        //   1. LastEventOccurredAtUtc mirroring on the args timestamp
+        //   2. The public EspAndHelloTracker.EspExited re-raise
+        //   3. The adapter's coordinator subscription
+        //   4. ResolveOccurredAt source-time preservation through the adapter
+        // Going through adapter.TriggerEspExitingFromTest() (sibling adapter-only tests in
+        // SignalAdapters/EspAndHelloTrackerAdapterTests) does NOT exercise step 1-3.
 
         [Fact]
-        public void Coordinator_propagates_EspExited_to_EspAndHelloTrackerAdapter_as_EspExiting_signal()
+        public void Coordinator_EspExited_handler_re_raises_to_adapter_as_EspExiting_signal()
         {
             // Production wiring: V2-Host instantiates EspAndHelloTracker (coordinator) which owns
             // a private ShellCoreTracker; EspAndHelloTrackerAdapter subscribes to the
-            // coordinator's re-raised events. The new EspExited event must traverse the
-            // coordinator and emerge on the adapter as DecisionSignalKind.EspExiting.
+            // coordinator's re-raised events. Trigger the coordinator's inner OnEspExited handler
+            // directly — that's the exact code path .NET runtime invokes when the inner
+            // ShellCoreTracker.EspExited delegate fires.
             using var tmp = new TempDirectory();
             var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
             var clock = new VirtualClock(ClockNow);
@@ -137,23 +149,51 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Integration
                 tenantId: "T1",
                 post: coordinatorPost,
                 logger: logger);
-            // The coordinator's inner ShellCoreTracker comes alive on Start(); we can't drive
-            // a real Event-Log record from a unit test, so simulate the inner forward by
-            // raising EspExited on the coordinator via the test-only seam.
             using var adapter = new EspAndHelloTrackerAdapter(coordinator, ingress, clock);
 
-            adapter.TriggerEspExitingFromTest();
+            var sourceTime = ClockNow.AddMinutes(-3);
+            coordinator.TriggerEspExitedForTest(sourceTime);
 
             var espExiting = ingress.Posted.FirstOrDefault(p => p.Kind == DecisionSignalKind.EspExiting);
             Assert.NotNull(espExiting);
             Assert.Equal("EspAndHelloTracker", espExiting!.SourceOrigin);
             Assert.Equal("ShellCoreTracker", espExiting.Evidence.DerivationInputs!["subSource"]);
+
+            // Critical: source-event timestamp made it through Coordinator.OnEspExited's
+            // LastEventOccurredAtUtc mirror into the adapter's ResolveOccurredAt — proving the
+            // re-raise contract end-to-end, not just the adapter emit.
+            Assert.Equal(sourceTime, espExiting.OccurredAtUtc);
+            Assert.NotEqual(clock.UtcNow, espExiting.OccurredAtUtc);
+            // No clock-fallback tag — would only be set if LastEventOccurredAtUtc was null.
+            Assert.False(espExiting.Evidence.DerivationInputs.ContainsKey("derivedTimestamp"));
+        }
+
+        [Fact]
+        public void Coordinator_EspExited_handler_clears_LastEventOccurredAtUtc_after_re_raise()
+        {
+            // Defensive contract: after OnEspExited's finally-block, LastEventOccurredAtUtc is
+            // back to null so a subsequent Hello / Provisioning forward (which intentionally sets
+            // LastEventOccurredAtUtc = null) cannot bleed a stale ShellCore timestamp into the
+            // adapter's ResolveOccurredAt.
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
+            using var coordinator = new EspAndHelloTracker(
+                sessionId: "S1",
+                tenantId: "T1",
+                post: new InformationalEventPost(new FakeSignalIngressSink(), new VirtualClock(ClockNow)),
+                logger: logger);
+
+            coordinator.TriggerEspExitedForTest(ClockNow.AddMinutes(-3));
+
+            Assert.Null(coordinator.LastEventOccurredAtUtc);
         }
 
         [Fact]
         public void Coordinator_to_reducer_arms_HelloSafety_when_AccountSetup_observed()
         {
             // End-to-end through the production-wired coordinator pipeline + engine reducer.
+            // Uses the coordinator's TriggerEspExitedForTest so the assertion actually proves
+            // ShellCoreTracker→Coordinator→Adapter→Engine, not just Adapter→Engine.
             using var tmp = new TempDirectory();
             var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
             var clock = new VirtualClock(ClockNow);
@@ -166,24 +206,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Integration
                 logger: logger);
             using var adapter = new EspAndHelloTrackerAdapter(coordinator, ingress, clock);
 
-            adapter.TriggerEspExitingFromTest();
+            var sourceTime = ClockNow.AddMinutes(-1);
+            coordinator.TriggerEspExitedForTest(sourceTime);
 
             var espExiting = ingress.Posted.FirstOrDefault(p => p.Kind == DecisionSignalKind.EspExiting);
             Assert.NotNull(espExiting);
+            Assert.Equal(sourceTime, espExiting!.OccurredAtUtc);
 
             var engine = new DecisionEngine();
-            var seed = DecisionState.CreateInitial("S1", "T1", agentBootUtc: ClockNow.AddMinutes(-5))
+            var seed = DecisionState.CreateInitial("S1", "T1", agentBootUtc: sourceTime.AddMinutes(-5))
                 .ToBuilder()
                 .WithStage(SessionStage.EspAccountSetup)
                 .WithStepIndex(2)
                 .WithLastAppliedSignalOrdinal(1);
-            seed.AccountSetupEnteredUtc = new SignalFact<DateTime>(ClockNow.AddMinutes(-2), 1);
+            seed.AccountSetupEnteredUtc = new SignalFact<DateTime>(sourceTime.AddMinutes(-2), 1);
             var state = seed.Build();
 
             var enriched = new DecisionSignal(
                 sessionSignalOrdinal: 2,
                 sessionTraceOrdinal: 2,
-                kind: espExiting!.Kind,
+                kind: espExiting.Kind,
                 kindSchemaVersion: espExiting.KindSchemaVersion,
                 occurredAtUtc: espExiting.OccurredAtUtc,
                 sourceOrigin: espExiting.SourceOrigin,
@@ -193,7 +235,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Integration
             var step = engine.Reduce(state, enriched);
 
             Assert.Equal(SessionStage.AwaitingHello, step.NewState.Stage);
-            Assert.Contains(step.NewState.Deadlines, d => d.Name == DeadlineNames.HelloSafety);
+            var helloSafety = Assert.Single(step.NewState.Deadlines, d => d.Name == DeadlineNames.HelloSafety);
+            // HelloSafety floored at the source-time, not wall-clock-now — proves the source
+            // timestamp made it through coordinator→adapter→engine, not just adapter→engine.
+            Assert.Equal(sourceTime.AddSeconds(300), helloSafety.DueAtUtc);
         }
     }
 }
