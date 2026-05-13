@@ -8,7 +8,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
     /// so subscribers can stamp downstream Decision-Signals with the historical UTC instead
     /// of collapsing to wall-clock-now.
     /// </summary>
-    internal sealed class EspExitedEventArgs : EventArgs
+    public sealed class EspExitedEventArgs : EventArgs
     {
         public EspExitedEventArgs(DateTime occurredAtUtc)
         {

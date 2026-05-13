@@ -26,6 +26,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
     ///   <item><c>WhiteGloveCompleted</c> → <see cref="DecisionSignalKind.WhiteGloveShellCoreSuccess"/></item>
     ///   <item><c>EspFailureDetected</c> → <see cref="DecisionSignalKind.EspTerminalFailure"/> (merged aus ShellCore + Provisioning)</item>
     ///   <item><c>DeviceSetupProvisioningComplete</c> → <see cref="DecisionSignalKind.DeviceSetupProvisioningComplete"/></item>
+    ///   <item><c>EspExited</c> → <see cref="DecisionSignalKind.EspExiting"/> (no dedup — every 62407 forwarded; reducer guard decides)</item>
     /// </list>
     /// </para>
     /// <para>
@@ -67,6 +68,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _coordinator.EspFailureDetected += OnEspFailure;
             _coordinator.DeviceSetupProvisioningComplete += OnDeviceSetupComplete;
             _coordinator.HelloPolicyDetected += OnHelloPolicyDetected;
+            _coordinator.EspExited += OnEspExited;
         }
 
         public void Dispose()
@@ -77,6 +79,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _coordinator.EspFailureDetected -= OnEspFailure;
             _coordinator.DeviceSetupProvisioningComplete -= OnDeviceSetupComplete;
             _coordinator.HelloPolicyDetected -= OnHelloPolicyDetected;
+            _coordinator.EspExited -= OnEspExited;
         }
 
         private void OnHelloCompleted(object sender, EventArgs e) => EmitHello(ReadHelloOutcome());
@@ -85,6 +88,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private void OnEspFailure(object sender, string failureType) => EmitEspFailure(failureType);
         private void OnDeviceSetupComplete(object sender, EventArgs e) => EmitDeviceSetupComplete();
         private void OnHelloPolicyDetected(bool helloEnabled, string source) => EmitHelloPolicy(helloEnabled, source);
+        private void OnEspExited(object sender, EspExitedEventArgs args) => EmitEspExiting();
 
         internal void TriggerHelloFromTest(string? helloOutcome) => EmitHello(helloOutcome);
         internal void TriggerFinalizingFromTest(string reason) => EmitFinalizing(reason);
@@ -92,6 +96,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         internal void TriggerEspFailureFromTest(string failureType) => EmitEspFailure(failureType);
         internal void TriggerDeviceSetupCompleteFromTest() => EmitDeviceSetupComplete();
         internal void TriggerHelloPolicyDetectedFromTest(bool helloEnabled, string source) => EmitHelloPolicy(helloEnabled, source);
+        internal void TriggerEspExitingFromTest() => EmitEspExiting();
 
         /// <summary>
         /// Reads <c>HelloOutcome</c> from the coordinator's forwarded property
@@ -279,6 +284,36 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                     [SignalPayloadKeys.HelloEnabled] = helloEnabledStr,
                     [SignalPayloadKeys.HelloPolicySource] = safeSource,
                 });
+        }
+
+        // Coordinator-forwarded EspExiting. NO per-kind dedup — Shell-Core 62407 fires at every
+        // ESP phase transition (Device→Account, Account→End), and the reducer's
+        // ShouldTransitionToAwaitingHello guard distinguishes the genuine post-AccountSetup exit
+        // from intermediate ones. Posting all occurrences keeps the SignalLog complete for the
+        // Inspector and lets the reducer be the single source of truth for "is this the real exit".
+        // Source-event timestamp is read from the coordinator's LastEventOccurredAtUtc mirror
+        // (set by OnEspExited from the EspExitedEventArgs), with a clock fallback tagged in
+        // evidence so the Inspector can flag non-source-grounded signals on edge cases.
+        private void EmitEspExiting()
+        {
+            var now = ResolveOccurredAt(out var derivedFromClock);
+            var derivationInputs = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["subSource"] = "ShellCoreTracker",
+                ["eventSource"] = "Microsoft-Windows-Shell-Core",
+                ["eventId"] = "62407",
+            };
+            TagDerivedTimestamp(derivationInputs, derivedFromClock);
+
+            _ingress.Post(
+                kind: DecisionSignalKind.EspExiting,
+                occurredAtUtc: now,
+                sourceOrigin: SourceOrigin,
+                evidence: new Evidence(
+                    kind: EvidenceKind.Derived,
+                    identifier: DetectorId,
+                    summary: "ESP exiting (coordinator-forwarded Shell-Core 62407)",
+                    derivationInputs: derivationInputs));
         }
 
         private void EmitDeviceSetupComplete()

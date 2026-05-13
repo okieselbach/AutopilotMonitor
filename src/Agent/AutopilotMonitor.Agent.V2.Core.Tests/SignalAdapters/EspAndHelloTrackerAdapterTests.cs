@@ -140,6 +140,44 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             Assert.Contains(DecisionSignalKind.DeviceSetupProvisioningComplete, kinds);
         }
 
+        // ---- EspExited (coordinator-forwarded from ShellCoreTracker.EspExited) ----
+
+        [Fact]
+        public void EspExitedEvent_emits_EspExiting_signal_via_coordinator()
+        {
+            using var f = new Fixture();
+            using var adapter = new EspAndHelloTrackerAdapter(f.Coordinator, f.Ingress, f.Clock);
+
+            adapter.TriggerEspExitingFromTest();
+
+            var posted = Assert.Single(f.Ingress.Posted);
+            Assert.Equal(DecisionSignalKind.EspExiting, posted.Kind);
+            Assert.Equal("EspAndHelloTracker", posted.SourceOrigin);
+            Assert.Equal(EvidenceKind.Derived, posted.Evidence.Kind);
+            Assert.Contains("ESP exiting", posted.Evidence.Summary);
+            Assert.Equal("ShellCoreTracker", posted.Evidence.DerivationInputs!["subSource"]);
+            Assert.Equal("62407", posted.Evidence.DerivationInputs["eventId"]);
+        }
+
+        [Fact]
+        public void EspExited_posts_every_occurrence_no_dedup_at_adapter_layer()
+        {
+            // Shell-Core 62407 fires at every ESP phase transition (Device→Account, Account→End).
+            // The adapter must NOT dedup — the reducer (ShouldTransitionToAwaitingHello) decides
+            // which occurrence is the genuine post-AccountSetup exit. (Coordinator-side
+            // IsIntermediateDeviceEspExit filters the legacy FinalizingSetupPhaseTriggered path,
+            // not this one.)
+            using var f = new Fixture();
+            using var adapter = new EspAndHelloTrackerAdapter(f.Coordinator, f.Ingress, f.Clock);
+
+            adapter.TriggerEspExitingFromTest();
+            adapter.TriggerEspExitingFromTest();
+            adapter.TriggerEspExitingFromTest();
+
+            var espExitingPosts = f.Ingress.Posted.Where(p => p.Kind == DecisionSignalKind.EspExiting).ToList();
+            Assert.Equal(3, espExitingPosts.Count);
+        }
+
         [Fact]
         public void Ctor_null_args_throw()
         {

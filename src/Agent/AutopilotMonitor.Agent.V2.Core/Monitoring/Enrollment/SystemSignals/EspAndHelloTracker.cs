@@ -85,6 +85,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         // DecisionSignalKind.HelloPolicyDetected signal.
         public event Action<bool, string> HelloPolicyDetected;
 
+        // Coordinator-forwarded ESP exit (from <see cref="ShellCoreTracker.EspExited"/>). Carries
+        // the source-event timestamp on the args so the adapter can post a
+        // <c>DecisionSignalKind.EspExiting</c> signal with the historical instant on backfill.
+        // No dedup at this layer — Shell-Core 62407 fires at every ESP phase transition
+        // (Device→Account, Account→End), and the reducer's <c>ShouldTransitionToAwaitingHello</c>
+        // guard distinguishes the genuine post-AccountSetup exit from intermediate ones.
+        public event EventHandler<EspExitedEventArgs> EspExited;
+
         /// <summary>
         /// UTC timestamp of the most recent sub-tracker event currently being raised
         /// (mirrored from <see cref="ShellCoreTracker.LastEventOccurredAtUtc"/> for ShellCore-
@@ -232,6 +240,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             _shellCoreTracker.FinalizingSetupPhaseTriggered += OnFinalizingSetupPhaseTriggered;
             _shellCoreTracker.WhiteGloveCompleted += OnWhiteGloveCompleted;
             _shellCoreTracker.EspFailureDetected += OnEspFailureDetected;
+            _shellCoreTracker.EspExited += OnEspExited;
             _shellCoreTracker.Start();
 
             _provisioningTracker = new ProvisioningStatusTracker(
@@ -292,6 +301,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 _shellCoreTracker.FinalizingSetupPhaseTriggered -= OnFinalizingSetupPhaseTriggered;
                 _shellCoreTracker.WhiteGloveCompleted -= OnWhiteGloveCompleted;
                 _shellCoreTracker.EspFailureDetected -= OnEspFailureDetected;
+                _shellCoreTracker.EspExited -= OnEspExited;
                 _shellCoreTracker.Stop();
             }
             catch (Exception ex) { _logger.Error("Error stopping Shell-Core tracker", ex); }
@@ -452,6 +462,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             LastEventOccurredAtUtc = null;
             try { DeviceSetupProvisioningComplete?.Invoke(this, EventArgs.Empty); }
             catch (Exception ex) { _logger.Error("Error forwarding DeviceSetupProvisioningComplete", ex); }
+        }
+
+        private void OnEspExited(object sender, EspExitedEventArgs args)
+        {
+            // EspExited carries its source-event timestamp on the args (set by ShellCoreTracker
+            // for both live and backfill records). Mirror onto LastEventOccurredAtUtc so the
+            // adapter's ResolveOccurredAt helper picks it up the same way it does for the other
+            // ShellCore-originated forwards. Unlike FinalizingSetupPhaseTriggered("esp_exiting")
+            // this path is NOT filtered by IsIntermediateDeviceEspExit — the reducer-side
+            // ShouldTransitionToAwaitingHello guard decides whether HelloSafety arms.
+            LastEventOccurredAtUtc = args?.OccurredAtUtc;
+            try { EspExited?.Invoke(this, args); }
+            catch (Exception ex) { _logger.Error("Error forwarding EspExited", ex); }
+            finally { LastEventOccurredAtUtc = null; }
         }
     }
 }
