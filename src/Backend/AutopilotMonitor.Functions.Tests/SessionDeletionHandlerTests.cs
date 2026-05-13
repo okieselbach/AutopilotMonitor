@@ -67,6 +67,38 @@ public class SessionDeletionHandlerTests
     }
 
     [Fact]
+    public async Task Cascade_writes_tombstone_marker_before_Sessions_row_delete()
+    {
+        // Codex F3: the marker must be written BEFORE the Sessions-row delete; otherwise a late
+        // ingest or register arriving in the gap between Sessions-delete and marker-write would
+        // still slip past the guard. The test pins the relative ordering via Moq Callback.
+        var harness = new Harness();
+        harness.SetHappyPath();
+        harness.SetFullSessionManifest();
+
+        var callOrder = new List<string>();
+        harness.Storage
+            .Setup(s => s.RecordSessionTombstoneAsync(TenantId, SessionId, It.IsAny<string>(),
+                It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .Callback(() => callOrder.Add("MarkerWritten"))
+            .Returns(Task.CompletedTask);
+        harness.Storage
+            .Setup(s => s.DeleteByExactKeysInBatchesAsync(
+                Constants.TableNames.Sessions, It.IsAny<IReadOnlyList<(string, string)>>(), It.IsAny<CancellationToken>()))
+            .Callback(() => callOrder.Add("SessionsRowDeleted"))
+            .ReturnsAsync(DeletionBatchResult.Empty);
+
+        await harness.Sut.HandleAsync(harness.Envelope);
+
+        var markerIdx = callOrder.IndexOf("MarkerWritten");
+        var sessionsIdx = callOrder.IndexOf("SessionsRowDeleted");
+        Assert.True(markerIdx >= 0, "tombstone marker was never written");
+        Assert.True(sessionsIdx >= 0, "Sessions-row delete was never invoked");
+        Assert.True(markerIdx < sessionsIdx,
+            $"marker must be written BEFORE Sessions-row delete (markerIdx={markerIdx}, sessionsIdx={sessionsIdx})");
+    }
+
+    [Fact]
     public async Task Cascade_includes_CveIndex_step()
     {
         var harness = new Harness();

@@ -232,7 +232,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                         cancellationToken);
                 }
 
-                await ExecuteTombstoneAsync(tombstone, cancellationToken);
+                await ExecuteTombstoneAsync(tenantId, sessionId, manifestId, tombstone, cancellationToken);
             }
 
             (progress, etag) = await UpdateProgressWithRetryAsync(
@@ -445,7 +445,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         internal static string BuildAggregateCompositeKey(DeletionDecrementKey key)
             => $"{key.Vendor ?? string.Empty}:{key.Name ?? string.Empty}:{key.Version ?? string.Empty}";
 
-        private async Task ExecuteTombstoneAsync(DeletionStep tombstone, CancellationToken ct)
+        private async Task ExecuteTombstoneAsync(string tenantId, string sessionId, string manifestId, DeletionStep tombstone, CancellationToken ct)
         {
             if (tombstone.Rows.Count == 0)
             {
@@ -455,6 +455,17 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                 // hit the `CompletedAt != null` early-return.
                 return;
             }
+
+            // Codex F3: write the tombstone marker BEFORE the Sessions-row delete. The marker is
+            // what disambiguates "row missing → fresh enrollment allowed" from "row missing →
+            // just tombstoned, refuse" in the writer guard. Upsert(Replace) is idempotent so a
+            // re-run of this step after a transient crash overwrites the prior marker with the
+            // same content (TombstonedAt advances by retry duration, ExpiresAt with it — that's
+            // fine; the marker is a short-lived race-shield, not a long-term log).
+            await _storage.RecordSessionTombstoneAsync(
+                tenantId, sessionId, manifestId,
+                AutopilotMonitor.Shared.Models.Deletion.SessionTombstoneRecord.SessionTombstoneRetention,
+                ct);
 
             // The builder (DeletionManifestBuilder.AddTombstoneStep) emits SessionsIndex first
             // (if present) then Sessions. Determine table by row.Rk shape: anything matching the

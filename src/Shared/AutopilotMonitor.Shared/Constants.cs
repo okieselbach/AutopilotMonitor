@@ -462,6 +462,14 @@ namespace AutopilotMonitor.Shared
             // Lightweight index of sessions that have events (for orphan detection)
             public const string EventSessionIndex = "EventSessionIndex";
 
+            // Short-lived "session was deleted" markers, written by the cascade-delete worker
+            // immediately before the FINAL tombstone removes the Sessions row. Read by
+            // SessionDeletionGuard when a writer (register / ingest) sees a missing Sessions row:
+            // marker present → reject with 410 Gone. Pruned by SessionDeletionMaintenanceFunction
+            // after the tombstone-retention window expires (default 7 days). PartitionKey =
+            // {TenantId}, RowKey = {SessionId}.
+            public const string SessionTombstones = "SessionTombstones";
+
             // V2 Decision Engine primary tables (Plan §M5).
             // SignalLog (input-truth) and Journal (decision-truth) projected to the backend for
             // the Inspector + Reducer-Verifier. Both partitioned by {TenantId}_{SessionId}.
@@ -524,6 +532,7 @@ namespace AutopilotMonitor.Shared
                 ImeVersionHistory,
                 RuleStats,
                 EventSessionIndex,
+                SessionTombstones,
                 Signals,
                 DecisionTransitions,
                 SessionsByTerminal,

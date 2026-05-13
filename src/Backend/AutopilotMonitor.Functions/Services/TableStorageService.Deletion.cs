@@ -95,6 +95,97 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
+        // ============================================================ Tombstone-marker helpers (Codex F3) ====
+
+        /// <summary>
+        /// Writes (or replaces) the tombstone marker for <c>(tenantId, sessionId)</c>. Called by
+        /// the cascade worker right before the FINAL Sessions-row delete in <c>ExecuteTombstoneAsync</c>;
+        /// signed up as <c>Upsert(Replace)</c> so worker re-runs after a transient crash are
+        /// idempotent (each replays with the same composite row content).
+        /// </summary>
+        public virtual async Task RecordSessionTombstoneAsync(
+            string tenantId, string sessionId, string manifestId,
+            TimeSpan retention, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentException("tenantId is required", nameof(tenantId));
+            if (string.IsNullOrEmpty(sessionId)) throw new ArgumentException("sessionId is required", nameof(sessionId));
+            if (string.IsNullOrEmpty(manifestId)) throw new ArgumentException("manifestId is required", nameof(manifestId));
+
+            var tableClient = _tableServiceClient.GetTableClient(Shared.Constants.TableNames.SessionTombstones);
+            var now = DateTime.UtcNow;
+            var entity = new TableEntity(tenantId, sessionId)
+            {
+                [AutopilotMonitor.Shared.Models.Deletion.SessionTombstoneRecord.Columns.ManifestId] = manifestId,
+                [AutopilotMonitor.Shared.Models.Deletion.SessionTombstoneRecord.Columns.TombstonedAt] = now,
+                [AutopilotMonitor.Shared.Models.Deletion.SessionTombstoneRecord.Columns.ExpiresAt] = now + retention,
+            };
+            await tableClient.UpsertEntityAsync(entity, TableUpdateMode.Replace, cancellationToken);
+        }
+
+        /// <summary>
+        /// Reads the tombstone marker. Returns null on 404 OR when the marker's <c>ExpiresAt</c>
+        /// has already passed — both indistinguishable from "no marker present" to writers, so
+        /// fresh-enrollment paths can proceed once the retention window has lapsed. Maintenance
+        /// physically prunes the rows; this filter is the in-flight safety net.
+        /// </summary>
+        public virtual async Task<TableEntity?> GetActiveSessionTombstoneAsync(string tenantId, string sessionId, CancellationToken cancellationToken = default)
+        {
+            var tableClient = _tableServiceClient.GetTableClient(Shared.Constants.TableNames.SessionTombstones);
+            try
+            {
+                var response = await tableClient.GetEntityAsync<TableEntity>(tenantId, sessionId, cancellationToken: cancellationToken);
+                var entity = response.Value;
+                var expiresAt = entity.GetDateTime(AutopilotMonitor.Shared.Models.Deletion.SessionTombstoneRecord.Columns.ExpiresAt);
+                if (expiresAt is null || expiresAt.Value <= DateTime.UtcNow)
+                {
+                    return null;
+                }
+                return entity;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Deletes the tombstone marker. Called by <see cref="Services.Deletion.SessionRestoreService"/>
+        /// after a successful Full-Restore re-inserts the Sessions row — the new row is "fresh"
+        /// and the marker would otherwise block its own writers. 404-tolerant (idempotent).
+        /// </summary>
+        public virtual async Task DeleteSessionTombstoneAsync(string tenantId, string sessionId, CancellationToken cancellationToken = default)
+        {
+            var tableClient = _tableServiceClient.GetTableClient(Shared.Constants.TableNames.SessionTombstones);
+            try
+            {
+                await tableClient.DeleteEntityAsync(tenantId, sessionId, ETag.All, cancellationToken);
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                // Already gone — idempotent.
+            }
+        }
+
+        /// <summary>
+        /// Enumerates tombstone rows whose <c>ExpiresAt</c> column is at or before <paramref name="now"/>.
+        /// Maintenance pruning consumer (<c>SessionDeletionMaintenanceFunction</c>) iterates this
+        /// and per-row deletes. Cross-partition scan, acceptable for the 12h cadence and the
+        /// small absolute count expected (one row per recently-deleted session, retention 7d).
+        /// </summary>
+        public virtual async IAsyncEnumerable<TableEntity> EnumerateExpiredSessionTombstonesAsync(
+            DateTime now,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            var tableClient = _tableServiceClient.GetTableClient(Shared.Constants.TableNames.SessionTombstones);
+            // Server-side filter: avoid pulling the whole table when ramping up usage.
+            var filter = $"{AutopilotMonitor.Shared.Models.Deletion.SessionTombstoneRecord.Columns.ExpiresAt} le datetime'{now:o}'";
+            await foreach (var entity in tableClient.QueryAsync<TableEntity>(filter, cancellationToken: cancellationToken))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                yield return entity;
+            }
+        }
+
         /// <summary>
         /// Cascade-maintenance probe (PR6). Scans the Sessions table for rows whose
         /// <c>DeletionState</c> matches <paramref name="state"/>; used by

@@ -343,6 +343,37 @@ public class SessionRestoreServiceTests
     }
 
     [Fact]
+    public async Task Restore_full_deletes_tombstone_marker_after_reinserting_Sessions_row()
+    {
+        // Codex F3: full-restore is the only path that runs after the worker has written the
+        // tombstone marker (partial-restore poisons before reaching the FINAL step). With the
+        // Sessions row reinserted, the marker must be cleared — otherwise the restored session's
+        // own writers would 410 against their own enrollment.
+        var harness = new Harness();
+        harness.SetCompletedCascade();
+
+        await harness.Sut.RestoreAsync(TenantId, SessionId, ManifestId, dryRun: false, actor: "ga@example.com");
+
+        harness.Storage.Verify(s => s.DeleteSessionTombstoneAsync(TenantId, SessionId, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Restore_partial_does_not_touch_tombstone_marker()
+    {
+        // Partial-restore runs when the cascade poisoned mid-flight; the worker never reached
+        // ExecuteTombstoneAsync so no marker exists. Calling DeleteSessionTombstoneAsync would
+        // be a harmless 404 but unnecessary I/O — pin the invariant.
+        var harness = new Harness();
+        harness.SetPoisonedCascade();
+
+        await harness.Sut.RestoreAsync(TenantId, SessionId, ManifestId, dryRun: false, actor: "ga@example.com");
+
+        harness.Storage.Verify(s => s.DeleteSessionTombstoneAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task Restore_audits_deletion_restored_on_success_with_full_details()
     {
         var harness = new Harness();

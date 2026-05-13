@@ -60,6 +60,50 @@ namespace AutopilotMonitor.Shared.Models.Deletion
     }
 
     /// <summary>
+    /// Short-lived "session was tombstoned" marker written into the <c>SessionTombstones</c> table
+    /// by the cascade worker immediately before the FINAL Sessions-row delete. Read by the writer
+    /// guard when a missing Sessions row would otherwise look like "fresh registration allowed".
+    /// <para>
+    /// Lifecycle: Worker → write marker with <see cref="ExpiresAt"/> = <c>TombstonedAt +
+    /// <see cref="SessionTombstoneRetention"/></c>. Guard → block writes while marker is present
+    /// and not expired. Restore → delete marker on full-restore. Maintenance → prune expired
+    /// rows. <see cref="DeletionState.Tombstoned"/> is the sentinel state value the guard
+    /// exception carries (never persisted on Sessions rows).
+    /// </para>
+    /// </summary>
+    public sealed class SessionTombstoneRecord
+    {
+        public string TenantId { get; set; } = string.Empty;
+        public string SessionId { get; set; } = string.Empty;
+        public string ManifestId { get; set; } = string.Empty;
+        public DateTime TombstonedAt { get; set; }
+        public DateTime ExpiresAt { get; set; }
+
+        /// <summary>Column-name constants — kept here so the storage layer + tests share a single source of truth.</summary>
+        public static class Columns
+        {
+            public const string ManifestId   = "ManifestId";
+            public const string TombstonedAt = "TombstonedAt";
+            public const string ExpiresAt    = "ExpiresAt";
+        }
+
+        /// <summary>
+        /// Sentinel <c>DeletionState</c> value the guard reports in
+        /// <c>SessionDeletionLockedException.CurrentState</c> when a missing Sessions row carries
+        /// an active tombstone marker. NOT a member of <see cref="SessionDeletionState"/> because
+        /// no Sessions row ever stores this value — the row is gone by the time the marker is
+        /// active.
+        /// </summary>
+        public const string TombstonedStateLabel = "Tombstoned";
+
+        /// <summary>
+        /// Default retention window for the tombstone marker. Long enough to catch agent retries
+        /// from devices returning online after a vacation; short enough to keep the table small.
+        /// </summary>
+        public static readonly TimeSpan SessionTombstoneRetention = TimeSpan.FromDays(7);
+    }
+
+    /// <summary>
     /// Wire envelope for the <c>session-deletion</c> queue (PR3 producer → PR4 worker). The
     /// worker re-hydrates the manifest blob by (TenantId, SessionId, ManifestId) and verifies
     /// the snapshot SHA-256 against the progress blob before executing any step.

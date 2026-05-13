@@ -395,5 +395,8 @@ public class CascadeVerificationServiceTests
             GetResults.TryGetValue((tableName, partitionKey, rowKey), out var entity);
             return Task.FromResult<TableEntity?>(entity);
         }
+
+        public Task<TableEntity?> GetActiveSessionTombstoneAsync(string tenantId, string sessionId, CancellationToken ct = default)
+            => Task.FromResult<TableEntity?>(null);
     }
 }

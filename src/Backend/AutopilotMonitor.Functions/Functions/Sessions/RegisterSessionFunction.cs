@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Functions.Services.Deletion;
 using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
@@ -30,6 +31,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         private readonly DeviceAssociationValidator _deviceAssociationValidator;
         private readonly BootstrapSessionService _bootstrapSessionService;
         private readonly WebhookNotificationService _webhookNotificationService;
+        private readonly SessionDeletionGuard _deletionGuard;
 
         public RegisterSessionFunction(
             ILogger<RegisterSessionFunction> logger,
@@ -41,7 +43,8 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             CorporateIdentifierValidator corporateIdentifierValidator,
             DeviceAssociationValidator deviceAssociationValidator,
             BootstrapSessionService bootstrapSessionService,
-            WebhookNotificationService webhookNotificationService)
+            WebhookNotificationService webhookNotificationService,
+            SessionDeletionGuard deletionGuard)
         {
             _logger = logger;
             _sessionRepo = sessionRepo;
@@ -53,6 +56,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             _deviceAssociationValidator = deviceAssociationValidator;
             _bootstrapSessionService = bootstrapSessionService;
             _webhookNotificationService = webhookNotificationService;
+            _deletionGuard = deletionGuard;
         }
 
         [Function("RegisterSession")]
@@ -117,6 +121,28 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         internal async Task<RegisterSessionOutput> ProcessRegisterAsync(HttpRequestData req, SessionRegistration registration, SecurityValidationResult validation)
         {
             _logger.LogInformation($"Registering session {registration.SessionId} for tenant {registration.TenantId} (Device: {validation.CertificateThumbprint})");
+
+            // Cascade-delete guard (Codex F2/F3 + bootstrap follow-up): live HERE in the shared
+            // core so BOTH the cert-auth /agent/register-session entry AND the bootstrap wrapper
+            // (BootstrapRegisterSessionFunction) hit it before the StoreSessionAsync below.
+            // Refuses with 410 Gone on lock states (Preparing/Queued/Running/Poisoned) and on a
+            // fresh tombstone marker — without this gate the bootstrap path could still mutate a
+            // mid-cascade row or Add-revive a session past the tombstone.
+            try
+            {
+                await _deletionGuard.EnsureWritableAsync(
+                    registration.TenantId, registration.SessionId, "RegisterSession");
+            }
+            catch (SessionDeletionLockedException locked)
+            {
+                _logger.LogInformation(
+                    "RegisterSession refused: cascade in flight or recent tombstone — tenant={Tenant} session={Session} state={State} manifestId={ManifestId}",
+                    registration.TenantId, registration.SessionId, locked.CurrentState, locked.ManifestId);
+                return new RegisterSessionOutput
+                {
+                    HttpResponse = await WriteSessionLockedAsync(req, locked),
+                };
+            }
 
             // Pre-read the session row so we can distinguish three lifecycle entries:
             //   - existing == null      → first-time registration (fresh enrollment)
@@ -252,6 +278,22 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 RegisteredAt = DateTime.UtcNow
             };
             await response.WriteAsJsonAsync(errorResponse);
+            return response;
+        }
+
+        /// <summary>
+        /// 410 Gone response for the cascade-delete guard. Mirrors the V2 ingest 410 contract so
+        /// the agent treats register and telemetry uniformly when a session is being deleted.
+        /// </summary>
+        private static async Task<HttpResponseData> WriteSessionLockedAsync(HttpRequestData req, SessionDeletionLockedException locked)
+        {
+            var response = req.CreateResponse(HttpStatusCode.Gone);
+            await response.WriteAsJsonAsync(new RegisterSessionResponse
+            {
+                Success = false,
+                Message = $"Session is being deleted by an administrator (state={locked.CurrentState}); registration is rejected.",
+                RegisteredAt = DateTime.UtcNow,
+            });
             return response;
         }
     }

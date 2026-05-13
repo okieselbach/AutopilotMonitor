@@ -115,6 +115,41 @@ public class SessionDeletionMaintenanceFunctionTests
     }
 
     [Fact]
+    public async Task RunCore_prunes_expired_tombstone_markers()
+    {
+        // Codex F3: maintenance physically removes tombstone-marker rows past their ExpiresAt.
+        // The guard's in-flight expiry filter treats expired markers as absent, but without
+        // physical pruning the SessionTombstones table would grow unbounded as cascades execute.
+        var harness = new Harness();
+        harness.SeedExpiredTombstones(
+            ("tenant-a", "session-x", "MANIFEST-1"),
+            ("tenant-a", "session-y", "MANIFEST-2"),
+            ("tenant-b", "session-z", "MANIFEST-3"));
+
+        await harness.Sut.RunCoreAsync(CancellationToken.None);
+
+        harness.StorageMock.Verify(s => s.DeleteSessionTombstoneAsync("tenant-a", "session-x", It.IsAny<CancellationToken>()), Times.Once);
+        harness.StorageMock.Verify(s => s.DeleteSessionTombstoneAsync("tenant-a", "session-y", It.IsAny<CancellationToken>()), Times.Once);
+        harness.StorageMock.Verify(s => s.DeleteSessionTombstoneAsync("tenant-b", "session-z", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RunCore_prunes_tombstones_even_when_kill_switch_active()
+    {
+        // Tombstone markers are short-lived race-shields, not policy-bound deletion artefacts;
+        // the kill-switch (which pauses cascade enqueues + fanout) must NOT halt pruning, else
+        // a long-running kill-switch toggle would leak markers indefinitely.
+        var harness = new Harness();
+        harness.SetKillSwitch(true);
+        harness.SeedExpiredTombstones(("tenant-a", "session-x", "M1"));
+
+        await harness.Sut.RunCoreAsync(CancellationToken.None);
+
+        harness.StorageMock.Verify(s => s.DeleteSessionTombstoneAsync("tenant-a", "session-x", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task RunCore_emits_no_watchdog_OpsEvents_when_body_completes_before_threshold()
     {
         var harness = new Harness(watchdogWarn: TimeSpan.FromSeconds(5), watchdogSevere: TimeSpan.FromSeconds(10));
@@ -242,6 +277,12 @@ public class SessionDeletionMaintenanceFunctionTests
                 .Returns((string state, CancellationToken _) => EnumerateAsync(_sessionsByState.TryGetValue(state, out var rows) ? rows : new List<TableEntity>()));
             StorageMock.Setup(s => s.RevertStalePreparingToNoneAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(true);
+            // Codex F3: tombstone-marker pruning runs every maintenance tick; default to an empty
+            // stream so unrelated tests don't need to populate it.
+            StorageMock.Setup(s => s.EnumerateExpiredSessionTombstonesAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+                .Returns((DateTime _, CancellationToken _) => EnumerateAsync(new List<TableEntity>()));
+            StorageMock.Setup(s => s.DeleteSessionTombstoneAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
 
             BlobMock = new Mock<MaintenanceBlobStub>();
             BlobMock.CallBase = true;
@@ -324,6 +365,19 @@ public class SessionDeletionMaintenanceFunctionTests
                 entity.Timestamp = new DateTimeOffset(DateTime.SpecifyKind(e.Timestamp, DateTimeKind.Utc));
                 list.Add(entity);
             }
+        }
+
+        public void SeedExpiredTombstones(params (string TenantId, string SessionId, string ManifestId)[] entries)
+        {
+            var expired = entries.Select(e => new TableEntity(e.TenantId, e.SessionId)
+            {
+                [AutopilotMonitor.Shared.Models.Deletion.SessionTombstoneRecord.Columns.ManifestId] = e.ManifestId,
+                [AutopilotMonitor.Shared.Models.Deletion.SessionTombstoneRecord.Columns.TombstonedAt] = DateTime.UtcNow.AddDays(-10),
+                [AutopilotMonitor.Shared.Models.Deletion.SessionTombstoneRecord.Columns.ExpiresAt] = DateTime.UtcNow.AddDays(-3),
+            }).ToList();
+
+            StorageMock.Setup(s => s.EnumerateExpiredSessionTombstonesAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+                .Returns((DateTime _, CancellationToken _) => EnumerateAsync(expired));
         }
 
         private static async IAsyncEnumerable<T> EnumerateAsync<T>(IEnumerable<T> source)

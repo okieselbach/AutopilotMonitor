@@ -237,6 +237,7 @@ public class CrossTenantAccessTests
     [InlineData("GET", "/api/sessions/abc-123/events")]
     [InlineData("GET", "/api/sessions/abc-123/analysis")]
     [InlineData("GET", "/api/sessions/abc-123/vulnerability-report")]
+    [InlineData("DELETE", "/api/sessions/abc-123")]
     [InlineData("GET", "/api/bootstrap/sessions")]
     [InlineData("DELETE", "/api/bootstrap/sessions/CODE123")]
     [InlineData("GET", "/api/diagnostics/download-url")]
@@ -254,6 +255,7 @@ public class CrossTenantAccessTests
     [Theory]
     [InlineData("GET", "/api/sessions/abc-123")]
     [InlineData("GET", "/api/sessions/abc-123/events")]
+    [InlineData("DELETE", "/api/sessions/abc-123")]
     [InlineData("GET", "/api/bootstrap/sessions")]
     [InlineData("GET", "/api/diagnostics/download-url")]
     [InlineData("GET", "/api/progress/sessions/abc-123/events")]
@@ -272,6 +274,11 @@ public class CrossTenantAccessTests
     [InlineData("GET", "sessions/{sessionId}/events")]
     [InlineData("GET", "sessions/{sessionId}/analysis")]
     [InlineData("GET", "sessions/{sessionId}/vulnerability-report")]
+    // Codex-followup F1+F4: DELETE sessions/{sessionId} must carry QueryParam scoping so a
+    // Global Admin targeting tenant B from the portal does not silently delete in their own
+    // (JWT) tenant A. Lifting this assertion into the theory closes the regression that hid
+    // the original finding.
+    [InlineData("DELETE", "sessions/{sessionId}")]
     [InlineData("GET", "bootstrap/sessions")]
     [InlineData("POST", "bootstrap/sessions")]
     [InlineData("DELETE", "bootstrap/sessions/{code}")]

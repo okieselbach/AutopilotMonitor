@@ -61,14 +61,35 @@ namespace AutopilotMonitor.Functions.Services.Deletion
 
         /// <summary>
         /// Standalone variant. Loads the Sessions row via the inventory reader and applies
-        /// <see cref="ThrowIfLocked"/>. If the row does not exist (404) — e.g. the session
-        /// was just registered, or the cascade tombstone has already removed it — the call
-        /// returns silently; callers handle session-not-found semantics per their own rules.
+        /// <see cref="ThrowIfLocked"/>. If the row does not exist, falls back to checking the
+        /// <c>SessionTombstones</c> table: a fresh marker means the row was just tombstoned by
+        /// the cascade worker and any post-tombstone write would orphan rows past the manifest's
+        /// reach (Codex F3). Marker-found → throws <see cref="SessionDeletionLockedException"/>
+        /// with <see cref="SessionTombstoneRecord.TombstonedStateLabel"/> as the current-state
+        /// label. Genuine 404 (no marker) → silent pass for the fresh-enrollment path.
         /// </summary>
         public async Task EnsureWritableAsync(string tenantId, string sessionId, string callerContext, CancellationToken cancellationToken = default)
         {
             var sessionRow = await _reader.GetSessionRowAsync(tenantId, sessionId, cancellationToken);
-            ThrowIfLocked(sessionRow, callerContext);
+            if (sessionRow != null)
+            {
+                ThrowIfLocked(sessionRow, callerContext);
+                return;
+            }
+
+            // Sessions row absent → check the tombstone marker. Marker present → still locked.
+            // Marker absent → safe to proceed (fresh registration or post-retention slot reuse).
+            var tombstone = await _reader.GetActiveSessionTombstoneAsync(tenantId, sessionId, cancellationToken);
+            if (tombstone == null) return;
+
+            var manifestId = tombstone.GetString(AutopilotMonitor.Shared.Models.Deletion.SessionTombstoneRecord.Columns.ManifestId);
+            _logger.LogInformation(
+                "SessionDeletionGuard blocked write past tombstone: tenant={TenantId} session={SessionId} manifestId={ManifestId} caller={Caller}",
+                tenantId, sessionId, manifestId, callerContext);
+            throw new SessionDeletionLockedException(
+                tenantId, sessionId, callerContext,
+                AutopilotMonitor.Shared.Models.Deletion.SessionTombstoneRecord.TombstonedStateLabel,
+                manifestId);
         }
     }
 }

@@ -133,6 +133,66 @@ public class SessionDeletionGuardTests
         Assert.Equal(SessionId, ex.SessionId);
     }
 
+    // ============================================================ Codex F3: tombstone-marker disambiguation ====
+
+    [Fact]
+    public async Task EnsureWritableAsync_blocks_when_session_row_missing_but_tombstone_marker_active()
+    {
+        // Sessions row absent → the previous guard would silently pass and let the writer Replace
+        // an Add a fresh row past the cascade tombstone. Codex F3: when the SessionTombstones
+        // table carries a fresh marker for the same (tenant, session), the guard throws with the
+        // sentinel "Tombstoned" state so callers can map to 410 Gone.
+        var guard = NewGuard(out var reader);
+        reader.Setup(r => r.GetSessionRowAsync(TenantId, SessionId, It.IsAny<CancellationToken>()))
+              .ReturnsAsync((TableEntity?)null);
+        var marker = new TableEntity(TenantId, SessionId)
+        {
+            [SessionTombstoneRecord.Columns.ManifestId] = "MANIFEST-TOMBSTONED",
+            [SessionTombstoneRecord.Columns.TombstonedAt] = DateTime.UtcNow.AddMinutes(-5),
+            [SessionTombstoneRecord.Columns.ExpiresAt]   = DateTime.UtcNow.AddDays(7),
+        };
+        reader.Setup(r => r.GetActiveSessionTombstoneAsync(TenantId, SessionId, It.IsAny<CancellationToken>()))
+              .ReturnsAsync(marker);
+
+        var ex = await Assert.ThrowsAsync<SessionDeletionLockedException>(
+            () => guard.EnsureWritableAsync(TenantId, SessionId, callerContext: "V1.RegisterSession"));
+
+        Assert.Equal(SessionTombstoneRecord.TombstonedStateLabel, ex.CurrentState);
+        Assert.Equal("MANIFEST-TOMBSTONED", ex.ManifestId);
+        Assert.Equal("V1.RegisterSession", ex.CallerContext);
+    }
+
+    [Fact]
+    public async Task EnsureWritableAsync_passes_when_session_row_missing_and_no_tombstone()
+    {
+        // Fresh-registration happy path: row not yet created, no marker → guard returns silently
+        // so the writer can proceed with the AddEntityAsync.
+        var guard = NewGuard(out var reader);
+        reader.Setup(r => r.GetSessionRowAsync(TenantId, SessionId, It.IsAny<CancellationToken>()))
+              .ReturnsAsync((TableEntity?)null);
+        reader.Setup(r => r.GetActiveSessionTombstoneAsync(TenantId, SessionId, It.IsAny<CancellationToken>()))
+              .ReturnsAsync((TableEntity?)null);
+
+        await guard.EnsureWritableAsync(TenantId, SessionId, callerContext: "V1.RegisterSession");
+        // No exception → pass.
+    }
+
+    [Fact]
+    public async Task EnsureWritableAsync_does_not_probe_tombstone_when_session_row_exists()
+    {
+        // Optimization invariant: when the Sessions row is present, the marker check is skipped
+        // entirely. Saves one round-trip on every ingest batch on the happy path.
+        var guard = NewGuard(out var reader);
+        var row = new TableEntity(TenantId, SessionId) { ["DeletionState"] = SessionDeletionState.None };
+        reader.Setup(r => r.GetSessionRowAsync(TenantId, SessionId, It.IsAny<CancellationToken>()))
+              .ReturnsAsync(row);
+
+        await guard.EnsureWritableAsync(TenantId, SessionId, callerContext: "V2.IngestTelemetry");
+
+        reader.Verify(r => r.GetActiveSessionTombstoneAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     private static SessionDeletionGuard NewGuard(out Mock<ISessionDeletionInventoryReader> reader)
     {
         reader = new Mock<ISessionDeletionInventoryReader>();

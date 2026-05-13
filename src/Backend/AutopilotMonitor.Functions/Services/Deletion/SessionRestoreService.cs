@@ -240,6 +240,12 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             {
                 (progress, progressEtag) = await RunFullRestoreAsync(
                     tenantId, sessionId, manifestId, manifest, progress, progressEtag, result, ct).ConfigureAwait(false);
+
+                // Codex F3: Full-restore re-inserted the Sessions row. The tombstone marker was
+                // the only thing standing between fresh agent ingest and the just-restored session
+                // — drop it so writers can resume normally. Idempotent (404-tolerant) so a retry
+                // after a transient delete failure is fine.
+                await _storage.DeleteSessionTombstoneAsync(tenantId, sessionId, ct).ConfigureAwait(false);
             }
             else
             {
@@ -250,6 +256,8 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                     result.DurationMs = sw.ElapsedMilliseconds;
                     return result;
                 }
+                // Partial-restore never crossed the FINAL step, so no tombstone marker was
+                // written by the worker — nothing to clean up here.
             }
 
             result.Outcome = SessionRestoreOutcome.Restored;

@@ -54,9 +54,16 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
 
             try
             {
-                // Authentication + TenantAdminOrGA authorization enforced by PolicyEnforcementMiddleware
-                var tenantId = TenantHelper.GetTenantId(req);
-                var userIdentifier = TenantHelper.GetUserIdentifier(req);
+                // Authentication + TenantAdminOrGA authorization enforced by PolicyEnforcementMiddleware.
+                // Tenant scoping is TenantScoping.QueryParam (catalog) so middleware validates the
+                // optional ?tenantId=... against the caller's role and writes the resolved tenant
+                // into RequestContext.TargetTenantId. For non-GA users the query param is constrained
+                // to their own JWT tenant; GAs may target any tenant. The old TenantHelper.GetTenantId
+                // path read the JWT tenant only, which made every Global-Admin DELETE silently target
+                // the GA's home tenant instead of the requested one (Codex-followup F1).
+                var ctx = req.GetRequestContext();
+                var tenantId = ctx.TargetTenantId;
+                var userIdentifier = ctx.UserPrincipalName;
 
                 _logger.LogInformation($"Deleting session {sessionId} for tenant {tenantId} by user {userIdentifier}");
 

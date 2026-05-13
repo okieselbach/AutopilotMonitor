@@ -146,6 +146,12 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance
                 // (3) Stranded-Queued detection (alert-only) — runs even when kill-switch=true.
                 var strandedQueuedDetected = await DetectStrandedQueuedAsync(cancellationToken);
 
+                // (3b) Tombstone-marker pruning — physically remove rows past their ExpiresAt
+                // (Codex F3). Runs even when kill-switch=true: these markers are short-lived
+                // race-shields, not policy-bound deletion artefacts. Failures are non-fatal
+                // because the in-flight Guard already treats expired markers as absent.
+                var tombstonesPruned = await PruneExpiredTombstonesAsync(cancellationToken);
+
                 // (4) Retention fanout — skipped when kill-switch=true. Emit a Fanout-Skipped
                 // OpsEvent so the operator can fold the skip into the OpsEvents dashboard alongside
                 // the 30/60min watchdogs. PR6 follow-up F3: previously a LogAuditEntryAsync(null!)
@@ -180,13 +186,13 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance
                     abortedByKillSwitch: fanoutResult?.AbortedByKillSwitch ?? false);
 
                 _logger.LogInformation(
-                    "SessionDeletionMaintenance: completed in {Ms}ms — killSwitch={KillSwitch} tenants={Tenants} enqueued={Enqueued} legacy={Legacy} skipped={Skipped} blobs={Blobs} preparing={Preparing} stranded={Stranded}",
+                    "SessionDeletionMaintenance: completed in {Ms}ms — killSwitch={KillSwitch} tenants={Tenants} enqueued={Enqueued} legacy={Legacy} skipped={Skipped} blobs={Blobs} preparing={Preparing} stranded={Stranded} tombstones={Tombstones}",
                     sw.ElapsedMilliseconds, killSwitchActive,
                     fanoutResult?.TenantsProcessed ?? 0,
                     fanoutResult?.SessionsEnqueued ?? 0,
                     fanoutResult?.SessionsLegacyDeleted ?? 0,
                     fanoutResult?.SessionsSkipped ?? 0,
-                    blobsTtlGced, preparingRowsCleared, strandedQueuedDetected);
+                    blobsTtlGced, preparingRowsCleared, strandedQueuedDetected, tombstonesPruned);
             }
             catch (Exception ex)
             {
@@ -333,6 +339,31 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance
                 }
             }
             return cleared;
+        }
+
+        // ============================================================ GC 3b: Tombstone-Marker pruning (Codex F3) ====
+
+        private async Task<int> PruneExpiredTombstonesAsync(CancellationToken ct)
+        {
+            int deleted = 0;
+            await foreach (var entity in _storage.EnumerateExpiredSessionTombstonesAsync(DateTime.UtcNow, ct))
+            {
+                ct.ThrowIfCancellationRequested();
+                var tenantId = entity.PartitionKey ?? string.Empty;
+                var sessionId = entity.RowKey ?? string.Empty;
+                try
+                {
+                    await _storage.DeleteSessionTombstoneAsync(tenantId, sessionId, ct);
+                    deleted++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Tombstone-marker GC: delete failed for tenant={TenantId} session={SessionId}",
+                        tenantId, sessionId);
+                }
+            }
+            return deleted;
         }
 
         // ============================================================ GC 3: Stranded-Queued ====

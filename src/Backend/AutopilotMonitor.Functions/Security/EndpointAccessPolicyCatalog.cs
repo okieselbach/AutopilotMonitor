@@ -180,7 +180,7 @@ public static class EndpointAccessPolicyCatalog
         new("POST",   "sessions/{sessionId}/actions",          EndpointPolicy.TenantAdminOrGA),
         new("POST",   "sessions/{sessionId}/report",        EndpointPolicy.TenantAdminOrGA),
         new("POST",   "diag-files-reports",                 EndpointPolicy.TenantAdminOrGA),
-        new("DELETE", "sessions/{sessionId}",      EndpointPolicy.TenantAdminOrGA),
+        new("DELETE", "sessions/{sessionId}",      EndpointPolicy.TenantAdminOrGA, TenantScoping.QueryParam),
         new("GET",    "tenants/{tenantId}/admins",           EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("POST",   "tenants/{tenantId}/admins",           EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("DELETE", "tenants/{tenantId}/admins/{adminUpn}", EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),

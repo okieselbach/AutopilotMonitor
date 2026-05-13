@@ -38,5 +38,14 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         /// classes (VulnerabilityReports, DeviceSnapshot, EventSessionIndex, SessionInventoryContributions).
         /// </summary>
         Task<TableEntity?> GetEntityOrNullAsync(string tableName, string partitionKey, string rowKey, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Loads the (tenantId, sessionId) row from the <c>SessionTombstones</c> table iff present
+        /// AND not yet past its <c>ExpiresAt</c>. Returns null on 404 or on expired markers
+        /// (the maintenance function prunes those out of band, but the guard treats expired ==
+        /// absent for correctness). Used by <c>SessionDeletionGuard</c> to disambiguate "row
+        /// missing → fresh enrollment allowed" from "row missing → just tombstoned, refuse".
+        /// </summary>
+        Task<TableEntity?> GetActiveSessionTombstoneAsync(string tenantId, string sessionId, CancellationToken cancellationToken = default);
     }
 }
