@@ -24,6 +24,10 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     "SessionDeletionMaintenanceFailed",
     "SessionDeletionMaintenanceFanoutSkipped",
     "SessionDeletionStrandedQueued",
+    // PR-B audit consolidation: the per-session deletion_poisoned tenant-audit moved here so
+    // tenant admins see only the lifecycle endpoints (deletion_started/completed/restored).
+    // Operators wire Telegram on this event + read it in the Session Cleanup admin page.
+    "SessionDeletionPoisoned",
   ],
   Security: [
     "DeviceBlocked",

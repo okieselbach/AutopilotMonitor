@@ -59,5 +59,91 @@ namespace AutopilotMonitor.Shared.Models.Deletion
         /// behaviour for genuine bugs (Sessions row removed outside the cascade).
         /// </summary>
         public bool TombstoneStarted { get; set; }
+
+        // ============================================================ PR-B follow-up ====
+        // Codex F4 (Medium): PR-B routed step / verification failures out of the per-tenant
+        // audit (intentional — tenants don't need them), but the SessionDeletionPoisoned
+        // OpsEvent was left with only queue-side data (dequeueCount + manifestId). The actual
+        // root cause was only visible in App Insights structured logs, which is a problem for
+        // long-tail operator forensics (logs roll off, the OpsEvent is the durable record).
+        // These three nullable fields are written by the handler immediately before it throws
+        // and read by the worker when it transitions the cascade to Poisoned, so the
+        // SessionDeletionPoisoned OpsEvent carries the failure context that explains WHY.
+        //
+        // All three are nullable / default-empty so blobs written by pre-PR-B-followup workers
+        // deserialize cleanly. The worker's poison-emit path defends against missing values
+        // with explicit string.IsNullOrEmpty checks before attaching them to the OpsEvent.
+
+        /// <summary>Classification of the most recent failure that triggered a re-queue. Examples:
+        /// <c>"verification_residuals"</c>, <c>"step_exception"</c>. Null until the first failure.</summary>
+        public string? LastFailureType { get; set; }
+
+        /// <summary>Short, human-readable description of the most recent failure (truncated to
+        /// 1024 chars by the writer). Suitable for OpsEvent embedding and operator triage.</summary>
+        public string? LastFailureMessage { get; set; }
+
+        /// <summary>
+        /// Verification-failure path only: how many residual rows the verifier <b>observed</b>
+        /// before short-circuiting. This is <b>NOT</b> guaranteed to be the true residual count
+        /// — <c>CascadeVerificationService</c> stops both at
+        /// <see cref="DeletionProgressConstants.VerificationResidualSampleSize"/> per table AND
+        /// after the first failing table, so the real count may be higher. Operators treating
+        /// this number as a blast-radius estimate should add "≥" mentally when it equals the cap.
+        /// Null on step-exception failures and on pre-followup progress blobs.
+        /// </summary>
+        public int? LastObservedResidualCount { get; set; }
+
+        /// <summary>
+        /// Verification-failure path only: JSON-encoded sample of residual <c>{table, pk, rk}</c>
+        /// triples (capped at <see cref="DeletionProgressConstants.VerificationResidualSampleSize"/>).
+        /// Empty/null on step-exception failures. The array length always matches
+        /// <see cref="LastObservedResidualCount"/> for blobs written by the current handler
+        /// because the verifier and the sample share the same cap; the two fields existed
+        /// historically because the design anticipated decoupling them when the verifier becomes
+        /// exhaustive.
+        /// </summary>
+        public string? LastResidualSampleJson { get; set; }
+    }
+
+    /// <summary>Constants relating to <see cref="DeletionProgress"/> serialization caps.</summary>
+    public static class DeletionProgressConstants
+    {
+        /// <summary>
+        /// Cap on the verification residual sample written into the progress blob. Matches the
+        /// in-memory log cap so the two payloads stay aligned. The progress blob has no size
+        /// budget worth worrying about; this is the size operators see when they fetch the
+        /// stored manifest from the admin Session Cleanup page.
+        /// </summary>
+        public const int VerificationResidualSampleSize = 50;
+
+        /// <summary>
+        /// Maximum entries kept in the residual preview the worker embeds in the
+        /// <c>SessionDeletionPoisoned</c> OpsEvent. The OpsEvents table truncates the entire
+        /// <c>Details</c> column at 4096 chars (<c>TableOpsEventRepository.cs</c>); the full
+        /// 50-entry sample plus the other JSON-payload fields can blow past that and leave the
+        /// OpsEvent details mid-string-corrupt, which makes the admin UI fall back to raw text
+        /// rendering. The OpsEvent is a Telegram-routable summary, not the forensic record —
+        /// operators get the full sample from <c>DeletionProgress.LastResidualSampleJson</c>
+        /// via the Session Cleanup page's stored-manifest modal.
+        /// </summary>
+        public const int OpsEventResidualSamplePreviewSize = 5;
+
+        /// <summary>
+        /// Per-field length cap (table / pk / rk) inside the OpsEvent residual preview. Without
+        /// this, an entry with a 200-char composite PK could on its own consume most of the
+        /// 4096-char Details budget. Anything trimmed gets a trailing <c>…</c> marker so the
+        /// truncation is visible to operators reading the OpsEvent.
+        /// </summary>
+        public const int OpsEventResidualKeyMaxChars = 96;
+
+        /// <summary>
+        /// Total character budget for the OpsEvent residual preview JSON (before it gets
+        /// JSON-string-escaped into the outer <c>Details</c> column). Sized so that, after
+        /// escape inflation (~1.5×) + the other Details fields (failureMessage + tenantId +
+        /// manifestId + …, ~1500 chars), the resulting <c>Details</c> string stays comfortably
+        /// under the 4096-char Azure Table column cap. If the per-entry trims still leave the
+        /// JSON over budget, trailing entries are dropped one at a time until it fits.
+        /// </summary>
+        public const int OpsEventResidualPreviewBudgetChars = 1200;
     }
 }

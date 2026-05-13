@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure;
@@ -9,6 +10,7 @@ using Azure.Storage.Queues;
 using Azure.Storage.Queues.Models;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Deletion;
+using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Deletion;
@@ -49,7 +51,7 @@ public class SessionDeletionWorkerTests
     }
 
     [Fact]
-    public async Task Worker_moves_message_to_poison_after_max_dequeue_and_audits()
+    public async Task Worker_moves_message_to_poison_after_max_dequeue_and_emits_ops_event()
     {
         var harness = new Harness();
         var envelope = new SessionDeletionEnvelope
@@ -68,9 +70,256 @@ public class SessionDeletionWorkerTests
         harness.MainQueue.Verify(q => q.DeleteMessageAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.AtLeastOnce);
-        // Audit deletion_poisoned written with the parsed envelope's manifestId.
-        Assert.Contains(harness.AuditCalls, a => a.Action == "deletion_poisoned"
-            && a.Details != null && a.Details["manifestId"] == ManifestId);
+        // PR-B audit consolidation: deletion_poisoned audit moved to SessionDeletionPoisoned
+        // OpsEvent (operator-bound, Telegram-routable). Tenant-audit row is no longer written.
+        var poisoned = Assert.Single(harness.OpsEventCalls, e => e.EventType == "SessionDeletionPoisoned");
+        Assert.Equal(TenantId, poisoned.TenantId);
+        Assert.Equal(SessionId, poisoned.SessionId);
+        Assert.Equal(ManifestId, poisoned.ManifestId);
+        Assert.DoesNotContain(harness.AuditCalls, a => a.Action == "deletion_poisoned");
+        // Codex F4: poison OpsEvent carries the handler's last-failure breadcrumb from the
+        // DeletionProgress blob (harness seeds a verification-failure scenario by default).
+        Assert.Contains("verification_residuals", poisoned.RawDetails);
+        Assert.Contains("residual row(s)", poisoned.RawDetails);
+        // Codex F2 round-3: OpsEvent carries the verifier's OBSERVED residual count, not a
+        // hypothetical "true" total — CascadeVerificationService short-circuits at the first
+        // failing table and caps each table's sample at MaxResidualSampleSize. The degenerate
+        // residualSampleSize key was dropped because it always equalled observedResidualCount.
+        Assert.Contains("\"observedResidualCount\":2", poisoned.RawDetails);
+        Assert.DoesNotContain("\"residualSampleSize\":", poisoned.RawDetails);
+        Assert.DoesNotContain("\"residualCount\":", poisoned.RawDetails); // old, misleading key
+    }
+
+    [Fact]
+    public async Task Worker_OpsEvent_carries_observed_count_at_verifier_cap_for_large_failures()
+    {
+        // Codex F2 round-3: when the real residual mountain is bigger than the verifier cap,
+        // verification.Residuals.Count = MaxResidualSampleSize (50) and that's the only number
+        // we have. The worker forwards exactly that. UI surface treats "==cap" as a "≥" lower
+        // bound; the OpsEvent itself stays honest and just reports what was observed.
+        var harness = new Harness();
+        var envelope = new SessionDeletionEnvelope
+        {
+            TenantId = TenantId, SessionId = SessionId, ManifestId = ManifestId,
+            Reason = "admin_delete", EnqueuedAt = DateTime.UtcNow,
+        };
+        harness.EnqueueMessage(JsonConvert.SerializeObject(envelope), dequeueCount: SessionDeletionWorker.MaxDequeueCount + 1);
+
+        const int capObservation = 50;
+        var sample = string.Join(",", Enumerable.Range(0, capObservation)
+            .Select(i => $"{{\"table\":\"Events\",\"pk\":\"t\",\"rk\":\"r{i}\"}}"));
+        harness.BlobMock.Setup(b => b.DownloadDeletionProgressAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(((AutopilotMonitor.Shared.Models.Deletion.DeletionProgress, string))(
+                new AutopilotMonitor.Shared.Models.Deletion.DeletionProgress
+                {
+                    LastFailureType = "verification_residuals",
+                    LastFailureMessage = $"{capObservation} observed residual row(s); refusing to tombstone",
+                    LastObservedResidualCount = capObservation,
+                    LastResidualSampleJson = $"[{sample}]",
+                },
+                "etag-mock"));
+
+        await harness.RunForAsync(TimeSpan.FromMilliseconds(500));
+
+        var poisoned = Assert.Single(harness.OpsEventCalls, e => e.EventType == "SessionDeletionPoisoned");
+        Assert.Contains($"\"observedResidualCount\":{capObservation}", poisoned.RawDetails);
+        // OpsEvents table truncates Details at 4096 chars (TableOpsEventRepository.cs); the
+        // preview cap (OpsEventResidualSamplePreviewSize=5) keeps us safely under that even
+        // with a 50-entry progress-blob sample.
+        Assert.True(poisoned.RawDetails.Length < 4096,
+            $"OpsEvent Details exceeded 4096 chars ({poisoned.RawDetails.Length}); the table repository will truncate mid-JSON.");
+        // Preview JSON has at most OpsEventResidualSamplePreviewSize entries.
+        var match = System.Text.RegularExpressions.Regex.Match(
+            poisoned.RawDetails,
+            "\"residualSamplePreviewJson\":\"(?<json>(?:[^\"\\\\]|\\\\.)*)\"");
+        Assert.True(match.Success, "Expected residualSamplePreviewJson key in OpsEvent details.");
+        var previewJson = System.Text.RegularExpressions.Regex.Unescape(match.Groups["json"].Value);
+        using var previewDoc = System.Text.Json.JsonDocument.Parse(previewJson);
+        Assert.InRange(previewDoc.RootElement.GetArrayLength(), 1,
+            AutopilotMonitor.Shared.Models.Deletion.DeletionProgressConstants.OpsEventResidualSamplePreviewSize);
+    }
+
+    [Fact]
+    public async Task Worker_OpsEvent_falls_back_to_sample_length_when_observed_count_missing_pre_followup_blob()
+    {
+        // Back-compat: a progress blob written before LastObservedResidualCount existed (this
+        // field was added in a Codex follow-up to PR-B) still produces a useful OpsEvent — the
+        // worker derives the number from the sample-array length so observers don't see a null
+        // observedResidualCount when reading historical poisoned cascades.
+        var harness = new Harness();
+        var envelope = new SessionDeletionEnvelope
+        {
+            TenantId = TenantId, SessionId = SessionId, ManifestId = ManifestId,
+            Reason = "admin_delete", EnqueuedAt = DateTime.UtcNow,
+        };
+        harness.EnqueueMessage(JsonConvert.SerializeObject(envelope), dequeueCount: SessionDeletionWorker.MaxDequeueCount + 1);
+
+        harness.BlobMock.Setup(b => b.DownloadDeletionProgressAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(((AutopilotMonitor.Shared.Models.Deletion.DeletionProgress, string))(
+                new AutopilotMonitor.Shared.Models.Deletion.DeletionProgress
+                {
+                    LastFailureType = "verification_residuals",
+                    LastFailureMessage = "observed residual row(s); refusing to tombstone",
+                    LastObservedResidualCount = null, // pre-followup blob — field did not exist
+                    LastResidualSampleJson = "[{\"table\":\"Events\",\"pk\":\"t\",\"rk\":\"r1\"},{\"table\":\"Events\",\"pk\":\"t\",\"rk\":\"r2\"},{\"table\":\"Events\",\"pk\":\"t\",\"rk\":\"r3\"}]",
+                },
+                "etag-mock"));
+
+        await harness.RunForAsync(TimeSpan.FromMilliseconds(500));
+
+        var poisoned = Assert.Single(harness.OpsEventCalls, e => e.EventType == "SessionDeletionPoisoned");
+        Assert.Contains("\"observedResidualCount\":3", poisoned.RawDetails);
+    }
+
+    [Fact]
+    public void ShrinkResidualSampleForOpsEvent_caps_array_at_preview_size()
+    {
+        // Unit-level pin on the helper so the cap can't silently drift if someone changes the
+        // constant or the serialization plumbing.
+        var full = string.Join(",", Enumerable.Range(0, 50)
+            .Select(i => $"{{\"table\":\"Events\",\"pk\":\"tenant\",\"rk\":\"row-{i}\"}}"));
+        var shrunk = SessionDeletionWorker.ShrinkResidualSampleForOpsEvent($"[{full}]");
+        Assert.NotNull(shrunk);
+        using var doc = System.Text.Json.JsonDocument.Parse(shrunk!);
+        Assert.Equal(System.Text.Json.JsonValueKind.Array, doc.RootElement.ValueKind);
+        Assert.Equal(
+            AutopilotMonitor.Shared.Models.Deletion.DeletionProgressConstants.OpsEventResidualSamplePreviewSize,
+            doc.RootElement.GetArrayLength());
+    }
+
+    [Fact]
+    public void ShrinkResidualSampleForOpsEvent_returns_null_for_malformed_input()
+    {
+        Assert.Null(SessionDeletionWorker.ShrinkResidualSampleForOpsEvent(null));
+        Assert.Null(SessionDeletionWorker.ShrinkResidualSampleForOpsEvent(""));
+        Assert.Null(SessionDeletionWorker.ShrinkResidualSampleForOpsEvent("not-json"));
+        Assert.Null(SessionDeletionWorker.ShrinkResidualSampleForOpsEvent("{\"not\":\"an array\"}"));
+    }
+
+    [Fact]
+    public void ShrinkResidualSampleForOpsEvent_trims_per_field_with_ellipsis_marker()
+    {
+        // Codex follow-up: a single entry with a 200-char composite PK could on its own consume
+        // most of the OpsEvent Details budget. The helper trims each field to
+        // OpsEventResidualKeyMaxChars and appends `…` so the truncation is operator-visible.
+        var maxKeyChars = AutopilotMonitor.Shared.Models.Deletion.DeletionProgressConstants.OpsEventResidualKeyMaxChars;
+        var longPk = new string('p', maxKeyChars * 3);
+        var longRk = new string('r', maxKeyChars * 3);
+        var input = $"[{{\"table\":\"Events\",\"pk\":\"{longPk}\",\"rk\":\"{longRk}\"}}]";
+
+        var shrunk = SessionDeletionWorker.ShrinkResidualSampleForOpsEvent(input);
+        Assert.NotNull(shrunk);
+
+        using var doc = System.Text.Json.JsonDocument.Parse(shrunk!);
+        var first = doc.RootElement[0];
+        var pk = first.GetProperty("pk").GetString()!;
+        var rk = first.GetProperty("rk").GetString()!;
+        Assert.Equal(maxKeyChars, pk.Length);
+        Assert.Equal(maxKeyChars, rk.Length);
+        Assert.EndsWith("…", pk);
+        Assert.EndsWith("…", rk);
+        Assert.StartsWith("ppp", pk);
+        Assert.StartsWith("rrr", rk);
+    }
+
+    [Fact]
+    public void ShrinkResidualSampleForOpsEvent_short_fields_pass_through_unchanged()
+    {
+        // Don't paint truncation markers on values that fit naturally.
+        var input = "[{\"table\":\"Events\",\"pk\":\"short-pk\",\"rk\":\"short-rk\"}]";
+        var shrunk = SessionDeletionWorker.ShrinkResidualSampleForOpsEvent(input);
+        Assert.NotNull(shrunk);
+        using var doc = System.Text.Json.JsonDocument.Parse(shrunk!);
+        var first = doc.RootElement[0];
+        Assert.Equal("short-pk", first.GetProperty("pk").GetString());
+        Assert.Equal("short-rk", first.GetProperty("rk").GetString());
+    }
+
+    [Fact]
+    public void ShrinkResidualSampleForOpsEvent_drops_trailing_entries_when_over_total_budget()
+    {
+        // Even with per-field trimming, max-length entries can collectively exceed the preview
+        // budget (~1200 chars). The helper drops trailing entries one at a time until the JSON
+        // fits — operators always see SOMETHING parseable, the full sample stays in the blob.
+        var maxKeyChars = AutopilotMonitor.Shared.Models.Deletion.DeletionProgressConstants.OpsEventResidualKeyMaxChars;
+        var budget = AutopilotMonitor.Shared.Models.Deletion.DeletionProgressConstants.OpsEventResidualPreviewBudgetChars;
+        var maxEntries = AutopilotMonitor.Shared.Models.Deletion.DeletionProgressConstants.OpsEventResidualSamplePreviewSize;
+        // Each entry takes ~(20 table + 96 pk + 96 rk + 30 JSON shape) ≈ 240 chars; 5 entries
+        // would land at ~1200, right at the budget. Make table/pk/rk all max-length so we land
+        // slightly OVER and force a drop.
+        var longTable = new string('T', maxKeyChars);
+        var longPk = new string('p', maxKeyChars);
+        var longRk = new string('r', maxKeyChars);
+        var entry = $"{{\"table\":\"{longTable}\",\"pk\":\"{longPk}\",\"rk\":\"{longRk}\"}}";
+        var input = "[" + string.Join(",", Enumerable.Range(0, maxEntries).Select(_ => entry)) + "]";
+
+        var shrunk = SessionDeletionWorker.ShrinkResidualSampleForOpsEvent(input);
+        Assert.NotNull(shrunk);
+        Assert.True(shrunk!.Length <= budget,
+            $"Preview exceeded total budget: {shrunk.Length} > {budget}.");
+
+        using var doc = System.Text.Json.JsonDocument.Parse(shrunk!);
+        var kept = doc.RootElement.GetArrayLength();
+        // We must have kept at least one entry (a single entry is small enough to fit), and
+        // dropped at least one (otherwise the budget wasn't actually enforced).
+        Assert.InRange(kept, 1, maxEntries - 1);
+    }
+
+    [Fact]
+    public async Task Worker_OpsEvent_stays_under_4096_chars_with_worst_case_long_keys()
+    {
+        // Codex end-to-end pin: the full pipeline (handler → progress blob → worker shrink →
+        // OpsEvent JSON envelope → table-row truncate) must NEVER produce a Details string > 4096
+        // chars, because TableOpsEventRepository hard-truncates at that boundary and would corrupt
+        // the JSON mid-string. We simulate the worst case: max-length PK + RK on every sample
+        // entry, plus a max-length failureMessage.
+        var harness = new Harness();
+        var envelope = new SessionDeletionEnvelope
+        {
+            TenantId = TenantId, SessionId = SessionId, ManifestId = ManifestId,
+            Reason = "admin_delete", EnqueuedAt = DateTime.UtcNow,
+        };
+        harness.EnqueueMessage(JsonConvert.SerializeObject(envelope), dequeueCount: SessionDeletionWorker.MaxDequeueCount + 1);
+
+        // 50 sample entries × ~200-char composite keys = ~10 KB blob; the worker must defend.
+        const int progressSampleSize = 50;
+        const int hugeKeyChars = 240;
+        var hugeTable = new string('T', hugeKeyChars);
+        var hugePk = new string('p', hugeKeyChars);
+        var hugeRk = new string('r', hugeKeyChars);
+        var sample = string.Join(",", Enumerable.Range(0, progressSampleSize)
+            .Select(_ => $"{{\"table\":\"{hugeTable}\",\"pk\":\"{hugePk}\",\"rk\":\"{hugeRk}\"}}"));
+        // Max-length failure message too.
+        var longMessage = new string('m', 1024);
+
+        harness.BlobMock.Setup(b => b.DownloadDeletionProgressAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(((AutopilotMonitor.Shared.Models.Deletion.DeletionProgress, string))(
+                new AutopilotMonitor.Shared.Models.Deletion.DeletionProgress
+                {
+                    LastFailureType = "verification_residuals",
+                    LastFailureMessage = longMessage,
+                    LastObservedResidualCount = progressSampleSize,
+                    LastResidualSampleJson = $"[{sample}]",
+                },
+                "etag-mock"));
+
+        await harness.RunForAsync(TimeSpan.FromMilliseconds(500));
+
+        var poisoned = Assert.Single(harness.OpsEventCalls, e => e.EventType == "SessionDeletionPoisoned");
+        Assert.True(poisoned.RawDetails.Length < 4096,
+            $"OpsEvent Details exceeded 4096 chars ({poisoned.RawDetails.Length}); TableOpsEventRepository would truncate mid-JSON.");
+
+        // Sanity check that the preview is still parseable as JSON after the trim+budget pass.
+        var match = System.Text.RegularExpressions.Regex.Match(
+            poisoned.RawDetails,
+            "\"residualSamplePreviewJson\":\"(?<json>(?:[^\"\\\\]|\\\\.)*)\"");
+        Assert.True(match.Success, "Expected residualSamplePreviewJson key in OpsEvent details.");
+        var previewJson = System.Text.RegularExpressions.Regex.Unescape(match.Groups["json"].Value);
+        using var previewDoc = System.Text.Json.JsonDocument.Parse(previewJson);
+        Assert.Equal(System.Text.Json.JsonValueKind.Array, previewDoc.RootElement.ValueKind);
     }
 
     [Fact]
@@ -198,7 +447,7 @@ public class SessionDeletionWorkerTests
 
         harness.PoisonQueue.Verify(q => q.SendMessageAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.AtLeastOnce);
-        Assert.Contains(harness.AuditCalls, a => a.Action == "deletion_poisoned");
+        Assert.Contains(harness.OpsEventCalls, e => e.EventType == "SessionDeletionPoisoned");
     }
 
     [Fact]
@@ -280,8 +529,11 @@ public class SessionDeletionWorkerTests
         public Mock<QueueClient> PoisonQueue { get; }
         public Mock<SessionDeletionHandler> HandlerMock { get; }
         public Mock<AdminConfigurationService> AdminConfig { get; }
-        public Mock<IMaintenanceRepository> Maintenance { get; }
+        // PR-B audit consolidation: deletion_poisoned tenant audit moved to SessionDeletionPoisoned
+        // OpsEvent. We keep AuditCalls as a passthrough capture (always empty for the worker
+        // post-PR-B) so existing assertions like DoesNotContain still compile.
         public List<AuditEntry> AuditCalls { get; } = new List<AuditEntry>();
+        public List<CapturedOpsEvent> OpsEventCalls { get; } = new List<CapturedOpsEvent>();
         public SessionDeletionWorker Sut { get; }
 
         private readonly Queue<QueueMessage> _pendingMessages = new Queue<QueueMessage>();
@@ -362,6 +614,24 @@ public class SessionDeletionWorkerTests
             var blobMock = new Mock<BlobStorageService>(
                 new Azure.Storage.Blobs.BlobServiceClient("UseDevelopmentStorage=true"),
                 NullLogger<BlobStorageService>.Instance, false);
+            // PR-B Codex F4 follow-up: worker reads DeletionProgress on the poison path so the
+            // SessionDeletionPoisoned OpsEvent can include the handler's last-failure breadcrumb.
+            // Default mock returns a populated progress to exercise the enrichment path.
+            blobMock.Setup(b => b.DownloadDeletionProgressAsync(
+                    It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(((AutopilotMonitor.Shared.Models.Deletion.DeletionProgress, string))(
+                    new AutopilotMonitor.Shared.Models.Deletion.DeletionProgress
+                    {
+                        LastFailureType = "verification_residuals",
+                        LastFailureMessage = "2 observed residual row(s)",
+                        // Codex F2 round-3: the persisted count is the verifier's OBSERVED count
+                        // (capped at MaxResidualSampleSize=50 per table + short-circuit at first
+                        // failing table). Default mock uses a low number so the field matches the
+                        // sample length; the cap-hit test below exercises the lower-bound case.
+                        LastObservedResidualCount = 2,
+                        LastResidualSampleJson = "[{\"table\":\"Events\",\"pk\":\"t\",\"rk\":\"r\"},{\"table\":\"Signals\",\"pk\":\"t\",\"rk\":\"r2\"}]",
+                    },
+                    "etag-mock"));
             var verifierMock = new Mock<CascadeVerificationService>(
                 Mock.Of<ISessionDeletionInventoryReader>(),
                 NullLogger<CascadeVerificationService>.Instance);
@@ -384,27 +654,36 @@ public class SessionDeletionWorkerTests
             AdminConfig.Setup(a => a.IsSessionDeletionKillSwitchActiveAsync())
                 .ReturnsAsync(false);
 
-            Maintenance = new Mock<IMaintenanceRepository>();
-            Maintenance.Setup(m => m.LogAuditEntryAsync(
-                    It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                    It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>?>()))
-                .Returns<string, string, string, string, string, Dictionary<string, string>?>(
-                    (tenantId, action, entityType, entityId, performedBy, details) =>
-                    {
-                        AuditCalls.Add(new AuditEntry(tenantId, action, entityType, entityId, performedBy, details));
-                        return Task.FromResult(true);
-                    });
+            // PR-B audit consolidation: build a real OpsEventService backed by a captured-list
+            // mock repository so the worker's RecordSessionDeletionPoisonedAsync call is
+            // observable as an OpsEventEntry on the OpsEventCalls list.
+            var opsRepo = new Mock<IOpsEventRepository>();
+            opsRepo.Setup(r => r.SaveOpsEventAsync(It.IsAny<OpsEventEntry>()))
+                .Returns<OpsEventEntry>(e =>
+                {
+                    OpsEventCalls.Add(CapturedOpsEvent.From(e));
+                    return Task.CompletedTask;
+                });
+            var alertDispatch = new OpsAlertDispatchService(
+                AdminConfig.Object,
+                new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance),
+                new AutopilotMonitor.Functions.Services.Notifications.WebhookNotificationService(new HttpClient(), NullLogger<AutopilotMonitor.Functions.Services.Notifications.WebhookNotificationService>.Instance),
+                NullLogger<OpsAlertDispatchService>.Instance);
+            var opsService = new OpsEventService(opsRepo.Object, NullLogger<OpsEventService>.Instance, alertDispatch);
 
             Sut = new SessionDeletionWorker(
                 MainQueue.Object, PoisonQueue.Object,
                 HandlerMock.Object, storageMock.Object,
-                AdminConfig.Object, Maintenance.Object,
+                AdminConfig.Object, blobMock.Object, opsService,
                 NullLogger<SessionDeletionWorker>.Instance,
                 heartbeatInterval: heartbeatInterval ?? TimeSpan.FromMilliseconds(200),
                 pollInterval: TimeSpan.FromMilliseconds(50));
 
             StorageMock = storageMock;
+            BlobMock = blobMock;
         }
+
+        public Mock<BlobStorageService> BlobMock { get; private set; } = null!;
 
         public Mock<TableStorageService> StorageMock { get; private set; } = null!;
 
@@ -445,4 +724,32 @@ public class SessionDeletionWorkerTests
     private sealed record AuditEntry(
         string TenantId, string Action, string EntityType, string EntityId, string PerformedBy,
         Dictionary<string, string>? Details);
+
+    /// <summary>
+    /// Flattened OpsEventEntry projection for assertions. <see cref="ManifestId"/> + the other
+    /// strongly-typed accessors are pulled from <c>Details</c> JSON so tests don't have to
+    /// re-deserialise.
+    /// </summary>
+    private sealed record CapturedOpsEvent(
+        string EventType, string Severity, string Message,
+        string? TenantId, string? SessionId, string? ManifestId, string RawDetails)
+    {
+        public static CapturedOpsEvent From(OpsEventEntry e)
+        {
+            string? tenantId = e.TenantId;
+            string? sessionId = null;
+            string? manifestId = null;
+            if (!string.IsNullOrEmpty(e.Details))
+            {
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(e.Details!);
+                    if (doc.RootElement.TryGetProperty("sessionId", out var s)) sessionId = s.GetString();
+                    if (doc.RootElement.TryGetProperty("manifestId", out var m)) manifestId = m.GetString();
+                }
+                catch (System.Text.Json.JsonException) { /* tolerate malformed test payloads */ }
+            }
+            return new CapturedOpsEvent(e.EventType, e.Severity, e.Message, tenantId, sessionId, manifestId, e.Details ?? string.Empty);
+        }
+    }
 }

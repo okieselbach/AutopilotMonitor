@@ -21,6 +21,7 @@ export interface TenantConfiguration {
   bootstrapTokenEnabled?: boolean;
   unrestrictedModeEnabled?: boolean;
   dataRetentionDays: number;
+  enableCascadeDeleteV2?: boolean;
   sessionTimeoutHours: number;
   planTier?: string;
 }
@@ -351,6 +352,14 @@ export function TenantManagementSection({
                                   Ready
                                 </span>
                               )}
+                              {tenant.enableCascadeDeleteV2 && (
+                                <span
+                                  className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800"
+                                  title="V2 cascade-delete pipeline (snapshot + restore) is active for this tenant"
+                                >
+                                  Cascade V2
+                                </span>
+                              )}
                             </div>
                             <div className="flex items-center gap-2">
                               <button
@@ -569,6 +578,24 @@ export function TenantManagementSection({
                 />
                 <span className="text-sm font-medium text-gray-700">Enable Unrestricted Mode</span>
               </label>
+
+              <div className="p-3 border border-purple-200 bg-purple-50 rounded-lg space-y-1">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingTenant.enableCascadeDeleteV2 ?? false}
+                    onChange={(e) => setEditingTenant({ ...editingTenant, enableCascadeDeleteV2: e.target.checked })}
+                    className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Enable V2 Cascade Delete</span>
+                </label>
+                <p className="text-xs text-gray-600 pl-6">
+                  Routes admin-delete and retention through the snapshot+restore pipeline.
+                  Activate after validating a delete with the preview endpoint. The global
+                  <code className="mx-1 text-xs bg-purple-100 px-1 rounded">SessionDeletionKillSwitch</code>
+                  halts both paths regardless of this flag.
+                </p>
+              </div>
 
               {/* Data Management */}
               <div>

@@ -95,7 +95,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                         config.CustomRateLimitRequestsPerMinute != existingConfig.CustomRateLimitRequestsPerMinute ||
                         config.RateLimitRequestsPerMinute != existingConfig.RateLimitRequestsPerMinute ||
                         config.Disabled != existingConfig.Disabled ||
-                        config.ValidateDeviceAssociation != existingConfig.ValidateDeviceAssociation)
+                        config.ValidateDeviceAssociation != existingConfig.ValidateDeviceAssociation ||
+                        config.EnableCascadeDeleteV2 != existingConfig.EnableCascadeDeleteV2)
                     {
                         _logger.LogWarning(
                             "Tenant Admin {User} attempted to modify GA-only fields for tenant {TenantId}",
@@ -116,6 +117,9 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     // RequestContext + TenantConfigurationService). Tracked in
                     // memory/project_devprep_followups.md.
                     config.ValidateDeviceAssociation = existingConfig.ValidateDeviceAssociation;
+                    // V2 cascade-delete pipeline activation is a rollout decision; tenant
+                    // admins cannot self-opt-in (or out) of the snapshot+restore pathway.
+                    config.EnableCascadeDeleteV2 = existingConfig.EnableCascadeDeleteV2;
                 }
 
                 // Safety: if GA gate is off, force UnrestrictedMode to false

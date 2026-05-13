@@ -311,6 +311,34 @@ export const api = {
     list: () => `${API_BASE_URL}/api/global/distress-reports`,
   },
 
+  // ── Session Cascade Deletion (Global-Admin Session Cleanup page) ──────────
+  sessionDeletions: {
+    list: (state: "Preparing" | "Queued" | "Running" | "Poisoned", strandedSinceMinutes?: number) =>
+      `${API_BASE_URL}/api/global/session-deletions${qs({
+        state,
+        strandedSinceMinutes: strandedSinceMinutes?.toString(),
+      })}`,
+    // Reads the persisted manifest + progress blob for an in-flight / poisoned cascade.
+    // This is what the Session Cleanup page uses — NOT the dry-run preview below.
+    storedManifest: (
+      sessionId: string,
+      tenantId: string,
+      manifestId: string,
+      mode: "summary" | "full" | "download" = "summary",
+    ) =>
+      `${API_BASE_URL}/api/admin/sessions/${encodeURIComponent(sessionId)}/deletion-manifest${qs({
+        tenantId,
+        manifestId,
+        mode,
+      })}`,
+    // Dry-run builder that enumerates current data — only meaningful BEFORE a cascade starts.
+    // The Session Cleanup page should use storedManifest instead.
+    preview: (sessionId: string, tenantId: string, mode: "summary" | "full" | "download" = "summary") =>
+      `${API_BASE_URL}/api/admin/sessions/${encodeURIComponent(sessionId)}/delete/preview${qs({ tenantId, mode })}`,
+    restore: (sessionId: string) =>
+      `${API_BASE_URL}/api/admin/sessions/${encodeURIComponent(sessionId)}/restore`,
+  },
+
   // ── Hardware Rejection Insights (tenant-scoped, from distress data) ──────
   distress: {
     hardwareRejected: () => `${API_BASE_URL}/api/audit/hardware-rejected`,

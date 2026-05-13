@@ -32,6 +32,45 @@ public class SessionRestoreServiceTests
     // ============================================================ Full restore (8 facts) ====
 
     [Fact]
+    public async Task Restore_persists_operator_reason_into_audit_details()
+    {
+        // Codex follow-up: the Session Cleanup admin dialog sends a free-text `reason` so the
+        // operator's intent is recoverable from the tenant audit trail. Pre-fix the backend
+        // accepted the field but the service dropped it on the floor.
+        var harness = new Harness();
+        harness.SetCompletedCascade();
+
+        await harness.Sut.RestoreAsync(
+            TenantId, SessionId, ManifestId,
+            dryRun: false, actor: "ga@example.com",
+            operatorReason: "customer ticket ABC-123 — accidental delete");
+
+        var restored = Assert.Single(harness.AuditCalls, a => a.Action == "deletion_restored");
+        Assert.NotNull(restored.Details);
+        Assert.True(restored.Details!.TryGetValue("reason", out var reasonValue));
+        Assert.Equal("customer ticket ABC-123 — accidental delete", reasonValue);
+    }
+
+    [Fact]
+    public async Task Restore_omits_reason_detail_when_caller_supplied_none()
+    {
+        // Sister to the above — a null/empty reason must NOT add a stray `reason=""` key, since
+        // downstream consumers (audit-log UI filters, kusto queries) treat the key's presence as
+        // signal that the operator deliberately recorded intent.
+        var harness = new Harness();
+        harness.SetCompletedCascade();
+
+        await harness.Sut.RestoreAsync(
+            TenantId, SessionId, ManifestId,
+            dryRun: false, actor: "ga@example.com",
+            operatorReason: null);
+
+        var restored = Assert.Single(harness.AuditCalls, a => a.Action == "deletion_restored");
+        Assert.NotNull(restored.Details);
+        Assert.False(restored.Details!.ContainsKey("reason"));
+    }
+
+    [Fact]
     public async Task Restore_full_round_trips_session_after_completed_cascade()
     {
         var harness = new Harness();
@@ -118,18 +157,20 @@ public class SessionRestoreServiceTests
     }
 
     [Fact]
-    public async Task Restore_full_audits_manifest_download_before_any_read()
+    public async Task Restore_full_does_not_emit_internal_breadcrumb_audit()
     {
+        // PR-B audit consolidation: deletion_manifest_downloaded was an internal step-breadcrumb
+        // emitted before any read. It doubled the tenant audit row count without adding signal
+        // — the deletion_restored audit on success (or the absence of it on the reject path)
+        // is the operator-relevant outcome.
         var harness = new Harness();
         harness.SetCompletedCascade();
-        // Force a post-download reject path so we can verify the audit fired BEFORE the reject.
         harness.Blob.Setup(b => b.DownloadDeletionManifestWithShaAsync(TenantId, SessionId, ManifestId, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidDataException("corruption"));
 
         await harness.Sut.RestoreAsync(TenantId, SessionId, ManifestId, dryRun: false, actor: "ga@example.com");
 
-        Assert.Contains(harness.AuditCalls, a => a.Action == "deletion_manifest_downloaded"
-            && a.Details != null && a.Details["reason"] == "restore_attempt");
+        Assert.DoesNotContain(harness.AuditCalls, a => a.Action == "deletion_manifest_downloaded");
     }
 
     [Fact]
@@ -186,7 +227,10 @@ public class SessionRestoreServiceTests
         var result = await harness.Sut.RestoreAsync(TenantId, SessionId, ManifestId, dryRun: true, actor: "ga@example.com");
 
         Assert.Equal(SessionRestoreOutcome.DryRunOk, result.Outcome);
-        Assert.Equal("dryRun", result.Mode);
+        // Codex follow-up: dry-run must report the auto-selected mode (full / partial) so the
+        // admin dialog can preview it. The DryRunOk Outcome is the dry-run signal — Mode is the
+        // operator-visible preview of what the real run would do.
+        Assert.Equal("full", result.Mode);
         Assert.NotEmpty(result.WouldRestoreByTable);
         // No live writes.
         harness.Storage.Verify(s => s.RestoreRowsByExactKeysInBatchesAsync(
@@ -197,6 +241,24 @@ public class SessionRestoreServiceTests
             Times.Never);
         // dryRun does NOT emit deletion_restored (only the download audit).
         Assert.DoesNotContain(harness.AuditCalls, a => a.Action == "deletion_restored");
+    }
+
+    [Fact]
+    public async Task Restore_partial_dryRun_reports_partial_mode_for_poisoned_cascade()
+    {
+        // Codex follow-up symmetry test: dry-run on a Poisoned session must preview "partial",
+        // mirroring the completed-cascade test above that previews "full".
+        var harness = new Harness();
+        harness.SetPoisonedCascade();
+        harness.Progress.CompletedSteps.UnionWith(new[] { 1, 2, 3, 4 });
+
+        var result = await harness.Sut.RestoreAsync(TenantId, SessionId, ManifestId, dryRun: true, actor: "ga@example.com");
+
+        Assert.Equal(SessionRestoreOutcome.DryRunOk, result.Outcome);
+        Assert.Equal("partial", result.Mode);
+        harness.Storage.Verify(s => s.RestoreRowsByExactKeysInBatchesAsync(
+            It.IsAny<string>(), It.IsAny<IReadOnlyList<DeletionRowDump>>(), It.IsAny<RestoreMode>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     // ============================================================ Partial restore (6 facts) ====

@@ -61,9 +61,13 @@ public class SessionDeletionHandlerTests
         Assert.Single(harness.SignalR.SessionDeletedCalls);
         Assert.Equal((TenantId, SessionId), harness.SignalR.SessionDeletedCalls[0]);
 
-        // Final audit asserts both step-completed entries AND deletion_completed.
+        // PR-B audit consolidation: only the lifecycle endpoint deletion_completed lands in the
+        // tenant audit. Step-level progress lives in DeletionProgress (CompletedSteps); step
+        // success goes to structured logs only.
         Assert.Contains(harness.AuditCalls, a => a.Action == "deletion_completed");
-        Assert.Contains(harness.AuditCalls, a => a.Action == "deletion_step_completed");
+        Assert.DoesNotContain(harness.AuditCalls, a => a.Action == "deletion_step_completed");
+        Assert.DoesNotContain(harness.AuditCalls, a => a.Action == "deletion_step_failed");
+        Assert.DoesNotContain(harness.AuditCalls, a => a.Action == "deletion_verification_failed");
     }
 
     [Fact]
@@ -223,7 +227,95 @@ public class SessionDeletionHandlerTests
             Constants.TableNames.Sessions, It.IsAny<IReadOnlyList<(string, string)>>(), It.IsAny<CancellationToken>()),
             Times.Never);
         Assert.Empty(harness.SignalR.SessionDeletedCalls);
-        Assert.Contains(harness.AuditCalls, a => a.Action == "deletion_verification_failed");
+        // PR-B audit consolidation: verification failure surfaces via the throw → worker
+        // → SessionDeletionPoisoned OpsEvent path. Tenant audit stays silent — the absence of
+        // deletion_completed is the tenant-visible signal.
+        Assert.DoesNotContain(harness.AuditCalls, a => a.Action == "deletion_verification_failed");
+        Assert.DoesNotContain(harness.AuditCalls, a => a.Action == "deletion_completed");
+    }
+
+    [Fact]
+    public async Task Verification_failure_persists_LastFailure_into_DeletionProgress_for_OpsEvent_enrichment()
+    {
+        // Codex F4: the SessionDeletionPoisoned OpsEvent used to carry only queue-side metadata
+        // (dequeueCount + manifestId). The handler now persists failureType + a residual sample
+        // into DeletionProgress before throwing, so the worker can include the root cause when
+        // it transitions the cascade to Poisoned. This test pins the persistence-before-throw
+        // ordering and the field projection.
+        var harness = new Harness();
+        harness.SetHappyPath();
+        harness.SetFullSessionManifest();
+        harness.Verifier.Setup(v => v.VerifyAsync(It.IsAny<DeletionManifest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CascadeVerificationResult(
+                isClean: false,
+                residuals: new List<CascadeResidualKey>
+                {
+                    new CascadeResidualKey("Events", "ghost-pk", "ghost-rk-1"),
+                    new CascadeResidualKey("Signals", "ghost-pk", "ghost-rk-2"),
+                }));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Sut.HandleAsync(harness.Envelope));
+
+        Assert.Equal("verification_residuals", harness.ProgressFake.LastFailureType);
+        Assert.Contains("observed residual row(s)", harness.ProgressFake.LastFailureMessage ?? string.Empty);
+        Assert.False(string.IsNullOrEmpty(harness.ProgressFake.LastResidualSampleJson));
+        // The handler persists whatever the verifier returned — which is the OBSERVED count, not
+        // the true total. CascadeVerificationService caps at 50 per table; here we feed it 2.
+        Assert.Equal(2, harness.ProgressFake.LastObservedResidualCount);
+        // Sample is JSON-encoded array; deserialize and assert the cap-respecting shape.
+        var parsed = System.Text.Json.JsonDocument.Parse(harness.ProgressFake.LastResidualSampleJson!);
+        Assert.Equal(System.Text.Json.JsonValueKind.Array, parsed.RootElement.ValueKind);
+        Assert.Equal(2, parsed.RootElement.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Verification_failure_persists_OBSERVED_residual_count_matching_verifier_cap()
+    {
+        // Codex F2 round-3: the verifier (CascadeVerificationService) caps each table at
+        // MaxResidualSampleSize=50 AND short-circuits after the first failing table, so
+        // verification.Residuals.Count is the OBSERVED count, not the true total. We honestly
+        // model that — the handler persists what it actually receives. The UI / OpsEvent layer
+        // surfaces this as a "≥ N" lower bound when N equals the cap.
+        var harness = new Harness();
+        harness.SetHappyPath();
+        harness.SetFullSessionManifest();
+        // Simulate the production behaviour: the verifier already capped at 50 internally and
+        // returned exactly that many entries; the real residual count in the database may be
+        // larger but the handler cannot know that.
+        const int observedAtCap = 50;
+        var residualsAtCap = Enumerable.Range(0, observedAtCap)
+            .Select(i => new CascadeResidualKey("Events", "pk", $"ghost-{i}"))
+            .ToList();
+        harness.Verifier.Setup(v => v.VerifyAsync(It.IsAny<DeletionManifest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CascadeVerificationResult(isClean: false, residuals: residualsAtCap));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Sut.HandleAsync(harness.Envelope));
+
+        Assert.Equal(observedAtCap, harness.ProgressFake.LastObservedResidualCount);
+        // Sample length matches the observed count (both share the same cap today). The fields
+        // are kept separate because a future verifier upgrade may decouple them.
+        var sample = System.Text.Json.JsonDocument.Parse(harness.ProgressFake.LastResidualSampleJson!);
+        Assert.Equal(observedAtCap, sample.RootElement.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Step_exception_persists_LastFailure_into_DeletionProgress_for_OpsEvent_enrichment()
+    {
+        // Codex F4: same contract for the step-exception path. Step failures bubble up via the
+        // worker's retry/poison loop, so the durable OpsEvent record must carry failureType +
+        // failureMessage so operators can triage without grovelling through App Insights.
+        var harness = new Harness();
+        harness.SetHappyPath();
+        harness.SetFullSessionManifest();
+        harness.Storage.Setup(s => s.DeleteByExactKeysInBatchesAsync(
+                Constants.TableNames.Events, It.IsAny<IReadOnlyList<(string, string)>>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new RequestFailedException(503, "ServiceUnavailable"));
+
+        await Assert.ThrowsAsync<RequestFailedException>(() => harness.Sut.HandleAsync(harness.Envelope));
+
+        Assert.Equal("step_exception", harness.ProgressFake.LastFailureType);
+        Assert.Contains("RequestFailedException", harness.ProgressFake.LastFailureMessage ?? string.Empty);
+        Assert.Null(harness.ProgressFake.LastResidualSampleJson); // step path has no residuals
     }
 
     [Fact]
@@ -416,19 +508,24 @@ public class SessionDeletionHandlerTests
     }
 
     [Fact]
-    public async Task Handler_audits_deletion_step_failed_when_table_delete_throws()
+    public async Task Handler_rethrows_step_failure_without_emitting_tenant_audit()
     {
+        // PR-B audit consolidation: step failures used to write deletion_step_failed +
+        // deletion_step_completed into the tenant audit. Both now route to structured logs;
+        // the failure surfaces to the worker which routes the poisoned cascade to the
+        // SessionDeletionPoisoned OpsEvent. Tenant-visible signal is the absence of
+        // deletion_completed.
         var harness = new Harness();
         harness.SetHappyPath();
         harness.SetFullSessionManifest();
-        // First delete throws — Handler must audit and rethrow.
         harness.Storage.Setup(s => s.DeleteByExactKeysInBatchesAsync(
                 Constants.TableNames.Events, It.IsAny<IReadOnlyList<(string, string)>>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new RequestFailedException(503, "ServiceUnavailable"));
 
         await Assert.ThrowsAsync<RequestFailedException>(() => harness.Sut.HandleAsync(harness.Envelope));
 
-        Assert.Contains(harness.AuditCalls, a => a.Action == "deletion_step_failed");
+        Assert.DoesNotContain(harness.AuditCalls, a => a.Action == "deletion_step_failed");
+        Assert.DoesNotContain(harness.AuditCalls, a => a.Action == "deletion_step_completed");
         Assert.DoesNotContain(harness.AuditCalls, a => a.Action == "deletion_completed");
         Assert.Empty(harness.SignalR.SessionDeletedCalls);
     }
@@ -555,6 +652,12 @@ public class SessionDeletionHandlerTests
                     ProgressFake.RestoreReIncrementsApplied = p.RestoreReIncrementsApplied == null
                         ? null : new HashSet<string>(p.RestoreReIncrementsApplied, StringComparer.Ordinal);
                     ProgressFake.TombstoneStarted = p.TombstoneStarted;
+                    // PR-B Codex F4: propagate the new last-failure fields so tests can verify
+                    // the handler persists them before throwing on step / verification failures.
+                    ProgressFake.LastFailureType = p.LastFailureType;
+                    ProgressFake.LastFailureMessage = p.LastFailureMessage;
+                    ProgressFake.LastObservedResidualCount = p.LastObservedResidualCount;
+                    ProgressFake.LastResidualSampleJson = p.LastResidualSampleJson;
                     return "\"0xFAKE_ETAG_2\"";
                 });
 

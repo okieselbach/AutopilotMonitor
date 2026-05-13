@@ -72,44 +72,74 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     new { success = false, message = "manifestId is required in the request body." });
             }
 
-            // Tenant resolution: prefer JWT TargetTenantId, fall back to SessionsIndex lookup
-            // (Global Admin can target any session by id alone). Mirrors the preview endpoint.
+            // Tenant resolution. Codex F1 review: an explicit body.TenantId from a GA caller is
+            // the only path that lets a Global Admin restore a session in a tenant other than
+            // their JWT home tenant. Order:
+            //   1. Explicit body.TenantId on GA calls (cross-tenant restore — the common case
+            //      when restoring from the Session Cleanup admin page).
+            //   2. JWT TargetTenantId (single-tenant operators).
+            //   3. SessionsIndex lookup keyed by sessionId (rare but preserved).
+            //   4. body.TenantId again — last-resort fallback for the "Sessions row gone" path
+            //      where neither the index nor the JWT tenant can resolve the target.
             var requestCtx = req.GetRequestContext();
             var actorEmail = TenantHelper.GetUserIdentifier(req);
-            var tenantId = requestCtx.TargetTenantId;
-            if (string.IsNullOrEmpty(tenantId) || string.Equals(tenantId, "global", StringComparison.OrdinalIgnoreCase))
+            string tenantId;
+            if (requestCtx.IsGlobalAdmin
+                && !string.IsNullOrWhiteSpace(body.TenantId)
+                && Guid.TryParse(body.TenantId, out _))
             {
-                tenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId);
+                tenantId = body.TenantId!;
             }
-            if (string.IsNullOrEmpty(tenantId))
+            else
             {
-                // Sessions row is gone — but a full restore IS legal in that case. We need a way
-                // to determine the tenantId without the SessionsIndex (which is also gone).
-                // The manifest blob path encodes tenantId, but the operator only gives us
-                // sessionId + manifestId. Require the operator to scope the call by providing
-                // the tenantId in the request body (or via the X-Target-Tenant header).
-                if (string.IsNullOrWhiteSpace(body.TenantId))
+                tenantId = requestCtx.TargetTenantId;
+                if (string.IsNullOrEmpty(tenantId) || string.Equals(tenantId, "global", StringComparison.OrdinalIgnoreCase))
                 {
-                    return await WriteJsonAsync(req, HttpStatusCode.NotFound, new
-                    {
-                        success = false,
-                        message = $"Session {sessionId} not found in any active SessionsIndex entry. " +
-                                  "If the cascade completed (Sessions row gone), pass the tenantId explicitly in the request body."
-                    });
+                    tenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId) ?? string.Empty;
                 }
-                tenantId = body.TenantId;
+                if (string.IsNullOrEmpty(tenantId))
+                {
+                    // Sessions row is gone — but a full restore IS legal in that case. The
+                    // manifest blob path encodes tenantId, but the operator only gives us
+                    // sessionId + manifestId. Require the operator to scope the call by passing
+                    // the tenantId in the request body (or via the X-Target-Tenant header).
+                    if (string.IsNullOrWhiteSpace(body.TenantId))
+                    {
+                        return await WriteJsonAsync(req, HttpStatusCode.NotFound, new
+                        {
+                            success = false,
+                            message = $"Session {sessionId} not found in any active SessionsIndex entry. " +
+                                      "If the cascade completed (Sessions row gone), pass the tenantId explicitly in the request body."
+                        });
+                    }
+                    tenantId = body.TenantId!;
+                }
             }
 
             _logger.LogInformation(
                 "RestoreSession: tenant={TenantId} session={SessionId} manifestId={ManifestId} dryRun={DryRun} actor={Actor}",
                 tenantId, sessionId, body.ManifestId, body.DryRun, actorEmail);
 
+            // Trim + cap operator-supplied reason so it can't bloat the audit-row PartitionKey
+            // payload or be used to smuggle large blobs through. 1024 chars matches the cap the
+            // handler uses for LastFailureMessage in DeletionProgress (same compliance bucket).
+            var reason = body.Reason;
+            if (!string.IsNullOrWhiteSpace(reason))
+            {
+                reason = reason!.Trim();
+                if (reason.Length > 1024) reason = reason.Substring(0, 1024);
+            }
+            else
+            {
+                reason = null;
+            }
+
             SessionRestoreResult result;
             try
             {
                 result = await _restoreService.RestoreAsync(
                     tenantId, sessionId, body.ManifestId,
-                    body.DryRun, actorEmail);
+                    body.DryRun, actorEmail, reason);
             }
             catch (Exception ex)
             {
@@ -175,6 +205,14 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             /// should provide tenantId explicitly in this scenario.
             /// </summary>
             public string? TenantId { get; set; }
+            /// <summary>
+            /// Optional free-text justification. Persisted into the <c>deletion_restored</c> audit
+            /// row's <c>reason</c> detail so the operator's intent (customer ticket, compliance
+            /// request, …) is recoverable from the tenant audit trail. Codex follow-up to the
+            /// PR-B audit consolidation: previously the UI sent this but the backend dropped it.
+            /// Trimmed + capped at 1024 chars by the function before being passed to the service.
+            /// </summary>
+            public string? Reason { get; set; }
         }
     }
 }

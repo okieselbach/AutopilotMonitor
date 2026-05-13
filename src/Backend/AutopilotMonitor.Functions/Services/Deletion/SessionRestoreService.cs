@@ -90,6 +90,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         public virtual async Task<SessionRestoreResult> RestoreAsync(
             string tenantId, string sessionId, string manifestId,
             bool dryRun, string actor,
+            string? operatorReason = null,
             CancellationToken ct = default)
         {
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentException("tenantId is required", nameof(tenantId));
@@ -100,8 +101,13 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             var sw = Stopwatch.StartNew();
             var result = new SessionRestoreResult();
 
-            // (1) §13.1 — audit BEFORE any read.
-            await AuditManifestDownloadedAsync(tenantId, sessionId, manifestId, actor, ct).ConfigureAwait(false);
+            // (1) PR-B audit consolidation: deletion_manifest_downloaded was an internal-step
+            // breadcrumb that doubled the tenant audit row count without adding signal. The
+            // operator-relevant outcome — deletion_restored — already records the actor +
+            // manifestId once the restore completes (or surfaces failure via the throw path).
+            _logger.LogInformation(
+                "SessionRestoreService: starting restore for tenant={TenantId} session={SessionId} manifestId={ManifestId} actor={Actor}",
+                tenantId, sessionId, manifestId, actor);
 
             // (2) Download manifest (SHA-verified) + progress. PR4c F6: use the with-Sha variant
             // and verify the snapshot↔progress binding once both blobs are loaded (plan §3).
@@ -207,10 +213,14 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             }
 
             // (4) Dry-run path: simulate by counting what each step would restore, no writes.
+            // Codex follow-up: report the AUTO-SELECTED mode (full / partial) here so the admin
+            // UI can show "Mode (auto-selected): partial" before the real run. The Outcome of
+            // DryRunOk is the dry-run signal — using mode="dryRun" hid the operator-visible
+            // mode preview the dialog was built to surface.
             if (dryRun)
             {
                 result.Outcome = SessionRestoreOutcome.DryRunOk;
-                result.Mode = "dryRun";
+                result.Mode = mode;
                 foreach (var step in manifest.Steps)
                 {
                     if (step.Class == DeletionStepClass.Aggregate || step.Class == DeletionStepClass.Final) continue;
@@ -265,7 +275,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             result.DurationMs = sw.ElapsedMilliseconds;
 
             // (6) Audit completion.
-            await AuditRestoredAsync(tenantId, sessionId, manifestId, mode, actor, result, ct).ConfigureAwait(false);
+            await AuditRestoredAsync(tenantId, sessionId, manifestId, mode, actor, operatorReason, result, ct).ConfigureAwait(false);
 
             _logger.LogInformation(
                 "SessionRestoreService completed: tenant={Tenant} session={Session} manifestId={ManifestId} mode={Mode} durationMs={Duration}",
@@ -578,40 +588,31 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             map[key] = map.TryGetValue(key, out var c) ? c + delta : delta;
         }
 
-        private async Task AuditManifestDownloadedAsync(string tenantId, string sessionId, string manifestId, string actor, CancellationToken ct)
-        {
-            await _maintenanceRepo.LogAuditEntryAsync(
-                tenantId,
-                action: "deletion_manifest_downloaded",
-                entityType: "Session",
-                entityId: sessionId,
-                performedBy: actor,
-                details: new Dictionary<string, string>(StringComparer.Ordinal)
-                {
-                    ["manifestId"] = manifestId,
-                    ["reason"] = "restore_attempt",
-                }).ConfigureAwait(false);
-        }
-
         private async Task AuditRestoredAsync(
             string tenantId, string sessionId, string manifestId, string mode, string actor,
+            string? operatorReason,
             SessionRestoreResult result, CancellationToken ct)
         {
+            var details = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["manifestId"] = manifestId,
+                ["mode"] = mode,
+                ["rowsRestoredByTable"] = JsonSerializer.Serialize(result.RowsRestoredByTable),
+                ["rowsSkippedByTable"] = JsonSerializer.Serialize(result.RowsSkippedByTable),
+                ["inventoryReIncrements"] = result.InventoryReIncrements.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["durationMs"] = result.DurationMs.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            };
+            if (!string.IsNullOrEmpty(operatorReason))
+            {
+                details["reason"] = operatorReason!;
+            }
             await _maintenanceRepo.LogAuditEntryAsync(
                 tenantId,
                 action: "deletion_restored",
                 entityType: "Session",
                 entityId: sessionId,
                 performedBy: actor,
-                details: new Dictionary<string, string>(StringComparer.Ordinal)
-                {
-                    ["manifestId"] = manifestId,
-                    ["mode"] = mode,
-                    ["rowsRestoredByTable"] = JsonSerializer.Serialize(result.RowsRestoredByTable),
-                    ["rowsSkippedByTable"] = JsonSerializer.Serialize(result.RowsSkippedByTable),
-                    ["inventoryReIncrements"] = result.InventoryReIncrements.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    ["durationMs"] = result.DurationMs.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                }).ConfigureAwait(false);
+                details: details).ConfigureAwait(false);
         }
     }
 }

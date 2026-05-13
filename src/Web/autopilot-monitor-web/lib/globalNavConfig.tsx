@@ -262,6 +262,7 @@ export const EXPANDABLE_NAV_GROUPS: ExpandableNavGroup[] = [
         id: "ga-ops", label: "Ops", icon: <WrenchIcon />,
         items: [
           { id: "ga-maintenance", label: "Maintenance", href: "/admin/ops" },
+          { id: "ga-session-cleanup", label: "Session Cleanup", href: "/admin/ops/session-cleanup" },
         ],
       },
       {

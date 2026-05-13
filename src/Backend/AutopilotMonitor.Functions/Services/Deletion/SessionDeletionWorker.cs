@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure.Identity;
@@ -7,7 +6,6 @@ using Azure.Storage.Queues;
 using Azure.Storage.Queues.Models;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
-using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models.Deletion;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
@@ -30,10 +28,14 @@ namespace AutopilotMonitor.Functions.Services.Deletion
     ///       calls <c>UpdateMessageAsync</c> every <see cref="_heartbeatInterval"/> to extend the
     ///       message visibility by <see cref="HeartbeatExtendBy"/>. Prevents queue re-delivery
     ///       from spawning a parallel worker on the same manifest while a step is in flight.</item>
-    ///   <item><b>Poison audit</b>: max-dequeue exhaustion writes a <c>deletion_poisoned</c>
-    ///       audit entry alongside the poison-queue move so the operator can correlate the
-    ///       poisoned cascade with its manifest. The Sessions row's <c>DeletionState</c> is NOT
-    ///       auto-cleared — operator action via restore-from-poisoned (§13, PR4b) is required.</item>
+    ///   <item><b>Poison OpsEvent</b>: max-dequeue exhaustion records a
+    ///       <c>SessionDeletionPoisoned</c> OpsEvent alongside the poison-queue move so the
+    ///       operator can correlate the poisoned cascade with its manifest (and wire Telegram
+    ///       routing). PR-B audit consolidation: this used to be a per-tenant
+    ///       <c>deletion_poisoned</c> audit but tenant admins should only see the lifecycle
+    ///       endpoints (started / completed / restored), so the signal moved to OpsEvents.
+    ///       The Sessions row's <c>DeletionState</c> is NOT auto-cleared — operator action via
+    ///       restore-from-poisoned (§13, PR4b) is required.</item>
     /// </list>
     /// <para>
     /// <b>The worker is NOT registered in <c>Program.cs</c> in PR4</b> — that wires up in PR5
@@ -81,7 +83,8 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         private readonly SessionDeletionHandler _handler;
         private readonly TableStorageService _storage;
         private readonly AdminConfigurationService _adminConfig;
-        private readonly IMaintenanceRepository _maintenanceRepo;
+        private readonly BlobStorageService _blob;
+        private readonly OpsEventService _opsEvents;
         private readonly ILogger<SessionDeletionWorker> _logger;
 
         public SessionDeletionWorker(
@@ -89,13 +92,15 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             SessionDeletionHandler handler,
             TableStorageService storage,
             AdminConfigurationService adminConfig,
-            IMaintenanceRepository maintenanceRepo,
+            BlobStorageService blob,
+            OpsEventService opsEvents,
             ILogger<SessionDeletionWorker> logger)
         {
             _handler = handler ?? throw new ArgumentNullException(nameof(handler));
             _storage = storage ?? throw new ArgumentNullException(nameof(storage));
             _adminConfig = adminConfig ?? throw new ArgumentNullException(nameof(adminConfig));
-            _maintenanceRepo = maintenanceRepo ?? throw new ArgumentNullException(nameof(maintenanceRepo));
+            _blob = blob ?? throw new ArgumentNullException(nameof(blob));
+            _opsEvents = opsEvents ?? throw new ArgumentNullException(nameof(opsEvents));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _heartbeatInterval = DefaultHeartbeatInterval;
             _pollInterval = DefaultPollInterval;
@@ -147,7 +152,8 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             SessionDeletionHandler handler,
             TableStorageService storage,
             AdminConfigurationService adminConfig,
-            IMaintenanceRepository maintenanceRepo,
+            BlobStorageService blob,
+            OpsEventService opsEvents,
             ILogger<SessionDeletionWorker> logger,
             TimeSpan? heartbeatInterval = null,
             TimeSpan? pollInterval = null)
@@ -157,7 +163,8 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             _handler = handler ?? throw new ArgumentNullException(nameof(handler));
             _storage = storage ?? throw new ArgumentNullException(nameof(storage));
             _adminConfig = adminConfig ?? throw new ArgumentNullException(nameof(adminConfig));
-            _maintenanceRepo = maintenanceRepo ?? throw new ArgumentNullException(nameof(maintenanceRepo));
+            _blob = blob ?? throw new ArgumentNullException(nameof(blob));
+            _opsEvents = opsEvents ?? throw new ArgumentNullException(nameof(opsEvents));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _heartbeatInterval = heartbeatInterval ?? DefaultHeartbeatInterval;
             _pollInterval = pollInterval ?? DefaultPollInterval;
@@ -358,29 +365,201 @@ namespace AutopilotMonitor.Functions.Services.Deletion
 
             if (envelope != null && !string.IsNullOrEmpty(envelope.TenantId) && !string.IsNullOrEmpty(envelope.SessionId))
             {
+                // PR-B audit consolidation: poisoned cascades surface as a global-scope OpsEvent
+                // (operator-bound, Telegram-routable) rather than a per-tenant audit. Tenant admins
+                // observe deletion via the lifecycle audits (started / completed / restored).
+                //
+                // Codex F4 follow-up: pull the handler's last-failure breadcrumb out of the
+                // DeletionProgress blob so the OpsEvent carries the root cause (failureType +
+                // residual sample), not just queue-side metadata. Blob read is best-effort —
+                // a missing blob, transient 5xx, or pre-followup progress without LastFailure*
+                // fields still produces a useful OpsEvent, just without root-cause data.
+                string? failureType = null;
+                string? failureMessage = null;
+                int? observedResidualCount = null;
+                string? residualSamplePreviewJson = null;
+                if (!string.IsNullOrEmpty(envelope.ManifestId))
+                {
+                    try
+                    {
+                        var (progress, _) = await _blob.DownloadDeletionProgressAsync(
+                            envelope.TenantId, envelope.SessionId, envelope.ManifestId!, ct)
+                            .ConfigureAwait(false);
+                        failureType = string.IsNullOrEmpty(progress.LastFailureType) ? null : progress.LastFailureType;
+                        failureMessage = string.IsNullOrEmpty(progress.LastFailureMessage) ? null : progress.LastFailureMessage;
+                        // Codex F2 round-3: this is the verifier's OBSERVED count
+                        // (CascadeVerificationService caps at MaxResidualSampleSize per table AND
+                        // short-circuits after the first failing table — the real residual count
+                        // may be larger). For pre-followup progress blobs lacking the field, fall
+                        // back to the sample-array length so the OpsEvent still carries a number.
+                        observedResidualCount = progress.LastObservedResidualCount
+                            ?? ExtractResidualSampleArrayLength(progress.LastResidualSampleJson);
+                        // Codex F2 round-2: shrink the residual sample further before embedding
+                        // it in the OpsEvent. The OpsEvents table truncates Details at 4096 chars
+                        // (TableOpsEventRepository.cs); the full 50-entry sample plus the other
+                        // payload fields can blow past that and leave the JSON mid-string-corrupt
+                        // — operators end up reading garbled raw text instead of structured data.
+                        // The Session Cleanup admin page already shows the full sample by reading
+                        // the progress blob directly, so the OpsEvent only needs a preview.
+                        residualSamplePreviewJson = ShrinkResidualSampleForOpsEvent(progress.LastResidualSampleJson);
+                    }
+                    catch (Exception blobEx)
+                    {
+                        _logger.LogWarning(blobEx,
+                            "SessionDeletionWorker: failed to read DeletionProgress for poison enrichment (tenant={Tenant} session={Session} manifestId={Manifest}) — OpsEvent will lack root-cause data",
+                            envelope.TenantId, envelope.SessionId, envelope.ManifestId);
+                    }
+                }
+
                 try
                 {
-                    await _maintenanceRepo.LogAuditEntryAsync(
+                    await _opsEvents.RecordSessionDeletionPoisonedAsync(
                         envelope.TenantId,
-                        action: "deletion_poisoned",
-                        entityType: "Session",
-                        entityId: envelope.SessionId,
-                        performedBy: "system",
-                        details: new Dictionary<string, string>(StringComparer.Ordinal)
-                        {
-                            ["manifestId"] = envelope.ManifestId ?? string.Empty,
-                            ["reason"] = envelope.Reason ?? string.Empty,
-                            ["messageId"] = msg.MessageId,
-                            ["dequeueCount"] = (msg.DequeueCount - 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
-                        }).ConfigureAwait(false);
+                        envelope.SessionId,
+                        envelope.ManifestId ?? string.Empty,
+                        envelope.Reason ?? string.Empty,
+                        msg.MessageId,
+                        (int)(msg.DequeueCount - 1),
+                        failureType,
+                        failureMessage,
+                        observedResidualCount,
+                        residualSamplePreviewJson).ConfigureAwait(false);
                 }
-                catch (Exception auditEx)
+                catch (Exception opsEx)
                 {
-                    _logger.LogError(auditEx,
-                        "SessionDeletionWorker: deletion_poisoned audit log write failed for tenant={Tenant} session={Session}",
+                    _logger.LogError(opsEx,
+                        "SessionDeletionWorker: SessionDeletionPoisoned OpsEvent write failed for tenant={Tenant} session={Session}",
                         envelope.TenantId, envelope.SessionId);
                 }
             }
+        }
+
+        /// <summary>
+        /// Back-compat fallback used only when <see cref="AutopilotMonitor.Shared.Models.Deletion.DeletionProgress.LastObservedResidualCount"/>
+        /// is missing (progress blobs written before the field was introduced). Parses the JSON
+        /// sample array length and uses it as a best-effort substitute for the observed count.
+        /// Returns null on parse errors or missing data.
+        /// </summary>
+        internal static int? ExtractResidualSampleArrayLength(string? residualSampleJson)
+        {
+            if (string.IsNullOrEmpty(residualSampleJson)) return null;
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(residualSampleJson!);
+                if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    return doc.RootElement.GetArrayLength();
+                }
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                // Tolerate malformed payloads — the breadcrumb itself still goes through.
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Trims the progress-blob's residual sample for safe embedding in the
+        /// <c>SessionDeletionPoisoned</c> OpsEvent's <c>Details</c> column. Three-layer defense
+        /// against the 4096-char Azure Table truncation discovered by Codex review:
+        /// <list type="number">
+        ///   <item>Take at most <see cref="AutopilotMonitor.Shared.Models.Deletion.DeletionProgressConstants.OpsEventResidualSamplePreviewSize"/>
+        ///       entries (drop tail, the rest stays in the progress blob for the admin UI).</item>
+        ///   <item>Trim each <c>table</c> / <c>pk</c> / <c>rk</c> to
+        ///       <see cref="AutopilotMonitor.Shared.Models.Deletion.DeletionProgressConstants.OpsEventResidualKeyMaxChars"/>
+        ///       with a trailing <c>…</c> marker — a single composite key can be 200+ chars and
+        ///       would otherwise consume most of the budget on its own.</item>
+        ///   <item>If the serialized JSON still exceeds
+        ///       <see cref="AutopilotMonitor.Shared.Models.Deletion.DeletionProgressConstants.OpsEventResidualPreviewBudgetChars"/>,
+        ///       drop trailing entries until it fits. Worst case (all entries too long) returns
+        ///       <c>"[]"</c>; operators still get failureType + observedResidualCount and can
+        ///       fetch the full sample from the progress blob.</item>
+        /// </list>
+        /// Returns null when there's nothing to embed or the input cannot be parsed.
+        /// </summary>
+        internal static string? ShrinkResidualSampleForOpsEvent(string? fullSampleJson)
+        {
+            if (string.IsNullOrEmpty(fullSampleJson)) return null;
+
+            List<ResidualPreviewEntry> entries;
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(fullSampleJson!);
+                if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array)
+                {
+                    return null;
+                }
+                entries = new List<ResidualPreviewEntry>();
+                var max = AutopilotMonitor.Shared.Models.Deletion.DeletionProgressConstants.OpsEventResidualSamplePreviewSize;
+                foreach (var element in doc.RootElement.EnumerateArray())
+                {
+                    if (entries.Count >= max) break;
+                    if (element.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+                    entries.Add(new ResidualPreviewEntry
+                    {
+                        Table = TrimResidualKeyField(ReadStringProperty(element, "table")),
+                        Pk    = TrimResidualKeyField(ReadStringProperty(element, "pk")),
+                        Rk    = TrimResidualKeyField(ReadStringProperty(element, "rk")),
+                    });
+                }
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return null;
+            }
+
+            // Total-budget pass: serialize, then drop trailing entries until under the cap.
+            // Worst case (one over-budget entry) ends at "[]" — still valid JSON, and the full
+            // sample remains in the progress blob.
+            var budget = AutopilotMonitor.Shared.Models.Deletion.DeletionProgressConstants.OpsEventResidualPreviewBudgetChars;
+            while (true)
+            {
+                var serialized = SerializeResidualPreview(entries);
+                if (serialized.Length <= budget || entries.Count == 0) return serialized;
+                entries.RemoveAt(entries.Count - 1);
+            }
+        }
+
+        private static string SerializeResidualPreview(List<ResidualPreviewEntry> entries)
+        {
+            using var stream = new System.IO.MemoryStream();
+            using (var writer = new System.Text.Json.Utf8JsonWriter(stream))
+            {
+                writer.WriteStartArray();
+                foreach (var e in entries)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("table", e.Table);
+                    writer.WriteString("pk", e.Pk);
+                    writer.WriteString("rk", e.Rk);
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+            }
+            return System.Text.Encoding.UTF8.GetString(stream.ToArray());
+        }
+
+        private static string TrimResidualKeyField(string? raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return string.Empty;
+            var max = AutopilotMonitor.Shared.Models.Deletion.DeletionProgressConstants.OpsEventResidualKeyMaxChars;
+            if (raw!.Length <= max) return raw;
+            // -1 makes room for the trailing ellipsis so the marked-truncated string fits in
+            // the same budget as a max-length untrimmed one.
+            return raw.Substring(0, max - 1) + "…";
+        }
+
+        private static string? ReadStringProperty(System.Text.Json.JsonElement obj, string propertyName)
+        {
+            if (!obj.TryGetProperty(propertyName, out var value)) return null;
+            return value.ValueKind == System.Text.Json.JsonValueKind.String ? value.GetString() : null;
+        }
+
+        private struct ResidualPreviewEntry
+        {
+            public string Table;
+            public string Pk;
+            public string Rk;
         }
 
         private async Task SafeDeleteAsync(QueueMessage msg, CancellationToken ct)

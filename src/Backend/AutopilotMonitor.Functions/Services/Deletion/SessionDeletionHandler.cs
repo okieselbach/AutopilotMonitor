@@ -42,10 +42,9 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         internal const int ProgressCasMaxAttempts = 10;
         internal static readonly TimeSpan ProgressCasMaxWallClock = TimeSpan.FromSeconds(60);
 
-        // Cap on the per-table audit-detail `residualKeys` sample — paired with
-        // CascadeVerificationService.MaxResidualSampleSize. The Dictionary<string, string> entry
-        // holds a small JSON array of "{table}/{pk}/{rk}" strings.
-        internal const int AuditResidualSampleSize = 50;
+        // Verification-failure sample cap moved to DeletionProgressConstants so the
+        // log line, the persisted progress-blob field, and the downstream OpsEvent all
+        // use the same projection.
 
         private readonly TableStorageService _storage;
         private readonly BlobStorageService _blob;
@@ -163,7 +162,18 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                 }
                 catch (Exception ex) when (!(ex is OperationCanceledException))
                 {
-                    await AuditStepFailedAsync(tenantId, sessionId, manifestId, step, ex, cancellationToken);
+                    LogStepFailed(tenantId, sessionId, manifestId, step, ex);
+                    // PR-B Codex F4: persist the failure context into the progress blob BEFORE
+                    // rethrowing so the worker's poison-emit path can include the root cause in
+                    // the SessionDeletionPoisoned OpsEvent. Best-effort — a persist failure is
+                    // logged and swallowed; the original step exception is the one that matters.
+                    (progress, etag) = await TryPersistFailureContextAsync(
+                        tenantId, sessionId, manifestId, progress, etag,
+                        failureType: "step_exception",
+                        failureMessage: $"step {step.Order} ({step.Class}{(string.IsNullOrEmpty(step.Table) ? "" : $", {step.Table}")}): {ex.GetType().Name}: {ex.Message}",
+                        observedResidualCount: null,
+                        residualSampleJson: null,
+                        cancellationToken);
                     throw;
                 }
 
@@ -175,14 +185,14 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                     isAlreadyApplied: p => p.CompletedSteps.Contains(step.Order),
                     cancellationToken);
 
-                await _maintenanceRepo.LogAuditEntryAsync(
-                    tenantId,
-                    action: "deletion_step_completed",
-                    entityType: "Session",
-                    entityId: sessionId,
-                    performedBy: "system",
-                    details: BuildStepCompletedDetails(manifestId, step, result, aggregateProcessed, sw.ElapsedMilliseconds - stepStart))
-                    .ConfigureAwait(false);
+                // PR-B audit consolidation: step-level progress lives in DeletionProgress
+                // (CompletedSteps + AggregateDecrementsApplied + TombstoneStarted) — the admin
+                // Session Cleanup page reads from there. Structured log for App Insights only.
+                _logger.LogInformation(
+                    "SessionDeletionHandler step complete: tenant={TenantId} session={SessionId} manifestId={ManifestId} stepOrder={StepOrder} class={Class} table={Table} attempted={Attempted} deletedNow={DeletedNow} alreadyMissing={AlreadyMissing} aggregateProcessed={AggregateProcessed} stepDurationMs={StepDurationMs}",
+                    tenantId, sessionId, manifestId, step.Order, step.Class, step.Table ?? string.Empty,
+                    result.Attempted, result.DeletedNow, result.AlreadyMissing, aggregateProcessed,
+                    sw.ElapsedMilliseconds - stepStart);
             }
 
             // (5) Live verification (§1 P4). Outcome dictates whether tombstone runs at all.
@@ -191,14 +201,28 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                 var verification = await _verifier.VerifyAsync(manifest, cancellationToken);
                 if (!verification.IsClean)
                 {
-                    await _maintenanceRepo.LogAuditEntryAsync(
-                        tenantId,
-                        action: "deletion_verification_failed",
-                        entityType: "Session",
-                        entityId: sessionId,
-                        performedBy: "system",
-                        details: BuildVerificationFailedDetails(manifestId, verification.Residuals))
-                        .ConfigureAwait(false);
+                    // PR-B audit consolidation: verification residuals are diagnostic detail for
+                    // operators on the Session Cleanup page (read from the throw → poison path's
+                    // SessionDeletionPoisoned OpsEvent). Tenant admins see deletion_completed
+                    // absence as the signal; no tenant-scope audit row needed.
+                    LogVerificationFailed(tenantId, sessionId, manifestId, verification.Residuals);
+
+                    // PR-B Codex F4: persist failure type + residual sample into the progress blob
+                    // so the worker's poison-emit path can include it in the OpsEvent (durable
+                    // operator record), not just structured logs which roll off.
+                    // Codex F2 round-3: the persisted count is the verifier's OBSERVED count —
+                    // CascadeVerificationService stops at MaxResidualSampleSize per table AND at
+                    // the first failing table, so the real residual mountain may be larger. We
+                    // do not pay the cost of an exhaustive count on the hot path because the
+                    // recovery action (poison → operator restore) doesn't need exact magnitudes.
+                    var residualSampleJson = BuildResidualSampleJson(verification.Residuals);
+                    (progress, etag) = await TryPersistFailureContextAsync(
+                        tenantId, sessionId, manifestId, progress, etag,
+                        failureType: "verification_residuals",
+                        failureMessage: $"{verification.Residuals.Count} observed residual row(s); refusing to tombstone (verifier short-circuits at first failing table)",
+                        observedResidualCount: verification.Residuals.Count,
+                        residualSampleJson: residualSampleJson,
+                        cancellationToken);
 
                     throw new InvalidOperationException(
                         $"Cascade verification found {verification.Residuals.Count} residual row(s) for " +
@@ -543,49 +567,70 @@ namespace AutopilotMonitor.Functions.Services.Deletion
 
         // ============================================================ Audit details builders ====
 
-        private static Dictionary<string, string> BuildStepCompletedDetails(
-            string manifestId, DeletionStep step, DeletionBatchResult tableResult, int aggregateProcessed, long stepDurationMs)
+        private void LogVerificationFailed(
+            string tenantId, string sessionId, string manifestId, IReadOnlyList<CascadeResidualKey> residuals)
         {
-            var details = new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["manifestId"] = manifestId,
-                ["stepOrder"] = step.Order.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                ["class"] = step.Class,
-                ["stepDurationMs"] = stepDurationMs.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            };
-            if (!string.IsNullOrEmpty(step.Table))
-            {
-                details["table"] = step.Table!;
-            }
-            if (!string.IsNullOrEmpty(step.Step))
-            {
-                details["syntheticStep"] = step.Step!;
-            }
-            if (step.Class == DeletionStepClass.Aggregate)
-            {
-                details["decrementsProcessed"] = aggregateProcessed.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            }
-            else
-            {
-                details["attempted"] = tableResult.Attempted.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                details["deletedNow"] = tableResult.DeletedNow.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                details["alreadyMissing"] = tableResult.AlreadyMissing.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            }
-            return details;
+            _logger.LogError(
+                "SessionDeletionHandler verification failed: tenant={TenantId} session={SessionId} manifestId={ManifestId} residualCount={ResidualCount} sampleKeys={SampleKeys}",
+                tenantId, sessionId, manifestId, residuals.Count, BuildResidualSampleJson(residuals));
         }
 
-        private static Dictionary<string, string> BuildVerificationFailedDetails(
-            string manifestId, IReadOnlyList<CascadeResidualKey> residuals)
+        /// <summary>
+        /// JSON-encoded sample of residual table/pk/rk triples, capped at
+        /// <see cref="DeletionProgressConstants.VerificationResidualSampleSize"/>. Shared by the
+        /// log-only sink (App Insights) and the durable progress-blob sink that feeds the
+        /// <c>SessionDeletionPoisoned</c> OpsEvent.
+        /// </summary>
+        internal static string BuildResidualSampleJson(IReadOnlyList<CascadeResidualKey> residuals)
         {
             var sample = residuals
-                .Take(AuditResidualSampleSize)
+                .Take(DeletionProgressConstants.VerificationResidualSampleSize)
                 .Select(r => new { table = r.Table, pk = r.Pk, rk = r.Rk });
-            return new Dictionary<string, string>(StringComparer.Ordinal)
+            return JsonSerializer.Serialize(sample);
+        }
+
+        /// <summary>
+        /// Persists <see cref="DeletionProgress.LastFailureType"/> / <see cref="DeletionProgress.LastFailureMessage"/>
+        /// / <see cref="DeletionProgress.LastResidualSampleJson"/> to the progress blob via the
+        /// same ETag-CAS path the other progress mutations use. Best-effort — a CAS failure here
+        /// is logged and swallowed because the caller's next step is to rethrow the underlying
+        /// failure, and burying that exception under "progress write failed" would obscure the
+        /// real cause. Returns the latest (progress, etag) tuple so the caller can keep the
+        /// captured ETag in sync for any further progress writes downstream (the verification
+        /// path does no further writes; the step-exception path does none either before throw).
+        /// Failure messages are clipped to 1024 chars before persistence.
+        /// </summary>
+        private async Task<(DeletionProgress, string)> TryPersistFailureContextAsync(
+            string tenantId, string sessionId, string manifestId,
+            DeletionProgress progress, string etag,
+            string failureType, string failureMessage,
+            int? observedResidualCount, string? residualSampleJson,
+            CancellationToken ct)
+        {
+            var clippedMessage = failureMessage.Length > 1024 ? failureMessage.Substring(0, 1024) : failureMessage;
+            try
             {
-                ["manifestId"] = manifestId,
-                ["residualCount"] = residuals.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                ["residualKeys"] = JsonSerializer.Serialize(sample),
-            };
+                return await UpdateProgressWithRetryAsync(
+                    tenantId, sessionId, manifestId, progress, etag,
+                    mutate: p =>
+                    {
+                        p.LastFailureType = failureType;
+                        p.LastFailureMessage = clippedMessage;
+                        p.LastObservedResidualCount = observedResidualCount;
+                        p.LastResidualSampleJson = residualSampleJson;
+                    },
+                    isAlreadyApplied: p =>
+                        string.Equals(p.LastFailureType, failureType, StringComparison.Ordinal)
+                        && string.Equals(p.LastFailureMessage, clippedMessage, StringComparison.Ordinal),
+                    ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "SessionDeletionHandler: failed to persist failure context (tenant={TenantId} session={SessionId} manifestId={ManifestId} failureType={FailureType}) — proceeding with rethrow",
+                    tenantId, sessionId, manifestId, failureType);
+                return (progress, etag);
+            }
         }
 
         private static Dictionary<string, string> BuildCompletedDetails(
@@ -602,27 +647,16 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             };
         }
 
-        private Task AuditStepFailedAsync(
-            string tenantId, string sessionId, string manifestId, DeletionStep step, Exception ex, CancellationToken _)
+        private void LogStepFailed(
+            string tenantId, string sessionId, string manifestId, DeletionStep step, Exception ex)
         {
-            var details = new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["manifestId"] = manifestId,
-                ["stepOrder"] = step.Order.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                ["class"] = step.Class,
-                ["exceptionType"] = ex.GetType().FullName ?? "Unknown",
-                // Trim error message to a reasonable size for the audit row.
-                ["error"] = ex.Message.Length > 1024 ? ex.Message.Substring(0, 1024) : ex.Message,
-            };
-            if (!string.IsNullOrEmpty(step.Table)) details["table"] = step.Table!;
-
-            return _maintenanceRepo.LogAuditEntryAsync(
-                tenantId,
-                action: "deletion_step_failed",
-                entityType: "Session",
-                entityId: sessionId,
-                performedBy: "system",
-                details: details);
+            // PR-B audit consolidation: step failures bubble up to the worker → poison path →
+            // SessionDeletionPoisoned OpsEvent. Diagnostic detail goes to App Insights so the
+            // Session Cleanup admin page (or a kusto query) can drill in by manifestId.
+            _logger.LogError(ex,
+                "SessionDeletionHandler step failed: tenant={TenantId} session={SessionId} manifestId={ManifestId} stepOrder={StepOrder} class={Class} table={Table} exceptionType={ExceptionType}",
+                tenantId, sessionId, manifestId, step.Order, step.Class, step.Table ?? string.Empty,
+                ex.GetType().FullName ?? "Unknown");
         }
     }
 }

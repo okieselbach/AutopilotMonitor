@@ -215,6 +215,8 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "sessions/{sessionId}/reducer-verification", EndpointPolicy.GlobalAdminOnly),
         new("GET",    "admin/sessions/{sessionId}/delete/preview",  EndpointPolicy.GlobalAdminOnly),
         new("POST",   "admin/sessions/{sessionId}/restore",          EndpointPolicy.GlobalAdminOnly),
+        new("GET",    "admin/sessions/{sessionId}/deletion-manifest", EndpointPolicy.GlobalAdminOnly),
+        new("GET",    "global/session-deletions",                    EndpointPolicy.GlobalAdminOnly),
         new("GET",    "global/raw/sessions",                  EndpointPolicy.GlobalAdminOnly),
         new("GET",    "global/raw/events",                    EndpointPolicy.GlobalAdminOnly),
         new("GET",    "global/raw/events/search",              EndpointPolicy.GlobalAdminOnly),

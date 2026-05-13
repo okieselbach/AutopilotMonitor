@@ -72,12 +72,28 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 return bad;
             }
 
-            // Resolve tenantId: prefer the JWT-derived target, fall back to SessionsIndex lookup
-            // (Global Admin can access any session by sessionId without knowing the tenantId).
-            var tenantId = requestCtx.TargetTenantId;
-            if (string.IsNullOrEmpty(tenantId) || string.Equals(tenantId, "global", StringComparison.OrdinalIgnoreCase))
+            // Resolve tenantId. Three-tier fallback ordered by Codex F1 review:
+            //   1. Explicit ?tenantId=<guid> on GA calls — only path that lets a Global Admin
+            //      preview a session in a tenant other than their JWT home tenant.
+            //   2. JWT TargetTenantId, where the policy middleware mirrors the JWT tid for
+            //      non-RouteParam routes. Sufficient for tenant admins acting on their own tenant.
+            //   3. SessionsIndex lookup keyed by sessionId — the historical fallback for the
+            //      "global" sentinel; preserved so existing callers without ?tenantId still work.
+            var explicitTenantId = query["tenantId"];
+            string tenantId;
+            if (requestCtx.IsGlobalAdmin
+                && !string.IsNullOrEmpty(explicitTenantId)
+                && Guid.TryParse(explicitTenantId, out _))
             {
-                tenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId);
+                tenantId = explicitTenantId!;
+            }
+            else
+            {
+                tenantId = requestCtx.TargetTenantId;
+                if (string.IsNullOrEmpty(tenantId) || string.Equals(tenantId, "global", StringComparison.OrdinalIgnoreCase))
+                {
+                    tenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId) ?? string.Empty;
+                }
             }
             if (string.IsNullOrEmpty(tenantId))
             {

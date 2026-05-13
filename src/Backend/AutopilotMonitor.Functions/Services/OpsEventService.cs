@@ -99,6 +99,54 @@ namespace AutopilotMonitor.Functions.Services
                 tenantId, "System.Maintenance", new { tenantId, sessionId, queuedSince = queuedSince.ToString("o"), manifestId });
 
         /// <summary>
+        /// Cascade max-dequeue exhaustion (PR-B follow-up): the worker has moved the envelope to
+        /// the poison queue and CAS-transitioned the Sessions row to <see cref="SessionDeletionState.Poisoned"/>.
+        /// Replaces the prior <c>deletion_poisoned</c> tenant audit — tenant admins see only the
+        /// lifecycle endpoints (<c>deletion_started</c>, <c>deletion_completed</c>, <c>deletion_restored</c>),
+        /// while operators get this OpsEvent for the Session Cleanup admin page + Telegram routing.
+        /// <para>
+        /// Codex follow-ups F4 + F2: <paramref name="failureType"/> / <paramref name="failureMessage"/>
+        /// / <paramref name="observedResidualCount"/> / <paramref name="residualSamplePreviewJson"/>
+        /// are populated from <see cref="DeletionProgress"/> fields the handler writes before
+        /// throwing. Worker reads the progress blob in its poison path and passes whatever is
+        /// present (all are nullable so a worker that pre-dates the progress-schema bump still
+        /// emits a useful event, just without root-cause data).
+        /// </para>
+        /// <para>
+        /// <paramref name="observedResidualCount"/> is the verifier's <b>observed</b> count, not
+        /// the true total: <c>CascadeVerificationService</c> caps at
+        /// <see cref="DeletionProgressConstants.VerificationResidualSampleSize"/> rows per table
+        /// and short-circuits after the first failing table. Operators reading this number should
+        /// treat it as a lower bound, especially when it equals the cap.
+        /// </para>
+        /// <para>
+        /// <paramref name="residualSamplePreviewJson"/> is a small (≤
+        /// <see cref="DeletionProgressConstants.OpsEventResidualSamplePreviewSize"/>) preview that
+        /// fits under the OpsEvents table's 4096-char Details truncation. The full progress-blob
+        /// sample (up to <see cref="DeletionProgressConstants.VerificationResidualSampleSize"/>
+        /// entries) is available via the Session Cleanup admin page's stored-manifest modal.
+        /// </para>
+        /// </summary>
+        public Task RecordSessionDeletionPoisonedAsync(
+            string tenantId, string sessionId, string manifestId, string reason, string messageId, int dequeueCount,
+            string? failureType = null, string? failureMessage = null,
+            int? observedResidualCount = null, string? residualSamplePreviewJson = null)
+        {
+            var cause = !string.IsNullOrEmpty(failureType)
+                ? $" — cause: {failureType}{(string.IsNullOrEmpty(failureMessage) ? "" : $" ({failureMessage})")}"
+                : string.Empty;
+            return WriteAsync(OpsEventCategory.Maintenance, "SessionDeletionPoisoned", OpsEventSeverity.Error,
+                $"Session {sessionId} cascade poisoned after {dequeueCount} attempts (manifestId={manifestId}){cause}",
+                tenantId, "System.Maintenance",
+                new
+                {
+                    tenantId, sessionId, manifestId, reason, messageId, dequeueCount,
+                    failureType, failureMessage, observedResidualCount,
+                    residualSamplePreviewJson,
+                });
+        }
+
+        /// <summary>
         /// Successful end of a <see cref="Functions.Maintenance.SessionDeletionMaintenanceFunction"/>
         /// run — records the per-block totals so dashboards can fold the cadence into the timeline.
         /// PR6 follow-up F3: replaces the prior <c>LogAuditEntryAsync(null!, ...)</c> call, which

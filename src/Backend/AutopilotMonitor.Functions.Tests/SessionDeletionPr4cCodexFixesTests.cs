@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure;
@@ -650,10 +651,29 @@ public class SessionDeletionPr4cCodexFixesTests
                     It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>?>()))
                 .ReturnsAsync(true);
 
+            // PR-B audit consolidation: SessionDeletionWorker no longer takes IMaintenanceRepository;
+            // poisoned cascades flow through OpsEventService. Build a fire-and-forget instance
+            // backed by a noop repository — F5 tests assert CAS ordering, not the OpsEvent itself.
+            var opsRepoStub = new Mock<IOpsEventRepository>();
+            opsRepoStub.Setup(r => r.SaveOpsEventAsync(It.IsAny<OpsEventEntry>())).Returns(Task.CompletedTask);
+            var alertDispatchStub = new OpsAlertDispatchService(
+                AdminConfig.Object,
+                new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance),
+                new AutopilotMonitor.Functions.Services.Notifications.WebhookNotificationService(new HttpClient(), NullLogger<AutopilotMonitor.Functions.Services.Notifications.WebhookNotificationService>.Instance),
+                NullLogger<OpsAlertDispatchService>.Instance);
+            var opsServiceStub = new OpsEventService(opsRepoStub.Object, NullLogger<OpsEventService>.Instance, alertDispatchStub);
+
+            // PR-B Codex F4 follow-up: worker now reads DeletionProgress on the poison path.
+            // F5 tests assert CAS ordering, not the OpsEvent payload, so a noop blob suffices.
+            blobMock.Setup(b => b.DownloadDeletionProgressAsync(
+                    It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(((AutopilotMonitor.Shared.Models.Deletion.DeletionProgress, string))(
+                    new AutopilotMonitor.Shared.Models.Deletion.DeletionProgress(), "etag-stub"));
+
             Sut = new SessionDeletionWorker(
                 MainQueue.Object, PoisonQueue.Object,
                 handlerMock.Object, StorageMock.Object,
-                AdminConfig.Object, Maintenance.Object,
+                AdminConfig.Object, blobMock.Object, opsServiceStub,
                 NullLogger<SessionDeletionWorker>.Instance,
                 heartbeatInterval: TimeSpan.FromMilliseconds(200),
                 pollInterval: TimeSpan.FromMilliseconds(50));
