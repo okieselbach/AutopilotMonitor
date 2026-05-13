@@ -25,7 +25,7 @@ export default function Navbar() {
   const [showSettings, setShowSettings] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showOverflow, setShowOverflow] = useState(false);
-  const [overflowSubmenu, setOverflowSubmenu] = useState<'help' | 'settings' | 'notifications' | null>(null);
+  const [overflowSubmenu, setOverflowSubmenu] = useState<'help' | 'settings' | null>(null);
   const { adminMode, setAdminMode, globalAdminMode, setGlobalAdminMode } = useAdminMode();
   const [previewMode, setPreviewMode] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -259,8 +259,8 @@ export default function Navbar() {
               )}
             </button>
 
-            {/* Notification Bell — hidden on <sm, moved to overflow */}
-            <div className="hidden sm:block relative" ref={notificationRef}>
+            {/* Notification Bell — always visible (including mobile) */}
+            <div className="relative" ref={notificationRef}>
               <button
                 onClick={() => setShowNotifications(!showNotifications)}
                 className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors"
@@ -581,33 +581,6 @@ export default function Navbar() {
                         </div>
                       </button>
 
-                      {/* Notifications — opens submenu */}
-                      <button
-                        onClick={() => setOverflowSubmenu('notifications')}
-                        className="w-full flex items-center justify-between px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <svg className="w-4 h-4 text-gray-400" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
-                            <path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
-                          </svg>
-                          <span>Notifications</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          {(() => {
-                            const globalCount = (user?.isGlobalAdmin && globalAdminMode) ? globalNotifications.length : 0;
-                            const totalUnread = unreadCount + globalCount + tenantNotifications.length;
-                            return totalUnread > 0 ? (
-                              <span className="inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold text-white bg-red-600 rounded-full">
-                                {totalUnread > 9 ? '9+' : totalUnread}
-                              </span>
-                            ) : null;
-                          })()}
-                          <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                          </svg>
-                        </div>
-                      </button>
-
                       <div className="border-t border-gray-100 dark:border-gray-700 my-1"></div>
 
                       {/* Settings — opens submenu */}
@@ -646,84 +619,6 @@ export default function Navbar() {
                       </button>
                     </>
                   )}
-
-                  {/* ── Notifications submenu ── */}
-                  {overflowSubmenu === 'notifications' && (() => {
-                    const showGlobal = user?.isGlobalAdmin && globalAdminMode;
-                    const visibleGlobal = showGlobal ? globalNotifications : [];
-                    const hasAny = notifications.length > 0 || visibleGlobal.length > 0 || tenantNotifications.length > 0;
-                    return (
-                      <>
-                        <button
-                          onClick={() => setOverflowSubmenu(null)}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                        >
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                          </svg>
-                          Notifications
-                        </button>
-                        <div className="border-t border-gray-100 dark:border-gray-700 my-1"></div>
-                        <div className="max-h-72 overflow-y-auto">
-                          {!hasAny ? (
-                            <p className="px-3 py-4 text-xs text-gray-400 text-center">No notifications</p>
-                          ) : (
-                            <>
-                              {/* Tenant-scoped notifications */}
-                              {tenantNotifications.map((n) => (
-                                <div key={`tn-${n.id}`} className="flex items-start gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 border-l-2 border-blue-500">
-                                  <span className="shrink-0 text-base">{n.type === 'hardware_rejection' ? '🖥️' : '🔔'}</span>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{n.title}</p>
-                                    <p className="text-[11px] text-gray-500 dark:text-gray-400 line-clamp-2">{n.message}</p>
-                                  </div>
-                                  {canDismissTenant && (
-                                    <button onClick={() => dismissTenantNotification(n.id)} className="shrink-0 text-gray-300 hover:text-gray-500">
-                                      <svg className="w-3.5 h-3.5" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor"><path d="M6 18L18 6M6 6l12 12"></path></svg>
-                                    </button>
-                                  )}
-                                </div>
-                              ))}
-                              {/* Global admin notifications */}
-                              {visibleGlobal.map((n) => (
-                                <div key={n.id} className="flex items-start gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700">
-                                  <span className="shrink-0 mt-0.5 inline-flex items-center justify-center w-5 h-5 rounded text-[9px] font-bold text-white bg-purple-600">GA</span>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{n.title}</p>
-                                    <p className="text-[11px] text-gray-500 dark:text-gray-400 line-clamp-2">{n.message}</p>
-                                  </div>
-                                  <button onClick={() => dismissGlobal(n.id)} className="shrink-0 text-gray-300 hover:text-gray-500">
-                                    <svg className="w-3.5 h-3.5" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor"><path d="M6 18L18 6M6 6l12 12"></path></svg>
-                                  </button>
-                                </div>
-                              ))}
-                              {/* User notifications */}
-                              {notifications.map((n) => (
-                                <div key={n.id} className="flex items-start gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700" onClick={() => markAsRead(n.id)}>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{n.title}</p>
-                                    <p className="text-[11px] text-gray-500 dark:text-gray-400 line-clamp-2">{n.message}</p>
-                                  </div>
-                                  <button onClick={(e) => { e.stopPropagation(); removeNotification(n.id); }} className="shrink-0 text-gray-300 hover:text-gray-500">
-                                    <svg className="w-3.5 h-3.5" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor"><path d="M6 18L18 6M6 6l12 12"></path></svg>
-                                  </button>
-                                </div>
-                              ))}
-                            </>
-                          )}
-                        </div>
-                        {hasAny && (
-                          <>
-                            <div className="border-t border-gray-100 dark:border-gray-700 my-1"></div>
-                            <div className="flex items-center justify-between px-3 py-1.5">
-                              <button onClick={() => { markAllAsRead(); }} className="text-[11px] text-blue-600 hover:text-blue-800">Mark all read</button>
-                              <button onClick={() => { clearAll(); if (showGlobal) dismissAllGlobal(); if (tenantNotifications.length > 0) dismissAllTenant(); }} className="text-[11px] text-gray-400 hover:text-gray-600">Clear all</button>
-                            </div>
-                          </>
-                        )}
-                      </>
-                    );
-                  })()}
 
                   {/* ── Settings submenu ── */}
                   {overflowSubmenu === 'settings' && (
