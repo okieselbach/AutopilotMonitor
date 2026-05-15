@@ -316,11 +316,18 @@ export function RestoreBrowserTab({ getAccessToken, setError, setSuccessMessage 
             {/* Right: preview + restore action */}
             <div className="lg:col-span-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
               <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2">
-                <h3 className="text-sm font-medium text-gray-900 dark:text-white">Preview</h3>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-medium text-gray-900 dark:text-white">Preview</h3>
+                  {selection && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate mt-0.5">
+                      Session {selection.sessionId}
+                    </p>
+                  )}
+                </div>
                 {selection && (
                   <button
                     onClick={() => setRestoring(selection)}
-                    className="px-3 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700"
+                    className="px-3 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700 shrink-0"
                   >
                     Restore…
                   </button>
