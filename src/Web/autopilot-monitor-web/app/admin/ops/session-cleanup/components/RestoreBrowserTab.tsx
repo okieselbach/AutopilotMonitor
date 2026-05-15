@@ -40,6 +40,12 @@ interface Selection {
   manifestId: string;
 }
 
+interface TenantsWithManifestsResponse {
+  success: boolean;
+  count: number;
+  tenantIds: string[];
+}
+
 /**
  * File-browser-style picker for stored cascade-delete snapshots. Lets a Global Admin recover a
  * cleanly-completed cascade where the Sessions row is already gone — these sessions wouldn't
@@ -65,15 +71,68 @@ export function RestoreBrowserTab({ getAccessToken, setError, setSuccessMessage 
   const [selection, setSelection] = useState<Selection | null>(null);
   const [restoring, setRestoring] = useState<Selection | null>(null);
 
+  // "Only tenants with restore data" filter — off by default so the full AdminConfig tenant
+  // list shows up immediately on first paint. Flipping it on fetches the cheap hierarchy
+  // listing once and intersects the dropdown with the set of tenants that have ≥1 snapshot
+  // blob. The fetched set is cached for the page lifetime; toggling off + on doesn't refetch.
+  const [onlyWithRestore, setOnlyWithRestore] = useState(false);
+  const [tenantsWithRestore, setTenantsWithRestore] = useState<Set<string> | null>(null);
+  const [loadingRestoreFilter, setLoadingRestoreFilter] = useState(false);
+
+  useEffect(() => {
+    if (!onlyWithRestore || tenantsWithRestore !== null) return;
+    const controller = new AbortController();
+    let cancelled = false;
+    setLoadingRestoreFilter(true);
+    (async () => {
+      try {
+        const resp = await authenticatedFetch(
+          api.sessionDeletions.tenantsWithManifests(),
+          getAccessToken,
+          { signal: controller.signal },
+        );
+        if (cancelled) return;
+        if (!resp.ok) {
+          const detail = await resp.text().catch(() => "");
+          throw new Error(`HTTP ${resp.status}${detail ? ` — ${detail.slice(0, 200)}` : ""}`);
+        }
+        const json = (await resp.json()) as TenantsWithManifestsResponse;
+        if (cancelled) return;
+        setTenantsWithRestore(new Set(json.tenantIds ?? []));
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof TokenExpiredError) {
+          setError("Session expired; reload the page and try again.");
+        } else {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+        // On fetch failure leave the filter unchecked so the operator isn't stranded with an
+        // empty dropdown — the toggle won't visually persist as "on" without data backing it.
+        setOnlyWithRestore(false);
+      } finally {
+        if (!cancelled) setLoadingRestoreFilter(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [onlyWithRestore, tenantsWithRestore, getAccessToken, setError]);
+
   // Sort tenants alphabetically by display name (domain fallback to id) so the dropdown is
-  // operator-friendly.
+  // operator-friendly. When the "only with restore" filter is active and the set has loaded,
+  // intersect against it before sorting.
   const sortedTenants = useMemo(() => {
-    return [...tenants].sort((a, b) => {
+    const filtered = onlyWithRestore && tenantsWithRestore !== null
+      ? tenants.filter((t) => tenantsWithRestore.has(t.tenantId))
+      : tenants;
+    return [...filtered].sort((a, b) => {
       const aLabel = (a.domainName || a.tenantId).toLowerCase();
       const bLabel = (b.domainName || b.tenantId).toLowerCase();
       return aLabel.localeCompare(bLabel);
     });
-  }, [tenants]);
+  }, [tenants, onlyWithRestore, tenantsWithRestore]);
 
   // Effect-scoped fetch (no useCallback) so each render captures the exact tenantId+refreshKey
   // snapshot — the AbortController + the loadedTenantId guard together prevent any out-of-order
@@ -179,10 +238,12 @@ export function RestoreBrowserTab({ getAccessToken, setError, setSuccessMessage 
               <select
                 value={selectedTenantId}
                 onChange={(e) => setSelectedTenantId(e.target.value)}
-                disabled={loadingTenants}
+                disabled={loadingTenants || loadingRestoreFilter}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm text-gray-900 dark:text-white bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-60"
               >
-                <option value="">— select a tenant —</option>
+                <option value="">
+                  {loadingRestoreFilter ? "— loading tenants with restore data… —" : "— select a tenant —"}
+                </option>
                 {sortedTenants.map((t) => (
                   <option key={t.tenantId} value={t.tenantId}>
                     {t.domainName ? `${t.domainName} — ${t.tenantId}` : t.tenantId}
@@ -197,6 +258,35 @@ export function RestoreBrowserTab({ getAccessToken, setError, setSuccessMessage 
             >
               {loadingSessions ? "Loading…" : "Refresh"}
             </button>
+          </div>
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              id="restore-browser-only-with-data"
+              type="checkbox"
+              checked={onlyWithRestore}
+              onChange={(e) => {
+                const next = e.target.checked;
+                setOnlyWithRestore(next);
+                // If the filter excludes the currently-selected tenant, clear the selection so
+                // the dropdown doesn't display a value that's no longer in the option list.
+                if (next && tenantsWithRestore !== null && selectedTenantId
+                    && !tenantsWithRestore.has(selectedTenantId)) {
+                  setSelectedTenantId("");
+                }
+              }}
+              className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-purple-600 focus:ring-purple-500"
+            />
+            <label
+              htmlFor="restore-browser-only-with-data"
+              className="text-sm text-gray-700 dark:text-gray-200 select-none cursor-pointer"
+            >
+              Only tenants with restore data
+              {onlyWithRestore && tenantsWithRestore !== null && (
+                <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
+                  ({sortedTenants.length} of {tenants.length})
+                </span>
+              )}
+            </label>
           </div>
         </div>
 

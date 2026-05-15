@@ -345,6 +345,12 @@ export const api = {
     // a (session, manifest) without knowing the manifestId in advance.
     tenantManifests: (tenantId: string, sessionFilter?: string) =>
       `${API_BASE_URL}/api/global/tenants/${encodeURIComponent(tenantId)}/deletion-manifests${qs({ sessionId: sessionFilter })}`,
+
+    // Cheap hierarchy-listing endpoint: returns the set of tenant IDs that currently have at
+    // least one persisted snapshot blob. Powers the Restore Browser "only tenants with restore
+    // data" checkbox so the dropdown can hide tenants that have nothing to restore.
+    tenantsWithManifests: () =>
+      `${API_BASE_URL}/api/global/tenants-with-deletion-manifests`,
   },
 
   // ── Hardware Rejection Insights (tenant-scoped, from distress data) ──────

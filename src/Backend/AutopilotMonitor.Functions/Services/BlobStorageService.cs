@@ -576,6 +576,43 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Returns the set of tenant IDs that currently have at least one persisted snapshot
+        /// blob. Implemented via a single hierarchy listing (<c>delimiter="/"</c>) on the
+        /// container — Azure returns only the first-level "virtual folder" prefixes
+        /// (<c>{tenantId}/</c>) without enumerating the blobs underneath, so cost is bounded by
+        /// the number of distinct tenants, not the total manifest count.
+        /// <para>
+        /// Powers the Restore Browser "only tenants with restore data" filter: the dropdown
+        /// can intersect the AdminConfig tenant list with this set to hide tenants that have
+        /// nothing to restore. A snapshot blob may still exist for a tenant that has since been
+        /// offboarded (33-day TTL) — in that case the intersection drops it because the
+        /// AdminConfig list is the authoritative tenant universe; offboarded-tenant recovery
+        /// goes through the manifestId-direct restore route.
+        /// </para>
+        /// </summary>
+        public virtual async Task<HashSet<string>> ListTenantsWithDeletionManifestsAsync(
+            CancellationToken cancellationToken = default)
+        {
+            var result = new HashSet<string>(StringComparer.Ordinal);
+            var containerClient = _blobServiceClient.GetBlobContainerClient(DeletionManifestsContainer);
+            if (!await containerClient.ExistsAsync(cancellationToken))
+                return result;
+
+            await foreach (var item in containerClient.GetBlobsByHierarchyAsync(
+                traits: BlobTraits.None, states: BlobStates.None, delimiter: "/", prefix: null, cancellationToken: cancellationToken))
+            {
+                if (!item.IsPrefix || string.IsNullOrEmpty(item.Prefix)) continue;
+                // Prefix is "{tenantId}/"; strip the trailing slash.
+                var raw = item.Prefix;
+                var tenantId = raw.EndsWith("/", StringComparison.Ordinal)
+                    ? raw.Substring(0, raw.Length - 1)
+                    : raw;
+                if (tenantId.Length > 0) result.Add(tenantId);
+            }
+            return result;
+        }
+
+        /// <summary>
         /// Deletes both the snapshot blob and the progress blob for a (tenant, session, manifest)
         /// triple. 404 on either is treated as success — the maintenance sweep is idempotent and a
         /// re-run after a partial completion must not throw. Fail-loud on every other storage error
