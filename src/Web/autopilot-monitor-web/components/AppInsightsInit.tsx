@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useTenant } from "@/contexts/TenantContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { initAppInsights, setTelemetryContext } from "@/lib/appInsights";
+import { readSidebarState } from "@/hooks/useSidebarState";
 
 export default function AppInsightsInit() {
   const connectionString = process.env.NEXT_PUBLIC_APPINSIGHTS_CONNECTION_STRING ?? "";
@@ -23,7 +24,8 @@ export default function AppInsightsInit() {
       tenantId || null,
       user?.isTenantAdmin ?? false,
       user?.isGlobalAdmin ?? false,
-      theme
+      theme,
+      readSidebarState()
     );
   }, [tenantId, user, theme]);
 
