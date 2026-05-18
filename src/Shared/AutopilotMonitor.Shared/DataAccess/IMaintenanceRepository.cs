@@ -69,7 +69,16 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task DeleteEventSessionIndexEntryAsync(string tenantId, string sessionId);
 
         // --- Tenant Offboarding ---
-        Task<Dictionary<string, int>> DeleteAllTenantDataAsync(string tenantId);
+
+        /// <summary>
+        /// Fail-loud iterator over every session belonging to <paramref name="tenantId"/>.
+        /// Used by the tenant-offboarding worker to drive per-session cascade enqueue.
+        /// Unlike <see cref="GetSessionsByDateRangeAsync"/>, this method MUST NOT swallow
+        /// storage exceptions — a transient failure during enumeration must propagate so
+        /// the queue worker can retry / poison, instead of silently returning zero sessions
+        /// which would trigger a same-cycle wipe without cascade backup.
+        /// </summary>
+        IAsyncEnumerable<string> EnumerateSessionsForOffboardingAsync(string tenantId, System.Threading.CancellationToken ct = default);
     }
 
     public class OrphanedEventSession

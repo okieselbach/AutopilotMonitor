@@ -402,6 +402,21 @@ export const api = {
       })}`,
   },
 
+  // ── Customs Archive (PR3.B Tenant offboarding archive) ────────────────────
+  // Response types defined below (CustomsArchive*).
+  customsArchive: {
+    listRuns: (opts?: { tenantId?: string }) =>
+      `${API_BASE_URL}/api/global/customs-archive${qs({ tenantId: opts?.tenantId })}`,
+    listEntries: (tenantId: string, historyRowKey: string) =>
+      `${API_BASE_URL}/api/global/customs-archive/${encodeURIComponent(tenantId)}/${encodeURIComponent(historyRowKey)}`,
+    getEntry: (tenantId: string, historyRowKey: string, archiveRowKey: string) =>
+      `${API_BASE_URL}/api/global/customs-archive/${encodeURIComponent(tenantId)}/${encodeURIComponent(historyRowKey)}/${encodeURIComponent(archiveRowKey)}`,
+    deleteEntry: (tenantId: string, historyRowKey: string, archiveRowKey: string) =>
+      `${API_BASE_URL}/api/global/customs-archive/${encodeURIComponent(tenantId)}/${encodeURIComponent(historyRowKey)}/${encodeURIComponent(archiveRowKey)}`,
+    deleteRun: (tenantId: string, historyRowKey: string) =>
+      `${API_BASE_URL}/api/global/customs-archive/${encodeURIComponent(tenantId)}/${encodeURIComponent(historyRowKey)}`,
+  },
+
   // ── Feedback ──────────────────────────────────────────────────────────────
   feedback: {
     status: () => `${API_BASE_URL}/api/feedback/status`,
@@ -484,3 +499,45 @@ export const api = {
     leaveGroup: () => `${API_BASE_URL}/api/realtime/groups/leave`,
   },
 };
+
+// ── Customs Archive response types ────────────────────────────────────────
+// Shared by /admin/customs-archive (list runs) and
+// /admin/customs-archive/[tenantId]/[historyRowKey] (list/inspect entries).
+export interface CustomsArchiveRunSummary {
+  partitionKey: string;
+  tenantId: string;
+  historyRowKey: string;
+  archivedAt: string;
+  gatherRulesCount: number;
+  analyzeRulesCount: number;
+  imeLogPatternsCount: number;
+}
+
+export interface CustomsArchiveListRunsResponse {
+  success: boolean;
+  count: number;
+  runs: CustomsArchiveRunSummary[];
+}
+
+export interface CustomsArchiveEntrySummary {
+  partitionKey: string;
+  rowKey: string;
+  originalTable: string;
+  originalRowKey: string;
+  archivedAt: string;
+  entityJsonPreview: string;
+}
+
+export interface CustomsArchiveListEntriesResponse {
+  success: boolean;
+  count: number;
+  entries: CustomsArchiveEntrySummary[];
+}
+
+export interface CustomsArchiveFullEntry extends CustomsArchiveEntrySummary {
+  tenantId: string;
+  originalPartitionKey: string;
+  entityJson: string;
+  historyRowKey: string;
+  archivedBy: string;
+}

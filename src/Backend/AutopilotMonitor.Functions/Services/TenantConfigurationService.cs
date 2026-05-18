@@ -124,7 +124,7 @@ namespace AutopilotMonitor.Functions.Services
         /// Returns (config, exists). exists=false when no row was found — does NOT auto-create.
         /// Use for agent security gates where unknown tenants must be rejected.
         /// </summary>
-        public async Task<(TenantConfiguration config, bool exists)> TryGetConfigurationAsync(string tenantId)
+        public virtual async Task<(TenantConfiguration config, bool exists)> TryGetConfigurationAsync(string tenantId)
         {
             if (string.IsNullOrEmpty(tenantId))
                 return (TenantConfiguration.CreateDefault("unknown"), false);

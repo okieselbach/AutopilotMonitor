@@ -155,6 +155,27 @@ builder.Services.AddHostedService<AutopilotMonitor.Functions.Services.Deletion.S
 // retention fanout (V2 + legacy), manifest-blob TTL sweep, stale-Preparing GC, and stranded-
 // Queued detection. Independent cadence + kill-switch from the generic 2h Maintenance timer.
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Deletion.SessionRetentionFanoutService>();
+
+// Tenant-offboarding cascade worker (Plan Rev 9). Consumes per-tenant envelopes off
+// `tenant-offboarding`, drives the §3 Phase 2 sequence (cascade enqueue → drain → SafeWipe →
+// blob wipe → tenant config delete), and lands the audit row under AuditGlobalTenantId.
+// OffboardingFilters is a static helper — no DI registration needed.
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Offboarding.SafeWipeService>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Offboarding.OffboardingSessionEnumerator>();
+builder.Services.AddSingleton<
+    AutopilotMonitor.Functions.Services.Offboarding.IOffboardingExpectationsStore,
+    AutopilotMonitor.Functions.Services.Offboarding.BlobOffboardingExpectationsStore>();
+builder.Services.AddSingleton<
+    AutopilotMonitor.Functions.Services.Offboarding.IDeletionProgressDrainProbe,
+    AutopilotMonitor.Functions.Services.Offboarding.DeletionProgressDrainProbe>();
+builder.Services.AddSingleton<
+    AutopilotMonitor.Functions.Services.Offboarding.ITenantOffboardingEnqueuer,
+    AutopilotMonitor.Functions.Services.Offboarding.AzureQueueTenantOffboardingEnqueuer>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Offboarding.TenantOffboardingHandler>();
+builder.Services.AddHostedService<AutopilotMonitor.Functions.Services.Offboarding.TenantOffboardingWorker>();
+// OffboardingMarkerCleanupFunction is TimerTrigger — auto-registered via the Functions host;
+// no AddHostedService call needed. DI for its dependencies comes from the singletons above.
+
 builder.Services.AddHostedService<TableInitializerService>(); // Initialize all tables at startup
 
 // Data Access Layer — repository interfaces backed by Table Storage.

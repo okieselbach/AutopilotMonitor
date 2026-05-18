@@ -15,6 +15,18 @@ import { type BootstrapSessionItem } from "./components/BootstrapSessionsSection
 // ---------------------------------------------------------------------------
 // Context value interface
 // ---------------------------------------------------------------------------
+/**
+ * State surfaced by handleOffboard once the DELETE returns 202. Drives the post-confirm
+ * banner in OffboardingSection. EarliestProcessingAt is rendered as a live countdown;
+ * when it elapses, handleDrainBarrierElapsed() runs and logs the user out.
+ */
+export interface OffboardingInProgressInfo {
+  status: string;
+  historyRowKey: string;
+  earliestProcessingAt?: string | null;
+  message: string;
+}
+
 interface TenantConfigContextValue {
   // Core
   config: TenantConfiguration | null;
@@ -200,6 +212,12 @@ interface TenantConfigContextValue {
   setOffboardError: (v: string | null) => void;
   handleOffboard: () => Promise<void>;
 
+  /** Set after the DELETE returns 202; drives the post-confirm drain-barrier banner. */
+  offboardingInProgress: OffboardingInProgressInfo | null;
+
+  /** Called by the banner countdown when the cache-drain barrier elapses → triggers logout. */
+  handleDrainBarrierElapsed: () => void;
+
   // Auth helpers
   user: ReturnType<typeof useAuth>["user"];
   getAccessToken: () => Promise<string | null>;
@@ -243,6 +261,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const [offboardConfirmText, setOffboardConfirmText] = useState("");
   const [offboarding, setOffboarding] = useState(false);
   const [offboardError, setOffboardError] = useState<string | null>(null);
+  const [offboardingInProgress, setOffboardingInProgress] = useState<OffboardingInProgressInfo | null>(null);
 
   // Bootstrap sessions
   const [bootstrapSessions, setBootstrapSessions] = useState<BootstrapSessionItem[]>([]);
@@ -1163,18 +1182,40 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         throw new Error(data?.error || `Offboard failed: ${response.statusText}`);
       }
 
-      // Offboard successful – sign out the user as their admin access is gone
+      // Backend returns 202 (or 200 for idempotent re-clicks) with the History row pointer
+      // and EarliestProcessingAt (cache-drain barrier deadline). Switch the UI into the
+      // drain-barrier banner state; the banner's countdown will auto-logout once the
+      // barrier elapses (by then the worker has started Phase 2 and the auth pipeline
+      // returns 403 via the existing Disabled-flag gate).
+      const body = await response.json().catch(() => ({}));
       trackEvent("tenant_offboarded");
-      logout();
+
+      setOffboardingInProgress({
+        status: body?.status ?? "Queued",
+        historyRowKey: body?.historyRowKey ?? "",
+        earliestProcessingAt: body?.earliestProcessingAt ?? null,
+        message: body?.message ?? "Tenant offboarding queued.",
+      });
+      // Dismiss the confirmation dialog now that the banner has taken over.
+      setShowOffboardDialog(false);
     } catch (err) {
       if (err instanceof TokenExpiredError) {
         addNotification('error', 'Session Expired', err.message, 'session-expired-error');
       } else {
         setOffboardError(err instanceof Error ? err.message : 'Offboard failed');
       }
+    } finally {
       setOffboarding(false);
     }
-  }, [tenantId, getAccessToken, addNotification, logout]);
+  }, [tenantId, getAccessToken, addNotification]);
+
+  const handleDrainBarrierElapsed = useCallback(() => {
+    // The cache-drain barrier has expired. The worker is starting Phase 2 right now and
+    // all function-host instances have refreshed their TenantConfiguration cache to see
+    // Disabled=true. Sign the user out — any further authenticated call will fail with
+    // 403 anyway.
+    logout();
+  }, [logout]);
 
   // -----------------------------------------------------------------------
   // Provider value
@@ -1281,6 +1322,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       offboardConfirmText, setOffboardConfirmText,
       offboarding, offboardError, setOffboardError,
       handleOffboard,
+      offboardingInProgress, handleDrainBarrierElapsed,
 
       // Auth
       user, getAccessToken,

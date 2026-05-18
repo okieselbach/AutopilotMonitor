@@ -259,18 +259,17 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                 await ExecuteTombstoneAsync(tenantId, sessionId, manifestId, tombstone, cancellationToken);
             }
 
-            (progress, etag) = await UpdateProgressWithRetryAsync(
-                tenantId, sessionId, manifestId, progress, etag,
-                mutate: p =>
-                {
-                    p.CompletedSteps.Add(tombstone.Order);
-                    p.CompletedAt = DateTime.UtcNow;
-                },
-                isAlreadyApplied: p => p.CompletedAt != null,
-                cancellationToken);
-
             sw.Stop();
 
+            // PR1.5 (Rev-5-F1) — Audit + SignalR notify BEFORE we stamp CompletedAt on the
+            // progress blob. CompletedAt is the drain predicate the tenant-offboarding
+            // worker uses to decide "all side effects through for this cascade"; if we
+            // set it before the audit row lands, an in-flight cascade can write
+            // `deletion_completed` into AuditLogs *after* the offboard worker has wiped
+            // that table → orphan audit row. Both calls are fail-soft today
+            // (LogAuditEntryAsync returns false on failure, NotifySessionDeletedAsync
+            // catches everything internally) so reordering does not change end-to-end
+            // failure semantics, only the observability window.
             await _maintenanceRepo.LogAuditEntryAsync(
                 tenantId,
                 action: "deletion_completed",
@@ -281,6 +280,16 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                 .ConfigureAwait(false);
 
             await _signalR.NotifySessionDeletedAsync(tenantId, sessionId);
+
+            (progress, etag) = await UpdateProgressWithRetryAsync(
+                tenantId, sessionId, manifestId, progress, etag,
+                mutate: p =>
+                {
+                    p.CompletedSteps.Add(tombstone.Order);
+                    p.CompletedAt = DateTime.UtcNow;
+                },
+                isAlreadyApplied: p => p.CompletedAt != null,
+                cancellationToken);
 
             _logger.LogInformation(
                 "SessionDeletionHandler completed: tenant={TenantId} session={SessionId} manifestId={ManifestId} durationMs={DurationMs}",

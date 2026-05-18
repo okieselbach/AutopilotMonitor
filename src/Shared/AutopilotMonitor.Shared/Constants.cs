@@ -493,6 +493,25 @@ namespace AutopilotMonitor.Shared
             public const string ClassifierVerdictsByIdLevel = "ClassifierVerdictsByIdLevel";
             public const string SignalsByKind               = "SignalsByKind";
 
+            // Tenant offboarding audit (cascade-worker plan, Rev 9). Houses three
+            // PartitionKey patterns side-by-side:
+            //   - "OffboardingMarker"   (1 row/tenant,  RK=tenantId) active 403-gate marker
+            //   - "OffboardingHistory"  (N rows/tenant, RK="{yyyyMMddHHmmssfff}_{tenantId}") audit trail
+            //   - "OffboardingByTenant" (1 row/tenant,  RK=tenantId) O(1) re-onboarding pointer
+            // Marker survives the Completed transition for at least 15min so that warm
+            // function-instance caches of TenantConfiguration cannot leak auth after wipe.
+            // See OffboardingPartitionKeys for the canonical PK string literals.
+            public const string OffboardingAudit = "OffboardingAudit";
+
+            // Tenant offboarding customs archive (PR3.B). Phase 2.D-archive writes a
+            // snapshot of every GatherRules / AnalyzeRules / ImeLogPatterns row keyed by
+            // PK=tenantId before the originals are safe-wiped, so a Global Admin can
+            // review them post-offboarding from the /admin/customs-archive page.
+            //   - PartitionKey = "{normalizedTenantId}_{historyRowKey}" (one partition per offboarding run)
+            //   - RowKey       = "{originalTable}_{base64url(originalRowKey)}"
+            // Lives forever; cleanup is operator-driven via the admin UI.
+            public const string TenantOffboardingCustomsArchive = "TenantOffboardingCustomsArchive";
+
             /// <summary>
             /// Returns all table names for initialization
             /// </summary>
@@ -546,8 +565,52 @@ namespace AutopilotMonitor.Shared
                 SessionsByStage,
                 DeadEndsByReason,
                 ClassifierVerdictsByIdLevel,
-                SignalsByKind
+                SignalsByKind,
+                OffboardingAudit,
+                TenantOffboardingCustomsArchive
             };
+        }
+
+        /// <summary>
+        /// Canonical PartitionKey strings stored in <see cref="TableNames.OffboardingAudit"/>.
+        /// All three patterns coexist in the same table; consumers must always read by
+        /// (PartitionKey, RowKey) point-lookup, never by table scan.
+        /// </summary>
+        public static class OffboardingPartitionKeys
+        {
+            /// <summary>Active 403 sperrmarker. RowKey = normalized tenantId. 1 row per active offboarding.</summary>
+            public const string Marker = "OffboardingMarker";
+
+            /// <summary>Chronological audit history. RowKey = "{yyyyMMddHHmmssfff}_{normalizedTenantId}". N rows per tenant.</summary>
+            public const string History = "OffboardingHistory";
+
+            /// <summary>O(1) pointer index for re-onboarding lookup. RowKey = normalized tenantId. 1 row per tenant.</summary>
+            public const string ByTenant = "OffboardingByTenant";
+        }
+
+        /// <summary>
+        /// Azure Blob Storage container names. Single source of truth for container strings
+        /// so that storage helpers, cascade workers, and offboarding workers all agree.
+        /// </summary>
+        public static class BlobContainers
+        {
+            /// <summary>
+            /// Houses cascade-deletion manifests (snapshot + progress blobs) under prefix
+            /// <c>{tenantId}/{sessionId}/{manifestId}.{snapshot.json.gz | progress.json}</c>.
+            /// 30d lifecycle delete + 3d soft delete = ~33d effective retention.
+            /// Phase 2.E of tenant offboarding wipes this container by <c>{tenantId}/</c> prefix.
+            /// </summary>
+            public const string DeletionManifests = "deletion-manifests";
+
+            /// <summary>
+            /// Houses tenant-offboarding state blobs that MUST survive the deletion-manifests wipe.
+            /// Currently: per-tenant Expectations-Blob written at the first handler pickup
+            /// (<c>{tenantId}/{historyRowKey}.expectations.json</c>). Phase 2.E intentionally
+            /// skips this container; Phase 2.G deletes the blob explicitly as its last step,
+            /// with <see cref="Functions.Maintenance.OffboardingMarkerCleanupFunction"/> as a
+            /// defense-in-depth second-pass.
+            /// </summary>
+            public const string OffboardingState = "offboarding-state";
         }
 
         /// <summary>
@@ -593,6 +656,20 @@ namespace AutopilotMonitor.Shared
             /// the Sessions row. Poison suffix <c>-poison</c>, max-dequeue 5.
             /// </summary>
             public const string SessionDeletion = "session-deletion";
+
+            /// <summary>
+            /// Tenant offboarding cascade-worker queue. Producer (TenantOffboardFunction) writes
+            /// one envelope per tenant after inserting the History/Pointer/Marker rows in
+            /// <see cref="TableNames.OffboardingAudit"/>. Worker (TenantOffboardingWorker)
+            /// enumerates sessions, enqueues per-session cascades, drains against an
+            /// Expectations-Blob in <see cref="BlobContainers.OffboardingState"/>, then safe-wipes
+            /// all remaining tenant-scoped rows. Max-dequeue 5, paired with
+            /// <see cref="TenantOffboardingPoison"/>.
+            /// </summary>
+            public const string TenantOffboarding = "tenant-offboarding";
+
+            /// <summary>Poison sibling of <see cref="TenantOffboarding"/>.</summary>
+            public const string TenantOffboardingPoison = "tenant-offboarding-poison";
         }
     }
 }

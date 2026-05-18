@@ -44,7 +44,11 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     "PoisonQueueBacklogHigh",
     "PoisonQueueBacklogCritical",
   ],
-  Tenant: ["TenantOffboarded"],
+  // TenantOffboardingFailed is dispatched by TenantOffboardingWorker when the async cascade fails
+  // closed (drain timeout, KillSwitch active, Poisoned session, ETag/CAS exhaustion, SafeWipe verify
+  // abort, etc.). Marker remains in Failed state until operator action — this event is the
+  // Telegram-routable signal that something needs human attention. Plan Rev-4 Q2 + Rev-9 §11 PR3.
+  Tenant: ["TenantOffboarded", "TenantOffboardingFailed"],
   Agent: ["BlobStorageMissing", "BlobStorageUnreachable", "NewImeVersionDetected", "ExcessiveSessionEvents"],
 };
 

@@ -275,6 +275,26 @@ namespace AutopilotMonitor.Functions.Services
                 tenantId, performedBy, details);
         }
 
+        /// <summary>
+        /// Fired by the tenant-offboarding worker when the cascade fails closed (kill-switch
+        /// active mid-enqueue, drain timeout, expectations blob corruption, ETag/CAS exhaustion,
+        /// SafeWipe verify abort, …). Marker stays Failed until operator action; this event is
+        /// the Telegram-routable signal that something needs human attention. Plan Rev-4 Q2.
+        /// </summary>
+        public Task RecordTenantOffboardingFailedAsync(
+            string tenantId, string performedBy, string failedPhase, string errorMessage,
+            int retryCount, string? domainName = null)
+        {
+            var tenantLabel = string.IsNullOrWhiteSpace(domainName)
+                ? tenantId
+                : $"{domainName} ({tenantId})";
+
+            return WriteAsync(OpsEventCategory.Tenant, "TenantOffboardingFailed", OpsEventSeverity.Error,
+                $"Tenant {tenantLabel} offboarding failed at phase '{failedPhase}': {errorMessage}",
+                tenantId, performedBy,
+                new { domainName, failedPhase, errorMessage, retryCount });
+        }
+
         // ── Agent ──────────────────────────────────────────────────────────────
 
         public Task RecordSessionTimeoutsAsync(string tenantId, int sessionCount, int timeoutHours)

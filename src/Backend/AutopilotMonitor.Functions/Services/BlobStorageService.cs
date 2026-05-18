@@ -22,7 +22,8 @@ namespace AutopilotMonitor.Functions.Services
     {
         // Container that holds cascade-deletion manifests (snapshot + progress blobs).
         // Plan §3 + §10: 30d Lifecycle delete + 3d soft-delete = effective max 33-day retention.
-        private const string DeletionManifestsContainer = "deletion-manifests";
+        // Single source of truth: AutopilotMonitor.Shared.Constants.BlobContainers.DeletionManifests.
+        private const string DeletionManifestsContainer = AutopilotMonitor.Shared.Constants.BlobContainers.DeletionManifests;
 
         private readonly BlobServiceClient _blobServiceClient;
         private readonly ILogger<BlobStorageService> _logger;

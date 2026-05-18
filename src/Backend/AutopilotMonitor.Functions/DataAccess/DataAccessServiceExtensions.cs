@@ -44,6 +44,13 @@ namespace AutopilotMonitor.Functions.DataAccess
             services.AddSingleton<ISignalRepository, TableSignalRepository>();
             services.AddSingleton<IDecisionTransitionRepository, TableDecisionTransitionRepository>();
             services.AddSingleton<IIndexTableRepository, TableIndexRepository>();
+
+            // Tenant-offboarding audit (Marker / History / ByTenant pointer).
+            services.AddSingleton<IOffboardingAuditRepository, TableOffboardingAuditRepository>();
+            // Tenant-offboarding customs archive (PR3.B): snapshot of GatherRules /
+            // AnalyzeRules / ImeLogPatterns rows that were wiped during Phase 2.D-archive,
+            // surfaced via the Global Admin /admin/customs-archive page.
+            services.AddSingleton<ITenantCustomsArchiveRepository, TableTenantCustomsArchiveRepository>();
             return services;
         }
 

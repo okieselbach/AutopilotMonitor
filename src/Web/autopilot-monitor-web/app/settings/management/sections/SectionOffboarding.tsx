@@ -10,6 +10,7 @@ export function SectionOffboarding() {
     offboardConfirmText, setOffboardConfirmText,
     offboarding, offboardError, setOffboardError,
     handleOffboard,
+    offboardingInProgress, handleDrainBarrierElapsed,
   } = useTenantConfig();
 
   return (
@@ -24,6 +25,8 @@ export function SectionOffboarding() {
         offboardError={offboardError}
         setOffboardError={setOffboardError}
         onOffboard={handleOffboard}
+        offboardingInProgress={offboardingInProgress}
+        onDrainBarrierElapsed={handleDrainBarrierElapsed}
       />
     </>
   );

@@ -275,6 +275,18 @@ public static class EndpointAccessPolicyCatalog
         new("POST",   "versions/block",             EndpointPolicy.GlobalAdminOnly),
         new("DELETE", "versions/block/{encodedPattern}", EndpointPolicy.GlobalAdminOnly),
         new("POST",   "maintenance/trigger",        EndpointPolicy.GlobalAdminOnly),
+
+        // ── Tenant Offboarding Customs Archive (PR3.B) ─────────────────────────
+        // Snapshot of each tenant's custom GatherRules / AnalyzeRules / ImeLogPatterns
+        // rows from prior offboarding runs. Operator-driven cleanup: GA reviews + deletes.
+        // The {tenantId} route param is the OFFBOARDED tenant whose data was archived;
+        // the operator (GA) does not belong to that tenant. RouteParam scoping declares
+        // that the route's tenantId is supplied from the URL, not from the caller's JWT.
+        new("GET",    "global/customs-archive",                                                  EndpointPolicy.GlobalAdminOnly),
+        new("GET",    "global/customs-archive/{tenantId}/{historyRowKey}",                       EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
+        new("GET",    "global/customs-archive/{tenantId}/{historyRowKey}/{archiveRowKey}",       EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
+        new("DELETE", "global/customs-archive/{tenantId}/{historyRowKey}/{archiveRowKey}",       EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
+        new("DELETE", "global/customs-archive/{tenantId}/{historyRowKey}",                       EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
         new("GET",    "health/detailed",            EndpointPolicy.AuthenticatedUser),
         new("POST",   "rules/reseed-from-github",   EndpointPolicy.GlobalAdminOnly),
         new("GET",    "vulnerability/unmatched-software", EndpointPolicy.GlobalAdminOnly),
