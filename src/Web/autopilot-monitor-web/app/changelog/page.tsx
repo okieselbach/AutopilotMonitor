@@ -38,6 +38,70 @@ export default function ChangelogPage() {
             <div>
               <div className="flex items-center gap-3 mb-3">
                 <span className="text-xs font-mono font-semibold text-gray-400 uppercase tracking-wider">
+                  2026-05-19 - 12:00 CET
+                </span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                  Platform Update
+                </span>
+              </div>
+              <h2 className="text-base font-semibold text-gray-900 mb-2">
+                Safe cascade-delete &amp; tenant offboarding, Intune script display names, full Remediation lifecycle, and Agent V2 robustness
+              </h2>
+              <ul className="space-y-2 text-sm text-gray-600 leading-relaxed list-none">
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">Safe session cascade-delete with restore window</span> — Session deletion is now a snapshot-based, crash-safe cascade across all related tables (events, audit, app installs, vulnerability data, software inventory, etc.) with a deterministic order, hash-verified manifest, and a 33-day restore window.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">Async tenant offboarding</span> — Tenant offboarding from <Link href="/settings" className="text-blue-600 hover:text-blue-800 underline">Settings</Link> is now a queued async cascade that flips the tenant to disabled, waits for the config cache to drain, then safely wipes all 24 tenant-scoped tables with fetch-verify-delete semantics. The UI shows a minute-based countdown and you can close the tab — deletion finishes in the background. Self-service re-onboarding still works after a clean offboard.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">Optional Graph add-on — Intune script display names</span> — A new <Link href="/settings/tenant/optional-graph-capabilities" className="text-blue-600 hover:text-blue-800 underline">Optional Graph capabilities</Link> page lets tenant admins grant a tightly-scoped Graph permission to resolve <em>real</em> Intune Platform Script and Remediation display names in session timelines (instead of bare IDs). Opt-in only — no app manifest change for tenants who skip it. The page provides a copy-paste PowerShell command (and a <code>Grant-AutopilotMonitorAddOn.ps1</code> helper) with idempotent grant / verify / revoke flows.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">Full Intune Remediation lifecycle</span> — Health scripts are now captured end-to-end: detection → remediation → post-detection are folded into a single Remediation cycle card with a parent header showing the overall outcome (Compliant, Remediated successfully, Non-compliant after remediation, Remediation script failed, …). A live "running" indicator appears the moment a script starts, ahead of the consolidated final result. Phase-aware semantics avoid counting a non-compliant detection that was successfully remediated as a "failed" event, and a two-stage emission closes the timing gap on short Autopilot sessions.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">SLA notification spam fix</span> — SLA throttling moved from an in-memory cooldown to a persistent per-tenant status row with CAS-guarded at-most-once semantics. AppInstall SLA now actually evaluates against the same ISO-week window as the dashboard, and a single <code>sla_resolved</code> notification fires when a breach clears. Configurable cooldown via <Link href="/settings/global" className="text-blue-600 hover:text-blue-800 underline">Global Settings</Link>.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">Dashboard stats overhaul</span> — The five dashboard cards (Active Sessions, Success Rate, Avg. Duration, Total Today, Failed Today) are now server-aggregated over the full 7-day window instead of derived from the currently-paginated client list, so they no longer drift as the session table grows. Active Sessions is pinned to In-Progress only; Pending (WhiteGlove waiting for power-on) and Stalled remain visible via list filters. Stats reset cleanly on scope changes.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">Agent V2 robustness</span> — Several correctness and recovery fixes: Classic enrollments with Hello disabled no longer deadlock at the AwaitingHello stage (EspExiting now routes through the Hello-disabled fast-path); AwaitingHello is gated on AccountSetup <em>truly</em> succeeding instead of the page-handoff event; new desktop-detector liveness signals (started / first-poll / no-candidate) help distinguish a dead post-reboot agent from broken DAD wiring; four new <code>agent_shutting_down</code> emit paths (Ctrl+C, process exit, unhandled exception, runtime host exit) close gaps that previously left sessions without a shutdown breadcrumb. Hot-path event dictionaries are pre-sized to skip ~3k Gen0 allocations per session.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">Fail-soft runtime handoff &amp; ASR resilience</span> — A Defender ASR rule blocking WMI process creation can no longer strand a freshly-bootstrapped device. The agent's <code>--install</code> now runs a two-tier fallback (WMI Win32_Process → <code>schtasks /Run</code> → next BootTrigger reboot) and treats a runtime-spawn failure as a warning, not a fatal error. The bootstrap script's process probe remains the canonical "did the agent come up" signal.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">Intune dual-stack certificate selection</span> — On Intune-managed devices that have both the MDM device certificate and the newer MMP-C certificate installed side-by-side, the agent now exact-matches the MDM issuer (<code>CN=Microsoft Intune MDM Device CA</code>) before presenting it for mTLS, instead of letting the OS pick. Resolves a class of <code>SecureChannelFailure</code> / <code>ChainFailed</code> rejections that surfaced on newer Windows builds.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">"Likely stuck" app-install hedge</span> — When ESP times out on the Apps subcategory, the in-flight app is no longer left silently frozen in the Installing bucket. It is now promoted as a hedged "likely stuck" entry with confidence <em>presumed</em>, so operators see which app the enrollment was waiting on at termination.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">Notifications &amp; UX polish</span> — Opt-in "enrollment started" webhook (Teams Legacy / Workflow / Slack) fires on fresh session registration and WhiteGlove Part 2 resume, default off so existing tenants don't get a surprise notification storm. The notification bell is now always visible. Sidebar usage telemetry (full / icons / hidden) is captured as a global App Insights property for understanding portal interaction patterns.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">Bugfixes &amp; polish</span> — Various fixes throughout the whole platform</span>
+                </li>
+              </ul>
+            </div>
+
+            <div>
+              <div className="flex items-center gap-3 mb-3">
+                <span className="text-xs font-mono font-semibold text-gray-400 uppercase tracking-wider">
                   2026-05-10 - 12:00 CET
                 </span>
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">

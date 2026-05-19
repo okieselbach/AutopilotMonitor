@@ -11,6 +11,34 @@ export function SectionAgentChangelog() {
         User-facing changes to the Autopilot Monitor agent, newest first. Only includes changes that affect agent behavior on the device.
       </p>
 
+      {/* ── May 2026 ─────────────────────────────────── */}
+      <ChangelogBlock title="May 2026">
+        <Li><strong>Agent V2 is now the primary production line</strong> — V2 replaces V1 as the default install. Existing V1 devices keep working; new installs ship the V2 build (bootstrap script and binary renamed from <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">.V2</code> to standard)</Li>
+        <Li>Health Scripts lifecycle monitoring — detection, remediation, and post-remediation phases are each captured as separate timeline events with a live &quot;script running&quot; indicator before the result lands</Li>
+        <Li>Apps still installing when ESP-Apps times out are flagged as &quot;likely stuck&quot; instead of disappearing from the timeline — admins now see the app name and a hedged outcome</Li>
+        <Li>ASR / EDR-blocked install handoff no longer strands devices — runtime spawn fails soft and the BootTrigger task picks the agent back up on next reboot</Li>
+        <Li>Hello-disabled enrollments now complete reliably — the Classic v1 path no longer deadlocks waiting for a Hello signal that will never arrive (previously ran into the 6h max-lifetime timer)</Li>
+        <Li>AccountSetup must truly succeed before Hello can trigger completion — prevents premature <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">enrollment_complete</code> when AccountSetup actually failed</Li>
+        <Li>Hybrid User-Driven (HAADJ) enrollment-completion gaps closed — more completion paths recognized, fewer sessions stuck in the timeout fallback</Li>
+        <Li>TPM PSS unsupported is reported as a distinct distress reason — older devices (e.g. Surface Book 1 with 2015-era Infineon TPM firmware) that can&apos;t do RSA-PSS now get a clear failure category instead of a generic Schannel error</Li>
+        <Li>Intune dual-stack certificate selection fix — on devices with both MDM and MMP-C client certs, the agent now picks the correct <em>Microsoft Intune MDM Device CA</em> cert and avoids backend chain-validation rejection</Li>
+        <Li>Client certificate rejections surface with structured backend warnings and V2 distress cert-context (thumbprint, subject, issuer, validity) — easier to diagnose mTLS auth failures</Li>
+        <Li>Tenant ID resolution falls back to the CloudDomainJoin registry (<code className="text-xs bg-gray-100 px-1 py-0.5 rounded">TenantInfo</code> + <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">JoinInfo</code>) when the Enrollments key is empty — covers pre-Type-6 enrollments and MS-Organization-Access cert paths</Li>
+        <Li>Event-driven Tenant ID wait via RegistryWatcher — agent reacts to registry changes during pre-enrollment instead of polling</Li>
+        <Li>Desktop Arrival Detector liveness signals (started / first-poll / no-candidate) help distinguish &quot;agent dead post-reboot&quot; from &quot;user never logged in&quot; in sessions that time out without a desktop_arrived</Li>
+        <Li>Detailed shutdown reasons — when the agent exits unexpectedly (Ctrl+C, process exit, unhandled exception, runtime host exit) the cause is recorded in the timeline</Li>
+        <Li>Prior-run crash is surfaced in the next session via a &quot;death rattle&quot; event, so a mid-enrollment agent crash is visible instead of silently lost</Li>
+        <Li>V2 diagnostics ZIP is size- and count-capped with streaming output — no more multi-gigabyte uploads on long or noisy sessions</Li>
+        <Li>Diagnostics ZIP now includes the <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">State</code> and <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">Spool</code> folders for richer post-mortem analysis</Li>
+        <Li>Agent log files rotate at a size cap — no unbounded growth on long-running devices</Li>
+        <Li>New &quot;Submit Logs&quot; page — admins can upload diagnostics files for analysis even when no active session exists on the device</Li>
+        <Li>Delivery Optimization breakdown adds MCC (Microsoft Connected Cache) and LinkLocal sources across <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">download_progress</code> and <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">do_telemetry</code> events</Li>
+        <Li>Software inventory now correctly enumerates Azure AD and personal MSA user profiles (these SIDs were previously skipped)</Li>
+        <Li>Hardware spec event reports VM detection — security analyze rules skip VMs to avoid false-positive vulnerability reports</Li>
+        <Li>Bootstrap <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">--install</code> mode preserves an existing <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">bootstrap-config.json</code> instead of clobbering customer settings on re-install</Li>
+        <Li>Optional &quot;enrollment started&quot; webhook fires at session registration — opt-in notification at the very start of an enrollment</Li>
+      </ChangelogBlock>
+
       {/* ── April 2026 ───────────────────────────────── */}
       <ChangelogBlock title="April 2026">
         <Li>Delivery Optimization monitoring — agent tracks Windows DO download activity (OS level) during app installs and reports download performance metrics per application</Li>

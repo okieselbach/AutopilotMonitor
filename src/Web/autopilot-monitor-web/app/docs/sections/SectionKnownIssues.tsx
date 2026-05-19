@@ -13,6 +13,78 @@ export function SectionKnownIssues() {
       </p>
 
       <AnnouncementCard
+        date="2026-05-19"
+        title="Follow-up: Safe Deletion in Place &mdash; Cleanup Incident Resolved"
+        type="resolved"
+      >
+        <p>
+          Following the cleanup incident from 2026-04-16, the safeguards
+          announced at the time are now in place. There are two ways data can
+          be removed from Autopilot Monitor today, and both always create a
+          backup first and offer a way back.
+        </p>
+
+        <h4 className="font-semibold text-gray-900 mt-3">When sessions are deleted from the admin UI</h4>
+        <ul className="list-disc list-inside space-y-1">
+          <li>
+            Before anything is removed, the system collects a list of
+            everything that belongs to the session &mdash; events, analysis
+            results, software inventory, and related entries.
+          </li>
+          <li>
+            The deletion runs in steps and is safe to interrupt and resume.
+            The same session cannot accidentally be deleted twice or come
+            back through late agent traffic.
+          </li>
+          <li>
+            <strong>Recovery</strong>: a deletion can be reversed afterwards,
+            either completely or only for parts of the session. Counts and
+            summaries are corrected automatically.
+          </li>
+        </ul>
+
+        <h4 className="font-semibold text-gray-900 mt-3">When deletions happen behind the scenes (maintenance)</h4>
+        <ul className="list-disc list-inside space-y-1">
+          <li>
+            The original incident was a maintenance cleanup. These operations
+            now run through a guided procedure with several stop points along
+            the way.
+          </li>
+          <li>
+            A small sample is checked first and has to be explicitly confirmed
+            before anything else happens.
+          </li>
+          <li>
+            A full backup of all affected entries is written to disk before
+            any delete. If the amount is much larger than expected, the
+            procedure stops on its own.
+          </li>
+          <li>
+            The deletion then runs in two test rounds (first one entry, then
+            ten) before the rest follows &mdash; each round is verified
+            against the live data.
+          </li>
+          <li>
+            <strong>Recovery</strong>: the backup contains everything that was
+            removed and can be used to restore entries one-by-one or all at
+            once.
+          </li>
+        </ul>
+
+        <h4 className="font-semibold text-gray-900 mt-3">What this does and does not change</h4>
+        <p>
+          The events lost on 2026-04-16 cannot be recovered &mdash; that data
+          is gone. What these procedures guarantee is that any future
+          deletion has a backup and a way back, and that a single mistake
+          cannot cause the same kind of incident again.
+        </p>
+
+        <p>
+          No action needed on your side.
+        </p>
+      </AnnouncementCard>
+
+      <AnnouncementCard
         date="2026-04-16"
         title="Event Data Loss Due to Faulty Cleanup Operation"
         type="breaking"
