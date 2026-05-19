@@ -297,7 +297,11 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                         orchestrator.Start(ingress =>
                         {
                             lifecyclePost = new InformationalEventPost(ingress, SystemClock.Instance, logger);
-                            LifecycleEmitters.EmitAgentStarted(lifecyclePost, agentConfig, previousExit, agentVersion, logger);
+                            LifecycleEmitters.EmitAgentStarted(lifecyclePost, agentConfig, previousExit, agentVersion, remoteConfigService, logger);
+                            // Wire-visible signal that the agent is running on defaults/cache
+                            // rather than the live tenant config — closes the cold-start
+                            // blind spot observed in session 8f2bef72 (2026-05-19).
+                            LifecycleEmitters.EmitRemoteConfigFetchFailedIfAny(lifecyclePost, agentConfig, remoteConfigService, logger);
                             LifecycleEmitters.EmitVersionCheckIfAny(lifecyclePost, agentConfig, logger);
                             LifecycleEmitters.EmitUnrestrictedModeAuditIfChanged(lifecyclePost, agentConfig, configMergeResult, logger);
 

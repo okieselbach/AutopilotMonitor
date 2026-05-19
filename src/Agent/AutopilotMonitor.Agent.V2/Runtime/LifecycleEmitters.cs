@@ -40,10 +40,19 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             AgentConfiguration agentConfig,
             Program.PreviousExitSummary previousExit,
             string agentVersion,
+            RemoteConfigService remoteConfigService,
             AgentLogger logger)
         {
             try
             {
+                // configVersion + remoteConfigFetched expose whether the agent is running
+                // with fresh tenant settings (Succeeded), a stale cache (FromCache), or
+                // built-in defaults (UsedDefaults). Closes the historical blind spot —
+                // prior to this, ConfigVersion=0 was only deducible by inferring from
+                // the absence of tenant-controlled knobs in the DataJson.
+                var outcome = remoteConfigService?.LastFetchOutcome ?? RemoteConfigFetchOutcome.NotAttempted;
+                var configVersion = remoteConfigService?.CurrentConfig?.ConfigVersion ?? 0;
+
                 var data = new Dictionary<string, object>
                 {
                     { "agentVersion", agentVersion },
@@ -56,6 +65,9 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     { "diagnosticsUploadMode", agentConfig.DiagnosticsUploadMode ?? "Off" },
                     { "previousExitType", previousExit?.ExitType ?? "unknown" },
                     { "unrestrictedMode", agentConfig.UnrestrictedMode },
+                    { "configVersion", configVersion },
+                    { "remoteConfigFetched", outcome == RemoteConfigFetchOutcome.Succeeded },
+                    { "remoteConfigOutcome", outcome.ToString() },
                 };
 
                 if (!string.IsNullOrEmpty(previousExit?.CrashExceptionType))
@@ -80,6 +92,60 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             catch (Exception ex)
             {
                 logger.Warning($"agent_started emission failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Wire-visible counterpart to the local "Failed to fetch remote config" warning
+        /// log: when the initial <see cref="RemoteConfigService.FetchConfigAsync"/> call
+        /// fell back to cache or built-in defaults, emit a dedicated event so the backend
+        /// timeline shows the agent didn't get fresh tenant config — without it, the only
+        /// trace was a Warning in the local agent log (gone after a SelfDestruct cleanup).
+        /// No-op when the fetch succeeded.
+        /// </summary>
+        public static void EmitRemoteConfigFetchFailedIfAny(
+            InformationalEventPost post,
+            AgentConfiguration agentConfig,
+            RemoteConfigService remoteConfigService,
+            AgentLogger logger)
+        {
+            try
+            {
+                var outcome = remoteConfigService?.LastFetchOutcome ?? RemoteConfigFetchOutcome.NotAttempted;
+                if (outcome == RemoteConfigFetchOutcome.Succeeded || outcome == RemoteConfigFetchOutcome.NotAttempted)
+                    return;
+
+                var data = new Dictionary<string, object>
+                {
+                    { "outcome", outcome.ToString() },
+                    { "attempts", remoteConfigService.LastFetchAttempts },
+                    { "failureType", remoteConfigService.LastFetchFailureType ?? string.Empty },
+                    { "failureMessage", remoteConfigService.LastFetchFailureMessage ?? string.Empty },
+                };
+
+                if (remoteConfigService.LastFetchAuthStatusCode.HasValue)
+                    data["authStatusCode"] = remoteConfigService.LastFetchAuthStatusCode.Value;
+
+                var msg = outcome == RemoteConfigFetchOutcome.FromCache
+                    ? $"Remote config fetch failed after {remoteConfigService.LastFetchAttempts} attempt(s); using cached config."
+                    : $"Remote config fetch failed after {remoteConfigService.LastFetchAttempts} attempt(s); running with built-in defaults (ConfigVersion=0).";
+
+                post.Emit(new EnrollmentEvent
+                {
+                    SessionId = agentConfig.SessionId,
+                    TenantId = agentConfig.TenantId,
+                    EventType = "remote_config_fetch_failed",
+                    Severity = EventSeverity.Warning,
+                    Source = "Agent",
+                    Phase = EnrollmentPhase.Unknown,
+                    Message = msg,
+                    Data = data,
+                    ImmediateUpload = true,
+                });
+            }
+            catch (Exception ex)
+            {
+                logger.Warning($"remote_config_fetch_failed emission failed: {ex.Message}");
             }
         }
 

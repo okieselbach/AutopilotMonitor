@@ -41,7 +41,13 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             var remoteConfigService = new RemoteConfigService(
                 auth.BackendApiClient, agentConfig.TenantId, logger,
                 auth.EmergencyReporter, auth.DistressReporter, auth.AuthFailureTracker);
-            var remoteConfig = remoteConfigService.FetchConfigAsync().GetAwaiter().GetResult();
+            // retryOnTransientErrors:true is essential for the initial fetch — a Function App
+            // cold-start (typically 30-60 s after a deploy) will time out a single-shot call and
+            // silently strand the agent on built-in defaults for the entire session. Auth
+            // failures still bail immediately (they won't change with a retry).
+            var remoteConfig = remoteConfigService
+                .FetchConfigAsync(retryOnTransientErrors: true)
+                .GetAwaiter().GetResult();
 
             // Project remote tenant-controlled knobs onto the runtime AgentConfiguration so that
             // downstream consumers (CleanupService, SummaryDialogLauncher, StartupEnvironmentProbes,
