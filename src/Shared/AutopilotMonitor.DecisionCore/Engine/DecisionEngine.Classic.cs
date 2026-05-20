@@ -195,6 +195,17 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// Handle <see cref="DecisionSignalKind.HelloResolved"/>. Records the resolution fact
         /// and cancels the Hello-safety deadline. If Desktop has already arrived the session
         /// completes here; otherwise stage transitions to <see cref="SessionStage.AwaitingDesktop"/>.
+        /// <para>
+        /// Session 8b8d611d fix (2026-05-20): when <see cref="DeadlineNames.HelloSafety"/> is
+        /// armed in the live <see cref="DecisionState.Deadlines"/> set we also emit a
+        /// <see cref="DecisionEffectKind.CancelDeadline"/> effect so the wall-clock
+        /// <see cref="DeadlineScheduler"/> timer is disposed. Without that effect the builder
+        /// cancel only cleared the reducer-state view; the OS timer kept ticking and fired
+        /// later (~300 s after arm), re-entering <see cref="HandleHelloSafetyDeadlineFired"/>
+        /// from a Completed stage and emitting a duplicate <c>enrollment_complete</c>.
+        /// Mirrors the pattern already used by the Hello-disabled fast-path in
+        /// <see cref="HandleDesktopArrivedV1"/>.
+        /// </para>
         /// </summary>
         private DecisionStep HandleHelloResolvedV1(DecisionState state, DecisionSignal signal)
         {
@@ -211,6 +222,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
             builder.HelloOutcome = new SignalFact<string>(outcome, signal.SessionSignalOrdinal);
 
             var desktopAlreadyArrived = state.DesktopArrivedUtc != null;
+            var helloSafetyCancelEffect = BuildHelloSafetyCancelEffectIfArmed(state);
 
             // Plan §5 Fix 6: when both prerequisites have resolved, go through the
             // non-terminal Finalizing stage with a short grace period before Completed.
@@ -223,7 +235,10 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     signal: signal,
                     preparedBuilder: builder,
                     nextStepIndex: nextStep,
-                    trigger: nameof(DecisionSignalKind.HelloResolved));
+                    trigger: nameof(DecisionSignalKind.HelloResolved),
+                    extraLeadingEffects: helloSafetyCancelEffect != null
+                        ? new[] { helloSafetyCancelEffect }
+                        : null);
             }
 
             builder.WithStage(SessionStage.AwaitingDesktop);
@@ -236,7 +251,32 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 nextStepIndex: nextStep,
                 trigger: nameof(DecisionSignalKind.HelloResolved));
 
-            return new DecisionStep(newState, transition, Array.Empty<DecisionEffect>());
+            var effects = helloSafetyCancelEffect != null
+                ? new[] { helloSafetyCancelEffect }
+                : Array.Empty<DecisionEffect>();
+            return new DecisionStep(newState, transition, effects);
+        }
+
+        /// <summary>
+        /// Session 8b8d611d fix (2026-05-20): emit a <see cref="DecisionEffectKind.CancelDeadline"/>
+        /// effect for <see cref="DeadlineNames.HelloSafety"/> when it is actually armed in
+        /// <paramref name="state"/>. Returns <c>null</c> when the deadline is not present —
+        /// avoids spurious cancel-noise on the scheduler. Callers chain this in front of any
+        /// reducer-side <c>CancelDeadline(HelloSafety)</c> so the live timer is disposed
+        /// before it can fire after a Completed transition.
+        /// </summary>
+        private static DecisionEffect? BuildHelloSafetyCancelEffectIfArmed(DecisionState state)
+        {
+            foreach (var d in state.Deadlines)
+            {
+                if (d.Name == DeadlineNames.HelloSafety)
+                {
+                    return new DecisionEffect(
+                        DecisionEffectKind.CancelDeadline,
+                        cancelDeadlineName: DeadlineNames.HelloSafety);
+                }
+            }
+            return null;
         }
 
         /// <summary>
@@ -311,14 +351,29 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
             // Plan §5 Fix 6: mirror of HandleHelloResolvedV1. When both prerequisites are in,
             // go through Finalizing (non-terminal) instead of jumping straight to Completed.
+            // Session 8b8d611d fix (2026-05-20): when HelloSafety is still armed in the live
+            // state (deferred-promote path from HandleAccountSetupProvisioningCompleteV1 — the
+            // HelloResolved branch did not clear it because Hello came in via the Hello-timeout
+            // synthesis after this Desktop signal in some orderings), cancel the scheduler
+            // timer too. Without the effect the timer fires after Completed and re-enters
+            // HandleHelloSafetyDeadlineFired → TransitionToFinalizing → duplicate
+            // enrollment_complete.
             if (helloAlreadyResolved)
             {
+                var helloSafetyCancelEffect = BuildHelloSafetyCancelEffectIfArmed(state);
+                if (helloSafetyCancelEffect != null)
+                {
+                    builder.CancelDeadline(DeadlineNames.HelloSafety);
+                }
                 return TransitionToFinalizing(
                     state: state,
                     signal: signal,
                     preparedBuilder: builder,
                     nextStepIndex: nextStep,
-                    trigger: nameof(DecisionSignalKind.DesktopArrived));
+                    trigger: nameof(DecisionSignalKind.DesktopArrived),
+                    extraLeadingEffects: helloSafetyCancelEffect != null
+                        ? new[] { helloSafetyCancelEffect }
+                        : null);
             }
 
             // Desktop came first: keep current stage (AwaitingHello or EspAccountSetup) until

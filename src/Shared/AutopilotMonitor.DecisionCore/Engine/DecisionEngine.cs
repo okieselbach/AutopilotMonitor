@@ -49,9 +49,30 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// Pure dispatch on <c>(Kind, SchemaVersion)</c> — no mutation here, no try/catch
         /// (outer <see cref="Reduce"/> provides the fail-safe wrapper). Handlers return fully
         /// constructed <see cref="DecisionStep"/> instances.
+        /// <para>
+        /// Session 8b8d611d defense-in-depth (2026-05-20): when the state already reached a
+        /// classic terminal stage (<see cref="SessionStage.Completed"/> /
+        /// <see cref="SessionStage.Failed"/>), reject any further signal as a bookkept dead
+        /// end before it can re-enter a handler that mutates state or emits effects. The
+        /// orchestrator tear-down after <c>OnDecisionTerminalStage</c> runs on a background
+        /// task (off-worker dispatch in <c>EnrollmentOrchestrator.OnDecisionTerminalStage</c>),
+        /// so the SignalIngress worker can still pump queued or late-fired signals through
+        /// <see cref="Reduce"/> for seconds afterwards. A live timer that escaped a missing
+        /// <see cref="DecisionEffectKind.CancelDeadline"/> effect (e.g. a stale HelloSafety
+        /// firing post-Completed) would otherwise re-enter <c>TransitionToFinalizing</c> and
+        /// emit a duplicate <c>enrollment_complete</c>. <see cref="SessionStage.WhiteGloveSealed"/>
+        /// is intentionally NOT guarded here — Part-2 resume runs as a fresh decision state
+        /// after archive-and-reset, so no signal ever reaches the engine with that stage in
+        /// a position that would warrant a dead-end.
+        /// </para>
         /// </summary>
         private DecisionStep Dispatch(DecisionState state, DecisionSignal signal)
         {
+            if (state.Stage == SessionStage.Completed || state.Stage == SessionStage.Failed)
+            {
+                return BuildPostTerminalDeadEnd(state, signal);
+            }
+
             return (signal.Kind, signal.KindSchemaVersion) switch
             {
                 // ----- Lifecycle (DecisionEngine.Shared.cs) -----
@@ -216,6 +237,27 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 nextStepIndex: bookkept.StepIndex,
                 trigger: signal.Kind.ToString(),
                 deadEndReason: $"unhandled_signal_kind:{signal.Kind}:v{signal.KindSchemaVersion}");
+
+            return new DecisionStep(bookkept, transition, Array.Empty<DecisionEffect>());
+        }
+
+        /// <summary>
+        /// Bookkeeping-only step for signals that arrive after the session reached a classic
+        /// terminal stage. State (Stage / Outcome / facts / deadlines) is unchanged; only
+        /// StepIndex and LastAppliedSignalOrdinal advance so the signal is recorded as
+        /// processed in the SignalLog. <c>DeadEndReason="signal_after_terminal:&lt;stage&gt;"</c>
+        /// lets the Inspector pinpoint which late-arriving signal would have re-entered the
+        /// terminal handlers without this guard.
+        /// </summary>
+        private DecisionStep BuildPostTerminalDeadEnd(DecisionState state, DecisionSignal signal)
+        {
+            var bookkept = BumpStepBookkeeping(state, signal);
+            var transition = BuildDeadEndTransition(
+                state: state,
+                signal: signal,
+                nextStepIndex: bookkept.StepIndex,
+                trigger: signal.Kind.ToString(),
+                deadEndReason: $"signal_after_terminal:{state.Stage}");
 
             return new DecisionStep(bookkept, transition, Array.Empty<DecisionEffect>());
         }
