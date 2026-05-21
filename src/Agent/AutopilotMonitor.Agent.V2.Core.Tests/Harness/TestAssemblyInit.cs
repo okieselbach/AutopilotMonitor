@@ -35,6 +35,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Harness
         internal static void DisableEspSkipProbeByDefault()
         {
             EspSkipConfigurationProbe.TestOverride = _ => (null, null);
+            EspSkipConfigurationProbe.FullTestOverride = _ => EspFirstSyncSnapshot.Empty;
         }
     }
 }

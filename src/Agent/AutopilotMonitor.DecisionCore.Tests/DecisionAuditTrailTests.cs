@@ -332,6 +332,78 @@ namespace AutopilotMonitor.DecisionCore.Tests
             Assert.Equal("policy_apply_timeout", payload["reason"]);
         }
 
+        [Fact]
+        public void EspTerminalFailure_event_enriched_with_continueAnyway_and_timeout_facts()
+        {
+            var engine = new DecisionEngine();
+            var state = DecisionState.CreateInitial("sess-esp-2", "tenant-esp-2");
+            state = engine.Reduce(state, MakeSignal(0, DecisionSignalKind.SessionStarted, T0)).NewState;
+
+            // Record the FirstSync-derived facts via EspConfigDetected.
+            state = engine.Reduce(state, MakeSignal(
+                10, DecisionSignalKind.EspConfigDetected, T0.AddMinutes(2),
+                new Dictionary<string, string>
+                {
+                    [SignalPayloadKeys.SkipUserEsp] = "false",
+                    [SignalPayloadKeys.SkipDeviceEsp] = "false",
+                    [SignalPayloadKeys.EspSyncFailureTimeoutMinutes] = "60",
+                    [SignalPayloadKeys.EspAllowContinueAnyway] = "true",
+                })).NewState;
+
+            var step = engine.Reduce(state, MakeSignal(
+                40, DecisionSignalKind.EspTerminalFailure, T0.AddMinutes(30),
+                new Dictionary<string, string> { ["reason"] = "esp_apps_timeout" }));
+
+            var effect = SingleTimelineEffect(step, "enrollment_failed");
+            Assert.NotNull(effect.Parameters);
+
+            Assert.Equal("60", effect.Parameters!["espSyncFailureTimeoutMinutes"]);
+            Assert.Equal("true", effect.Parameters!["espAllowContinueAnyway"]);
+            Assert.Equal("true", effect.Parameters!["mayHaveContinuedAnyway"]);
+            Assert.Contains("Continue anyway", effect.Parameters!["continueAnywayHint"]);
+        }
+
+        [Fact]
+        public void EspTerminalFailure_event_omits_hint_when_continueAnyway_false()
+        {
+            var engine = new DecisionEngine();
+            var state = DecisionState.CreateInitial("sess-esp-3", "tenant-esp-3");
+            state = engine.Reduce(state, MakeSignal(0, DecisionSignalKind.SessionStarted, T0)).NewState;
+
+            state = engine.Reduce(state, MakeSignal(
+                10, DecisionSignalKind.EspConfigDetected, T0.AddMinutes(2),
+                new Dictionary<string, string>
+                {
+                    [SignalPayloadKeys.EspAllowContinueAnyway] = "false",
+                })).NewState;
+
+            var step = engine.Reduce(state, MakeSignal(
+                40, DecisionSignalKind.EspTerminalFailure, T0.AddMinutes(30),
+                new Dictionary<string, string> { ["reason"] = "esp_apps_timeout" }));
+
+            var effect = SingleTimelineEffect(step, "enrollment_failed");
+            Assert.Equal("false", effect.Parameters!["espAllowContinueAnyway"]);
+            Assert.False(effect.Parameters!.ContainsKey("mayHaveContinuedAnyway"));
+            Assert.False(effect.Parameters!.ContainsKey("continueAnywayHint"));
+        }
+
+        [Fact]
+        public void EspTerminalFailure_event_omits_facts_when_never_observed()
+        {
+            var engine = new DecisionEngine();
+            var state = DecisionState.CreateInitial("sess-esp-4", "tenant-esp-4");
+            state = engine.Reduce(state, MakeSignal(0, DecisionSignalKind.SessionStarted, T0)).NewState;
+
+            var step = engine.Reduce(state, MakeSignal(
+                40, DecisionSignalKind.EspTerminalFailure, T0.AddMinutes(30),
+                new Dictionary<string, string> { ["reason"] = "esp_apps_timeout" }));
+
+            var effect = SingleTimelineEffect(step, "enrollment_failed");
+            Assert.False(effect.Parameters!.ContainsKey("espSyncFailureTimeoutMinutes"));
+            Assert.False(effect.Parameters!.ContainsKey("espAllowContinueAnyway"));
+            Assert.False(effect.Parameters!.ContainsKey("mayHaveContinuedAnyway"));
+        }
+
         // ============================================================ enrollment_failed (effect infra)
 
         [Fact]

@@ -66,6 +66,25 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// <summary>On <c>EspConfigDetected</c>: "true" / "false"; missing → fact is not set.</summary>
         public const string SkipDeviceEsp = "skipDeviceEsp";
 
+        /// <summary>
+        /// On <c>EspConfigDetected</c>: integer minutes parsed from the FirstSync
+        /// <c>SyncFailureTimeout</c> registry value (Intune ESP setting
+        /// "Show error when installation takes longer than"). Missing → fact stays unset.
+        /// Surfaced into <c>app_install_failed</c> messages on terminal ESP-Apps timeout and
+        /// into the <c>enrollment_failed</c> audit payload.
+        /// </summary>
+        public const string EspSyncFailureTimeoutMinutes = "espSyncFailureTimeoutMinutes";
+
+        /// <summary>
+        /// On <c>EspConfigDetected</c>: "true" / "false" decoded from bit 4 of the FirstSync
+        /// <c>BlockInStatusPage</c> bitmask (Intune ESP setting "Allow users to use device if
+        /// installation error occurs"). When true the ESP failure screen presents a
+        /// "Continue anyway" button — the user can dismiss the ESP and reach the desktop
+        /// after the monitor already observed a terminal failure on the agent side.
+        /// Missing → fact stays unset.
+        /// </summary>
+        public const string EspAllowContinueAnyway = "espAllowContinueAnyway";
+
         /// <summary>On <c>HelloPolicyDetected</c>: "true" / "false". PR4 (882fef64 debrief).</summary>
         public const string HelloEnabled = "helloEnabled";
 

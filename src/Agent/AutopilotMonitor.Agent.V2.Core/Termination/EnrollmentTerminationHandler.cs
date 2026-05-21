@@ -516,7 +516,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
 
             try
             {
-                const string message = "Install status unconfirmed — ESP timed out while still installing.";
+                var timeoutMinutes = state.ScenarioObservations?.EspSyncFailureTimeoutMinutes?.Value;
+                var message = timeoutMinutes.HasValue
+                    ? $"Install status unconfirmed — ESP timed out ({timeoutMinutes.Value} min) while still installing."
+                    : "Install status unconfirmed — ESP timed out while still installing.";
                 var promoted = _promoteActiveInstallsToStuck(AppFailureTypes.EspAppsTimeout, message);
                 var count = promoted?.Count ?? 0;
                 if (count > 0)

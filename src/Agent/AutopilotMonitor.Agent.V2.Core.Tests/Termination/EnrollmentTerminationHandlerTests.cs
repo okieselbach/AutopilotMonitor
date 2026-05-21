@@ -1053,5 +1053,44 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
 
             Assert.Empty(rig.PromotionCalls);
         }
+
+        [Fact]
+        public void PromoteActiveInstalls_message_includes_timeout_when_observation_present()
+        {
+            using var rig = new Rig();
+            var observations = EnrollmentScenarioObservations.Empty
+                .WithEspSyncFailureTimeoutMinutes(60, sourceSignalOrdinal: 5);
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1"))
+                .WithStage(SessionStage.Failed)
+                .WithOutcome(SessionOutcome.EnrollmentFailed)
+                .WithLastFailureTrigger(nameof(DecisionSignalKind.EspTerminalFailure), sourceSignalOrdinal: 42)
+                .WithScenarioObservations(observations)
+                .Build();
+            rig.PromotionReturnValue = new[] { "encompass-installer" };
+
+            rig.Build().Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Failed, SessionStage.Failed));
+
+            Assert.Single(rig.PromotionCalls);
+            Assert.Contains("(60 min)", rig.PromotionCalls[0].message);
+            Assert.Contains("ESP timed out", rig.PromotionCalls[0].message);
+        }
+
+        [Fact]
+        public void PromoteActiveInstalls_message_falls_back_when_timeout_unknown()
+        {
+            // No EspSyncFailureTimeoutMinutes fact (agent did not observe the FirstSync value)
+            // — handler must emit the generic message without an empty parenthesis.
+            using var rig = new Rig();
+            rig.State = BuildEspTerminalFailureState();
+            rig.PromotionReturnValue = new[] { "app-stuck-1" };
+
+            rig.Build().Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Failed, SessionStage.Failed));
+
+            Assert.Single(rig.PromotionCalls);
+            Assert.DoesNotContain("min)", rig.PromotionCalls[0].message);
+            Assert.Contains("ESP timed out while still installing", rig.PromotionCalls[0].message);
+        }
     }
 }

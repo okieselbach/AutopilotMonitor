@@ -72,15 +72,41 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 nextStepIndex: nextStep,
                 trigger: nameof(DecisionSignalKind.EspTerminalFailure));
 
+            var parameters = new Dictionary<string, string>
+            {
+                ["eventType"] = "enrollment_failed",
+                ["reason"] = reason,
+            };
+
+            // Enrich the audit payload with the FirstSync-derived ESP failure-handling settings,
+            // so the timeline carries the observable fact that Microsoft's ESP profile may have
+            // offered the user a "Continue anyway" button — the agent's terminal-failure verdict
+            // does not preclude the user actually reaching the desktop. This is hint-only data;
+            // the reducer's state machine has already committed to Failed.
+            var observations = newState.ScenarioObservations;
+            if (observations?.EspSyncFailureTimeoutMinutes != null)
+            {
+                parameters["espSyncFailureTimeoutMinutes"] = observations.EspSyncFailureTimeoutMinutes.Value
+                    .ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+            if (observations?.EspAllowContinueAnyway != null)
+            {
+                parameters["espAllowContinueAnyway"] = observations.EspAllowContinueAnyway.Value
+                    ? "true"
+                    : "false";
+                if (observations.EspAllowContinueAnyway.Value)
+                {
+                    parameters["mayHaveContinuedAnyway"] = "true";
+                    parameters["continueAnywayHint"] =
+                        "ESP profile allows 'Continue anyway' — the user may have dismissed the failure screen and reached the desktop; this monitor only sees the ESP terminal failure on the agent side.";
+                }
+            }
+
             var effects = new[]
             {
                 new DecisionEffect(
                     DecisionEffectKind.EmitEventTimelineEntry,
-                    parameters: new Dictionary<string, string>
-                    {
-                        ["eventType"] = "enrollment_failed",
-                        ["reason"] = reason,
-                    },
+                    parameters: parameters,
                     typedPayload: DecisionAuditTrailBuilder.Build(
                         postState: newState,
                         decidedStage: SessionStage.Failed,

@@ -510,6 +510,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
         /// shared <see cref="EspSkipConfigurationProbe"/> (also used by
         /// <see cref="Monitoring.Enrollment.SystemSignals.EspAndHelloTracker"/> so the tracker's
         /// SkipUser guard and the reducer's <c>SkipUserEsp</c> fact stay in lockstep, plan §6 Fix 7/9).
+        /// <para>
+        /// Beyond the skip flags, the same <c>FirstSync</c> key carries the user-facing ESP
+        /// error-handling toggles (<c>BlockInStatusPage</c> bitmask + <c>SyncFailureTimeout</c>).
+        /// These are surfaced as additional fields on the <c>esp_config_detected</c> event so
+        /// session-debug analysis can tell whether an enrollment that ends in
+        /// <c>esp_terminal_failure</c> on the agent's side may still have let the user reach
+        /// the desktop via "Continue anyway".
+        /// </para>
         /// </summary>
         private (bool? skipUserStatusPage, bool? skipDeviceStatusPage) CollectEspConfiguration()
         {
@@ -518,7 +526,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
 
             try
             {
-                (skipUser, skipDevice) = EspSkipConfigurationProbe.Read(_logger);
+                var snapshot = EspSkipConfigurationProbe.ReadFull(_logger);
+                skipUser = snapshot.SkipUser;
+                skipDevice = snapshot.SkipDevice;
 
                 var data = new Dictionary<string, object>
                 {
@@ -526,11 +536,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                 };
                 if (skipUser.HasValue) data["skipUserStatusPage"] = skipUser.Value;
                 if (skipDevice.HasValue) data["skipDeviceStatusPage"] = skipDevice.Value;
+                if (snapshot.BlockInStatusPage.HasValue)
+                {
+                    data["blockInStatusPage"] = snapshot.BlockInStatusPage.Value;
+                    data["allowReset"] = snapshot.AllowReset.Value;
+                    data["allowTryAgain"] = snapshot.AllowTryAgain.Value;
+                    data["allowContinueAnyway"] = snapshot.AllowContinueAnyway.Value;
+                }
+                if (snapshot.SyncFailureTimeoutMinutes.HasValue)
+                    data["syncFailureTimeoutMinutes"] = snapshot.SyncFailureTimeoutMinutes.Value;
 
-                var summary = $"SkipUser={skipUser?.ToString() ?? "unknown"}, SkipDevice={skipDevice?.ToString() ?? "unknown"}";
+                var summary = BuildSummary(snapshot);
                 _logger.Info($"EnrollmentTracker: ESP configuration detected — {summary}");
                 EmitDeviceInfoEvent("esp_config_detected", $"ESP configuration: {summary}", data);
-                PostEspConfigDetectedSignal(skipUser, skipDevice);
+                PostEspConfigDetectedSignal(snapshot);
             }
             catch (Exception ex)
             {
@@ -538,6 +557,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
             }
 
             return (skipUser, skipDevice);
+        }
+
+        private static string BuildSummary(EspFirstSyncSnapshot snapshot)
+        {
+            var skipUserText = snapshot.SkipUser?.ToString() ?? "unknown";
+            var skipDeviceText = snapshot.SkipDevice?.ToString() ?? "unknown";
+            var basePart = $"SkipUser={skipUserText}, SkipDevice={skipDeviceText}";
+
+            if (!snapshot.BlockInStatusPage.HasValue && !snapshot.SyncFailureTimeoutMinutes.HasValue)
+                return basePart;
+
+            var sb = new System.Text.StringBuilder(basePart);
+            if (snapshot.BlockInStatusPage.HasValue)
+            {
+                sb.Append(", BlockInStatusPage=").Append(snapshot.BlockInStatusPage.Value);
+                sb.Append(" (Reset=").Append(snapshot.AllowReset.Value);
+                sb.Append(", TryAgain=").Append(snapshot.AllowTryAgain.Value);
+                sb.Append(", ContinueAnyway=").Append(snapshot.AllowContinueAnyway.Value).Append(")");
+            }
+            if (snapshot.SyncFailureTimeoutMinutes.HasValue)
+                sb.Append(", SyncFailureTimeoutMin=").Append(snapshot.SyncFailureTimeoutMinutes.Value);
+            return sb.ToString();
         }
 
         /// <summary>
@@ -737,16 +778,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
         /// fire-once flag — that would defeat the reducer's late-fill path.
         /// </para>
         /// </summary>
-        private void PostEspConfigDetectedSignal(bool? skipUser, bool? skipDevice)
+        private void PostEspConfigDetectedSignal(EspFirstSyncSnapshot snapshot)
         {
             if (_signalIngress == null || _clock == null) return;
-            if (skipUser == null && skipDevice == null) return;
+            if (snapshot.SkipUser == null
+                && snapshot.SkipDevice == null
+                && snapshot.SyncFailureTimeoutMinutes == null
+                && snapshot.AllowContinueAnyway == null)
+            {
+                return;
+            }
 
             var payload = new Dictionary<string, string>(StringComparer.Ordinal);
-            if (skipUser.HasValue)
-                payload[SignalPayloadKeys.SkipUserEsp] = skipUser.Value ? "true" : "false";
-            if (skipDevice.HasValue)
-                payload[SignalPayloadKeys.SkipDeviceEsp] = skipDevice.Value ? "true" : "false";
+            if (snapshot.SkipUser.HasValue)
+                payload[SignalPayloadKeys.SkipUserEsp] = snapshot.SkipUser.Value ? "true" : "false";
+            if (snapshot.SkipDevice.HasValue)
+                payload[SignalPayloadKeys.SkipDeviceEsp] = snapshot.SkipDevice.Value ? "true" : "false";
+            if (snapshot.SyncFailureTimeoutMinutes.HasValue && snapshot.SyncFailureTimeoutMinutes.Value > 0)
+                payload[SignalPayloadKeys.EspSyncFailureTimeoutMinutes] = snapshot.SyncFailureTimeoutMinutes.Value
+                    .ToString(System.Globalization.CultureInfo.InvariantCulture);
+            if (snapshot.AllowContinueAnyway.HasValue)
+                payload[SignalPayloadKeys.EspAllowContinueAnyway] = snapshot.AllowContinueAnyway.Value ? "true" : "false";
 
             var derivationInputs = new Dictionary<string, string>(payload, StringComparer.Ordinal)
             {
@@ -760,7 +812,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                 evidence: new Evidence(
                     kind: EvidenceKind.Raw,
                     identifier: "esp_config_detected",
-                    summary: $"SkipUser={skipUser?.ToString() ?? "unknown"}, SkipDevice={skipDevice?.ToString() ?? "unknown"}",
+                    summary: $"SkipUser={snapshot.SkipUser?.ToString() ?? "unknown"}, SkipDevice={snapshot.SkipDevice?.ToString() ?? "unknown"}",
                     derivationInputs: derivationInputs),
                 payload: payload);
         }

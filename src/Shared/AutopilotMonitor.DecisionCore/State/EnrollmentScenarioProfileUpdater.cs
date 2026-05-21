@@ -149,6 +149,17 @@ namespace AutopilotMonitor.DecisionCore.State
                 {
                     newObservations = newObservations.WithSkipDeviceEsp(skipDevice, signal.SessionSignalOrdinal);
                 }
+                if (signal.Payload.TryGetValue(SignalPayloadKeys.EspSyncFailureTimeoutMinutes, out var rawTimeout)
+                    && int.TryParse(rawTimeout, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var timeoutMinutes)
+                    && timeoutMinutes > 0)
+                {
+                    newObservations = newObservations.WithEspSyncFailureTimeoutMinutes(timeoutMinutes, signal.SessionSignalOrdinal);
+                }
+                if (signal.Payload.TryGetValue(SignalPayloadKeys.EspAllowContinueAnyway, out var rawContinue)
+                    && bool.TryParse(rawContinue, out var allowContinue))
+                {
+                    newObservations = newObservations.WithEspAllowContinueAnyway(allowContinue, signal.SessionSignalOrdinal);
+                }
             }
 
             var newProfile = currentProfile;

@@ -30,20 +30,26 @@ namespace AutopilotMonitor.DecisionCore.State
             whiteGloveSealingPatternSeen: null,
             aadUserJoinWithUserObserved: null,
             skipUserEsp: null,
-            skipDeviceEsp: null);
+            skipDeviceEsp: null,
+            espSyncFailureTimeoutMinutes: null,
+            espAllowContinueAnyway: null);
 
         public EnrollmentScenarioObservations(
             SignalFact<bool>? shellCoreWhiteGloveSuccessSeen,
             SignalFact<bool>? whiteGloveSealingPatternSeen,
             SignalFact<bool>? aadUserJoinWithUserObserved,
             SignalFact<bool>? skipUserEsp,
-            SignalFact<bool>? skipDeviceEsp)
+            SignalFact<bool>? skipDeviceEsp,
+            SignalFact<int>? espSyncFailureTimeoutMinutes,
+            SignalFact<bool>? espAllowContinueAnyway)
         {
             ShellCoreWhiteGloveSuccessSeen = shellCoreWhiteGloveSuccessSeen;
             WhiteGloveSealingPatternSeen = whiteGloveSealingPatternSeen;
             AadUserJoinWithUserObserved = aadUserJoinWithUserObserved;
             SkipUserEsp = skipUserEsp;
             SkipDeviceEsp = skipDeviceEsp;
+            EspSyncFailureTimeoutMinutes = espSyncFailureTimeoutMinutes;
+            EspAllowContinueAnyway = espAllowContinueAnyway;
         }
 
         /// <summary>True once <see cref="Signals.DecisionSignalKind.WhiteGloveShellCoreSuccess"/> has fired.</summary>
@@ -67,6 +73,26 @@ namespace AutopilotMonitor.DecisionCore.State
         /// <summary>Raw payload half-fact from <see cref="Signals.DecisionSignalKind.EspConfigDetected"/>.</summary>
         public SignalFact<bool>? SkipDeviceEsp { get; }
 
+        /// <summary>
+        /// FirstSync <c>SyncFailureTimeout</c> in minutes — Intune ESP setting
+        /// "Show error when installation takes longer than" (default 60). Consumed by the
+        /// terminal-ESP-Apps promotion path to enrich <c>app_install_failed</c> messages
+        /// with the actual timeout instead of a generic "ESP timed out" string.
+        /// Set-once from <see cref="Signals.DecisionSignalKind.EspConfigDetected"/>.
+        /// </summary>
+        public SignalFact<int>? EspSyncFailureTimeoutMinutes { get; }
+
+        /// <summary>
+        /// Decoded bit 4 of the FirstSync <c>BlockInStatusPage</c> bitmask — Intune ESP
+        /// setting "Allow users to use device if installation error occurs". When
+        /// <c>true</c> the ESP failure screen shows a "Continue anyway" button; the
+        /// <c>enrollment_failed</c> audit then carries a <c>mayHaveContinuedAnyway</c>
+        /// hint because the agent's terminal-failure verdict does not preclude the user
+        /// reaching the desktop. Set-once from
+        /// <see cref="Signals.DecisionSignalKind.EspConfigDetected"/>.
+        /// </summary>
+        public SignalFact<bool>? EspAllowContinueAnyway { get; }
+
         public EnrollmentScenarioObservations WithShellCoreWhiteGloveSuccessSeen(long sourceSignalOrdinal) =>
             ShellCoreWhiteGloveSuccessSeen != null
                 ? this
@@ -75,7 +101,9 @@ namespace AutopilotMonitor.DecisionCore.State
                     WhiteGloveSealingPatternSeen,
                     AadUserJoinWithUserObserved,
                     SkipUserEsp,
-                    SkipDeviceEsp);
+                    SkipDeviceEsp,
+                    EspSyncFailureTimeoutMinutes,
+                    EspAllowContinueAnyway);
 
         public EnrollmentScenarioObservations WithWhiteGloveSealingPatternSeen(long sourceSignalOrdinal) =>
             WhiteGloveSealingPatternSeen != null
@@ -85,7 +113,9 @@ namespace AutopilotMonitor.DecisionCore.State
                     new SignalFact<bool>(true, sourceSignalOrdinal),
                     AadUserJoinWithUserObserved,
                     SkipUserEsp,
-                    SkipDeviceEsp);
+                    SkipDeviceEsp,
+                    EspSyncFailureTimeoutMinutes,
+                    EspAllowContinueAnyway);
 
         public EnrollmentScenarioObservations WithAadUserJoinWithUserObserved(bool value, long sourceSignalOrdinal) =>
             AadUserJoinWithUserObserved != null
@@ -95,7 +125,9 @@ namespace AutopilotMonitor.DecisionCore.State
                     WhiteGloveSealingPatternSeen,
                     new SignalFact<bool>(value, sourceSignalOrdinal),
                     SkipUserEsp,
-                    SkipDeviceEsp);
+                    SkipDeviceEsp,
+                    EspSyncFailureTimeoutMinutes,
+                    EspAllowContinueAnyway);
 
         public EnrollmentScenarioObservations WithSkipUserEsp(bool value, long sourceSignalOrdinal) =>
             SkipUserEsp != null
@@ -105,7 +137,9 @@ namespace AutopilotMonitor.DecisionCore.State
                     WhiteGloveSealingPatternSeen,
                     AadUserJoinWithUserObserved,
                     new SignalFact<bool>(value, sourceSignalOrdinal),
-                    SkipDeviceEsp);
+                    SkipDeviceEsp,
+                    EspSyncFailureTimeoutMinutes,
+                    EspAllowContinueAnyway);
 
         public EnrollmentScenarioObservations WithSkipDeviceEsp(bool value, long sourceSignalOrdinal) =>
             SkipDeviceEsp != null
@@ -115,6 +149,32 @@ namespace AutopilotMonitor.DecisionCore.State
                     WhiteGloveSealingPatternSeen,
                     AadUserJoinWithUserObserved,
                     SkipUserEsp,
+                    new SignalFact<bool>(value, sourceSignalOrdinal),
+                    EspSyncFailureTimeoutMinutes,
+                    EspAllowContinueAnyway);
+
+        public EnrollmentScenarioObservations WithEspSyncFailureTimeoutMinutes(int value, long sourceSignalOrdinal) =>
+            EspSyncFailureTimeoutMinutes != null
+                ? this
+                : new EnrollmentScenarioObservations(
+                    ShellCoreWhiteGloveSuccessSeen,
+                    WhiteGloveSealingPatternSeen,
+                    AadUserJoinWithUserObserved,
+                    SkipUserEsp,
+                    SkipDeviceEsp,
+                    new SignalFact<int>(value, sourceSignalOrdinal),
+                    EspAllowContinueAnyway);
+
+        public EnrollmentScenarioObservations WithEspAllowContinueAnyway(bool value, long sourceSignalOrdinal) =>
+            EspAllowContinueAnyway != null
+                ? this
+                : new EnrollmentScenarioObservations(
+                    ShellCoreWhiteGloveSuccessSeen,
+                    WhiteGloveSealingPatternSeen,
+                    AadUserJoinWithUserObserved,
+                    SkipUserEsp,
+                    SkipDeviceEsp,
+                    EspSyncFailureTimeoutMinutes,
                     new SignalFact<bool>(value, sourceSignalOrdinal));
     }
 }

@@ -222,6 +222,77 @@ namespace AutopilotMonitor.DecisionCore.Tests
             Assert.Equal(EspConfig.Unknown, state.ScenarioProfile.EspConfig);
         }
 
+        [Fact]
+        public void EspConfigDetected_captures_SyncFailureTimeoutMinutes_when_provided()
+        {
+            var engine = new DecisionEngine();
+            var state = DecisionState.CreateInitial("s", "t");
+
+            var payload = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [SignalPayloadKeys.SkipUserEsp] = "false",
+                [SignalPayloadKeys.SkipDeviceEsp] = "false",
+                [SignalPayloadKeys.EspSyncFailureTimeoutMinutes] = "90",
+                [SignalPayloadKeys.EspAllowContinueAnyway] = "true",
+            };
+            var signal = MakeSignalWithPayload(ordinal: 4, payload: payload);
+
+            var obs = engine.Reduce(state, signal).NewState.ScenarioObservations;
+
+            Assert.NotNull(obs.EspSyncFailureTimeoutMinutes);
+            Assert.Equal(90, obs.EspSyncFailureTimeoutMinutes!.Value);
+            Assert.Equal(4, obs.EspSyncFailureTimeoutMinutes!.SourceSignalOrdinal);
+
+            Assert.NotNull(obs.EspAllowContinueAnyway);
+            Assert.True(obs.EspAllowContinueAnyway!.Value);
+            Assert.Equal(4, obs.EspAllowContinueAnyway!.SourceSignalOrdinal);
+        }
+
+        [Fact]
+        public void EspConfigDetected_ignores_invalid_or_zero_timeout()
+        {
+            var engine = new DecisionEngine();
+            var state = DecisionState.CreateInitial("s", "t");
+
+            var payload = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [SignalPayloadKeys.SkipUserEsp] = "false",
+                [SignalPayloadKeys.EspSyncFailureTimeoutMinutes] = "0",
+                [SignalPayloadKeys.EspAllowContinueAnyway] = "not-a-bool",
+            };
+
+            var obs = engine.Reduce(state, MakeSignalWithPayload(ordinal: 5, payload)).NewState.ScenarioObservations;
+
+            Assert.Null(obs.EspSyncFailureTimeoutMinutes);
+            Assert.Null(obs.EspAllowContinueAnyway);
+        }
+
+        [Fact]
+        public void EspConfigDetected_continueAnyway_setOnce_keepsFirstOrdinal()
+        {
+            var engine = new DecisionEngine();
+            var state = DecisionState.CreateInitial("s", "t");
+
+            var first = engine.Reduce(state, MakeSignalWithPayload(
+                ordinal: 6,
+                payload: new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [SignalPayloadKeys.EspAllowContinueAnyway] = "true",
+                })).NewState;
+
+            var second = engine.Reduce(first, MakeSignalWithPayload(
+                ordinal: 10,
+                payload: new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [SignalPayloadKeys.EspAllowContinueAnyway] = "false",
+                })).NewState;
+
+            var fact = second.ScenarioObservations.EspAllowContinueAnyway;
+            Assert.NotNull(fact);
+            Assert.True(fact!.Value);
+            Assert.Equal(6, fact!.SourceSignalOrdinal);
+        }
+
         private static DecisionSignal MakeSignal(
             long ordinal,
             string? skipUser,
@@ -231,7 +302,14 @@ namespace AutopilotMonitor.DecisionCore.Tests
             var payload = new Dictionary<string, string>(StringComparer.Ordinal);
             if (skipUser != null) payload[SignalPayloadKeys.SkipUserEsp] = skipUser;
             if (skipDevice != null) payload[SignalPayloadKeys.SkipDeviceEsp] = skipDevice;
+            return MakeSignalWithPayload(ordinal, payload, schemaVersion);
+        }
 
+        private static DecisionSignal MakeSignalWithPayload(
+            long ordinal,
+            Dictionary<string, string> payload,
+            int schemaVersion = 1)
+        {
             return new DecisionSignal(
                 sessionSignalOrdinal: ordinal,
                 sessionTraceOrdinal: ordinal,
@@ -242,7 +320,7 @@ namespace AutopilotMonitor.DecisionCore.Tests
                 evidence: new Evidence(
                     kind: EvidenceKind.Raw,
                     identifier: "esp_config_detected",
-                    summary: $"SkipUser={skipUser ?? "unknown"}, SkipDevice={skipDevice ?? "unknown"}"),
+                    summary: "test"),
                 payload: payload);
         }
     }
