@@ -162,9 +162,41 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// <see cref="RealmJoinFacts.Outcome"/> = <c>"Timeout"</c>, emits a
         /// <c>realmjoin_timeout</c> timeline entry, and — when other completion preconditions
         /// are in — releases the deferred completion path.
+        /// <para>
+        /// <b>Idempotency</b>: a stale <see cref="DecisionSignalKind.DeadlineFired"/> signal can
+        /// arrive after the deadline was cancelled by <see cref="HandleRealmJoinResolvedV1"/>
+        /// (race between the cancel-effect reaching the scheduler and the timer firing). In
+        /// that case any further work would emit a spurious <c>realmjoin_timeout</c> timeline
+        /// event and re-enter <see cref="TransitionToFinalizing"/> — duplicating
+        /// <c>phase_transition(FinalizingSetup)</c> on the wire. Bail out as a bookkept dead-end
+        /// when either: (a) <see cref="RealmJoinFacts.Outcome"/> is already set (Resolved or
+        /// Timeout) or (b) the <see cref="DeadlineNames.RealmJoinTimeout"/> deadline is no
+        /// longer in the live state — both indicate the timer has been logically retired.
+        /// </para>
         /// </summary>
         private DecisionStep HandleRealmJoinTimeoutDeadlineFired(DecisionState state, DecisionSignal signal)
         {
+            var alreadyResolvedOrTimedOut = state.RealmJoinFacts.Outcome != null;
+            var deadlineStillArmed = false;
+            foreach (var d in state.Deadlines)
+            {
+                if (d.Name == DeadlineNames.RealmJoinTimeout) { deadlineStillArmed = true; break; }
+            }
+
+            if (alreadyResolvedOrTimedOut || !deadlineStillArmed)
+            {
+                var bookkept = BumpStepBookkeeping(state, signal);
+                var staleTransition = BuildDeadEndTransition(
+                    state: state,
+                    signal: signal,
+                    nextStepIndex: bookkept.StepIndex,
+                    trigger: $"DeadlineFired:{DeadlineNames.RealmJoinTimeout}",
+                    deadEndReason: alreadyResolvedOrTimedOut
+                        ? "realmjoin_timeout_stale_outcome_already_set"
+                        : "realmjoin_timeout_stale_deadline_not_armed");
+                return new DecisionStep(bookkept, staleTransition, Array.Empty<DecisionEffect>());
+            }
+
             var nextStep = state.StepIndex + 1;
 
             var builder = state.ToBuilder()

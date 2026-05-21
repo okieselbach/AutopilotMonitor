@@ -73,7 +73,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             try
             {
                 var path = subPathOverride ?? ServiceRegistryPath;
-                using (var baseKey = RegistryKey.OpenBaseKey(hive, RegistryView.Default))
+                using (var baseKey = RegistryKey.OpenBaseKey(hive, RegistryView.Registry64))
                 using (var key = baseKey.OpenSubKey(path, writable: false))
                 {
                     if (key == null) return null;
@@ -98,7 +98,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         {
             try
             {
-                using (var baseKey = RegistryKey.OpenBaseKey(hive, RegistryView.Default))
+                using (var baseKey = RegistryKey.OpenBaseKey(hive, RegistryView.Registry64))
                 using (var key = baseKey.OpenSubKey(packagesPath, writable: false))
                 {
                     if (key == null) return Array.Empty<string>();
@@ -126,7 +126,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             snapshot = default;
             try
             {
-                using (var baseKey = RegistryKey.OpenBaseKey(hive, RegistryView.Default))
+                using (var baseKey = RegistryKey.OpenBaseKey(hive, RegistryView.Registry64))
                 using (var key = baseKey.OpenSubKey($"{packagesPath}\\{packageId}", writable: false))
                 {
                     if (key == null) return false;

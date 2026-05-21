@@ -285,6 +285,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     hive,
                     parentPath,
                     watchSubtree: false,
+                    view: RegistryView.Registry64,
                     filter: RegistryNativeMethods.RegChangeNotifyFilter.Name,
                     trace: msg => _logger.Trace($"RealmJoinWatcher(appear:{role}): {msg}"));
 
@@ -293,8 +294,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     if (_disposed) return;
                     if (!KeyExists(hive, targetFullPath)) return;
                     _logger.Info($"RealmJoinWatcher: {targetSubKeyName} appeared under {parentPath} — switching to subtree watcher");
-                    try { watcher.Dispose(); } catch { /* dispose may race with notification */ }
+
+                    // CRITICAL: this callback runs on the RegistryWatcher's own background
+                    // thread. Calling Dispose() here would re-enter Stop() → Thread.Join()
+                    // and self-deadlock (the thread would join itself). Use RequestStop()
+                    // (non-blocking — see RegistryWatcher.RequestStop) and let a thread-pool
+                    // worker dispose the watcher object after the loop has exited.
+                    try { watcher.RequestStop(); } catch { /* nothing to do */ }
                     clearSlot();
+                    ThreadPool.QueueUserWorkItem(_ =>
+                    {
+                        try { watcher.Dispose(); } catch { /* dispose must not throw */ }
+                    });
+
                     try { onAppeared(); }
                     catch (Exception ex) { _logger.Error($"RealmJoinWatcher: onAppeared({role}) threw", ex); }
                 };
@@ -325,6 +337,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         RegistryHive.LocalMachine,
                         RealmJoinInfo.ServiceRealmJoinKeyPath,
                         watchSubtree: true,
+                        view: RegistryView.Registry64,
                         filter: RegistryNativeMethods.RegChangeNotifyFilter.LastSet
                               | RegistryNativeMethods.RegChangeNotifyFilter.Name,
                         trace: msg => _logger.Trace($"RealmJoinWatcher(svc): {msg}"));
@@ -368,6 +381,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         RegistryHive.LocalMachine,
                         RealmJoinInfo.MachineRealmJoinPath,
                         watchSubtree: true,
+                        view: RegistryView.Registry64,
                         filter: RegistryNativeMethods.RegChangeNotifyFilter.LastSet
                               | RegistryNativeMethods.RegChangeNotifyFilter.Name,
                         trace: msg => _logger.Trace($"RealmJoinWatcher(hklm-rj): {msg}"));
@@ -398,6 +412,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         RegistryHive.Users,
                         fullPath,
                         watchSubtree: true,
+                        view: RegistryView.Registry64,
                         filter: RegistryNativeMethods.RegChangeNotifyFilter.LastSet
                               | RegistryNativeMethods.RegChangeNotifyFilter.Name,
                         trace: msg => _logger.Trace($"RealmJoinWatcher(hku-rj): {msg}"));
@@ -582,7 +597,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         {
             try
             {
-                using (var baseKey = RegistryKey.OpenBaseKey(hive, RegistryView.Default))
+                // Registry64 is mandatory here — when the .NET host happens to run as 32-bit
+                // (mirroring TenantIdResolver's defensive note) HKLM\SOFTWARE silently redirects
+                // to WOW6432Node, so RealmJoin's 64-bit-only keys would appear missing.
+                using (var baseKey = RegistryKey.OpenBaseKey(hive, RegistryView.Registry64))
                 using (var key = baseKey.OpenSubKey(subPath, writable: false))
                 {
                     return key != null;

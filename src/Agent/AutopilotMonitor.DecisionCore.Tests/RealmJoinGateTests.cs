@@ -138,6 +138,36 @@ namespace AutopilotMonitor.DecisionCore.Tests
         }
 
         [Fact]
+        public void Stale_RealmJoinTimeout_after_Resolved_is_bookkept_dead_end_no_effects()
+        {
+            // Race: RealmJoinResolved arrives + cancels the timeout, but the queued
+            // DeadlineFired:realmjoin_timeout was already in flight on the signal worker. The
+            // idempotency guard must short-circuit before emitting a spurious realmjoin_timeout
+            // timeline event or re-entering TransitionToFinalizing.
+            var engine = new DecisionEngine();
+            var state = PrimeClassicAwaitingDesktop(engine);
+            state = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(5),
+                new Dictionary<string, string> { [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "100" })).NewState;
+            state = engine.Reduce(state, MakeSignal(6, DecisionSignalKind.DesktopArrived, T0.AddMinutes(6))).NewState;
+            state = engine.Reduce(state, MakeSignal(7, DecisionSignalKind.RealmJoinResolved, T0.AddMinutes(7),
+                new Dictionary<string, string> { [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "110" })).NewState;
+            Assert.Equal("Resolved", state.RealmJoinFacts.Outcome!.Value);
+            // Deadline already cancelled in state — but the queued DeadlineFired hasn't
+            // been informed yet.
+
+            var step = engine.Reduce(state, MakeSignal(8, DecisionSignalKind.DeadlineFired, T0.AddMinutes(65),
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.RealmJoinTimeout }));
+
+            // State must NOT mutate to Timeout outcome.
+            Assert.Equal("Resolved", step.NewState.RealmJoinFacts.Outcome!.Value);
+            // Transition is recorded as DeadEnd with the stale reason — no taken-step.
+            Assert.False(step.Transition.Taken);
+            Assert.Equal("realmjoin_timeout_stale_outcome_already_set", step.Transition.DeadEndReason);
+            // No effects at all — no spurious realmjoin_timeout event, no FinalizingGrace re-arm.
+            Assert.Empty(step.Effects);
+        }
+
+        [Fact]
         public void RealmJoinTimeout_with_hello_and_desktop_in_completes_with_timeout_outcome()
         {
             // Hard 60-min timeout fires while RJ is still incomplete but Hello+Desktop already
