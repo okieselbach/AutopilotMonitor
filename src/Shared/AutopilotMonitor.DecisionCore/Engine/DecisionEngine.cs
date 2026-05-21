@@ -65,10 +65,29 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// after archive-and-reset, so no signal ever reaches the engine with that stage in
         /// a position that would warrant a dead-end.
         /// </para>
+        /// <para>
+        /// Session 875178a3 follow-up (2026-05-21): <see cref="DecisionSignalKind.InformationalEvent"/>
+        /// is exempt from the guard. <c>HandleInformationalEventV1</c> is the single-rail
+        /// pass-through (plan §1.3) — it does NOT mutate Stage/Outcome/facts, does NOT arm
+        /// deadlines, and only emits an <see cref="DecisionEffectKind.EmitEventTimelineEntry"/>
+        /// effect for downstream telemetry. The <see cref="EnrollmentTerminationHandler"/>
+        /// posts every post-terminal lifecycle event (<c>agent_shutting_down</c>,
+        /// <c>app_tracking_summary</c>, <c>software_inventory_analysis</c> shutdown-delta,
+        /// <c>diagnostics_collecting</c>, <c>diagnostics_uploaded</c>, <c>reboot_triggered</c>,
+        /// <c>enrollment_summary_shown</c>, <c>whiteglove_part1_complete</c>) via
+        /// <c>InformationalEventPost.Emit</c> which Post()s an <c>InformationalEvent</c> signal
+        /// — so the original blanket guard silently blackholed the entire terminal-handler
+        /// pipeline. Allowing InformationalEvent through cannot regress the duplicate-
+        /// <c>enrollment_complete</c> protection because <c>enrollment_complete</c> on the
+        /// FinalizingGrace path is emitted directly from the reducer step (NOT via
+        /// InformationalEvent), and any informational-event payload carrying
+        /// <c>eventType=enrollment_complete</c> would be a misuse (no in-tree caller does this).
+        /// </para>
         /// </summary>
         private DecisionStep Dispatch(DecisionState state, DecisionSignal signal)
         {
-            if (state.Stage == SessionStage.Completed || state.Stage == SessionStage.Failed)
+            if ((state.Stage == SessionStage.Completed || state.Stage == SessionStage.Failed)
+                && signal.Kind != DecisionSignalKind.InformationalEvent)
             {
                 return BuildPostTerminalDeadEnd(state, signal);
             }

@@ -381,5 +381,104 @@ namespace AutopilotMonitor.DecisionCore.Tests
             Assert.False(step.Transition.Taken);
             Assert.Equal("signal_after_terminal:Completed", step.Transition.DeadEndReason);
         }
+
+        [Fact]
+        public void Dispatch_guard_allows_InformationalEvent_after_Completed_so_terminal_handler_events_reach_wire()
+        {
+            // Session 875178a3 regression coverage (2026-05-21):
+            //
+            // Bug: the post-terminal dispatch guard blanket-rejected EVERY signal kind once
+            //      Stage reached Completed/Failed — including DecisionSignalKind.InformationalEvent,
+            //      which is the single-rail pass-through used by EnrollmentTerminationHandler
+            //      to emit agent_shutting_down / app_tracking_summary / shutdown-delta
+            //      software_inventory_analysis / diagnostics_* / enrollment_summary_shown /
+            //      reboot_triggered / whiteglove_part1_complete. Result: every V2 session on
+            //      agent builds >= 2.0.835 ended at enrollment_complete with no terminal
+            //      lifecycle events at all (confirmed 0/11 affected vs 9/9 working on <=2.0.820
+            //      across one tenant sample).
+            //
+            // Fix: exempt InformationalEvent from the guard. The signal kind is pure
+            //      pass-through (no state mutation, no deadline arming) so it cannot regress
+            //      the duplicate-enrollment_complete protection that motivated the original
+            //      guard. enrollment_complete on the FinalizingGrace path is emitted directly
+            //      from the reducer step, not via InformationalEvent.
+            var engine = new DecisionEngine();
+            var state = InitialAwaitingDesktop(engine);
+            state = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.DesktopArrived, T0.AddMinutes(5), null)).NewState;
+            state = engine.Reduce(state, MakeSignal(6, DecisionSignalKind.DeadlineFired,
+                T0.AddMinutes(5).AddSeconds(5),
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.FinalizingGrace })).NewState;
+            Assert.Equal(SessionStage.Completed, state.Stage);
+
+            // EnrollmentTerminationHandler.EmitAgentShuttingDown post()s an InformationalEvent
+            // with these payload keys (eventType + source are the only mandatory ones for
+            // HandleInformationalEventV1; the rest are forwarded verbatim by EventTimelineEmitter).
+            var step = engine.Reduce(state, MakeSignal(7, DecisionSignalKind.InformationalEvent,
+                T0.AddMinutes(6),
+                new Dictionary<string, string>
+                {
+                    [SignalPayloadKeys.EventType] = "agent_shutting_down",
+                    [SignalPayloadKeys.Source] = "EnrollmentTerminationHandler",
+                    [SignalPayloadKeys.Message] = "Agent shutting down (reason=decision_terminal, outcome=Succeeded).",
+                }));
+
+            // State must NOT regress out of Completed — the informational pass-through does
+            // not mutate Stage/Outcome/facts.
+            Assert.Equal(SessionStage.Completed, step.NewState.Stage);
+            Assert.Equal(SessionOutcome.EnrollmentComplete, step.NewState.Outcome);
+
+            // The EmitEventTimelineEntry effect MUST be present — that is the signal-on-wire
+            // mechanism. Before the fix this assertion failed because the guard collapsed the
+            // step to Array.Empty<DecisionEffect>().
+            var emitEffect = Assert.Single(
+                step.Effects,
+                e => e.Kind == DecisionEffectKind.EmitEventTimelineEntry
+                     && e.Parameters != null
+                     && e.Parameters.TryGetValue(SignalPayloadKeys.EventType, out var et)
+                     && et == "agent_shutting_down");
+            Assert.Equal("EnrollmentTerminationHandler", emitEffect.Parameters![SignalPayloadKeys.Source]);
+
+            // Recorded as a taken transition (not a dead end) — the timeline shows the
+            // step happened, not "signal_after_terminal".
+            Assert.True(step.Transition.Taken);
+            Assert.Null(step.Transition.DeadEndReason);
+        }
+
+        [Fact]
+        public void Dispatch_guard_allows_InformationalEvent_after_Failed_for_failure_path_termination_events()
+        {
+            // Sibling coverage for the Failed terminal stage. The termination handler runs the
+            // same emit pipeline on the failure path (agent_shutting_down with outcome=Failed,
+            // diagnostics_collecting/_upload when DiagnosticsUploadMode=Always|OnFailure, etc.)
+            // so the guard must let InformationalEvent through after Failed too.
+            var engine = new DecisionEngine();
+
+            // Drive a session to Failed via the EspTerminalFailure path (Edge handler).
+            var state = DecisionState.CreateInitial("sess-fail", "tenant-fail", T0);
+            state = engine.Reduce(state, MakeSignal(0, DecisionSignalKind.SessionStarted, T0, null)).NewState;
+            state = engine.Reduce(state, MakeSignal(1, DecisionSignalKind.EspPhaseChanged, T0.AddMinutes(1),
+                new Dictionary<string, string> { [SignalPayloadKeys.EspPhase] = "AccountSetup" })).NewState;
+            state = engine.Reduce(state, MakeSignal(2, DecisionSignalKind.EspTerminalFailure, T0.AddMinutes(2), null)).NewState;
+            Assert.Equal(SessionStage.Failed, state.Stage);
+
+            var step = engine.Reduce(state, MakeSignal(3, DecisionSignalKind.InformationalEvent,
+                T0.AddMinutes(3),
+                new Dictionary<string, string>
+                {
+                    [SignalPayloadKeys.EventType] = "diagnostics_collecting",
+                    [SignalPayloadKeys.Source] = "EnrollmentTerminationHandler",
+                    [SignalPayloadKeys.Message] = "Collecting diagnostics package.",
+                }));
+
+            Assert.Equal(SessionStage.Failed, step.NewState.Stage);
+
+            Assert.Single(
+                step.Effects,
+                e => e.Kind == DecisionEffectKind.EmitEventTimelineEntry
+                     && e.Parameters != null
+                     && e.Parameters.TryGetValue(SignalPayloadKeys.EventType, out var et)
+                     && et == "diagnostics_collecting");
+            Assert.True(step.Transition.Taken);
+        }
     }
 }
