@@ -87,6 +87,18 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private string? _lastEspPhase;
         private bool _userSessionCompletedPosted;
         private bool _sealingPatternPosted;
+        // Fires once per session when a Platform Script stdout contains the Autopilot-Monitor
+        // bootstrap marker line. Lets MCP report "which device runs which bootstrap version".
+        private bool _bootstrapDetectedPosted;
+
+        // Matches the deterministic marker line the bootstrap script writes via Write-Log,
+        // e.g. "Bootstrap script version: v2.0" — see scripts/Bootstrap/Install-AutopilotMonitor.ps1.
+        // Same shape as the web-side regex in utils/bootstrapVersion.ts; kept in sync intentionally.
+        private static readonly System.Text.RegularExpressions.Regex BootstrapVersionRegex =
+            new System.Text.RegularExpressions.Regex(
+                @"Bootstrap script version:\s*v(\d+(?:\.\d+){1,3})",
+                System.Text.RegularExpressions.RegexOptions.Compiled
+                | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
         private readonly HashSet<string> _appsAlreadyPostedTerminal = new HashSet<string>(StringComparer.Ordinal);
 
         // Plan §5 Fix 2: fire-once per ESP phase — tracks which ESP phases we've already
@@ -822,6 +834,43 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             // in the event itself; the log line carries forensic context for both outcomes).
             _logger?.Debug(
                 $"ImeAdapter: script completed policyId={shortId} type={script.ScriptType ?? "?"} result={script.Result ?? "?"} exit={(script.ExitCode.HasValue ? script.ExitCode.Value.ToString() : "n/a")}");
+
+            MaybeEmitBootstrapDetected(script, now);
+        }
+
+        /// <summary>
+        /// Best-effort: when a Platform Script's captured stdout contains the bootstrap marker
+        /// line, emit a one-shot <c>agent_trace</c> with the parsed version so MCP can report
+        /// the bootstrap-version distribution across the fleet. No UI surface; queryable only.
+        /// </summary>
+        private void MaybeEmitBootstrapDetected(ScriptExecutionState script, DateTime now)
+        {
+            if (_bootstrapDetectedPosted) return;
+            if (IsRemediation(script.ScriptType)) return;
+            if (string.IsNullOrEmpty(script.Stdout)) return;
+
+            var match = BootstrapVersionRegex.Match(script.Stdout!);
+            if (!match.Success) return;
+
+            _bootstrapDetectedPosted = true;
+            var version = match.Groups[1].Value;
+
+            var data = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["decision"] = "bootstrap_detected",
+                ["bootstrapVersion"] = version,
+            };
+            if (!string.IsNullOrEmpty(script.PolicyId)) data["policyId"] = script.PolicyId!;
+
+            _post.Emit(
+                eventType: "agent_trace",
+                source: SourceLabel,
+                message: $"Autopilot-Monitor bootstrap v{version} detected via Platform Script stdout",
+                severity: EventSeverity.Info,
+                data: data,
+                occurredAtUtc: now);
+
+            _logger?.Debug($"ImeAdapter: bootstrap version detected v{version} (policyId={script.PolicyId ?? "?"})");
         }
 
         private void EmitScriptStarted(ScriptStartedInfo info)

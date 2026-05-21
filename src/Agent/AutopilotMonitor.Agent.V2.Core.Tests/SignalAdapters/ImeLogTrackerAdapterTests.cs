@@ -1118,5 +1118,102 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
 
             Assert.Empty(f.Ingress.Posted);
         }
+
+        // -- Bootstrap version detection ------------------------------------------------
+        // Emits a one-shot agent_trace when a Platform Script's stdout contains the
+        // marker line written by scripts/Bootstrap/Install-AutopilotMonitor.ps1. Lets
+        // MCP report the bootstrap-version distribution without a UI surface.
+
+        [Fact]
+        public void ScriptCompleted_platform_with_bootstrap_marker_emits_agent_trace_bootstrap_detected()
+        {
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            var script = new ScriptExecutionState
+            {
+                PolicyId = "587daa12-0a86-4ad4-b643-e9742e953ce7",
+                ScriptType = "platform",
+                ExitCode = 0,
+                RunContext = "System",
+                Result = "Success",
+                Stdout = "[2026-05-21 06:43:00] ===== Autopilot Monitor Bootstrap Started =====\r\n[2026-05-21 06:43:00] Bootstrap script version: v2.0\r\n",
+            };
+
+            adapter.TriggerScriptCompletedFromTest(script);
+
+            var trace = Assert.Single(f.InfoEvents("agent_trace"));
+            Assert.Equal("bootstrap_detected", trace.Payload!["decision"]);
+            Assert.Equal("2.0", trace.Payload["bootstrapVersion"]);
+            Assert.Equal(script.PolicyId, trace.Payload["policyId"]);
+            Assert.Equal(EventSeverity.Info.ToString(), trace.Payload[SignalPayloadKeys.Severity]);
+            Assert.Equal("ImeLogTracker", trace.Payload[SignalPayloadKeys.Source]);
+        }
+
+        [Fact]
+        public void ScriptCompleted_bootstrap_detected_is_emitted_once_per_session()
+        {
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            var script = new ScriptExecutionState
+            {
+                PolicyId = "587daa12-0a86-4ad4-b643-e9742e953ce7",
+                ScriptType = "platform",
+                ExitCode = 0,
+                Result = "Success",
+                Stdout = "Bootstrap script version: v2.0",
+            };
+
+            adapter.TriggerScriptCompletedFromTest(script);
+            // Re-emission of the same script_completed (log replay, second pattern hit) must
+            // not produce a second trace — the version doesn't change mid-session.
+            adapter.TriggerScriptCompletedFromTest(script);
+
+            Assert.Single(f.InfoEvents("agent_trace"));
+        }
+
+        [Fact]
+        public void ScriptCompleted_remediation_with_bootstrap_marker_emits_no_agent_trace()
+        {
+            // Marker in a remediation stdout is implausible in practice, but the detector must
+            // not fire on remediation script types — only Platform Scripts run the bootstrap.
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            var script = new ScriptExecutionState
+            {
+                PolicyId = "cafebabe-0000-0000-0000-000000000000",
+                ScriptType = "remediation",
+                ScriptPart = "detection",
+                ExitCode = 0,
+                ComplianceResult = "True",
+                Stdout = "Bootstrap script version: v2.0",
+            };
+
+            adapter.TriggerScriptCompletedFromTest(script);
+
+            Assert.Empty(f.InfoEvents("agent_trace"));
+        }
+
+        [Fact]
+        public void ScriptCompleted_platform_without_bootstrap_marker_emits_no_agent_trace()
+        {
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            var script = new ScriptExecutionState
+            {
+                PolicyId = "4453d1ad-8171-4459-ae6b-ad97f722ea11",
+                ScriptType = "platform",
+                ExitCode = 0,
+                Result = "Success",
+                Stdout = "Some unrelated Platform Script that doesn't touch the bootstrap",
+            };
+
+            adapter.TriggerScriptCompletedFromTest(script);
+
+            Assert.Empty(f.InfoEvents("agent_trace"));
+        }
     }
 }
