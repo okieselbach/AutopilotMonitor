@@ -33,6 +33,17 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public string UpdatedBy { get; set; } = default!;
 
+        /// <summary>
+        /// UPN of the user whose first login created this tenant configuration. Set once
+        /// in <c>HandleNewTenantDomainAsync</c> alongside <see cref="DomainName"/> and
+        /// never overwritten. Used by the preview-approval auto-promote path so background
+        /// jobs that mutate <see cref="UpdatedBy"/> (e.g. global rate-limit sync) cannot
+        /// leak a sentinel string into the TenantAdmins table.
+        /// Null on rows that pre-date the OnboardedBy field — auto-promote falls back to
+        /// <see cref="UpdatedBy"/> with a UPN-shape guard.
+        /// </summary>
+        public string? OnboardedBy { get; set; }
+
         // ===== TENANT STATUS =====
 
         /// <summary>

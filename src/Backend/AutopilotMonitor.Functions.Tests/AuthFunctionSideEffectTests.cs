@@ -108,17 +108,35 @@ public class AuthFunctionSideEffectTests
     {
         var config = DefaultConfig();
         config.DomainName = null!;
+        config.OnboardedBy = null;
 
         await _sut.HandleNewTenantDomainAsync(config, TenantId, Upn);
 
         Assert.Equal("contoso.com", config.DomainName);
         Assert.Equal(Upn, config.UpdatedBy);
+        // OnboardedBy is the immutable copy of the first-login UPN that auto-promote on
+        // preview approval reads — UpdatedBy may later be clobbered by background syncs.
+        Assert.Equal(Upn, config.OnboardedBy);
         _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(config), Times.Once);
         _telegramMock.Verify(x => x.SendNewTenantSignupAsync(TenantId, Upn), Times.Once);
         _globalNotificationMock.Verify(x => x.CreateNotificationAsync(
             "preview_signup", "New Preview Signup",
             It.Is<string>(m => m.Contains(TenantId) && m.Contains("contoso.com") && m.Contains(Upn)),
             null), Times.Once);
+    }
+
+    [Fact]
+    public async Task HandleNewTenantDomain_PreservesExistingOnboardedBy()
+    {
+        // Belt-and-suspenders: the method exits early when DomainName is set, but if
+        // anyone ever loosens that guard, OnboardedBy must still be immutable once set.
+        var config = DefaultConfig();
+        config.DomainName = null!;
+        config.OnboardedBy = "original.requester@contoso.com";
+
+        await _sut.HandleNewTenantDomainAsync(config, TenantId, Upn);
+
+        Assert.Equal("original.requester@contoso.com", config.OnboardedBy);
     }
 
     [Fact]

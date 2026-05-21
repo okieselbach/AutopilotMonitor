@@ -2,6 +2,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Extensions;
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -87,32 +88,37 @@ public class PreviewWhitelistFunction
         try
         {
             var tenantConfig = await _tenantConfigurationService.GetConfigurationAsync(tenantId);
-            var requesterUpn = tenantConfig.UpdatedBy;
+            var requesterUpn = PickRequesterUpn(tenantConfig);
 
-            if (!string.IsNullOrWhiteSpace(requesterUpn)
-                && !string.Equals(requesterUpn, "System", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(requesterUpn, "System (auto-re-enable)", StringComparison.OrdinalIgnoreCase))
+            // Positive UPN-shape validation: real Azure AD UPNs always contain '@', while
+            // every system-written sentinel ("System", "System (auto-re-enable)",
+            // "System (Global Rate Limit Sync)", …) does not. An equality list against
+            // known sentinels previously missed a third sentinel and corrupted 10 tenants'
+            // TenantAdmins rows — keep this check shape-based, not enumeration-based.
+            if (IsRealUserUpn(requesterUpn))
             {
-                var isAlreadyAdmin = await _tenantAdminsService.IsTenantAdminAsync(tenantId, requesterUpn);
+                // IsRealUserUpn returned true → requesterUpn is non-null, non-empty, contains '@'
+                var validUpn = requesterUpn!;
+                var isAlreadyAdmin = await _tenantAdminsService.IsTenantAdminAsync(tenantId, validUpn);
                 if (!isAlreadyAdmin)
                 {
-                    await _tenantAdminsService.AddTenantAdminAsync(tenantId, requesterUpn, upn!);
+                    await _tenantAdminsService.AddTenantAdminAsync(tenantId, validUpn, upn!);
                     _logger.LogInformation(
                         "Auto-promoted tenant requester {RequesterUpn} as TenantAdmin for tenant {TenantId} on preview approval by {ApprovedBy}",
-                        requesterUpn, tenantId, upn);
+                        validUpn, tenantId, upn);
                 }
                 else
                 {
                     _logger.LogInformation(
                         "Tenant requester {RequesterUpn} is already a TenantAdmin for tenant {TenantId} — skipping auto-promote",
-                        requesterUpn, tenantId);
+                        validUpn, tenantId);
                 }
             }
             else
             {
                 _logger.LogInformation(
-                    "No valid tenant requester UPN found in TenantConfiguration for tenant {TenantId} (UpdatedBy: '{UpdatedBy}') — skipping auto-promote",
-                    tenantId, requesterUpn ?? "<null>");
+                    "No valid tenant requester UPN found in TenantConfiguration for tenant {TenantId} (OnboardedBy: '{OnboardedBy}', UpdatedBy: '{UpdatedBy}') — skipping auto-promote",
+                    tenantId, tenantConfig.OnboardedBy ?? "<null>", tenantConfig.UpdatedBy ?? "<null>");
             }
 
             // Fire-and-forget: send welcome email if notification email is configured
@@ -268,6 +274,36 @@ public class PreviewWhitelistFunction
         var response = req.CreateResponse(HttpStatusCode.OK);
         await response.WriteAsJsonAsync(new { message = "Welcome email sent", email });
         return response;
+    }
+
+    /// <summary>
+    /// Picks the UPN of the user to auto-promote as TenantAdmin on preview approval.
+    /// Prefers <see cref="TenantConfiguration.OnboardedBy"/> (immutable, set once on first
+    /// user login) over <see cref="TenantConfiguration.UpdatedBy"/> (mutable, can be
+    /// clobbered by background jobs such as the global rate-limit sync). Fall back to
+    /// <see cref="TenantConfiguration.UpdatedBy"/> for tenants onboarded before
+    /// <see cref="TenantConfiguration.OnboardedBy"/> existed — callers still guard the
+    /// result with <see cref="IsRealUserUpn"/> so a sentinel value cannot leak into
+    /// the TenantAdmins table.
+    /// </summary>
+    internal static string? PickRequesterUpn(TenantConfiguration config)
+    {
+        if (config == null) return null;
+        return !string.IsNullOrWhiteSpace(config.OnboardedBy)
+            ? config.OnboardedBy
+            : config.UpdatedBy;
+    }
+
+    /// <summary>
+    /// True when the value looks like a real Azure AD user principal name
+    /// (contains '@' and does not start with the "System" sentinel prefix
+    /// used by background jobs that touch <see cref="TenantConfiguration.UpdatedBy"/>).
+    /// </summary>
+    internal static bool IsRealUserUpn(string? upn)
+    {
+        if (string.IsNullOrWhiteSpace(upn)) return false;
+        if (upn.StartsWith("System", StringComparison.OrdinalIgnoreCase)) return false;
+        return upn.Contains('@');
     }
 }
 

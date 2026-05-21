@@ -262,6 +262,12 @@ public class AuthFunction
         _logger.LogInformation("Setting domain name for tenant {TenantId}: {Domain}", tenantId, domain);
         tenantConfig.DomainName = domain;
         tenantConfig.UpdatedBy = upn;
+        // OnboardedBy is immutable once set: this is the only place that writes it, gated
+        // on the same "DomainName is empty" condition (first-ever user login for the tenant).
+        // Downstream auto-promote (PreviewWhitelistFunction) reads OnboardedBy so background
+        // sync jobs that mutate UpdatedBy cannot leak sentinel strings into TenantAdmins.
+        if (string.IsNullOrWhiteSpace(tenantConfig.OnboardedBy))
+            tenantConfig.OnboardedBy = upn;
         await _tenantConfigService.SaveConfigurationAsync(tenantConfig);
 
         // Fire-and-forget: Telegram

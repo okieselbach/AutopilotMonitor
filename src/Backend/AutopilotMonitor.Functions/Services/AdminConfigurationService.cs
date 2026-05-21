@@ -172,10 +172,15 @@ namespace AutopilotMonitor.Functions.Services
                         continue;
                     }
 
-                    // Update tenant's rate limit to match global default
+                    // Update tenant's rate limit to match global default.
+                    // Deliberately do NOT touch UpdatedBy: this is a background sync, not an
+                    // edit by a real user, and downstream code (e.g. PreviewWhitelistFunction
+                    // auto-promote) treats UpdatedBy as the tenant's onboarding-requester UPN.
+                    // Clobbering it with a sentinel string corrupted 10 tenants' TenantAdmins
+                    // rows before this was caught. Audit trail stays via the LogInformation
+                    // line below and via LastUpdated.
                     tenantConfig.RateLimitRequestsPerMinute = globalRateLimit;
                     tenantConfig.LastUpdated = DateTime.UtcNow;
-                    tenantConfig.UpdatedBy = "System (Global Rate Limit Sync)";
 
                     await _configRepo.SaveTenantConfigurationAsync(tenantConfig);
                     tenantsUpdated++;
