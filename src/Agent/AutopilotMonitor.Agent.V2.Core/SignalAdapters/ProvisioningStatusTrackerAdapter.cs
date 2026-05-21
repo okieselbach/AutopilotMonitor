@@ -59,11 +59,13 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
 
         private void OnDeviceSetupComplete(object sender, EventArgs e) => EmitDeviceSetupComplete();
         private void OnAccountSetupComplete(object sender, EventArgs e) => EmitAccountSetupComplete();
-        private void OnEspFailure(object sender, string failureType) => EmitEspFailure(failureType);
+        private void OnEspFailure(object sender, EspFailureDetectedEventArgs args) => EmitEspFailure(args);
 
         internal void TriggerDeviceSetupCompleteFromTest() => EmitDeviceSetupComplete();
         internal void TriggerAccountSetupCompleteFromTest() => EmitAccountSetupComplete();
-        internal void TriggerEspFailureFromTest(string failureType) => EmitEspFailure(failureType);
+        internal void TriggerEspFailureFromTest(string failureType)
+            => EmitEspFailure(new EspFailureDetectedEventArgs(failureType));
+        internal void TriggerEspFailureFromTest(EspFailureDetectedEventArgs args) => EmitEspFailure(args);
 
         private void EmitDeviceSetupComplete()
         {
@@ -123,12 +125,38 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 });
         }
 
-        private void EmitEspFailure(string failureType)
+        private void EmitEspFailure(EspFailureDetectedEventArgs args)
         {
             if (_espFailurePosted) return;
             _espFailurePosted = true;
 
-            var safeFailureType = string.IsNullOrEmpty(failureType) ? "unknown" : failureType!;
+            var safeFailureType = args?.FailureType ?? "unknown";
+            var errorCode = args?.ErrorCode;
+            var failedSubcategory = args?.FailedSubcategory;
+            var category = args?.Category;
+
+            var derivationInputs = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["registrySource"] = @"HKLM\SOFTWARE\Microsoft\Provisioning\AutopilotSettings\*.Status",
+                ["failureType"] = safeFailureType,
+            };
+            if (!string.IsNullOrEmpty(errorCode))
+                derivationInputs["errorCode"] = errorCode!;
+            if (!string.IsNullOrEmpty(failedSubcategory))
+                derivationInputs["failedSubcategory"] = failedSubcategory!;
+            if (!string.IsNullOrEmpty(category))
+                derivationInputs["category"] = category!;
+
+            var payload = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["failureType"] = safeFailureType,
+            };
+            if (!string.IsNullOrEmpty(errorCode))
+                payload["errorCode"] = errorCode!;
+            if (!string.IsNullOrEmpty(failedSubcategory))
+                payload["failedSubcategory"] = failedSubcategory!;
+            if (!string.IsNullOrEmpty(category))
+                payload["category"] = category!;
 
             _ingress.Post(
                 kind: DecisionSignalKind.EspTerminalFailure,
@@ -137,16 +165,9 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 evidence: new Evidence(
                     kind: EvidenceKind.Derived,
                     identifier: "provisioning-status-tracker-v1",
-                    summary: $"ESP terminal failure from provisioning registry (type={safeFailureType})",
-                    derivationInputs: new Dictionary<string, string>(StringComparer.Ordinal)
-                    {
-                        ["registrySource"] = @"HKLM\SOFTWARE\Microsoft\Provisioning\AutopilotSettings\*.Status",
-                        ["failureType"] = safeFailureType,
-                    }),
-                payload: new Dictionary<string, string>(StringComparer.Ordinal)
-                {
-                    ["failureType"] = safeFailureType,
-                });
+                    summary: $"ESP terminal failure from provisioning registry (type={safeFailureType}, errorCode={errorCode ?? "n/a"})",
+                    derivationInputs: derivationInputs),
+                payload: payload);
         }
     }
 }

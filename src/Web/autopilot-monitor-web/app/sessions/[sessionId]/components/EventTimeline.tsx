@@ -478,6 +478,34 @@ function EventRow({ event, showScriptOutput }: { event: EnrollmentEvent; showScr
               </div>
             );
           })()}
+          {/* HRESULT badge for ESP failures (enrollment_failed via esp_terminal_failure,
+              esp_provisioning_status failed-subcategory). The HRESULT is extracted from the ESP
+              registry statusText by the agent (e.g. "Apps (0x87d1041c)") and surfaced as
+              top-level event data so the UI can render it without parsing nested text. */}
+          {(event.eventType === "enrollment_failed" || event.eventType === "esp_provisioning_status") && (() => {
+            const code = event.data?.errorCode ?? event.data?.failedSubcategoryErrorCode;
+            if (!code) return null;
+            const codeStr = String(code);
+            const entry = getErrorCodeEntry(codeStr);
+            const sub = event.data?.failedSubcategory ?? event.data?.failedSubcategories;
+            return (
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-800 font-mono font-medium">
+                  HRESULT: {formatErrorCode(codeStr)}
+                </span>
+                {entry && (
+                  <span className="text-red-600" title={`${entry.source} (${entry.confidence} confidence)`}>
+                    {entry.description}
+                  </span>
+                )}
+                {sub && (
+                  <span className="text-gray-500">
+                    subcategory: <span className="font-mono">{String(sub)}</span>
+                  </span>
+                )}
+              </div>
+            );
+          })()}
           <div className="mt-1 flex items-center gap-3 text-xs text-gray-500">
             <span>Source: {event.source}</span>
             <span>Seq: {event.sequence}</span>

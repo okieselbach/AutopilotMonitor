@@ -89,7 +89,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private void OnHelloCompleted(object sender, EventArgs e) => EmitHello(ReadHelloOutcome());
         private void OnFinalizing(object sender, string reason) => EmitFinalizing(reason);
         private void OnWhiteGloveCompleted(object sender, EventArgs e) => EmitWhiteGlove();
-        private void OnEspFailure(object sender, string failureType) => EmitEspFailure(failureType);
+        private void OnEspFailure(object sender, EspFailureDetectedEventArgs args) => EmitEspFailure(args);
         private void OnDeviceSetupComplete(object sender, EventArgs e) => EmitDeviceSetupComplete();
         private void OnAccountSetupComplete(object sender, EventArgs e) => EmitAccountSetupComplete();
         private void OnHelloPolicyDetected(bool helloEnabled, string source) => EmitHelloPolicy(helloEnabled, source);
@@ -98,7 +98,9 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         internal void TriggerHelloFromTest(string? helloOutcome) => EmitHello(helloOutcome);
         internal void TriggerFinalizingFromTest(string reason) => EmitFinalizing(reason);
         internal void TriggerWhiteGloveFromTest() => EmitWhiteGlove();
-        internal void TriggerEspFailureFromTest(string failureType) => EmitEspFailure(failureType);
+        internal void TriggerEspFailureFromTest(string failureType)
+            => EmitEspFailure(new EspFailureDetectedEventArgs(failureType));
+        internal void TriggerEspFailureFromTest(EspFailureDetectedEventArgs args) => EmitEspFailure(args);
         internal void TriggerDeviceSetupCompleteFromTest() => EmitDeviceSetupComplete();
         internal void TriggerAccountSetupCompleteFromTest() => EmitAccountSetupComplete();
         internal void TriggerHelloPolicyDetectedFromTest(bool helloEnabled, string source) => EmitHelloPolicy(helloEnabled, source);
@@ -226,19 +228,40 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                     derivationInputs: derivationInputs));
         }
 
-        private void EmitEspFailure(string failureType)
+        private void EmitEspFailure(EspFailureDetectedEventArgs args)
         {
             if (_espFailurePosted) return;
             _espFailurePosted = true;
 
-            var safeType = string.IsNullOrEmpty(failureType) ? "unknown" : failureType!;
+            var safeType = args?.FailureType ?? "unknown";
+            var errorCode = args?.ErrorCode;
+            var failedSubcategory = args?.FailedSubcategory;
+            var category = args?.Category;
+
             var now = ResolveOccurredAt(out var derivedFromClock);
             var derivationInputs = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["subSource"] = "ShellCoreTracker+ProvisioningStatusTracker (merged)",
                 ["failureType"] = safeType,
             };
+            if (!string.IsNullOrEmpty(errorCode))
+                derivationInputs["errorCode"] = errorCode!;
+            if (!string.IsNullOrEmpty(failedSubcategory))
+                derivationInputs["failedSubcategory"] = failedSubcategory!;
+            if (!string.IsNullOrEmpty(category))
+                derivationInputs["category"] = category!;
             TagDerivedTimestamp(derivationInputs, derivedFromClock);
+
+            var payload = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["failureType"] = safeType,
+            };
+            if (!string.IsNullOrEmpty(errorCode))
+                payload["errorCode"] = errorCode!;
+            if (!string.IsNullOrEmpty(failedSubcategory))
+                payload["failedSubcategory"] = failedSubcategory!;
+            if (!string.IsNullOrEmpty(category))
+                payload["category"] = category!;
 
             _ingress.Post(
                 kind: DecisionSignalKind.EspTerminalFailure,
@@ -247,12 +270,9 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 evidence: new Evidence(
                     kind: EvidenceKind.Derived,
                     identifier: DetectorId,
-                    summary: $"ESP terminal failure (coordinator-merged, type={safeType})",
+                    summary: $"ESP terminal failure (coordinator-merged, type={safeType}, errorCode={errorCode ?? "n/a"})",
                     derivationInputs: derivationInputs),
-                payload: new Dictionary<string, string>(StringComparer.Ordinal)
-                {
-                    ["failureType"] = safeType,
-                });
+                payload: payload);
         }
 
         // PR4 (882fef64 debrief) — once per session: post HelloPolicyDetected so the engine

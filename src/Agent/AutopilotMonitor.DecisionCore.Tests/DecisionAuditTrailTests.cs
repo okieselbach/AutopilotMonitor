@@ -332,6 +332,66 @@ namespace AutopilotMonitor.DecisionCore.Tests
             Assert.Equal("policy_apply_timeout", payload["reason"]);
         }
 
+        /// <summary>
+        /// Session 9d052230 regression — when the adapter posts a registry-derived ESP failure
+        /// with HRESULT enrichment, the terminal <c>enrollment_failed</c> event MUST carry
+        /// <c>errorCode</c>, <c>failureType</c>, <c>failedSubcategory</c>, and <c>category</c>
+        /// on the effect parameters so the UI can render the HRESULT badge + description.
+        /// </summary>
+        [Fact]
+        public void EspTerminalFailure_surfaces_errorCode_and_failedSubcategory_on_terminal_event()
+        {
+            var engine = new DecisionEngine();
+            var state = DecisionState.CreateInitial("sess-esp-hresult", "tenant-esp-hresult");
+            state = engine.Reduce(state, MakeSignal(0, DecisionSignalKind.SessionStarted, T0)).NewState;
+
+            var step = engine.Reduce(state, MakeSignal(
+                40, DecisionSignalKind.EspTerminalFailure, T0.AddMinutes(15),
+                new Dictionary<string, string>
+                {
+                    ["failureType"] = "Provisioning_DeviceSetup_Apps_Failed",
+                    ["errorCode"] = "0x87d1041c",
+                    ["failedSubcategory"] = "Apps",
+                    ["category"] = "DeviceSetup",
+                }));
+
+            Assert.Equal(SessionStage.Failed, step.NewState.Stage);
+
+            var effect = SingleTimelineEffect(step, "enrollment_failed");
+            Assert.NotNull(effect.Parameters);
+
+            // reason defaults to the stable enum literal because the signal did not override it.
+            Assert.Equal("esp_terminal_failure", effect.Parameters!["reason"]);
+            Assert.Equal("Provisioning_DeviceSetup_Apps_Failed", effect.Parameters!["failureType"]);
+            Assert.Equal("0x87d1041c", effect.Parameters!["errorCode"]);
+            Assert.Equal("Apps", effect.Parameters!["failedSubcategory"]);
+            Assert.Equal("DeviceSetup", effect.Parameters!["category"]);
+        }
+
+        /// <summary>
+        /// Backwards-compat — a signal without HRESULT enrichment (e.g. ShellCore-derived) must
+        /// still produce a valid <c>enrollment_failed</c> event with just the default reason.
+        /// </summary>
+        [Fact]
+        public void EspTerminalFailure_works_without_errorCode_payload()
+        {
+            var engine = new DecisionEngine();
+            var state = DecisionState.CreateInitial("sess-esp-bare", "tenant-esp-bare");
+            state = engine.Reduce(state, MakeSignal(0, DecisionSignalKind.SessionStarted, T0)).NewState;
+
+            var step = engine.Reduce(state, MakeSignal(
+                40, DecisionSignalKind.EspTerminalFailure, T0.AddMinutes(15),
+                new Dictionary<string, string> { ["failureType"] = "ESPProgress_Timeout" }));
+
+            var effect = SingleTimelineEffect(step, "enrollment_failed");
+            Assert.NotNull(effect.Parameters);
+
+            Assert.Equal("esp_terminal_failure", effect.Parameters!["reason"]);
+            Assert.Equal("ESPProgress_Timeout", effect.Parameters!["failureType"]);
+            Assert.False(effect.Parameters!.ContainsKey("errorCode"));
+            Assert.False(effect.Parameters!.ContainsKey("failedSubcategory"));
+        }
+
         [Fact]
         public void EspTerminalFailure_event_enriched_with_continueAnyway_and_timeout_facts()
         {

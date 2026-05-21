@@ -46,12 +46,24 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// to <see cref="SessionStage.Failed"/> with <see cref="SessionOutcome.EnrollmentFailed"/>,
         /// clears deadlines, and emits <c>enrollment_failed</c>. No classifier re-run —
         /// ESP terminal failure is definitive.
+        /// <para>
+        /// The terminal-event reason is always the stable enum literal <c>esp_terminal_failure</c>.
+        /// Session 9d052230: registry-derived failures additionally carry <c>failureType</c>,
+        /// <c>errorCode</c> (HRESULT), <c>failedSubcategory</c>, and <c>category</c> on the signal
+        /// payload — those propagate verbatim to the timeline-event parameters so the UI can
+        /// render the HRESULT badge + description without re-parsing the ESP statusText.
+        /// </para>
         /// </summary>
         private DecisionStep HandleEspTerminalFailureV1(DecisionState state, DecisionSignal signal)
         {
             var nextStep = state.StepIndex + 1;
 
-            var reason = signal.Payload != null && signal.Payload.TryGetValue("reason", out var r)
+            // Default to the stable enum literal so the timeline-event "reason" is predictable
+            // across all sources of EspTerminalFailure. Direct test signals (and any future
+            // adapter that wants to override) can still inject a specific reason via payload.
+            var reason = signal.Payload != null
+                && signal.Payload.TryGetValue("reason", out var r)
+                && !string.IsNullOrEmpty(r)
                 ? r
                 : "esp_terminal_failure";
 
@@ -77,6 +89,20 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 ["eventType"] = "enrollment_failed",
                 ["reason"] = reason,
             };
+
+            // Session 9d052230 — surface registry-derived ESP failure detail (HRESULT etc) on the
+            // terminal event so the UI can render it without parsing nested ESP statusText.
+            if (signal.Payload != null)
+            {
+                if (signal.Payload.TryGetValue("failureType", out var failureType) && !string.IsNullOrEmpty(failureType))
+                    parameters["failureType"] = failureType;
+                if (signal.Payload.TryGetValue("errorCode", out var errorCode) && !string.IsNullOrEmpty(errorCode))
+                    parameters["errorCode"] = errorCode;
+                if (signal.Payload.TryGetValue("failedSubcategory", out var failedSubcategory) && !string.IsNullOrEmpty(failedSubcategory))
+                    parameters["failedSubcategory"] = failedSubcategory;
+                if (signal.Payload.TryGetValue("category", out var category) && !string.IsNullOrEmpty(category))
+                    parameters["category"] = category;
+            }
 
             // Enrich the audit payload with the FirstSync-derived ESP failure-handling settings,
             // so the timeline carries the observable fact that Microsoft's ESP profile may have

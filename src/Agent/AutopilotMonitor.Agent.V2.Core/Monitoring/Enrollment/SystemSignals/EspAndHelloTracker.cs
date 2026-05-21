@@ -69,9 +69,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         /// <summary>
         /// Fired when an ESP failure is detected (ESPProgress_Failure, _Timeout, _Abort,
-        /// WhiteGlove_Failed, Provisioning_*_Failed, etc.). The string is the structured failure type.
+        /// WhiteGlove_Failed, Provisioning_*_Failed, etc.).
+        /// <para>
+        /// <see cref="EspFailureDetectedEventArgs.FailureType"/> carries the structured failure
+        /// identifier. Registry-derived failures from <see cref="ProvisioningStatusTracker"/>
+        /// additionally enrich <see cref="EspFailureDetectedEventArgs.ErrorCode"/>,
+        /// <see cref="EspFailureDetectedEventArgs.FailedSubcategory"/>, and
+        /// <see cref="EspFailureDetectedEventArgs.Category"/>; event-log-derived failures from
+        /// <see cref="ShellCoreTracker"/> only set <see cref="EspFailureDetectedEventArgs.FailureType"/>.
+        /// </para>
         /// </summary>
-        public event EventHandler<string> EspFailureDetected;
+        public event EventHandler<EspFailureDetectedEventArgs> EspFailureDetected;
 
         /// <summary>
         /// Fired when DeviceSetup provisioning status shows categorySucceeded=true (or fallback confirmed).
@@ -248,7 +256,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 _helloTracker);
             _shellCoreTracker.FinalizingSetupPhaseTriggered += OnFinalizingSetupPhaseTriggered;
             _shellCoreTracker.WhiteGloveCompleted += OnWhiteGloveCompleted;
-            _shellCoreTracker.EspFailureDetected += OnEspFailureDetected;
+            _shellCoreTracker.EspFailureDetected += OnShellCoreEspFailureDetected;
             _shellCoreTracker.EspExited += OnEspExited;
             _shellCoreTracker.Start();
 
@@ -257,7 +265,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 _tenantId,
                 _post,
                 _logger);
-            _provisioningTracker.EspFailureDetected += OnEspFailureDetected;
+            _provisioningTracker.EspFailureDetected += OnProvisioningEspFailureDetected;
             _provisioningTracker.DeviceSetupProvisioningComplete += OnDeviceSetupProvisioningComplete;
             _provisioningTracker.AccountSetupProvisioningComplete += OnAccountSetupProvisioningComplete;
             _provisioningTracker.Start();
@@ -310,7 +318,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             {
                 _shellCoreTracker.FinalizingSetupPhaseTriggered -= OnFinalizingSetupPhaseTriggered;
                 _shellCoreTracker.WhiteGloveCompleted -= OnWhiteGloveCompleted;
-                _shellCoreTracker.EspFailureDetected -= OnEspFailureDetected;
+                _shellCoreTracker.EspFailureDetected -= OnShellCoreEspFailureDetected;
                 _shellCoreTracker.EspExited -= OnEspExited;
                 _shellCoreTracker.Stop();
             }
@@ -323,7 +331,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             if (_provisioningTracker == null) return;
             try
             {
-                _provisioningTracker.EspFailureDetected -= OnEspFailureDetected;
+                _provisioningTracker.EspFailureDetected -= OnProvisioningEspFailureDetected;
                 _provisioningTracker.DeviceSetupProvisioningComplete -= OnDeviceSetupProvisioningComplete;
                 _provisioningTracker.AccountSetupProvisioningComplete -= OnAccountSetupProvisioningComplete;
                 _provisioningTracker.Stop("tracker_stopped");
@@ -463,15 +471,38 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             finally { LastEventOccurredAtUtc = null; }
         }
 
-        private void OnEspFailureDetected(object sender, string failureType)
+        // Forwarder for ShellCoreTracker (event-log-derived ESP failures, e.g. Shell-Core 62407
+        // failure descriptions). Source-event timestamp is mirrored so the adapter can stamp the
+        // DecisionSignal with the historical instant on backfill. ShellCoreTracker has no HRESULT
+        // surface, so only FailureType is set on the args.
+        private void OnShellCoreEspFailureDetected(object sender, string failureType)
         {
-            // EspFailureDetected fires from ShellCoreTracker (carries timestamp) AND
-            // ProvisioningStatusTracker (no timestamp surfaced today — adapter falls back
-            // to clock). Cast attempt below picks up the timestamp on the ShellCore path.
             LastEventOccurredAtUtc = (sender as ShellCoreTracker)?.LastEventOccurredAtUtc;
-            try { EspFailureDetected?.Invoke(this, failureType); }
-            catch (Exception ex) { _logger.Error($"Error forwarding EspFailureDetected for '{failureType}'", ex); }
+            try
+            {
+                EspFailureDetected?.Invoke(this, new EspFailureDetectedEventArgs(failureType));
+            }
+            catch (Exception ex) { _logger.Error($"Error forwarding ShellCore EspFailureDetected for '{failureType}'", ex); }
             finally { LastEventOccurredAtUtc = null; }
+        }
+
+        // Forwarder for ProvisioningStatusTracker (registry-derived ESP failures). Args carry the
+        // full failure detail (FailureType, ErrorCode, FailedSubcategory, Category) extracted
+        // from the failed subcategory's statusText. Provisioning has no source-event timestamp
+        // surfaced today, so the adapter falls back to clock.
+        private void OnProvisioningEspFailureDetected(object sender, EspFailureDetectedEventArgs args)
+        {
+            LastEventOccurredAtUtc = null;
+            try
+            {
+                EspFailureDetected?.Invoke(this, args);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(
+                    $"Error forwarding Provisioning EspFailureDetected for '{args?.FailureType ?? "n/a"}'",
+                    ex);
+            }
         }
 
         private void OnDeviceSetupProvisioningComplete(object sender, EventArgs e)

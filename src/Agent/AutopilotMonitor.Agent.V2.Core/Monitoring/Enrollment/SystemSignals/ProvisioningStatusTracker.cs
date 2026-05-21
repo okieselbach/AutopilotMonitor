@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
@@ -48,6 +49,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         internal const int AccountSetupFallbackDelaySeconds = 30;
         internal const int ProvisioningDebounceMilliseconds = 1000;
 
+        // Session 9d052230 fix: synthetic delay between "ESP subcategory failed detected" and the
+        // EspFailureDetected event fire. Gives ImeLogTracker a window to surface a matching
+        // app_install_failed event (with hresult capture) so the session timeline carries the
+        // app-level failure that ESP aggregated into the registry. Without this window the
+        // DecisionEngine transitions to Failed on the first registry observation, the agent
+        // terminates, and any post-ESP IME log entries are lost (race between ESP registry
+        // write and IME workload log).
+        internal const int ProvisioningFailureSettleWindowSeconds = 30;
+
+        // Regex for HRESULT extraction from subcategory statusText (e.g. "Apps (0x87d1041c)").
+        // Language-invariant: the parenthesised hex tail is consistent across Windows locales.
+        private static readonly Regex HResultPattern = new Regex(
+            @"\((0[xX][0-9a-fA-F]{8})\)",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
         private static readonly string[] ProvisioningCategoryNames =
         {
             "DevicePreparationCategory.Status",
@@ -86,9 +102,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private bool _saveWhiteGloveSuccessResultSeen;
         // Track SaveWhiteGloveSuccessResult state transitions for observability (null → notStarted → succeeded)
         private string _lastSaveWhiteGloveState;
+        // Settle-window timers + pending args per category (session 9d052230 fix). Keyed by
+        // category-name (e.g. "DeviceSetupCategory.Status"). Pending args carry the enriched
+        // failure details that fire after the settle window expires.
+        private Dictionary<string, Timer> _provisioningFailureSettleTimers;
+        private Dictionary<string, EspFailureDetectedEventArgs> _provisioningFailureSettleArgs;
         private readonly object _stateLock = new object();
 
-        public event EventHandler<string> EspFailureDetected;
+        public event EventHandler<EspFailureDetectedEventArgs> EspFailureDetected;
         public event EventHandler DeviceSetupProvisioningComplete;
         /// <summary>
         /// Fires once when <c>AccountSetupCategory.Status</c> resolves to
@@ -235,6 +256,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             _provisioningFailureFired = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             _provisioningCategoriesResolved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             _lastSubcategoryStates = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+            _provisioningFailureSettleTimers = new Dictionary<string, Timer>(StringComparer.OrdinalIgnoreCase);
+            _provisioningFailureSettleArgs = new Dictionary<string, EspFailureDetectedEventArgs>(StringComparer.OrdinalIgnoreCase);
             _deviceSetupProvisioningCompleteFired = false;
             _deviceSetupFallbackTimer = null;
             _accountSetupProvisioningCompleteFired = false;
@@ -274,6 +297,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
                 _accountSetupFallbackTimer?.Dispose();
                 _accountSetupFallbackTimer = null;
+
+                if (_provisioningFailureSettleTimers != null)
+                {
+                    foreach (var t in _provisioningFailureSettleTimers.Values)
+                    {
+                        try { t?.Dispose(); } catch { /* swallow */ }
+                    }
+                    _provisioningFailureSettleTimers.Clear();
+                }
 
                 if (_provisioningWatcher != null)
                 {
@@ -354,8 +386,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                             return;
                         }
 
-                        bool failureDetected = false;
-                        string failureType = null;
                         int changedCount = 0, unchangedCount = 0, missingCount = 0;
 
                         foreach (var categoryName in ProvisioningCategoryNames)
@@ -380,13 +410,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                             _logger.Trace($"CheckProvisioningStatus: {categoryName} — raw JSON: {jsonValue}");
 
                             _lastProvisioningJson[categoryName] = jsonValue;
-                            var result = ProcessCategoryStatus(categoryName, jsonValue);
-
-                            if (result.IsFailed)
-                            {
-                                failureDetected = true;
-                                failureType = result.FailureType;
-                            }
+                            // TryFireProvisioningFailure (inside ProcessCategoryStatus) arms the
+                            // 30 s settle timer when a failure is detected — the actual
+                            // EspFailureDetected fire happens in OnProvisioningFailureSettleExpired.
+                            ProcessCategoryStatus(categoryName, jsonValue);
                         }
 
                         _logger.Trace($"CheckProvisioningStatus: summary — changed={changedCount}, unchanged={unchangedCount}, missing={missingCount}, " +
@@ -401,13 +428,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         {
                             _logger.Info("Provisioning status watcher: all categories resolved with success — requesting stop");
                             _provisioningWatcher?.RequestStop();
-                        }
-
-                        // Fire EspFailureDetected AFTER event emission (event in spool before agent reacts)
-                        if (failureDetected && failureType != null)
-                        {
-                            try { EspFailureDetected?.Invoke(this, failureType); }
-                            catch (Exception ex) { _logger.Error($"EspFailureDetected handler failed for '{failureType}'", ex); }
                         }
 
                         // Fire DeviceSetupProvisioningComplete when DeviceSetup resolves with success.
@@ -957,15 +977,149 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
             _provisioningFailureFired.Add(categoryName);
 
-            var failedSubcategory = FindFailedSubcategory(subcategories);
-            var failureTypeName = failedSubcategory != null
-                ? $"Provisioning_{categoryLabel}_{failedSubcategory}_Failed"
+            var failedSubcategoryInfo = FindFailedSubcategoryInfo(subcategories);
+            var failedSubcategoryName = failedSubcategoryInfo?.Name;
+            var failureTypeName = failedSubcategoryName != null
+                ? $"Provisioning_{categoryLabel}_{failedSubcategoryName}_Failed"
                 : $"Provisioning_{categoryLabel}_Failed";
 
-            _logger.Info($"Provisioning subcategory failure: {categoryLabel}/{failedSubcategory ?? "category-level"} — escalating as {failureTypeName}");
+            var errorCode = TryExtractErrorCode(failedSubcategoryInfo?.StatusText);
+
+            _logger.Info(
+                $"Provisioning subcategory failure: {categoryLabel}/{failedSubcategoryName ?? "category-level"} — " +
+                $"escalating as {failureTypeName} (errorCode={errorCode ?? "n/a"})");
             _logger.Warning($"Provisioning failure detected: {failureTypeName}");
-            return ProvisioningResult.Failure(failureTypeName);
+
+            // Caller already holds _stateLock.
+            ArmFailureSettleTimer(
+                categoryName: categoryName,
+                args: new EspFailureDetectedEventArgs(
+                    failureType: failureTypeName,
+                    errorCode: errorCode,
+                    failedSubcategory: failedSubcategoryName,
+                    category: categoryLabel));
+
+            // Settle-window owns the actual EspFailureDetected fire. The legacy "fire-after-emit"
+            // path in CheckProvisioningStatus is now a no-op for this code-path; it stays in place
+            // only for direct callers that may still expect a synchronous failure-type string.
+            return ProvisioningResult.NoAction;
         }
+
+        /// <summary>
+        /// Session 9d052230 fix: arms a 30 s settle timer per category. While the timer is
+        /// pending, ImeLogTracker can still surface app_install_failed events with hresult
+        /// capture so the session timeline carries the underlying app-level failure that ESP
+        /// aggregated into a single "Apps: failed (0x…)" registry write. On expiry the
+        /// EspFailureDetected event is fired with the enriched args.
+        /// <para>
+        /// Caller holds <see cref="_stateLock"/>. Pending args are stored under the same lock
+        /// so the timer callback re-acquires it before invocation. A single per-session emit
+        /// of <c>esp_failure_settle_started</c> is sufficient — fire-once is gated by
+        /// <see cref="_provisioningFailureFired"/> which TryFireProvisioningFailure checks.
+        /// </para>
+        /// </summary>
+        private void ArmFailureSettleTimer(string categoryName, EspFailureDetectedEventArgs args)
+        {
+            _provisioningFailureSettleArgs[categoryName] = args;
+
+            EmitFailureSettleStarted(args);
+
+            var timer = new Timer(
+                _ => OnProvisioningFailureSettleExpired(categoryName),
+                state: null,
+                dueTime: TimeSpan.FromSeconds(ProvisioningFailureSettleWindowSeconds),
+                period: Timeout.InfiniteTimeSpan);
+
+            _provisioningFailureSettleTimers[categoryName] = timer;
+
+            _logger.Info(
+                $"Provisioning failure settle window armed: category={args.Category}, " +
+                $"failedSubcategory={args.FailedSubcategory ?? "n/a"}, errorCode={args.ErrorCode ?? "n/a"}, " +
+                $"settleSeconds={ProvisioningFailureSettleWindowSeconds}");
+        }
+
+        private void OnProvisioningFailureSettleExpired(string categoryName)
+        {
+            EspFailureDetectedEventArgs args = null;
+            try
+            {
+                lock (_stateLock)
+                {
+                    if (_provisioningFailureSettleArgs == null
+                        || !_provisioningFailureSettleArgs.TryGetValue(categoryName, out args))
+                    {
+                        _logger.Debug($"Failure settle timer expired but no pending args for {categoryName} — ignoring");
+                        return;
+                    }
+                    _provisioningFailureSettleArgs.Remove(categoryName);
+
+                    if (_provisioningFailureSettleTimers != null
+                        && _provisioningFailureSettleTimers.TryGetValue(categoryName, out var timer))
+                    {
+                        try { timer?.Dispose(); } catch { /* swallow */ }
+                        _provisioningFailureSettleTimers.Remove(categoryName);
+                    }
+                }
+
+                _logger.Info(
+                    $"Provisioning failure settle window elapsed — firing EspFailureDetected: " +
+                    $"category={args.Category}, failedSubcategory={args.FailedSubcategory ?? "n/a"}, " +
+                    $"errorCode={args.ErrorCode ?? "n/a"}, failureType={args.FailureType}");
+
+                try { EspFailureDetected?.Invoke(this, args); }
+                catch (Exception ex) { _logger.Error($"EspFailureDetected handler failed for '{args.FailureType}'", ex); }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error("OnProvisioningFailureSettleExpired callback failed", ex);
+            }
+        }
+
+        private void EmitFailureSettleStarted(EspFailureDetectedEventArgs args)
+        {
+            var data = new Dictionary<string, object>
+            {
+                { "category", args.Category ?? "unknown" },
+                { "failedSubcategory", args.FailedSubcategory ?? "category-level" },
+                { "failureType", args.FailureType },
+                { "settleSeconds", ProvisioningFailureSettleWindowSeconds },
+                { "reason", "wait_for_late_ime_signals" }
+            };
+            if (!string.IsNullOrEmpty(args.ErrorCode))
+                data["errorCode"] = args.ErrorCode;
+
+            _post.Emit(new EnrollmentEvent
+            {
+                SessionId = _sessionId,
+                TenantId = _tenantId,
+                EventType = "esp_failure_settle_started",
+                Severity = EventSeverity.Info,
+                Source = "EspAndHelloTracker",
+                Phase = EnrollmentPhase.Unknown,
+                Message = $"ESP failure settle window started ({ProvisioningFailureSettleWindowSeconds}s) — " +
+                          $"{args.Category}/{args.FailedSubcategory ?? "category-level"}" +
+                          (string.IsNullOrEmpty(args.ErrorCode) ? "" : $" (errorCode={args.ErrorCode})"),
+                Data = data
+            });
+        }
+
+        /// <summary>
+        /// Extracts a Windows HRESULT (e.g. <c>0x87d1041c</c>) from a subcategory statusText.
+        /// Returns the normalised lower-case hex form with <c>0x</c> prefix, or null when no
+        /// HRESULT pattern is present. Pattern is language-invariant (parenthesised hex tail).
+        /// </summary>
+        internal static string TryExtractErrorCode(string statusText)
+        {
+            if (string.IsNullOrEmpty(statusText)) return null;
+            var match = HResultPattern.Match(statusText);
+            if (!match.Success) return null;
+            var raw = match.Groups[1].Value;
+            return "0x" + raw.Substring(2).ToLowerInvariant();
+        }
+
+        /// <summary>Test seam — drive the settle-timer callback synchronously.</summary>
+        internal void TriggerSettleTimerForTest(string categoryName)
+            => OnProvisioningFailureSettleExpired(categoryName);
 
         private bool HasCategorySucceededChanged(string categoryName, bool? newValue)
         {
@@ -1069,6 +1223,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 if (failedNames.Count > 0)
                 {
                     eventData["failedSubcategories"] = string.Join(",", failedNames);
+
+                    // Session 9d052230: surface HRESULT from the first failed subcategory's
+                    // statusText at top-level so the UI / RuleEngine can match it without
+                    // parsing nested statusText strings. Pattern is language-invariant.
+                    var firstFailedSub = subcategories
+                        .FirstOrDefault(s => string.Equals(s.State, "failed", StringComparison.OrdinalIgnoreCase));
+                    var firstFailedCode = TryExtractErrorCode(firstFailedSub?.StatusText);
+                    if (!string.IsNullOrEmpty(firstFailedCode))
+                    {
+                        eventData["failedSubcategoryErrorCode"] = firstFailedCode;
+                    }
                 }
             }
 
@@ -1204,11 +1369,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         }
 
         internal static string FindFailedSubcategory(List<SubcategoryInfo> subcategories)
+            => FindFailedSubcategoryInfo(subcategories)?.Name;
+
+        internal static SubcategoryInfo FindFailedSubcategoryInfo(List<SubcategoryInfo> subcategories)
         {
             foreach (var sub in subcategories)
             {
                 if (string.Equals(sub.State, "failed", StringComparison.OrdinalIgnoreCase))
-                    return sub.Name;
+                    return sub;
             }
             return null;
         }
@@ -1324,6 +1492,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 _provisioningCategoriesResolved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (_lastSubcategoryStates == null)
                 _lastSubcategoryStates = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+            if (_provisioningFailureSettleTimers == null)
+                _provisioningFailureSettleTimers = new Dictionary<string, Timer>(StringComparer.OrdinalIgnoreCase);
+            if (_provisioningFailureSettleArgs == null)
+                _provisioningFailureSettleArgs = new Dictionary<string, EspFailureDetectedEventArgs>(StringComparer.OrdinalIgnoreCase);
         }
     }
 
