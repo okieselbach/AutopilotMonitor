@@ -15,13 +15,23 @@ namespace AutopilotMonitor.DecisionCore.Tests
     /// dual-path mechanisms:
     /// <list type="number">
     ///   <item>Fast-path in <c>HandleDesktopArrivedV1</c>: when HelloPolicyEnabled==false AND
-    ///         AccountSetup has been reached, synthesize <c>HelloOutcome="Skipped"</c> on
-    ///         DesktopArrived and route through Finalizing immediately.</item>
+    ///         the strong post-AccountSetup gate (<c>ShouldTransitionToAwaitingHello</c>) holds —
+    ///         i.e. either <c>AccountSetupProvisioningSucceededUtc</c> is set OR
+    ///         <c>ScenarioObservations.SkipUserEsp</c> is observed as <c>true</c> — synthesise
+    ///         <c>HelloOutcome="Skipped"</c> on DesktopArrived and route through Finalizing
+    ///         immediately.</item>
     ///   <item>Reducer-path via EspExiting → HelloSafety 300s deadline → synthetic
     ///         <c>HelloOutcome="Timeout"</c> fact (independent of the Hello policy).</item>
     /// </list>
     /// The dual-path design ensures completion even if one half regresses (missing
     /// HelloPolicyDetected adapter or missing EspExiting adapter).
+    /// <para>
+    /// Session 08c99638 fix (2026-05-21): the fast-path guard was tightened from
+    /// <c>AccountSetupEnteredUtc != null</c> to the strong gate above, restoring parity with
+    /// <c>HandleEspExitingV1</c>. Without the tightening, a late <c>desktop_arrived</c> would
+    /// drive <c>enrollment_complete</c> on a session whose AccountSetup category never reached
+    /// <c>categorySucceeded=true</c> (apps stuck in_progress, 0/N subcategories complete).
+    /// </para>
     /// </summary>
     public sealed class ClassicHelloDisabledCompletionTests
     {
@@ -231,6 +241,93 @@ namespace AutopilotMonitor.DecisionCore.Tests
             Assert.Equal(SessionStage.Finalizing, step.NewState.Stage);
             Assert.Equal("Skipped", step.NewState.HelloOutcome!.Value);
             Assert.DoesNotContain(step.Effects, e => e.Kind == DecisionEffectKind.CancelDeadline);
+        }
+
+        // -------------------------------------------- Fix 3 — session 08c99638 strong-gate parity
+
+        [Fact]
+        public void HelloDisabled_FastPath_skipped_when_AccountSetup_entered_but_provisioning_never_succeeded()
+        {
+            // Session 08c99638 (2026-05-21) repro: Classic-v1 + Hello-disabled.
+            // ESP "exits" via Shell-Core event 62407 (errorCode=0) while AccountSetupCategory.Status
+            // is still categorySucceeded=in_progress (apps never finished, 0/N subcategories).
+            // AccountSetupProvisioningComplete is therefore NEVER raised → AccountSetupProvisioningSucceededUtc
+            // stays null. The pre-fix weak gate (AccountSetupEnteredUtc != null) let a late
+            // DesktopArrived drive enrollment_complete; the strong gate (parity with
+            // ShouldTransitionToAwaitingHello) MUST keep the session parked.
+            var engine = new DecisionEngine();
+            var state = DecisionState.CreateInitial("sess-08c99638", "tenant-08c99638", T0);
+            state = engine.Reduce(state, MakeSignal(0, DecisionSignalKind.SessionStarted, T0, null)).NewState;
+            state = engine.Reduce(state, MakeSignal(1, DecisionSignalKind.EspPhaseChanged, T0.AddMinutes(1),
+                new Dictionary<string, string> { [SignalPayloadKeys.EspPhase] = "DeviceSetup" })).NewState;
+            state = engine.Reduce(state, MakeSignal(2, DecisionSignalKind.HelloPolicyDetected, T0.AddMinutes(1).AddSeconds(5),
+                new Dictionary<string, string> { [SignalPayloadKeys.HelloEnabled] = "false" })).NewState;
+            state = engine.Reduce(state, MakeSignal(3, DecisionSignalKind.EspPhaseChanged, T0.AddMinutes(10),
+                new Dictionary<string, string> { [SignalPayloadKeys.EspPhase] = "AccountSetup" })).NewState;
+            // NO AccountSetupProvisioningComplete — AccountSetup never reached categorySucceeded=true.
+            // EspExiting is observed (Shell-Core 62407, errorCode=0), recording EspFinalExitUtc as
+            // an observability fact but not promoting to AwaitingHello (strong gate rejects).
+            state = engine.Reduce(state, MakeSignal(4, DecisionSignalKind.EspExiting, T0.AddMinutes(25), null)).NewState;
+
+            // Preconditions for the fast-path: Hello disabled + AccountSetup entered + Desktop not yet seen.
+            Assert.False(state.HelloPolicyEnabled!.Value);
+            Assert.NotNull(state.AccountSetupEnteredUtc);
+            Assert.NotNull(state.EspFinalExitUtc);
+            Assert.Null(state.AccountSetupProvisioningSucceededUtc);
+            Assert.Null(state.HelloResolvedUtc);
+            Assert.NotEqual(SessionStage.AwaitingHello, state.Stage);
+
+            // Desktop arrives 35 min after EspExiting (mirroring 08c99638's 35-min gap).
+            var step = engine.Reduce(state, MakeSignal(10, DecisionSignalKind.DesktopArrived, T0.AddMinutes(60), null));
+
+            // Strong gate rejects: no Finalizing, no synthetic HelloOutcome, no FinalizingGrace deadline.
+            Assert.NotEqual(SessionStage.Finalizing, step.NewState.Stage);
+            Assert.Null(step.NewState.HelloResolvedUtc);
+            Assert.Null(step.NewState.HelloOutcome);
+            Assert.NotNull(step.NewState.DesktopArrivedUtc); // observability fact IS recorded
+            Assert.DoesNotContain(step.NewState.Deadlines, d => d.Name == DeadlineNames.FinalizingGrace);
+            Assert.DoesNotContain(step.Effects,
+                e => e.Kind == DecisionEffectKind.EmitEventTimelineEntry
+                     && e.Parameters != null
+                     && e.Parameters.TryGetValue("eventType", out var et) && et == "phase_transition");
+            Assert.DoesNotContain(step.Effects,
+                e => e.Kind == DecisionEffectKind.ScheduleDeadline
+                     && e.Deadline?.Name == DeadlineNames.FinalizingGrace);
+        }
+
+        [Fact]
+        public void HelloDisabled_FastPath_fires_on_SkipUserEsp_flow_even_without_AccountSetupProvisioningComplete()
+        {
+            // Mirror of the strong-gate's second arm: SkipUserEsp=true (no User-ESP page on this
+            // flow) is sufficient to satisfy the gate. AccountSetupProvisioningSucceededUtc need
+            // not be set — there's no AccountSetup phase to wait for.
+            var engine = new DecisionEngine();
+            var state = DecisionState.CreateInitial("sess-skipuser", "tenant-skipuser", T0);
+            state = engine.Reduce(state, MakeSignal(0, DecisionSignalKind.SessionStarted, T0, null)).NewState;
+            state = engine.Reduce(state, MakeSignal(1, DecisionSignalKind.EspConfigDetected, T0.AddSeconds(5),
+                new Dictionary<string, string>
+                {
+                    [SignalPayloadKeys.SkipUserEsp] = "true",
+                    [SignalPayloadKeys.SkipDeviceEsp] = "false",
+                })).NewState;
+            state = engine.Reduce(state, MakeSignal(2, DecisionSignalKind.EspPhaseChanged, T0.AddMinutes(1),
+                new Dictionary<string, string> { [SignalPayloadKeys.EspPhase] = "DeviceSetup" })).NewState;
+            state = engine.Reduce(state, MakeSignal(3, DecisionSignalKind.HelloPolicyDetected, T0.AddMinutes(1).AddSeconds(5),
+                new Dictionary<string, string> { [SignalPayloadKeys.HelloEnabled] = "false" })).NewState;
+            state = engine.Reduce(state, MakeSignal(4, DecisionSignalKind.EspPhaseChanged, T0.AddMinutes(3),
+                new Dictionary<string, string> { [SignalPayloadKeys.EspPhase] = "AccountSetup" })).NewState;
+            // NO AccountSetupProvisioningComplete — but SkipUserEsp=true unlocks the gate.
+
+            Assert.True(state.ScenarioObservations.SkipUserEsp?.Value);
+            Assert.Null(state.AccountSetupProvisioningSucceededUtc);
+
+            var step = engine.Reduce(state, MakeSignal(10, DecisionSignalKind.DesktopArrived, T0.AddMinutes(10), null));
+
+            // Fast-path fires via the SkipUserEsp arm of the strong gate.
+            Assert.Equal(SessionStage.Finalizing, step.NewState.Stage);
+            Assert.Equal("Skipped", step.NewState.HelloOutcome!.Value);
+            Assert.NotNull(step.NewState.HelloResolvedUtc);
+            Assert.Contains(step.NewState.Deadlines, d => d.Name == DeadlineNames.FinalizingGrace);
         }
 
         // ====================================================================== test helpers

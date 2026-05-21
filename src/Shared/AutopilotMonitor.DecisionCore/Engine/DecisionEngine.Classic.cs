@@ -37,11 +37,12 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 EnrollmentPhase.AccountSetup => SessionStage.EspAccountSetup,
                 // Plan §6 Fix 8 — Finalizing is a synthetic phase derived from the Shell-Core
                 // esp_exiting event; on Classic V1 enrollments the first exit is the Device-ESP
-                // handoff, not the true final. Only promote to AwaitingHello when reaching it is
-                // legitimate (AccountSetup already observed, OR SkipUser flow). Otherwise keep
-                // the current stage — the signal is still recorded as a taken transition with
-                // the FinalizingEnteredUtc fact + CurrentEnrollmentPhase updated below, but the
-                // HelloSafety deadline is NOT armed.
+                // handoff, not the true final. Only promote to AwaitingHello when the strong
+                // post-AccountSetup gate (ShouldTransitionToAwaitingHello) holds: either
+                // AccountSetupProvisioningSucceededUtc is set OR SkipUserEsp is observed as true.
+                // Otherwise keep the current stage — the signal is still recorded as a taken
+                // transition with the FinalizingEnteredUtc fact + CurrentEnrollmentPhase updated
+                // below, but the HelloSafety deadline is NOT armed.
                 EnrollmentPhase.FinalizingSetup => ShouldTransitionToAwaitingHello(state)
                     ? SessionStage.AwaitingHello
                     : state.Stage,
@@ -307,12 +308,26 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// resolved the session completes here.
         /// <para>
         /// Hello-disabled fast-path: when <see cref="DecisionState.HelloPolicyEnabled"/> is
-        /// explicitly <c>false</c> AND we have reached AccountSetup (so the Hello-skip is the
-        /// genuine post-ESP state rather than a premature mid-DeviceSetup classification),
-        /// synthesise <c>HelloOutcome="Skipped"</c> here and route directly through Finalizing.
+        /// explicitly <c>false</c> AND the post-AccountSetup completion gate
+        /// (<see cref="ShouldTransitionToAwaitingHello"/>) holds — i.e. either
+        /// <see cref="DecisionState.AccountSetupProvisioningSucceededUtc"/> is set (ESP genuinely
+        /// finished AccountSetup) OR <see cref="EnrollmentScenarioObservations.SkipUserEsp"/>
+        /// is <c>true</c> (no User-ESP page on this flow) — synthesise
+        /// <c>HelloOutcome="Skipped"</c> here and route directly through Finalizing.
         /// This avoids waiting out the full 5-min HelloSafety window when the policy reader
         /// already told us no Hello wizard is expected. Belt-and-suspenders alongside the
         /// EspExiting → HelloSafety reducer path: the path that fires first wins.
+        /// </para>
+        /// <para>
+        /// Session 08c99638 fix (2026-05-21): the gate was previously
+        /// <c>AccountSetupEnteredUtc != null</c>, which is too weak. Shell-Core event 62407
+        /// (<c>CommercialOOBE_ESPProgress_Page_Exiting</c>) can fire with <c>errorCode=0</c>
+        /// while AccountSetup is still <c>categorySucceeded=in_progress</c> (apps never finished,
+        /// 0/N subcategories complete). The old gate let a late <c>desktop_arrived</c> + Hello
+        /// disabled drive <c>enrollment_complete</c> for a session that should have stalled.
+        /// The strong gate keeps parity with <see cref="HandleEspExitingV1"/>'s
+        /// <see cref="ShouldTransitionToAwaitingHello"/> check — both paths now require the same
+        /// post-AccountSetup evidence before any forward transition.
         /// </para>
         /// </summary>
         private DecisionStep HandleDesktopArrivedV1(DecisionState state, DecisionSignal signal)
@@ -327,14 +342,17 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
             // Hello-disabled fast-path. Both guards required:
             //   1. HelloPolicyEnabled?.Value == false — policy reader confirmed no Hello wizard
-            //   2. AccountSetupEnteredUtc != null    — same gate as ShouldTransitionToAwaitingHello,
-            //      prevents a premature pre-AccountSetup completion if HelloPolicyDetected fires
-            //      before AccountSetup is observed.
+            //   2. ShouldTransitionToAwaitingHello(state) — strong post-AccountSetup gate, identical
+            //      to the one used by HandleEspExitingV1. Requires AccountSetupProvisioningSucceededUtc
+            //      to be set OR SkipUserEsp observed as true. The prior weak guard
+            //      (AccountSetupEnteredUtc != null) allowed completion when ESP "exited" via
+            //      Shell-Core 62407 while AccountSetup categorySucceeded was still in_progress
+            //      (session 08c99638).
             // Skipping unknown policy (HelloPolicyEnabled == null) preserves the prior pessimistic
             // behaviour: keep waiting for Hello / HelloSafety.
             if (!helloAlreadyResolved
                 && state.HelloPolicyEnabled?.Value == false
-                && state.AccountSetupEnteredUtc != null)
+                && ShouldTransitionToAwaitingHello(state))
             {
                 builder.HelloResolvedUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
                 builder.HelloOutcome = new SignalFact<string>("Skipped", signal.SessionSignalOrdinal);
