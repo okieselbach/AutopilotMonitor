@@ -22,8 +22,32 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// <summary>Service-parameters key. Existence == "RJ is installed on this device".</summary>
         public const string ServiceRegistryPath = @"SYSTEM\CurrentControlSet\Services\realmjoin\Parameters";
 
-        /// <summary>Machine-scope packages root: <c>HKLM\SOFTWARE\RealmJoin\Packages</c>.</summary>
+        /// <summary>Always-existing Services root — parent-watched until <c>realmjoin</c> appears.</summary>
+        public const string ServicesRootPath = @"SYSTEM\CurrentControlSet\Services";
+
+        /// <summary>RJ service key (parent of <c>Parameters</c>). Appearance == RJ installed.</summary>
+        public const string ServiceRealmJoinKeyPath = @"SYSTEM\CurrentControlSet\Services\realmjoin";
+
+        /// <summary>Service-key subkey name (used by the parent-watch appearance check).</summary>
+        public const string ServiceRealmJoinKeyName = "realmjoin";
+
+        /// <summary>Always-existing HKLM\SOFTWARE root — parent-watched until <c>RealmJoin</c> appears.</summary>
+        public const string MachineSoftwareRoot = @"SOFTWARE";
+
+        /// <summary>Machine-scope RJ root: <c>HKLM\SOFTWARE\RealmJoin</c>. Watched with <c>watchSubtree:true</c> for all package changes.</summary>
+        public const string MachineRealmJoinPath = @"SOFTWARE\RealmJoin";
+
+        /// <summary>Machine-scope RealmJoin subkey name (used by the parent-watch appearance check).</summary>
+        public const string MachineRealmJoinKeyName = "RealmJoin";
+
+        /// <summary>Machine-scope packages root: <c>HKLM\SOFTWARE\RealmJoin\Packages</c> — used for sub-key enumeration on each wake-up.</summary>
         public const string MachinePackagesRegistryPath = @"SOFTWARE\RealmJoin\Packages";
+
+        /// <summary>User-hive SOFTWARE sub-root (joined under <c>HKEY_USERS\&lt;sid&gt;\</c>).</summary>
+        public const string UserSoftwareSubRoot = @"SOFTWARE";
+
+        /// <summary>User-scope RJ root sub-path (joined under <c>HKEY_USERS\&lt;sid&gt;\</c>).</summary>
+        public const string UserRealmJoinSubPath = @"SOFTWARE\RealmJoin";
 
         /// <summary>User-scope packages sub-path: <c>HKEY_USERS\&lt;sid&gt;\SOFTWARE\RealmJoin\Packages</c>.</summary>
         public const string UserPackagesRegistrySubPath = @"SOFTWARE\RealmJoin\Packages";
