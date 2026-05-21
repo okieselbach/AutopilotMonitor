@@ -77,6 +77,13 @@
       "prefixes": [
         "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing"
       ]
+    },
+    {
+      "category": "RealmJoin",
+      "prefixes": [
+        "SYSTEM\\CurrentControlSet\\Services\\realmjoin",
+        "SOFTWARE\\RealmJoin"
+      ]
     }
   ],
   "filePrefixes": [

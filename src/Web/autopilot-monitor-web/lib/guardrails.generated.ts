@@ -91,6 +91,13 @@ export const REGISTRY_PREFIX_CATEGORIES: readonly GuardrailCategory[] = [
       "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing",
     ],
   },
+  {
+    category: "RealmJoin",
+    items: [
+      "SYSTEM\\CurrentControlSet\\Services\\realmjoin",
+      "SOFTWARE\\RealmJoin",
+    ],
+  },
 ];
 
 export const COMMAND_CATEGORIES: readonly GuardrailCategory[] = [
@@ -174,6 +181,8 @@ export const ALLOWED_REGISTRY_PREFIXES: readonly string[] = [
   "SOFTWARE\\Microsoft\\SystemCertificates",
   "SOFTWARE\\Policies\\Microsoft\\SystemCertificates",
   "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing",
+  "SYSTEM\\CurrentControlSet\\Services\\realmjoin",
+  "SOFTWARE\\RealmJoin",
 ];
 
 export const ALLOWED_FILE_PREFIXES: readonly string[] = [
