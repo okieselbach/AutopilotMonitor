@@ -579,7 +579,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             bool fireCompleted = false;
             lock (_stateLock)
             {
-                if (snap.HasStartedMarker && !startedSet.Contains(snap.PackageId))
+                // Started fires the FIRST time we observe the <packageId> subkey, period.
+                // DisplayName is just a passthrough metadata field — today's RJ doesn't always
+                // populate it, so gating on snap.HasStartedMarker would silently drop the
+                // started signal for most packages. A future RJ version that writes DisplayName
+                // at install-start gets it surfaced for free via the adapter payload.
+                if (!startedSet.Contains(snap.PackageId))
                 {
                     startedSet.Add(snap.PackageId);
                     fireStarted = true;
@@ -638,5 +643,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         internal void TriggerCheckParametersFromTest() => CheckParameters();
         internal void TriggerCheckMachinePackagesFromTest() => CheckMachinePackages();
         internal void TriggerCheckUserPackagesFromTest() => CheckUserPackages();
+
+        internal void TriggerMachinePackageObservationFromTest(RealmJoinPackageSnapshot snap) =>
+            MaybeFirePackageEvents(RealmJoinPackageScope.Machine, snap, _hklmPackagesStarted, _hklmPackagesCompleted);
+
+        internal void TriggerUserPackageObservationFromTest(RealmJoinPackageSnapshot snap) =>
+            MaybeFirePackageEvents(RealmJoinPackageScope.User, snap, _hkuPackagesStarted, _hkuPackagesCompleted);
     }
 }

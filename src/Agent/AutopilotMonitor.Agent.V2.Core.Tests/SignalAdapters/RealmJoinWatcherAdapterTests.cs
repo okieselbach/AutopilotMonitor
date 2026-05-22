@@ -201,6 +201,63 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
         }
 
         [Fact]
+        public void Watcher_fires_PackageStarted_even_when_DisplayName_is_missing()
+        {
+            // Today's RJ does not populate the DisplayName value for most package subkeys
+            // (only ArgsHash / Success / LastExitCode / Version / Type are written), so
+            // gating the started signal on DisplayName presence would silently drop it.
+            // After the trigger decoupling: the first observation of the <packageId> subkey
+            // is itself the started signal — DisplayName flows through empty as a useful
+            // "RJ didn't advertise a name" indicator on the wire.
+            using var f = new Fixture();
+            using var adapter = new RealmJoinWatcherAdapter(f.Watcher, f.Ingress, f.Clock);
+
+            var snap = new RealmJoinPackageSnapshot(
+                packageId: "generic-no-name-pkg",
+                displayName: null,
+                version: "1.0.0",
+                success: null,
+                lastExitCode: null);
+
+            f.Watcher.TriggerMachinePackageObservationFromTest(snap);
+
+            var started = f.Ingress.Posted.Single(p => p.Kind == DecisionSignalKind.RealmJoinPackageStarted);
+            Assert.Equal("generic-no-name-pkg", started.Payload![DecisionEngine.RealmJoinPayloadKeys.PackageId]);
+            // DisplayName payload key MUST stay present even when empty — the empty value is
+            // itself the diagnostic signal that RJ did not write a DisplayName.
+            Assert.Equal(string.Empty, started.Payload[DecisionEngine.RealmJoinPayloadKeys.DisplayName]);
+            Assert.Equal("1.0.0", started.Payload[DecisionEngine.RealmJoinPayloadKeys.Version]);
+
+            // Completed must NOT fire — no Success/LastExitCode in this snapshot.
+            Assert.DoesNotContain(f.Ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinPackageCompleted);
+        }
+
+        [Fact]
+        public void Watcher_fires_both_PackageStarted_and_Completed_when_pre_existing_snapshot_has_completion_markers()
+        {
+            // Pre-installed / already-completed package observed on first agent boot — the
+            // single MaybeFirePackageEvents pass must fire BOTH started AND completed, in that
+            // order, so the timeline reflects the full lifecycle.
+            using var f = new Fixture();
+            using var adapter = new RealmJoinWatcherAdapter(f.Watcher, f.Ingress, f.Clock);
+
+            var snap = new RealmJoinPackageSnapshot(
+                packageId: "generic-prefab",
+                displayName: null,
+                version: "2.1.0",
+                success: true,
+                lastExitCode: 0);
+
+            f.Watcher.TriggerMachinePackageObservationFromTest(snap);
+
+            var started = f.Ingress.Posted.Single(p => p.Kind == DecisionSignalKind.RealmJoinPackageStarted);
+            var completed = f.Ingress.Posted.Single(p => p.Kind == DecisionSignalKind.RealmJoinPackageCompleted);
+            Assert.Equal("generic-prefab", started.Payload![DecisionEngine.RealmJoinPayloadKeys.PackageId]);
+            Assert.Equal("generic-prefab", completed.Payload![DecisionEngine.RealmJoinPayloadKeys.PackageId]);
+            Assert.Equal("true", completed.Payload[DecisionEngine.RealmJoinPayloadKeys.Success]);
+        }
+
+        [Fact]
         public void Overlong_display_name_is_truncated_to_256_characters()
         {
             using var f = new Fixture();
