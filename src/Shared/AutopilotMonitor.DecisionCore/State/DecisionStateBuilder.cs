@@ -47,6 +47,7 @@ namespace AutopilotMonitor.DecisionCore.State
             RealmJoinFacts = source.RealmJoinFacts;
             DeviceSetupResolvedUtc = source.DeviceSetupResolvedUtc;
             SchemaVersion = source.SchemaVersion;
+            EspAdvisoryFailureRecordedUtc = source.EspAdvisoryFailureRecordedUtc;
         }
 
         public string SessionId { get; set; }
@@ -76,6 +77,7 @@ namespace AutopilotMonitor.DecisionCore.State
         public SignalFact<string>? LastFailureTrigger { get; set; }
         public RealmJoinFacts RealmJoinFacts { get; set; } = RealmJoinFacts.Empty;
         public SignalFact<DateTime>? DeviceSetupResolvedUtc { get; set; }
+        public SignalFact<DateTime>? EspAdvisoryFailureRecordedUtc { get; set; }
         public string SchemaVersion { get; set; }
 
         // ---------- fluent helpers for the most common reducer operations ----------
@@ -183,6 +185,18 @@ namespace AutopilotMonitor.DecisionCore.State
             return this;
         }
 
+        /// <summary>
+        /// Record the UTC instant at which an incoming <c>EspTerminalFailure</c> was downgraded
+        /// to an advisory by <c>HandleEspTerminalFailureV1</c> (ContinueAnyway-aware defang).
+        /// Fire-once gate: subsequent <c>EspTerminalFailure</c> signals see this fact set and
+        /// dead-end without further effect.
+        /// </summary>
+        public DecisionStateBuilder WithEspAdvisoryFailureRecorded(DateTime utc, long sourceSignalOrdinal)
+        {
+            EspAdvisoryFailureRecordedUtc = new SignalFact<DateTime>(utc, sourceSignalOrdinal);
+            return this;
+        }
+
         public DecisionState Build() =>
             new DecisionState(
                 sessionId: SessionId,
@@ -212,6 +226,7 @@ namespace AutopilotMonitor.DecisionCore.State
                 lastFailureTrigger: LastFailureTrigger,
                 realmJoinFacts: RealmJoinFacts,
                 deviceSetupResolvedUtc: DeviceSetupResolvedUtc,
-                schemaVersion: SchemaVersion);
+                schemaVersion: SchemaVersion,
+                espAdvisoryFailureRecordedUtc: EspAdvisoryFailureRecordedUtc);
     }
 }

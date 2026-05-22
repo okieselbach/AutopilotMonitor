@@ -859,8 +859,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         {
             try
             {
-                var (skipUser, skipDevice) = Monitoring.Enrollment.SystemSignals.EspSkipConfigurationProbe.Read(_logger);
-                if (skipUser == null && skipDevice == null)
+                // PR1 (Session 4fa5a2d4, 2026-05-22): switched from Read() (Tuple skipUser/skipDevice
+                // only) to ReadFull() so EspAllowContinueAnyway + EspSyncFailureTimeoutMinutes are
+                // synchronously available before any EspTerminalFailure signal can arrive. Without
+                // this, the Tier 1 advisory-defang in HandleEspTerminalFailureV1 would race the
+                // fire-and-forget DeviceInfoCollector.CollectAll and see EspAllowContinueAnyway==null.
+                var snapshot = Monitoring.Enrollment.SystemSignals.EspSkipConfigurationProbe.ReadFull(_logger);
+                if (snapshot.SkipUser == null
+                    && snapshot.SkipDevice == null
+                    && snapshot.SyncFailureTimeoutMinutes == null
+                    && snapshot.AllowContinueAnyway == null)
                 {
                     _logger.Debug(
                         "EnrollmentOrchestrator: EspConfigDetected bootstrap skipped — FirstSync not yet populated; DeviceInfoCollector will post when CollectAll runs.");
@@ -868,10 +876,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 }
 
                 var payload = new Dictionary<string, string>(StringComparer.Ordinal);
-                if (skipUser.HasValue)
-                    payload[SignalPayloadKeys.SkipUserEsp] = skipUser.Value ? "true" : "false";
-                if (skipDevice.HasValue)
-                    payload[SignalPayloadKeys.SkipDeviceEsp] = skipDevice.Value ? "true" : "false";
+                if (snapshot.SkipUser.HasValue)
+                    payload[SignalPayloadKeys.SkipUserEsp] = snapshot.SkipUser.Value ? "true" : "false";
+                if (snapshot.SkipDevice.HasValue)
+                    payload[SignalPayloadKeys.SkipDeviceEsp] = snapshot.SkipDevice.Value ? "true" : "false";
+                if (snapshot.SyncFailureTimeoutMinutes.HasValue && snapshot.SyncFailureTimeoutMinutes.Value > 0)
+                    payload[SignalPayloadKeys.EspSyncFailureTimeoutMinutes] = snapshot.SyncFailureTimeoutMinutes.Value
+                        .ToString(System.Globalization.CultureInfo.InvariantCulture);
+                if (snapshot.AllowContinueAnyway.HasValue)
+                    payload[SignalPayloadKeys.EspAllowContinueAnyway] = snapshot.AllowContinueAnyway.Value ? "true" : "false";
 
                 _ingress!.Post(
                     kind: DecisionSignalKind.EspConfigDetected,
@@ -880,7 +893,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     evidence: new Evidence(
                         kind: EvidenceKind.Raw,
                         identifier: "esp_config_detected_bootstrap",
-                        summary: $"SkipUser={skipUser?.ToString() ?? "unknown"}, SkipDevice={skipDevice?.ToString() ?? "unknown"}",
+                        summary: $"SkipUser={snapshot.SkipUser?.ToString() ?? "unknown"}, SkipDevice={snapshot.SkipDevice?.ToString() ?? "unknown"}, AllowContinueAnyway={snapshot.AllowContinueAnyway?.ToString() ?? "unknown"}",
                         derivationInputs: new Dictionary<string, string>(payload, StringComparer.Ordinal)
                         {
                             ["source"] = "registry_firstsync_bootstrap",
@@ -888,7 +901,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     payload: payload);
 
                 _logger.Info(
-                    $"EnrollmentOrchestrator: EspConfigDetected bootstrap posted (SkipUser={skipUser?.ToString() ?? "unknown"}, SkipDevice={skipDevice?.ToString() ?? "unknown"}).");
+                    $"EnrollmentOrchestrator: EspConfigDetected bootstrap posted (SkipUser={snapshot.SkipUser?.ToString() ?? "unknown"}, SkipDevice={snapshot.SkipDevice?.ToString() ?? "unknown"}, AllowContinueAnyway={snapshot.AllowContinueAnyway?.ToString() ?? "unknown"}, SyncFailureTimeoutMinutes={snapshot.SyncFailureTimeoutMinutes?.ToString() ?? "unknown"}).");
             }
             catch (Exception ex)
             {

@@ -1,0 +1,22 @@
+# Scenario: ESP Terminal Failure DEFANGED by ContinueAnyway (PR1, Session 4fa5a2d4, 2026-05-22)
+# Tenant c9787ba2 observed 199/202 sessions failing with esp_terminal_failure, even though
+# customers were demonstrably deploying 1200+ devices through the same profile. Real root cause:
+# - ESP profile sets BlockInStatusPage=6 (ContinueAnyway=true)
+# - DeviceSetup completes Apps successfully
+# - Windows transitions to AccountSetup (esp_phase_changed)
+# - Then Windows writes DeviceSetup.Certificates=failed AFTER AccountSetup has already started
+# - V2 reducer fired EspTerminalFailure → Failed, even though the device kept progressing
+#
+# PR1 defang: when ContinueAnyway=true AND AccountSetupEnteredUtc is set, the reducer downgrades
+# the EspTerminalFailure to an esp_failure_advisory effect; stage stays at EspAccountSetup,
+# EspAdvisoryFailureRecordedUtc is set, monitoring continues. The session never reaches Failed
+# in this replay (it would normally complete via Desktop+Hello in production — not modeled here).
+#
+# Coverage: validates that the engine produces the advisory effect end-to-end through the same
+# signal stream the real session 4fa5a2d4 saw.
+{"SessionSignalOrdinal":0,"SessionTraceOrdinal":0,"Kind":"SessionStarted","KindSchemaVersion":1,"OccurredAtUtc":"2026-05-22T09:00:00Z","SourceOrigin":"orchestrator","Evidence":{"Kind":"Synthetic","Identifier":"session:advisory:started","Summary":"Session start anchor"}}
+{"SessionSignalOrdinal":1,"SessionTraceOrdinal":1,"Kind":"EspConfigDetected","KindSchemaVersion":1,"OccurredAtUtc":"2026-05-22T09:00:30Z","SourceOrigin":"EnrollmentOrchestrator","Evidence":{"Kind":"Raw","Identifier":"esp_config_detected_bootstrap","Summary":"SkipUser=False, SkipDevice=False, AllowContinueAnyway=True","DerivationInputs":{"source":"registry_firstsync_bootstrap"}},"Payload":{"skipUserEsp":"false","skipDeviceEsp":"false","espAllowContinueAnyway":"true","espSyncFailureTimeoutMinutes":"30"}}
+{"SessionSignalOrdinal":2,"SessionTraceOrdinal":2,"Kind":"EspPhaseChanged","KindSchemaVersion":1,"OccurredAtUtc":"2026-05-22T09:01:00Z","SourceOrigin":"EspAndHelloTracker","Evidence":{"Kind":"Derived","Identifier":"esp-phase-detector-v1","Summary":"ESP phase=DeviceSetup","DerivationInputs":{"rawValue":"1"}},"Payload":{"phase":"DeviceSetup"}}
+{"SessionSignalOrdinal":3,"SessionTraceOrdinal":3,"Kind":"EspPhaseChanged","KindSchemaVersion":1,"OccurredAtUtc":"2026-05-22T09:16:00Z","SourceOrigin":"EspAndHelloTracker","Evidence":{"Kind":"Derived","Identifier":"esp-phase-detector-v1","Summary":"ESP phase=AccountSetup","DerivationInputs":{"rawValue":"2"}},"Payload":{"phase":"AccountSetup"}}
+{"SessionSignalOrdinal":4,"SessionTraceOrdinal":4,"Kind":"EspTerminalFailure","KindSchemaVersion":1,"OccurredAtUtc":"2026-05-22T09:29:52Z","SourceOrigin":"ProvisioningStatusTracker","Evidence":{"Kind":"Derived","Identifier":"provisioning-status-tracker-v1","Summary":"ESP terminal failure from provisioning registry (type=Provisioning_DeviceSetup_Certificates_Failed, errorCode=n/a)","DerivationInputs":{"registrySource":"HKLM\\SOFTWARE\\Microsoft\\Provisioning\\AutopilotSettings\\*.Status","failureType":"Provisioning_DeviceSetup_Certificates_Failed","failedSubcategory":"Certificates","category":"DeviceSetup"}},"Payload":{"failureType":"Provisioning_DeviceSetup_Certificates_Failed","failedSubcategory":"Certificates","category":"DeviceSetup"}}
+{"SessionSignalOrdinal":5,"SessionTraceOrdinal":5,"Kind":"EspTerminalFailure","KindSchemaVersion":1,"OccurredAtUtc":"2026-05-22T09:30:15Z","SourceOrigin":"ShellCoreTracker","Evidence":{"Kind":"Raw","Identifier":"eventlog:Shell-Core:62411:recordId:1234","Summary":"Duplicate ESP terminal failure (Event 62411) — must dead-end after advisory","RawPointer":"blob://events/shell-core/1234"},"Payload":{"reason":"esp_terminal_failure_account_setup"}}

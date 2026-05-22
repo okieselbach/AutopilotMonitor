@@ -66,6 +66,8 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
     description: "ESP category status update from Windows Provisioning registry." },
   { value: "esp_state_change", label: "esp_state_change", category: "esp",
     description: "Generic ESP state change event." },
+  { value: "esp_failure_advisory", label: "esp_failure_advisory", category: "esp",
+    description: "ESP reported a subcategory failure but the device had already progressed to AccountSetup with ContinueAnyway enabled — non-terminal advisory, the agent continues monitoring." },
 
   // -------- App installs --------
   { value: "app_install_started", label: "app_install_started", category: "app",

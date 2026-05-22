@@ -105,7 +105,10 @@ namespace AutopilotMonitor.DecisionCore.Tests
             // as the strong post-AccountSetup gate → 13 slots.
             // 88a53223 SelfDeploying defang (Plan v9) added `deviceSetupResolvedUtc` so the
             // new DeviceOnlyEspDetection deadline arms from DeviceSetup-END not -START → 14.
-            Assert.Equal(14, facts.Count);
+            // PR1 ContinueAnyway-Defang (Session 4fa5a2d4, 2026-05-22) added
+            // `espAdvisoryFailureRecordedUtc` as the fire-once gate for downgraded ESP
+            // terminal failures → 15.
+            Assert.Equal(15, facts.Count);
             Assert.All(facts.Values, v => Assert.Null(v));
         }
 
@@ -219,9 +222,12 @@ namespace AutopilotMonitor.DecisionCore.Tests
             // `accountSetupProvisioningSucceededUtc` as the strong post-AccountSetup
             // gate → 13. 88a53223 SelfDeploying defang (Plan v9, 2026-05-21) added
             // `deviceSetupResolvedUtc` as the DeviceSetup-END anchor for the new
-            // deadline arm-point → 14. If this number ever changes, both the count
-            // expectation AND the actual snapshot output need to evolve in lockstep.
-            Assert.Equal(14, expectedFactKeys.Count);
+            // deadline arm-point → 14. PR1 ContinueAnyway-Defang (Session 4fa5a2d4,
+            // 2026-05-22) added `espAdvisoryFailureRecordedUtc` as the fire-once gate
+            // for downgraded ESP terminal failures → 15. If this number ever changes,
+            // both the count expectation AND the actual snapshot output need to evolve
+            // in lockstep.
+            Assert.Equal(15, expectedFactKeys.Count);
 
             var snapshot = DecisionStateSnapshotBuilder.Build(DecisionState.CreateInitial("s", "t"));
             var facts = (Dictionary<string, object?>)snapshot["facts"]!;

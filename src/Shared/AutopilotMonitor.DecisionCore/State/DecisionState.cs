@@ -60,7 +60,8 @@ namespace AutopilotMonitor.DecisionCore.State
             SignalFact<string>? lastFailureTrigger = null,
             RealmJoinFacts? realmJoinFacts = null,
             SignalFact<DateTime>? deviceSetupResolvedUtc = null,
-            string? schemaVersion = null)
+            string? schemaVersion = null,
+            SignalFact<DateTime>? espAdvisoryFailureRecordedUtc = null)
         {
             if (string.IsNullOrEmpty(sessionId))
             {
@@ -100,6 +101,7 @@ namespace AutopilotMonitor.DecisionCore.State
             RealmJoinFacts = realmJoinFacts ?? RealmJoinFacts.Empty;
             DeviceSetupResolvedUtc = deviceSetupResolvedUtc;
             SchemaVersion = schemaVersion ?? CurrentSchemaVersion;
+            EspAdvisoryFailureRecordedUtc = espAdvisoryFailureRecordedUtc;
         }
 
         public string SessionId { get; }
@@ -248,6 +250,23 @@ namespace AutopilotMonitor.DecisionCore.State
         /// </para>
         /// </summary>
         public SignalFact<DateTime>? DeviceSetupResolvedUtc { get; }
+
+        /// <summary>
+        /// Set when <c>HandleEspTerminalFailureV1</c> downgrades an incoming
+        /// <see cref="Signals.DecisionSignalKind.EspTerminalFailure"/> signal to an advisory
+        /// instead of transitioning to <see cref="SessionStage.Failed"/>. The downgrade applies
+        /// when the ESP profile permits "Continue anyway" (<c>ScenarioObservations.EspAllowContinueAnyway</c>
+        /// is <c>true</c>) AND <see cref="AccountSetupEnteredUtc"/> is already set — both facts
+        /// together prove that the device has already progressed past DeviceSetup despite the
+        /// reported subcategory failure, so the agent stays in monitoring instead of declaring
+        /// the session failed.
+        /// <para>
+        /// Acts as a fire-once idempotency gate: subsequent <c>EspTerminalFailure</c> signals
+        /// (e.g. duplicates from <c>ShellCoreTracker</c>) are dropped as dead-ends so the
+        /// timeline does not accumulate redundant <c>esp_failure_advisory</c> events.
+        /// </para>
+        /// </summary>
+        public SignalFact<DateTime>? EspAdvisoryFailureRecordedUtc { get; }
 
         public string SchemaVersion { get; }
 

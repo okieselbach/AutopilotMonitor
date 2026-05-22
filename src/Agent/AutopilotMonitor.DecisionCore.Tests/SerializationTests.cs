@@ -383,6 +383,61 @@ namespace AutopilotMonitor.DecisionCore.Tests
         }
 
         [Fact]
+        public void Deserialize_v4Snapshot_withoutEspAdvisoryFailureRecordedUtc_field_yieldsNullAnchor()
+        {
+            // Rollout-safety regression (PR1 ContinueAnyway-Defang, Session 4fa5a2d4, 2026-05-22):
+            // EspAdvisoryFailureRecordedUtc is an additive nullable field appended to the end of
+            // the DecisionState ctor (Codex review #9). Old persisted snapshots from v4 versions
+            // before 2026-05-22 DO NOT contain this property. Loading such a snapshot under the
+            // PR1+ code must succeed and produce EspAdvisoryFailureRecordedUtc == null —
+            // otherwise sessions in flight at agent-upgrade time fail to rehydrate.
+            const string priorV4Json = @"{
+                ""SessionId"": ""sess-rehydrate"",
+                ""TenantId"": ""tenant-rehydrate"",
+                ""Stage"": ""EspAccountSetup"",
+                ""Outcome"": null,
+                ""CurrentEnrollmentPhase"": null,
+                ""DeviceSetupEnteredUtc"": null,
+                ""AccountSetupEnteredUtc"": null,
+                ""FinalizingEnteredUtc"": null,
+                ""AccountSetupProvisioningSucceededUtc"": null,
+                ""EspFinalExitUtc"": null,
+                ""DesktopArrivedUtc"": null,
+                ""HelloResolvedUtc"": null,
+                ""SystemRebootUtc"": null,
+                ""HelloOutcome"": null,
+                ""ImeMatchedPatternId"": null,
+                ""Deadlines"": [],
+                ""LastAppliedSignalOrdinal"": 42,
+                ""StepIndex"": 100,
+                ""AppInstallFacts"": null,
+                ""ScenarioProfile"": null,
+                ""ScenarioObservations"": null,
+                ""ClassifierOutcomes"": null,
+                ""HelloPolicyEnabled"": null,
+                ""AgentBootUtc"": ""2026-05-22T08:00:00Z"",
+                ""LastFailureTrigger"": null,
+                ""RealmJoinFacts"": null,
+                ""DeviceSetupResolvedUtc"": null,
+                ""SchemaVersion"": ""v4""
+            }";
+
+            var deserialized = StateSerializer.Deserialize(priorV4Json);
+
+            // Critical: the missing EspAdvisoryFailureRecordedUtc field deserializes to null
+            // (the optional ctor parameter default). No ArgumentException, no JsonSerialization-
+            // Exception. The next EspTerminalFailure signal can then write the fact normally.
+            Assert.Null(deserialized.EspAdvisoryFailureRecordedUtc);
+
+            // Other state survived.
+            Assert.Equal("sess-rehydrate", deserialized.SessionId);
+            Assert.Equal(SessionStage.EspAccountSetup, deserialized.Stage);
+            Assert.Equal(42L, deserialized.LastAppliedSignalOrdinal);
+            Assert.Equal(100, deserialized.StepIndex);
+            Assert.Equal("v4", deserialized.SchemaVersion);
+        }
+
+        [Fact]
         public void ScenarioProfile_stateRoundtripsThroughStateSerializer_enumsAsStrings()
         {
             // End-to-end regression: the full DecisionState must serialize the new Profile

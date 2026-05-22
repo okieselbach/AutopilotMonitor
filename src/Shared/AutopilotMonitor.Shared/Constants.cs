@@ -245,6 +245,11 @@ namespace AutopilotMonitor.Shared
             public const string WhiteGloveComplete  = "whiteglove_complete";
             public const string EnrollmentComplete  = "enrollment_complete";
             public const string EnrollmentFailed    = "enrollment_failed";
+            // PR1 — ContinueAnyway-aware ESP terminal failure defang (Session 4fa5a2d4, 2026-05-22).
+            // Emitted instead of enrollment_failed when the ESP profile permits ContinueAnyway
+            // AND AccountSetup has already been entered — proves the device progressed past
+            // DeviceSetup so the agent stays in monitoring instead of terminating.
+            public const string EspFailureAdvisory  = "esp_failure_advisory";
             public const string DesktopArrived      = "desktop_arrived";
             // DAD liveness (state-change-only, max 3 events per detector lifetime, NOT periodic).
             // Distinguishes "DAD never started after reboot" vs "DAD started but timer/WMI dead" vs

@@ -479,22 +479,38 @@ function EventRow({ event, showScriptOutput }: { event: EnrollmentEvent; showScr
             );
           })()}
           {/* HRESULT badge for ESP failures (enrollment_failed via esp_terminal_failure,
-              esp_provisioning_status failed-subcategory). The HRESULT is extracted from the ESP
-              registry statusText by the agent (e.g. "Apps (0x87d1041c)") and surfaced as
-              top-level event data so the UI can render it without parsing nested text. */}
-          {(event.eventType === "enrollment_failed" || event.eventType === "esp_provisioning_status") && (() => {
+              esp_provisioning_status failed-subcategory, esp_failure_advisory via ContinueAnyway
+              defang). The HRESULT is extracted from the ESP registry statusText by the agent
+              (e.g. "Apps (0x87d1041c)") and surfaced as top-level event data so the UI can
+              render it without parsing nested text. */}
+          {(event.eventType === "enrollment_failed" || event.eventType === "esp_provisioning_status" || event.eventType === "esp_failure_advisory") && (() => {
             const code = event.data?.errorCode ?? event.data?.failedSubcategoryErrorCode;
-            if (!code) return null;
-            const codeStr = String(code);
-            const entry = getErrorCodeEntry(codeStr);
             const sub = event.data?.failedSubcategory ?? event.data?.failedSubcategories;
+            const isAdvisory = event.eventType === "esp_failure_advisory";
+            if (!code && !isAdvisory) return null;
+            const codeStr = code ? String(code) : null;
+            const entry = codeStr ? getErrorCodeEntry(codeStr) : null;
+            // Advisory path uses warning-color palette (amber); the device continued past the
+            // failure via ContinueAnyway, so this is not a hard error. PR1 Session 4fa5a2d4.
+            const badgeBg = isAdvisory ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800";
+            const descColor = isAdvisory ? "text-amber-700" : "text-red-600";
             return (
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-800 font-mono font-medium">
-                  HRESULT: {formatErrorCode(codeStr)}
-                </span>
+                {isAdvisory && (
+                  <span
+                    className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-medium"
+                    title="ESP reported a subcategory failure but the device had already progressed to AccountSetup — the agent continues monitoring instead of declaring the session failed."
+                  >
+                    Advisory (ContinueAnyway)
+                  </span>
+                )}
+                {codeStr && (
+                  <span className={`px-1.5 py-0.5 rounded ${badgeBg} font-mono font-medium`}>
+                    HRESULT: {formatErrorCode(codeStr)}
+                  </span>
+                )}
                 {entry && (
-                  <span className="text-red-600" title={`${entry.source} (${entry.confidence} confidence)`}>
+                  <span className={descColor} title={`${entry.source} (${entry.confidence} confidence)`}>
                     {entry.description}
                   </span>
                 )}
