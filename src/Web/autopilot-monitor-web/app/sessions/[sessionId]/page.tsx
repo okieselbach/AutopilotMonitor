@@ -75,6 +75,7 @@ export default function SessionDetailPage() {
   const eventsApi = useSessionEvents({
     sessionId,
     sessionTenantId: detail.sessionTenantId,
+    sessionStatus: detail.session?.status ?? null,
     resolveEffectiveTenantId: detail.resolveEffectiveTenantId,
     sessionRef: detail.sessionRef,
     sessionIdRef: detail.sessionIdRef,

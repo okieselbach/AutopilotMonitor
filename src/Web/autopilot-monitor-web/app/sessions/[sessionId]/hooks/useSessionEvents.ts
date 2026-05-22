@@ -11,6 +11,13 @@ import type { NotificationType } from "@/contexts/NotificationContext";
 
 const TIMELINE_PAGE_SIZE = 200;
 
+// Single-shot refetch delay after the session transitions to a terminal status.
+// EnrollmentTerminationHandler emits trailing events (enrollment_summary_shown,
+// app_tracking_summary, diagnostics_collecting, diagnostics_uploaded) within ~5-10s
+// after enrollment_complete. The post-terminal SignalR/polling gate would otherwise
+// drop them until the user manually refreshes. One nachfass-fetch covers the window.
+const TERMINAL_TRAILING_REFETCH_DELAY_MS = 12_000;
+
 type AddNotification = (
   type: NotificationType,
   title: string,
@@ -22,6 +29,7 @@ type AddNotification = (
 interface UseSessionEventsParams {
   sessionId: string;
   sessionTenantId: string | null;
+  sessionStatus: string | null | undefined;
   resolveEffectiveTenantId: () => string | null;
   sessionRef: React.MutableRefObject<Session | null>;
   sessionIdRef: React.MutableRefObject<string>;
@@ -58,6 +66,7 @@ export interface UseSessionEventsReturn {
 export function useSessionEvents({
   sessionId,
   sessionTenantId,
+  sessionStatus,
   resolveEffectiveTenantId,
   sessionRef,
   sessionIdRef,
@@ -224,6 +233,21 @@ export function useSessionEvents({
       }
     };
   }, []);
+
+  // One-shot trailing-events refetch on terminal transition.
+  // Counterpart to the SignalR eventStream gate in useSessionSignalR: that gate
+  // suppresses all post-terminal pushes to avoid perf/metrics-snapshot thrashing, but
+  // EnrollmentTerminationHandler still emits real lifecycle events (enrollment_summary_shown,
+  // app_tracking_summary, diagnostics_collecting, diagnostics_uploaded) ~5-10s after
+  // enrollment_complete. We schedule exactly one nachfass-fetch to capture them, then stop.
+  useEffect(() => {
+    if (!isTerminalStatus(sessionStatus)) return;
+    const timer = setTimeout(() => {
+      if (document.visibilityState !== "visible") return;
+      fetchEvents();
+    }, TERMINAL_TRAILING_REFETCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [sessionStatus, fetchEvents]);
 
   // Fallback polling only while SignalR is disconnected.
   // Symmetric with the SignalR eventStream gate: once the session has reached a terminal
