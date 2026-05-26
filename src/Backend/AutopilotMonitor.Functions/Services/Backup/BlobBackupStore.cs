@@ -174,17 +174,53 @@ namespace AutopilotMonitor.Functions.Services.Backup
         }
 
         /// <summary>
-        /// Lists all backupIds present in the container (one entry per distinct first-level
-        /// prefix), ignoring the <c>_lock/</c> prefix. Whether the manifest is actually
-        /// present is up to the caller — this method returns ids of all <c>{id}/</c>
-        /// prefixes regardless.
+        /// Lists every backupId whose <c>manifest.json</c> exists — i.e. every run that
+        /// reached the durability anchor (plan §3 "manifest is the backup"). Orphan
+        /// prefixes (NDJSON written but manifest never followed) are deliberately
+        /// excluded so callers cannot accidentally offer an incomplete run for restore;
+        /// use <see cref="ListAllBackupPrefixesAsync"/> when an admin UI needs to show
+        /// incomplete runs as a distinct status (Codex-Hotfix #3).
         /// </summary>
         public virtual async IAsyncEnumerable<string> ListBackupIdsAsync(
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
         {
             await EnsureContainerAsync(ct).ConfigureAwait(false);
             var container = GetContainer();
-            // GetBlobsByHierarchyAsync with delimiter="/" returns the top-level prefixes.
+            await foreach (var prefix in EnumerateTopLevelPrefixesAsync(container, ct).ConfigureAwait(false))
+            {
+                // Cheap Exists() on the manifest blob — filters out runs that crashed
+                // before manifest.json was committed.
+                var manifest = container.GetBlobClient(BuildManifestBlobName(prefix));
+                if (await manifest.ExistsAsync(ct).ConfigureAwait(false))
+                {
+                    yield return prefix;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Lists every top-level prefix in the container — completed runs (manifest present)
+        /// AND incomplete ones (manifest missing). Returns a flag so a future admin UI can
+        /// surface incomplete runs as their own status. PR1 callers should prefer the
+        /// completed-only <see cref="ListBackupIdsAsync"/>.
+        /// </summary>
+        public virtual async IAsyncEnumerable<(string BackupId, bool HasManifest)> ListAllBackupPrefixesAsync(
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+        {
+            await EnsureContainerAsync(ct).ConfigureAwait(false);
+            var container = GetContainer();
+            await foreach (var prefix in EnumerateTopLevelPrefixesAsync(container, ct).ConfigureAwait(false))
+            {
+                var manifest = container.GetBlobClient(BuildManifestBlobName(prefix));
+                var exists = await manifest.ExistsAsync(ct).ConfigureAwait(false);
+                yield return (prefix, exists.Value);
+            }
+        }
+
+        private static async IAsyncEnumerable<string> EnumerateTopLevelPrefixesAsync(
+            BlobContainerClient container,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+        {
             var seen = new HashSet<string>(StringComparer.Ordinal);
             await foreach (var item in container.GetBlobsByHierarchyAsync(traits: BlobTraits.None, states: BlobStates.None, prefix: null, delimiter: "/", cancellationToken: ct).ConfigureAwait(false))
             {

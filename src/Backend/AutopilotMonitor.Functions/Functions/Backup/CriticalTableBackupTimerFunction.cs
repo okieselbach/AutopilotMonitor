@@ -48,6 +48,8 @@ namespace AutopilotMonitor.Functions.Functions.Backup
             string? backupId = null;
 
             // ── Acquire maintenance lease ───────────────────────────────────────
+            // Codex-Hotfix #1: the lease must be renewed during the 50-min per-run budget;
+            // otherwise the lease auto-expires after 60 s and another concurrent op could enter.
             await _blobStore.EnsureMaintenanceLockSentinelAsync(ct).ConfigureAwait(false);
 
             Azure.Storage.Blobs.Specialized.BlobLeaseClient? lease;
@@ -63,13 +65,25 @@ namespace AutopilotMonitor.Functions.Functions.Backup
                 return;
             }
 
+            using var handlerCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var leaseHolder = new MaintenanceLeaseHolder(lease, handlerCts, _logger);
+
             try
             {
+                var hct = handlerCts.Token;
                 backupId = _backupService.GenerateBackupId();
                 BackupRunResult? result;
                 try
                 {
-                    result = await _backupService.RunBackupUnderLeaseAsync(backupId, triggeredBy, ct).ConfigureAwait(false);
+                    result = await _backupService.RunBackupUnderLeaseAsync(backupId, triggeredBy, hct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (handlerCts.IsCancellationRequested && leaseHolder.RenewalFailureReason is not null)
+                {
+                    _logger.LogError("CriticalTableBackupTimer: maintenance lease lost mid-run (backupId={BackupId}) — {Reason}",
+                        backupId, leaseHolder.RenewalFailureReason);
+                    await TryRecordAsync(() => _opsEvents.RecordCriticalTableBackupFailedAsync(
+                        backupId, leaseHolder.RenewalFailureReason!, triggeredBy)).ConfigureAwait(false);
+                    return;
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -100,8 +114,7 @@ namespace AutopilotMonitor.Functions.Functions.Backup
             }
             finally
             {
-                try { await lease.ReleaseAsync(cancellationToken: ct).ConfigureAwait(false); }
-                catch (Exception ex) { _logger.LogWarning(ex, "CriticalTableBackupTimer: lease release failed (auto-expires)"); }
+                await leaseHolder.DisposeAsync().ConfigureAwait(false);
             }
         }
 
