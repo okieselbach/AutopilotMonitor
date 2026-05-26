@@ -249,49 +249,94 @@ namespace AutopilotMonitor.Functions.Services.Backup.Queue
 
             BackupRunResult? result = null;
             Exception? retryableException = null;
+            bool casConflictReturn = false;
             bool leaseLost = false;
+            string runningJobRequestedBy = job.RequestedBy;
+            DateTime? runningJobStartedAtUtc = null;
 
             try
             {
                 var hct = handlerCts.Token;
 
-                // ── CAS Queued→Running + heartbeat (plan Wave14 #1) ─────────────
-                var nowUtc = _clock.GetUtcNow().UtcDateTime;
-                var runningJob = job;
-                runningJob.State = BackupJobState.Running;
-                runningJob.StartedAtUtc = nowUtc;
-                runningJob.LastHeartbeatUtc = nowUtc;
-                var casOk = await _jobs.TryUpdateWithCasAsync(runningJob, jobETag!.Value, hct).ConfigureAwait(false);
-                if (!casOk)
+                // Codex-Hotfix Wave2 #1: the lease-loss catch now wraps the WHOLE leased
+                // section (CAS Running, BackupId stamp, service call, final CAS Completed) —
+                // not just RunBackupUnderLeaseAsync — so a renewal failure during any of
+                // those awaits cleanly routes through the Failed-state + OpsEvent path
+                // instead of escaping as a generic poll-loop exception.
+                try
                 {
-                    // Concurrent state change (watchdog, parallel worker). Re-read + dispatch.
-                    var (fresh, _) = await _jobs.GetWithETagAsync(jobId, hct).ConfigureAwait(false);
-                    if (fresh is not null && IsTerminal(fresh.State))
+                    // ── CAS Queued→Running + heartbeat (plan Wave14 #1) ─────────
+                    var nowUtc = _clock.GetUtcNow().UtcDateTime;
+                    var runningJob = job;
+                    runningJob.State = BackupJobState.Running;
+                    runningJob.StartedAtUtc = nowUtc;
+                    runningJob.LastHeartbeatUtc = nowUtc;
+                    runningJobStartedAtUtc = nowUtc;
+                    var casOk = await _jobs.TryUpdateWithCasAsync(runningJob, jobETag!.Value, hct).ConfigureAwait(false);
+                    if (!casOk)
                     {
-                        await SafeDeleteAsync(msg, ct).ConfigureAwait(false);
+                        // Concurrent state change (watchdog, parallel worker). Re-read + dispatch.
+                        var (fresh, _) = await _jobs.GetWithETagAsync(jobId, hct).ConfigureAwait(false);
+                        if (fresh is not null && IsTerminal(fresh.State))
+                        {
+                            await SafeDeleteAsync(msg, ct).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("CriticalTableBackupQueueWorker: CAS Queued→Running 412 with non-terminal fresh state — leaving message for retry");
+                        }
+                        casConflictReturn = true;
                     }
                     else
                     {
-                        _logger.LogWarning("CriticalTableBackupQueueWorker: CAS Queued→Running 412 with non-terminal fresh state — leaving message for retry");
+                        // ── Service-call: backup itself (Wave22 #3 — service is lease-unaware) ──
+                        try
+                        {
+                            var backupId = _backupService.GenerateBackupId();
+
+                            // Stamp BackupId via CAS so UI can deep-link to the manifest the moment the worker has chosen the id.
+                            var (currentJob, currentETag) = await _jobs.GetWithETagAsync(jobId, hct).ConfigureAwait(false);
+                            if (currentJob is not null && currentETag is not null)
+                            {
+                                currentJob.BackupId = backupId;
+                                currentJob.LastHeartbeatUtc = _clock.GetUtcNow().UtcDateTime;
+                                await _jobs.TryUpdateWithCasAsync(currentJob, currentETag.Value, hct).ConfigureAwait(false);
+                            }
+
+                            result = await _backupService.RunBackupUnderLeaseAsync(backupId, runningJob.RequestedBy, hct).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                        {
+                            throw;
+                        }
+                        catch (OperationCanceledException) when (handlerCts.IsCancellationRequested && leaseHolder.RenewalFailureReason is not null)
+                        {
+                            // Bubble to the outer lease-loss catch — same handling whether the
+                            // cancel hit the service call or one of the surrounding CAS awaits.
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            // Retryable: storage 5xx / network / generic bug.
+                            retryableException = ex;
+                        }
+
+                        // ── Terminal CAS Completed (only on success path) ──────
+                        if (retryableException is null && result is not null)
+                        {
+                            var completedAt = _clock.GetUtcNow().UtcDateTime;
+                            var (finalJob, finalETag) = await _jobs.GetWithETagAsync(jobId, hct).ConfigureAwait(false);
+                            if (finalJob is not null && finalETag is not null)
+                            {
+                                finalJob.State = BackupJobState.Completed;
+                                finalJob.CompletedAtUtc = completedAt;
+                                finalJob.LastHeartbeatUtc = completedAt;
+                                finalJob.BackupOutcome = result.Outcome;
+                                finalJob.Error = null;
+                                await _jobs.TryUpdateWithCasAsync(finalJob, finalETag.Value, hct).ConfigureAwait(false);
+                            }
+                        }
                     }
-                    return;
-                }
-
-                // ── Service-call: backup itself (Wave22 #3 — service is lease-unaware) ──
-                try
-                {
-                    var backupId = _backupService.GenerateBackupId();
-
-                    // Stamp BackupId via CAS so UI can deep-link to the manifest the moment the worker has chosen the id.
-                    var (currentJob, currentETag) = await _jobs.GetWithETagAsync(jobId, hct).ConfigureAwait(false);
-                    if (currentJob is not null && currentETag is not null)
-                    {
-                        currentJob.BackupId = backupId;
-                        currentJob.LastHeartbeatUtc = _clock.GetUtcNow().UtcDateTime;
-                        await _jobs.TryUpdateWithCasAsync(currentJob, currentETag.Value, hct).ConfigureAwait(false);
-                    }
-
-                    result = await _backupService.RunBackupUnderLeaseAsync(backupId, runningJob.RequestedBy, hct).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
@@ -299,92 +344,87 @@ namespace AutopilotMonitor.Functions.Services.Backup.Queue
                 }
                 catch (OperationCanceledException) when (handlerCts.IsCancellationRequested && leaseHolder.RenewalFailureReason is not null)
                 {
-                    // Lease renewal lost mid-run (Codex-Hotfix #1). Treat as a non-retryable
-                    // "previous worker died" — JobState=Failed, no delete (let the message
-                    // reappear so a clean run can pick it up after the lease auto-expires).
+                    // Lease renewal lost mid-run (Codex-Hotfix Wave1 #1 + Wave2 #1).
+                    // Treat as a non-retryable "previous worker died" — JobState=Failed,
+                    // no delete (let the message reappear so a clean run can pick it up
+                    // after the lease auto-expires).
                     leaseLost = true;
                 }
-                catch (Exception ex)
-                {
-                    // Retryable: storage 5xx / network / generic bug. Roll JobState back to Queued
-                    // so the next dequeue sees a clean state (plan Wave25 #1+#2). Throw to outer
-                    // so visibility-timeout-retry kicks in. After 5 attempts the poison path
-                    // converts to JobState=Failed.
-                    retryableException = ex;
-                }
+            }
+            finally
+            {
+                // Plan Wave16 #2 / Wave17 #1: terminal status set BEFORE release; release before delete.
+                // leaseHolder disposes the renewal loop deterministically before releasing the underlying lease.
+                await leaseHolder.DisposeAsync().ConfigureAwait(false);
+            }
 
-                if (leaseLost)
-                {
-                    var (lostJob, lostETag) = await _jobs.GetWithETagAsync(jobId, ct).ConfigureAwait(false);
-                    if (lostJob is not null && lostETag is not null)
-                    {
-                        lostJob.State = BackupJobState.Failed;
-                        lostJob.CompletedAtUtc = _clock.GetUtcNow().UtcDateTime;
-                        lostJob.LastHeartbeatUtc = lostJob.CompletedAtUtc.Value;
-                        lostJob.Error = leaseHolder.RenewalFailureReason ?? "maintenance lease lost mid-run";
-                        await _jobs.TryUpdateWithCasAsync(lostJob, lostETag.Value, ct).ConfigureAwait(false);
-                    }
-                    // No queue delete on lease-loss path — message stays for the next dequeue,
-                    // which will see JobState=Failed via duplicate-detection and drop it cleanly.
-                    return;
-                }
+            if (casConflictReturn)
+            {
+                return;
+            }
 
-                if (retryableException is not null)
+            if (leaseLost)
+            {
+                var (lostJob, lostETag) = await _jobs.GetWithETagAsync(jobId, ct).ConfigureAwait(false);
+                var leaseLossReason = leaseHolder.RenewalFailureReason ?? "maintenance lease lost mid-run";
+                string? backupIdForEvent = null;
+                if (lostJob is not null && lostETag is not null)
                 {
-                    var (rb, rbETag) = await _jobs.GetWithETagAsync(jobId, ct).ConfigureAwait(false);
-                    if (rb is not null && rbETag is not null)
-                    {
-                        var retryNow = _clock.GetUtcNow().UtcDateTime;
-                        rb.State = BackupJobState.Queued;
-                        rb.BackupId = null;          // next attempt gets a fresh id (orphan blobs are cleaned by lifecycle)
-                        rb.LastHeartbeatUtc = retryNow;
-                        rb.QueuedAtUtc = retryNow;   // Codex-Hotfix #2: reset queue clock so the watchdog's
-                                                     // 60 min "Queued without pickup" rule does not fire on
-                                                     // a job that has just rolled back for legitimate retry.
-                        rb.Error = retryableException.Message;
-                        await _jobs.TryUpdateWithCasAsync(rb, rbETag.Value, ct).ConfigureAwait(false);
-                    }
-                    _logger.LogWarning(retryableException,
-                        "CriticalTableBackupQueueWorker: jobId {JobId} backup attempt failed — rolling to Queued for retry (dequeue {N})",
-                        jobId, msg.DequeueCount);
-                    throw retryableException;        // outer loop applies visibility-timeout retry
+                    backupIdForEvent = lostJob.BackupId;
+                    lostJob.State = BackupJobState.Failed;
+                    lostJob.CompletedAtUtc = _clock.GetUtcNow().UtcDateTime;
+                    lostJob.LastHeartbeatUtc = lostJob.CompletedAtUtc.Value;
+                    lostJob.Error = leaseLossReason;
+                    await _jobs.TryUpdateWithCasAsync(lostJob, lostETag.Value, ct).ConfigureAwait(false);
                 }
+                // Codex-Hotfix Wave2 #2: emit OpsEvent for the lease-loss terminal path so
+                // Telegram alert rules fire on this manual-queue failure mode the same way
+                // they do for the timer path.
+                await TryRecordOpsEventAsync(() => _opsEvents.RecordCriticalTableBackupFailedAsync(
+                    backupIdForEvent, leaseLossReason, runningJobRequestedBy)).ConfigureAwait(false);
+                // No queue delete on lease-loss path — message stays for the next dequeue,
+                // which will see JobState=Failed via duplicate-detection and drop it cleanly.
+                return;
+            }
 
-                // ── Terminal CAS Completed (under lease) ────────────────────────
-                var completedAt = _clock.GetUtcNow().UtcDateTime;
-                var (finalJob, finalETag) = await _jobs.GetWithETagAsync(jobId, hct).ConfigureAwait(false);
-                if (finalJob is not null && finalETag is not null)
+            if (retryableException is not null)
+            {
+                var (rb, rbETag) = await _jobs.GetWithETagAsync(jobId, ct).ConfigureAwait(false);
+                if (rb is not null && rbETag is not null)
                 {
-                    finalJob.State = BackupJobState.Completed;
-                    finalJob.CompletedAtUtc = completedAt;
-                    finalJob.LastHeartbeatUtc = completedAt;
-                    finalJob.BackupOutcome = result!.Outcome;
-                    finalJob.Error = null;
-                    await _jobs.TryUpdateWithCasAsync(finalJob, finalETag.Value, hct).ConfigureAwait(false);
+                    var retryNow = _clock.GetUtcNow().UtcDateTime;
+                    rb.State = BackupJobState.Queued;
+                    rb.BackupId = null;          // next attempt gets a fresh id (orphan blobs are cleaned by lifecycle)
+                    rb.LastHeartbeatUtc = retryNow;
+                    rb.QueuedAtUtc = retryNow;   // Codex-Hotfix Wave1 #2: reset queue clock so the watchdog's
+                                                 // 60 min "Queued without pickup" rule does not fire on
+                                                 // a job that has just rolled back for legitimate retry.
+                    rb.Error = retryableException.Message;
+                    await _jobs.TryUpdateWithCasAsync(rb, rbETag.Value, ct).ConfigureAwait(false);
                 }
+                _logger.LogWarning(retryableException,
+                    "CriticalTableBackupQueueWorker: jobId {JobId} backup attempt failed — rolling to Queued for retry (dequeue {N})",
+                    jobId, msg.DequeueCount);
+                throw retryableException;        // outer loop applies visibility-timeout retry
+            }
 
-                // ── OpsEvent (outside the service try — non-throwing per Wave25 #3) ──
-                var durationMs = (int)(completedAt - runningJob.StartedAtUtc!.Value).TotalMilliseconds;
+            // ── OpsEvent on success (non-throwing per Wave25 #3) ──
+            if (result is not null && runningJobStartedAtUtc is not null)
+            {
+                var durationMs = (int)(_clock.GetUtcNow().UtcDateTime - runningJobStartedAtUtc.Value).TotalMilliseconds;
                 var failedOrSkipped = 0;
-                foreach (var t in result!.Manifest.Tables)
+                foreach (var t in result.Manifest.Tables)
                 {
                     if (t.Status == TableBackupStatus.Failed || t.Status == TableBackupStatus.Skipped) failedOrSkipped++;
                 }
                 await TryRecordOpsEventAsync(() => result.Outcome == BackupOutcome.Success
                     ? _opsEvents.RecordCriticalTableBackupCompletedAsync(
                         result.Manifest.BackupId, result.Manifest.Tables.Count, durationMs,
-                        Constants.BlobContainers.CriticalTableBackups, result.ManifestBlobName, runningJob.RequestedBy)
+                        Constants.BlobContainers.CriticalTableBackups, result.ManifestBlobName, runningJobRequestedBy)
                     : _opsEvents.RecordCriticalTableBackupPartialAsync(
                         result.Manifest.BackupId, result.Manifest.Tables.Count, failedOrSkipped, durationMs,
-                        Constants.BlobContainers.CriticalTableBackups, result.ManifestBlobName, runningJob.RequestedBy))
+                        Constants.BlobContainers.CriticalTableBackups, result.ManifestBlobName, runningJobRequestedBy))
                     .ConfigureAwait(false);
-            }
-            finally
-            {
-                // Plan Wave16 #2 / Wave17 #1: terminal status set BEFORE release; release before delete.
-                // Codex-Hotfix #1: leaseHolder disposes the renewal loop deterministically before
-                // calling Release on the underlying lease.
-                await leaseHolder.DisposeAsync().ConfigureAwait(false);
             }
 
             // Successful path: delete the message.
