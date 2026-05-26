@@ -270,8 +270,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             // Agent boots into a session where RJ is already at CompletedFirstDeployment
             // (110) — e.g. pre-installed on an image, or recovered after a long absence.
             // The first phase observation is already past threshold, so package watchers
-            // arm in that same notify pass; the historic package rows enumerated by
-            // CheckMachinePackages then surface as started+completed pairs.
+            // arm in that same notify pass. Historic package rows that exist at arming
+            // time are seeded into the dedup sets by AttachMachineRealmJoinSubtreeWatcher
+            // and are intentionally suppressed — only sub-keys that appear AFTER arming
+            // surface as started/completed events.
             using var f = new Fixture();
             using var adapter = new RealmJoinWatcherAdapter(f.Watcher, f.Ingress, f.Clock);
 
@@ -280,6 +282,74 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             Assert.True(f.Watcher.PackageWatchersArmedForTest);
             // Resolved fires on the same pass.
             Assert.Contains(f.Ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinResolved);
+        }
+
+        [Fact]
+        public void Seeded_pre_existing_machine_package_does_not_fire_started_or_completed()
+        {
+            // Models the ESP-leftover case: when the package watcher arms, RJ has already
+            // installed packages during ESP and their sub-keys are present. The seed pass
+            // pre-fills both dedup sets so the historical rows are silently absorbed.
+            using var f = new Fixture();
+            using var adapter = new RealmJoinWatcherAdapter(f.Watcher, f.Ingress, f.Clock);
+
+            f.Watcher.SeedMachinePackageIdsForTest("generic-esp-leftover");
+
+            var snap = new RealmJoinPackageSnapshot(
+                packageId: "generic-esp-leftover",
+                displayName: "Pre-ESP package",
+                version: "1.0.0",
+                success: true,
+                lastExitCode: 0);
+            f.Watcher.TriggerMachinePackageObservationFromTest(snap);
+
+            Assert.DoesNotContain(f.Ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinPackageStarted);
+            Assert.DoesNotContain(f.Ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinPackageCompleted);
+        }
+
+        [Fact]
+        public void Seed_only_suppresses_seeded_ids_genuinely_new_machine_packages_still_fire()
+        {
+            // Seed suppression is per-PackageId — a sibling package that appears AFTER arming
+            // must still fire normally. Guards against an over-broad implementation that
+            // would mute the whole hive once any seed entry is present.
+            using var f = new Fixture();
+            using var adapter = new RealmJoinWatcherAdapter(f.Watcher, f.Ingress, f.Clock);
+
+            f.Watcher.SeedMachinePackageIdsForTest("generic-esp-leftover");
+
+            var snap = new RealmJoinPackageSnapshot(
+                packageId: "generic-new-after-arming",
+                displayName: "New package",
+                version: "2.0.0",
+                success: null,
+                lastExitCode: null);
+            f.Watcher.TriggerMachinePackageObservationFromTest(snap);
+
+            var started = f.Ingress.Posted.Single(p => p.Kind == DecisionSignalKind.RealmJoinPackageStarted);
+            Assert.Equal("generic-new-after-arming", started.Payload![DecisionEngine.RealmJoinPayloadKeys.PackageId]);
+        }
+
+        [Fact]
+        public void Seeded_pre_existing_user_package_does_not_fire_started_or_completed()
+        {
+            // Same semantics as the machine variant — user-hive packages enumerated under
+            // HKU\<sid>\SOFTWARE\RealmJoin\Packages at arming time must be silently absorbed.
+            using var f = new Fixture();
+            using var adapter = new RealmJoinWatcherAdapter(f.Watcher, f.Ingress, f.Clock);
+
+            f.Watcher.SeedUserPackageIdsForTest("generic-user-leftover");
+
+            var snap = new RealmJoinPackageSnapshot(
+                packageId: "generic-user-leftover",
+                displayName: "Pre-existing user package",
+                version: "1.0.0",
+                success: true,
+                lastExitCode: 0);
+            f.Watcher.TriggerUserPackageObservationFromTest(snap);
+
+            Assert.DoesNotContain(f.Ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinPackageStarted);
+            Assert.DoesNotContain(f.Ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinPackageCompleted);
         }
 
         [Fact]

@@ -381,6 +381,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 if (_machineRealmJoinWatcher != null) return;
                 try
                 {
+                    // Seed dedup sets with every package sub-key already present at arming time.
+                    // Pre-existing rows are typically RJ packages installed during ESP — they are
+                    // historical, not "new" from the watcher's perspective, and must not surface
+                    // as started/completed events. Must run BEFORE Start() so no subtree wake-up
+                    // can race past the seed and emit pre-existing IDs.
+                    SeedExistingPackageIds(
+                        RegistryHive.LocalMachine,
+                        RealmJoinInfo.MachinePackagesRegistryPath,
+                        _hklmPackagesStarted,
+                        _hklmPackagesCompleted,
+                        scopeLabel: "hklm");
+
                     _machineRealmJoinDebounce = new Timer(_ => CheckMachinePackages(), null, Timeout.Infinite, Timeout.Infinite);
                     _machineRealmJoinWatcher = new RegistryWatcher(
                         RegistryHive.LocalMachine,
@@ -412,6 +424,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 if (_userRealmJoinWatcher != null) return;
                 try
                 {
+                    // Seed dedup sets — see AttachMachineRealmJoinSubtreeWatcher for rationale.
+                    var userPackagesPath = fullPath + "\\Packages";
+                    SeedExistingPackageIds(
+                        RegistryHive.Users,
+                        userPackagesPath,
+                        _hkuPackagesStarted,
+                        _hkuPackagesCompleted,
+                        scopeLabel: "hku");
+
                     _userRealmJoinDebounce = new Timer(_ => CheckUserPackages(), null, Timeout.Infinite, Timeout.Infinite);
                     _userRealmJoinWatcher = new RegistryWatcher(
                         RegistryHive.Users,
@@ -585,6 +606,43 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             }
         }
 
+        /// <summary>
+        /// Pre-populate the started + completed dedup sets with every package sub-key already
+        /// present at arming time. Caller MUST hold <see cref="_stateLock"/>. Pre-existing keys
+        /// are historical (typically RJ packages installed during ESP before the phase gate
+        /// fired) and are intentionally suppressed — only sub-keys that appear AFTER arming
+        /// surface as started/completed events. Seeding both sets means a pre-existing key is
+        /// fully ignored, including any late completion-marker write.
+        /// </summary>
+        private void SeedExistingPackageIds(
+            RegistryHive hive,
+            string packagesPath,
+            HashSet<string> startedSet,
+            HashSet<string> completedSet,
+            string scopeLabel)
+        {
+            try
+            {
+                var ids = RealmJoinInfo.EnumeratePackageIds(hive, packagesPath);
+                if (ids.Count == 0)
+                {
+                    _logger.Info($"RealmJoinWatcher: seed pass ({scopeLabel}) found no pre-existing packages under {packagesPath}");
+                    return;
+                }
+                int seeded = 0;
+                foreach (var id in ids)
+                {
+                    if (startedSet.Add(id)) seeded++;
+                    completedSet.Add(id);
+                }
+                _logger.Info($"RealmJoinWatcher: seeded {seeded} pre-existing package id(s) under {packagesPath} ({scopeLabel}) — events suppressed for these");
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"RealmJoinWatcher: seed pass ({scopeLabel}) under {packagesPath} threw: {ex.Message}");
+            }
+        }
+
         private void MaybeFirePackageEvents(
             string scope,
             RealmJoinPackageSnapshot snap,
@@ -667,6 +725,32 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             MaybeFirePackageEvents(RealmJoinPackageScope.User, snap, _hkuPackagesStarted, _hkuPackagesCompleted);
 
         internal void TriggerNotifyRealmJoinPresenceFromTest(int? phase) => NotifyRealmJoinPresence(phase);
+
+        // Test seam — directly seed the dedup sets without touching the registry, so that a
+        // subsequent MaybeFirePackageEvents observation can verify suppression behavior.
+        internal void SeedMachinePackageIdsForTest(params string[] ids)
+        {
+            lock (_stateLock)
+            {
+                foreach (var id in ids)
+                {
+                    _hklmPackagesStarted.Add(id);
+                    _hklmPackagesCompleted.Add(id);
+                }
+            }
+        }
+
+        internal void SeedUserPackageIdsForTest(params string[] ids)
+        {
+            lock (_stateLock)
+            {
+                foreach (var id in ids)
+                {
+                    _hkuPackagesStarted.Add(id);
+                    _hkuPackagesCompleted.Add(id);
+                }
+            }
+        }
 
         internal bool PackageWatchersArmedForTest
         {
