@@ -254,6 +254,36 @@ namespace AutopilotMonitor.Functions.Services
                 null, "System.Maintenance",
                 new { queueName, count, threshold });
 
+        // ── Critical-Table Backup ─────────────────────────────────────────────
+
+        /// <summary>Backup run finished with all tables successfully captured. Info-level — visible in the timeline, not alertable by default.</summary>
+        public Task RecordCriticalTableBackupCompletedAsync(string backupId, int tableCount, int durationMs, string container, string manifestBlobName, string triggeredBy)
+            => WriteAsync(OpsEventCategory.Maintenance, "CriticalTableBackupCompleted", OpsEventSeverity.Info,
+                $"Critical-table backup {backupId} completed: {tableCount} tables, {durationMs}ms (triggeredBy={triggeredBy})",
+                null, "System.Maintenance",
+                new { backupId, tableCount, durationMs, container, manifestBlobName, triggeredBy });
+
+        /// <summary>Backup run wrote a manifest but at least one table Failed or Skipped. Warning-level — operator should inspect manifest perTableFailures.</summary>
+        public Task RecordCriticalTableBackupPartialAsync(string backupId, int totalTables, int failedOrSkipped, int durationMs, string container, string manifestBlobName, string triggeredBy)
+            => WriteAsync(OpsEventCategory.Maintenance, "CriticalTableBackupPartial", OpsEventSeverity.Warning,
+                $"Critical-table backup {backupId} PARTIAL: {failedOrSkipped}/{totalTables} tables failed or skipped, manifest written ({durationMs}ms, triggeredBy={triggeredBy})",
+                null, "System.Maintenance",
+                new { backupId, totalTables, failedOrSkipped, durationMs, container, manifestBlobName, triggeredBy });
+
+        /// <summary>Backup run never produced a valid manifest (fatal exception, storage outage). Error-level. Queue-path emits this AFTER 5x retry + poison-move; timer emits immediately.</summary>
+        public Task RecordCriticalTableBackupFailedAsync(string? backupId, string errorMessage, string triggeredBy)
+            => WriteAsync(OpsEventCategory.Maintenance, "CriticalTableBackupFailed", OpsEventSeverity.Error,
+                $"Critical-table backup FAILED (backupId={backupId ?? "n/a"}, triggeredBy={triggeredBy}): {errorMessage}",
+                null, "System.Maintenance",
+                new { backupId, errorMessage, triggeredBy });
+
+        /// <summary>Backup or restore was skipped because the maintenance lease was already held by another job. Info-level — not a failure.</summary>
+        public Task RecordCriticalTableBackupSkippedLockedAsync(string reason, string triggeredBy)
+            => WriteAsync(OpsEventCategory.Maintenance, "CriticalTableBackupSkippedLocked", OpsEventSeverity.Info,
+                $"Critical-table backup skipped — {reason} (triggeredBy={triggeredBy})",
+                null, "System.Maintenance",
+                new { reason, triggeredBy });
+
         // ── Tenant ─────────────────────────────────────────────────────────────
 
         /// <summary>

@@ -288,6 +288,12 @@ public static class EndpointAccessPolicyCatalog
         new("DELETE", "versions/block/{encodedPattern}", EndpointPolicy.GlobalAdminOnly),
         new("POST",   "maintenance/trigger",        EndpointPolicy.GlobalAdminOnly),
 
+        // ── Critical-Table Backup (plan §PR1) ──────────────────────────────────
+        new("POST",   "global/backups/trigger",       EndpointPolicy.GlobalAdminOnly),
+        new("GET",    "global/backups",               EndpointPolicy.GlobalAdminOnly),
+        new("GET",    "global/backups/{backupId}",    EndpointPolicy.GlobalAdminOnly),
+        new("GET",    "global/backups/jobs/{jobId}",  EndpointPolicy.GlobalAdminOnly),
+
         // ── Tenant Offboarding Customs Archive (PR3.B) ─────────────────────────
         // Snapshot of each tenant's custom GatherRules / AnalyzeRules / ImeLogPatterns
         // rows from prior offboarding runs. Operator-driven cleanup: GA reviews + deletes.

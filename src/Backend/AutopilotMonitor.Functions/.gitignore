@@ -208,8 +208,10 @@ Generated_Code/
 # Backup & report files from converting an old project file
 # to a newer Visual Studio version. Backup files are not needed,
 # because we have git ;-)
+# Pinned to top-level so Services/Backup, Functions/Backup, etc. for the
+# critical-table backup feature (plan §PR1) are not accidentally excluded.
 _UpgradeReport_Files/
-Backup*/
+/Backup*/
 UpgradeLog*.XML
 UpgradeLog*.htm
 

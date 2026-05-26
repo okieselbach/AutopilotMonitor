@@ -28,6 +28,15 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // tenant admins see only the lifecycle endpoints (deletion_started/completed/restored).
     // Operators wire Telegram on this event + read it in the Session Cleanup admin page.
     "SessionDeletionPoisoned",
+    // Critical-table backup (plan §PR1) — dual-register per memory feedback_ops_event_types_dual_register.
+    // Dispatched by CriticalTableBackupQueueWorker + CriticalTableBackupTimerFunction.
+    // Backend helpers: RecordCriticalTableBackup{Completed,Partial,Failed,SkippedLocked}Async.
+    // Partial is a distinct type (Warning severity) so operators can wire a softer
+    // Telegram rule than for Failed (Error severity, fatal manifest-write failure).
+    "CriticalTableBackupCompleted",
+    "CriticalTableBackupPartial",
+    "CriticalTableBackupFailed",
+    "CriticalTableBackupSkippedLocked",
   ],
   Security: [
     "DeviceBlocked",

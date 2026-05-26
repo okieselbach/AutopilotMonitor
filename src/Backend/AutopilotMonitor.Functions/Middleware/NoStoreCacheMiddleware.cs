@@ -41,6 +41,12 @@ public class NoStoreCacheMiddleware : IFunctionsWorkerMiddleware
         "/api/global/sessions",
         "/api/global/distress-reports",
         "/api/global/session-reports",         // covers list; /download-url + /{id}/note via prefix
+        // Critical-table backup feature — manifest + job-status responses can carry
+        // property values from AdminConfiguration / TenantConfiguration (SAS URLs,
+        // webhook secrets, API keys) and must never be cached. Trigger endpoint also
+        // here so a returned jobId / statusUrl doesn't end up in proxy cache.
+        "/api/global/backups",
+        "/api/global/backups/trigger",
     };
 
     /// <summary>
@@ -56,6 +62,7 @@ public class NoStoreCacheMiddleware : IFunctionsWorkerMiddleware
         "/api/global/raw/",          // GA cross-tenant raw event/session/table surfaces
         "/api/global/search/",       // GA cross-tenant search results
         "/api/global/session-reports/", // /download-url (SAS) + /{reportId}/note
+        "/api/global/backups/",         // covers /{backupId}, /jobs/{jobId} — same secret-bearing rationale
     };
 
     public async Task Invoke(FunctionContext context, FunctionExecutionDelegate next)

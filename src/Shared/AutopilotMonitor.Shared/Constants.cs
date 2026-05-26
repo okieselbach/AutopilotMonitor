@@ -215,6 +215,12 @@ namespace AutopilotMonitor.Shared
 
             // Pre-auth distress channel (no authentication required)
             public const string ReportDistress           = "/api/agent/distress";
+
+            // Critical-table backup feature (plan §PR1+, all GA-only)
+            public const string GlobalBackupsTrigger     = "/api/global/backups/trigger";        // POST → 202 + jobId
+            public const string GlobalBackupsList        = "/api/global/backups";                // GET  → list of backups
+            public const string GlobalBackupsManifest    = "/api/global/backups/{backupId}";     // GET  → manifest detail
+            public const string GlobalBackupsJobStatus   = "/api/global/backups/jobs/{jobId}";   // GET  → BackupJobStatus
         }
 
         // -----------------------------------------------------------------------
@@ -670,6 +676,17 @@ namespace AutopilotMonitor.Shared
             /// the blob in the customer's own storage and never touches this container.
             /// </summary>
             public const string HostedDiagnostics = "diagnostics";
+
+            /// <summary>
+            /// Critical-table backup destination. Daily timer + manual GA trigger write
+            /// per-table NDJSON dumps under <c>{backupId}/{tableName}.ndjson</c> plus a
+            /// final <c>{backupId}/manifest.json</c>. Maintenance lease sentinel lives
+            /// at <c>_lock/maintenance.lock</c> in the same container — coordinates
+            /// backup + restore jobs across worker/timer/single-row paths.
+            /// Lifecycle: 90-day delete on prefix <c>critical-table-backups/</c>; account
+            /// settings (Soft-Delete + Versioning) provide defence-in-depth.
+            /// </summary>
+            public const string CriticalTableBackups = "critical-table-backups";
         }
 
         /// <summary>
@@ -729,6 +746,73 @@ namespace AutopilotMonitor.Shared
 
             /// <summary>Poison sibling of <see cref="TenantOffboarding"/>.</summary>
             public const string TenantOffboardingPoison = "tenant-offboarding-poison";
+
+            /// <summary>
+            /// Critical-table backup job queue. Producer = HTTP trigger
+            /// <c>/api/global/backups/trigger</c> (fail-hard); consumer =
+            /// <c>CriticalTableBackupQueueWorker</c> (BackgroundService, BatchSize=1,
+            /// VisibilityTimeout=60min with 25min PopReceipt-renewal). Carries a small
+            /// envelope <c>{ jobId }</c> — full state lives in <see cref="TableNames.BackupJobs"/>.
+            /// Poison-suffix <c>-poison</c>, max-dequeue 5; Failed-state is persisted on
+            /// Poison-Move (NOT on first throw — that would defeat retry).
+            /// </summary>
+            public const string CriticalTableBackup = "critical-table-backup-jobs";
+
+            /// <summary>Poison sibling of <see cref="CriticalTableBackup"/>.</summary>
+            public const string CriticalTableBackupPoison = "critical-table-backup-jobs-poison";
+        }
+
+        /// <summary>
+        /// Critical tables that the daily backup feature snapshots. Order matters only for
+        /// deterministic test output; the per-table loop is independent so a failure in
+        /// one table does NOT block the others (Outcome=Partial covers that case).
+        /// Three of these (<c>GlobalAdmins</c>, <c>TenantAdmins</c>, <c>McpUsers</c>)
+        /// are gated to single-row restore in the API layer — full-table restore would
+        /// reactivate disabled or re-create removed identities.
+        /// <c>OffboardingAudit</c> additionally blocks replace-all (append-only audit).
+        /// </summary>
+        public static class CriticalBackupTables
+        {
+            public static readonly string[] All = new[]
+            {
+                TableNames.AdminConfiguration,
+                TableNames.AnalyzeRules,
+                TableNames.Feedback,
+                TableNames.GatherRules,
+                TableNames.GlobalAdmins,
+                TableNames.ImeLogPatterns,
+                TableNames.ImeVersionHistory,
+                TableNames.McpUsers,
+                TableNames.OffboardingAudit,
+                TableNames.PreviewConfig,
+                TableNames.PreviewWhitelist,
+                TableNames.RuleStates,
+                TableNames.TenantAdmins,
+                TableNames.TenantConfiguration,
+                TableNames.TenantOffboardingCustomsArchive,
+            };
+
+            /// <summary>
+            /// Full-table restore is API-blocked on these — the rows carry IsEnabled
+            /// semantics whose accidental re-activation is a security incident.
+            /// Single-row restore (with mandatory diff preview) remains allowed.
+            /// </summary>
+            public static readonly string[] AuthTablesFullRestoreForbidden = new[]
+            {
+                TableNames.GlobalAdmins,
+                TableNames.TenantAdmins,
+                TableNames.McpUsers,
+            };
+
+            /// <summary>
+            /// replace-all strategy is API-blocked on these — append-only audit semantics
+            /// (orphan-deletion would erase audit history added after the backup).
+            /// upsert-only remains allowed.
+            /// </summary>
+            public static readonly string[] AuditTablesReplaceAllForbidden = new[]
+            {
+                TableNames.OffboardingAudit,
+            };
         }
     }
 }

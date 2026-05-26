@@ -34,6 +34,7 @@ namespace AutopilotMonitor.Functions.Services
             Constants.QueueNames.AnalyzeOnEnrollmentEnd + "-poison",
             Constants.QueueNames.VulnerabilityCorrelate + "-poison",
             Constants.QueueNames.TelemetryIndexReconcile + "-poison",
+            Constants.QueueNames.CriticalTableBackupPoison,
         };
 
         /// <summary>Default warning threshold — every poison message is a 5x-failed handler call.</summary>

@@ -277,6 +277,25 @@ builder.Services.AddSingleton<
 builder.Services.AddHostedService<
     AutopilotMonitor.Functions.Services.Vulnerability.VulnerabilityCorrelateQueueWorker>();
 
+// ── Critical-Table Backup (plan §PR1) ─────────────────────────────────────────
+// Lease-aware service registered separately from the timer/worker so the lease
+// boundary is testable in isolation. JobsRepository is the canonical persistence
+// for the 6-state machine.
+builder.Services.AddSingleton<AutopilotMonitor.Functions.DataAccess.TableStorage.BackupJobsRepository>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Backup.BlobBackupStore>();
+builder.Services.AddSingleton<
+    AutopilotMonitor.Functions.Services.Backup.ICriticalTableBackupService,
+    AutopilotMonitor.Functions.Services.Backup.CriticalTableBackupService>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Backup.BackupJobWatchdog>();
+// Producer = fail-hard SendMessage (HTTP trigger handles the rollback to Failed).
+builder.Services.AddSingleton<
+    AutopilotMonitor.Functions.Services.Backup.Queue.ICriticalTableBackupProducer,
+    AutopilotMonitor.Functions.Services.Backup.Queue.AzureQueueCriticalTableBackupProducer>();
+// Worker = BackgroundService, not QueueTrigger (matches AnalyzeOnEnrollmentEndQueueWorker
+// pattern per plan §Wave4 #1 — avoids the QueueTrigger-specific connection app-setting).
+builder.Services.AddHostedService<
+    AutopilotMonitor.Functions.Services.Backup.Queue.CriticalTableBackupQueueWorker>();
+
 // Programmatic SignalR push for background tasks (rule engine, vulnerability correlation)
 builder.Services.AddSingleton<SignalRNotificationService>();
 builder.Services.AddSingleton<ISignalRNotificationService>(sp => sp.GetRequiredService<SignalRNotificationService>());
