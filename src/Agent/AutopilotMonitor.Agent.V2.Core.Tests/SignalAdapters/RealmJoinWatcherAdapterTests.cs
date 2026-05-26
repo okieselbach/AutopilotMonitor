@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
@@ -8,6 +9,7 @@ using AutopilotMonitor.Agent.V2.Core.Tests.Orchestration;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.Signals;
 using AutopilotMonitor.DecisionCore.State;
+using Microsoft.Win32;
 using SharedEventTypes = AutopilotMonitor.Shared.Constants.EventTypes;
 using Xunit;
 
@@ -435,5 +437,137 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             Assert.Equal("generic-bigname", info.Payload["packageId"]);
             Assert.Equal("user", info.Payload["scope"]);
         }
+
+        // Fake registry-access bundle used by the regression tests below. Lets the test drive
+        // the watcher's enumerate / read / exists outcomes deterministically without touching
+        // the live hive — production binds these to RealmJoinInfo + the real Registry probe.
+        private sealed class FakeRealmJoinRegistry
+        {
+            public Dictionary<string, List<string>> PackagesByPath { get; } =
+                new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            public HashSet<string> ExistingKeys { get; } =
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            public IReadOnlyList<string> Enumerate(RegistryHive hive, string packagesPath)
+            {
+                return PackagesByPath.TryGetValue(packagesPath, out var ids)
+                    ? (IReadOnlyList<string>)ids
+                    : Array.Empty<string>();
+            }
+
+            public bool TryRead(RegistryHive hive, string packagesPath, string packageId, out RealmJoinPackageSnapshot snapshot)
+            {
+                snapshot = new RealmJoinPackageSnapshot(
+                    packageId: packageId,
+                    displayName: $"Pre-existing {packageId}",
+                    version: "1.0.0",
+                    success: true,
+                    lastExitCode: 0);
+                return true;
+            }
+
+            public bool KeyExists(RegistryHive hive, string subPath)
+                => ExistingKeys.Contains(subPath);
+        }
+
+        [Fact]
+        public void Phase_crossing_after_late_ArmHku_does_not_replay_pre_existing_user_packages()
+        {
+            // Regression for session ff0cdcbe (V2 2.0.886): three RJ user-scope packages were
+            // installed during ESP while DeploymentPhase was still Blank. When phase finally
+            // crossed 0 -> 100, the pre-fix NotifyRealmJoinPresence ran a standalone
+            // CheckUserPackages BEFORE the seed pass inside AttachUserRealmJoinSubtreeWatcher.
+            // The dedup sets were still empty at that point, so every pre-existing sub-key
+            // surfaced as a started + completed pair instead of being silently absorbed.
+            //
+            // Drives the exact production sequence (ArmHku first, then phase crosses 100) with
+            // a fake registry that already holds three user-scope packages, and asserts that
+            // no realmjoin_package_started / _completed signals leak.
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
+            var ingress = new FakeSignalIngressSink();
+            var clock = new VirtualClock(Fixed);
+
+            const string testSid = "S-1-5-21-test-fake";
+            var userRealmJoinPath = testSid + "\\" + RealmJoinInfo.UserRealmJoinSubPath;
+            var userPackagesPath = testSid + "\\" + RealmJoinInfo.UserPackagesRegistrySubPath;
+
+            var registry = new FakeRealmJoinRegistry();
+            // Make the HKU\<sid>\SOFTWARE\RealmJoin key "exist" so EnsureUserRealmJoinStage
+            // takes the attach-and-seed path. KeyExists returns false for everything else,
+            // including the HKLM machine-scope probe — that path arms a (no-op-here) appearance
+            // watcher on HKLM\SOFTWARE which is irrelevant to this assertion.
+            registry.ExistingKeys.Add(userRealmJoinPath);
+            registry.PackagesByPath[userPackagesPath] = new List<string>
+            {
+                "generic-agilebits-1password",
+                "generic-realmjoin-promote-tray-icon",
+                "generic-vlc-usersettings",
+            };
+
+            using var watcher = new RealmJoinWatcher(
+                logger,
+                enumeratePackageIds: registry.Enumerate,
+                tryReadPackage: registry.TryRead,
+                keyExists: registry.KeyExists);
+            using var adapter = new RealmJoinWatcherAdapter(watcher, ingress, clock);
+
+            // 1) Desktop arrives, SID is recorded — phase is still Blank, so the watcher just
+            //    notes the SID and arms nothing. armNow == false.
+            watcher.ArmHku(testSid);
+            Assert.False(watcher.PackageWatchersArmedForTest);
+
+            // 2) Phase observation crosses RunningThreshold — this is the path that used to
+            //    pre-seed-CheckUserPackages and leak events.
+            watcher.TriggerNotifyRealmJoinPresenceFromTest(phase: 100);
+
+            Assert.True(watcher.PackageWatchersArmedForTest);
+            Assert.DoesNotContain(ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinPackageStarted);
+            Assert.DoesNotContain(ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinPackageCompleted);
+        }
+
+        [Fact]
+        public void Late_ArmHku_with_phase_already_running_does_not_replay_pre_existing_user_packages()
+        {
+            // Mirror regression for the OTHER pre-fix call site: when ArmHku arrives AFTER the
+            // phase has already crossed RunningThreshold, the pre-fix code ran a standalone
+            // CheckUserPackages inside ArmHku BEFORE EnsureUserRealmJoinStage's seed. Same
+            // family of bug, opposite arrival order — desktop_arrived after phase==100.
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
+            var ingress = new FakeSignalIngressSink();
+            var clock = new VirtualClock(Fixed);
+
+            const string testSid = "S-1-5-21-test-fake";
+            var userRealmJoinPath = testSid + "\\" + RealmJoinInfo.UserRealmJoinSubPath;
+            var userPackagesPath = testSid + "\\" + RealmJoinInfo.UserPackagesRegistrySubPath;
+
+            var registry = new FakeRealmJoinRegistry();
+            registry.ExistingKeys.Add(userRealmJoinPath);
+            registry.PackagesByPath[userPackagesPath] = new List<string>
+            {
+                "generic-prefab-user-a",
+                "generic-prefab-user-b",
+            };
+
+            using var watcher = new RealmJoinWatcher(
+                logger,
+                enumeratePackageIds: registry.Enumerate,
+                tryReadPackage: registry.TryRead,
+                keyExists: registry.KeyExists);
+            using var adapter = new RealmJoinWatcherAdapter(watcher, ingress, clock);
+
+            // 1) Phase crosses RunningThreshold first — package watchers arm but SID isn't
+            //    known yet, so the HKU branch is skipped.
+            watcher.TriggerNotifyRealmJoinPresenceFromTest(phase: 100);
+            Assert.True(watcher.PackageWatchersArmedForTest);
+
+            // 2) Desktop arrives late, SID resolved — armNow == true, used to leak events here.
+            watcher.ArmHku(testSid);
+
+            Assert.DoesNotContain(ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinPackageStarted);
+            Assert.DoesNotContain(ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinPackageCompleted);
+        }
+
     }
 }

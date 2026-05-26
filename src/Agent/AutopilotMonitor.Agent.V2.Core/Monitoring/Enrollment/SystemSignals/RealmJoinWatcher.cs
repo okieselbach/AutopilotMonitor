@@ -89,7 +89,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
     {
         internal const int DebounceMilliseconds = 500;
 
+        // Registry-access seams. Production binds these to RealmJoinInfo + the real KeyExists
+        // probe via the public ctor below; tests inject fakes through the internal ctor to drive
+        // enumerate / read / exists outcomes deterministically without touching the live hive.
+        internal delegate IReadOnlyList<string> EnumeratePackageIdsDelegate(RegistryHive hive, string packagesPath);
+        internal delegate bool TryReadPackageDelegate(RegistryHive hive, string packagesPath, string packageId, out RealmJoinPackageSnapshot snapshot);
+        internal delegate bool KeyExistsDelegate(RegistryHive hive, string subPath);
+
         private readonly AgentLogger _logger;
+        private readonly EnumeratePackageIdsDelegate _enumeratePackageIds;
+        private readonly TryReadPackageDelegate _tryReadPackage;
+        private readonly KeyExistsDelegate _keyExists;
         private readonly object _stateLock = new object();
 
         // Stage-1 parent-watchers (disposed on appearance).
@@ -132,8 +142,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         public event EventHandler<RealmJoinPackageEventArgs>? RealmJoinPackageCompleted;
 
         public RealmJoinWatcher(AgentLogger logger)
+            : this(logger, RealmJoinInfo.EnumeratePackageIds, RealmJoinInfo.TryReadPackage, KeyExistsViaRegistry)
+        {
+        }
+
+        internal RealmJoinWatcher(
+            AgentLogger logger,
+            EnumeratePackageIdsDelegate enumeratePackageIds,
+            TryReadPackageDelegate tryReadPackage,
+            KeyExistsDelegate keyExists)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _enumeratePackageIds = enumeratePackageIds ?? throw new ArgumentNullException(nameof(enumeratePackageIds));
+            _tryReadPackage = tryReadPackage ?? throw new ArgumentNullException(nameof(tryReadPackage));
+            _keyExists = keyExists ?? throw new ArgumentNullException(nameof(keyExists));
         }
 
         public void Start()
@@ -175,7 +197,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
             if (armNow)
             {
-                CheckUserPackages();
+                // EnsureUserRealmJoinStage -> AttachUserRealmJoinSubtreeWatcher seeds the dedup
+                // sets BEFORE its internal CheckUserPackages sweep. A standalone CheckUserPackages
+                // here would run pre-seed and surface pre-existing user-hive package sub-keys
+                // (typical: RJ packages installed during ESP before phase >= 100) as spurious
+                // started+completed events. The attach path is the single, ordered entry point.
                 EnsureUserRealmJoinStage();
             }
         }
@@ -217,7 +243,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         private void EnsureRealmJoinServiceStage()
         {
-            if (KeyExists(RegistryHive.LocalMachine, RealmJoinInfo.ServiceRealmJoinKeyPath))
+            if (_keyExists(RegistryHive.LocalMachine, RealmJoinInfo.ServiceRealmJoinKeyPath))
             {
                 AttachServiceRealmjoinSubtreeWatcher();
                 return;
@@ -235,7 +261,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         private void EnsureMachineRealmJoinStage()
         {
-            if (KeyExists(RegistryHive.LocalMachine, RealmJoinInfo.MachineRealmJoinPath))
+            if (_keyExists(RegistryHive.LocalMachine, RealmJoinInfo.MachineRealmJoinPath))
             {
                 AttachMachineRealmJoinSubtreeWatcher();
                 return;
@@ -258,7 +284,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             if (string.IsNullOrEmpty(sid)) return;
 
             var fullPath = sid + "\\" + RealmJoinInfo.UserRealmJoinSubPath;
-            if (KeyExists(RegistryHive.Users, fullPath))
+            if (_keyExists(RegistryHive.Users, fullPath))
             {
                 AttachUserRealmJoinSubtreeWatcher(fullPath);
                 return;
@@ -305,7 +331,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 watcher.Changed += (s, e) =>
                 {
                     if (_disposed) return;
-                    if (!KeyExists(hive, targetFullPath)) return;
+                    if (!_keyExists(hive, targetFullPath)) return;
                     _logger.Info($"RealmJoinWatcher: {targetSubKeyName} appeared under {parentPath} — switching to subtree watcher");
 
                     // CRITICAL: this callback runs on the RegistryWatcher's own background
@@ -548,7 +574,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 EnsureMachineRealmJoinStage();
                 if (armUserPackageWatcherToo)
                 {
-                    CheckUserPackages();
+                    // EnsureUserRealmJoinStage -> AttachUserRealmJoinSubtreeWatcher seeds the
+                    // dedup sets BEFORE its internal CheckUserPackages sweep. See the matching
+                    // note in ArmHku — running a standalone CheckUserPackages here would re-fire
+                    // every pre-existing user-hive package sub-key (ESP-installed RJ packages)
+                    // as a started+completed pair before the seed had a chance to suppress them.
                     EnsureUserRealmJoinStage();
                 }
             }
@@ -593,10 +623,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         {
             try
             {
-                var ids = RealmJoinInfo.EnumeratePackageIds(hive, packagesPath);
+                var ids = _enumeratePackageIds(hive, packagesPath);
                 foreach (var id in ids)
                 {
-                    if (!RealmJoinInfo.TryReadPackage(hive, packagesPath, id, out var snap)) continue;
+                    if (!_tryReadPackage(hive, packagesPath, id, out var snap)) continue;
                     MaybeFirePackageEvents(scope, snap, startedSet, completedSet);
                 }
             }
@@ -623,7 +653,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         {
             try
             {
-                var ids = RealmJoinInfo.EnumeratePackageIds(hive, packagesPath);
+                var ids = _enumeratePackageIds(hive, packagesPath);
                 if (ids.Count == 0)
                 {
                     _logger.Info($"RealmJoinWatcher: seed pass ({scopeLabel}) found no pre-existing packages under {packagesPath}");
@@ -687,7 +717,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         // ---- utils ------------------------------------------------------------------------
 
-        private static bool KeyExists(RegistryHive hive, string subPath)
+        // Default <see cref="_keyExists"/> binding for the public ctor — the real registry probe
+        // used in production. Test ctors inject a fake to drive deterministic outcomes.
+        private static bool KeyExistsViaRegistry(RegistryHive hive, string subPath)
         {
             try
             {
