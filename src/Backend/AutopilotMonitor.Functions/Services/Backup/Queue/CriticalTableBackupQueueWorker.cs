@@ -321,9 +321,17 @@ namespace AutopilotMonitor.Functions.Services.Backup.Queue
                             retryableException = ex;
                         }
 
-                        // ── Terminal CAS Completed (only on success path) ──────
+                        // ── Terminal CAS, still UNDER LEASE ─────────────────────
+                        // Codex-Hotfix Wave3 #1: BOTH the success-CAS (Running→Completed)
+                        // AND the retryable-rollback (Running→Queued) must run before the
+                        // lease is released. Otherwise the post-lease window
+                        // "Running + free lease + stale heartbeat" lets the watchdog flip the
+                        // job to Failed, and our subsequent rollback then re-reads the fresh
+                        // ETag and unconditionally re-sets Queued, silently undoing the
+                        // watchdog's decision.
                         if (retryableException is null && result is not null)
                         {
+                            // Success path.
                             var completedAt = _clock.GetUtcNow().UtcDateTime;
                             var (finalJob, finalETag) = await _jobs.GetWithETagAsync(jobId, hct).ConfigureAwait(false);
                             if (finalJob is not null && finalETag is not null)
@@ -334,6 +342,35 @@ namespace AutopilotMonitor.Functions.Services.Backup.Queue
                                 finalJob.BackupOutcome = result.Outcome;
                                 finalJob.Error = null;
                                 await _jobs.TryUpdateWithCasAsync(finalJob, finalETag.Value, hct).ConfigureAwait(false);
+                            }
+                        }
+                        else if (retryableException is not null)
+                        {
+                            // Retryable-rollback under lease.
+                            var (rb, rbETag) = await _jobs.GetWithETagAsync(jobId, hct).ConfigureAwait(false);
+                            if (rb is not null && rbETag is not null)
+                            {
+                                // Defence-in-depth state guard (Codex-Hotfix Wave3 #1): we
+                                // expect the row to still be Running (we set it that way and
+                                // hold the maintenance lease throughout). If a parallel actor
+                                // somehow shifted the state, leave it alone instead of
+                                // clobbering a non-Running decision back to Queued.
+                                if (rb.State == BackupJobState.Running)
+                                {
+                                    var retryNow = _clock.GetUtcNow().UtcDateTime;
+                                    rb.State = BackupJobState.Queued;
+                                    rb.BackupId = null;
+                                    rb.LastHeartbeatUtc = retryNow;
+                                    rb.QueuedAtUtc = retryNow;
+                                    rb.Error = retryableException.Message;
+                                    await _jobs.TryUpdateWithCasAsync(rb, rbETag.Value, hct).ConfigureAwait(false);
+                                }
+                                else
+                                {
+                                    _logger.LogWarning(
+                                        "CriticalTableBackupQueueWorker: skipping retry rollback for jobId {JobId} — row no longer Running (now {State})",
+                                        jobId, rb.State);
+                                }
                             }
                         }
                     }
@@ -389,23 +426,13 @@ namespace AutopilotMonitor.Functions.Services.Backup.Queue
 
             if (retryableException is not null)
             {
-                var (rb, rbETag) = await _jobs.GetWithETagAsync(jobId, ct).ConfigureAwait(false);
-                if (rb is not null && rbETag is not null)
-                {
-                    var retryNow = _clock.GetUtcNow().UtcDateTime;
-                    rb.State = BackupJobState.Queued;
-                    rb.BackupId = null;          // next attempt gets a fresh id (orphan blobs are cleaned by lifecycle)
-                    rb.LastHeartbeatUtc = retryNow;
-                    rb.QueuedAtUtc = retryNow;   // Codex-Hotfix Wave1 #2: reset queue clock so the watchdog's
-                                                 // 60 min "Queued without pickup" rule does not fire on
-                                                 // a job that has just rolled back for legitimate retry.
-                    rb.Error = retryableException.Message;
-                    await _jobs.TryUpdateWithCasAsync(rb, rbETag.Value, ct).ConfigureAwait(false);
-                }
+                // Rollback already done UNDER LEASE inside the leased section
+                // (Codex-Hotfix Wave3 #1). Just log + rethrow so the outer poll loop
+                // applies visibility-timeout retry semantics.
                 _logger.LogWarning(retryableException,
-                    "CriticalTableBackupQueueWorker: jobId {JobId} backup attempt failed — rolling to Queued for retry (dequeue {N})",
+                    "CriticalTableBackupQueueWorker: jobId {JobId} backup attempt failed — rolled back to Queued for retry (dequeue {N})",
                     jobId, msg.DequeueCount);
-                throw retryableException;        // outer loop applies visibility-timeout retry
+                throw retryableException;
             }
 
             // ── OpsEvent on success (non-throwing per Wave25 #3) ──
