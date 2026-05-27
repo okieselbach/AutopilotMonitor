@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
 using System.Web;
@@ -81,26 +80,16 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
                 var page = await _configService.GetConfigurationsPageAsync(parsed.PageSize.Value, azureToken);
 
-                // Keep-list projection — only non-sensitive identity / lifecycle / plan fields.
-                var tenants = page.Items.Select(c => new
-                {
-                    tenantId = c.TenantId,
-                    domainName = c.DomainName,
-                    planTier = c.PlanTier,
-                    disabled = c.Disabled,
-                    disabledReason = c.DisabledReason,
-                    onboardedAt = c.OnboardedAt,
-                    onboardedBy = c.OnboardedBy,
-                    lastUpdated = c.LastUpdated,
-                    dataRetentionDays = c.DataRetentionDays,
-                }).ToList();
+                // Keep-list projection — only non-sensitive fields, optionally narrowed to the
+                // caller's fields= subset. Secrets can never be selected (intersection only).
+                var tenants = TenantConfigProjection.ProjectAll(page.Items, parsed.Fields);
 
                 string? nextLink = null;
                 if (!string.IsNullOrEmpty(page.NextRawToken))
                 {
                     var fp = TenantConfigPagination.Fingerprint(callerTenantId);
                     var wireToken = ContinuationToken.Encode(page.NextRawToken!, callerTenantId, fp);
-                    nextLink = TenantConfigPagination.BuildNextLink(parsed.PageSize.Value, wireToken);
+                    nextLink = TenantConfigPagination.BuildNextLink(parsed.PageSize.Value, wireToken, parsed.Fields);
                 }
 
                 return await req.OkAsync(new

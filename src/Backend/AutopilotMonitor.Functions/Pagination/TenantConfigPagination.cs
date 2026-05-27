@@ -31,6 +31,12 @@ namespace AutopilotMonitor.Functions.Pagination
             /// <summary>Null when the caller did not opt into pagination (legacy bare-array mode).</summary>
             public int? PageSize { get; init; }
             public string? Continuation { get; init; }
+            /// <summary>
+            /// Raw comma-separated field subset (e.g. "tenantId,domainName"), or null for all
+            /// safe fields. A projection, not a filter — it does NOT enter the continuation
+            /// fingerprint (changing it mid-stream keeps the cursor valid).
+            /// </summary>
+            public string? Fields { get; init; }
             public string? Error { get; init; }
         }
 
@@ -38,6 +44,7 @@ namespace AutopilotMonitor.Functions.Pagination
         {
             var pageSizeRaw = query?["pageSize"];
             var continuationRaw = query?["continuation"];
+            var fieldsRaw = query?["fields"];
 
             int? pageSize = null;
             if (!string.IsNullOrEmpty(pageSizeRaw))
@@ -54,7 +61,12 @@ namespace AutopilotMonitor.Functions.Pagination
                 ? continuationRaw
                 : null;
 
-            return new Parsed { PageSize = pageSize, Continuation = continuation };
+            return new Parsed
+            {
+                PageSize = pageSize,
+                Continuation = continuation,
+                Fields = string.IsNullOrEmpty(fieldsRaw) ? null : fieldsRaw,
+            };
         }
 
         public static bool TryAcceptContinuation(
@@ -67,12 +79,16 @@ namespace AutopilotMonitor.Functions.Pagination
             return ContinuationToken.TryDecode(raw, callerTenantId, fp, out azureToken, out rejectReason);
         }
 
-        public static string BuildNextLink(int pageSize, string wireContinuation)
+        public static string BuildNextLink(int pageSize, string wireContinuation, string? fields)
         {
             var sb = new StringBuilder("/api/config/all");
             sb.Append('?');
             sb.Append("pageSize=").Append(pageSize.ToString(CultureInfo.InvariantCulture));
             sb.Append("&continuation=").Append(System.Uri.EscapeDataString(wireContinuation));
+            // Echo the projection so the caller can follow nextLink verbatim and keep the
+            // same lean column set across every page (fields is not in the token fingerprint).
+            if (!string.IsNullOrEmpty(fields))
+                sb.Append("&fields=").Append(System.Uri.EscapeDataString(fields!));
             return sb.ToString();
         }
     }

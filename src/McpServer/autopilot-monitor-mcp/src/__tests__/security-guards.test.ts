@@ -18,7 +18,7 @@ import { followNextLink } from '../client.js';
 import { SessionIdSchema } from '../tools/shared.js';
 import { ApiError } from '../client.js';
 import { toolError } from '../tools/error-handler.js';
-import { extractTenantList, TENANT_SAFE_FIELDS, projectTenantFields } from '../tools/admin.js';
+import { extractTenantList, TENANT_SAFE_FIELDS } from '../tools/admin.js';
 
 // Importing the OAuth helper requires the env var that gates module load.
 // Set a dummy value before the import resolves so the throw doesn't fire.
@@ -481,29 +481,3 @@ describe('list_tenants — extractTenantList keep-list projection', () => {
   });
 });
 
-describe('list_tenants — projectTenantFields client-side field trim', () => {
-  const tenants: Record<string, unknown>[] = [
-    { tenantId: 'aaa', domainName: 'alpha.example.com', planTier: 'pro', disabled: true },
-    { tenantId: 'bbb', domainName: 'beta.onmicrosoft.com', planTier: 'free', disabled: false },
-  ];
-
-  it('returns rows unchanged when no fields are given', () => {
-    expect(projectTenantFields(tenants, undefined)).toEqual(tenants);
-    expect(projectTenantFields(tenants, '')).toEqual(tenants);
-  });
-
-  it('keeps only the requested fields', () => {
-    const out = projectTenantFields(tenants, 'domainName');
-    for (const t of out) expect(Object.keys(t).sort()).toEqual(['domainName', 'tenantId']);
-  });
-
-  it('always retains tenantId even when not requested', () => {
-    const out = projectTenantFields(tenants, 'planTier');
-    expect(Object.keys(out[0]).sort()).toEqual(['planTier', 'tenantId']);
-  });
-
-  it('tolerates whitespace and empty entries in the fields list', () => {
-    const out = projectTenantFields(tenants, ' domainName , , planTier ');
-    expect(Object.keys(out[0]).sort()).toEqual(['domainName', 'planTier', 'tenantId']);
-  });
-});
