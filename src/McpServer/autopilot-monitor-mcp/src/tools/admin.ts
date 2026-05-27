@@ -257,13 +257,13 @@ export function registerAdminTools(server: McpServer): void {
   // Tool 15: get_usage_metrics
   server.tool(
     'get_usage_metrics',
-    'Get platform usage statistics: active tenants, session volumes, feature adoption. ' +
-    'Global Admin only — omit tenantId for the platform-wide overview, or pass tenantId to filter that ' +
-    'cross-tenant view down to a single tenant. The call always uses the global endpoint, so a Tenant Admin ' +
-    'cannot use this tool (they receive 403) even when passing their own tenantId. ' +
+    'Get usage statistics: session volumes, feature adoption, active tenants/users. ' +
+    'Global Admin: cross-tenant platform overview — omit tenantId for the whole platform, or pass ' +
+    'tenantId to filter that view to one tenant. Tenant Admin / Member: returns usage scoped to your ' +
+    'own tenant (the tenantId argument is ignored — your token determines the tenant). ' +
     'days accepts any value 1-365 (e.g. 5, 7, 12, 30, 90).',
     {
-      tenantId: z.string().optional().describe('Filter the global view to a single tenant. Omit for the platform-wide overview. This tool is Global Admin only either way.'),
+      tenantId: z.string().optional().describe('Global Admin only: filter the platform-wide view to a single tenant. Ignored for Tenant Admins (your token scopes the result).'),
       days: z.coerce.number().int().min(1).max(365).optional().default(30)
         .describe('Time window in days (1-365). Defaults to 30. Sessions.Total / Tenants.Total reflect this window.'),
     },
@@ -271,7 +271,11 @@ export function registerAdminTools(server: McpServer): void {
     async (args) => withToolTelemetry('get_usage_metrics', async () => {
       try {
         const { tenantId, days } = args;
-        const data = await apiFetch(`/api/global/metrics/usage${buildQuery({ tenantId, days })}`);
+        // GA → /api/global/metrics/usage (tenantId is a filter); Tenant-Admin → /api/metrics/usage
+        // (JWT-scoped; tenantId ignored). Routing by role unlocks the MemberRead tenant endpoint
+        // for non-GA callers instead of a blanket 403.
+        const path = pickGlobalOrTenantPath('/api/global/metrics/usage', '/api/metrics/usage');
+        const data = await apiFetch(`${path}${buildQuery({ tenantId, days })}`);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('get_usage_metrics', args, error);
