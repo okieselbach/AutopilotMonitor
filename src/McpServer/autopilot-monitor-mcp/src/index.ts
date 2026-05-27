@@ -6,6 +6,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { registerTools } from './tools.js';
 import { registerResources } from './resources.js';
+import { registerPrompts } from './prompts.js';
 import { loadKnowledgeDocs } from './knowledge-base.js';
 import { createSearchProvider } from './search-factory.js';
 import { createOAuthRouter } from './oauth.js';
@@ -42,11 +43,30 @@ const knowledgeBase = await createSearchProvider();
 await knowledgeBase.index(docs);
 console.error(`Search provider ready: ${knowledgeBase.name} — ${knowledgeBase.size} documents indexed.`);
 
+// Server-level guidance. The host surfaces this once per connection, so it is
+// the right home for cross-cutting strategy that would otherwise be duplicated
+// into every tool description (and re-sent on every tools/list). Keep it short:
+// it is always-on context, not a manual.
+const SERVER_INSTRUCTIONS = [
+  'Autopilot-Monitor is a READ-ONLY telemetry server for Windows Autopilot enrollment sessions.',
+  '',
+  'Investigating one session: call get_session_summary FIRST (status, filtered timeline, stats, rule analysis in one call), then drill in.',
+  'Searching events: escalate by tier — search_events_semantic (TIER 1, fast) → get_session_events / query_raw_events (TIER 2, raw) → deep_search_events (TIER 3, exhaustive).',
+  'Counting / aggregating: pass a lean `fields=` projection and use `agentVersionPrefix=`/`imeAgentVersionPrefix=` sweeps to stay under the per-response size cap.',
+  'Pagination: when a response carries `nextLink`, pass that whole string back as `continuation`; stop when it is absent. Results are never silently truncated.',
+  'Catalogs: call get_resource(name="event_types"|"device_properties") to discover valid eventType strings and deviceProperties keys before filtering.',
+  'Scope: omit tenantId for cross-tenant queries (Global Admin only); pass tenantId to scope to one tenant.',
+].join('\n');
+
 /** Creates a fresh McpServer instance per session (each needs its own protocol). */
 function createMcpServer(): McpServer {
-  const s = new McpServer({ name: 'Autopilot-Monitor', version: SERVER_VERSION });
+  const s = new McpServer(
+    { name: 'Autopilot-Monitor', version: SERVER_VERSION },
+    { instructions: SERVER_INSTRUCTIONS },
+  );
   registerTools(s, knowledgeBase);
   registerResources(s);
+  registerPrompts(s);
   return s;
 }
 
@@ -61,6 +81,14 @@ const app = express();
 // magnitude over realistic; anything larger is a memory-pressure attempt
 // against the in-memory client registry.
 app.use('/oauth/register', express.json({ limit: '8kb' }));
+
+// Tight body-size limit for /mcp, registered BEFORE the global parser so the
+// smaller limit wins (the global parser's body-already-parsed short-circuit
+// then skips re-parsing). A JSON-RPC tool call carries only a method name plus
+// a handful of small string args (the largest realistic field is a continuation
+// nextLink, well under 1 KB). 256 KB is generous headroom; anything larger is a
+// memory-pressure attempt against the 0.5 GiB container, not a real call.
+app.use('/mcp', express.json({ limit: '256kb' }));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

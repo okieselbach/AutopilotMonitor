@@ -1,5 +1,7 @@
+using System.Threading;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared.Models.Vulnerability;
 using AutopilotMonitor.Shared.Pagination;
 using AutopilotMonitor.Functions.Services;
 
@@ -166,6 +168,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             string? tenantId, string cveId, double? minCvssScore, string? overallRisk,
             int pageSize, string? continuation)
             => _storage.SearchSessionsByCvePageAsync(tenantId, cveId, minCvssScore, overallRisk, pageSize, continuation);
+
+        public Task<(IReadOnlyList<CveExposureEntry> Rows, bool Truncated)> ScanCveIndexAsync(
+            string? tenantId, int maxRows, CancellationToken ct = default)
+            => _storage.ScanCveIndexAsync(tenantId, maxRows, ct);
 
         public Task UpsertEventTypeIndexBatchAsync(string tenantId, string sessionId, IEnumerable<EnrollmentEvent> events)
             => _storage.UpsertEventTypeIndexBatchAsync(tenantId, sessionId, events);

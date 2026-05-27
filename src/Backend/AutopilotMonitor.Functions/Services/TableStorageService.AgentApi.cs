@@ -4,6 +4,7 @@ using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared.Models.Vulnerability;
 using AutopilotMonitor.Shared.Pagination;
 using Microsoft.Extensions.Logging;
 
@@ -1211,6 +1212,67 @@ namespace AutopilotMonitor.Functions.Services
 
             var sessions = await BatchGetSessionsAsync(tenantId, sessionIds);
             return new RawPage<SessionSummary>(sessions, nextRawToken);
+        }
+
+        /// <summary>
+        /// Scans the CveIndex for fleet-wide vulnerability aggregation. Tenant-scoped
+        /// uses a partition-prefix range (`{tenantId}_` .. `{tenantId}_~`) so Azure
+        /// targets only that tenant's CVE partitions; cross-tenant (tenantId null) is
+        /// a bounded full-table scan — each row carries TenantId + CveId, so the
+        /// aggregate is correct without the loose suffix-range the per-CVE search
+        /// has to use. Reads at most <paramref name="maxRows"/> rows and reports
+        /// whether the cap was hit so the caller can flag partial results.
+        /// </summary>
+        public async Task<(IReadOnlyList<CveExposureEntry> Rows, bool Truncated)> ScanCveIndexAsync(
+            string? tenantId, int maxRows, CancellationToken ct = default)
+        {
+            if (maxRows < 1) maxRows = 1;
+            var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.CveIndex);
+
+            string? filter = null;
+            if (!string.IsNullOrEmpty(tenantId))
+            {
+                var safe = ODataSanitizer.EscapeValue(tenantId);
+                filter = $"PartitionKey ge '{safe}_' and PartitionKey lt '{safe}_~'";
+            }
+
+            var select = new[]
+            {
+                "SessionId", "TenantId", "CveId", "SoftwareName",
+                "CvssScore", "CvssSeverity", "IsKev", "OverallRisk", "DetectedAt",
+            };
+
+            var rows = new List<CveExposureEntry>(Math.Min(maxRows, 2048));
+            var truncated = false;
+            await foreach (var e in tableClient.QueryAsync<TableEntity>(
+                filter: filter, maxPerPage: 1000, select: select, cancellationToken: ct))
+            {
+                if (rows.Count >= maxRows) { truncated = true; break; }
+
+                // TenantId column is always written, but fall back to the partition
+                // key prefix (`{tenantId}_{cveId}`) for any legacy row missing it.
+                var tid = e.GetString("TenantId");
+                if (string.IsNullOrEmpty(tid))
+                {
+                    var us = e.PartitionKey.IndexOf('_');
+                    tid = us > 0 ? e.PartitionKey.Substring(0, us) : string.Empty;
+                }
+
+                rows.Add(new CveExposureEntry
+                {
+                    TenantId = tid ?? string.Empty,
+                    CveId = e.GetString("CveId") ?? string.Empty,
+                    SessionId = e.GetString("SessionId") ?? e.RowKey,
+                    SoftwareName = e.GetString("SoftwareName") ?? string.Empty,
+                    CvssScore = e.GetDouble("CvssScore") ?? 0,
+                    CvssSeverity = e.GetString("CvssSeverity") ?? string.Empty,
+                    IsKev = e.GetBoolean("IsKev") ?? false,
+                    OverallRisk = e.GetString("OverallRisk") ?? string.Empty,
+                    DetectedAt = e.GetDateTime("DetectedAt"),
+                });
+            }
+
+            return (rows, truncated);
         }
 
         /// <summary>

@@ -18,6 +18,7 @@ import { followNextLink } from '../client.js';
 import { SessionIdSchema } from '../tools/shared.js';
 import { ApiError } from '../client.js';
 import { toolError } from '../tools/error-handler.js';
+import { extractTenantList, TENANT_SAFE_FIELDS } from '../tools/admin.js';
 
 // Importing the OAuth helper requires the env var that gates module load.
 // Set a dummy value before the import resolves so the throw doesn't fire.
@@ -405,4 +406,77 @@ describe('F4 — HMAC-signed OAuth state', () => {
     expect(verifyState('a.b.c')).toBeNull(); // too many parts
   });
 
+});
+
+describe('list_tenants — extractTenantList keep-list projection', () => {
+  // /api/config/all returns full tenant configs incl. secrets. The tool must
+  // surface only non-sensitive fields; these tests pin that boundary.
+  const fullConfig = {
+    tenantId: 'contoso-tenant-id',
+    domainName: 'contoso.example.com',
+    planTier: 'pro',
+    disabled: false,
+    onboardedAt: '2026-01-15T00:00:00Z',
+    onboardedBy: 'alice@contoso.example.com',
+    lastUpdated: '2026-05-01T00:00:00Z',
+    dataRetentionDays: 90,
+    // ── sensitive / must NOT leak ──
+    teamsWebhookUrl: 'https://contoso.webhook.office.com/secret-token',
+    webhookUrl: 'https://example.com/hook?key=supersecret',
+    diagnosticsBlobSasUrl: 'https://blob.core.windows.net/c?sig=SECRETSAS',
+    enrollmentSummaryBrandingImageUrl: 'https://internal/branding.png',
+    localAdminAllowedAccountsJson: '["admin"]',
+    diagnosticsLogPathsJson: '[]',
+    updatedBy: 'bob@contoso.example.com',
+  };
+
+  it('keeps only the safe identity/lifecycle/plan fields', () => {
+    const [t] = extractTenantList([fullConfig]);
+    // Every surviving key must be in the keep-list (no leak), and the fields
+    // present in the input must survive. A safe field absent from the input
+    // (e.g. disabledReason on a non-disabled tenant) is legitimately omitted.
+    for (const key of Object.keys(t)) expect(TENANT_SAFE_FIELDS.has(key)).toBe(true);
+    for (const present of [
+      'tenantId', 'domainName', 'planTier', 'disabled',
+      'onboardedAt', 'onboardedBy', 'lastUpdated', 'dataRetentionDays',
+    ]) {
+      expect(t).toHaveProperty(present);
+    }
+    expect(t.tenantId).toBe('contoso-tenant-id');
+    expect(t.planTier).toBe('pro');
+  });
+
+  it('strips every secret-bearing field', () => {
+    const [t] = extractTenantList([fullConfig]);
+    for (const leaky of [
+      'teamsWebhookUrl', 'webhookUrl', 'diagnosticsBlobSasUrl',
+      'enrollmentSummaryBrandingImageUrl', 'localAdminAllowedAccountsJson',
+      'diagnosticsLogPathsJson', 'updatedBy',
+    ]) {
+      expect(t).not.toHaveProperty(leaky);
+    }
+    // Belt-and-suspenders: no surviving value contains a SAS/webhook marker.
+    const serialized = JSON.stringify(t);
+    expect(serialized).not.toMatch(/sig=|webhook|SECRET/i);
+  });
+
+  it('normalizes a bare array, a {configurations} envelope, and a {tenants} envelope', () => {
+    expect(extractTenantList([fullConfig])).toHaveLength(1);
+    expect(extractTenantList({ configurations: [fullConfig] })).toHaveLength(1);
+    expect(extractTenantList({ tenants: [fullConfig, fullConfig] })).toHaveLength(2);
+  });
+
+  it('returns an empty list for malformed / empty payloads', () => {
+    expect(extractTenantList(null)).toEqual([]);
+    expect(extractTenantList(undefined)).toEqual([]);
+    expect(extractTenantList({})).toEqual([]);
+    expect(extractTenantList('not-json')).toEqual([]);
+  });
+
+  it('tolerates non-object rows without throwing', () => {
+    const result = extractTenantList([null, 42, 'x', fullConfig]);
+    expect(result).toHaveLength(4);
+    expect(result[0]).toEqual({});
+    expect(result[3].tenantId).toBe('contoso-tenant-id');
+  });
 });

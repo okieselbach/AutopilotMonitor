@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared.Models.Vulnerability;
 using AutopilotMonitor.Shared.Pagination;
 
 namespace AutopilotMonitor.Shared.DataAccess
@@ -173,6 +175,16 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<RawPage<SessionSummary>> SearchSessionsByCvePageAsync(
             string? tenantId, string cveId, double? minCvssScore, string? overallRisk,
             int pageSize, string? continuation);
+
+        /// <summary>
+        /// Scans the CveIndex for fleet-wide vulnerability aggregation. Tenant-scoped
+        /// (<paramref name="tenantId"/> set) targets the tenant's partition prefix
+        /// (cheap); cross-tenant (null) is a bounded full scan. Returns up to
+        /// <paramref name="maxRows"/> projected rows plus a flag indicating the cap
+        /// was hit, so callers can surface partial-result truncation honestly.
+        /// </summary>
+        Task<(IReadOnlyList<CveExposureEntry> Rows, bool Truncated)> ScanCveIndexAsync(
+            string? tenantId, int maxRows, CancellationToken ct = default);
 
         // --- Agent Indexes ---
         Task UpsertEventTypeIndexBatchAsync(string tenantId, string sessionId, IEnumerable<EnrollmentEvent> events);

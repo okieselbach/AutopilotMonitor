@@ -6,6 +6,40 @@ import { getResourceContent } from '../resource-catalog.js';
 import { READ_ONLY, READ_ONLY_OPEN, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema } from './shared.js';
 import { toolError } from './error-handler.js';
 
+/**
+ * Non-sensitive tenant fields safe to surface to the model. Keep-list (not
+ * deny-list) on purpose: /api/config/all returns FULL tenant configs including
+ * secrets (Teams/webhook URLs, the diagnostics blob SAS URL, branding image
+ * URLs). A keep-list means any future config field — including a new secret —
+ * is dropped by default rather than leaking by omission.
+ */
+export const TENANT_SAFE_FIELDS: ReadonlySet<string> = new Set([
+  'tenantId', 'domainName', 'planTier', 'disabled', 'disabledReason',
+  'onboardedAt', 'onboardedBy', 'lastUpdated', 'dataRetentionDays',
+]);
+
+/**
+ * Normalize the /api/config/all payload (bare array or common envelope) into a
+ * list of tenants projected down to TENANT_SAFE_FIELDS. Exported for unit tests
+ * — this is the security boundary that keeps tenant secrets out of model context.
+ */
+export function extractTenantList(data: unknown): Record<string, unknown>[] {
+  const rows: unknown[] = Array.isArray(data)
+    ? data
+    : ((data as { configurations?: unknown[]; tenants?: unknown[] })?.configurations
+      ?? (data as { tenants?: unknown[] })?.tenants
+      ?? []);
+  return rows.map((row) => {
+    const projected: Record<string, unknown> = {};
+    if (row && typeof row === 'object') {
+      for (const [key, value] of Object.entries(row as Record<string, unknown>)) {
+        if (TENANT_SAFE_FIELDS.has(key)) projected[key] = value;
+      }
+    }
+    return projected;
+  });
+}
+
 export function registerAdminTools(server: McpServer): void {
   // Tool 11: get_api_usage
   server.tool(
@@ -206,6 +240,27 @@ export function registerAdminTools(server: McpServer): void {
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('get_usage_metrics', args, error);
+      }
+    })
+  );
+
+  // Tool: list_tenants — reuses the GlobalAdminOnly /api/config/all endpoint.
+  // The endpoint returns FULL configs (incl. secrets); extractTenantList strips
+  // them down to TENANT_SAFE_FIELDS before anything reaches the model.
+  server.tool(
+    'list_tenants',
+    'List all onboarded tenants with their identity, plan tier, and lifecycle status (onboarded/disabled dates). ' +
+    'Global Admin only. Use this to discover tenant IDs for the tenantId parameter of other tools when running ' +
+    'cross-tenant investigations. Returns only non-sensitive fields — secrets (webhook URLs, SAS URLs) are stripped.',
+    {},
+    READ_ONLY,
+    async (args) => withToolTelemetry('list_tenants', async () => {
+      try {
+        const data = await apiFetch('/api/config/all');
+        const tenants = extractTenantList(data);
+        return toolResultText({ count: tenants.length, tenants }, MAX_RESULT_SIZE_CHARS.small);
+      } catch (error: unknown) {
+        return toolError('list_tenants', args, error);
       }
     })
   );
@@ -545,6 +600,36 @@ export function registerAdminTools(server: McpServer): void {
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('get_rule_stats', args, error);
+      }
+    })
+  );
+
+  // Tool: get_vulnerability_summary
+  server.tool(
+    'get_vulnerability_summary',
+    'Get a fleet-wide vulnerability exposure summary aggregated from detected CVEs: total affected devices, ' +
+    'distinct CVE count, KEV (CISA Known-Exploited) count, a severity breakdown, and the top CVEs ranked by how ' +
+    'many devices they affect. Omit tenantId for a cross-tenant overview (Global Admin; also returns affected ' +
+    'tenant count); pass tenantId to scope to one tenant. Use this to answer "how exposed is the fleet / this ' +
+    'tenant?" and "which CVEs affect the most devices?" — for the device list of a single CVE use search_sessions_by_cve. ' +
+    'If "truncated" is true, the underlying index scan hit its cap and counts are a lower bound (narrow with tenantId). ' +
+    'Requires vulnerability scanning to be enabled (an empty summary means no findings, not necessarily "not affected").',
+    {
+      tenantId: z.string().optional().describe('Tenant ID. Omit for cross-tenant overview (Global Admin only).'),
+      days: z.coerce.number().int().min(1).max(365).optional().default(30)
+        .describe('Time window in days (1-365, default 30). Filters CVEs by when they were detected.'),
+      topN: z.coerce.number().int().min(1).max(100).optional().default(20)
+        .describe('How many top CVEs to return, ranked by affected device count (1-100, default 20).'),
+    },
+    READ_ONLY,
+    async (args) => withToolTelemetry('get_vulnerability_summary', async () => {
+      try {
+        const { tenantId, days, topN } = args;
+        const prefix = pickGlobalOrTenantPath('/api/global/metrics/vulnerability', '/api/metrics/vulnerability');
+        const data = await apiFetch(`${prefix}${buildQuery({ tenantId, days, topN })}`);
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
+      } catch (error: unknown) {
+        return toolError('get_vulnerability_summary', args, error);
       }
     })
   );
