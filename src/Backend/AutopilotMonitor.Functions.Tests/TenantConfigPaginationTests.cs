@@ -36,11 +36,20 @@ public class TenantConfigPaginationTests
         {
             { "pageSize", "100" },
             { "continuation", "ENCODED" },
+            { "fields", "tenantId,domainName" },
         });
 
         Assert.Null(parsed.Error);
         Assert.Equal(100, parsed.PageSize);
         Assert.Equal("ENCODED", parsed.Continuation);
+        Assert.Equal("tenantId,domainName", parsed.Fields);
+    }
+
+    [Fact]
+    public void ParseQuery_leaves_fields_null_when_absent()
+    {
+        var parsed = TenantConfigPagination.ParseQuery(new NameValueCollection { { "pageSize", "100" } });
+        Assert.Null(parsed.Fields);
     }
 
     [Fact]
@@ -121,10 +130,21 @@ public class TenantConfigPaginationTests
     [Fact]
     public void BuildNextLink_targets_config_all_with_pageSize_and_escaped_continuation()
     {
-        var link = TenantConfigPagination.BuildNextLink(100, "TOKEN+/=");
+        var link = TenantConfigPagination.BuildNextLink(100, "TOKEN+/=", fields: null);
 
         Assert.StartsWith("/api/config/all?", link);
         Assert.Contains("pageSize=100", link);
         Assert.Contains("continuation=TOKEN%2B%2F%3D", link);
+        Assert.DoesNotContain("fields=", link);
+    }
+
+    [Fact]
+    public void BuildNextLink_echoes_fields_so_the_projection_round_trips()
+    {
+        var link = TenantConfigPagination.BuildNextLink(100, "abc", fields: "tenantId,domainName");
+
+        Assert.Contains("pageSize=100", link);
+        Assert.Contains("continuation=abc", link);
+        Assert.Contains("fields=tenantId%2CdomainName", link);
     }
 }
