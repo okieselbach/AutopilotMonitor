@@ -170,6 +170,22 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 });
                 return response;
             }
+            catch (RequestFailedException rfe) when (rfe.Status == 400)
+            {
+                // A malformed $filter / bad query input is a caller error, not a
+                // server crash — Azure Table Storage returns 400. Surface it as 400
+                // with the actionable Azure message so the caller fixes the filter,
+                // instead of the generic 500 ("retry / contact an operator").
+                _logger.LogInformation(rfe, "QueryRawTable: invalid query for table '{TableName}'", tableName);
+                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
+                await bad.WriteAsJsonAsync(new
+                {
+                    error = "Invalid query parameters (filter / partitionKey / rowKeyPrefix). " +
+                            "Check the OData filter syntax and that the column names exist.",
+                    detail = rfe.Message,
+                });
+                return bad;
+            }
             catch (RequestFailedException rfe)
             {
                 return await req.InternalServerErrorAsync(_logger, rfe,

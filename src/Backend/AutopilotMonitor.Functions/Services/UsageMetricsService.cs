@@ -245,7 +245,13 @@ namespace AutopilotMonitor.Functions.Services
                     UniqueDeviceModels = platformStats.UniqueDeviceModels,
                     TotalEventsProcessed = platformStats.TotalEventsProcessed,
                     SuccessfulEnrollments = platformStats.SuccessfulEnrollments,
-                    IssuesDetected = platformStats.IssuesDetected
+                    IssuesDetected = platformStats.IssuesDetected,
+                    // Carry the compute/update timestamps through — omitting them left
+                    // them at DateTime.MinValue (serialized as 0001-01-01), so callers
+                    // could not tell how stale the rollup was even though the persisted
+                    // row had fresh values.
+                    LastFullCompute = platformStats.LastFullCompute,
+                    LastUpdated = platformStats.LastUpdated
                 } : null
             };
         }

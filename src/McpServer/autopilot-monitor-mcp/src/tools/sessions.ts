@@ -24,9 +24,19 @@ const KEY_EVENT_TYPES = new Set([
   'script_started', 'script_completed', 'script_failed', 'vulnerability_report',
 ]);
 const SEVERITY_RANK: Record<string, number> = { Trace: -1, Debug: 0, Info: 1, Warning: 2, Error: 3, Critical: 4 };
-const PHASE_NAMES: Record<number, string> = {
-  0: 'Unknown', 1: 'Device Preparation', 2: 'Device Setup', 3: 'Account Setup',
-  4: 'Device ESP', 5: 'User ESP', 6: 'Complete', 7: 'Pre-Provisioning',
+// Phase labels MUST mirror the backend EnrollmentPhase enum and the web's
+// phaseConstants.ts (the product's source of truth). The only per-enrollment
+// difference is phase 3: "Apps (Device)" on V1 vs "App Installation" on V2.
+// -1 = Unknown (events without an explicit phase), 99 = Failed (terminal).
+const V1_PHASE_NAMES: Record<number, string> = {
+  [-1]: 'Unknown', 0: 'Start', 1: 'Device Preparation', 2: 'Device Setup', 3: 'Apps (Device)',
+  4: 'Account Setup', 5: 'Apps (User)', 6: 'Finalizing Setup', 7: 'Complete', 99: 'Failed',
+};
+const V2_PHASE_NAMES: Record<number, string> = { ...V1_PHASE_NAMES, 3: 'App Installation' };
+const phaseName = (phase: unknown, enrollmentType: unknown): string => {
+  const map = enrollmentType === 'v2' ? V2_PHASE_NAMES : V1_PHASE_NAMES;
+  const n = Number(phase);
+  return map[n] ?? String(phase ?? 'Unknown');
 };
 
 // ── Registration ────────────────────────────────────────────────────────
@@ -262,7 +272,7 @@ export function registerSessionTools(server: McpServer): void {
           startedAt: s.startedAt,
           completedAt: s.completedAt ?? null,
           durationSeconds: s.durationSeconds ?? null,
-          currentPhase: PHASE_NAMES[Number(s.currentPhase)] ?? String(s.currentPhase ?? 'Unknown'),
+          currentPhase: phaseName(s.currentPhase, s.enrollmentType),
           enrollmentType: s.enrollmentType,
           isPreProvisioned: s.isPreProvisioned ?? false,
           isHybridJoin: s.isHybridJoin ?? false,
@@ -344,7 +354,7 @@ export function registerSessionTools(server: McpServer): void {
           timestamp: e.timestamp,
           eventType: e.eventType,
           severity: e.severity,
-          phase: PHASE_NAMES[Number(e.phase)] ?? String(e.phase ?? ''),
+          phase: phaseName(e.phase, s.enrollmentType),
           message: e.message,
           source: e.source,
         }));
