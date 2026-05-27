@@ -805,24 +805,7 @@ namespace AutopilotMonitor.Functions.Services
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.RuleStats);
 
-                var filters = new List<string>();
-
-                if (!string.IsNullOrEmpty(startDate))
-                    filters.Add($"PartitionKey ge '{startDate}'");
-                if (!string.IsNullOrEmpty(endDate))
-                    filters.Add($"PartitionKey le '{endDate}'");
-
-                // Filter by tenant via RowKey prefix
-                if (!string.IsNullOrEmpty(tenantId))
-                {
-                    filters.Add($"RowKey ge '{tenantId}_'");
-                    filters.Add($"RowKey lt '{tenantId}_~'");  // ~ is after all printable ASCII
-                }
-
-                if (!string.IsNullOrEmpty(ruleType))
-                    filters.Add($"RuleType eq '{ruleType}'");
-
-                var filter = filters.Count > 0 ? string.Join(" and ", filters) : null;
+                var filter = BuildRuleStatsFilter(tenantId, startDate, endDate, ruleType);
                 var query = tableClient.QueryAsync<TableEntity>(filter: filter);
 
                 var results = new List<RuleStatsEntry>();
@@ -839,6 +822,36 @@ namespace AutopilotMonitor.Functions.Services
                 _logger.LogError(ex, "Failed to get rule stats");
                 return new List<RuleStatsEntry>();
             }
+        }
+
+        /// <summary>
+        /// Builds the OData filter for <see cref="GetRuleStatsAsync"/>. All inputs are caller-supplied
+        /// (query-string params, JWT tenant) and are interpolated, so every value MUST be escaped via
+        /// <see cref="ODataSanitizer.EscapeValue"/>. Without it, input such as ruleType="x' or RowKey ge '"
+        /// would inject an OR clause that escapes the RowKey-prefix tenant scope and reads every tenant's rows.
+        /// Extracted as a pure function so the escaping is unit-testable.
+        /// </summary>
+        internal static string? BuildRuleStatsFilter(string? tenantId, string? startDate, string? endDate, string? ruleType)
+        {
+            var filters = new List<string>();
+
+            if (!string.IsNullOrEmpty(startDate))
+                filters.Add($"PartitionKey ge '{ODataSanitizer.EscapeValue(startDate)}'");
+            if (!string.IsNullOrEmpty(endDate))
+                filters.Add($"PartitionKey le '{ODataSanitizer.EscapeValue(endDate)}'");
+
+            // Filter by tenant via RowKey prefix
+            if (!string.IsNullOrEmpty(tenantId))
+            {
+                var safeTenantId = ODataSanitizer.EscapeValue(tenantId);
+                filters.Add($"RowKey ge '{safeTenantId}_'");
+                filters.Add($"RowKey lt '{safeTenantId}_~'");  // ~ is after all printable ASCII
+            }
+
+            if (!string.IsNullOrEmpty(ruleType))
+                filters.Add($"RuleType eq '{ODataSanitizer.EscapeValue(ruleType)}'");
+
+            return filters.Count > 0 ? string.Join(" and ", filters) : null;
         }
 
         /// <summary>
