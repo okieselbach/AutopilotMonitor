@@ -23,8 +23,13 @@ interface AuditLogEntry {
   details: string;
 }
 
-type ActionFilter = 'ALL' | 'DELETE' | 'UPDATE' | 'CREATE';
+type ActionFilter = 'DEFAULT' | 'ALL' | 'DELETE' | 'UPDATE' | 'CREATE';
 type EntityTypeFilter = string;
+
+// Maintenance-driven actions that are usually noise in the default view.
+// Operators rarely care about per-session deletion bookkeeping unless they
+// are explicitly auditing cleanup runs.
+const NOISY_ACTIONS = new Set(['deletion_started', 'deletion_completed']);
 
 const PAGE_SIZE = 20;
 
@@ -66,7 +71,7 @@ export default function AuditPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [actionFilter, setActionFilter] = useState<ActionFilter>('ALL');
+  const [actionFilter, setActionFilter] = useState<ActionFilter>('DEFAULT');
   const [entityTypeFilter, setEntityTypeFilter] = useState<EntityTypeFilter>('ALL');
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
@@ -165,7 +170,11 @@ export default function AuditPage() {
   // backend page at a time, so global counts are intentionally not surfaced.
   const entityTypes = ['ALL', ...Array.from(new Set(logs.map(l => l.entityType).filter(Boolean)))];
   const filteredLogs = logs.filter(log => {
-    if (actionFilter !== 'ALL' && log.action !== actionFilter) return false;
+    if (actionFilter === 'DEFAULT') {
+      if (NOISY_ACTIONS.has(log.action)) return false;
+    } else if (actionFilter !== 'ALL' && log.action !== actionFilter) {
+      return false;
+    }
     if (entityTypeFilter !== 'ALL' && log.entityType !== entityTypeFilter) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -297,6 +306,7 @@ export default function AuditPage() {
               onChange={(e) => setActionFilter(e.target.value as ActionFilter)}
               className="px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
+              <option value="DEFAULT">All (excl. deletions)</option>
               <option value="ALL">All Actions</option>
               <option value="CREATE">Create</option>
               <option value="UPDATE">Update</option>
@@ -325,7 +335,7 @@ export default function AuditPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
                 <p className="text-gray-500 dark:text-gray-400 text-lg">No audit log entries found</p>
-                {(searchQuery || actionFilter !== 'ALL' || entityTypeFilter !== 'ALL') && (
+                {(searchQuery || actionFilter !== 'DEFAULT' || entityTypeFilter !== 'ALL') && (
                   <p className="text-gray-400 dark:text-gray-500 text-sm mt-2">Try adjusting your filters</p>
                 )}
               </div>
