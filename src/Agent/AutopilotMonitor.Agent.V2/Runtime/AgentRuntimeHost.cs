@@ -403,14 +403,16 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                                 // events on the wire. The handler skips its emit when the
                                 // gate already claimed the slot.
                                 tryClaimShutdownEvent: TryClaimAgentShuttingDownEmit,
-                                // Session 080edee9 follow-up (2026-05-28) — feeds the latest
-                                // HRESULT captured by ProvisioningStatusTracker (via
-                                // EspAndHelloTracker.LastEspTerminalErrorCode) into the
-                                // termination handler's classifier so promoted apps land
-                                // with the right failureType (esp_apps_detection_failure /
-                                // esp_apps_install_failure) instead of always claiming a
-                                // generic timeout.
-                                lastEspTerminalErrorCodeAccessor: () => componentFactory.LastEspTerminalErrorCode);
+                                // Session 080edee9 follow-up + Codex review (P2/P3, 2026-05-28)
+                                // — feeds the latest ESP failure context (HRESULT +
+                                // failedSubcategory + category) captured by
+                                // ProvisioningStatusTracker (via
+                                // EspAndHelloTracker.LastEspTerminalFailure) into the
+                                // termination handler's classifier. The handler only treats
+                                // the HRESULT as an app-level cause when the failure came
+                                // from the Apps subcategory; non-Apps ESP failures fall
+                                // back to the generic esp_apps_timeout classification.
+                                lastEspTerminalFailureAccessor: () => componentFactory.LastEspTerminalFailure);
 
                             // ServerActionDispatcher (plan §5.3) — constructed inside this
                             // hook so lifecyclePost + terminationHandler are guaranteed

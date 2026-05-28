@@ -141,15 +141,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         // legacy "esp_apps_timeout" classification.
         private readonly Func<string, string, string, IReadOnlyList<string>> _promoteActiveInstallsToStuck;
 
-        // Session 080edee9 follow-up (2026-05-28): accessor returning the latest HRESULT
-        // observed on an ESP failure (typically extracted by
-        // <see cref="ProvisioningStatusTracker.TryExtractErrorCode"/> from the failed
-        // subcategory's <c>statusText</c>). Read once during
-        // <see cref="MaybePromoteActiveInstallsAsStuck"/> and passed to
-        // <see cref="AppFailureTypes.ClassifyEspAppsFailure"/> so the failureType +
-        // message accurately reflect "detection failure" / "install failure" vs. the
-        // generic timeout fallback. Null accessor or null result = no HRESULT → fallback.
-        private readonly Func<string> _lastEspTerminalErrorCodeAccessor;
+        // Session 080edee9 follow-up + Codex review (P2/P3, 2026-05-28): accessor
+        // returning the latest ESP failure context (HRESULT + failedSubcategory +
+        // category) observed by ProvisioningStatusTracker. Read once during
+        // <see cref="MaybePromoteActiveInstallsAsStuck"/>. The classifier first
+        // checks <c>snapshot.IsAppsSubcategory</c> — only then does the HRESULT
+        // drive the failureType. A non-Apps ESP failure (DevicePreparation/*,
+        // DeviceSetup/SecurityPolicies, AccountSetup/CertificatesAccountSetup)
+        // falls through to the generic <c>esp_apps_timeout</c> wording so a
+        // non-app HRESULT cannot mis-classify in-flight installs.
+        // Null accessor or null snapshot = no HRESULT context → fallback.
+        private readonly Func<EspTerminalFailureSnapshot> _lastEspTerminalFailureAccessor;
 
         private int _handled;
 
@@ -180,7 +182,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             Func<bool> isWhiteGlovePart2Accessor = null,
             Func<string, string, string, IReadOnlyList<string>> promoteActiveInstallsToStuck = null,
             Func<bool> tryClaimShutdownEvent = null,
-            Func<string> lastEspTerminalErrorCodeAccessor = null)
+            Func<EspTerminalFailureSnapshot> lastEspTerminalFailureAccessor = null)
         {
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -212,7 +214,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             _isWhiteGlovePart2Accessor = isWhiteGlovePart2Accessor;
             _promoteActiveInstallsToStuck = promoteActiveInstallsToStuck;
             _tryClaimShutdownEvent = tryClaimShutdownEvent;
-            _lastEspTerminalErrorCodeAccessor = lastEspTerminalErrorCodeAccessor;
+            _lastEspTerminalFailureAccessor = lastEspTerminalFailureAccessor;
         }
 
         /// <summary>
@@ -535,23 +537,34 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             try
             {
                 var timeoutMinutes = state.ScenarioObservations?.EspSyncFailureTimeoutMinutes?.Value;
-                string errorCode = null;
-                try { errorCode = _lastEspTerminalErrorCodeAccessor?.Invoke(); }
-                catch (Exception ex) { _logger.Warning($"EnrollmentTerminationHandler: lastEspTerminalErrorCodeAccessor threw: {ex.Message}"); }
+                EspTerminalFailureSnapshot failureContext = null;
+                try { failureContext = _lastEspTerminalFailureAccessor?.Invoke(); }
+                catch (Exception ex) { _logger.Warning($"EnrollmentTerminationHandler: lastEspTerminalFailureAccessor threw: {ex.Message}"); }
 
-                // Session 080edee9 follow-up (2026-05-28): classify the ESP Apps-subcategory
-                // failure via the shared helper so the failureType + message accurately
-                // reflect the HRESULT (detection-failure / install-failure) instead of
-                // claiming a timeout for every ESP terminal pathway.
-                var (failureType, message) = AppFailureTypes.ClassifyEspAppsFailure(errorCode, timeoutMinutes);
+                // Codex review (P3, 2026-05-28): only let the HRESULT drive the per-app
+                // classification when the ESP failure actually came from the Apps
+                // subcategory. A non-Apps failure (DevicePreparation/*,
+                // DeviceSetup/SecurityPolicies, AccountSetup/CertificatesAccountSetup …)
+                // would happily carry its own HRESULT but that HRESULT describes the
+                // category, NOT the in-flight installs. Falling back to the generic
+                // `esp_apps_timeout` classification here preserves the hedged "Likely
+                // stuck" UX without lying about the cause.
+                var effectiveErrorCode = (failureContext != null && failureContext.IsAppsSubcategory)
+                    ? failureContext.ErrorCode
+                    : null;
 
-                var promoted = _promoteActiveInstallsToStuck(failureType, message, errorCode);
+                var (failureType, message) = AppFailureTypes.ClassifyEspAppsFailure(effectiveErrorCode, timeoutMinutes);
+
+                var promoted = _promoteActiveInstallsToStuck(failureType, message, effectiveErrorCode);
                 var count = promoted?.Count ?? 0;
                 if (count > 0)
                 {
-                    var ecSuffix = string.IsNullOrEmpty(errorCode) ? string.Empty : $", errorCode={errorCode}";
+                    var ecSuffix = string.IsNullOrEmpty(effectiveErrorCode) ? string.Empty : $", errorCode={effectiveErrorCode}";
+                    var ctxSuffix = failureContext == null
+                        ? string.Empty
+                        : $", failedSubcategory={failureContext.FailedSubcategory ?? "n/a"}";
                     _logger.Info(
-                        $"EnrollmentTerminationHandler: promoted {count} Installing app(s) to Error (failureType={failureType}{ecSuffix}).");
+                        $"EnrollmentTerminationHandler: promoted {count} Installing app(s) to Error (failureType={failureType}{ecSuffix}{ctxSuffix}).");
                 }
                 else
                 {

@@ -29,14 +29,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         public event EventHandler? WhiteGloveCompleted;
 
         /// <summary>
-        /// Session 080edee9 follow-up (2026-05-28) — forwards
-        /// <see cref="EspAndHelloTracker.LastEspTerminalErrorCode"/>. Read by
-        /// <see cref="DefaultComponentFactory.LastEspTerminalErrorCode"/> which is in turn
-        /// queried by <c>EnrollmentTerminationHandler.MaybePromoteActiveInstallsAsStuck</c>
-        /// to classify ESP Apps-subcategory failures (detection-failure vs install-failure
-        /// vs genuine timeout). Null until the first HRESULT-carrying ESP failure fires.
+        /// Session 080edee9 follow-up + Codex review (P2/P3, 2026-05-28) — forwards
+        /// <see cref="EspAndHelloTracker.LastEspTerminalFailure"/>. Read by
+        /// <see cref="DefaultComponentFactory.LastEspTerminalFailure"/> which is in
+        /// turn queried by
+        /// <c>EnrollmentTerminationHandler.MaybePromoteActiveInstallsAsStuck</c> to
+        /// classify ESP failures correctly (HRESULT-based detection-failure /
+        /// install-failure ONLY when the failure was raised against the Apps
+        /// subcategory). Null until the first registry-derived ESP failure fires.
         /// </summary>
-        public string? LastEspTerminalErrorCode => _tracker.LastEspTerminalErrorCode;
+        public Termination.EspTerminalFailureSnapshot? LastEspTerminalFailure => _tracker.LastEspTerminalFailure;
 
         public EspAndHelloHost(
             string sessionId,

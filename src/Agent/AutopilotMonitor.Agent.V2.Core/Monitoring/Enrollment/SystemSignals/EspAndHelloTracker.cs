@@ -123,17 +123,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         public DateTime? LastEventOccurredAtUtc { get; private set; }
 
         /// <summary>
-        /// Session 080edee9 follow-up (2026-05-28) — last HRESULT observed on an ESP failure
-        /// raised by <see cref="ProvisioningStatusTracker"/> (registry-derived, e.g.
-        /// <c>0x87D1041C</c> from a failed Apps subcategory). Read by
-        /// <c>EnrollmentTerminationHandler</c> via <see cref="EspAndHelloHost"/> +
-        /// <c>DefaultComponentFactory</c> so the late "Installing-→-Error" promotion can
-        /// classify the failure correctly (detection-failure vs. install-failure vs. genuine
-        /// timeout) instead of always claiming an ESP timeout. Null when no
-        /// HRESULT-carrying ESP failure has fired (or all observed failures came from
-        /// ShellCoreTracker, which has no HRESULT surface).
+        /// Session 080edee9 follow-up + Codex review (P2/P3, 2026-05-28) — last
+        /// ESP failure context observed via <see cref="ProvisioningStatusTracker"/>
+        /// (registry-derived; carries HRESULT, failed subcategory, and category as
+        /// a single immutable snapshot). Read by <c>EnrollmentTerminationHandler</c>
+        /// via <see cref="EspAndHelloHost"/> + <c>DefaultComponentFactory</c> so the
+        /// late "Installing-→-Error" promotion can classify the failure correctly
+        /// AND refuse to promote when the failure originated outside the Apps
+        /// subcategory (a non-Apps HRESULT does not describe per-app outcome).
+        /// Null when no HRESULT-carrying ESP failure has fired (or all observed
+        /// failures came from ShellCoreTracker, which has no HRESULT surface).
         /// </summary>
-        public string LastEspTerminalErrorCode { get; private set; }
+        public Termination.EspTerminalFailureSnapshot LastEspTerminalFailure { get; private set; }
 
         /// <summary>
         /// Outcome of Hello provisioning. Set when Hello resolves (via events, timeout, or not configured).
@@ -506,14 +507,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private void OnProvisioningEspFailureDetected(object sender, EspFailureDetectedEventArgs args)
         {
             LastEventOccurredAtUtc = null;
-            // Session 080edee9 follow-up — stash the HRESULT before forwarding so
-            // EnrollmentTerminationHandler can read it on the terminal-failure pathway even
-            // if the downstream signal flow is asynchronous. Only updates on non-empty values
-            // so a later ShellCore-derived failure (which carries no HRESULT) cannot wipe
-            // out the previously captured registry value.
-            if (!string.IsNullOrEmpty(args?.ErrorCode))
+            // Session 080edee9 follow-up + Codex review (P2/P3) — snapshot the full
+            // failure context (HRESULT + failedSubcategory + category) before
+            // forwarding so EnrollmentTerminationHandler can read it on the terminal-
+            // failure pathway. Only update when the args carry at least one of the
+            // three fields, so a later ShellCore-derived failure (which has none of
+            // them) cannot wipe out the registry snapshot. We deliberately do NOT
+            // gate on ErrorCode alone — a non-Apps subcategory failure without
+            // HRESULT is still useful for downstream "should we promote?" gating.
+            if (!string.IsNullOrEmpty(args?.ErrorCode)
+                || !string.IsNullOrEmpty(args?.FailedSubcategory)
+                || !string.IsNullOrEmpty(args?.Category))
             {
-                LastEspTerminalErrorCode = args.ErrorCode;
+                LastEspTerminalFailure = new Termination.EspTerminalFailureSnapshot(
+                    errorCode: args!.ErrorCode,
+                    failedSubcategory: args.FailedSubcategory,
+                    category: args.Category);
             }
             try
             {

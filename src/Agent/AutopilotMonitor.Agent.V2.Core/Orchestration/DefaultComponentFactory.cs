@@ -138,16 +138,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _imeLogHost?.PromoteActiveInstallsToStuck(failureType, message, errorCode) ?? Array.Empty<string>();
 
         /// <summary>
-        /// Session 080edee9 follow-up (2026-05-28) — last observed HRESULT from the ESP Apps
-        /// subcategory failure (e.g. <c>0x87D1041C</c>). Surfaced by
-        /// <see cref="EspAndHelloHost.LastEspTerminalErrorCode"/> and read by
-        /// <c>EnrollmentTerminationHandler.MaybePromoteActiveInstallsAsStuck</c> so the
-        /// promotion can classify the failure as <c>esp_apps_detection_failure</c> /
-        /// <c>esp_apps_install_failure</c> instead of always claiming a generic timeout.
-        /// Returns null when no ESP failure with a HRESULT was observed (or the host has not
-        /// been created yet).
+        /// Session 080edee9 follow-up + Codex review (P2/P3, 2026-05-28) — last
+        /// observed ESP failure context (HRESULT + failedSubcategory + category).
+        /// Surfaced by <see cref="EspAndHelloHost.LastEspTerminalFailure"/> and
+        /// read by <c>EnrollmentTerminationHandler.MaybePromoteActiveInstallsAsStuck</c>
+        /// so the promotion can: (a) classify via HRESULT (detection-failure /
+        /// install-failure), AND (b) refuse to attach app-level classifications
+        /// when the failure originated outside the Apps subcategory. Returns null
+        /// when no registry-derived ESP failure was observed.
         /// </summary>
-        public string? LastEspTerminalErrorCode => EspAndHelloHost?.LastEspTerminalErrorCode;
+        public Termination.EspTerminalFailureSnapshot? LastEspTerminalFailure => EspAndHelloHost?.LastEspTerminalFailure;
 
         public DefaultComponentFactory(
             AgentConfiguration agentConfig,

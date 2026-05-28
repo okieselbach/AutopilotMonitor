@@ -151,11 +151,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
             public List<(string failureType, string message, string errorCode)> PromotionCalls { get; } =
                 new List<(string failureType, string message, string errorCode)>();
             public IReadOnlyList<string> PromotionReturnValue { get; set; } = Array.Empty<string>();
-            // Session 080edee9 follow-up (2026-05-28) — feeds the
-            // lastEspTerminalErrorCodeAccessor in the production wiring. Defaults to null
-            // (no HRESULT observed) so existing tests fall through to the
-            // `esp_apps_timeout` classification.
-            public string LastEspTerminalErrorCodeOverride { get; set; } = null;
+            // Session 080edee9 follow-up + Codex review (P2/P3, 2026-05-28) — feeds the
+            // lastEspTerminalFailureAccessor in the production wiring. Defaults to null
+            // (no ESP failure context observed) so existing tests fall through to the
+            // `esp_apps_timeout` classification. Tests for HRESULT-driven classification
+            // assign a fully-populated snapshot (errorCode + Apps subcategory); the
+            // non-Apps gating test assigns a snapshot whose FailedSubcategory is NOT
+            // "Apps".
+            public EspTerminalFailureSnapshot? LastEspTerminalFailureOverride { get; set; } = null;
             public List<string> TerminationActionLog { get; } = new List<string>();
             public TimeSpan SpoolDrainPeriodOverride { get; set; } = TimeSpan.Zero;
             // Shutdown-gap closure (2026-05-15) — when set, the constructed handler shares
@@ -219,7 +222,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
                         return PromotionReturnValue;
                     },
                     tryClaimShutdownEvent: TryClaimShutdownEventOverride,
-                    lastEspTerminalErrorCodeAccessor: () => LastEspTerminalErrorCodeOverride);
+                    lastEspTerminalFailureAccessor: () => LastEspTerminalFailureOverride);
             }
 
             public void Dispose() => Tmp.Dispose();
@@ -1121,7 +1124,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
             using var rig = new Rig();
             rig.State = BuildEspTerminalFailureState();
             rig.PromotionReturnValue = new[] { "office-365" };
-            rig.LastEspTerminalErrorCodeOverride = "0x87d1041c";
+            rig.LastEspTerminalFailureOverride = new EspTerminalFailureSnapshot(
+                errorCode: "0x87d1041c",
+                failedSubcategory: "Apps",
+                category: "DeviceSetup");
 
             rig.Build().Handle(sender: null!,
                 Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Failed, SessionStage.Failed));
@@ -1143,7 +1149,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
             using var rig = new Rig();
             rig.State = BuildEspTerminalFailureState();
             rig.PromotionReturnValue = new[] { "vpn-client" };
-            rig.LastEspTerminalErrorCodeOverride = "0x80070643";
+            rig.LastEspTerminalFailureOverride = new EspTerminalFailureSnapshot(
+                errorCode: "0x80070643",
+                failedSubcategory: "Apps",
+                category: "DeviceSetup");
 
             rig.Build().Handle(sender: null!,
                 Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Failed, SessionStage.Failed));
@@ -1154,6 +1163,58 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
                 rig.PromotionCalls[0].failureType);
             Assert.Contains("0x80070643", rig.PromotionCalls[0].message);
             Assert.Equal("0x80070643", rig.PromotionCalls[0].errorCode);
+        }
+
+        [Fact]
+        public void PromoteActiveInstalls_falls_back_to_timeout_when_failure_subcategory_is_not_Apps()
+        {
+            // Codex review (P3): a non-Apps ESP failure with HRESULT (here:
+            // DeviceSetup/SecurityPolicies failing with a policy-related code) MUST NOT
+            // mis-classify the still-installing apps as `esp_apps_install_failure` —
+            // the HRESULT describes the SecurityPolicies subcategory, not the
+            // in-flight installs. The classifier must drop the HRESULT and fall back
+            // to the generic `esp_apps_timeout` classification.
+            using var rig = new Rig();
+            rig.State = BuildEspTerminalFailureState();
+            rig.PromotionReturnValue = new[] { "in-flight-app" };
+            rig.LastEspTerminalFailureOverride = new EspTerminalFailureSnapshot(
+                errorCode: "0x8007064a",
+                failedSubcategory: "SecurityPolicies",
+                category: "DeviceSetup");
+
+            rig.Build().Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Failed, SessionStage.Failed));
+
+            Assert.Single(rig.PromotionCalls);
+            Assert.Equal(
+                AutopilotMonitor.Shared.Constants.AppFailureTypes.EspAppsTimeout,
+                rig.PromotionCalls[0].failureType);
+            Assert.DoesNotContain("0x8007064a", rig.PromotionCalls[0].message);
+            Assert.Null(rig.PromotionCalls[0].errorCode);
+        }
+
+        [Fact]
+        public void PromoteActiveInstalls_falls_back_to_timeout_when_failure_snapshot_has_no_subcategory()
+        {
+            // Defense-in-depth: if the snapshot somehow carries a HRESULT but no
+            // failedSubcategory (registry shape regression), we cannot prove the
+            // failure came from Apps — must NOT classify as detection / install failure.
+            using var rig = new Rig();
+            rig.State = BuildEspTerminalFailureState();
+            rig.PromotionReturnValue = new[] { "in-flight-app" };
+            rig.LastEspTerminalFailureOverride = new EspTerminalFailureSnapshot(
+                errorCode: "0x87d1041c",
+                failedSubcategory: null,
+                category: "DeviceSetup");
+
+            rig.Build().Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Failed, SessionStage.Failed));
+
+            Assert.Single(rig.PromotionCalls);
+            Assert.Equal(
+                AutopilotMonitor.Shared.Constants.AppFailureTypes.EspAppsTimeout,
+                rig.PromotionCalls[0].failureType);
+            Assert.Null(rig.PromotionCalls[0].errorCode);
         }
     }
 }
