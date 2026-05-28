@@ -12,6 +12,25 @@ namespace AutopilotMonitor.Functions.Services
     /// in the RuleStates table, so rule definitions can be updated centrally without
     /// losing per-tenant enabled/disabled preferences.
     /// </summary>
+    /// <summary>
+    /// Outcome of <see cref="AnalyzeRuleService.ProcessSunsetRuleAsync"/>. Callers use
+    /// this to decide whether the seed cycle is fully consistent (only
+    /// <see cref="Completed"/>) or whether a retry on the next cycle is needed (any
+    /// other value). Order of the failure values mirrors the safe-state → GC → delete
+    /// sequence — earlier failures indicate less state was changed.
+    /// </summary>
+    public enum SunsetOutcome
+    {
+        /// <summary>Safe-state, orphan-GC, and global-delete all succeeded.</summary>
+        Completed,
+        /// <summary>Safe-state (set global Enabled=false) failed. No GC or delete attempted. Rule keeps whatever Enabled value it had before — at worst this leaves it active, never silently flipping a tenant opt-out.</summary>
+        SkippedOnSafeStateFailure,
+        /// <summary>Safe-state succeeded, but the cross-tenant orphan-GC failed (per-row or enumeration). Global rule stays as Enabled=false so for the typical default-disabled sunset case the rule is already effectively dead; default-enabled sunsets are also safe because tenant opt-outs still win over the new Enabled=false global default until the GC retry deletes them next cycle.</summary>
+        SkippedOnGcFailure,
+        /// <summary>Safe-state + GC succeeded, but the global tombstone delete failed. Rule is effectively dead (no tenant overrides, global Enabled=false); next seed cycle will retry the tombstone.</summary>
+        SkippedOnGlobalDeleteFailure,
+    }
+
     public class AnalyzeRuleService
     {
         private readonly IRuleRepository _ruleRepo;
@@ -22,6 +41,71 @@ namespace AutopilotMonitor.Functions.Services
         {
             _ruleRepo = ruleRepo;
             _logger = logger;
+        }
+
+        /// <summary>
+        /// Drives the sunset sequence for a single built-in / community rule that is no
+        /// longer in the code catalog. Three steps, executed in order, with strict
+        /// "later step requires earlier success" semantics so a partial failure can
+        /// never silently flip a tenant's enabled/disabled preference for the rule:
+        /// <list type="number">
+        ///   <item><b>Safe-state</b>: re-write the global row with
+        ///     <c>Enabled = false</c> and <c>MarkSessionAsFailedDefault = false</c>.
+        ///     Defends future default-ENABLED sunset rules: even if the next two
+        ///     steps fail, the global default is now off, so tenants with
+        ///     <c>RuleState{Enabled=false}</c> (explicit opt-outs) keep their opt-out
+        ///     behaviour (override matches global default, both off).</item>
+        ///   <item><b>Orphan GC</b>: delete every per-tenant <c>RuleState</c> row whose
+        ///     RowKey matches the sunset rule. Skipped if safe-state failed — we never
+        ///     destroy tenant state before the global default has been neutralised.</item>
+        ///   <item><b>Tombstone</b>: delete the global rule row. Skipped if GC reported
+        ///     any failures, so the rule remains in the sunset diff for the next seed
+        ///     cycle's retry.</item>
+        /// </list>
+        /// </summary>
+        /// <param name="rule">The current global rule object (will be mutated by the
+        /// safe-state step; callers should not reuse it).</param>
+        /// <returns>An outcome + count of orphan RuleState rows that this attempt
+        /// actually deleted (always &gt;= 0). The count surfaces partial progress even
+        /// on a <see cref="SunsetOutcome.SkippedOnGcFailure"/> result so operators can
+        /// see the rule getting cleaned up across cycles.</returns>
+        public async Task<(SunsetOutcome outcome, int orphanStatesGcd)> ProcessSunsetRuleAsync(AnalyzeRule rule)
+        {
+            // Step 1: safe-state. Neutralise the global default first so any orphan
+            // state we fail to clean below is harmless.
+            rule.Enabled = false;
+            rule.MarkSessionAsFailedDefault = false;
+            rule.UpdatedAt = DateTime.UtcNow;
+            var safeStateOk = await _ruleRepo.StoreAnalyzeRuleAsync(rule, "global");
+            if (!safeStateOk)
+            {
+                _logger.LogWarning(
+                    "Sunset safe-state write failed for {RuleId}; skipping GC + tombstone, will retry next seed cycle",
+                    rule.RuleId);
+                return (SunsetOutcome.SkippedOnSafeStateFailure, 0);
+            }
+
+            // Step 2: orphan-GC.
+            var (gcDeleted, gcFailed) = await _ruleRepo.DeleteRuleStatesForRuleIdAcrossTenantsAsync(rule.RuleId);
+            if (gcFailed != 0)
+            {
+                _logger.LogWarning(
+                    "Sunset GC partial failure for {RuleId} (deleted={Deleted}, failed={Failed}); rule is now safe-stated (Enabled=false) globally, will retry GC + tombstone next seed cycle",
+                    rule.RuleId, gcDeleted, gcFailed);
+                return (SunsetOutcome.SkippedOnGcFailure, gcDeleted);
+            }
+
+            // Step 3: tombstone.
+            var globalDeleted = await _ruleRepo.DeleteAnalyzeRuleAsync("global", rule.RuleId);
+            if (!globalDeleted)
+            {
+                _logger.LogWarning(
+                    "Sunset GC clean but global delete failed for {RuleId}; rule is effectively dead (Enabled=false + no tenant overrides) but the row will be retried next seed cycle",
+                    rule.RuleId);
+                return (SunsetOutcome.SkippedOnGlobalDeleteFailure, gcDeleted);
+            }
+
+            return (SunsetOutcome.Completed, gcDeleted);
         }
 
         /// <summary>
@@ -250,39 +334,23 @@ namespace AutopilotMonitor.Functions.Services
                 deleted++;
             }
 
-            // Sunset path: GC-first ordering.
+            // Sunset path: full safe-state -> GC -> tombstone sequence via the shared
+            // helper. Each rule that reaches Completed contributes one to `deleted`.
+            // Partial-failure paths leave the global row in place for the next cycle.
             var orphanStatesGcd = 0;
-            var sunsetSkippedOnGcFailure = 0;
-            var sunsetSkippedOnGlobalDeleteFailure = 0;
+            var outcomeCounts = new Dictionary<SunsetOutcome, int>();
             foreach (var sunsetRule in sunset)
             {
-                var (gcDeleted, gcFailed) = await _ruleRepo.DeleteRuleStatesForRuleIdAcrossTenantsAsync(sunsetRule.RuleId);
-                orphanStatesGcd += gcDeleted;
-                if (gcFailed != 0)
-                {
-                    _logger.LogWarning(
-                        "Reseed sunset GC partial failure for {RuleId} (deleted={Deleted}, failed={Failed}); keeping global row to retry next cycle",
-                        sunsetRule.RuleId, gcDeleted, gcFailed);
-                    sunsetSkippedOnGcFailure++;
-                    continue;
-                }
-                var globalDeleted = await _ruleRepo.DeleteAnalyzeRuleAsync("global", sunsetRule.RuleId);
-                if (globalDeleted)
-                {
+                var (outcome, gcd) = await ProcessSunsetRuleAsync(sunsetRule);
+                orphanStatesGcd += gcd;
+                outcomeCounts[outcome] = outcomeCounts.GetValueOrDefault(outcome) + 1;
+                if (outcome == SunsetOutcome.Completed)
                     deleted++;
-                }
-                else
-                {
-                    _logger.LogWarning(
-                        "Reseed sunset GC clean but global delete failed for {RuleId}; will retry next cycle",
-                        sunsetRule.RuleId);
-                    sunsetSkippedOnGlobalDeleteFailure++;
-                }
             }
 
             _logger.LogInformation(
-                "Reseed analyze rules: {Deleted} old rows deleted, {Survivors} survivors, {Sunset} sunset (GC skip={GcSkip}, delete skip={DelSkip}, orphan states removed={OrphanGcd})",
-                deleted, survivors.Count, sunset.Count, sunsetSkippedOnGcFailure, sunsetSkippedOnGlobalDeleteFailure, orphanStatesGcd);
+                "Reseed analyze rules: {Deleted} rows deleted, {Survivors} survivors, {Sunset} sunset (outcomes {Outcomes}, orphan states removed={OrphanGcd})",
+                deleted, survivors.Count, sunset.Count, FormatOutcomes(outcomeCounts), orphanStatesGcd);
 
             foreach (var rule in builtInRules)
             {
@@ -351,62 +419,59 @@ namespace AutopilotMonitor.Functions.Services
                 }
 
                 // Sunset detection: rules that existed as built-in but are no longer in
-                // the code catalog. Delete the global row AND fan out the per-tenant
-                // RuleState GC so opt-in overrides don't linger as dead state.
-                //
-                // Order matters and is deliberate: orphan-GC FIRST, then global delete.
-                // If GC fails partially we leave the global row in place so the next
-                // startup sees the rule in the sunset diff again and retries the cleanup.
-                // The previous order (global-delete-first) lost retry-ability because
-                // once the global row is gone the diff goes empty and any remaining
-                // orphan RuleStates would linger indefinitely.
+                // the code catalog. ProcessSunsetRuleAsync handles the safe-state -> GC
+                // -> tombstone sequence per rule with strict ordering guarantees (see
+                // its XML doc). Any non-Completed outcome means there's still work to
+                // do — we leave _seeded = false so the next GetAllRulesForTenantAsync
+                // call retries the seed without waiting for a process restart.
                 var sunsetRules = existingRules
                     .Where(r => r.IsBuiltIn && !newCatalogIds.Contains(r.RuleId))
                     .ToList();
 
+                var allSunsetsClean = true;
                 if (sunsetRules.Count > 0)
                 {
                     var orphanStatesGcd = 0;
-                    var skippedOnGcFailure = 0;
-                    var skippedOnGlobalDeleteFailure = 0;
+                    var outcomeCounts = new Dictionary<SunsetOutcome, int>();
                     foreach (var sunset in sunsetRules)
                     {
-                        var (gcDeleted, gcFailed) = await _ruleRepo.DeleteRuleStatesForRuleIdAcrossTenantsAsync(sunset.RuleId);
-                        if (gcFailed != 0)
-                        {
-                            // Either per-row error (failed > 0) or enumeration failure (-1).
-                            // Either way we cannot safely drop the global row — retry next
-                            // startup. Orphan-State rows that DID get deleted in this pass
-                            // are gone for good, but that's fine — the per-row delete is
-                            // already 404-idempotent.
-                            _logger.LogWarning(
-                                "Sunset GC partial failure for {RuleId} (deleted={Deleted}, failed={Failed}); keeping global row to retry on next seed cycle",
-                                sunset.RuleId, gcDeleted, gcFailed);
-                            skippedOnGcFailure++;
-                            orphanStatesGcd += gcDeleted;
-                            continue;
-                        }
-
-                        var globalDeleted = await _ruleRepo.DeleteAnalyzeRuleAsync("global", sunset.RuleId);
-                        if (!globalDeleted)
-                        {
-                            // GC was clean but the global delete itself failed (transient
-                            // Azure error). The orphan states are already gone; the global
-                            // row will be retried on next startup (GC will then no-op).
-                            _logger.LogWarning(
-                                "Sunset GC clean but global delete failed for {RuleId}; will retry next seed cycle",
-                                sunset.RuleId);
-                            skippedOnGlobalDeleteFailure++;
-                        }
-                        orphanStatesGcd += gcDeleted;
+                        var (outcome, gcd) = await ProcessSunsetRuleAsync(sunset);
+                        orphanStatesGcd += gcd;
+                        outcomeCounts[outcome] = outcomeCounts.GetValueOrDefault(outcome) + 1;
+                        if (outcome != SunsetOutcome.Completed)
+                            allSunsetsClean = false;
                     }
                     _logger.LogInformation(
-                        "Sunset {RuleCount} built-in analyze rule(s); GC'd {OrphanCount} orphan per-tenant RuleState row(s); skipped {GcSkip} on GC failure, {DelSkip} on global-delete failure",
-                        sunsetRules.Count, orphanStatesGcd, skippedOnGcFailure, skippedOnGlobalDeleteFailure);
+                        "Sunset {RuleCount} built-in analyze rule(s); orphan RuleState rows GC'd {OrphanCount}; outcomes {Outcomes}",
+                        sunsetRules.Count, orphanStatesGcd, FormatOutcomes(outcomeCounts));
+                }
+
+                // Only flip the seed-once flag when EVERY sunset rule reached the
+                // Completed terminal. If any was partial, the next call will retry —
+                // important on long-running Function-App instances that don't recycle
+                // often. (Survivors / new-rule writes above are idempotent: they all
+                // go through Upsert and don't churn DB state on retry.)
+                if (!allSunsetsClean)
+                {
+                    _logger.LogInformation("One or more sunset rules did not complete; leaving _seeded=false so the next GetAllRulesForTenantAsync retries.");
+                    return;
                 }
             }
 
             _seeded = true;
+        }
+
+        /// <summary>
+        /// Compact log-friendly rendering of the sunset-outcome histogram. Inline so
+        /// the LogInformation site stays readable. Order matches the SunsetOutcome enum
+        /// (Completed first, then failures in execution-step order).
+        /// </summary>
+        private static string FormatOutcomes(Dictionary<SunsetOutcome, int> counts)
+        {
+            return string.Join(", ",
+                Enum.GetValues<SunsetOutcome>()
+                    .Where(o => counts.GetValueOrDefault(o) > 0)
+                    .Select(o => $"{o}={counts[o]}"));
         }
     }
 }

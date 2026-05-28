@@ -181,33 +181,21 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 deleted++;
             }
 
-            // Sunset path: GC-first ordering. If GC fails partially, leave the global
-            // row in place so the next reseed cycle sees the rule in the sunset diff
-            // again and retries.
+            // Sunset path: shared helper on AnalyzeRuleService — same safe-state ->
+            // GC -> tombstone ordering as the in-process EnsureSeed and ReseedBuiltIn
+            // paths, so every reseed flavor leaves the same DB invariants.
             var orphanStatesGcd = 0;
             var sunsetSkipped = 0;
             foreach (var sunsetRule in sunset)
             {
-                var (gcDeleted, gcFailed) = await _ruleRepo.DeleteRuleStatesForRuleIdAcrossTenantsAsync(sunsetRule.RuleId);
-                orphanStatesGcd += gcDeleted;
-                if (gcFailed != 0)
-                {
-                    _logger.LogWarning(
-                        "GitHub reseed sunset GC partial failure for {RuleId} (deleted={Deleted}, failed={Failed}); keeping global row to retry on next reseed",
-                        sunsetRule.RuleId, gcDeleted, gcFailed);
-                    sunsetSkipped++;
-                    continue;
-                }
-                var globalDeleted = await _ruleRepo.DeleteAnalyzeRuleAsync("global", sunsetRule.RuleId);
-                if (globalDeleted)
+                var (outcome, gcd) = await _analyzeRuleService.ProcessSunsetRuleAsync(sunsetRule);
+                orphanStatesGcd += gcd;
+                if (outcome == AutopilotMonitor.Functions.Services.SunsetOutcome.Completed)
                 {
                     deleted++;
                 }
                 else
                 {
-                    _logger.LogWarning(
-                        "GitHub reseed sunset GC clean but global delete failed for {RuleId}; will retry on next reseed",
-                        sunsetRule.RuleId);
                     sunsetSkipped++;
                 }
             }
