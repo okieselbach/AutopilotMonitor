@@ -1,5 +1,6 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
@@ -87,6 +88,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
             var limit = int.TryParse(limitStr, out var l) ? Math.Clamp(l, 1, 500) : 50;
 
             var events = await _sessionRepo.SearchEventsByTypesAsync(tenantId, eventTypes, source, severity, sessionLimit, limit);
+            ErrorCodeEnricher.EnrichEvents(events);
 
             var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(new

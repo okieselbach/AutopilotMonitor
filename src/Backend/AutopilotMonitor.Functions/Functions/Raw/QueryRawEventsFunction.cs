@@ -2,6 +2,7 @@ using System.Net;
 using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
+using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
@@ -126,6 +127,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 var filtered = ApplyClientFilters(
                     sessionPage.Items.ToList(), eventType, severity, source, startedAfter, startedBefore);
                 filtered = filtered.OrderBy(e => e.Timestamp).ThenBy(e => e.Sequence).ToList();
+                ErrorCodeEnricher.EnrichEvents(filtered);
 
                 string? singleNextLink = null;
                 if (!string.IsNullOrEmpty(sessionPage.NextRawToken))
@@ -190,6 +192,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
 
             events = ApplyDateFilters(events, startedAfter, startedBefore)
                 .OrderBy(e => e.Timestamp).ThenBy(e => e.Sequence).ToList();
+            ErrorCodeEnricher.EnrichEvents(events);
 
             string? nextLink = null;
             if (!string.IsNullOrEmpty(sessionsPage.NextRawToken))

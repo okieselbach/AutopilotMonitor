@@ -2,6 +2,7 @@ using System.Net;
 using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
+using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Pagination;
@@ -112,6 +113,8 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                         ? ApplyFilters(events, filterEventType, filterSeverity, filterSource).ToList()
                         : events;
 
+                    ErrorCodeEnricher.EnrichEvents(filtered);
+
                     return await req.OkAsync(new
                     {
                         success = true,
@@ -182,6 +185,8 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 var pageItems = hasFilters
                     ? ApplyFilters(page.Items, filterEventType, filterSeverity, filterSource).ToList()
                     : page.Items;
+
+                ErrorCodeEnricher.EnrichEvents(pageItems);
 
                 string? nextLink = null;
                 if (!string.IsNullOrEmpty(page.NextRawToken))
