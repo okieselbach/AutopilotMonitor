@@ -15,4 +15,8 @@
     <InternalsVisibleTo Include="AutopilotMonitor.Functions.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\error-codes.json" />
+  </ItemGroup>
+
 </Project>

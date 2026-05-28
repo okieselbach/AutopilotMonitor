@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "node scripts/generate-lastmod.js",
+    "prebuild": "node scripts/sync-error-codes.js && node scripts/generate-lastmod.js",
+    "sync-error-codes": "node scripts/sync-error-codes.js",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
