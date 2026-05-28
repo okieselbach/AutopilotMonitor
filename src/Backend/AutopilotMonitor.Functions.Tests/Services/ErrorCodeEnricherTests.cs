@@ -172,7 +172,7 @@ public sealed class ErrorCodeEnricherTests
 
         Assert.True(events[0].Data.ContainsKey("errorCodeInfo"));
         Assert.True(events[1].Data.ContainsKey("exitCodeInfo"));
-        Assert.False(events[2].Data.Keys.Any(k => k.EndsWith("Info")));
+        Assert.DoesNotContain(events[2].Data.Keys, k => k.EndsWith("Info"));
     }
 
     [Fact]
