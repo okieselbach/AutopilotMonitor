@@ -64,7 +64,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 _logger.LogInformation($"Reseed from GitHub triggered by Global Admin {upn}, type={typeParam}");
 
                 var gatherResult = new { deleted = 0, written = 0 };
-                var analyzeResult = new { deleted = 0, written = 0 };
+                var analyzeResult = new { deleted = 0, written = 0, orphanStatesGcd = 0, sunsetSkipped = 0 };
                 var imeResult = new { deleted = 0, written = 0 };
 
                 if (typeParam == "all" || typeParam == "gather")
@@ -77,8 +77,8 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 if (typeParam == "all" || typeParam == "analyze")
                 {
                     var rules = await _gitHubRepo.FetchAnalyzeRulesAsync();
-                    var (d, w) = await ReseedAnalyzeAsync(rules);
-                    analyzeResult = new { deleted = d, written = w };
+                    var (d, w, gcd, skipped) = await ReseedAnalyzeAsync(rules);
+                    analyzeResult = new { deleted = d, written = w, orphanStatesGcd = gcd, sunsetSkipped = skipped };
                 }
 
                 if (typeParam == "all" || typeParam == "ime")
@@ -159,27 +159,57 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             return (deleted, rules.Count);
         }
 
-        private async Task<(int deleted, int written)> ReseedAnalyzeAsync(List<AutopilotMonitor.Shared.Models.AnalyzeRule> rules)
+        private async Task<(int deleted, int written, int orphanStatesGcd, int sunsetSkipped)> ReseedAnalyzeAsync(List<AutopilotMonitor.Shared.Models.AnalyzeRule> rules)
         {
             var existing = await _ruleRepo.GetAnalyzeRulesAsync("global");
-
-            // Identify sunset rules BEFORE the delete pass so we can fan out the
-            // per-tenant RuleState orphan GC after the catalog is rebuilt. A rule is
-            // "sunset" if it existed as built-in / community in the global partition but
-            // isn't in the new GitHub-fetched catalog. Mirrors the sunset handling in
-            // AnalyzeRuleService.EnsureBuiltInRulesSeededAsync — kept symmetric so
-            // every reseed path leaves the same DB invariants.
             var newCatalogIds = rules.Select(r => r.RuleId).ToHashSet(System.StringComparer.Ordinal);
-            var sunsetRuleIds = existing
-                .Where(r => (r.IsBuiltIn || r.IsCommunity) && !newCatalogIds.Contains(r.RuleId))
-                .Select(r => r.RuleId)
-                .ToList();
+
+            // Split existing built-in / community rows into survivors (in new catalog
+            // → re-imported below) and sunsets (NOT in new catalog → orphan-state GC
+            // first, global delete only on clean GC). The sunset ordering mirrors
+            // AnalyzeRuleService.EnsureBuiltInRulesSeededAsync — kept symmetric so every
+            // reseed path leaves the same DB invariants and partial failures retry.
+            var survivors = existing.Where(r => (r.IsBuiltIn || r.IsCommunity) && newCatalogIds.Contains(r.RuleId)).ToList();
+            var sunset = existing.Where(r => (r.IsBuiltIn || r.IsCommunity) && !newCatalogIds.Contains(r.RuleId)).ToList();
 
             var deleted = 0;
-            foreach (var rule in existing.Where(r => r.IsBuiltIn || r.IsCommunity))
+
+            // Survivor path: delete then re-write (legacy behaviour).
+            foreach (var rule in survivors)
             {
                 await _ruleRepo.DeleteAnalyzeRuleAsync("global", rule.RuleId);
                 deleted++;
+            }
+
+            // Sunset path: GC-first ordering. If GC fails partially, leave the global
+            // row in place so the next reseed cycle sees the rule in the sunset diff
+            // again and retries.
+            var orphanStatesGcd = 0;
+            var sunsetSkipped = 0;
+            foreach (var sunsetRule in sunset)
+            {
+                var (gcDeleted, gcFailed) = await _ruleRepo.DeleteRuleStatesForRuleIdAcrossTenantsAsync(sunsetRule.RuleId);
+                orphanStatesGcd += gcDeleted;
+                if (gcFailed != 0)
+                {
+                    _logger.LogWarning(
+                        "GitHub reseed sunset GC partial failure for {RuleId} (deleted={Deleted}, failed={Failed}); keeping global row to retry on next reseed",
+                        sunsetRule.RuleId, gcDeleted, gcFailed);
+                    sunsetSkipped++;
+                    continue;
+                }
+                var globalDeleted = await _ruleRepo.DeleteAnalyzeRuleAsync("global", sunsetRule.RuleId);
+                if (globalDeleted)
+                {
+                    deleted++;
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "GitHub reseed sunset GC clean but global delete failed for {RuleId}; will retry on next reseed",
+                        sunsetRule.RuleId);
+                    sunsetSkipped++;
+                }
             }
 
             foreach (var rule in rules)
@@ -192,16 +222,10 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 await _ruleRepo.StoreAnalyzeRuleAsync(rule, "global");
             }
 
-            var orphanStatesGcd = 0;
-            foreach (var sunsetRuleId in sunsetRuleIds)
-            {
-                orphanStatesGcd += await _ruleRepo.DeleteRuleStatesForRuleIdAcrossTenantsAsync(sunsetRuleId);
-            }
-
             _logger.LogInformation(
-                "GitHub reseed analyze: {Deleted} deleted, {Written} written, {OrphanCount} orphan per-tenant RuleState(s) cleaned for {SunsetCount} sunset rule(s)",
-                deleted, rules.Count, orphanStatesGcd, sunsetRuleIds.Count);
-            return (deleted, rules.Count);
+                "GitHub reseed analyze: {Deleted} deleted, {Written} written, {OrphanCount} orphan per-tenant RuleState(s) cleaned across {SunsetTotal} sunset rule(s) ({Skipped} skipped on failure for retry)",
+                deleted, rules.Count, orphanStatesGcd, sunset.Count, sunsetSkipped);
+            return (deleted, rules.Count, orphanStatesGcd, sunsetSkipped);
         }
 
         private async Task<(int deleted, int written)> ReseedImeAsync(List<AutopilotMonitor.Shared.Models.ImeLogPattern> patterns)

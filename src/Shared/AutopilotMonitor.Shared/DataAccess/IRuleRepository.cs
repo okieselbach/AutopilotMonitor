@@ -28,9 +28,16 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <paramref name="ruleId"/>. Used as orphan-GC when a built-in / community rule
         /// is sunset (deleted from the global catalog): tenants that previously toggled
         /// the rule in the UI have a per-tenant <c>RuleState</c> row that would otherwise
-        /// linger as dead state. Returns the number of orphans deleted.
+        /// linger as dead state.
+        /// <para>
+        /// Returns <c>(deleted, failed)</c>. A 404 on an individual row is counted as
+        /// deleted (idempotent retry). <c>failed</c> is non-zero on per-row errors;
+        /// <c>-1</c> signals the cross-partition enumeration itself failed — callers
+        /// MUST then refuse to delete the global catalog row, or the rule falls out of
+        /// the sunset-diff and unreachable orphan state lingers forever.
+        /// </para>
         /// </summary>
-        Task<int> DeleteRuleStatesForRuleIdAcrossTenantsAsync(string ruleId);
+        Task<(int deleted, int failed)> DeleteRuleStatesForRuleIdAcrossTenantsAsync(string ruleId);
 
         // --- Analyze Rules ---
         Task<bool> StoreAnalyzeRuleAsync(AnalyzeRule rule, string tenantId = "global");

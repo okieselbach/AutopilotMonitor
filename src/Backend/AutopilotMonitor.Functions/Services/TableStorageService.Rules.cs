@@ -318,7 +318,9 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Deletes the rule state for a tenant (resets to rule's default enabled state)
+        /// Deletes the rule state for a tenant (resets to rule's default enabled state).
+        /// Idempotent: a 404 (the row was already gone) counts as success so callers can
+        /// retry safely without flipping their happy-path on the missing-row condition.
         /// </summary>
         public async Task<bool> DeleteRuleStateAsync(string tenantId, string ruleId)
         {
@@ -328,6 +330,10 @@ namespace AutopilotMonitor.Functions.Services
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.RuleStates);
                 await tableClient.DeleteEntityAsync(tenantId, ruleId);
+                return true;
+            }
+            catch (Azure.RequestFailedException ex) when (ex.Status == 404)
+            {
                 return true;
             }
             catch (Exception ex)
@@ -342,13 +348,21 @@ namespace AutopilotMonitor.Functions.Services
         /// RowKey matches <paramref name="ruleId"/>. Used as orphan-GC when a built-in
         /// rule is removed from the global catalog — without this, per-tenant
         /// <c>RuleState{Enabled=true}</c> overrides survive the sunset and would re-fire
-        /// the moment the rule was ever re-introduced under the same ruleId. Best-effort:
-        /// failures on individual rows are logged and skipped (no transactionality across
-        /// partitions). Returns the actual number of rows deleted.
+        /// the moment the rule was ever re-introduced under the same ruleId.
+        /// <para>
+        /// Returns a tuple of <c>(deleted, failed)</c>. <c>deleted</c> counts both fresh
+        /// deletes and 404 (the row was already gone — idempotent retry). <c>failed</c>
+        /// is non-zero if any individual delete threw a non-404 error, or
+        /// <c>-1</c> if the cross-partition enumeration itself failed (we can't tell how
+        /// many rows are still out there). Callers must check <c>failed</c> before
+        /// proceeding with the global rule delete — otherwise a partial GC followed by a
+        /// successful catalog delete leaves orphan state with no way to re-enter the diff
+        /// on a later seed cycle.
+        /// </para>
         /// </summary>
-        public async Task<int> DeleteRuleStatesForRuleIdAcrossTenantsAsync(string ruleId)
+        public async Task<(int deleted, int failed)> DeleteRuleStatesForRuleIdAcrossTenantsAsync(string ruleId)
         {
-            if (string.IsNullOrWhiteSpace(ruleId)) return 0;
+            if (string.IsNullOrWhiteSpace(ruleId)) return (0, 0);
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.RuleStates);
@@ -358,11 +372,17 @@ namespace AutopilotMonitor.Functions.Services
                 var query = tableClient.QueryAsync<TableEntity>(filter: $"RowKey eq '{ruleId.Replace("'", "''")}'");
 
                 var deleted = 0;
+                var failed = 0;
                 await foreach (var entity in query)
                 {
                     try
                     {
                         await tableClient.DeleteEntityAsync(entity.PartitionKey, entity.RowKey);
+                        deleted++;
+                    }
+                    catch (Azure.RequestFailedException ex) when (ex.Status == 404)
+                    {
+                        // Row was deleted between the query and our delete — idempotent.
                         deleted++;
                     }
                     catch (Exception ex)
@@ -371,20 +391,24 @@ namespace AutopilotMonitor.Functions.Services
                             ex,
                             "Failed to delete orphan RuleState {RuleId} for tenant {TenantId}",
                             ruleId, entity.PartitionKey);
+                        failed++;
                     }
                 }
-                if (deleted > 0)
+                if (deleted > 0 || failed > 0)
                 {
                     _logger.LogInformation(
-                        "Deleted {Count} orphan RuleState row(s) for sunset rule {RuleId}",
-                        deleted, ruleId);
+                        "Orphan RuleState GC for {RuleId}: {Deleted} deleted, {Failed} failed",
+                        ruleId, deleted, failed);
                 }
-                return deleted;
+                return (deleted, failed);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to enumerate RuleStates for orphan GC of {RuleId}", ruleId);
-                return 0;
+                // -1 signals "we don't know" — caller must NOT proceed to delete the
+                // global catalog row, otherwise the rule falls out of the diff and any
+                // orphan state we couldn't enumerate lingers indefinitely.
+                return (0, -1);
             }
         }
 
@@ -468,7 +492,10 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Deletes an analyze rule
+        /// Deletes an analyze rule. Idempotent: a 404 (the rule was already gone) counts
+        /// as success so the sunset orchestration in
+        /// <see cref="AnalyzeRuleService.EnsureBuiltInRulesSeededAsync"/> can retry without
+        /// flipping its happy-path on the missing-row condition.
         /// </summary>
         public async Task<bool> DeleteAnalyzeRuleAsync(string tenantId, string ruleId)
         {
@@ -476,6 +503,10 @@ namespace AutopilotMonitor.Functions.Services
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AnalyzeRules);
                 await tableClient.DeleteEntityAsync(tenantId, ruleId);
+                return true;
+            }
+            catch (Azure.RequestFailedException ex) when (ex.Status == 404)
+            {
                 return true;
             }
             catch (Exception ex)

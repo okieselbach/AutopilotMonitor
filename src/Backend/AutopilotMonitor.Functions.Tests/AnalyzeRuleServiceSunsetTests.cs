@@ -26,17 +26,48 @@ public class AnalyzeRuleServiceSunsetTests
         // can't easily inject a fake catalog, so we use a ruleId that the real catalog
         // doesn't contain). Plus the rule has TWO per-tenant RuleState overrides that
         // would normally keep it firing.
-        var (ruleRepo, deleteAnalyzeCalls, gcCalls) = BuildRepoWithSunsetRule(SunsetRuleId, orphanCount: 2);
+        var (ruleRepo, deleteAnalyzeCalls, gcCalls) = BuildRepoWithSunsetRule(SunsetRuleId, gcDeleted: 2, gcFailed: 0);
 
         var service = new AnalyzeRuleService(ruleRepo.Object, NullLogger<AnalyzeRuleService>.Instance);
 
         // Act: a regular GetAllRulesForTenantAsync triggers EnsureBuiltInRulesSeededAsync.
         await service.GetAllRulesForTenantAsync("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
 
-        // Assert: the sunset rule's global row got deleted AND its per-tenant orphan
-        // RuleStates got GC'd via the cross-tenant cleanup method.
+        // Assert: the sunset rule's per-tenant orphan RuleStates got GC'd AND its
+        // global row got deleted. The order matters (GC first), but for a clean GC
+        // the end-state is the same: both call sites recorded.
         Assert.Contains(SunsetRuleId, deleteAnalyzeCalls);
         Assert.Contains(SunsetRuleId, gcCalls);
+    }
+
+    [Fact]
+    public async Task EnsureSeed_partial_GC_failure_keeps_global_row_so_retry_works()
+    {
+        // Codex review (Medium): if GC reports >0 failed rows, the global delete must NOT
+        // run — otherwise the rule falls out of the sunset-diff and the remaining orphan
+        // RuleState rows are unreachable. With the global row kept, the next startup will
+        // see the rule in the diff again and re-attempt the GC.
+        var (ruleRepo, deleteAnalyzeCalls, gcCalls) = BuildRepoWithSunsetRule(SunsetRuleId, gcDeleted: 1, gcFailed: 1);
+
+        var service = new AnalyzeRuleService(ruleRepo.Object, NullLogger<AnalyzeRuleService>.Instance);
+        await service.GetAllRulesForTenantAsync("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
+
+        Assert.Contains(SunsetRuleId, gcCalls);             // GC was attempted
+        Assert.DoesNotContain(SunsetRuleId, deleteAnalyzeCalls); // global delete SKIPPED on partial GC
+    }
+
+    [Fact]
+    public async Task EnsureSeed_GC_enumeration_failure_keeps_global_row_too()
+    {
+        // The gcFailed == -1 sentinel signals "we couldn't enumerate the RuleStates at
+        // all". Same contract as partial failure: do NOT delete the global row.
+        var (ruleRepo, deleteAnalyzeCalls, gcCalls) = BuildRepoWithSunsetRule(SunsetRuleId, gcDeleted: 0, gcFailed: -1);
+
+        var service = new AnalyzeRuleService(ruleRepo.Object, NullLogger<AnalyzeRuleService>.Instance);
+        await service.GetAllRulesForTenantAsync("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
+
+        Assert.Contains(SunsetRuleId, gcCalls);
+        Assert.DoesNotContain(SunsetRuleId, deleteAnalyzeCalls);
     }
 
     [Fact]
@@ -46,7 +77,7 @@ public class AnalyzeRuleServiceSunsetTests
         // its RuleState rows even if tenants have overrides — those are legitimate opt-out
         // / opt-in settings.
         var stillLiveRuleId = BuiltInAnalyzeRules.GetAll().First().RuleId;
-        var (ruleRepo, deleteAnalyzeCalls, gcCalls) = BuildRepoWithSunsetRule(stillLiveRuleId, orphanCount: 1);
+        var (ruleRepo, deleteAnalyzeCalls, gcCalls) = BuildRepoWithSunsetRule(stillLiveRuleId, gcDeleted: 1, gcFailed: 0);
 
         var service = new AnalyzeRuleService(ruleRepo.Object, NullLogger<AnalyzeRuleService>.Instance);
 
@@ -54,8 +85,6 @@ public class AnalyzeRuleServiceSunsetTests
 
         // Live rule's RuleState must NOT be GC'd.
         Assert.DoesNotContain(stillLiveRuleId, gcCalls);
-        // Live rule may have been overwritten by version-bump update logic — that's
-        // fine, only the GC path matters for this invariant.
     }
 
     [Fact]
@@ -64,7 +93,7 @@ public class AnalyzeRuleServiceSunsetTests
         // The new ReseedBuiltInRulesAsync return shape is (deleted, written, orphanStatesGcd)
         // — pin that so external callers (admin UI, future scripts) can surface the
         // cleanup count to the operator.
-        var (ruleRepo, _, _) = BuildRepoWithSunsetRule(SunsetRuleId, orphanCount: 3);
+        var (ruleRepo, _, _) = BuildRepoWithSunsetRule(SunsetRuleId, gcDeleted: 3, gcFailed: 0);
 
         var service = new AnalyzeRuleService(ruleRepo.Object, NullLogger<AnalyzeRuleService>.Instance);
         var (deleted, written, orphanStatesGcd) = await service.ReseedBuiltInRulesAsync();
@@ -74,6 +103,23 @@ public class AnalyzeRuleServiceSunsetTests
         Assert.Equal(3, orphanStatesGcd);
     }
 
+    [Fact]
+    public async Task ReseedBuiltIn_skips_global_delete_on_partial_GC_failure()
+    {
+        // Same invariant as the EnsureSeed test — the explicit Reseed path must also
+        // refuse to drop the global row when GC didn't go all the way through.
+        var (ruleRepo, deleteAnalyzeCalls, gcCalls) = BuildRepoWithSunsetRule(SunsetRuleId, gcDeleted: 2, gcFailed: 1);
+
+        var service = new AnalyzeRuleService(ruleRepo.Object, NullLogger<AnalyzeRuleService>.Instance);
+        var (deleted, written, orphanStatesGcd) = await service.ReseedBuiltInRulesAsync();
+
+        Assert.Contains(SunsetRuleId, gcCalls);
+        Assert.DoesNotContain(SunsetRuleId, deleteAnalyzeCalls);
+        // orphanStatesGcd still surfaces the partial successes (2/3 rows deleted before
+        // the failure) so operators can see progress was made.
+        Assert.Equal(2, orphanStatesGcd);
+    }
+
     // ===== Helpers =====
 
     /// <summary>
@@ -81,14 +127,14 @@ public class AnalyzeRuleServiceSunsetTests
     /// (a) returns the full built-in catalog PLUS one extra rule with the given
     ///     <paramref name="extraRuleId"/> on the "global" partition — so the sunset
     ///     detection has something to find when extraRuleId is not in the catalog;
-    /// (b) reports the configured <paramref name="orphanCount"/> from the cross-tenant
-    ///     RuleState GC method.
+    /// (b) reports the configured GC result via
+    ///     <see cref="IRuleRepository.DeleteRuleStatesForRuleIdAcrossTenantsAsync"/>.
     /// Returns the mock plus two recorder lists capturing which ruleIds got
     /// DeleteAnalyzeRuleAsync and which got DeleteRuleStatesForRuleIdAcrossTenantsAsync
     /// invoked.
     /// </summary>
     private static (Mock<IRuleRepository> repo, List<string> deleteAnalyzeCalls, List<string> gcCalls)
-        BuildRepoWithSunsetRule(string extraRuleId, int orphanCount)
+        BuildRepoWithSunsetRule(string extraRuleId, int gcDeleted, int gcFailed)
     {
         var deleteAnalyzeCalls = new List<string>();
         var gcCalls = new List<string>();
@@ -122,7 +168,7 @@ public class AnalyzeRuleServiceSunsetTests
             .ReturnsAsync(true);
         ruleRepo.Setup(r => r.DeleteRuleStatesForRuleIdAcrossTenantsAsync(It.IsAny<string>()))
             .Callback<string>(ruleId => gcCalls.Add(ruleId))
-            .ReturnsAsync(orphanCount);
+            .ReturnsAsync((gcDeleted, gcFailed));
 
         return (ruleRepo, deleteAnalyzeCalls, gcCalls);
     }
