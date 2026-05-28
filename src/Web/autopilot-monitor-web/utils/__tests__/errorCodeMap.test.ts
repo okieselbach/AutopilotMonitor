@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   getErrorCodeDescription,
   getErrorCodeEntry,
+  getEnrichedOrLookup,
   formatErrorCode,
 } from "../errorCodeMap";
 import catalogFile from "../error-codes.json";
@@ -64,6 +65,43 @@ describe("errorCodeMap", () => {
       expect(getErrorCodeEntry("0x80070005")?.confidence).toBe("high");
       expect(getErrorCodeEntry("0x87d30000")?.confidence).toBe("medium");
       expect(getErrorCodeEntry("0x87d30004")?.confidence).toBe("low");
+    });
+  });
+
+  describe("getEnrichedOrLookup", () => {
+    it("prefers backend-enriched sibling when present", () => {
+      const enriched = {
+        description: "Backend-provided description",
+        confidence: "high" as const,
+        source: "Backend Catalog v2",
+      };
+      const result = getEnrichedOrLookup(enriched, "0x80070005");
+      expect(result).toBe(enriched);
+      expect(result?.description).toBe("Backend-provided description");
+    });
+
+    it("falls back to local catalog when info is null", () => {
+      const result = getEnrichedOrLookup(null, "0x80070005");
+      expect(result).not.toBeNull();
+      expect(result?.description).toContain("Access denied");
+    });
+
+    it("falls back to local catalog when info is undefined", () => {
+      const result = getEnrichedOrLookup(undefined, "0x80070005");
+      expect(result).not.toBeNull();
+      expect(result?.description).toContain("Access denied");
+    });
+
+    it("returns null when both info and lookup miss", () => {
+      const result = getEnrichedOrLookup(null, "0xDEADBEEF");
+      expect(result).toBeNull();
+    });
+
+    it("ignores malformed info objects and falls back to lookup", () => {
+      // Backend would never emit this but guard against bad clients.
+      const malformed = { description: 42 } as unknown as { description: string; confidence: "high"; source: string };
+      const result = getEnrichedOrLookup(malformed, "0x80070005");
+      expect(result?.description).toContain("Access denied");
     });
   });
 

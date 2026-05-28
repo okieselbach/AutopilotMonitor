@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import { EnrollmentEvent, Session } from "@/types";
 import { normalizeEventDataForDisplay, shortenBuildHashInMessage } from "../utils/eventHelpers";
-import { getErrorCodeEntry, formatErrorCode } from "@/utils/errorCodeMap";
+import { getErrorCodeEntry, getEnrichedOrLookup, formatErrorCode } from "@/utils/errorCodeMap";
 
 interface EventTimelineProps {
   filteredEvents: EnrollmentEvent[];
@@ -447,8 +447,10 @@ function EventRow({ event, showScriptOutput }: { event: EnrollmentEvent; showScr
             const hr = event.data?.hresultFromWin32 ?? event.data?.hresult_from_win32;
             const hasNonZero = (ec && String(ec) !== "0") || (hr && String(hr) !== "0");
             if (!hasNonZero) return null;
-            const ecEntry = ec ? getErrorCodeEntry(String(ec)) : null;
-            const hrEntry = hr ? getErrorCodeEntry(String(hr)) : null;
+            // Prefer backend-enriched *Info sibling, fall back to local lookup for older
+            // responses that pre-date the backend ErrorCodeEnricher.
+            const ecEntry = ec ? getEnrichedOrLookup(event.data?.exitCodeInfo, String(ec)) : null;
+            const hrEntry = hr ? getEnrichedOrLookup(event.data?.hresultFromWin32Info, String(hr)) : null;
             return (
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
                 {ec && String(ec) !== "0" && (
@@ -489,7 +491,7 @@ function EventRow({ event, showScriptOutput }: { event: EnrollmentEvent; showScr
             const isAdvisory = event.eventType === "esp_failure_advisory";
             if (!code && !isAdvisory) return null;
             const codeStr = code ? String(code) : null;
-            const entry = codeStr ? getErrorCodeEntry(codeStr) : null;
+            const entry = codeStr ? getEnrichedOrLookup(event.data?.errorCodeInfo, codeStr) : null;
             // Advisory path uses warning-color palette (amber); the device continued past the
             // failure via ContinueAnyway, so this is not a hard error. PR1 Session 4fa5a2d4.
             const badgeBg = isAdvisory ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800";

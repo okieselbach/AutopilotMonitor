@@ -96,6 +96,26 @@ export function getErrorCodeEntry(code: string | number | null | undefined): Err
 }
 
 /**
+ * Backend-enriched info entry. The backend ErrorCodeEnricher injects sibling
+ * <code>{codeKey}Info</code> properties into event Data containing the same shape as
+ * <see cref="ErrorCodeEntry"/>. When present we prefer the server-side value (uses the
+ * authoritative catalog version + Confidence-level), and only fall back to the local
+ * lookup for older responses that don't carry the enrichment yet.
+ *
+ * Example: an event with <code>{ errorCode: "0x80070005", errorCodeInfo: {...} }</code>
+ * passes the info through without a second lookup.
+ */
+export function getEnrichedOrLookup(
+  info: ErrorCodeEntry | null | undefined,
+  code: string | number | null | undefined
+): ErrorCodeEntry | null {
+  if (info && typeof info === "object" && typeof info.description === "string") {
+    return info;
+  }
+  return lookupEntry(code);
+}
+
+/**
  * Format a raw numeric error code for display.
  * Signed-decimal HRESULTs are converted to hex notation.
  * Decimal exit codes stay as-is.
