@@ -405,24 +405,37 @@ export function scoreEvent(e: EventEntry, queryKeywords: string[], boostFailures
  * same-type events don't monopolize the list — cross-session search otherwise keeps
  * surfacing the same session first (the index returns a session's events contiguously).
  *
- * Greedy in score order: take up to `perSession` per session, then backfill remaining
- * slots in score order. GUARANTEE: the strongest hit is always kept and ranked first,
- * and the top `perSession` hits of every session are always kept — a clear top match is
- * never lost. Only the 3rd+ hit of a dominant session is demoted, and at small topK it
- * may be displaced by another session's lower-scored hit — the deliberate cost of
- * diversity. Single-session (scoped) searches are unaffected: backfill restores pure
- * score order, identical to a plain top-K slice.
+ * `guaranteedTop` events (by pure score) are locked to the head in exact rank order and
+ * are NEVER displaced by diversification — set it high to trust the ranking, or 0 for
+ * maximum spread. The remaining slots are filled greedily in score order, capped at
+ * `perSession` per session, then backfilled. The caller exposes `guaranteedTop` as a
+ * per-query knob so the model picks the relevance↔diversity balance it wants.
+ *
+ * Single-session (scoped) searches are unaffected: backfill restores pure score order.
  */
 export function diversifyBySession<T extends { event: EventEntry }>(
   scoredDesc: T[],
   topK: number,
   perSession = 2,
+  guaranteedTop = 2,
 ): T[] {
   const counts = new Map<string, number>();
   const picked: T[] = [];
   const deferred: T[] = [];
-  for (const s of scoredDesc) {
+
+  // Head: the strongest hits, locked in score order and exempt from the per-session cap.
+  const headSize = Math.min(Math.max(guaranteedTop, 0), topK, scoredDesc.length);
+  for (let i = 0; i < headSize; i++) {
+    const s = scoredDesc[i];
+    const sid = s.event._sessionId ?? s.event.sessionId ?? '';
+    picked.push(s);
+    counts.set(sid, (counts.get(sid) ?? 0) + 1); // head still counts toward the tail cap
+  }
+
+  // Tail: diversify the rest, accounting for what the head already surfaced.
+  for (let i = headSize; i < scoredDesc.length; i++) {
     if (picked.length >= topK) break;
+    const s = scoredDesc[i];
     const sid = s.event._sessionId ?? s.event.sessionId ?? '';
     const c = counts.get(sid) ?? 0;
     if (c < perSession) {
@@ -466,12 +479,14 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
         topK: z.coerce.number().min(1).max(30).optional().default(10).describe('Number of matching events to return (1-30, default 10)'),
         minScore: z.coerce.number().min(0).max(1).optional().default(0.1)
           .describe('Minimum relevance score (0-1, default 0.1). Events matching at least one keyword in any field pass this threshold.'),
+        guaranteedTopRanked: z.coerce.number().min(0).max(50).optional().default(2)
+          .describe('How many top results (by pure relevance score) are locked to the head in rank order, exempt from cross-session diversification. Default 2 keeps the strongest hits on top while spreading the rest across sessions. Set =topK to trust the ranking and disable diversification entirely; set 0 for maximum session diversity. Ignored for single-session (sessionId) searches.'),
       },
       annotations: READ_ONLY,
     },
     async (args) => withToolTelemetry('search_events_semantic', async () => {
       try {
-        const { query, sessionId, tenantId, topK, minScore } = args;
+        const { query, sessionId, tenantId, topK, minScore, guaranteedTopRanked } = args;
 
         // Extract keywords FIRST so we can use them for index-based pre-filtering
         const queryKeywords = extractKeywords(query);
@@ -493,7 +508,7 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
         }
 
         scored.sort((a, b) => b.score - a.score);
-        const results = diversifyBySession(scored, topK).map((s) => ({
+        const results = diversifyBySession(scored, topK, 2, guaranteedTopRanked).map((s) => ({
           score: Math.round(s.score * 1000) / 1000,
           matchedKeywords: s.matchedKeywords,
           bestFields: s.bestFields,
@@ -621,12 +636,14 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
           .describe('Min relevance score (0-1, default 0.05). Very low so weakly-matching events still surface.'),
         keywords: z.array(z.string()).optional()
           .describe('Additional exact keywords for matching. Auto-extracted from query if omitted.'),
+        guaranteedTopRanked: z.coerce.number().min(0).max(50).optional().default(2)
+          .describe('How many top results (by pure relevance score) are locked to the head in rank order, exempt from cross-session diversification. Default 2 keeps the strongest hits on top while spreading the rest across sessions. Set =topK to trust the ranking and disable diversification entirely; set 0 for maximum session diversity. Ignored for single-session (sessionId) searches.'),
       },
       annotations: READ_ONLY,
     },
     async (args) => withToolTelemetry('deep_search_events', async () => {
       try {
-        const { query, sessionId, tenantId, topK, minScore, keywords } = args;
+        const { query, sessionId, tenantId, topK, minScore, keywords, guaranteedTopRanked } = args;
 
         // Extract keywords FIRST for index-based pre-filtering
         const queryKeywords = keywords ?? extractKeywords(query);
@@ -659,7 +676,7 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
         }
 
         scored.sort((a, b) => b.score - a.score);
-        const results = diversifyBySession(scored, topK).map((s) => ({
+        const results = diversifyBySession(scored, topK, 2, guaranteedTopRanked).map((s) => ({
           score: Math.round(s.score * 1000) / 1000,
           matchedKeywords: s.matchedKeywords,
           bestFields: s.bestFields,

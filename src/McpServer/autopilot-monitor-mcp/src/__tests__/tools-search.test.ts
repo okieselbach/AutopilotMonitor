@@ -267,4 +267,24 @@ describe('diversifyBySession', () => {
     const out = diversifyBySession(scored, 2);
     expect(out.map((s) => s.event._sessionId)).toEqual(['A', 'B']);
   });
+
+  it('guaranteedTop locks the strongest hits to the head, exempt from the per-session cap', () => {
+    // Same-session A holds the 3 best scores; guaranteedTop=3 keeps all three on top.
+    const scored = [ev('A', 9), ev('A', 8), ev('A', 7), ev('B', 6), ev('C', 5)];
+    const out = diversifyBySession(scored, 4, 2, 3);
+    expect(out.map((s) => s.event._sessionId)).toEqual(['A', 'A', 'A', 'B']);
+  });
+
+  it('guaranteedTop >= topK disables diversification (pure score order)', () => {
+    const scored = [ev('A', 9), ev('A', 8), ev('A', 7), ev('A', 6), ev('B', 5)];
+    const out = diversifyBySession(scored, 4, 2, 4);
+    expect(out.map((s) => s.event._sessionId)).toEqual(['A', 'A', 'A', 'A']);
+  });
+
+  it('guaranteedTop=0 leans fully on per-session diversity', () => {
+    const scored = [ev('A', 9), ev('A', 8), ev('A', 7), ev('B', 6), ev('C', 5)];
+    const out = diversifyBySession(scored, 3, 2, 0);
+    // No locked head; per-session cap (2) still surfaces B at rank 3.
+    expect(out.map((s) => s.event._sessionId)).toEqual(['A', 'A', 'B']);
+  });
 });
