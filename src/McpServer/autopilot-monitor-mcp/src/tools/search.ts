@@ -37,6 +37,32 @@ export function extractEventTypeCandidates(keywords: string[]): string[] {
     .map((c) => c.et);
 }
 
+/**
+ * Event types whose NAME signals a failure/anomaly. Used to reorder the candidate walk when
+ * the query has problem intent: the per-type fan-out is sequential and budget-bounded, so a
+ * high-volume benign type (e.g. app_install_started — every app logs "Installing") walked
+ * first can consume the wall-clock budget before a rarer failure type (app_install_failed)
+ * is ever fetched. Walking failures first guarantees they are scanned within budget — the
+ * key signal often lives in a failure event's message, not its type name (e.g. "install
+ * timeout" is an app_install_failed event whose message reads "Installation is timeout").
+ */
+// NB: only tokens that appear in real failure TYPE NAMES, and none that are a substring of a
+// benign type name — e.g. "stall"/"stuck" are excluded because "stall" sits inside "in[stall]"
+// (those are message-level concepts, not type names).
+const FAILURE_TYPE_PATTERN = /fail|error|timeout|denied|crash|fault|abort|block|reject|unsupported/;
+
+/**
+ * Stable-partition candidate event types so failure-signal types come first, preserving the
+ * relative order within each group. Applied before the per-type cap when the query signals a
+ * problem, so failure types both survive the cap and are walked before benign high-volume types.
+ */
+export function prioritizeFailureTypes(types: string[]): string[] {
+  const failures: string[] = [];
+  const rest: string[] = [];
+  for (const t of types) (FAILURE_TYPE_PATTERN.test(t) ? failures : rest).push(t);
+  return [...failures, ...rest];
+}
+
 // ── Cross-session paginated fan-out ───────────────────────────────────────
 //
 // The cross-session search walks the already-paginated /api/raw/events
@@ -93,11 +119,20 @@ function clamp01(x: number): number {
  */
 const LEGACY_FALLBACK_SESSION_CAP = 5;
 
-/** Tier-1 (fast): a couple pages per type — still quick, but less easily truncated. */
-const SEMANTIC_BUDGET: FetchBudget = { maxPagesPerType: 3, wallClockMs: 12_000 };
+/**
+ * "fast" depth: a few pages per type — still quick, but less easily truncated. The
+ * wall-clock is generous enough that a high-volume benign type can't starve the walk
+ * before the failure-priority reorder (selectEventTypeCandidates → prioritizeFailureTypes)
+ * has surfaced the failure types.
+ */
+const SEMANTIC_BUDGET: FetchBudget = { maxPagesPerType: 5, wallClockMs: 20_000 };
 
-/** Tier-3 (deep): wide multi-page recall, bounded by a generous wall-clock. */
-const DEEP_BUDGET: FetchBudget = { maxPagesPerType: 20, wallClockMs: 40_000 };
+/**
+ * "deep" depth: wide multi-page recall, bounded by a generous wall-clock. Prefer waiting a
+ * little longer for complete results over an early truncation — kept under the MCP client's
+ * typical 60s tool-call timeout with headroom.
+ */
+const DEEP_BUDGET: FetchBudget = { maxPagesPerType: 30, wallClockMs: 50_000 };
 
 /**
  * `depth` presets for the unified search_events tool. "fast" is the former TIER-1 (quick,
@@ -275,11 +310,14 @@ async function fetchSessionEvents(
   if (queryKeywords && queryKeywords.length > 0) {
     const { candidates: ranked, semanticTypeScores } = await selectEventTypeCandidates(query, queryKeywords, eventTypeIndex);
     if (ranked.length > 0) {
+      // On a problem query, walk failure-signal types first so they survive the cap AND are
+      // fetched before high-volume benign types exhaust the budget (see prioritizeFailureTypes).
+      const ordered = queryHasProblemIntent(queryKeywords) ? prioritizeFailureTypes(ranked) : ranked;
       // Cap the per-type fan-out to the most-relevant types. If we dropped any,
       // recall is partial → flag truncated rather than silently narrowing. (Legacy
       // is reserved for the genuine "no keyword maps to any event type" case below.)
-      const candidates = ranked.slice(0, MAX_EVENT_TYPE_CANDIDATES);
-      const candidatesDropped = ranked.length > candidates.length;
+      const candidates = ordered.slice(0, MAX_EVENT_TYPE_CANDIDATES);
+      const candidatesDropped = ordered.length > candidates.length;
       const basePath = pickGlobalOrTenantPath('/api/global/raw/events', '/api/raw/events');
       const { events, truncated, anySucceeded } = await fetchEventsViaIndex(candidates, basePath, tenantId, budget);
       if (anySucceeded) {

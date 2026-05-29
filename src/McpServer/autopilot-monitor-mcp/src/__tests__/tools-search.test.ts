@@ -12,6 +12,7 @@ import {
   extractEventTypeCandidates,
   selectEventTypeCandidates,
   diversifyBySession,
+  prioritizeFailureTypes,
 } from '../tools/search.js';
 
 type Page = { events?: Array<Record<string, unknown>>; nextLink?: string };
@@ -349,6 +350,24 @@ describe('scoreEvent — synonym-aware matching', () => {
     // inside "install"; likewise "hang" must not match network_state_change via "change".
     expect(scoreEvent({ eventType: 'app_install_started', severity: 'Info' }, ['timeout'], false)).toBeNull();
     expect(scoreEvent({ eventType: 'network_state_change', severity: 'Info' }, ['timeout'], false)).toBeNull();
+  });
+});
+
+describe('prioritizeFailureTypes', () => {
+  it('moves failure-signal types ahead of benign ones, preserving relative order', () => {
+    // The "app install timeout" trap: app_install_started (benign, high-volume) is walked
+    // first and starves app_install_failed of the budget. Reorder → failure first.
+    const out = prioritizeFailureTypes([
+      'app_install_started', 'app_install_failed', 'app_install_completed', 'error_detected',
+    ]);
+    expect(out).toEqual([
+      'app_install_failed', 'error_detected', 'app_install_started', 'app_install_completed',
+    ]);
+  });
+
+  it('is a no-op when no type is a failure signal', () => {
+    const input = ['tpm_status', 'download_progress', 'desktop_arrived'];
+    expect(prioritizeFailureTypes(input)).toEqual(input);
   });
 });
 
