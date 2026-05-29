@@ -10,6 +10,7 @@ import {
   scoreEvent,
   queryHasProblemIntent,
   extractEventTypeCandidates,
+  diversifyBySession,
 } from '../tools/search.js';
 
 type Page = { events?: Array<Record<string, unknown>>; nextLink?: string };
@@ -241,5 +242,29 @@ describe('extractEventTypeCandidates — ranking + broad-catalog coverage', () =
 
   it('returns [] when no keyword maps to any event type (→ caller uses legacy path)', () => {
     expect(extractEventTypeCandidates(['zzzznomatch'])).toEqual([]);
+  });
+});
+
+describe('diversifyBySession', () => {
+  const ev = (sid: string, score: number) => ({ event: { _sessionId: sid }, score });
+
+  it('surfaces a second session instead of a third event from the same one', () => {
+    // Score order: A, A, A, B, C. Default perSession=2 → A,A then B.
+    const scored = [ev('A', 9), ev('A', 8), ev('A', 7), ev('B', 6), ev('C', 5)];
+    const out = diversifyBySession(scored, 3);
+    expect(out.map((s) => s.event._sessionId)).toEqual(['A', 'A', 'B']);
+  });
+
+  it('backfills (never drops) when distinct sessions run out', () => {
+    const scored = [ev('A', 9), ev('A', 8), ev('A', 7)];
+    const out = diversifyBySession(scored, 3);
+    expect(out).toHaveLength(3); // single session → same as a plain top-K slice
+    expect(out.map((s) => s.event._sessionId)).toEqual(['A', 'A', 'A']);
+  });
+
+  it('respects topK and preserves score order within the picked set', () => {
+    const scored = [ev('A', 9), ev('B', 8), ev('A', 7), ev('C', 6)];
+    const out = diversifyBySession(scored, 2);
+    expect(out.map((s) => s.event._sessionId)).toEqual(['A', 'B']);
   });
 });

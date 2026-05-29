@@ -60,13 +60,23 @@ type FetchBudget = { maxPagesPerType: number; wallClockMs: number };
 const RAW_EVENTS_PAGE_SIZE = 200;
 
 /** Upper bound on distinct event types to fan out over (keeps the request count sane). */
-const MAX_EVENT_TYPE_CANDIDATES = 10;
+const MAX_EVENT_TYPE_CANDIDATES = 16;
 
-/** Tier-1 (fast): one page per type — already ≈20x the legacy sessionLimit:10, but cheap. */
-const SEMANTIC_BUDGET: FetchBudget = { maxPagesPerType: 1, wallClockMs: 8_000 };
+/**
+ * Hard cap on sessions scanned by the legacy fallback. The backend /search/sessions
+ * endpoint bounds results via `pageSize` (the old `limit` param was removed in the
+ * pagination rollout — passing it was a silent no-op that returned the full ~50-row
+ * default page). We send pageSize AND slice client-side as defense, so the N+1
+ * event-fetch fallback stays bounded and the recallNote ("5 most recent failed
+ * sessions") stays honest.
+ */
+const LEGACY_FALLBACK_SESSION_CAP = 5;
 
-/** Tier-3 (deep): many pages per type for broad recall, bounded by wall-clock. */
-const DEEP_BUDGET: FetchBudget = { maxPagesPerType: 8, wallClockMs: 20_000 };
+/** Tier-1 (fast): a couple pages per type — still quick, but less easily truncated. */
+const SEMANTIC_BUDGET: FetchBudget = { maxPagesPerType: 3, wallClockMs: 12_000 };
+
+/** Tier-3 (deep): wide multi-page recall, bounded by a generous wall-clock. */
+const DEEP_BUDGET: FetchBudget = { maxPagesPerType: 20, wallClockMs: 40_000 };
 
 /** Injectable page fetcher — production hits the backend; tests pass a fake. */
 type PageFetcher = (path: string) => Promise<RawEventsPage>;
@@ -195,17 +205,22 @@ async function fetchSessionEvents(
     }
   }
 
-  // Fallback: scan the 5 most recent failed sessions (legacy N+1 path). Only
-  // reached when no event-type candidates exist or the index path produced
-  // nothing — recallSummary() flags this as incomplete.
-  const searchParams: Record<string, string | number | undefined> = { status: 'Failed', limit: 5 };
+  // Fallback: scan the most recent failed sessions (legacy N+1 path). Only reached
+  // when no event-type candidates exist or the index path produced nothing —
+  // recallSummary() flags this as incomplete.
+  const searchParams: Record<string, string | number | undefined> = { status: 'Failed', pageSize: LEGACY_FALLBACK_SESSION_CAP };
   if (tenantId) searchParams.tenantId = tenantId;
   const searchQ = buildQuery(searchParams);
   const searchBase = pickGlobalOrTenantPath('/api/global/search/sessions', '/api/search/sessions');
   const sessions = await apiFetch(`${searchBase}${searchQ}`) as {
     sessions?: Array<{ sessionId?: string }>;
   };
-  const ids = (sessions?.sessions ?? []).map((s) => s.sessionId).filter(Boolean) as string[];
+  // The backend ignores `limit`, so cap client-side to keep the N+1 fan-out bounded
+  // and the recallNote honest.
+  const ids = (sessions?.sessions ?? [])
+    .map((s) => s.sessionId)
+    .filter(Boolean)
+    .slice(0, LEGACY_FALLBACK_SESSION_CAP) as string[];
   const q = buildQuery({ tenantId } as Record<string, string | undefined>);
   const allEvents = await Promise.all(
     ids.map(async (sid) => {
@@ -385,6 +400,45 @@ export function scoreEvent(e: EventEntry, queryKeywords: string[], boostFailures
   };
 }
 
+/**
+ * Spread the top-scored events across distinct sessions so one session's many
+ * same-type events don't monopolize the list — cross-session search otherwise keeps
+ * surfacing the same session first (the index returns a session's events contiguously).
+ *
+ * Greedy in score order: take up to `perSession` per session, then backfill remaining
+ * slots in score order. GUARANTEE: the strongest hit is always kept and ranked first,
+ * and the top `perSession` hits of every session are always kept — a clear top match is
+ * never lost. Only the 3rd+ hit of a dominant session is demoted, and at small topK it
+ * may be displaced by another session's lower-scored hit — the deliberate cost of
+ * diversity. Single-session (scoped) searches are unaffected: backfill restores pure
+ * score order, identical to a plain top-K slice.
+ */
+export function diversifyBySession<T extends { event: EventEntry }>(
+  scoredDesc: T[],
+  topK: number,
+  perSession = 2,
+): T[] {
+  const counts = new Map<string, number>();
+  const picked: T[] = [];
+  const deferred: T[] = [];
+  for (const s of scoredDesc) {
+    if (picked.length >= topK) break;
+    const sid = s.event._sessionId ?? s.event.sessionId ?? '';
+    const c = counts.get(sid) ?? 0;
+    if (c < perSession) {
+      picked.push(s);
+      counts.set(sid, c + 1);
+    } else {
+      deferred.push(s);
+    }
+  }
+  for (const s of deferred) {
+    if (picked.length >= topK) break;
+    picked.push(s);
+  }
+  return picked;
+}
+
 // ── Registration ────────────────────────────────────────────────────────
 
 export function registerSearchTools(server: McpServer, knowledgeBase: SearchProvider | undefined, ga: boolean): void {
@@ -439,7 +493,7 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
         }
 
         scored.sort((a, b) => b.score - a.score);
-        const results = scored.slice(0, topK).map((s) => ({
+        const results = diversifyBySession(scored, topK).map((s) => ({
           score: Math.round(s.score * 1000) / 1000,
           matchedKeywords: s.matchedKeywords,
           bestFields: s.bestFields,
@@ -605,7 +659,7 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
         }
 
         scored.sort((a, b) => b.score - a.score);
-        const results = scored.slice(0, topK).map((s) => ({
+        const results = diversifyBySession(scored, topK).map((s) => ({
           score: Math.round(s.score * 1000) / 1000,
           matchedKeywords: s.matchedKeywords,
           bestFields: s.bestFields,
