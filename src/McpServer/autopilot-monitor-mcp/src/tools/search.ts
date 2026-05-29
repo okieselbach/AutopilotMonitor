@@ -23,11 +23,18 @@ type EventEntry = {
  */
 const KNOWN_EVENT_TYPES = ALL_EVENT_TYPES;
 
-/** Match query keywords against known event types using prefix-aware matching. */
-function extractEventTypeCandidates(keywords: string[]): string[] {
-  return KNOWN_EVENT_TYPES.filter((et) =>
-    keywords.some((kw) => prefixAwareMatch(et, kw)),
-  );
+/**
+ * Rank known event types by how many query keywords they match (prefix-aware),
+ * most-relevant first. With the full ~130-type catalog a broad keyword (e.g. "hello"
+ * or "failed") matches many types; the caller caps to the top-N, so completing the
+ * catalog never starves the index walk into the weak legacy fallback.
+ */
+export function extractEventTypeCandidates(keywords: string[]): string[] {
+  return KNOWN_EVENT_TYPES
+    .map((et) => ({ et, hits: keywords.reduce((n, kw) => n + (prefixAwareMatch(et, kw) ? 1 : 0), 0) }))
+    .filter((c) => c.hits > 0)
+    .sort((a, b) => b.hits - a.hits)
+    .map((c) => c.et);
 }
 
 // ── Cross-session paginated fan-out ───────────────────────────────────────
@@ -169,15 +176,20 @@ async function fetchSessionEvents(
 
   // Multi-session: paginated index walk per candidate event type.
   if (queryKeywords && queryKeywords.length > 0) {
-    const candidates = extractEventTypeCandidates(queryKeywords);
-    if (candidates.length > 0 && candidates.length <= MAX_EVENT_TYPE_CANDIDATES) {
+    const ranked = extractEventTypeCandidates(queryKeywords);
+    if (ranked.length > 0) {
+      // Cap the per-type fan-out to the most-relevant types. If we dropped any,
+      // recall is partial → flag truncated rather than silently narrowing. (Legacy
+      // is reserved for the genuine "no keyword maps to any event type" case below.)
+      const candidates = ranked.slice(0, MAX_EVENT_TYPE_CANDIDATES);
+      const candidatesDropped = ranked.length > candidates.length;
       const basePath = pickGlobalOrTenantPath('/api/global/raw/events', '/api/raw/events');
       const { events, truncated, anySucceeded } = await fetchEventsViaIndex(candidates, basePath, tenantId, budget);
       if (anySucceeded) {
         // No event appears in more than one single-type walk, so the only
         // overlap across walks is sessions — union them.
         const sessionIds = [...new Set(events.map((e) => e._sessionId).filter(Boolean) as string[])];
-        return { events, sessionIds, searchMethod: 'index-paginated', truncated };
+        return { events, sessionIds, searchMethod: 'index-paginated', truncated: truncated || candidatesDropped };
       }
       // Every type errored before returning a page → fall through to legacy.
     }

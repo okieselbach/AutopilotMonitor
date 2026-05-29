@@ -5,7 +5,12 @@
  * and clock, so we drive it with canned pages instead of the live API.
  */
 import { describe, it, expect } from 'vitest';
-import { fetchEventsViaIndex, scoreEvent, queryHasProblemIntent } from '../tools/search.js';
+import {
+  fetchEventsViaIndex,
+  scoreEvent,
+  queryHasProblemIntent,
+  extractEventTypeCandidates,
+} from '../tools/search.js';
 
 type Page = { events?: Array<Record<string, unknown>>; nextLink?: string };
 
@@ -214,5 +219,27 @@ describe('scoreEvent — severity-intent alignment', () => {
 
   it('returns null when no keyword matches', () => {
     expect(scoreEvent({ eventType: 'network_state_change', severity: 'Info' }, keywords, true)).toBeNull();
+  });
+});
+
+describe('extractEventTypeCandidates — ranking + broad-catalog coverage', () => {
+  it('ranks the type matching the most keywords first', () => {
+    const ranked = extractEventTypeCandidates(['hello', 'provisioning', 'failed']);
+    // hello_provisioning_failed matches all three keywords → must rank #1.
+    expect(ranked[0]).toBe('hello_provisioning_failed');
+  });
+
+  it('returns the full ranked set (not pre-capped) so a broad keyword surfaces many types', () => {
+    // "hello" alone matches the whole hello_* family — well beyond the per-walk cap.
+    // The caller (fetchSessionEvents) caps to the top-N; this fn must NOT pre-truncate,
+    // otherwise the catalog-completion regression (legacy fallback) reappears.
+    const ranked = extractEventTypeCandidates(['hello']);
+    expect(ranked.length).toBeGreaterThan(10);
+    expect(ranked).toContain('hello_provisioning_failed');
+    expect(ranked.every((t) => t.includes('hello'))).toBe(true);
+  });
+
+  it('returns [] when no keyword maps to any event type (→ caller uses legacy path)', () => {
+    expect(extractEventTypeCandidates(['zzzznomatch'])).toEqual([]);
   });
 });
