@@ -430,6 +430,7 @@ export default function DeviceDetailsCard({ events, latestAgentVersion }: { even
                   <DetailRow label="CPU Cores" value={`${hwSpec.cpuCores ?? '?'} cores / ${hwSpec.cpuLogicalProcessors ?? '?'} threads`} />
                 )}
                 {hwSpec.cpuMaxClockSpeedGHz && <DetailRow label="Max Clock" value={`${hwSpec.cpuMaxClockSpeedGHz} GHz`} />}
+                {hwSpec.cpuArchitecture && <DetailRow label="Architecture" value={String(hwSpec.cpuArchitecture)} />}
 
                 {hwSpec.ramTotalGB && (
                   <DetailRow label="RAM" value={`${hwSpec.ramTotalGB} GB${hwSpec.ramType ? ` ${hwSpec.ramType}` : ''}${hwSpec.ramSpeed ? ` @ ${hwSpec.ramSpeed} MHz` : ''}`} />

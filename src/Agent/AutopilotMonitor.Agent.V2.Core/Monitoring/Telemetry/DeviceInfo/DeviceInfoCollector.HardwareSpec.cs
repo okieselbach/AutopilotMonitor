@@ -63,11 +63,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
             try
             {
                 using (var searcher = new ManagementObjectSearcher(
-                    "SELECT Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed FROM Win32_Processor"))
+                    "SELECT Name, Architecture, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed FROM Win32_Processor"))
                 {
                     foreach (ManagementObject obj in searcher.Get())
                     {
                         data["cpuName"] = obj["Name"]?.ToString()?.Trim();
+
+                        // CPU/device architecture (x86, x64, ARM, ARM64). The WMI service
+                        // runs as a 64-bit host, so Win32_Processor.Architecture reports the
+                        // true hardware architecture even though this net48 agent runs as a
+                        // 32-bit process under ARM64 emulation -- unlike the PROCESSOR_ARCHITECTURE
+                        // environment variable, which would report the emulated (x86) value.
+                        if (obj["Architecture"] != null)
+                            data["cpuArchitecture"] = MapProcessorArchitecture(Convert.ToInt32(obj["Architecture"]));
 
                         if (obj["NumberOfCores"] != null)
                             data["cpuCores"] = Convert.ToInt32(obj["NumberOfCores"]);
@@ -390,6 +398,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
             }
 
             return parts.Count > 0 ? string.Join(", ", parts) : "Hardware spec collected";
+        }
+
+        internal static string MapProcessorArchitecture(int architecture)
+        {
+            // Win32_Processor.Architecture (== PROCESSOR_ARCHITECTURE):
+            // 0=x86, 5=ARM, 6=ia64, 9=x64, 12=ARM64. See Microsoft docs for Win32_Processor.
+            switch (architecture)
+            {
+                case 0: return "x86";
+                case 5: return "ARM";
+                case 6: return "ia64";
+                case 9: return "x64";
+                case 12: return "ARM64";
+                default: return "Unknown";
+            }
         }
 
         private static string MapMemoryType(int smbiosType)

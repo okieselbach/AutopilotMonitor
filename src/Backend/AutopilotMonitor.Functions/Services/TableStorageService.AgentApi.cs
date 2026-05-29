@@ -689,11 +689,12 @@ namespace AutopilotMonitor.Functions.Services
         ///   "<=5"  → numeric less-than-or-equal
         ///   ">8"   → numeric greater-than
         ///   "<5"   → numeric less-than
+        ///   "ARM*" → case-insensitive prefix match (trailing wildcard)
         ///   "True"/"False" → boolean match
         ///   anything else → case-insensitive string equality
         /// For array values: checks if filterValue appears as substring in any element.
         /// </summary>
-        private static bool MatchesDevicePropertyFilter(object actual, string filterValue)
+        internal static bool MatchesDevicePropertyFilter(object actual, string filterValue)
         {
             var actualStr = ConvertToString(actual);
 
@@ -707,6 +708,15 @@ namespace AutopilotMonitor.Functions.Services
                         return true;
                 }
                 return false;
+            }
+
+            // Trailing-wildcard prefix match, e.g. "ARM*" matches "ARM" and "ARM64".
+            // Only a single trailing '*' is treated as a wildcard; embedded '*' are literal.
+            if (filterValue.Length > 1 && filterValue.EndsWith("*") &&
+                !filterValue.AsSpan(0, filterValue.Length - 1).Contains('*'))
+            {
+                var prefix = filterValue.Substring(0, filterValue.Length - 1);
+                return actualStr.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
             }
 
             // Numeric range operators

@@ -80,6 +80,7 @@ export const DEVICE_PROPERTIES_CATALOG = {
     'hardware_spec.cpuName': { type: 'string', description: 'CPU model name (e.g. "Intel Core i7-1265U")' },
     'hardware_spec.cpuCores': { type: 'number', description: 'Number of physical CPU cores' },
     'hardware_spec.cpuLogicalProcessors': { type: 'number', description: 'Number of logical processors' },
+    'hardware_spec.cpuArchitecture': { type: 'string', description: 'CPU/device architecture: "x86", "x64", "ARM", "ARM64". Use "ARM*" to match all ARM devices (ARM + ARM64), "x*" for all Intel/AMD.' },
     'hardware_spec.ramTotalGB': { type: 'number', description: 'Total RAM in GB. Use >=N for minimum (e.g. ">=8")' },
     'hardware_spec.ramSpeed': { type: 'string', description: 'RAM speed (e.g. "3200 MHz")' },
     'hardware_spec.ramType': { type: 'string', description: 'RAM type (e.g. "DDR4", "LPDDR5")' },

@@ -96,6 +96,7 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
           'Dynamic device property filters. Keys use "eventType.propertyName" dot notation. ' +
           'See the device_properties catalog (call get_resource(name="device_properties")) for all available keys and types. ' +
           'Values: exact match by default. Prefix with >=, <=, >, < for numeric ranges (e.g. ">=8"). ' +
+          'Trailing "*" is a prefix wildcard (e.g. {"hardware_spec.cpuArchitecture": "ARM*"} matches ARM + ARM64). ' +
           'Booleans: use "True" or "False". Arrays: substring match in any element.'
         ),
         pageSize: z.coerce.number().int().min(1).max(1000).optional().default(200)
