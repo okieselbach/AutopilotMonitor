@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { apiFetch, buildQuery, pickGlobalOrTenantPath } from '../client.js';
+import { apiFetch, buildQuery, followNextLink, pickGlobalOrTenantPath } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
 import type { SearchProvider } from '../search-provider.js';
 import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema } from './shared.js';
@@ -39,47 +39,162 @@ function extractEventTypeCandidates(keywords: string[]): string[] {
   );
 }
 
-/** Fetch events for a single session or across sessions using index-based search. */
-async function fetchSessionEvents(
-  sessionId: string | undefined,
-  tenantId: string | undefined,
-  queryKeywords?: string[],
-): Promise<{ events: EventEntry[]; sessionIds: string[]; searchMethod: string }> {
-  // Single-session: direct fetch (unchanged)
-  if (sessionId) {
-    const q = buildQuery({ tenantId } as Record<string, string | undefined>);
-    const data = await apiFetch(`/api/sessions/${sessionId}/events${q}`) as { events?: EventEntry[] };
-    return { events: data?.events ?? [], sessionIds: [sessionId], searchMethod: 'direct-session' };
-  }
+// ── Cross-session paginated fan-out ───────────────────────────────────────
+//
+// The cross-session search walks the already-paginated /api/raw/events
+// endpoint once per candidate event type, following nextLink to a bounded
+// budget and merging client-side. This replaces the legacy capped
+// /api/raw/events/search call (fixed sessionLimit:10 + limit:200, no cursor,
+// no nextLink) whose result silently truncated without telling the caller.
+// Because each walk filters by a single event type and Azure-Tables
+// continuation pages never overlap, the same event can never appear in two
+// walks — only sessions recur across type-walks, which we union into a Set.
+// The `truncated` flag is therefore honest: true only when a walk stopped at
+// its page or wall-clock budget (a genuine recall gap), never when it drained.
 
-  // Multi-session: try index-based search first if we have keyword candidates
-  if (queryKeywords && queryKeywords.length > 0) {
-    const candidates = extractEventTypeCandidates(queryKeywords);
-    if (candidates.length > 0 && candidates.length <= 10) {
+/** Page shape returned by /api/raw/events (cross-session, single event type). */
+type RawEventsPage = { events?: EventEntry[]; nextLink?: string };
+
+/** Bounds the per-type page walk so a single tool call can't run unbounded. */
+type FetchBudget = { maxPagesPerType: number; wallClockMs: number };
+
+/** Page size per /api/raw/events call — EventTypeIndex rows (≈ candidate sessions) scanned per page. */
+const RAW_EVENTS_PAGE_SIZE = 200;
+
+/** Upper bound on distinct event types to fan out over (keeps the request count sane). */
+const MAX_EVENT_TYPE_CANDIDATES = 10;
+
+/** Tier-1 (fast): one page per type — already ≈20x the legacy sessionLimit:10, but cheap. */
+const SEMANTIC_BUDGET: FetchBudget = { maxPagesPerType: 1, wallClockMs: 8_000 };
+
+/** Tier-3 (deep): many pages per type for broad recall, bounded by wall-clock. */
+const DEEP_BUDGET: FetchBudget = { maxPagesPerType: 8, wallClockMs: 20_000 };
+
+/** Injectable page fetcher — production hits the backend; tests pass a fake. */
+type PageFetcher = (path: string) => Promise<RawEventsPage>;
+
+const defaultPageFetcher: PageFetcher = async (path) => (await apiFetch(path)) as RawEventsPage;
+
+/**
+ * Walks /api/raw/events once per candidate event type, following nextLink up to
+ * the given budget. Returns the merged events (each tagged with `_sessionId`),
+ * whether any walk was cut short (`truncated`), and whether at least one page
+ * was fetched (`anySucceeded` — drives the legacy-fallback decision).
+ *
+ * A per-type page error preserves everything accumulated so far, flags
+ * `truncated`, and moves to the next type — it must NOT collapse the whole
+ * search back to the narrow legacy path once real pages have been returned.
+ */
+export async function fetchEventsViaIndex(
+  candidates: string[],
+  basePath: string,
+  tenantId: string | undefined,
+  budget: FetchBudget,
+  fetchPage: PageFetcher = defaultPageFetcher,
+  now: () => number = Date.now,
+): Promise<{ events: EventEntry[]; truncated: boolean; anySucceeded: boolean }> {
+  const events: EventEntry[] = [];
+  let truncated = false;
+  let anySucceeded = false;
+  const deadline = now() + budget.wallClockMs;
+
+  for (const eventType of candidates) {
+    if (now() > deadline) { truncated = true; break; }
+
+    // First page from params; subsequent pages follow the backend's nextLink
+    // verbatim (followNextLink enforces path-equality against basePath).
+    let path = followNextLink(basePath, { eventType, tenantId, pageSize: RAW_EVENTS_PAGE_SIZE }, undefined);
+    let pages = 0;
+
+    for (;;) {
+      let page: RawEventsPage;
       try {
-        const params: Record<string, string | number | undefined> = {
-          eventTypes: candidates.join(','),
-          limit: 200,
-          sessionLimit: 10,
-        };
-        if (tenantId) params.tenantId = tenantId;
-        const basePath = pickGlobalOrTenantPath('/api/global/raw/events/search', '/api/raw/events/search');
-        const data = await apiFetch(`${basePath}${buildQuery(params)}`) as {
-          events?: EventEntry[];
-        };
-        const events = (data?.events ?? []).map((e) => ({
-          ...e,
-          _sessionId: e.sessionId ?? e._sessionId,
-        }));
-        const sessionIds = [...new Set(events.map((e) => e._sessionId).filter(Boolean) as string[])];
-        return { events, sessionIds, searchMethod: 'index-based' };
+        page = await fetchPage(path);
       } catch {
-        // Fall through to legacy approach
+        // Preserve accumulated events, flag the gap, try the next type.
+        truncated = true;
+        break;
       }
+      anySucceeded = true;
+      for (const e of page.events ?? []) {
+        events.push({ ...e, _sessionId: e.sessionId ?? e._sessionId });
+      }
+      pages++;
+
+      const link = page.nextLink;
+      if (!link) break; // this event type fully drained — not a truncation
+      if (pages >= budget.maxPagesPerType || now() > deadline) {
+        truncated = true; // stopped early — a real recall gap
+        break;
+      }
+      path = followNextLink(basePath, {}, link);
     }
   }
 
-  // Fallback: search recent failed sessions + fetch all events (legacy N+1 path)
+  return { events, truncated, anySucceeded };
+}
+
+/**
+ * Honest recall annotation for the response envelope. `truncated` + a plain
+ * `recallNote` let the model react (narrow the query) instead of trusting a
+ * silently-capped result.
+ */
+function recallSummary(searchMethod: string, truncated: boolean): { truncated: boolean; recallNote?: string } {
+  if (searchMethod === 'legacy-failed-sessions') {
+    return {
+      truncated: true,
+      recallNote:
+        'No query keyword mapped to a known event type, so the search fell back to scanning only the ' +
+        '5 most recent failed sessions. Recall is NOT complete — pass a sessionId, or use keywords that ' +
+        'map to an event type (see the event_types catalog), for broader coverage.',
+    };
+  }
+  if (truncated) {
+    return {
+      truncated: true,
+      recallNote:
+        'The scan stopped at its page/time budget before draining every matching session, so results are ' +
+        'incomplete. Narrow the query (add a sessionId, a specific eventType, or tighter keywords), or use ' +
+        'search_sessions_by_event / get_session_events for exhaustive per-type recall.',
+    };
+  }
+  return { truncated: false };
+}
+
+/** Fetch events for a single session, or across sessions via the paginated index walk. */
+async function fetchSessionEvents(
+  sessionId: string | undefined,
+  tenantId: string | undefined,
+  queryKeywords: string[] | undefined,
+  budget: FetchBudget = DEEP_BUDGET,
+): Promise<{ events: EventEntry[]; sessionIds: string[]; searchMethod: string; truncated: boolean }> {
+  // Single-session: direct fetch. The backend returns the full (unpaginated)
+  // event list for one session, so this path is complete — never truncated.
+  if (sessionId) {
+    const q = buildQuery({ tenantId } as Record<string, string | undefined>);
+    const data = await apiFetch(`/api/sessions/${sessionId}/events${q}`) as { events?: EventEntry[] };
+    return { events: data?.events ?? [], sessionIds: [sessionId], searchMethod: 'direct-session', truncated: false };
+  }
+
+  // Multi-session: paginated index walk per candidate event type.
+  if (queryKeywords && queryKeywords.length > 0) {
+    const candidates = extractEventTypeCandidates(queryKeywords);
+    if (candidates.length > 0 && candidates.length <= MAX_EVENT_TYPE_CANDIDATES) {
+      const basePath = pickGlobalOrTenantPath('/api/global/raw/events', '/api/raw/events');
+      const { events, truncated, anySucceeded } = await fetchEventsViaIndex(candidates, basePath, tenantId, budget);
+      if (anySucceeded) {
+        // No event appears in more than one single-type walk, so the only
+        // overlap across walks is sessions — union them.
+        const sessionIds = [...new Set(events.map((e) => e._sessionId).filter(Boolean) as string[])];
+        return { events, sessionIds, searchMethod: 'index-paginated', truncated };
+      }
+      // Every type errored before returning a page → fall through to legacy.
+    }
+  }
+
+  // Fallback: scan the 5 most recent failed sessions (legacy N+1 path). Only
+  // reached when no event-type candidates exist or the index path produced
+  // nothing — recallSummary() flags this as incomplete.
   const searchParams: Record<string, string | number | undefined> = { status: 'Failed', limit: 5 };
   if (tenantId) searchParams.tenantId = tenantId;
   const searchQ = buildQuery(searchParams);
@@ -97,7 +212,7 @@ async function fetchSessionEvents(
       } catch { return [] as EventEntry[]; }
     }),
   );
-  return { events: allEvents.flat(), sessionIds: ids, searchMethod: 'legacy-failed-sessions' };
+  return { events: allEvents.flat(), sessionIds: ids, searchMethod: 'legacy-failed-sessions', truncated: true };
 }
 
 const KEYWORD_STOP_WORDS = new Set([
@@ -237,8 +352,9 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
     'Searches enrollment events by matching keywords against event type, message, source, severity, and data fields. ' +
     'Uses prefix-aware matching (e.g. "install" matches "installation", "installed", "app_install_failed") ' +
     'and weighted field scoring (matches in eventType rank higher than in data). ' +
-    'Provide sessionId to search within one session, or omit to search across recent failed sessions. ' +
-    'If results seem incomplete, escalate to deep_search_events for exhaustive coverage.',
+    'Provide sessionId to search within one session, or omit for a fast (single-page-per-type) cross-session scan. ' +
+    'This is a bounded scan: check the returned `truncated` flag — if true, recall is incomplete, so escalate to ' +
+    'deep_search_events for a broader multi-page scan or narrow the query as `recallNote` suggests.',
     {
       query: z.string().describe('Natural language description of what to find (e.g. "app download stuck", "certificate error", "disk space low")'),
       sessionId: SessionIdSchema.optional().describe('Search within a specific session. If omitted, searches across recent failed sessions.'),
@@ -260,7 +376,7 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
             MAX_RESULT_SIZE_CHARS.small);
         }
 
-        const { events, sessionIds, searchMethod } = await fetchSessionEvents(sessionId, tenantId, queryKeywords);
+        const { events, sessionIds, searchMethod, truncated } = await fetchSessionEvents(sessionId, tenantId, queryKeywords, SEMANTIC_BUDGET);
 
         const scored: Array<ScoredEvent & { event: EventEntry }> = [];
         for (let i = 0; i < events.length; i++) {
@@ -290,9 +406,10 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
           searchMethod,
           keywordsUsed: queryKeywords,
           sessionsSearched: sessionIds,
-          eventsScanned: events.length,
+          eventsFetched: events.length,
           eventsMatched: scored.length,
           resultCount: results.length,
+          ...recallSummary(searchMethod, truncated),
           results,
         }, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
@@ -361,16 +478,18 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
     })
   );
 
-  // Tool 23: deep_search_events — same scoring + exhaustive data scan
+  // Tool 23: deep_search_events — same scoring, broader paginated scan + lower thresholds
   server.tool(
     'deep_search_events',
     'TIER 3 — DEEP SEARCH (thorough, use when accuracy is critical). ' +
-    'Uses the same weighted keyword scoring as search_events_semantic but with lower thresholds ' +
-    'and higher result limits for maximum recall. Searches ALL event fields including full DataJson content. ' +
-    'Results include matched keywords and which fields they were found in. ' +
-    'Use this when: (1) a previous search may have missed events, (2) you need high confidence in completeness, ' +
-    'or (3) you want to see which specific fields matched. ' +
-    'Provide sessionId to search within one session, or omit to search across recent failed sessions.' +
+    'Uses the same weighted keyword scoring as search_events_semantic but with lower thresholds and a broader, ' +
+    'paginated scan: for each event type matched from the query it walks the cross-session index, following pages ' +
+    'up to a generous budget, then ranks the matches. Scores across ALL event fields including full DataJson content. ' +
+    'Returns the top `topK` ranked matches (NOT every matching event) — compare `resultCount` vs `eventsMatched`, ' +
+    'and use get_session_events / search_sessions_by_event for full per-event recall. ' +
+    'Check the `truncated` flag: if true, the scan hit its page/time budget (or fell back to recent failed ' +
+    'sessions) and recall is incomplete — narrow the query as `recallNote` suggests. ' +
+    'Provide sessionId to search within one session (complete, no truncation), or omit to search across sessions.' +
     (ga ? ' Omit tenantId for cross-tenant search (Global Admin), or specify tenantId for single-tenant.' : ''),
     {
       query: z.string().describe('Natural language description of what to find (e.g. "app download stuck", "certificate error", "disk space low")'),
@@ -379,7 +498,7 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
       topK: z.coerce.number().min(1).max(50).optional().default(20)
         .describe('Max results to return (1-50, default 20). Higher default for thoroughness.'),
       minScore: z.coerce.number().min(0).max(1).optional().default(0.05)
-        .describe('Min relevance score (0-1, default 0.05). Very low for maximum recall.'),
+        .describe('Min relevance score (0-1, default 0.05). Very low so weakly-matching events still surface.'),
       keywords: z.array(z.string()).optional()
         .describe('Additional exact keywords for matching. Auto-extracted from query if omitted.'),
     },
@@ -400,11 +519,12 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
           };
         }
 
-        const { events, sessionIds, searchMethod } = await fetchSessionEvents(sessionId, tenantId, queryKeywords);
+        const { events, sessionIds, searchMethod, truncated } = await fetchSessionEvents(sessionId, tenantId, queryKeywords, DEEP_BUDGET);
 
         if (events.length === 0) {
           return toolResultText(
-            { query, resultCount: 0, eventsMatched: 0, results: [], note: 'No events found.' },
+            { query, searchMethod, resultCount: 0, eventsMatched: 0, results: [],
+              note: 'No events found.', ...recallSummary(searchMethod, truncated) },
             MAX_RESULT_SIZE_CHARS.small);
         }
 
@@ -436,9 +556,10 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
           searchMethod,
           keywordsUsed: queryKeywords,
           sessionsSearched: sessionIds,
-          totalEventsScanned: events.length,
+          eventsFetched: events.length,
           eventsMatched: scored.length,
           resultCount: results.length,
+          ...recallSummary(searchMethod, truncated),
           results,
         }, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
