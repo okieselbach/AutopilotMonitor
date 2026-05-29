@@ -324,6 +324,110 @@ namespace AutopilotMonitor.Shared
             public const string RealmJoinTimeout         = "realmjoin_timeout";
             public const string RealmJoinPackageStarted  = "realmjoin_package_started";
             public const string RealmJoinPackageCompleted = "realmjoin_package_completed";
+
+            // =====================================================================
+            // Single-source consolidation (2026-05-29): event-type string literals
+            // that were previously emitted inline across V2 collectors/trackers are
+            // now defined here so Constants.EventTypes is the ONE canonical catalog.
+            // Values are byte-identical to the former literals (persisted strings —
+            // rules/UI/MCP match on them). A drift guard test enforces that no V2
+            // emit site uses a raw literal not defined here.
+            // =====================================================================
+
+            // Device info / environment (DeviceInfoCollector + StartupEnvironmentProbes)
+            public const string OsInfo                    = "os_info";
+            public const string BootTime                  = "boot_time";
+            public const string HardwareSpec              = "hardware_spec";
+            public const string NetworkAdapters           = "network_adapters";
+            public const string DnsConfiguration          = "dns_configuration";
+            public const string ProxyConfiguration        = "proxy_configuration";
+            public const string AutopilotProfile          = "autopilot_profile";
+            public const string EnrollmentTypeDetected    = "enrollment_type_detected";
+            public const string SecureBootStatus          = "secureboot_status";
+            public const string BitLockerStatus           = "bitlocker_status";
+            public const string TpmStatus                 = "tpm_status";
+            public const string AadJoinStatus             = "aad_join_status";
+            public const string EspConfigDetected         = "esp_config_detected";
+            public const string NetworkInterfaceInfo      = "network_interface_info";
+            public const string WifiSignalInfo            = "wifi_signal_info";
+            public const string DeviceLocation            = "device_location";
+            public const string TimezoneAutoSet           = "timezone_auto_set";
+            public const string NtpTimeCheck              = "ntp_time_check";
+            public const string PowerStateCheck           = "power_state_check";
+            public const string AgentTrace                = "agent_trace";
+
+            // Crash / process lifecycle
+            public const string PreviousCrashDetected     = "previous_crash_detected";
+            public const string ImeProcessExited          = "ime_process_exited";
+
+            // White Glove / pre-provisioning
+            public const string WhiteGloveStarted         = "whiteglove_started";
+            public const string WhiteGloveResumed         = "whiteglove_resumed";
+            public const string WhiteGlovePart1Complete   = "whiteglove_part1_complete";
+
+            // Windows Hello for Business provisioning
+            public const string HelloPolicyDetected           = "hello_policy_detected";
+            public const string HelloPolicyDetectionMismatch  = "hello_policy_detection_mismatch";
+            public const string HelloWaitTimeout              = "hello_wait_timeout";
+            public const string HelloCompletionTimeout        = "hello_completion_timeout";
+            public const string HelloWizardStarted            = "hello_wizard_started";
+            public const string HelloProcessingStarted        = "hello_processing_started";
+            public const string HelloProcessingStopped        = "hello_processing_stopped";
+            public const string HelloProvisioningCompleted    = "hello_provisioning_completed";
+            public const string HelloProvisioningFailed       = "hello_provisioning_failed";
+            public const string HelloProvisioningBlocked      = "hello_provisioning_blocked";
+            public const string HelloPinStatus                = "hello_pin_status";
+            public const string HelloSkipped                  = "hello_skipped";
+
+            // ESP provisioning detail
+            public const string EspFailureSettleStarted   = "esp_failure_settle_started";
+            public const string EspProvisioningRaw        = "esp_provisioning_raw";
+            public const string EspFailure                = "esp_failure";
+            public const string EspExiting                = "esp_exiting";
+
+            // Security / inventory analyzers
+            public const string IntegrityBypassAnalysis   = "integrity_bypass_analysis";
+            public const string LocalAdminAnalysis        = "local_admin_analysis";
+            public const string SecurityWarning           = "security_warning";
+
+            // Termination / diagnostics / server actions
+            public const string EnrollmentSummaryShown    = "enrollment_summary_shown";
+            public const string DiagnosticsCollecting     = "diagnostics_collecting";
+            public const string DiagnosticsUploaded       = "diagnostics_uploaded";
+            public const string DiagnosticsUploadFailed   = "diagnostics_upload_failed";
+            public const string RebootTriggered           = "reboot_triggered";
+            public const string ServerActionReceived      = "server_action_received";
+            public const string ServerActionExecuted      = "server_action_executed";
+            public const string ServerActionFailed        = "server_action_failed";
+            public const string AdminMarkedSession        = "admin_marked_session";
+            public const string RemoteConfigFetchFailed   = "remote_config_fetch_failed";
+            public const string AgentUnrestrictedModeChanged = "agent_unrestricted_mode_changed";
+
+            // Gather-rules collection mode
+            public const string GatherRulesCollectionStarted   = "gather_rules_collection_started";
+            public const string GatherRulesCollectionCompleted = "gather_rules_collection_completed";
+
+            // Agent self-metrics / back-pressure
+            public const string SpoolPressureDetected     = "spool_pressure_detected";
+            public const string AgentMetricsSnapshot      = "agent_metrics_snapshot";
+            public const string IngressBackpressure       = "ingress_backpressure";
+
+            // ---------------------------------------------------------------------
+            // V1 (legacy) event types — emitted ONLY by the decommissioning V1 agent
+            // (Agent.Core / Agent). Defined here so the canonical catalog and the MCP
+            // search/catalog stay complete for historical V1 session analysis. V1 emit
+            // sites are intentionally NOT refactored to use these (V1 is going away).
+            // ---------------------------------------------------------------------
+            public const string ConfigMgrClientDetected       = "configmgr_client_detected";
+            public const string EnrollmentTypeMismatch        = "enrollment_type_mismatch";
+            public const string DecisionProcessCompletion     = "decision_process_completion";
+            public const string WhiteGloveClassification      = "whiteglove_classification";
+            public const string EspResumed                    = "esp_resumed";
+            public const string WaitingForHello               = "waiting_for_hello";
+            public const string EspProvisioningSettleStarted  = "esp_provisioning_settle_started";
+            public const string ImeSessionChange              = "ime_session_change";
+            public const string SecurityAudit                 = "security_audit";
+            public const string AgentShutdown                 = "agent_shutdown"; // distinct from V2 AgentShuttingDown
         }
 
         // -----------------------------------------------------------------------

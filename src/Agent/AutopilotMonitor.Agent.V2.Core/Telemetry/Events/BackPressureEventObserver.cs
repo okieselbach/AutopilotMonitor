@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.DecisionCore.Engine;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Core.Telemetry.Events
@@ -18,7 +19,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Telemetry.Events
     /// </summary>
     internal sealed class BackPressureEventObserver : IBackPressureObserver
     {
-        internal const string EventType = "ingress_backpressure";
+        internal const string EventType = Constants.EventTypes.IngressBackpressure;
         internal const string SourceId = "signal_ingress";
 
         private readonly TelemetryEventEmitter _emitter;

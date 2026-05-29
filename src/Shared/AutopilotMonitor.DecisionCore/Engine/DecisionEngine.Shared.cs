@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using AutopilotMonitor.DecisionCore.Signals;
 using AutopilotMonitor.DecisionCore.State;
 using AutopilotMonitor.Shared.Models;
+using SharedConstants = AutopilotMonitor.Shared.Constants;
 
 namespace AutopilotMonitor.DecisionCore.Engine
 {
@@ -122,7 +123,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 DecisionEffectKind.EmitEventTimelineEntry,
                 parameters: new Dictionary<string, string>(StringComparer.Ordinal)
                 {
-                    ["eventType"] = "enrollment_failed",
+                    ["eventType"] = SharedConstants.EventTypes.EnrollmentFailed,
                     ["reason"] = reason,
                 },
                 typedPayload: DecisionAuditTrailBuilder.Build(
@@ -264,7 +265,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
             var succeeded = string.Equals(adminOutcome, "Succeeded", StringComparison.OrdinalIgnoreCase);
             var toStage = succeeded ? SessionStage.Completed : SessionStage.Failed;
-            var eventType = succeeded ? "enrollment_complete" : "enrollment_failed";
+            var eventType = succeeded ? SharedConstants.EventTypes.EnrollmentComplete : SharedConstants.EventTypes.EnrollmentFailed;
 
             var nextStep = state.StepIndex + 1;
             var newState = state.ToBuilder()

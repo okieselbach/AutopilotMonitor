@@ -10,6 +10,7 @@ using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.Signals;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Win32;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment;
@@ -186,7 +187,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                         : $" (Build {currentBuild}.{buildRevision})";
                 }
 
-                EmitDeviceInfoEvent("os_info", message, data);
+                EmitDeviceInfoEvent(Constants.EventTypes.OsInfo, message, data);
             }
             catch (Exception ex)
             {
@@ -201,7 +202,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                     bootData["note"] = "Boot time could not be determined";
                 }
 
-                EmitDeviceInfoEvent("boot_time",
+                EmitDeviceInfoEvent(Constants.EventTypes.BootTime,
                     bootData.ContainsKey("bootTime")
                         ? $"Last boot: {bootData["bootTime"]}"
                         : "Boot time unavailable",

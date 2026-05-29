@@ -7,6 +7,7 @@ using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Agent.V2.Core.Transport.Telemetry;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
@@ -176,7 +177,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                     SessionId = SessionId,
                     TenantId = TenantId,
                     Timestamp = now,
-                    EventType = "agent_metrics_snapshot",
+                    EventType = Constants.EventTypes.AgentMetricsSnapshot,
                     Severity = EventSeverity.Debug,
                     Source = "AgentSelfMetricsCollector",
                     Phase = EnrollmentPhase.Unknown,
@@ -213,7 +214,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                     SessionId = SessionId,
                     TenantId = TenantId,
                     Timestamp = now,
-                    EventType = "spool_pressure_detected",
+                    EventType = Constants.EventTypes.SpoolPressureDetected,
                     Severity = EventSeverity.Warning,
                     Source = "AgentSelfMetricsCollector",
                     Phase = EnrollmentPhase.Unknown,

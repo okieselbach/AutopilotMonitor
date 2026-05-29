@@ -134,7 +134,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 {
                     SessionId = agentConfig.SessionId,
                     TenantId = agentConfig.TenantId,
-                    EventType = "remote_config_fetch_failed",
+                    EventType = SharedConstants.EventTypes.RemoteConfigFetchFailed,
                     Severity = EventSeverity.Warning,
                     Source = "Agent",
                     Phase = EnrollmentPhase.Unknown,
@@ -205,7 +205,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 {
                     SessionId = agentConfig.SessionId,
                     TenantId = agentConfig.TenantId,
-                    EventType = "agent_unrestricted_mode_changed",
+                    EventType = SharedConstants.EventTypes.AgentUnrestrictedModeChanged,
                     Severity = newValue ? EventSeverity.Warning : EventSeverity.Info,
                     Source = "RemoteConfigMerger",
                     Phase = EnrollmentPhase.Unknown,
@@ -623,7 +623,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     {
                         SessionId = agentConfig.SessionId,
                         TenantId = agentConfig.TenantId,
-                        EventType = "enrollment_failed",
+                        EventType = SharedConstants.EventTypes.EnrollmentFailed,
                         Severity = EventSeverity.Error,
                         Source = "EnrollmentOrchestrator",
                         Phase = EnrollmentPhase.Unknown,

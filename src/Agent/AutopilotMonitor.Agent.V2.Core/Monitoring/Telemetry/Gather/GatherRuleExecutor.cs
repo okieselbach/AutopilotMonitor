@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
@@ -194,7 +195,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                     result["ruleId"] = rule.RuleId;
                     result["ruleTitle"] = rule.Title;
 
-                    var eventType = !string.IsNullOrEmpty(rule.OutputEventType) ? rule.OutputEventType : "gather_result";
+                    var eventType = !string.IsNullOrEmpty(rule.OutputEventType) ? rule.OutputEventType : Constants.EventTypes.GatherResult;
 
                     // Allow collectors to override severity via _severityOverride in result
                     object severityOverride;

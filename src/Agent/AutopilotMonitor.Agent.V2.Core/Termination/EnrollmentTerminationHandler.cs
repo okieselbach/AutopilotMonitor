@@ -291,7 +291,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                     {
                         SessionId = _configuration.SessionId,
                         TenantId = _configuration.TenantId,
-                        EventType = "whiteglove_part1_complete",
+                        EventType = Constants.EventTypes.WhiteGlovePart1Complete,
                         Severity = EventSeverity.Info,
                         Source = "EnrollmentTerminationHandler",
                         Phase = EnrollmentPhase.Unknown,
@@ -424,7 +424,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                     {
                         SessionId = _configuration.SessionId,
                         TenantId = _configuration.TenantId,
-                        EventType = "enrollment_summary_shown",
+                        EventType = Constants.EventTypes.EnrollmentSummaryShown,
                         Severity = EventSeverity.Info,
                         Source = "EnrollmentTerminationHandler",
                         Phase = EnrollmentPhase.Unknown,
@@ -617,7 +617,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             {
                 SessionId = _configuration.SessionId,
                 TenantId = _configuration.TenantId,
-                EventType = "diagnostics_collecting",
+                EventType = Constants.EventTypes.DiagnosticsCollecting,
                 Severity = EventSeverity.Info,
                 Source = "EnrollmentTerminationHandler",
                 Phase = EnrollmentPhase.Unknown,
@@ -648,7 +648,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 {
                     SessionId = _configuration.SessionId,
                     TenantId = _configuration.TenantId,
-                    EventType = "diagnostics_uploaded",
+                    EventType = Constants.EventTypes.DiagnosticsUploaded,
                     Severity = EventSeverity.Info,
                     Source = "EnrollmentTerminationHandler",
                     Phase = EnrollmentPhase.Unknown,
@@ -674,7 +674,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 {
                     SessionId = _configuration.SessionId,
                     TenantId = _configuration.TenantId,
-                    EventType = "diagnostics_upload_failed",
+                    EventType = Constants.EventTypes.DiagnosticsUploadFailed,
                     Severity = EventSeverity.Warning,
                     Source = "EnrollmentTerminationHandler",
                     Phase = EnrollmentPhase.Unknown,
@@ -730,7 +730,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             {
                 SessionId = _configuration.SessionId,
                 TenantId = _configuration.TenantId,
-                EventType = "reboot_triggered",
+                EventType = Constants.EventTypes.RebootTriggered,
                 Severity = EventSeverity.Info,
                 Source = "EnrollmentTerminationHandler",
                 Phase = EnrollmentPhase.Unknown,

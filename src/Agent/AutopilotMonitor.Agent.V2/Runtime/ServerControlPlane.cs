@@ -7,6 +7,7 @@ using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Agent.V2.Core.Termination;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Runtime
@@ -177,7 +178,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 {
                     SessionId = agentConfig.SessionId,
                     TenantId = agentConfig.TenantId,
-                    EventType = "admin_marked_session",
+                    EventType = Constants.EventTypes.AdminMarkedSession,
                     Severity = outcome == EnrollmentTerminationOutcome.Succeeded ? EventSeverity.Info : EventSeverity.Warning,
                     Source = "WireTelemetryServerResponse",
                     Phase = EnrollmentPhase.Unknown,

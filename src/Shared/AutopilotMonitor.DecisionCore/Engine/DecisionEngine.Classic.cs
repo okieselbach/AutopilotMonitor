@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using AutopilotMonitor.DecisionCore.Signals;
 using AutopilotMonitor.DecisionCore.State;
 using AutopilotMonitor.Shared.Models;
+using SharedConstants = AutopilotMonitor.Shared.Constants;
 
 namespace AutopilotMonitor.DecisionCore.Engine
 {
@@ -664,7 +665,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 kind: DecisionEffectKind.EmitEventTimelineEntry,
                 parameters: new Dictionary<string, string>
                 {
-                    ["eventType"] = "phase_transition",
+                    ["eventType"] = SharedConstants.EventTypes.PhaseTransition,
                     ["phase"] = phase.ToString(),
                     ["source"] = "DecisionEngine",
                     ["message"] = $"Phase: {phase}",
@@ -694,7 +695,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 kind: DecisionEffectKind.EmitEventTimelineEntry,
                 parameters: new Dictionary<string, string>
                 {
-                    ["eventType"] = "enrollment_complete",
+                    ["eventType"] = SharedConstants.EventTypes.EnrollmentComplete,
                 },
                 typedPayload: DecisionAuditTrailBuilder.Build(
                     postState: state,

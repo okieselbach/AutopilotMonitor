@@ -5,6 +5,7 @@ using System.IO;
 using AutopilotMonitor.Agent.V2.Core.Configuration;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using Newtonsoft.Json;
 
@@ -89,7 +90,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Diagnostics
             {
                 SessionId = configuration.SessionId,
                 TenantId = configuration.TenantId,
-                EventType = "previous_crash_detected",
+                EventType = Constants.EventTypes.PreviousCrashDetected,
                 Severity = EventSeverity.Warning,
                 Source = "PendingCrashReporter",
                 Phase = EnrollmentPhase.Unknown,

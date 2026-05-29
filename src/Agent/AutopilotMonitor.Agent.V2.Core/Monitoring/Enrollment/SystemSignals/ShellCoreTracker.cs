@@ -4,6 +4,7 @@ using System.Diagnostics.Eventing.Reader;
 using System.Text.RegularExpressions;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
@@ -168,7 +169,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 case EventId_ShellCore_WebAppStarted: // 62404
                     if (description.Contains("AADHello") || description.Contains("'NGC'"))
                     {
-                        eventType = "hello_wizard_started";
+                        eventType = Constants.EventTypes.HelloWizardStarted;
                         message = "Windows Hello wizard started (CloudExperienceHost)";
                         triggerFinalizingSetup = true;
                         finalizingSetupReason = "hello_wizard_started";
@@ -193,7 +194,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                             _whiteGloveDetected = true;
                         }
 
-                        eventType = "whiteglove_complete";
+                        eventType = Constants.EventTypes.WhiteGloveComplete;
                         message = "WhiteGlove (Pre-Provisioning) completed successfully";
                         // No FinalizingSetup transition — WhiteGlove terminates pre-provisioning entirely
 
@@ -202,14 +203,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     else if (HasEspFailurePattern(description))
                     {
                         detectedFailureType = ExtractEspFailureType(description);
-                        eventType = "esp_failure";
+                        eventType = Constants.EventTypes.EspFailure;
                         severity = EventSeverity.Error;
                         message = $"ESP (Enrollment Status Page) reported a failure: {detectedFailureType}";
                         _logger.Warning($"ESP failure detected via Shell-Core event 62407: {detectedFailureType}");
                     }
                     else if (EspExitingPattern.IsMatch(description))
                     {
-                        eventType = "esp_exiting";
+                        eventType = Constants.EventTypes.EspExiting;
                         message = "ESP (Enrollment Status Page) phase exiting";
                         triggerFinalizingSetup = true;
                         finalizingSetupReason = "esp_exiting";
@@ -244,7 +245,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 { "eventTime", timestamp.ToString("o") }
             };
 
-            if (eventType == "esp_failure" && detectedFailureType != null)
+            if (eventType == Constants.EventTypes.EspFailure && detectedFailureType != null)
             {
                 eventData["failureType"] = detectedFailureType;
             }
@@ -279,7 +280,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
                 // Fire WhiteGloveCompleted AFTER event emission so the whiteglove_complete event
                 // is in the spool before the agent exits.
-                if (eventType == "whiteglove_complete")
+                if (eventType == Constants.EventTypes.WhiteGloveComplete)
                 {
                     try { WhiteGloveCompleted?.Invoke(this, EventArgs.Empty); }
                     catch (Exception ex) { _logger.Error("WhiteGloveCompleted handler failed", ex); }
@@ -287,7 +288,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
                 // Fire EspFailureDetected AFTER event emission so the esp_failure event is in the
                 // spool before the agent potentially shuts down.
-                if (eventType == "esp_failure" && detectedFailureType != null)
+                if (eventType == Constants.EventTypes.EspFailure && detectedFailureType != null)
                 {
                     try { EspFailureDetected?.Invoke(this, detectedFailureType); }
                     catch (Exception ex) { _logger.Error($"EspFailureDetected handler failed for '{detectedFailureType}'", ex); }
@@ -297,7 +298,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 // a DecisionSignalKind.EspExiting so the engine can arm HelloSafety on the genuine
                 // post-AccountSetup exit. Engine-side guard (ShouldTransitionToAwaitingHello)
                 // distinguishes intermediate exits from the real one.
-                if (eventType == "esp_exiting")
+                if (eventType == Constants.EventTypes.EspExiting)
                 {
                     try { EspExited?.Invoke(this, new EspExitedEventArgs(timestamp)); }
                     catch (Exception ex) { _logger.Error("EspExited handler failed", ex); }

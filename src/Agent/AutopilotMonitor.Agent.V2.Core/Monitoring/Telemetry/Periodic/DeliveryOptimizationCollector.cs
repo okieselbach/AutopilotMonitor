@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -342,7 +343,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                     {
                         SessionId = SessionId,
                         TenantId = TenantId,
-                        EventType = "download_progress",
+                        EventType = Constants.EventTypes.DownloadProgress,
                         Severity = EventSeverity.Debug,
                         Source = "DeliveryOptimizationCollector",
                         Phase = EnrollmentPhase.Unknown,

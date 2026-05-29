@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Management;
+using AutopilotMonitor.Shared;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
 {
@@ -27,7 +28,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                 CollectGpuInfo(data);
 
                 var message = BuildHardwareSpecMessage(data);
-                EmitDeviceInfoEvent("hardware_spec", message, data);
+                EmitDeviceInfoEvent(Constants.EventTypes.HardwareSpec, message, data);
             }
             catch (Exception ex)
             {

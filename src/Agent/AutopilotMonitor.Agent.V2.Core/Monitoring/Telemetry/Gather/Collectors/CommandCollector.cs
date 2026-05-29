@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
 using AutopilotMonitor.Agent.V2.Core.Security;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
@@ -32,7 +33,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
                     SessionId = context.SessionId,
                     TenantId = context.TenantId,
                     Timestamp = DateTime.UtcNow,
-                    EventType = "security_warning",
+                    EventType = Constants.EventTypes.SecurityWarning,
                     Severity = EventSeverity.Warning,
                     Source = "GatherRuleExecutor",
                     Message = $"Blocked command not on allowlist: {command} (Rule: {rule.RuleId})",

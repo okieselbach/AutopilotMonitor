@@ -5,6 +5,7 @@ import { withToolTelemetry } from '../telemetry.js';
 import type { SearchProvider } from '../search-provider.js';
 import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema } from './shared.js';
 import { toolError } from './error-handler.js';
+import { ALL_EVENT_TYPES } from '../resource-catalog.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -15,22 +16,12 @@ type EventEntry = {
   sessionId?: string;
 };
 
-/** All known event type strings — used for index-based pre-filtering. */
-const KNOWN_EVENT_TYPES = [
-  'phase_transition', 'esp_state_change', 'completion_check',
-  'enrollment_complete', 'enrollment_failed', 'desktop_arrived',
-  'app_install_started', 'app_install_completed', 'app_install_failed',
-  'app_download_started', 'app_install_skipped',
-  'network_state_change', 'network_connectivity_check',
-  'os_info', 'hardware_spec', 'tpm_status', 'autopilot_profile',
-  'secureboot_status', 'bitlocker_status', 'network_adapters',
-  'network_interface_info', 'aad_join_status', 'enrollment_type_detected',
-  'error_detected', 'software_inventory_analysis', 'vulnerability_report',
-  'performance_snapshot', 'log_entry', 'gather_result',
-  'script_started', 'script_completed', 'script_failed', 'ime_agent_version',
-  'do_telemetry', 'download_progress', 'agent_started',
-  'esp_phase_changed', 'shadow_discrepancy',
-];
+/**
+ * All known event-type strings — used for index-based pre-filtering. Derived from
+ * the single-source catalog (resource-catalog.ts), which is drift-tested against the
+ * canonical C# `Constants.EventTypes`. Includes internal/TEMP types for full recall.
+ */
+const KNOWN_EVENT_TYPES = ALL_EVENT_TYPES;
 
 /** Match query keywords against known event types using prefix-aware matching. */
 function extractEventTypeCandidates(keywords: string[]): string[] {
@@ -392,20 +383,16 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
       title: 'Search Events (Semantic)',
       description:
         'TIER 1 — FAST EVENT SEARCH (try this first). ' +
-        'Searches enrollment events by matching keywords against event type, message, source, severity, and data fields. ' +
-        'Uses prefix-aware matching (e.g. "install" matches "installation", "installed", "app_install_failed") ' +
-        'and weighted field scoring (matches in eventType rank higher than in data). ' +
-        'When the query implies a problem (error/fail/stuck/timeout…), ranking lifts failure/Warning events and damps ' +
-        'benign Info/Trace events. `matchedSessionIds` lists the distinct sessions behind the ranked hits (drill into ' +
-        'these next); `sessionsSearchedCount` is how many sessions were scanned. ' +
-        'IMPORTANT — cross-session recall is event-TYPE-driven: with no sessionId, the scan first maps your keywords to ' +
-        'known event types (see the event_types catalog) and only fetches events of those types. A concept that has no ' +
-        'event type of its own (e.g. "certificate") will NOT surface cross-session even when it lives inside another ' +
-        'event\'s data/message — so if a keyword maps to no event type, that info is likely buried elsewhere: pass a ' +
-        'sessionId (which scans EVERY field of EVERY event in that session) or search by a related event type instead. ' +
-        'Provide sessionId to search within one session, or omit for a fast (single-page-per-type) cross-session scan. ' +
-        'This is a bounded scan: check the returned `truncated` flag — if true, recall is incomplete, so escalate to ' +
-        'deep_search_events for a broader multi-page scan or narrow the query as `recallNote` suggests.',
+        'Matches keywords against event type, message, source, severity, and data, prefix-aware (e.g. "install" ' +
+        'matches "app_install_failed") with weighted scoring (eventType > data). Problem queries ' +
+        '(error/fail/stuck/timeout…) lift failure/Warning events and damp benign Info/Trace. ' +
+        '`matchedSessionIds` are the sessions behind the ranked hits (drill in next); `sessionsSearchedCount` is how ' +
+        'many were scanned. ' +
+        'IMPORTANT — cross-session recall is event-TYPE-driven: without a sessionId the scan maps keywords to known ' +
+        'event types (see event_types catalog) and fetches only those. A term with no event type of its own (e.g. ' +
+        '"certificate") never surfaces cross-session even when it sits in another event\'s data — if `keywordsUsed` ' +
+        'shows it mapped to none, pass a sessionId (scans EVERY field of EVERY event) or search by a related type. ' +
+        'Bounded scan: if `truncated` is true, recall is incomplete — escalate to deep_search_events or narrow per `recallNote`.',
       inputSchema: {
         query: z.string().describe('Natural language description of what to find (e.g. "app download stuck", "certificate error", "disk space low")'),
         sessionId: SessionIdSchema.optional().describe('Search within a specific session. If omitted, searches across recent failed sessions.'),
@@ -546,24 +533,17 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
       title: 'Deep Search Events',
       description:
         'TIER 3 — DEEP SEARCH (thorough, use when accuracy is critical). ' +
-        'Uses the same weighted keyword scoring as search_events_semantic but with lower thresholds and a broader, ' +
-        'paginated scan: for each event type matched from the query it walks the cross-session index, following pages ' +
-        'up to a generous budget, then ranks the matches. Scores across ALL event fields including full DataJson content. ' +
-        'Returns the top `topK` ranked matches (NOT every matching event) — compare `resultCount` vs `eventsMatched`, ' +
-        'and use get_session_events / search_sessions_by_event for full per-event recall. ' +
-        'When the query implies a problem (error/fail/stuck/timeout…), ranking lifts failure/Warning events and damps ' +
-        'benign Info/Trace events so a successful enrollment can\'t outrank a real error. ' +
-        '`matchedSessionIds` lists the distinct sessions behind the ranked hits (drill into these next); ' +
-        '`sessionsSearchedCount` is how many sessions were scanned. ' +
-        'IMPORTANT — cross-session recall is event-TYPE-driven: with no sessionId the scan maps your keywords to known ' +
-        'event types (see the event_types catalog) and only fetches events of those types; it then scores ALL their ' +
-        'fields including full DataJson, but a concept with no event type of its own (e.g. "certificate") is never ' +
-        'reached cross-session even when it lives inside another event\'s data. If `keywordsUsed` shows your key term ' +
-        'mapped to no event type, that info is likely buried elsewhere — pass a sessionId (scans EVERY field of EVERY ' +
-        'event in the session, complete and untruncated) or search by a related event type. ' +
-        'Check the `truncated` flag: if true, the scan hit its page/time budget (or fell back to recent failed ' +
-        'sessions) and recall is incomplete — narrow the query as `recallNote` suggests. ' +
-        'Provide sessionId to search within one session (complete, no truncation), or omit to search across sessions.' +
+        'Same weighted scoring as search_events_semantic but lower thresholds and a broader multi-page scan per event ' +
+        'type, ranking across ALL fields incl. full DataJson. Problem queries (error/fail/stuck/timeout…) lift ' +
+        'failure/Warning events and damp benign Info/Trace. Returns the top `topK` (NOT every match) — compare ' +
+        '`resultCount` vs `eventsMatched`; use get_session_events / search_sessions_by_event for full per-event recall. ' +
+        '`matchedSessionIds` are the sessions behind the ranked hits (drill in next); `sessionsSearchedCount` is how ' +
+        'many were scanned. ' +
+        'IMPORTANT — cross-session recall is event-TYPE-driven: without a sessionId the scan maps keywords to known ' +
+        'event types (see event_types catalog) and fetches only those. A term with no event type of its own (e.g. ' +
+        '"certificate") never surfaces cross-session even when it sits in another event\'s data — if `keywordsUsed` ' +
+        'shows it mapped to none, pass a sessionId (scans EVERY field of EVERY event, complete) or search by a related type. ' +
+        'If `truncated` is true, recall is incomplete — narrow per `recallNote`.' +
         (ga ? ' Omit tenantId for cross-tenant search (Global Admin), or specify tenantId for single-tenant.' : ''),
       inputSchema: {
         query: z.string().describe('Natural language description of what to find (e.g. "app download stuck", "certificate error", "disk space low")'),

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Management;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Win32;
 
@@ -208,7 +209,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                 {
                     SessionId = _sessionId,
                     TenantId  = _tenantId,
-                    EventType = "local_admin_analysis",
+                    EventType = Constants.EventTypes.LocalAdminAnalysis,
                     Severity  = severity,
                     Source    = Name,
                     Phase     = phase,

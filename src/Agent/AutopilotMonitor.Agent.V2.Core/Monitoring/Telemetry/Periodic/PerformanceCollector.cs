@@ -7,6 +7,7 @@ using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
@@ -245,7 +246,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                     SessionId = SessionId,
                     TenantId = TenantId,
                     Timestamp = DateTime.UtcNow,
-                    EventType = "performance_snapshot",
+                    EventType = Constants.EventTypes.PerformanceSnapshot,
                     Severity = EventSeverity.Debug,
                     Source = "PerformanceCollector",
                     Phase = EnrollmentPhase.Unknown,

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
@@ -110,7 +111,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 SessionId = _sessionId,
                 TenantId = _tenantId,
                 Timestamp = DateTime.UtcNow,
-                EventType = "ime_process_exited",
+                EventType = Constants.EventTypes.ImeProcessExited,
                 Severity = EventSeverity.Warning,
                 Source = "ImeProcessWatcher",
                 Phase = EnrollmentPhase.Unknown,

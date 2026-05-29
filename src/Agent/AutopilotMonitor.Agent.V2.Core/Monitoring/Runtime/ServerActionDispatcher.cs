@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Configuration;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
@@ -179,7 +180,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         private void EmitReceived(ServerAction action)
         {
             PostEvent(
-                eventType: "server_action_received",
+                eventType: Constants.EventTypes.ServerActionReceived,
                 severity: EventSeverity.Info,
                 message: $"Received server action '{action.Type}'",
                 data: BuildTelemetryData(action));
@@ -195,7 +196,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             }
 
             PostEvent(
-                eventType: "server_action_executed",
+                eventType: Constants.EventTypes.ServerActionExecuted,
                 severity: EventSeverity.Info,
                 message: $"Executed server action '{action.Type}'",
                 data: data);
@@ -207,7 +208,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             data["failureReason"] = reason ?? string.Empty;
 
             PostEvent(
-                eventType: "server_action_failed",
+                eventType: Constants.EventTypes.ServerActionFailed,
                 severity: EventSeverity.Warning,
                 message: $"Failed to execute server action '{action.Type}': {reason}",
                 data: data);

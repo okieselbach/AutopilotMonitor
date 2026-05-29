@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using AutopilotMonitor.Agent.V2.Core.Logging;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
@@ -58,7 +59,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                 SessionId = SessionId,
                 TenantId = TenantId,
                 Timestamp = DateTime.UtcNow,
-                EventType = "security_warning",
+                EventType = Constants.EventTypes.SecurityWarning,
                 Severity = EventSeverity.Warning,
                 Source = "GatherRuleExecutor",
                 Message = $"Blocked {collectorType} target not on allowlist: {target} (Rule: {rule.RuleId})",

@@ -5,14 +5,53 @@
  * whose resource discovery is broken).
  */
 
+// Single source of truth for the model-facing event-type catalog. MUST stay in
+// sync with C# `Constants.EventTypes` (Shared) — enforced by the vitest drift test
+// in __tests__/event-types-drift.test.ts, which reads Constants.cs and asserts
+// (all catalog values ∪ INTERNAL_EVENT_TYPES) === the C# const values. When the
+// agent adds a new event type to Constants.EventTypes, add it to a group here too.
 export const EVENT_TYPES_CATALOG = {
   phase_events: [
     'phase_transition',
     'esp_state_change',
+    'esp_phase_changed',
+    'esp_provisioning_status',
+    'esp_ui_state',
+    'esp_provisioning_raw',
+    'esp_failure',
+    'esp_failure_advisory',
+    'esp_failure_settle_started',
+    'esp_exiting',
+    'esp_config_detected',
     'completion_check',
     'enrollment_complete',
     'enrollment_failed',
     'desktop_arrived',
+    'desktop_detector_started',
+    'desktop_detector_first_poll',
+    'desktop_detector_no_candidate',
+  ],
+  whiteglove_events: [
+    'whiteglove_complete',
+    'whiteglove_started',
+    'whiteglove_resumed',
+    'whiteglove_part1_complete',
+    'whiteglove_classification',
+  ],
+  hello_events: [
+    'hello_policy_detected',
+    'hello_policy_detection_mismatch',
+    'hello_wait_timeout',
+    'hello_completion_timeout',
+    'hello_wizard_started',
+    'hello_processing_started',
+    'hello_processing_stopped',
+    'hello_provisioning_completed',
+    'hello_provisioning_failed',
+    'hello_provisioning_blocked',
+    'hello_pin_status',
+    'hello_skipped',
+    'waiting_for_hello',
   ],
   app_events: [
     'app_install_started',
@@ -20,32 +59,117 @@ export const EVENT_TYPES_CATALOG = {
     'app_install_failed',
     'app_download_started',
     'app_install_skipped',
+    'download_progress',
+    'do_telemetry',
+    'all_apps_completed',
+    'app_tracking_summary',
   ],
-  network_events: ['network_state_change', 'network_connectivity_check'],
-  device_info_events: [
-    'os_info',
-    'hardware_spec',
-    'tpm_status',
-    'autopilot_profile',
-    'secureboot_status',
-    'bitlocker_status',
+  script_events: ['script_started', 'script_completed', 'script_failed'],
+  network_events: [
+    'network_state_change',
+    'network_connectivity_check',
     'network_adapters',
     'network_interface_info',
-    'aad_join_status',
+    'dns_configuration',
+    'proxy_configuration',
+    'wifi_signal_info',
+  ],
+  device_info_events: [
+    'os_info',
+    'boot_time',
+    'hardware_spec',
+    'tpm_status',
+    'secureboot_status',
+    'bitlocker_status',
+    'autopilot_profile',
     'enrollment_type_detected',
+    'aad_join_status',
+    'cert_validation',
+    'device_location',
+    'timezone_auto_set',
+    'ntp_time_check',
+    'power_state_check',
   ],
-  error_events: ['error_detected'],
-  vulnerability_events: ['software_inventory_analysis', 'vulnerability_report'],
-  other: [
-    'performance_snapshot',
-    'log_entry',
-    'gather_result',
-    'script_started',
-    'script_completed',
-    'script_failed',
+  identity_events: [
+    'aad_placeholder_user_detected',
+    'aad_user_joined_observed',
+    'hybrid_login_pending',
+  ],
+  realmjoin_events: [
+    'realmjoin_detected',
+    'realmjoin_phase_changed',
+    'realmjoin_resolved',
+    'realmjoin_timeout',
+    'realmjoin_package_started',
+    'realmjoin_package_completed',
+  ],
+  deployment_events: [
+    'modern_deployment_log',
+    'modern_deployment_warning',
+    'modern_deployment_error',
+    'configmgr_client_detected',
+  ],
+  lifecycle_events: [
+    'agent_started',
+    'agent_shutting_down',
+    'agent_shutdown',
+    'agent_version_check',
     'ime_agent_version',
+    'ime_user_session_completed',
+    'ime_session_change',
+    'ime_process_exited',
+    'system_reboot_detected',
+    'prior_run_died_with_state',
+    'previous_crash_detected',
+    'performance_collector_stopped',
+    'agent_metrics_collector_stopped',
+    'agent_unrestricted_mode_changed',
+    'remote_config_fetch_failed',
+    'agent_trace',
   ],
+  health_events: [
+    'stall_probe_check',
+    'stall_probe_result',
+    'session_stalled',
+    'spool_pressure_detected',
+  ],
+  metrics_events: ['performance_snapshot', 'agent_metrics_snapshot', 'ingress_backpressure'],
+  security_events: [
+    'integrity_bypass_analysis',
+    'local_admin_analysis',
+    'security_warning',
+    'security_audit',
+  ],
+  vulnerability_events: ['software_inventory_analysis', 'vulnerability_report'],
+  diagnostics_events: ['diagnostics_collecting', 'diagnostics_uploaded', 'diagnostics_upload_failed'],
+  server_action_events: [
+    'server_action_received',
+    'server_action_executed',
+    'server_action_failed',
+    'admin_marked_session',
+  ],
+  gather_events: ['gather_result', 'gather_rules_collection_started', 'gather_rules_collection_completed'],
+  termination_events: ['enrollment_summary_shown', 'reboot_triggered'],
+  classification_events: ['enrollment_type_mismatch', 'decision_process_completion'],
+  other: ['error_detected', 'log_entry', 'esp_resumed', 'esp_provisioning_settle_started'],
 } as const;
+
+/**
+ * Event types that exist on the wire but are intentionally NOT advertised in the
+ * public catalog (TEMP / internal). They ARE searchable (kept in ALL_EVENT_TYPES)
+ * so historical recall works, but the model shouldn't treat them as a normal type.
+ */
+export const INTERNAL_EVENT_TYPES = ['shadow_discrepancy'] as const;
+
+/**
+ * Flat list of every known event type (public catalog + internal). Used by the
+ * search tools for keyword→event-type candidate matching, where complete recall
+ * matters more than hiding TEMP types.
+ */
+export const ALL_EVENT_TYPES: readonly string[] = [
+  ...Object.values(EVENT_TYPES_CATALOG).flat(),
+  ...INTERNAL_EVENT_TYPES,
+];
 
 export const DEVICE_PROPERTIES_CATALOG = {
   _usage: {

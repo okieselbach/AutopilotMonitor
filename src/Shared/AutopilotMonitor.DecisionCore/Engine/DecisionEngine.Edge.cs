@@ -315,7 +315,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
             {
                 ["eventType"] = advisoryPath
                     ? SharedConstants.EventTypes.EspFailureAdvisory
-                    : "enrollment_failed",
+                    : SharedConstants.EventTypes.EnrollmentFailed,
                 ["reason"] = reason,
             };
 

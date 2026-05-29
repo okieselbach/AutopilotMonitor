@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Configuration;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Core.Runtime
@@ -124,7 +125,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
             {
                 SessionId = configuration.SessionId,
                 TenantId = configuration.TenantId,
-                EventType = "device_location",
+                EventType = Constants.EventTypes.DeviceLocation,
                 Severity = EventSeverity.Info,
                 Source = "StartupEnvironmentProbes",
                 Phase = EnrollmentPhase.Unknown,
@@ -139,7 +140,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
             {
                 SessionId = configuration.SessionId,
                 TenantId = configuration.TenantId,
-                EventType = "agent_trace",
+                EventType = Constants.EventTypes.AgentTrace,
                 Severity = EventSeverity.Warning,
                 Source = "StartupEnvironmentProbes",
                 Phase = EnrollmentPhase.Unknown,
@@ -162,7 +163,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
             {
                 SessionId = configuration.SessionId,
                 TenantId = configuration.TenantId,
-                EventType = "timezone_auto_set",
+                EventType = Constants.EventTypes.TimezoneAutoSet,
                 Severity = tz.Success ? EventSeverity.Info : EventSeverity.Warning,
                 Source = "StartupEnvironmentProbes",
                 Phase = EnrollmentPhase.Unknown,
@@ -189,7 +190,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
                 {
                     SessionId = configuration.SessionId,
                     TenantId = configuration.TenantId,
-                    EventType = "ntp_time_check",
+                    EventType = Constants.EventTypes.NtpTimeCheck,
                     Severity = severity,
                     Source = "StartupEnvironmentProbes",
                     Phase = EnrollmentPhase.Unknown,
@@ -209,7 +210,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
             {
                 SessionId = configuration.SessionId,
                 TenantId = configuration.TenantId,
-                EventType = "ntp_time_check",
+                EventType = Constants.EventTypes.NtpTimeCheck,
                 Severity = EventSeverity.Warning,
                 Source = "StartupEnvironmentProbes",
                 Phase = EnrollmentPhase.Unknown,
@@ -288,7 +289,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
             {
                 SessionId = configuration.SessionId,
                 TenantId = configuration.TenantId,
-                EventType = "power_state_check",
+                EventType = Constants.EventTypes.PowerStateCheck,
                 Severity = severity,
                 Source = "StartupEnvironmentProbes",
                 Phase = EnrollmentPhase.Unknown,

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Win32;
 using static AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers.SoftwareInventoryNormalization;
@@ -641,7 +642,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                 {
                     SessionId = _sessionId,
                     TenantId = _tenantId,
-                    EventType = "software_inventory_analysis",
+                    EventType = Constants.EventTypes.SoftwareInventoryAnalysis,
                     Severity = EventSeverity.Info,
                     Source = Name,
                     Phase = phase,

@@ -863,7 +863,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             if (!string.IsNullOrEmpty(script.PolicyId)) data["policyId"] = script.PolicyId!;
 
             _post.Emit(
-                eventType: "agent_trace",
+                eventType: SharedEventTypes.AgentTrace,
                 source: SourceLabel,
                 message: $"Autopilot-Monitor bootstrap v{version} detected via Platform Script stdout",
                 severity: EventSeverity.Info,

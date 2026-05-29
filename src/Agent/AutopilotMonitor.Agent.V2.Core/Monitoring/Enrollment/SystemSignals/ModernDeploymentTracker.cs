@@ -330,7 +330,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             {
                 SessionId = _sessionId,
                 TenantId = _tenantId,
-                EventType = "whiteglove_started",
+                EventType = Constants.EventTypes.WhiteGloveStarted,
                 Severity = EventSeverity.Info,
                 Source = "ModernDeploymentWatcher",
                 Phase = EnrollmentPhase.Unknown,

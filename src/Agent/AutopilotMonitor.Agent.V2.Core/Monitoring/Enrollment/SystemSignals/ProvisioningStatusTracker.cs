@@ -1092,7 +1092,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             {
                 SessionId = _sessionId,
                 TenantId = _tenantId,
-                EventType = "esp_failure_settle_started",
+                EventType = Constants.EventTypes.EspFailureSettleStarted,
                 Severity = EventSeverity.Info,
                 Source = "EspAndHelloTracker",
                 Phase = EnrollmentPhase.Unknown,
@@ -1258,7 +1258,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             {
                 SessionId = _sessionId,
                 TenantId = _tenantId,
-                EventType = "esp_provisioning_raw",
+                EventType = Constants.EventTypes.EspProvisioningRaw,
                 Severity = EventSeverity.Trace,
                 Source = "EspAndHelloTracker",
                 Phase = EnrollmentPhase.Unknown,

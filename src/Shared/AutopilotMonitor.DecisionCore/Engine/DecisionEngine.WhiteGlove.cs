@@ -4,6 +4,7 @@ using AutopilotMonitor.DecisionCore.Classifiers;
 using AutopilotMonitor.DecisionCore.Signals;
 using AutopilotMonitor.DecisionCore.State;
 using AutopilotMonitor.Shared.Models;
+using SharedConstants = AutopilotMonitor.Shared.Constants;
 
 namespace AutopilotMonitor.DecisionCore.Engine
 {
@@ -114,7 +115,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 {
                     new DecisionEffect(
                         DecisionEffectKind.EmitEventTimelineEntry,
-                        parameters: new Dictionary<string, string> { ["eventType"] = "whiteglove_complete" },
+                        parameters: new Dictionary<string, string> { ["eventType"] = SharedConstants.EventTypes.WhiteGloveComplete },
                         typedPayload: DecisionAuditTrailBuilder.Build(
                             postState: sealedState,
                             decidedStage: SessionStage.WhiteGloveSealed,
@@ -231,7 +232,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     {
                         new DecisionEffect(
                             DecisionEffectKind.EmitEventTimelineEntry,
-                            parameters: new Dictionary<string, string> { ["eventType"] = "whiteglove_complete" },
+                            parameters: new Dictionary<string, string> { ["eventType"] = SharedConstants.EventTypes.WhiteGloveComplete },
                             typedPayload: DecisionAuditTrailBuilder.Build(
                                 postState: sealedState,
                                 decidedStage: SessionStage.WhiteGloveSealed,

@@ -4,6 +4,7 @@ using System.Diagnostics.Eventing.Reader;
 using System.Text.RegularExpressions;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Win32;
 
@@ -325,7 +326,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         {
                             SessionId = _sessionId,
                             TenantId = _tenantId,
-                            EventType = "hello_policy_detected",
+                            EventType = Constants.EventTypes.HelloPolicyDetected,
                             Severity = EventSeverity.Info,
                             Source = "EspAndHelloTracker",
                             Phase = EnrollmentPhase.Unknown,
@@ -520,7 +521,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     return;
 
                 case EventId_NgcKeyRegistered: // 300
-                    eventType = "hello_provisioning_completed";
+                    eventType = Constants.EventTypes.HelloProvisioningCompleted;
                     severity = EventSeverity.Info;
                     message = "Windows Hello for Business provisioned successfully - NGC key registered";
                     shouldTriggerHelloCompleted = MarkHelloCompleted();
@@ -528,7 +529,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     break;
 
                 case EventId_NgcKeyRegistrationFailed: // 301
-                    eventType = "hello_provisioning_failed";
+                    eventType = Constants.EventTypes.HelloProvisioningFailed;
                     severity = EventSeverity.Error;
                     message = "Windows Hello for Business provisioning failed - NGC key registration error";
                     shouldTriggerHelloCompleted = MarkHelloCompleted();
@@ -542,7 +543,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     return;
 
                 case EventId_ProvisioningBlocked: // 362
-                    eventType = "hello_provisioning_blocked";
+                    eventType = Constants.EventTypes.HelloProvisioningBlocked;
                     severity = EventSeverity.Warning;
                     message = "Windows Hello for Business provisioning blocked";
                     shouldTriggerHelloCompleted = MarkHelloCompleted();
@@ -550,7 +551,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     break;
 
                 case EventId_PinStatus: // 376
-                    eventType = "hello_pin_status";
+                    eventType = Constants.EventTypes.HelloPinStatus;
                     severity = EventSeverity.Info;
                     message = "Windows Hello PIN status update";
                     break;
@@ -591,7 +592,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 // (willlaunch, willnotlaunch, pin_status) are not decision-relevant and can
                 // flip state multiple times — keep batched.
                 ImmediateUpload = shouldTriggerHelloCompleted
-                    || eventType == "hello_provisioning_failed"
+                    || eventType == Constants.EventTypes.HelloProvisioningFailed
             });
 
             _logger.Info($"Hello event detected: {eventType} (EventID {eventId}{(isBackfill ? ", backfill" : "")})");
@@ -632,7 +633,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     SessionId = _sessionId,
                     TenantId = _tenantId,
                     Timestamp = timestamp,
-                    EventType = "hello_policy_detection_mismatch",
+                    EventType = Constants.EventTypes.HelloPolicyDetectionMismatch,
                     Severity = EventSeverity.Warning,
                     Source = source,
                     Phase = EnrollmentPhase.Unknown,
@@ -780,7 +781,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             switch (eventId)
             {
                 case EventId_HelloForBusiness_ProcessingStarted: // 3024
-                    eventType = "hello_processing_started";
+                    eventType = Constants.EventTypes.HelloProcessingStarted;
                     severity = EventSeverity.Info;
                     message = "Windows Hello for Business processing started";
                     _logger.Info("Hello for Business processing started (event 3024)");
@@ -791,7 +792,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
                     if (string.Equals(hresult, HResult_UserSkippedHello, StringComparison.OrdinalIgnoreCase))
                     {
-                        eventType = "hello_skipped";
+                        eventType = Constants.EventTypes.HelloSkipped;
                         severity = EventSeverity.Warning;
                         message = $"Windows Hello for Business skipped by user ({HResult_UserSkippedHello})";
                         shouldTriggerHelloCompleted = MarkHelloSkipped();
@@ -799,7 +800,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     }
                     else
                     {
-                        eventType = "hello_processing_stopped";
+                        eventType = Constants.EventTypes.HelloProcessingStopped;
                         severity = EventSeverity.Info;
                         message = $"Windows Hello for Business processing stopped (HRESULT: {hresult ?? "unknown"})";
                         _logger.Info($"Hello for Business processing stopped (event 6045, HRESULT {hresult ?? "unknown"}) - not treated as terminal");
@@ -961,7 +962,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     {
                         SessionId = _sessionId,
                         TenantId = _tenantId,
-                        EventType = "hello_wait_timeout",
+                        EventType = Constants.EventTypes.HelloWaitTimeout,
                         Severity = EventSeverity.Info,
                         Source = "EspAndHelloTracker",
                         Phase = EnrollmentPhase.Unknown,
@@ -992,7 +993,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 {
                     SessionId = _sessionId,
                     TenantId = _tenantId,
-                    EventType = "hello_wait_timeout",
+                    EventType = Constants.EventTypes.HelloWaitTimeout,
                     Severity = EventSeverity.Info,
                     Source = "EspAndHelloTracker",
                     Phase = EnrollmentPhase.Unknown,
@@ -1051,7 +1052,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 {
                     SessionId = _sessionId,
                     TenantId = _tenantId,
-                    EventType = "hello_completion_timeout",
+                    EventType = Constants.EventTypes.HelloCompletionTimeout,
                     Severity = EventSeverity.Warning,
                     Source = "EspAndHelloTracker",
                     Phase = EnrollmentPhase.Unknown,
@@ -1085,7 +1086,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 {
                     SessionId = _sessionId,
                     TenantId = _tenantId,
-                    EventType = "hello_policy_detected",
+                    EventType = Constants.EventTypes.HelloPolicyDetected,
                     Severity = EventSeverity.Info,
                     Source = "EspAndHelloTracker",
                     Phase = EnrollmentPhase.Unknown,

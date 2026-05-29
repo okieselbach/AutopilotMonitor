@@ -12,6 +12,7 @@ using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Agent.V2.Core.Security;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.Signals;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Win32;
 
@@ -88,14 +89,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                     }
                 }
 
-                EmitDeviceInfoEvent("network_adapters", "Network adapters configuration",
+                EmitDeviceInfoEvent(Constants.EventTypes.NetworkAdapters, "Network adapters configuration",
                     new Dictionary<string, object>
                     {
                         { "adapterCount", adapters.Count },
                         { "adapters", adapters }
                     });
 
-                EmitDeviceInfoEvent("dns_configuration", "DNS server configuration",
+                EmitDeviceInfoEvent(Constants.EventTypes.DnsConfiguration, "DNS server configuration",
                     new Dictionary<string, object>
                     {
                         { "dnsEntries", dnsServers }
@@ -138,7 +139,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
 
                 data["proxyType"] = proxyType;
 
-                EmitDeviceInfoEvent("proxy_configuration", $"Proxy configuration: {proxyType}", data);
+                EmitDeviceInfoEvent(Constants.EventTypes.ProxyConfiguration, $"Proxy configuration: {proxyType}", data);
             }
             catch (Exception ex)
             {
@@ -283,14 +284,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                 // Include enrollment type in autopilot_profile event data
                 data["enrollmentType"] = detectedType;
 
-                EmitDeviceInfoEvent("autopilot_profile", "Autopilot profile configuration", data);
+                EmitDeviceInfoEvent(Constants.EventTypes.AutopilotProfile, "Autopilot profile configuration", data);
 
                 // Emit dedicated enrollment_type_detected event for easy filtering
                 _post.Emit(new EnrollmentEvent
                 {
                     SessionId = _sessionId,
                     TenantId = _tenantId,
-                    EventType = "enrollment_type_detected",
+                    EventType = Constants.EventTypes.EnrollmentTypeDetected,
                     Severity = EventSeverity.Info,
                     Source = "EnrollmentTracker",
                     Phase = EnrollmentPhase.Unknown,
@@ -360,7 +361,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                     }
                 }
 
-                EmitDeviceInfoEvent("secureboot_status", $"SecureBoot: {data["uefiSecureBootEnabled"]}, CA2023: {data["uefiCA2023Status"]}", data);
+                EmitDeviceInfoEvent(Constants.EventTypes.SecureBootStatus, $"SecureBoot: {data["uefiSecureBootEnabled"]}, CA2023: {data["uefiCA2023Status"]}", data);
             }
             catch (Exception ex)
             {
@@ -395,7 +396,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                 data["systemDriveProtected"] = volumes.Any(v =>
                     v["driveLetter"]?.ToString() == "C:" && v["protectionStatus"]?.ToString() == "1");
 
-                EmitDeviceInfoEvent("bitlocker_status", "BitLocker encryption status", data);
+                EmitDeviceInfoEvent(Constants.EventTypes.BitLockerStatus, "BitLocker encryption status", data);
             }
             catch (Exception ex)
             {
@@ -433,12 +434,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
 
                 if (data.Count > 0)
                 {
-                    EmitDeviceInfoEvent("tpm_status", $"TPM: {data["manufacturerName"]} v{data["manufacturerVersion"]}", data);
+                    EmitDeviceInfoEvent(Constants.EventTypes.TpmStatus, $"TPM: {data["manufacturerName"]} v{data["manufacturerVersion"]}", data);
                 }
                 else
                 {
                     data["available"] = false;
-                    EmitDeviceInfoEvent("tpm_status", "TPM: not available", data);
+                    EmitDeviceInfoEvent(Constants.EventTypes.TpmStatus, "TPM: not available", data);
                 }
             }
             catch (Exception ex)
@@ -497,7 +498,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
 
                 object joinTypeValue;
                 var joinType = data.TryGetValue("joinType", out joinTypeValue) ? joinTypeValue?.ToString() ?? "Unknown" : "Unknown";
-                EmitDeviceInfoEvent("aad_join_status", $"AAD join: {joinType}", data);
+                EmitDeviceInfoEvent(Constants.EventTypes.AadJoinStatus, $"AAD join: {joinType}", data);
             }
             catch (Exception ex)
             {
@@ -548,7 +549,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
 
                 var summary = BuildSummary(snapshot);
                 _logger.Info($"EnrollmentTracker: ESP configuration detected — {summary}");
-                EmitDeviceInfoEvent("esp_config_detected", $"ESP configuration: {summary}", data);
+                EmitDeviceInfoEvent(Constants.EventTypes.EspConfigDetected, $"ESP configuration: {summary}", data);
                 PostEspConfigDetectedSignal(snapshot);
             }
             catch (Exception ex)
@@ -595,7 +596,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
 
                 if (activeNic == null)
                 {
-                    EmitDeviceInfoEvent("network_interface_info", "No active network interface found",
+                    EmitDeviceInfoEvent(Constants.EventTypes.NetworkInterfaceInfo, "No active network interface found",
                         new Dictionary<string, object> { { "status", "no_active_interface" } });
                     return;
                 }
@@ -623,7 +624,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                 }
 
                 var message = $"Active interface: {activeNic.Description} ({data["connectionType"]}, {data["linkSpeedMbps"]} Mbps)";
-                EmitDeviceInfoEvent("network_interface_info", message, data);
+                EmitDeviceInfoEvent(Constants.EventTypes.NetworkInterfaceInfo, message, data);
 
                 // Fire-and-forget WiFi signal collection — separate event, never blocks
                 if (isWifi)
@@ -739,7 +740,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                     if (data.ContainsKey("wifiRadioType"))
                         message += $" ({data["wifiRadioType"]})";
 
-                    EmitDeviceInfoEvent("wifi_signal_info", message, data);
+                    EmitDeviceInfoEvent(Constants.EventTypes.WifiSignalInfo, message, data);
                 }
             }
             catch (Exception ex)

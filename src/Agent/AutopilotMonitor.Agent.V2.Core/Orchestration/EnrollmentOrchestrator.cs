@@ -14,6 +14,7 @@ using AutopilotMonitor.DecisionCore.Classifiers;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.Signals;
 using AutopilotMonitor.DecisionCore.State;
+using AutopilotMonitor.Shared;
 
 namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 {
@@ -728,7 +729,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     var lifecyclePost = new InformationalEventPost(_ingress, _clock);
                     var resumedAtUtc = _clock.UtcNow;
                     lifecyclePost.Emit(
-                        eventType: "whiteglove_resumed",
+                        eventType: Constants.EventTypes.WhiteGloveResumed,
                         source: "Agent",
                         message: "WhiteGlove Part 2 resumed after reseal-reboot; Part-1 state archived.",
                         severity: Shared.Models.EventSeverity.Info,
