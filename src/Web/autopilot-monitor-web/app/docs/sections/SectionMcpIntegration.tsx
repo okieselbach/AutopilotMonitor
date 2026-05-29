@@ -291,7 +291,7 @@ export function SectionMcpIntegration() {
               <tbody className="divide-y divide-gray-100">
                 <tr>
                   <td className="py-2 pr-4 font-mono text-xs text-gray-700">query_raw_events</td>
-                  <td className="py-2 text-gray-600">Query raw event data with flexible filters. Requires your tenant ID. Useful for custom analysis beyond the high-level tools.</td>
+                  <td className="py-2 text-gray-600">Query raw event data with flexible filters and field projection. Pass a lean <span className="font-mono text-xs">fields=</span> list to drop the heavy per-event <span className="font-mono text-xs">data</span> payload for counting/aggregation. When querying by session ID the tenant is auto-resolved (Global Admin). Useful for custom analysis beyond the high-level tools.</td>
                 </tr>
                 <tr>
                   <td className="py-2 pr-4 font-mono text-xs text-gray-700">query_raw_sessions</td>

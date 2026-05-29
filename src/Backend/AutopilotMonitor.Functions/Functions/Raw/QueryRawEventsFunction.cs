@@ -79,6 +79,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
             var source = query["source"];
             var startedAfter = query["startedAfter"];
             var startedBefore = query["startedBefore"];
+            var fields = query["fields"];
 
             var pagination = QueryRawEventsPagination.ParsePagination(query);
             if (pagination.Error != null)
@@ -96,10 +97,18 @@ namespace AutopilotMonitor.Functions.Functions.Raw
             // a cursor from session A cannot be replayed for session B.
             if (!string.IsNullOrEmpty(sessionId))
             {
+                // GA cross-tenant convenience: a sessionId query may omit tenantId; resolve it from
+                // the session so the contract matches GetSessionEventsFunction. Only on the global
+                // scope — the tenant-scoped path always has a JWT-bound tenantId (TenantHelper
+                // throws when unauthenticated), so it never reaches this branch with an empty value.
+                if (string.IsNullOrEmpty(tenantId) && scope == "raw-events:global")
+                {
+                    tenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId);
+                }
                 if (string.IsNullOrEmpty(tenantId))
                 {
                     var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { error = "tenantId is required when querying by sessionId" });
+                    await bad.WriteAsJsonAsync(new { error = "tenantId is required when querying by sessionId (or the session was not found)" });
                     return bad;
                 }
 
@@ -127,7 +136,10 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 var filtered = ApplyClientFilters(
                     sessionPage.Items.ToList(), eventType, severity, source, startedAfter, startedBefore);
                 filtered = filtered.OrderBy(e => e.Timestamp).ThenBy(e => e.Sequence).ToList();
-                ErrorCodeEnricher.EnrichEvents(filtered);
+                // Skip error-code enrichment when the projection drops Data (enrichment only writes
+                // into Data) — pure work avoidance for lean fields= queries.
+                if (EventFieldProjection.WantsData(fields))
+                    ErrorCodeEnricher.EnrichEvents(filtered);
 
                 string? singleNextLink = null;
                 if (!string.IsNullOrEmpty(sessionPage.NextRawToken))
@@ -144,7 +156,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 {
                     tenantId,
                     count = filtered.Count,
-                    events = filtered,
+                    events = EventFieldProjection.Project(filtered, fields),
                     nextLink = singleNextLink,
                 });
             }
@@ -192,7 +204,8 @@ namespace AutopilotMonitor.Functions.Functions.Raw
 
             events = ApplyDateFilters(events, startedAfter, startedBefore)
                 .OrderBy(e => e.Timestamp).ThenBy(e => e.Sequence).ToList();
-            ErrorCodeEnricher.EnrichEvents(events);
+            if (EventFieldProjection.WantsData(fields))
+                ErrorCodeEnricher.EnrichEvents(events);
 
             string? nextLink = null;
             if (!string.IsNullOrEmpty(sessionsPage.NextRawToken))
@@ -209,7 +222,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
             {
                 tenantId,
                 count = events.Count,
-                events,
+                events = EventFieldProjection.Project(events, fields),
                 nextLink,
             });
         }

@@ -65,6 +65,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 var filterEventType = query["eventType"];
                 var filterSeverity = query["severity"];
                 var filterSource = query["source"];
+                var filterFields = query["fields"];
                 var hasFilters = !string.IsNullOrEmpty(filterEventType)
                     || !string.IsNullOrEmpty(filterSeverity)
                     || !string.IsNullOrEmpty(filterSource);
@@ -113,14 +114,17 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                         ? ApplyFilters(events, filterEventType, filterSeverity, filterSource).ToList()
                         : events;
 
-                    ErrorCodeEnricher.EnrichEvents(filtered);
+                    // Skip error-code enrichment when the projection drops Data (enrichment only
+                    // writes into Data) — pure work avoidance for lean fields= queries.
+                    if (EventFieldProjection.WantsData(filterFields))
+                        ErrorCodeEnricher.EnrichEvents(filtered);
 
                     return await req.OkAsync(new
                     {
                         success = true,
                         sessionId,
                         count = filtered.Count,
-                        events = filtered,
+                        events = EventFieldProjection.Project(filtered, filterFields),
                     });
                 }
 
@@ -186,7 +190,8 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     ? ApplyFilters(page.Items, filterEventType, filterSeverity, filterSource).ToList()
                     : page.Items;
 
-                ErrorCodeEnricher.EnrichEvents(pageItems);
+                if (EventFieldProjection.WantsData(filterFields))
+                    ErrorCodeEnricher.EnrichEvents(pageItems);
 
                 string? nextLink = null;
                 if (!string.IsNullOrEmpty(page.NextRawToken))
@@ -194,13 +199,15 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     // Filters are echoed onto the nextLink so the client doesn't have to
                     // re-supply them when continuing pagination. Both BuildNextLink and the
                     // client (MCP, UI) round-trip these via the continuation URL verbatim.
-                    var extras = new List<KeyValuePair<string, string?>>(3);
+                    var extras = new List<KeyValuePair<string, string?>>(4);
                     if (!string.IsNullOrEmpty(filterEventType))
                         extras.Add(new KeyValuePair<string, string?>("eventType", filterEventType));
                     if (!string.IsNullOrEmpty(filterSeverity))
                         extras.Add(new KeyValuePair<string, string?>("severity", filterSeverity));
                     if (!string.IsNullOrEmpty(filterSource))
                         extras.Add(new KeyValuePair<string, string?>("source", filterSource));
+                    if (!string.IsNullOrEmpty(filterFields))
+                        extras.Add(new KeyValuePair<string, string?>("fields", filterFields));
 
                     var fp = SessionEventsPagination.Fingerprint(effectiveTenantId, sessionId);
                     var wireToken = ContinuationToken.Encode(page.NextRawToken!, effectiveTenantId, fp);
@@ -214,7 +221,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     success = true,
                     sessionId,
                     count = pageItems.Count,
-                    events = pageItems,
+                    events = EventFieldProjection.Project(pageItems, filterFields),
                     nextLink,
                 });
             }

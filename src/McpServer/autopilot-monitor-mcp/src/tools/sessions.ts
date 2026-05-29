@@ -245,6 +245,8 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
         eventType: z.string().optional().describe('Filter to only events of this type'),
         severity: z.enum(['Info', 'Warning', 'Error', 'Critical']).optional(),
         source: z.string().optional().describe('Filter by event source/app name (e.g. "MicrosoftTeams")'),
+        fields: z.string().optional()
+          .describe('Comma-separated lean projection (e.g. "eventType,severity,timestamp,message"). Drops the heavy "data" payload unless "data" is listed. Valid keys: eventId, sessionId, tenantId, eventType, severity, source, phase, phaseName, timestamp, receivedAt, message, sequence, rowKey, originalTimestamp, timestampClamped, causedByTransitionStepIndex, causedBySignalOrdinal, data.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional().default(200)
           .describe('Page size (1-1000, default 200). The endpoint returns this many events per call; follow nextLink to fetch more.'),
         continuation: z.string().optional()
@@ -254,12 +256,12 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
     },
     async (args) => withToolTelemetry('get_session_events', async () => {
       try {
-        const { sessionId, tenantId, pageSize, continuation, eventType, severity, source } = args;
+        const { sessionId, tenantId, pageSize, continuation, eventType, severity, source, fields } = args;
         if (eventType) assertKnownEventType(eventType);
         const basePath = `/api/sessions/${sessionId}/events`;
         const path = followNextLink(
           basePath,
-          { tenantId, pageSize, eventType, severity, source },
+          { tenantId, pageSize, eventType, severity, source, fields },
           continuation,
         );
         // eventType/severity/source are post-filtered in-memory over the session's

@@ -492,15 +492,21 @@ export function registerAdminTools(server: McpServer, ga: boolean): void {
         'interactive queries; raise it (up to 1000) for forensics-grade exact recall. For broad analysis, use ' +
         'pageSize=1000 and follow nextLink repeatedly until absent. Pass the whole nextLink string as "continuation" ' +
         'so all backend-echoed query params round-trip correctly. Note: pageSize is the index-scan cadence — a single ' +
-        'indexed session can contribute multiple events, so total events per page may exceed pageSize.',
+        'indexed session can contribute multiple events, so total events per page may exceed pageSize. ' +
+        'For COUNTING / AGGREGATION pass a lean `fields=` projection (e.g. `fields=eventType,severity,timestamp`) — ' +
+        'this drops the heavy per-event `data` payload (a single app_install_failed event can be tens of KB), so ' +
+        'responses stay small; `data` is included only when you list it explicitly. ' +
+        (ga ? 'When querying by sessionId you may omit tenantId — it is auto-resolved from the session (Global Admin).' : ''),
       inputSchema: {
-        tenantId: z.string().optional().describe(ga ? 'Tenant ID. Omit for cross-tenant search (Global Admin only).' : 'Optional tenant ID. Defaults to your tenant.'),
+        tenantId: z.string().optional().describe(ga ? 'Tenant ID. Omit for cross-tenant search, or to auto-resolve from a sessionId query (Global Admin only).' : 'Optional tenant ID. Defaults to your tenant.'),
         sessionId: SessionIdSchema.optional().describe('Filter to a specific session'),
         eventType: z.string().optional().describe('Event type filter (e.g. "app_install_failed", "error_detected")'),
         severity: z.enum(['Info', 'Warning', 'Error', 'Critical']).optional(),
         source: z.string().optional().describe('Filter by event source/app name (substring match)'),
         startedAfter: z.string().optional().describe('ISO 8601 datetime — only events after this'),
         startedBefore: z.string().optional().describe('ISO 8601 datetime — only events before this'),
+        fields: z.string().optional()
+          .describe('Comma-separated lean projection (e.g. "eventType,severity,timestamp,message"). Drops the heavy "data" payload unless "data" is listed. Valid keys: eventId, sessionId, tenantId, eventType, severity, source, phase, phaseName, timestamp, receivedAt, message, sequence, rowKey, originalTimestamp, timestampClamped, causedByTransitionStepIndex, causedBySignalOrdinal, data.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional().default(200)
           .describe('Page size (1-1000, default 200). Controls index-scan depth per call; follow nextLink for more.'),
         continuation: z.string().optional()
@@ -510,12 +516,12 @@ export function registerAdminTools(server: McpServer, ga: boolean): void {
     },
     async (args) => withToolTelemetry('query_raw_events', async () => {
       try {
-        const { tenantId, sessionId, eventType, severity, source, startedAfter, startedBefore, pageSize, continuation } = args;
+        const { tenantId, sessionId, eventType, severity, source, startedAfter, startedBefore, fields, pageSize, continuation } = args;
         if (eventType) assertKnownEventType(eventType);
         const basePath = pickGlobalOrTenantPath('/api/global/raw/events', '/api/raw/events');
         const path = followNextLink(
           basePath,
-          { tenantId, sessionId, eventType, severity, source, startedAfter, startedBefore, pageSize },
+          { tenantId, sessionId, eventType, severity, source, startedAfter, startedBefore, fields, pageSize },
           continuation,
         );
         // severity/source (and eventType/time on the single-session path) are post-filtered
