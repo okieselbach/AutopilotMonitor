@@ -15,11 +15,15 @@ import { z } from 'zod';
  * in the argument text for the model.
  */
 export function registerPrompts(server: McpServer, ga: boolean): void {
-  server.prompt(
+  server.registerPrompt(
     'investigate-failed-session',
-    'Guided root-cause investigation of a single enrollment session. Seeds the ' +
-      'summary-first → drill-down workflow and asks for a structured verdict.',
-    { sessionId: z.string().describe('Session UUID to investigate') },
+    {
+      title: 'Investigate Failed Session',
+      description:
+        'Guided root-cause investigation of a single enrollment session. Seeds the ' +
+        'summary-first → drill-down workflow and asks for a structured verdict.',
+      argsSchema: { sessionId: z.string().describe('Session UUID to investigate') },
+    },
     ({ sessionId }) => ({
       messages: [
         {
@@ -44,16 +48,20 @@ export function registerPrompts(server: McpServer, ga: boolean): void {
     }),
   );
 
-  server.prompt(
+  server.registerPrompt(
     'cve-exposure-audit',
-    'Fleet exposure audit for a specific CVE: which devices/sessions are affected, ' +
-      'how severe, and what to do about it.',
     {
-      cveId: z.string().describe('CVE identifier, e.g. "CVE-2024-21447"'),
-      tenantId: z
-        .string()
-        .optional()
-        .describe(ga ? 'Optional tenant ID to scope the audit. Omit for a cross-tenant audit (Global Admin).' : 'Optional tenant ID. Defaults to your tenant.'),
+      title: 'CVE Exposure Audit',
+      description:
+        'Fleet exposure audit for a specific CVE: which devices/sessions are affected, ' +
+        'how severe, and what to do about it.',
+      argsSchema: {
+        cveId: z.string().describe('CVE identifier, e.g. "CVE-2024-21447"'),
+        tenantId: z
+          .string()
+          .optional()
+          .describe(ga ? 'Optional tenant ID to scope the audit. Omit for a cross-tenant audit (Global Admin).' : 'Optional tenant ID. Defaults to your tenant.'),
+      },
     },
     ({ cveId, tenantId }) => ({
       messages: [
@@ -81,11 +89,15 @@ export function registerPrompts(server: McpServer, ga: boolean): void {
   // Global Admin only — relies on get_platform_metrics (a GA-only tool that is
   // not registered for normal users). Hidden from non-GA so it never references
   // a tool they cannot see.
-  if (ga) server.prompt(
+  if (ga) server.registerPrompt(
     'compare-agent-versions',
-    'Compare enrollment success rate and agent resource usage across Monitor Agent ' +
-      'versions over a time window — useful for validating a rollout.',
-    { days: z.string().optional().describe('Time window in days (1-365). Defaults to 30 if omitted.') },
+    {
+      title: 'Compare Agent Versions',
+      description:
+        'Compare enrollment success rate and agent resource usage across Monitor Agent ' +
+        'versions over a time window — useful for validating a rollout.',
+      argsSchema: { days: z.string().optional().describe('Time window in days (1-365). Defaults to 30 if omitted.') },
+    },
     ({ days }) => {
       const window = days ?? '30';
       return {

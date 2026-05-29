@@ -1,7 +1,7 @@
 import { resolve, dirname } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import express from 'express';
+import express, { type ErrorRequestHandler } from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { registerTools } from './tools.js';
@@ -174,6 +174,44 @@ app.all('/mcp', async (req, res) => {
     }
   }
 });
+
+// Body-parse error handler — registered after the routes so Express routes the
+// parser errors (express.json throws BEFORE the route handler runs) here rather
+// than to its built-in handler, which emits an HTML error page. For the
+// JSON-RPC /mcp endpoint that HTML would break a spec-compliant client, so we
+// answer with a JSON-RPC error envelope; other routes get a plain JSON 400/413.
+const bodyErrorHandler: ErrorRequestHandler = (err, req, res, next) => {
+  const e = err as { type?: string; status?: number; statusCode?: number } | null;
+  const isBodyError =
+    e?.type === 'entity.parse.failed' ||
+    e?.type === 'entity.too.large' ||
+    e?.type === 'encoding.unsupported' ||
+    (err instanceof SyntaxError && typeof (err as { body?: unknown }).body !== 'undefined');
+  if (!isBodyError || res.headersSent) {
+    next(err);
+    return;
+  }
+  const httpStatus = e?.status ?? e?.statusCode ?? 400;
+  if (req.path === '/mcp') {
+    // -32700 Parse error for malformed JSON; -32600 Invalid Request for a body
+    // that exceeds the size limit (valid framing, refused). id is null — the
+    // request id is unknowable from a body that never parsed.
+    const tooLarge = e?.type === 'entity.too.large';
+    res.status(httpStatus).json({
+      jsonrpc: '2.0',
+      error: {
+        code: tooLarge ? -32600 : -32700,
+        message: tooLarge
+          ? 'Invalid Request: request body exceeds the size limit.'
+          : 'Parse error: request body is not valid JSON.',
+      },
+      id: null,
+    });
+  } else {
+    res.status(httpStatus).json({ error: 'Invalid request body.' });
+  }
+};
+app.use(bodyErrorHandler);
 
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.error(`Autopilot-Monitor MCP Server running on port ${PORT}`);

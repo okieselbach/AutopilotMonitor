@@ -8,10 +8,11 @@ import { EVENT_TYPES_CATALOG, DEVICE_PROPERTIES_CATALOG } from './resource-catal
  * data via a regular tool call.
  */
 export function registerResources(server: McpServer): void {
-  server.resource(
+  server.registerResource(
     'event_types',
     'autopilot://event-types',
     {
+      title: 'Event Types Catalog',
       mimeType: 'application/json',
       description: 'Catalog of all known enrollment event type strings. Consult this before calling search_sessions_by_event to know valid eventType values.',
     },
@@ -26,10 +27,11 @@ export function registerResources(server: McpServer): void {
     })
   );
 
-  server.resource(
+  server.registerResource(
     'device_properties',
     'autopilot://device-properties',
     {
+      title: 'Device Properties Catalog',
       mimeType: 'application/json',
       description:
         'Catalog of known device property keys for the deviceProperties filter in search_sessions. ' +

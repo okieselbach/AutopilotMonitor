@@ -346,24 +346,28 @@ function scoreEvent(e: EventEntry, queryKeywords: string[]): ScoredEvent | null 
 
 export function registerSearchTools(server: McpServer, knowledgeBase: SearchProvider | undefined, ga: boolean): void {
   // Tool 9: search_events_semantic — weighted keyword search
-  server.tool(
+  server.registerTool(
     'search_events_semantic',
-    'TIER 1 — FAST EVENT SEARCH (try this first). ' +
-    'Searches enrollment events by matching keywords against event type, message, source, severity, and data fields. ' +
-    'Uses prefix-aware matching (e.g. "install" matches "installation", "installed", "app_install_failed") ' +
-    'and weighted field scoring (matches in eventType rank higher than in data). ' +
-    'Provide sessionId to search within one session, or omit for a fast (single-page-per-type) cross-session scan. ' +
-    'This is a bounded scan: check the returned `truncated` flag — if true, recall is incomplete, so escalate to ' +
-    'deep_search_events for a broader multi-page scan or narrow the query as `recallNote` suggests.',
     {
-      query: z.string().describe('Natural language description of what to find (e.g. "app download stuck", "certificate error", "disk space low")'),
-      sessionId: SessionIdSchema.optional().describe('Search within a specific session. If omitted, searches across recent failed sessions.'),
-      tenantId: z.string().optional().describe(ga ? 'Tenant ID. Required for non-Global Admin users; Global Admin can omit to search across tenants.' : 'Optional tenant ID. Defaults to your tenant.'),
-      topK: z.coerce.number().min(1).max(30).optional().default(10).describe('Number of matching events to return (1-30, default 10)'),
-      minScore: z.coerce.number().min(0).max(1).optional().default(0.1)
-        .describe('Minimum relevance score (0-1, default 0.1). Events matching at least one keyword in any field pass this threshold.'),
+      title: 'Search Events (Semantic)',
+      description:
+        'TIER 1 — FAST EVENT SEARCH (try this first). ' +
+        'Searches enrollment events by matching keywords against event type, message, source, severity, and data fields. ' +
+        'Uses prefix-aware matching (e.g. "install" matches "installation", "installed", "app_install_failed") ' +
+        'and weighted field scoring (matches in eventType rank higher than in data). ' +
+        'Provide sessionId to search within one session, or omit for a fast (single-page-per-type) cross-session scan. ' +
+        'This is a bounded scan: check the returned `truncated` flag — if true, recall is incomplete, so escalate to ' +
+        'deep_search_events for a broader multi-page scan or narrow the query as `recallNote` suggests.',
+      inputSchema: {
+        query: z.string().describe('Natural language description of what to find (e.g. "app download stuck", "certificate error", "disk space low")'),
+        sessionId: SessionIdSchema.optional().describe('Search within a specific session. If omitted, searches across recent failed sessions.'),
+        tenantId: z.string().optional().describe(ga ? 'Tenant ID. Required for non-Global Admin users; Global Admin can omit to search across tenants.' : 'Optional tenant ID. Defaults to your tenant.'),
+        topK: z.coerce.number().min(1).max(30).optional().default(10).describe('Number of matching events to return (1-30, default 10)'),
+        minScore: z.coerce.number().min(0).max(1).optional().default(0.1)
+          .describe('Minimum relevance score (0-1, default 0.1). Events matching at least one keyword in any field pass this threshold.'),
+      },
+      annotations: READ_ONLY,
     },
-    READ_ONLY,
     async (args) => withToolTelemetry('search_events_semantic', async () => {
       try {
         const { query, sessionId, tenantId, topK, minScore } = args;
@@ -419,21 +423,25 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
   );
 
   // Tool 10: search_knowledge (unchanged — vector, pre-indexed at startup)
-  server.tool(
+  server.registerTool(
     'search_knowledge',
-    'Semantic/fuzzy search over the Autopilot Monitor knowledge base: analysis rules, gather rules, and IME log patterns. ' +
-    'Use natural language queries like "app install timeout", "BitLocker issues", "detection script failure". ' +
-    'Returns the most relevant rules and patterns ranked by similarity. ' +
-    'Great for finding remediation steps, understanding error patterns, or discovering relevant diagnostic rules.',
     {
-      query: z.string().describe('Natural language search query (e.g. "app download timeout", "TPM not ready", "ESP stuck")'),
-      topK: z.coerce.number().min(1).max(20).optional().default(5).describe('Number of results to return (1-20, default 5)'),
-      type: z.enum(['all', 'analyze-rule', 'gather-rule', 'ime-log-pattern']).optional().default('all')
-        .describe('Filter by document type. Default: search all types.'),
-      minScore: z.coerce.number().min(0).max(1).optional().default(0.3)
-        .describe('Minimum similarity score threshold (0-1, default 0.3). Lower = more results, higher = stricter matching.'),
+      title: 'Search Knowledge Base',
+      description:
+        'Semantic/fuzzy search over the Autopilot Monitor knowledge base: analysis rules, gather rules, and IME log patterns. ' +
+        'Use natural language queries like "app install timeout", "BitLocker issues", "detection script failure". ' +
+        'Returns the most relevant rules and patterns ranked by similarity. ' +
+        'Great for finding remediation steps, understanding error patterns, or discovering relevant diagnostic rules.',
+      inputSchema: {
+        query: z.string().describe('Natural language search query (e.g. "app download timeout", "TPM not ready", "ESP stuck")'),
+        topK: z.coerce.number().min(1).max(20).optional().default(5).describe('Number of results to return (1-20, default 5)'),
+        type: z.enum(['all', 'analyze-rule', 'gather-rule', 'ime-log-pattern']).optional().default('all')
+          .describe('Filter by document type. Default: search all types.'),
+        minScore: z.coerce.number().min(0).max(1).optional().default(0.3)
+          .describe('Minimum similarity score threshold (0-1, default 0.3). Lower = more results, higher = stricter matching.'),
+      },
+      annotations: READ_ONLY,
     },
-    READ_ONLY,
     async (args) => withToolTelemetry('search_knowledge', async () => {
       try {
         const { query, topK, type, minScore } = args;
@@ -479,30 +487,34 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
   );
 
   // Tool 23: deep_search_events — same scoring, broader paginated scan + lower thresholds
-  server.tool(
+  server.registerTool(
     'deep_search_events',
-    'TIER 3 — DEEP SEARCH (thorough, use when accuracy is critical). ' +
-    'Uses the same weighted keyword scoring as search_events_semantic but with lower thresholds and a broader, ' +
-    'paginated scan: for each event type matched from the query it walks the cross-session index, following pages ' +
-    'up to a generous budget, then ranks the matches. Scores across ALL event fields including full DataJson content. ' +
-    'Returns the top `topK` ranked matches (NOT every matching event) — compare `resultCount` vs `eventsMatched`, ' +
-    'and use get_session_events / search_sessions_by_event for full per-event recall. ' +
-    'Check the `truncated` flag: if true, the scan hit its page/time budget (or fell back to recent failed ' +
-    'sessions) and recall is incomplete — narrow the query as `recallNote` suggests. ' +
-    'Provide sessionId to search within one session (complete, no truncation), or omit to search across sessions.' +
-    (ga ? ' Omit tenantId for cross-tenant search (Global Admin), or specify tenantId for single-tenant.' : ''),
     {
-      query: z.string().describe('Natural language description of what to find (e.g. "app download stuck", "certificate error", "disk space low")'),
-      sessionId: SessionIdSchema.optional().describe('Search within a specific session. If omitted, searches across recent failed sessions.'),
-      tenantId: z.string().optional().describe(ga ? 'Tenant ID. Required for non-Global Admin users; Global Admin can omit to search across tenants.' : 'Optional tenant ID. Defaults to your tenant.'),
-      topK: z.coerce.number().min(1).max(50).optional().default(20)
-        .describe('Max results to return (1-50, default 20). Higher default for thoroughness.'),
-      minScore: z.coerce.number().min(0).max(1).optional().default(0.05)
-        .describe('Min relevance score (0-1, default 0.05). Very low so weakly-matching events still surface.'),
-      keywords: z.array(z.string()).optional()
-        .describe('Additional exact keywords for matching. Auto-extracted from query if omitted.'),
+      title: 'Deep Search Events',
+      description:
+        'TIER 3 — DEEP SEARCH (thorough, use when accuracy is critical). ' +
+        'Uses the same weighted keyword scoring as search_events_semantic but with lower thresholds and a broader, ' +
+        'paginated scan: for each event type matched from the query it walks the cross-session index, following pages ' +
+        'up to a generous budget, then ranks the matches. Scores across ALL event fields including full DataJson content. ' +
+        'Returns the top `topK` ranked matches (NOT every matching event) — compare `resultCount` vs `eventsMatched`, ' +
+        'and use get_session_events / search_sessions_by_event for full per-event recall. ' +
+        'Check the `truncated` flag: if true, the scan hit its page/time budget (or fell back to recent failed ' +
+        'sessions) and recall is incomplete — narrow the query as `recallNote` suggests. ' +
+        'Provide sessionId to search within one session (complete, no truncation), or omit to search across sessions.' +
+        (ga ? ' Omit tenantId for cross-tenant search (Global Admin), or specify tenantId for single-tenant.' : ''),
+      inputSchema: {
+        query: z.string().describe('Natural language description of what to find (e.g. "app download stuck", "certificate error", "disk space low")'),
+        sessionId: SessionIdSchema.optional().describe('Search within a specific session. If omitted, searches across recent failed sessions.'),
+        tenantId: z.string().optional().describe(ga ? 'Tenant ID. Required for non-Global Admin users; Global Admin can omit to search across tenants.' : 'Optional tenant ID. Defaults to your tenant.'),
+        topK: z.coerce.number().min(1).max(50).optional().default(20)
+          .describe('Max results to return (1-50, default 20). Higher default for thoroughness.'),
+        minScore: z.coerce.number().min(0).max(1).optional().default(0.05)
+          .describe('Min relevance score (0-1, default 0.05). Very low so weakly-matching events still surface.'),
+        keywords: z.array(z.string()).optional()
+          .describe('Additional exact keywords for matching. Auto-extracted from query if omitted.'),
+      },
+      annotations: READ_ONLY,
     },
-    READ_ONLY,
     async (args) => withToolTelemetry('deep_search_events', async () => {
       try {
         const { query, sessionId, tenantId, topK, minScore, keywords } = args;
