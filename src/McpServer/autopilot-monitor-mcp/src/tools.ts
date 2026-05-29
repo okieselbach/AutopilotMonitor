@@ -10,8 +10,13 @@ import { registerAdminTools } from './tools/admin.js';
  * registered at all — they never appear in tools/list — and the remaining tools'
  * descriptions carry no cross-tenant / Global-Admin wording.
  */
-export function registerTools(server: McpServer, knowledgeBase: SearchProvider | undefined, ga: boolean): void {
+export function registerTools(
+  server: McpServer,
+  knowledgeBase: SearchProvider | undefined,
+  eventTypeIndex: SearchProvider | undefined,
+  ga: boolean,
+): void {
   registerSessionTools(server, ga);
-  registerSearchTools(server, knowledgeBase, ga);
+  registerSearchTools(server, knowledgeBase, eventTypeIndex, ga);
   registerAdminTools(server, ga);
 }

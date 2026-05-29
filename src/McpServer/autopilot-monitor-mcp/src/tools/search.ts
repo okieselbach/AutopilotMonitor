@@ -62,6 +62,9 @@ const RAW_EVENTS_PAGE_SIZE = 200;
 /** Upper bound on distinct event types to fan out over (keeps the request count sane). */
 const MAX_EVENT_TYPE_CANDIDATES = 16;
 
+/** Cosine threshold for accepting a semantically-matched event type as a walk candidate. */
+const SEMANTIC_TYPE_MIN_SCORE = 0.3;
+
 /**
  * Hard cap on sessions scanned by the legacy fallback. The backend /search/sessions
  * endpoint bounds results via `pageSize` (the old `limit` param was removed in the
@@ -169,12 +172,45 @@ function recallSummary(searchMethod: string, truncated: boolean): { truncated: b
   return { truncated: false };
 }
 
+/**
+ * Pick event-type candidates for the cross-session index walk by BLENDING lexical and
+ * semantic signals: keyword/prefix matches first (high precision), then the semantically
+ * closest types from the vector-indexed catalog (recall for queries whose words don't
+ * appear in any type name, e.g. "app stuck downloading" → download_progress). Degrades to
+ * keyword-only when no vector index is available (fuse backend / not yet indexed / error).
+ */
+export async function selectEventTypeCandidates(
+  query: string,
+  keywords: string[],
+  eventTypeIndex?: SearchProvider,
+): Promise<string[]> {
+  const keywordCandidates = extractEventTypeCandidates(keywords);
+  if (!eventTypeIndex || eventTypeIndex.size === 0) return keywordCandidates;
+
+  let semantic: string[] = [];
+  try {
+    const hits = await eventTypeIndex.search(query, {
+      topK: MAX_EVENT_TYPE_CANDIDATES,
+      minScore: SEMANTIC_TYPE_MIN_SCORE,
+    });
+    semantic = hits
+      .map((h) => (h.metadata as { eventType?: string }).eventType)
+      .filter((t): t is string => typeof t === 'string');
+  } catch {
+    return keywordCandidates; // embedding failure must never break search
+  }
+  // Keyword (precise) first, then semantic-only additions (recall). Caller caps to top-N.
+  return [...new Set([...keywordCandidates, ...semantic])];
+}
+
 /** Fetch events for a single session, or across sessions via the paginated index walk. */
 async function fetchSessionEvents(
   sessionId: string | undefined,
   tenantId: string | undefined,
   queryKeywords: string[] | undefined,
   budget: FetchBudget = DEEP_BUDGET,
+  query = '',
+  eventTypeIndex?: SearchProvider,
 ): Promise<{ events: EventEntry[]; sessionIds: string[]; searchMethod: string; truncated: boolean }> {
   // Single-session: direct fetch. The backend returns the full (unpaginated)
   // event list for one session, so this path is complete — never truncated.
@@ -186,7 +222,7 @@ async function fetchSessionEvents(
 
   // Multi-session: paginated index walk per candidate event type.
   if (queryKeywords && queryKeywords.length > 0) {
-    const ranked = extractEventTypeCandidates(queryKeywords);
+    const ranked = await selectEventTypeCandidates(query, queryKeywords, eventTypeIndex);
     if (ranked.length > 0) {
       // Cap the per-type fan-out to the most-relevant types. If we dropped any,
       // recall is partial → flag truncated rather than silently narrowing. (Legacy
@@ -454,7 +490,12 @@ export function diversifyBySession<T extends { event: EventEntry }>(
 
 // ── Registration ────────────────────────────────────────────────────────
 
-export function registerSearchTools(server: McpServer, knowledgeBase: SearchProvider | undefined, ga: boolean): void {
+export function registerSearchTools(
+  server: McpServer,
+  knowledgeBase: SearchProvider | undefined,
+  eventTypeIndex: SearchProvider | undefined,
+  ga: boolean,
+): void {
   // Tool 9: search_events_semantic — weighted keyword search
   server.registerTool(
     'search_events_semantic',
@@ -462,15 +503,16 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
       title: 'Search Events (Semantic)',
       description:
         'TIER 1 — FAST EVENT SEARCH (try this first). ' +
-        'Matches keywords against event type, message, source, severity, and data, prefix-aware (e.g. "install" ' +
-        'matches "app_install_failed") with weighted scoring (eventType > data). Problem queries ' +
-        '(error/fail/stuck/timeout…) lift failure/Warning events and damp benign Info/Trace. ' +
+        'Hybrid: per-event ranking is keyword-based (prefix-aware, e.g. "install" matches "app_install_failed", ' +
+        'weighted eventType > data), while cross-session candidate event types are selected both lexically AND ' +
+        'semantically (vector catalog) — so "app stuck downloading" finds download_progress even with no word overlap. ' +
+        'Problem queries (error/fail/stuck/timeout…) lift failure/Warning events and damp benign Info/Trace. ' +
         '`matchedSessionIds` are the sessions behind the ranked hits (drill in next); `sessionsSearchedCount` is how ' +
         'many were scanned. ' +
-        'IMPORTANT — cross-session recall is event-TYPE-driven: without a sessionId the scan maps keywords to known ' +
-        'event types (see event_types catalog) and fetches only those. A term with no event type of its own (e.g. ' +
-        '"certificate") never surfaces cross-session even when it sits in another event\'s data — if `keywordsUsed` ' +
-        'shows it mapped to none, pass a sessionId (scans EVERY field of EVERY event) or search by a related type. ' +
+        'IMPORTANT — cross-session recall is event-TYPE-driven: without a sessionId the scan maps the query to known ' +
+        'event types (see event_types catalog) and fetches only those. A concept with no matching event type still ' +
+        'won\'t surface cross-session even when it sits inside another event\'s data — pass a sessionId (scans EVERY ' +
+        'field of EVERY event) for that. ' +
         'Bounded scan: if `truncated` is true, recall is incomplete — escalate to deep_search_events or narrow per `recallNote`.',
       inputSchema: {
         query: z.string().describe('Natural language description of what to find (e.g. "app download stuck", "certificate error", "disk space low")'),
@@ -496,7 +538,7 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
             MAX_RESULT_SIZE_CHARS.small);
         }
 
-        const { events, sessionIds, searchMethod, truncated } = await fetchSessionEvents(sessionId, tenantId, queryKeywords, SEMANTIC_BUDGET);
+        const { events, sessionIds, searchMethod, truncated } = await fetchSessionEvents(sessionId, tenantId, queryKeywords, SEMANTIC_BUDGET, query, eventTypeIndex);
 
         const boostFailures = queryHasProblemIntent(queryKeywords);
         const scored: Array<ScoredEvent & { event: EventEntry }> = [];
@@ -614,16 +656,17 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
       title: 'Deep Search Events',
       description:
         'TIER 3 — DEEP SEARCH (thorough, use when accuracy is critical). ' +
-        'Same weighted scoring as search_events_semantic but lower thresholds and a broader multi-page scan per event ' +
-        'type, ranking across ALL fields incl. full DataJson. Problem queries (error/fail/stuck/timeout…) lift ' +
-        'failure/Warning events and damp benign Info/Trace. Returns the top `topK` (NOT every match) — compare ' +
+        'Same hybrid model as search_events_semantic (keyword per-event ranking + lexical-AND-semantic event-type ' +
+        'selection) but lower thresholds and a broader multi-page scan per type, ranking across ALL fields incl. full ' +
+        'DataJson. Problem queries (error/fail/stuck/timeout…) lift failure/Warning events and damp benign Info/Trace. ' +
+        'Returns the top `topK` (NOT every match) — compare ' +
         '`resultCount` vs `eventsMatched`; use get_session_events / search_sessions_by_event for full per-event recall. ' +
         '`matchedSessionIds` are the sessions behind the ranked hits (drill in next); `sessionsSearchedCount` is how ' +
         'many were scanned. ' +
-        'IMPORTANT — cross-session recall is event-TYPE-driven: without a sessionId the scan maps keywords to known ' +
-        'event types (see event_types catalog) and fetches only those. A term with no event type of its own (e.g. ' +
-        '"certificate") never surfaces cross-session even when it sits in another event\'s data — if `keywordsUsed` ' +
-        'shows it mapped to none, pass a sessionId (scans EVERY field of EVERY event, complete) or search by a related type. ' +
+        'IMPORTANT — cross-session recall is event-TYPE-driven: without a sessionId the scan maps the query to known ' +
+        'event types (lexically + semantically; see event_types catalog) and fetches only those. A concept with no ' +
+        'matching event type still won\'t surface cross-session even when it sits inside another event\'s data — pass ' +
+        'a sessionId (scans EVERY field of EVERY event, complete) for that. ' +
         'If `truncated` is true, recall is incomplete — narrow per `recallNote`.' +
         (ga ? ' Omit tenantId for cross-tenant search (Global Admin), or specify tenantId for single-tenant.' : ''),
       inputSchema: {
@@ -657,7 +700,7 @@ export function registerSearchTools(server: McpServer, knowledgeBase: SearchProv
           };
         }
 
-        const { events, sessionIds, searchMethod, truncated } = await fetchSessionEvents(sessionId, tenantId, queryKeywords, DEEP_BUDGET);
+        const { events, sessionIds, searchMethod, truncated } = await fetchSessionEvents(sessionId, tenantId, queryKeywords, DEEP_BUDGET, query, eventTypeIndex);
 
         if (events.length === 0) {
           return toolResultText(

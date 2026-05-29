@@ -9,6 +9,7 @@ import { registerResources } from './resources.js';
 import { registerPrompts } from './prompts.js';
 import { loadKnowledgeDocs } from './knowledge-base.js';
 import { createSearchProvider } from './search-factory.js';
+import { buildEventTypeSearchDocs } from './resource-catalog.js';
 import { createOAuthRouter } from './oauth.js';
 import { accessGuard } from './access-guard.js';
 import { isGlobalAdmin } from './client.js';
@@ -44,6 +45,14 @@ const knowledgeBase = await createSearchProvider();
 await knowledgeBase.index(docs);
 console.error(`Search provider ready: ${knowledgeBase.name} — ${knowledgeBase.size} documents indexed.`);
 
+// Separate tiny provider over the event-type catalog → semantic candidate selection
+// for event search ("app stuck downloading" → download_progress/do_telemetry). Shares
+// the embedder singleton with the knowledge base, so this adds ~no memory.
+const eventTypeDocs = buildEventTypeSearchDocs();
+const eventTypeIndex = await createSearchProvider();
+await eventTypeIndex.index(eventTypeDocs);
+console.error(`Event-type index ready: ${eventTypeIndex.name} — ${eventTypeIndex.size} types indexed.`);
+
 // Server-level guidance. The host surfaces this once per connection, so it is
 // the right home for cross-cutting strategy that would otherwise be duplicated
 // into every tool description (and re-sent on every tools/list). Keep it short:
@@ -78,7 +87,7 @@ function createMcpServer(ga: boolean): McpServer {
     { name: 'Autopilot-Monitor', version: SERVER_VERSION },
     { instructions: buildInstructions(ga) },
   );
-  registerTools(s, knowledgeBase, ga);
+  registerTools(s, knowledgeBase, eventTypeIndex, ga);
   registerResources(s);
   registerPrompts(s, ga);
   return s;

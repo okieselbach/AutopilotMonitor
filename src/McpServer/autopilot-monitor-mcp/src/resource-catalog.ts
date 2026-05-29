@@ -171,6 +171,27 @@ export const ALL_EVENT_TYPES: readonly string[] = [
   ...INTERNAL_EVENT_TYPES,
 ];
 
+/**
+ * Event-type catalog as search documents for semantic candidate selection. Indexed
+ * into a SearchProvider at startup so a query ("app stuck downloading") can map to the
+ * closest event types ("download_progress", "do_telemetry") even without lexical overlap.
+ * Text is the de-snaked type plus its group, which embeds far better than snake_case.
+ */
+export function buildEventTypeSearchDocs(): Array<{ id: string; text: string; metadata: { eventType: string; group: string } }> {
+  const docs: Array<{ id: string; text: string; metadata: { eventType: string; group: string } }> = [];
+  const deSnake = (s: string) => s.replace(/_/g, ' ');
+  for (const [group, types] of Object.entries(EVENT_TYPES_CATALOG)) {
+    const groupWords = deSnake(group).replace(/ events$/, '');
+    for (const t of types) {
+      docs.push({ id: t, text: `${deSnake(t)} (${groupWords})`, metadata: { eventType: t, group } });
+    }
+  }
+  for (const t of INTERNAL_EVENT_TYPES) {
+    docs.push({ id: t, text: deSnake(t), metadata: { eventType: t, group: 'internal' } });
+  }
+  return docs;
+}
+
 export const DEVICE_PROPERTIES_CATALOG = {
   _usage: {
     note: 'Use these keys in the deviceProperties parameter of search_sessions.',

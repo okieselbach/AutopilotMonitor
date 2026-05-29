@@ -10,6 +10,7 @@ import {
   scoreEvent,
   queryHasProblemIntent,
   extractEventTypeCandidates,
+  selectEventTypeCandidates,
   diversifyBySession,
 } from '../tools/search.js';
 
@@ -242,6 +243,43 @@ describe('extractEventTypeCandidates — ranking + broad-catalog coverage', () =
 
   it('returns [] when no keyword maps to any event type (→ caller uses legacy path)', () => {
     expect(extractEventTypeCandidates(['zzzznomatch'])).toEqual([]);
+  });
+});
+
+describe('selectEventTypeCandidates (lexical + semantic blend)', () => {
+  // Minimal fake vector provider returning canned semantic hits.
+  const provider = (eventTypes: string[], opts: { throws?: boolean; size?: number } = {}) => ({
+    name: 'fake',
+    size: opts.size ?? eventTypes.length,
+    index: async () => {},
+    search: async () => {
+      if (opts.throws) throw new Error('embed failed');
+      return eventTypes.map((et, i) => ({ id: et, text: et, metadata: { eventType: et }, score: 1 - i * 0.01 }));
+    },
+  });
+
+  it('keeps lexical matches first, then appends semantic-only additions', async () => {
+    const out = await selectEventTypeCandidates('bitlocker', ['bitlocker'], provider(['tpm_status', 'secureboot_status']));
+    expect(out[0]).toBe('bitlocker_status'); // lexical, precise → first
+    expect(out).toContain('tpm_status');
+    expect(out).toContain('secureboot_status');
+  });
+
+  it('surfaces semantically-related types even when NO keyword matches lexically', async () => {
+    // "encryption" matches no event-type name lexically; semantic maps it to bitlocker_status.
+    expect(extractEventTypeCandidates(['encryption'])).toEqual([]);
+    const out = await selectEventTypeCandidates('disk encryption', ['encryption'], provider(['bitlocker_status']));
+    expect(out).toEqual(['bitlocker_status']);
+  });
+
+  it('degrades to keyword-only when no vector index is available', async () => {
+    expect(await selectEventTypeCandidates('bitlocker', ['bitlocker'], undefined)).toEqual(['bitlocker_status']);
+    expect(await selectEventTypeCandidates('bitlocker', ['bitlocker'], provider([], { size: 0 }))).toEqual(['bitlocker_status']);
+  });
+
+  it('falls back to keyword-only if the embedder throws', async () => {
+    const out = await selectEventTypeCandidates('bitlocker', ['bitlocker'], provider(['tpm_status'], { throws: true }));
+    expect(out).toEqual(['bitlocker_status']);
   });
 });
 
