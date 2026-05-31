@@ -48,6 +48,7 @@ public class HealthCheckService
             CheckStorageBackendAsync(),
             CheckProcessingBackendAsync(),
             CheckAgentBinariesAsync(),
+            CheckMcpServerAsync(),
             CheckSignalRQuotaAsync(),
             CheckPoisonQueuesAsync()
         );
@@ -171,6 +172,92 @@ public class HealthCheckService
         }
 
         return check;
+    }
+
+    /// <summary>
+    /// Probes the MCP server's public <c>/health</c> endpoint (which sits in front of the
+    /// <c>/mcp</c> access guard, so no auth is required) and surfaces reachability + the
+    /// deployed MCP build version. Visible to all authenticated users, so the server URL is
+    /// deliberately NOT included in the message or details. The MCP Container App runs with
+    /// minReplicas=0, so the first probe after idle may incur a cold start within the 10s
+    /// timeout — a slow-but-successful probe still reports healthy.
+    /// </summary>
+    internal async Task<HealthCheck> CheckMcpServerAsync()
+    {
+        var check = new HealthCheck
+        {
+            Name = "MCP Server",
+            Description = "AI query interface availability"
+        };
+
+        var baseUrl = (_configuration["McpServerUrl"] ?? Constants.McpServerBaseUrl).TrimEnd('/');
+        var healthUrl = $"{baseUrl}/health";
+
+        try
+        {
+            var client = _httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(10);
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            using var response = await client.GetAsync(healthUrl);
+            sw.Stop();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                check.Status = "unhealthy";
+                check.Message = $"MCP server returned {(int)response.StatusCode}";
+                return check;
+            }
+
+            var version = await TryReadMcpVersionAsync(response);
+
+            check.Status = "healthy";
+            check.Message = $"MCP server reachable ({sw.ElapsedMilliseconds}ms)";
+            if (!string.IsNullOrWhiteSpace(version))
+            {
+                check.Details = new Dictionary<string, object> { ["Version"] = version };
+            }
+        }
+        catch (Exception ex) when (ex is TaskCanceledException or OperationCanceledException or HttpRequestException)
+        {
+            // Timeout or connection failure. The Container App scales to zero on idle and
+            // only starts serving /health after a multi-second cold start (knowledge-base +
+            // embeddings load), so this is most often a warming instance, not an outage —
+            // classify as a warning so an idle dashboard load does not raise a false alarm.
+            // This very probe wakes the scaler, so a re-check shortly after should go green.
+            check.Status = "warning";
+            check.Message = "MCP server not responding — it may be cold-starting (scaled to zero on idle). Re-check in a moment.";
+            _logger.LogWarning(ex, "MCP server health probe did not respond (possible cold start)");
+        }
+        catch (Exception ex)
+        {
+            check.Status = "unhealthy";
+            check.Message = $"MCP server health probe failed: {ex.Message}";
+            _logger.LogError(ex, "MCP server health check failed");
+        }
+
+        return check;
+    }
+
+    /// <summary>
+    /// Best-effort parse of the MCP <c>/health</c> JSON body for its <c>version</c> field.
+    /// A missing or malformed body is non-fatal — the probe already proved reachability.
+    /// </summary>
+    private async Task<string?> TryReadMcpVersionAsync(HttpResponseMessage response)
+    {
+        try
+        {
+            var body = await response.Content.ReadAsStringAsync();
+            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            return doc.RootElement.TryGetProperty("version", out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String
+                ? v.GetString()
+                : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not parse MCP /health version field");
+            return null;
+        }
     }
 
     /// <summary>

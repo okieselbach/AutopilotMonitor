@@ -72,6 +72,14 @@ namespace AutopilotMonitor.Shared
         /// </summary>
         public const string ApiBaseUrl = "https://autopilotmonitor-api.azurewebsites.net";
 
+        /// <summary>
+        /// Public base URL of the MCP server Container App (no trailing slash, no /mcp suffix).
+        /// Used by the backend health check to probe <c>{McpServerBaseUrl}/health</c>. The
+        /// Container App runs with minReplicas=0, so the first probe after idle may incur a
+        /// cold start. Overridable via the <c>McpServerUrl</c> app setting (e.g. for dev).
+        /// </summary>
+        public const string McpServerBaseUrl = "https://autopilotmonitor-mcp.kindwave-58b4b547.westeurope.azurecontainerapps.io";
+
         // -----------------------------------------------------------------------
         // Agent self-update
         // -----------------------------------------------------------------------

@@ -119,9 +119,12 @@ app.use(express.urlencoded({ extended: true }));
 // OAuth proxy (must be before auth middleware)
 app.use(createOAuthRouter());
 
-// Health check — minimal response to avoid leaking server internals
+// Health check — minimal response to avoid leaking server internals.
+// The version is the same value already advertised in the MCP handshake
+// (createMcpServer → { name, version }), so surfacing it here leaks nothing
+// new; it lets the backend health dashboard show the deployed MCP build.
 app.get('/health', (_req, res) => {
-  res.json({ status: 'healthy' });
+  res.json({ status: 'healthy', version: SERVER_VERSION });
 });
 
 // Access guard for /mcp — validates JWT, checks backend whitelist, enforces rate limits
