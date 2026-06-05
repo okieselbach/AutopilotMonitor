@@ -12,7 +12,9 @@ import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch"
 import { extractContinuation, MAX_EAGER_PAGES } from "@/lib/paginationLink";
 import FleetStatCard from "./components/FleetStatCard";
 import { Session } from "@/types";
-import { useAdminMode } from "@/hooks/useAdminMode";
+import { useAggregatedAdminScope } from "@/hooks";
+import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
+import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 
 // Backend caps pageSize at 1000 — use the maximum so a 90-day window on a busy
 // install (10k+ sessions) drains in a handful of round-trips instead of 50+.
@@ -38,11 +40,6 @@ interface AppMetricsResponse {
   topFailingApps: AppMetric[];
 }
 
-interface TenantInfo {
-  tenantId: string;
-  domainName: string;
-}
-
 export default function FleetHealthPage() {
   const router = useRouter();
 
@@ -56,61 +53,13 @@ export default function FleetHealthPage() {
 
   const { on, off, isConnected, joinGroup, leaveGroup } = useSignalR();
   const { tenantId } = useTenant();
-  const { getAccessToken, user } = useAuth();
+  const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
 
-  const { globalAdminMode } = useAdminMode();
-
-  // Global admin: tenant selector state.
-  // Default for GAs is their own tenant (set once tenantId loads), not aggregated —
-  // gives the standard "view your tenant first, opt-in to aggregated/override".
-  const [tenants, setTenants] = useState<TenantInfo[]>([]);
-  const [selectedTenantId, setSelectedTenantId] = useState<string>("");
-  const [scopeInitialized, setScopeInitialized] = useState(false);
-
-  const isGlobalAdmin = Boolean(globalAdminMode && user?.isGlobalAdmin);
-  const isAggregatedGlobalView = Boolean(isGlobalAdmin && !selectedTenantId);
-  const isGlobalOverride = Boolean(
-    isGlobalAdmin && selectedTenantId && selectedTenantId !== tenantId
-  );
-  const effectiveTenantId = isGlobalAdmin ? selectedTenantId : tenantId;
-
-  useEffect(() => {
-    if (!isGlobalAdmin) return;
-    const loadTenants = async () => {
-      try {
-        const response = await authenticatedFetch(api.config.all(), getAccessToken);
-        if (response.ok) {
-          const data = await response.json();
-          const mapped: TenantInfo[] = data.map((t: { tenantId: string; domainName: string }) => ({
-            tenantId: t.tenantId,
-            domainName: t.domainName || "",
-          }));
-          mapped.sort((a, b) =>
-            (a.domainName || a.tenantId).localeCompare(b.domainName || b.tenantId)
-          );
-          setTenants(mapped);
-        }
-      } catch (err) {
-        console.error("Error fetching tenant list:", err);
-      }
-    };
-    loadTenants();
-  }, [isGlobalAdmin, getAccessToken]);
-
-  const selectedTenantName = useMemo(
-    () => tenants.find((t) => t.tenantId === selectedTenantId)?.domainName,
-    [tenants, selectedTenantId]
-  );
-
-  useEffect(() => {
-    if (scopeInitialized) return;
-    if (!tenantId) return;
-    if (isGlobalAdmin) {
-      setSelectedTenantId(tenantId);
-    }
-    setScopeInitialized(true);
-  }, [tenantId, isGlobalAdmin, scopeInitialized]);
+  // Global admin tenant scope (aggregated-capable): tenant list, selection ("" = all tenants),
+  // scope flags, and effectiveTenantId (empty in aggregated mode → skips the SignalR group).
+  const scope = useAggregatedAdminScope();
+  const { isGlobalAdmin, selectedTenantId, effectiveTenantId, scopeInitialized, scopeKey } = scope;
 
   useEffect(() => {
     if (!scopeInitialized) return;
@@ -119,7 +68,7 @@ export default function FleetHealthPage() {
     }
     Promise.all([fetchSessions(timeRange), fetchAppMetrics(timeRange)]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeInitialized, timeRange, selectedTenantId]);
+  }, [scopeInitialized, timeRange, scopeKey]);
 
   useEffect(() => {
     if (!isConnected) return;
@@ -428,22 +377,7 @@ export default function FleetHealthPage() {
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gray-50">
-        {isGlobalAdmin && (
-          <div className="bg-purple-700 text-white text-sm px-4 py-2 flex items-center justify-center space-x-2">
-            <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span className="font-medium">Global Admin View</span>
-            <span className="text-purple-300">
-              &mdash;{" "}
-              {isAggregatedGlobalView
-                ? "aggregating across all tenants"
-                : isGlobalOverride
-                ? `viewing tenant ${selectedTenantName ?? selectedTenantId}`
-                : "access to all tenants"}
-            </span>
-          </div>
-        )}
+        <GlobalAdminBanner show={scope.isGlobalAdmin} subtitle={globalAdminSubtitle(scope)} />
         <header className="bg-white shadow">
           <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-between">
@@ -468,25 +402,7 @@ export default function FleetHealthPage() {
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                {isGlobalAdmin && tenants.length > 0 && (
-                  <>
-                    <label className="text-sm text-gray-500 hidden sm:inline">Tenant:</label>
-                    <select
-                      value={selectedTenantId}
-                      onChange={(e) => setSelectedTenantId(e.target.value)}
-                      className="text-sm border border-gray-300 rounded-md px-2 py-1.5 max-w-[220px] sm:max-w-xs"
-                    >
-                      <option value="">All tenants (aggregated)</option>
-                      {tenants.map((t) => (
-                        <option key={t.tenantId} value={t.tenantId}>
-                          {t.domainName
-                            ? `${t.domainName} (${t.tenantId.substring(0, 8)}…)`
-                            : t.tenantId}
-                        </option>
-                      ))}
-                    </select>
-                  </>
-                )}
+                <TenantScopeSelector scope={scope} allowAggregated />
                 {(["7d", "30d", "90d"] as const).map((range) => (
                   <button
                     key={range}

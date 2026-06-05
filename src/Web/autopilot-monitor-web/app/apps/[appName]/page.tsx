@@ -10,13 +10,10 @@ import { useNotifications } from "../../../contexts/NotificationContext";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { getErrorCodeEntry, formatErrorCode } from "@/utils/errorCodeMap";
-import { useAdminMode } from "@/hooks/useAdminMode";
+import { useAggregatedAdminScope } from "@/hooks";
+import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
+import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import { chartColors } from "../../../components/charts/chartTheme";
-
-interface TenantInfo {
-  tenantId: string;
-  domainName: string;
-}
 
 // Lazy-load recharts on the detail page only — keeps the rest of the app's
 // initial bundle untouched.
@@ -193,26 +190,17 @@ export default function AppDetailPage() {
   const [sessionsOffset, setSessionsOffset] = useState(0);
 
   const { tenantId } = useTenant();
-  const { getAccessToken, user } = useAuth();
+  const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
-  const { globalAdminMode } = useAdminMode();
 
-  const isGlobalAdmin = globalAdminMode && user?.isGlobalAdmin;
-  // selectedTenantId source of truth, see scope-init effect below for the rules.
-  const [selectedTenantId, setSelectedTenantId] = useState<string>("");
-  const [scopeInitialized, setScopeInitialized] = useState(false);
-  const [tenants, setTenants] = useState<TenantInfo[]>([]);
+  // Global admin tenant scope (aggregated-capable), seeded from the URL (?global=1[&tenantId=]):
+  // the one-shot init honors the URL scope, else defaults to the GA's own tenant.
+  const scope = useAggregatedAdminScope({ urlGlobal, urlTenantId });
+  const { isGlobalAdmin, selectedTenantId, tenants, scopeInitialized, scopeKey } = scope;
 
+  // Detail-page endpoint rule: use the /global/ endpoint when the URL flagged global scope,
+  // when viewing a tenant other than the user's own, or when the own tenant isn't resolved yet.
   const useGlobalEndpoint = Boolean(isGlobalAdmin && (urlGlobal || selectedTenantId !== tenantId || !tenantId));
-  const isAggregatedGlobalView = Boolean(isGlobalAdmin && !selectedTenantId);
-  const isGlobalOverride = Boolean(
-    isGlobalAdmin && selectedTenantId && selectedTenantId !== tenantId
-  );
-
-  const selectedTenantName = useMemo(
-    () => tenants.find((t) => t.tenantId === selectedTenantId)?.domainName,
-    [tenants, selectedTenantId]
-  );
 
   // Build a tid → friendly name lookup once for the Tenant column.
   const tenantLookup = useMemo(() => {
@@ -285,51 +273,6 @@ export default function AppDetailPage() {
     [isGlobalAdmin]
   );
 
-  // Initialize the scope once tenantId is available.
-  // Three cases for GAs:
-  //   1. URL carries ?global=1&tenantId=X → use X (came from list with explicit tenant)
-  //   2. URL carries ?global=1 (no tenantId) → aggregated (came from "All tenants" view)
-  //   3. No ?global flag (direct nav, bookmark, deep link) → default to own tenant
-  // Regular users always use their own tenant; selectedTenantId stays empty.
-  useEffect(() => {
-    if (scopeInitialized) return;
-    if (!tenantId) return;
-    if (isGlobalAdmin) {
-      if (urlGlobal) {
-        // Came from list — honor whatever the list propagated (specific tenant or aggregated)
-        setSelectedTenantId(urlTenantId);
-      } else {
-        // Direct navigation — default to own tenant
-        setSelectedTenantId(tenantId);
-      }
-    }
-    setScopeInitialized(true);
-  }, [tenantId, isGlobalAdmin, urlGlobal, urlTenantId, scopeInitialized]);
-
-  // Fetch tenant list once in global mode.
-  useEffect(() => {
-    if (!isGlobalAdmin) return;
-    const loadTenants = async () => {
-      try {
-        const response = await authenticatedFetch(api.config.all(), getAccessToken);
-        if (response.ok) {
-          const data = await response.json();
-          const mapped: TenantInfo[] = data.map((t: { tenantId: string; domainName: string }) => ({
-            tenantId: t.tenantId,
-            domainName: t.domainName || "",
-          }));
-          mapped.sort((a, b) =>
-            (a.domainName || a.tenantId).localeCompare(b.domainName || b.tenantId)
-          );
-          setTenants(mapped);
-        }
-      } catch (err) {
-        console.error("Error fetching tenant list:", err);
-      }
-    };
-    loadTenants();
-  }, [isGlobalAdmin, getAccessToken]);
-
   const fetchAnalytics = async () => {
     if (!appName) return;
     if (!isGlobalAdmin && !tenantId) return;
@@ -395,7 +338,7 @@ export default function AppDetailPage() {
     setSessionsOffset(0);
     Promise.all([fetchAnalytics(), fetchSessions(0, statusFilter)]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeInitialized, days, selectedTenantId]);
+  }, [scopeInitialized, days, scopeKey]);
 
   function formatDuration(s: number) {
     if (!s) return "—";
@@ -418,22 +361,7 @@ export default function AppDetailPage() {
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gray-50">
-        {isGlobalAdmin && (
-          <div className="bg-purple-700 text-white text-sm px-4 py-2 flex items-center justify-center space-x-2">
-            <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span className="font-medium">Global Admin View</span>
-            <span className="text-purple-300">
-              &mdash;{" "}
-              {isAggregatedGlobalView
-                ? "aggregating across all tenants"
-                : isGlobalOverride
-                ? `viewing tenant ${selectedTenantName ?? selectedTenantId}`
-                : "access to all tenants"}
-            </span>
-          </div>
-        )}
+        <GlobalAdminBanner show={scope.isGlobalAdmin} subtitle={globalAdminSubtitle(scope)} />
         <header className="bg-white shadow">
           <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
             <button
@@ -468,25 +396,7 @@ export default function AppDetailPage() {
                 </p>
               </div>
               <div className="flex items-center gap-3">
-                {isGlobalAdmin && tenants.length > 0 && (
-                  <>
-                    <label className="text-sm text-gray-500 hidden sm:inline">Tenant:</label>
-                    <select
-                      value={selectedTenantId}
-                      onChange={(e) => setSelectedTenantId(e.target.value)}
-                      className="text-sm border border-gray-300 rounded-md px-2 py-1.5 max-w-[220px] sm:max-w-xs"
-                    >
-                      <option value="">All tenants (aggregated)</option>
-                      {tenants.map((t) => (
-                        <option key={t.tenantId} value={t.tenantId}>
-                          {t.domainName
-                            ? `${t.domainName} (${t.tenantId.substring(0, 8)}…)`
-                            : t.tenantId}
-                        </option>
-                      ))}
-                    </select>
-                  </>
-                )}
+                <TenantScopeSelector scope={scope} allowAggregated />
                 {([7, 30, 90] as const).map((d) => (
                   <button
                     key={d}

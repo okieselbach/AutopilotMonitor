@@ -2,18 +2,14 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useTenant } from '../../contexts/TenantContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { ProtectedRoute } from '../../components/ProtectedRoute';
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
-import { useAdminMode } from "@/hooks/useAdminMode";
-
-interface TenantInfo {
-  tenantId: string;
-  domainName: string;
-}
+import { useGlobalAdminScope } from "@/hooks";
+import { GlobalAdminBanner } from "@/components/GlobalAdminBanner";
+import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 
 interface SessionMetrics {
   total: number;
@@ -90,53 +86,15 @@ interface PlatformUsageMetrics {
 export default function UsageMetricsPage() {
   const router = useRouter();
 
-  const { tenantId } = useTenant();
-  const { getAccessToken, user } = useAuth();
+  const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
   const [metrics, setMetrics] = useState<PlatformUsageMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Global admin mode
-  const { globalAdminMode } = useAdminMode();
-  const [tenants, setTenants] = useState<TenantInfo[]>([]);
-  const [selectedTenantId, setSelectedTenantId] = useState<string>('');
-
-  // Fetch tenant list for global admin
-  useEffect(() => {
-    if (!globalAdminMode || !user?.isGlobalAdmin) return;
-    const fetchTenants = async () => {
-      try {
-        const response = await authenticatedFetch(api.config.all(), getAccessToken);
-        if (response.ok) {
-          const data = await response.json();
-          const mapped: TenantInfo[] = data.map((t: { tenantId: string; domainName: string }) => ({
-            tenantId: t.tenantId,
-            domainName: t.domainName || '',
-          }));
-          mapped.sort((a, b) => {
-            const nameA = a.domainName || a.tenantId;
-            const nameB = b.domainName || b.tenantId;
-            return nameA.localeCompare(nameB);
-          });
-          setTenants(mapped);
-        }
-      } catch (err) {
-        console.error('Error fetching tenant list:', err);
-      }
-    };
-    fetchTenants();
-  }, [globalAdminMode, user?.isGlobalAdmin]);
-
-  // Set default selected tenant once tenantId is available
-  useEffect(() => {
-    if (tenantId && !selectedTenantId) {
-      setSelectedTenantId(tenantId);
-    }
-  }, [tenantId]);
-
-  const isGlobalOverride = globalAdminMode && user?.isGlobalAdmin && selectedTenantId && selectedTenantId !== tenantId;
-  const effectiveTenantId = (globalAdminMode && user?.isGlobalAdmin && selectedTenantId) ? selectedTenantId : tenantId;
+  // Global admin tenant scope (tenant list, selector state, override/effective tenant)
+  const scope = useGlobalAdminScope();
+  const { isGlobalOverride, effectiveTenantId, selectedTenantId, tenants } = scope;
 
   const fetchMetrics = useCallback(async (showRefreshing = false) => {
     if (!effectiveTenantId) return;
@@ -179,11 +137,6 @@ export default function UsageMetricsPage() {
     fetchMetrics();
   }, [effectiveTenantId]);
 
-  // Re-fetch when tenant selection changes
-  const handleTenantChange = (newTenantId: string) => {
-    setSelectedTenantId(newTenantId);
-  };
-
   const selectedTenantName = tenants.find(t => t.tenantId === selectedTenantId)?.domainName;
 
   const formatDuration = (minutes: number) => {
@@ -218,15 +171,7 @@ export default function UsageMetricsPage() {
   return (
 <ProtectedRoute>
     <div className="min-h-screen bg-gray-50">
-      {globalAdminMode && user?.isGlobalAdmin && (
-        <div className="bg-purple-700 text-white text-sm px-4 py-2 flex items-center justify-center space-x-2">
-          <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <span className="font-medium">Global Admin View</span>
-          <span className="text-purple-300">&mdash; access to all tenants</span>
-        </div>
-      )}
+      <GlobalAdminBanner show={scope.isGlobalAdmin} />
       <header className="bg-white shadow">
         <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between">
@@ -247,24 +192,7 @@ export default function UsageMetricsPage() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              {globalAdminMode && user?.isGlobalAdmin && tenants.length > 0 && (
-                <>
-                  <label className="text-sm text-gray-500 hidden sm:inline">Tenant:</label>
-                  <select
-                    value={selectedTenantId}
-                    onChange={(e) => handleTenantChange(e.target.value)}
-                    className="text-sm border border-gray-300 rounded-md px-2 py-1.5 max-w-[220px] sm:max-w-xs"
-                  >
-                    {tenants.map((t) => (
-                      <option key={t.tenantId} value={t.tenantId}>
-                        {t.domainName
-                          ? `${t.domainName} (${t.tenantId.substring(0, 8)}...)`
-                          : t.tenantId}
-                      </option>
-                    ))}
-                  </select>
-                </>
-              )}
+              <TenantScopeSelector scope={scope} />
               <button
                 onClick={() => fetchMetrics(true)}
                 disabled={refreshing}
