@@ -3,52 +3,29 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure;
-using Azure.Identity;
 using Azure.Storage.Queues;
-using Microsoft.Extensions.Configuration;
+using AutopilotMonitor.Functions.Services.Queueing;
 
 namespace AutopilotMonitor.Functions.Services.Monitoring
 {
     /// <summary>
     /// Azure Storage Queue implementation of <see cref="IPoisonQueueProbe"/>.
-    /// Mirrors the connection-resolution pattern used by the existing queue workers
-    /// (AnalyzeOnEnrollmentEndQueueWorker, IndexReconcileQueueWorker,
-    /// VulnerabilityCorrelateQueueWorker): prefer Managed Identity via
-    /// <c>AzureStorageAccountName</c>, fall back to <c>AzureTableStorageConnectionString</c>.
-    /// QueueClient instances are cached per queue name — they are thread-safe and
-    /// cheap to keep around for the lifetime of the Functions host.
+    /// Builds clients via the shared <see cref="QueueClientFactory"/> (Managed Identity or
+    /// connection-string fallback). QueueClient instances are cached per queue name — they are
+    /// thread-safe and cheap to keep around for the lifetime of the Functions host.
+    /// <para>
+    /// Probes only read <c>GetPropertiesAsync</c> message counts, so they request the factory's
+    /// non-Base64 client (encoding is irrelevant for a metadata read).
+    /// </para>
     /// </summary>
     public sealed class AzurePoisonQueueProbe : IPoisonQueueProbe
     {
         private readonly ConcurrentDictionary<string, QueueClient> _clients = new();
-        private readonly Func<string, QueueClient> _clientFactory;
+        private readonly QueueClientFactory _queueFactory;
 
-        public AzurePoisonQueueProbe(IConfiguration configuration)
+        public AzurePoisonQueueProbe(QueueClientFactory queueFactory)
         {
-            if (configuration is null) throw new ArgumentNullException(nameof(configuration));
-
-            var storageAccountName = configuration["AzureStorageAccountName"];
-            var connectionString = configuration["AzureTableStorageConnectionString"];
-
-            if (!string.IsNullOrEmpty(storageAccountName))
-            {
-                var credential = new DefaultAzureCredential();
-                _clientFactory = queueName =>
-                {
-                    var uri = new Uri(
-                        $"https://{storageAccountName}.queue.core.windows.net/{queueName}");
-                    return new QueueClient(uri, credential);
-                };
-            }
-            else if (!string.IsNullOrEmpty(connectionString))
-            {
-                _clientFactory = queueName => new QueueClient(connectionString, queueName);
-            }
-            else
-            {
-                throw new InvalidOperationException(
-                    "Queue Storage not configured. Set either 'AzureStorageAccountName' (for Managed Identity) or 'AzureTableStorageConnectionString'.");
-            }
+            _queueFactory = queueFactory ?? throw new ArgumentNullException(nameof(queueFactory));
         }
 
         public async Task<long> GetApproximateMessageCountAsync(string queueName, CancellationToken ct)
@@ -56,7 +33,7 @@ namespace AutopilotMonitor.Functions.Services.Monitoring
             if (string.IsNullOrWhiteSpace(queueName))
                 throw new ArgumentException("Queue name must not be empty.", nameof(queueName));
 
-            var client = _clients.GetOrAdd(queueName, _clientFactory);
+            var client = _clients.GetOrAdd(queueName, name => _queueFactory.Create(name, base64: false));
 
             try
             {

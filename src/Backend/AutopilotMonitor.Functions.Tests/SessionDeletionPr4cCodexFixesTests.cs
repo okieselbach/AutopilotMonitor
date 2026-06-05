@@ -12,6 +12,7 @@ using Azure.Storage.Queues;
 using Azure.Storage.Queues.Models;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Deletion;
+using AutopilotMonitor.Functions.Services.Queueing;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
@@ -268,7 +269,7 @@ public class SessionDeletionPr4cCodexFixesTests
             ManifestId = "STALE-OLD-MANIFEST-ID",  // ≠ row.PendingDeletionManifestId
             Reason = "admin_delete", EnqueuedAt = DateTime.UtcNow,
         };
-        harness.EnqueueMessage(JsonConvert.SerializeObject(staleEnvelope), dequeueCount: SessionDeletionWorker.MaxDequeueCount + 1);
+        harness.EnqueueMessage(JsonConvert.SerializeObject(staleEnvelope), dequeueCount: QueuePollingWorkerBase.DefaultMaxDequeueCount + 1);
         // Default GetSessionRowAsync setup returns PendingDeletionManifestId = ManifestId
         // (a fresh active cascade); the envelope's STALE-OLD-MANIFEST-ID must NOT touch state.
 

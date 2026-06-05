@@ -2,12 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Azure.Identity;
 using Azure.Storage.Queues;
+using AutopilotMonitor.Functions.Services.Queueing;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 
@@ -38,43 +37,15 @@ namespace AutopilotMonitor.Functions.Services.Indexing
         private int _queueEnsured; // 0 = not yet ensured, 1 = CreateIfNotExistsAsync has run
 
         public AzureQueueIndexReconcileProducer(
-            IConfiguration configuration,
+            QueueClientFactory queueFactory,
             AdminConfigurationService adminConfig,
             ILogger<AzureQueueIndexReconcileProducer> logger)
         {
             _adminConfig = adminConfig;
             _logger = logger;
-
-            var storageAccountName = configuration["AzureStorageAccountName"];
-            var connectionString   = configuration["AzureTableStorageConnectionString"];
-
-            // Match Azure Functions QueueTrigger default (Base64) so the M5.d.3 consumer
-            // binding can decode our messages without an explicit QueueMessageEncoding override.
-            var options = new QueueClientOptions
-            {
-                MessageEncoding = QueueMessageEncoding.Base64,
-            };
-
-            if (!string.IsNullOrEmpty(storageAccountName))
-            {
-                var queueUri = new Uri(
-                    $"https://{storageAccountName}.queue.core.windows.net/{Constants.QueueNames.TelemetryIndexReconcile}");
-                _queueClient = new QueueClient(queueUri, new DefaultAzureCredential(), options);
-                _logger.LogInformation(
-                    "IndexReconcile producer initialized with Managed Identity (account: {Account})",
-                    storageAccountName);
-            }
-            else if (!string.IsNullOrEmpty(connectionString))
-            {
-                _queueClient = new QueueClient(
-                    connectionString, Constants.QueueNames.TelemetryIndexReconcile, options);
-                _logger.LogInformation("IndexReconcile producer initialized with connection string");
-            }
-            else
-            {
-                throw new InvalidOperationException(
-                    "Queue Storage not configured. Set either 'AzureStorageAccountName' (for Managed Identity) or 'AzureTableStorageConnectionString'.");
-            }
+            // Base64 matches the Azure Functions QueueTrigger default so the M5.d.3 consumer
+            // binding can decode our messages without an explicit override.
+            _queueClient = queueFactory.Create(Constants.QueueNames.TelemetryIndexReconcile);
         }
 
         public async Task<int> EnqueueBatchAsync(

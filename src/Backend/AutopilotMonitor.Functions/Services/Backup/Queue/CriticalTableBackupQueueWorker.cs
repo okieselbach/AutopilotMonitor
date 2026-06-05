@@ -2,147 +2,69 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
+using AutopilotMonitor.Functions.Services.Queueing;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models.Backup;
 using Azure;
-using Azure.Identity;
 using Azure.Storage.Blobs.Specialized;
-using Azure.Storage.Queues;
 using Azure.Storage.Queues.Models;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 
 namespace AutopilotMonitor.Functions.Services.Backup.Queue
 {
     /// <summary>
-    /// Background worker for the <c>critical-table-backup-jobs</c> queue. Drains messages,
-    /// holds the maintenance lease for the duration of the per-job work, and runs
+    /// Background worker for the <c>critical-table-backup-jobs</c> queue. Drains messages, holds
+    /// the maintenance lease for the duration of the per-job work, and runs
     /// <see cref="ICriticalTableBackupService.RunBackupUnderLeaseAsync"/> with the lease held.
     /// <para>
-    /// <b>State-machine boundary (plan Wave17/18/19/22/23):</b> the WORKER owns the lease
-    /// and JobStatus; the SERVICE is intentionally lease-unaware and stateless. State
-    /// transitions follow this normative order: Duplicate-Detection → Acquire-Lease →
-    /// CAS Queued→Running → Run (under lease) → CAS Running→Completed (under lease) →
-    /// Release Lease → SafeDelete. Service-throw of a retryable exception triggers
-    /// CAS Running→Queued (so the next dequeue sees Queued, not Running+free-lease) plus
-    /// rethrow so the outer poll-loop applies VisibilityTimeout retry semantics.
+    /// Built on <see cref="QueuePollingWorkerBase"/> (not <see cref="QueuePollingWorker{TEnvelope}"/>)
+    /// because the per-message lifecycle is a bespoke lease + CAS state machine, not a simple
+    /// deserialize → handler → delete flow. The base supplies the queue bootstrap, poll loop,
+    /// safe-delete, queue-creation and poison-move shell; this worker overrides
+    /// <see cref="ProcessOneAsync"/> and <see cref="BeforePoisonMoveAsync"/>.
     /// </para>
     /// <para>
-    /// <b>Queue-config differs from short-lived workers</b> (plan Wave6): BatchSize=1,
-    /// VisibilityTimeout=60min. The per-run service budget is 50min so the 60min visibility
-    /// gives a 10min cushion — no explicit renewal loop is needed in PR1 (deferred as a
-    /// hardening follow-up; Renewal-Loop adds ~150 LOC of race-handling that is only
-    /// load-bearing for runs &gt; 50min).
+    /// <b>State-machine boundary (plan Wave17/18/19/22/23):</b> the WORKER owns the lease and
+    /// JobStatus; the SERVICE is intentionally lease-unaware and stateless. State transitions:
+    /// Duplicate-Detection → Acquire-Lease → CAS Queued→Running → Run (under lease) →
+    /// CAS Running→Completed (under lease) → Release Lease → SafeDelete.
+    /// </para>
+    /// <para>
+    /// <b>Queue-config differs from short-lived workers</b> (plan Wave6): <see cref="BatchSize"/>=1,
+    /// <see cref="VisibilityTimeout"/>=60min. The per-run service budget is 50min so the 60min
+    /// visibility gives a 10min cushion.
     /// </para>
     /// </summary>
-    public sealed class CriticalTableBackupQueueWorker : BackgroundService
+    public sealed class CriticalTableBackupQueueWorker : QueuePollingWorkerBase
     {
-        internal const int BatchSize = 1;
-        internal static readonly TimeSpan VisibilityTimeout = TimeSpan.FromMinutes(60);
-        internal static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(10);
-        internal static readonly TimeSpan ErrorBackoff = TimeSpan.FromSeconds(30);
-        internal const int MaxDequeueCount = 5;
-
-        private const string PoisonQueueSuffix = "-poison";
-
-        private readonly QueueClient _mainQueue;
-        private readonly QueueClient _poisonQueue;
         private readonly ICriticalTableBackupService _backupService;
         private readonly BlobBackupStore _blobStore;
         private readonly BackupJobsRepository _jobs;
         private readonly OpsEventService _opsEvents;
-        private readonly ILogger<CriticalTableBackupQueueWorker> _logger;
         private readonly TimeProvider _clock;
 
         public CriticalTableBackupQueueWorker(
-            IConfiguration configuration,
+            QueueClientFactory queueFactory,
             ICriticalTableBackupService backupService,
             BlobBackupStore blobStore,
             BackupJobsRepository jobs,
             OpsEventService opsEvents,
             ILogger<CriticalTableBackupQueueWorker> logger,
             TimeProvider? clock = null)
+            : base(queueFactory, Constants.QueueNames.CriticalTableBackup, logger, Constants.QueueNames.CriticalTableBackupPoison)
         {
             _backupService = backupService ?? throw new ArgumentNullException(nameof(backupService));
             _blobStore = blobStore ?? throw new ArgumentNullException(nameof(blobStore));
             _jobs = jobs ?? throw new ArgumentNullException(nameof(jobs));
             _opsEvents = opsEvents ?? throw new ArgumentNullException(nameof(opsEvents));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _clock = clock ?? TimeProvider.System;
-
-            var options = new QueueClientOptions { MessageEncoding = QueueMessageEncoding.Base64 };
-            var storageAccountName = configuration["AzureStorageAccountName"];
-            var connectionString = configuration["AzureTableStorageConnectionString"];
-
-            if (!string.IsNullOrEmpty(storageAccountName))
-            {
-                var mainUri = new Uri($"https://{storageAccountName}.queue.core.windows.net/{Constants.QueueNames.CriticalTableBackup}");
-                var poisonUri = new Uri($"https://{storageAccountName}.queue.core.windows.net/{Constants.QueueNames.CriticalTableBackup}{PoisonQueueSuffix}");
-                var credential = new DefaultAzureCredential();
-                _mainQueue = new QueueClient(mainUri, credential, options);
-                _poisonQueue = new QueueClient(poisonUri, credential, options);
-                _logger.LogInformation(
-                    "CriticalTableBackupQueueWorker initialized with Managed Identity (account: {Account})",
-                    storageAccountName);
-            }
-            else if (!string.IsNullOrEmpty(connectionString))
-            {
-                _mainQueue = new QueueClient(connectionString, Constants.QueueNames.CriticalTableBackup, options);
-                _poisonQueue = new QueueClient(connectionString, Constants.QueueNames.CriticalTableBackup + PoisonQueueSuffix, options);
-                _logger.LogInformation("CriticalTableBackupQueueWorker initialized with connection string");
-            }
-            else
-            {
-                throw new InvalidOperationException(
-                    "Queue Storage not configured. Set either 'AzureStorageAccountName' or 'AzureTableStorageConnectionString'.");
-            }
         }
 
-        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-        {
-            await TryCreateQueueAsync(_mainQueue, "main", stoppingToken).ConfigureAwait(false);
-            await TryCreateQueueAsync(_poisonQueue, "poison", stoppingToken).ConfigureAwait(false);
+        protected override int BatchSize => 1;
+        protected override TimeSpan VisibilityTimeout => TimeSpan.FromMinutes(60);
 
-            _logger.LogInformation("CriticalTableBackupQueueWorker: poll loop started");
-
-            while (!stoppingToken.IsCancellationRequested)
-            {
-                try
-                {
-                    var batch = await _mainQueue
-                        .ReceiveMessagesAsync(BatchSize, VisibilityTimeout, stoppingToken)
-                        .ConfigureAwait(false);
-
-                    if (batch?.Value is null || batch.Value.Length == 0)
-                    {
-                        await Task.Delay(PollInterval, stoppingToken).ConfigureAwait(false);
-                        continue;
-                    }
-
-                    foreach (var msg in batch.Value)
-                    {
-                        if (stoppingToken.IsCancellationRequested) break;
-                        await ProcessOneAsync(msg, stoppingToken).ConfigureAwait(false);
-                    }
-                }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "CriticalTableBackupQueueWorker: poll-loop error — backing off {Backoff}", ErrorBackoff);
-                    try { await Task.Delay(ErrorBackoff, stoppingToken).ConfigureAwait(false); }
-                    catch (OperationCanceledException) { break; }
-                }
-            }
-
-            _logger.LogInformation("CriticalTableBackupQueueWorker: poll loop stopped");
-        }
-
-        private async Task ProcessOneAsync(QueueMessage msg, CancellationToken ct)
+        protected override async Task ProcessOneAsync(QueueMessage msg, CancellationToken ct)
         {
             if (msg.DequeueCount > MaxDequeueCount)
             {
@@ -157,14 +79,14 @@ namespace AutopilotMonitor.Functions.Services.Backup.Queue
             }
             catch (JsonException ex)
             {
-                _logger.LogWarning(ex, "CriticalTableBackupQueueWorker: malformed envelope — dropping (msg {Id})", msg.MessageId);
+                Logger.LogWarning(ex, "{Worker}: malformed envelope — dropping (msg {Id})", WorkerName, msg.MessageId);
                 await SafeDeleteAsync(msg, ct).ConfigureAwait(false);
                 return;
             }
 
             if (envelope is null || string.IsNullOrEmpty(envelope.JobId))
             {
-                _logger.LogWarning("CriticalTableBackupQueueWorker: empty envelope — dropping (msg {Id})", msg.MessageId);
+                Logger.LogWarning("{Worker}: empty envelope — dropping (msg {Id})", WorkerName, msg.MessageId);
                 await SafeDeleteAsync(msg, ct).ConfigureAwait(false);
                 return;
             }
@@ -178,18 +100,18 @@ namespace AutopilotMonitor.Functions.Services.Backup.Queue
             var (job, jobETag) = await _jobs.GetWithETagAsync(jobId, ct).ConfigureAwait(false);
             if (job is null)
             {
-                _logger.LogWarning(
-                    "CriticalTableBackupQueueWorker: jobId {JobId} not in BackupJobs — dropping orphan message {Id}",
-                    jobId, msg.MessageId);
+                Logger.LogWarning(
+                    "{Worker}: jobId {JobId} not in BackupJobs — dropping orphan message {Id}",
+                    WorkerName, jobId, msg.MessageId);
                 await SafeDeleteAsync(msg, ct).ConfigureAwait(false);
                 return;
             }
 
             if (IsTerminal(job.State))
             {
-                _logger.LogInformation(
-                    "CriticalTableBackupQueueWorker: jobId {JobId} already terminal ({State}) — dropping reappearance",
-                    jobId, job.State);
+                Logger.LogInformation(
+                    "{Worker}: jobId {JobId} already terminal ({State}) — dropping reappearance",
+                    WorkerName, jobId, job.State);
                 await SafeDeleteAsync(msg, ct).ConfigureAwait(false);
                 return;
             }
@@ -199,18 +121,18 @@ namespace AutopilotMonitor.Functions.Services.Backup.Queue
             // still-running peer's status (plan Wave9 #1 / Wave10 #4).
             if (job.State == BackupJobState.Running)
             {
-                _logger.LogWarning(
-                    "CriticalTableBackupQueueWorker: jobId {JobId} state=Running on dequeue — deferring visibility, not mutating status",
-                    jobId);
+                Logger.LogWarning(
+                    "{Worker}: jobId {JobId} state=Running on dequeue — deferring visibility, not mutating status",
+                    WorkerName, jobId);
                 try
                 {
-                    await _mainQueue.UpdateMessageAsync(msg.MessageId, msg.PopReceipt, visibilityTimeout: VisibilityTimeout, cancellationToken: ct).ConfigureAwait(false);
+                    await MainQueue.UpdateMessageAsync(msg.MessageId, msg.PopReceipt, visibilityTimeout: VisibilityTimeout, cancellationToken: ct).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex,
-                        "CriticalTableBackupQueueWorker: defer-visibility failed for jobId {JobId} — message will reappear naturally",
-                        jobId);
+                    Logger.LogWarning(ex,
+                        "{Worker}: defer-visibility failed for jobId {JobId} — message will reappear naturally",
+                        WorkerName, jobId);
                 }
                 return;
             }
@@ -228,9 +150,9 @@ namespace AutopilotMonitor.Functions.Services.Backup.Queue
             }
             catch (LeaseHeldException)
             {
-                _logger.LogInformation(
-                    "CriticalTableBackupQueueWorker: maintenance lease held by another op — jobId {JobId} → Skipped",
-                    jobId);
+                Logger.LogInformation(
+                    "{Worker}: maintenance lease held by another op — jobId {JobId} → Skipped",
+                    WorkerName, jobId);
                 var skippedJob = job;
                 skippedJob.State = BackupJobState.Skipped;
                 skippedJob.LastHeartbeatUtc = _clock.GetUtcNow().UtcDateTime;
@@ -245,7 +167,7 @@ namespace AutopilotMonitor.Functions.Services.Backup.Queue
             // Chain a per-handler CTS off the worker's stoppingToken so the renewal loop can
             // cancel the in-flight backup if the lease is lost mid-run.
             using var handlerCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            MaintenanceLeaseHolder leaseHolder = new MaintenanceLeaseHolder(lease, handlerCts, _logger);
+            MaintenanceLeaseHolder leaseHolder = new MaintenanceLeaseHolder(lease, handlerCts, Logger);
 
             BackupRunResult? result = null;
             Exception? retryableException = null;
@@ -283,7 +205,7 @@ namespace AutopilotMonitor.Functions.Services.Backup.Queue
                         }
                         else
                         {
-                            _logger.LogWarning("CriticalTableBackupQueueWorker: CAS Queued→Running 412 with non-terminal fresh state — leaving message for retry");
+                            Logger.LogWarning("{Worker}: CAS Queued→Running 412 with non-terminal fresh state — leaving message for retry", WorkerName);
                         }
                         casConflictReturn = true;
                     }
@@ -367,9 +289,9 @@ namespace AutopilotMonitor.Functions.Services.Backup.Queue
                                 }
                                 else
                                 {
-                                    _logger.LogWarning(
-                                        "CriticalTableBackupQueueWorker: skipping retry rollback for jobId {JobId} — row no longer Running (now {State})",
-                                        jobId, rb.State);
+                                    Logger.LogWarning(
+                                        "{Worker}: skipping retry rollback for jobId {JobId} — row no longer Running (now {State})",
+                                        WorkerName, jobId, rb.State);
                                 }
                             }
                         }
@@ -429,9 +351,9 @@ namespace AutopilotMonitor.Functions.Services.Backup.Queue
                 // Rollback already done UNDER LEASE inside the leased section
                 // (Codex-Hotfix Wave3 #1). Just log + rethrow so the outer poll loop
                 // applies visibility-timeout retry semantics.
-                _logger.LogWarning(retryableException,
-                    "CriticalTableBackupQueueWorker: jobId {JobId} backup attempt failed — rolled back to Queued for retry (dequeue {N})",
-                    jobId, msg.DequeueCount);
+                Logger.LogWarning(retryableException,
+                    "{Worker}: jobId {JobId} backup attempt failed — rolled back to Queued for retry (dequeue {N})",
+                    WorkerName, jobId, msg.DequeueCount);
                 throw retryableException;
             }
 
@@ -458,12 +380,13 @@ namespace AutopilotMonitor.Functions.Services.Backup.Queue
             await SafeDeleteAsync(msg, ct).ConfigureAwait(false);
         }
 
-        // ── Helpers ─────────────────────────────────────────────────────────────
+        // ── Poison hook ───────────────────────────────────────────────────────────
 
-        private async Task MoveToPoisonAsync(QueueMessage msg, CancellationToken ct)
+        protected override async Task<bool> BeforePoisonMoveAsync(QueueMessage msg, CancellationToken ct)
         {
-            // Plan Wave5 #1 + Wave22 #2: persist Failed BEFORE poison-move so the job
-            // status never hangs in Running while the message is already poison.
+            // Plan Wave5 #1 + Wave22 #2: persist Failed BEFORE poison-move so the job status never
+            // hangs in Running while the message is already poison. Best-effort — on any failure we
+            // still proceed with the poison move (return true), matching the original semantics.
             try
             {
                 var envelope = JsonConvert.DeserializeObject<CriticalTableBackupEnvelope>(msg.Body.ToString());
@@ -483,46 +406,9 @@ namespace AutopilotMonitor.Functions.Services.Backup.Queue
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "CriticalTableBackupQueueWorker: failed-state persistence before poison-move threw — proceeding with poison move anyway");
+                Logger.LogWarning(ex, "{Worker}: failed-state persistence before poison-move threw — proceeding with poison move anyway", WorkerName);
             }
-
-            try
-            {
-                await _poisonQueue.SendMessageAsync(msg.Body.ToString(), ct).ConfigureAwait(false);
-                await SafeDeleteAsync(msg, ct).ConfigureAwait(false);
-                _logger.LogWarning(
-                    "CriticalTableBackupQueueWorker: moved message {Id} to poison queue after {N} failed attempts",
-                    msg.MessageId, msg.DequeueCount - 1);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "CriticalTableBackupQueueWorker: poison move failed (will retry)");
-            }
-        }
-
-        private async Task SafeDeleteAsync(QueueMessage msg, CancellationToken ct)
-        {
-            try
-            {
-                await _mainQueue.DeleteMessageAsync(msg.MessageId, msg.PopReceipt, ct).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex,
-                    "CriticalTableBackupQueueWorker: delete failed for message {Id} — will reappear after visibility-timeout",
-                    msg.MessageId);
-            }
-        }
-
-        private async Task TryCreateQueueAsync(QueueClient queue, string label, CancellationToken ct)
-        {
-            try { await queue.CreateIfNotExistsAsync(cancellationToken: ct).ConfigureAwait(false); }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex,
-                    "CriticalTableBackupQueueWorker: CreateIfNotExists failed for {Label} queue — send/receive will retry",
-                    label);
-            }
+            return true;
         }
 
         /// <summary>OpsEvent write must not bubble — backup itself already succeeded (or failed by other means).</summary>
@@ -531,7 +417,7 @@ namespace AutopilotMonitor.Functions.Services.Backup.Queue
             try { await writeAsync().ConfigureAwait(false); }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "CriticalTableBackupQueueWorker: ops-event recording failed — backup state remains authoritative");
+                Logger.LogWarning(ex, "{Worker}: ops-event recording failed — backup state remains authoritative", WorkerName);
             }
         }
 

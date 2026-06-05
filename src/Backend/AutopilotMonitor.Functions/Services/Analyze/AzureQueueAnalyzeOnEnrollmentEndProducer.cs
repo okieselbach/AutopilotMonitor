@@ -1,11 +1,10 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Azure.Identity;
 using Azure.Storage.Queues;
+using AutopilotMonitor.Functions.Services.Queueing;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 
@@ -30,40 +29,12 @@ namespace AutopilotMonitor.Functions.Services.Analyze
         private int _queueEnsured; // 0 = not yet ensured, 1 = CreateIfNotExistsAsync has run
 
         public AzureQueueAnalyzeOnEnrollmentEndProducer(
-            IConfiguration configuration,
+            QueueClientFactory queueFactory,
             ILogger<AzureQueueAnalyzeOnEnrollmentEndProducer> logger)
         {
             _logger = logger;
-
-            var storageAccountName = configuration["AzureStorageAccountName"];
-            var connectionString   = configuration["AzureTableStorageConnectionString"];
-
-            // Match the consumer (BackgroundService) Base64 encoding so messages round-trip.
-            var options = new QueueClientOptions
-            {
-                MessageEncoding = QueueMessageEncoding.Base64,
-            };
-
-            if (!string.IsNullOrEmpty(storageAccountName))
-            {
-                var queueUri = new Uri(
-                    $"https://{storageAccountName}.queue.core.windows.net/{Constants.QueueNames.AnalyzeOnEnrollmentEnd}");
-                _queueClient = new QueueClient(queueUri, new DefaultAzureCredential(), options);
-                _logger.LogInformation(
-                    "AnalyzeOnEnrollmentEnd producer initialized with Managed Identity (account: {Account})",
-                    storageAccountName);
-            }
-            else if (!string.IsNullOrEmpty(connectionString))
-            {
-                _queueClient = new QueueClient(
-                    connectionString, Constants.QueueNames.AnalyzeOnEnrollmentEnd, options);
-                _logger.LogInformation("AnalyzeOnEnrollmentEnd producer initialized with connection string");
-            }
-            else
-            {
-                throw new InvalidOperationException(
-                    "Queue Storage not configured. Set either 'AzureStorageAccountName' (for Managed Identity) or 'AzureTableStorageConnectionString'.");
-            }
+            // Base64 encoding matches the consumer (BackgroundService) so messages round-trip.
+            _queueClient = queueFactory.Create(Constants.QueueNames.AnalyzeOnEnrollmentEnd);
         }
 
         public async Task EnqueueAsync(AnalyzeOnEnrollmentEndEnvelope envelope, CancellationToken cancellationToken = default)

@@ -134,6 +134,9 @@ builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<ResiliencePolicies>();
 builder.Services.AddSingleton<TableStorageService>();
+// Shared QueueClient bootstrap (code-quality audit D2): single Managed-Identity/connection-string
+// resolution consumed by every queue producer / worker / probe.
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Queueing.QueueClientFactory>();
 // Cascade-deletion read surface implemented by the TableStorageService partial (PR1).
 // No production caller in PR1; producer (PR3) + worker (PR4) consume it later.
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Deletion.ISessionDeletionInventoryReader>(

@@ -1,11 +1,10 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Azure.Identity;
 using Azure.Storage.Queues;
+using AutopilotMonitor.Functions.Services.Queueing;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models.Offboarding;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 
@@ -26,39 +25,11 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
         private int _queueEnsured;
 
         public AzureQueueTenantOffboardingEnqueuer(
-            IConfiguration configuration,
+            QueueClientFactory queueFactory,
             ILogger<AzureQueueTenantOffboardingEnqueuer> logger)
         {
             _logger = logger;
-
-            var options = new QueueClientOptions
-            {
-                MessageEncoding = QueueMessageEncoding.Base64,
-            };
-
-            var storageAccountName = configuration["AzureStorageAccountName"];
-            var connectionString = configuration["AzureTableStorageConnectionString"];
-
-            if (!string.IsNullOrEmpty(storageAccountName))
-            {
-                var queueUri = new Uri(
-                    $"https://{storageAccountName}.queue.core.windows.net/{Constants.QueueNames.TenantOffboarding}");
-                _queueClient = new QueueClient(queueUri, new DefaultAzureCredential(), options);
-                _logger.LogInformation(
-                    "TenantOffboarding enqueuer initialized with Managed Identity (account: {Account})",
-                    storageAccountName);
-            }
-            else if (!string.IsNullOrEmpty(connectionString))
-            {
-                _queueClient = new QueueClient(
-                    connectionString, Constants.QueueNames.TenantOffboarding, options);
-                _logger.LogInformation("TenantOffboarding enqueuer initialized with connection string");
-            }
-            else
-            {
-                throw new InvalidOperationException(
-                    "Queue Storage not configured. Set either 'AzureStorageAccountName' (for Managed Identity) or 'AzureTableStorageConnectionString'.");
-            }
+            _queueClient = queueFactory.Create(Constants.QueueNames.TenantOffboarding);
         }
 
         /// <summary>Test seam: bind directly to a (possibly mocked) <see cref="QueueClient"/>.</summary>

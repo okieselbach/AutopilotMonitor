@@ -11,6 +11,7 @@ using Azure.Storage.Queues.Models;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Deletion;
 using AutopilotMonitor.Functions.Services.Notifications;
+using AutopilotMonitor.Functions.Services.Queueing;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Deletion;
@@ -59,7 +60,7 @@ public class SessionDeletionWorkerTests
             TenantId = TenantId, SessionId = SessionId, ManifestId = ManifestId,
             Reason = "admin_delete", EnqueuedAt = DateTime.UtcNow,
         };
-        harness.EnqueueMessage(JsonConvert.SerializeObject(envelope), dequeueCount: SessionDeletionWorker.MaxDequeueCount + 1);
+        harness.EnqueueMessage(JsonConvert.SerializeObject(envelope), dequeueCount: QueuePollingWorkerBase.DefaultMaxDequeueCount + 1);
 
         await harness.RunForAsync(TimeSpan.FromMilliseconds(500));
 
@@ -103,7 +104,7 @@ public class SessionDeletionWorkerTests
             TenantId = TenantId, SessionId = SessionId, ManifestId = ManifestId,
             Reason = "admin_delete", EnqueuedAt = DateTime.UtcNow,
         };
-        harness.EnqueueMessage(JsonConvert.SerializeObject(envelope), dequeueCount: SessionDeletionWorker.MaxDequeueCount + 1);
+        harness.EnqueueMessage(JsonConvert.SerializeObject(envelope), dequeueCount: QueuePollingWorkerBase.DefaultMaxDequeueCount + 1);
 
         const int capObservation = 50;
         var sample = string.Join(",", Enumerable.Range(0, capObservation)
@@ -153,7 +154,7 @@ public class SessionDeletionWorkerTests
             TenantId = TenantId, SessionId = SessionId, ManifestId = ManifestId,
             Reason = "admin_delete", EnqueuedAt = DateTime.UtcNow,
         };
-        harness.EnqueueMessage(JsonConvert.SerializeObject(envelope), dequeueCount: SessionDeletionWorker.MaxDequeueCount + 1);
+        harness.EnqueueMessage(JsonConvert.SerializeObject(envelope), dequeueCount: QueuePollingWorkerBase.DefaultMaxDequeueCount + 1);
 
         harness.BlobMock.Setup(b => b.DownloadDeletionProgressAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -281,7 +282,7 @@ public class SessionDeletionWorkerTests
             TenantId = TenantId, SessionId = SessionId, ManifestId = ManifestId,
             Reason = "admin_delete", EnqueuedAt = DateTime.UtcNow,
         };
-        harness.EnqueueMessage(JsonConvert.SerializeObject(envelope), dequeueCount: SessionDeletionWorker.MaxDequeueCount + 1);
+        harness.EnqueueMessage(JsonConvert.SerializeObject(envelope), dequeueCount: QueuePollingWorkerBase.DefaultMaxDequeueCount + 1);
 
         // 50 sample entries × ~200-char composite keys = ~10 KB blob; the worker must defend.
         const int progressSampleSize = 50;
@@ -334,7 +335,7 @@ public class SessionDeletionWorkerTests
             TenantId = TenantId, SessionId = SessionId, ManifestId = ManifestId,
             Reason = "admin_delete", EnqueuedAt = DateTime.UtcNow,
         };
-        harness.EnqueueMessage(JsonConvert.SerializeObject(envelope), dequeueCount: SessionDeletionWorker.MaxDequeueCount + 1);
+        harness.EnqueueMessage(JsonConvert.SerializeObject(envelope), dequeueCount: QueuePollingWorkerBase.DefaultMaxDequeueCount + 1);
 
         // Track call order: the CAS must come BEFORE the poison-queue send.
         var callOrder = new List<string>();
@@ -378,7 +379,7 @@ public class SessionDeletionWorkerTests
             TenantId = TenantId, SessionId = SessionId, ManifestId = ManifestId,
             Reason = "admin_delete", EnqueuedAt = DateTime.UtcNow,
         };
-        harness.EnqueueMessage(JsonConvert.SerializeObject(envelope), dequeueCount: SessionDeletionWorker.MaxDequeueCount + 1);
+        harness.EnqueueMessage(JsonConvert.SerializeObject(envelope), dequeueCount: QueuePollingWorkerBase.DefaultMaxDequeueCount + 1);
 
         // First attempt: Running→Poisoned WrongState (current=Queued).
         harness.StorageMock.Setup(s => s.CasSetSessionDeletionStateAsync(
@@ -431,7 +432,7 @@ public class SessionDeletionWorkerTests
             TenantId = TenantId, SessionId = SessionId, ManifestId = ManifestId,
             Reason = "admin_delete", EnqueuedAt = DateTime.UtcNow,
         };
-        harness.EnqueueMessage(JsonConvert.SerializeObject(envelope), dequeueCount: SessionDeletionWorker.MaxDequeueCount + 1);
+        harness.EnqueueMessage(JsonConvert.SerializeObject(envelope), dequeueCount: QueuePollingWorkerBase.DefaultMaxDequeueCount + 1);
 
         harness.StorageMock.Setup(s => s.CasSetSessionDeletionStateAsync(
                 TenantId, SessionId,

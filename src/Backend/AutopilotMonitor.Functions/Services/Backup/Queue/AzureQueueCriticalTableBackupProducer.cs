@@ -1,10 +1,9 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using AutopilotMonitor.Functions.Services.Queueing;
 using AutopilotMonitor.Shared;
-using Azure.Identity;
 using Azure.Storage.Queues;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 
@@ -25,39 +24,11 @@ namespace AutopilotMonitor.Functions.Services.Backup.Queue
         private int _queueEnsured;
 
         public AzureQueueCriticalTableBackupProducer(
-            IConfiguration configuration,
+            QueueClientFactory queueFactory,
             ILogger<AzureQueueCriticalTableBackupProducer> logger)
         {
             _logger = logger;
-
-            var options = new QueueClientOptions
-            {
-                MessageEncoding = QueueMessageEncoding.Base64,
-            };
-
-            var storageAccountName = configuration["AzureStorageAccountName"];
-            var connectionString = configuration["AzureTableStorageConnectionString"];
-
-            if (!string.IsNullOrEmpty(storageAccountName))
-            {
-                var queueUri = new Uri(
-                    $"https://{storageAccountName}.queue.core.windows.net/{Constants.QueueNames.CriticalTableBackup}");
-                _queueClient = new QueueClient(queueUri, new DefaultAzureCredential(), options);
-                _logger.LogInformation(
-                    "CriticalTableBackup producer initialized with Managed Identity (account: {Account})",
-                    storageAccountName);
-            }
-            else if (!string.IsNullOrEmpty(connectionString))
-            {
-                _queueClient = new QueueClient(
-                    connectionString, Constants.QueueNames.CriticalTableBackup, options);
-                _logger.LogInformation("CriticalTableBackup producer initialized with connection string");
-            }
-            else
-            {
-                throw new InvalidOperationException(
-                    "Queue Storage not configured. Set either 'AzureStorageAccountName' or 'AzureTableStorageConnectionString'.");
-            }
+            _queueClient = queueFactory.Create(Constants.QueueNames.CriticalTableBackup);
         }
 
         public async Task EnqueueAsync(CriticalTableBackupEnvelope envelope, CancellationToken ct = default)
