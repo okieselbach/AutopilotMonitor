@@ -1556,6 +1556,20 @@ namespace AutopilotMonitor.Functions.Services
                             if (status == SessionStatus.Failed && !string.IsNullOrEmpty(failureSnapshotJson))
                                 forceUpdate["FailureSnapshotJson"] = failureSnapshotJson;
 
+                            // Mirror FailureSource (failure attribution: agent / rule:<id> / manual)
+                            // from the regular path — otherwise the force-merge fallback silently
+                            // drops the origin of a Failed status under ETag contention.
+                            if (status == SessionStatus.Failed && !string.IsNullOrEmpty(failureSource))
+                                forceUpdate["FailureSource"] = failureSource;
+
+                            // Mirror AdminMarkedAction — the authoritative trigger for the
+                            // AdminAction response-field sent to agents (set only by Mark
+                            // Succeeded/Failed). Dropping it here would silently neutralize an
+                            // administrator-driven terminal override exactly when ETag retries
+                            // are exhausted at the terminal transition.
+                            if (!string.IsNullOrEmpty(adminMarkedAction))
+                                forceUpdate["AdminMarkedAction"] = adminMarkedAction;
+
                             if (isPreProvisioned.HasValue)
                                 forceUpdate["IsPreProvisioned"] = isPreProvisioned.Value;
 
