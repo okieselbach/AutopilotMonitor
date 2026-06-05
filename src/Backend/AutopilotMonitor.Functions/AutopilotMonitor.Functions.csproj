@@ -24,6 +24,8 @@
       <_Parameter1>BuildTimestampUtc</_Parameter1>
       <_Parameter2>$(BuildTimestampUtc)</_Parameter2>
     </AssemblyAttribute>
+    <!-- Expose internals (e.g. BuildSessionIndexEntity, the SessionsIndex projection manifest) to tests. -->
+    <InternalsVisibleTo Include="AutopilotMonitor.Functions.Tests" />
   </ItemGroup>
 
   <ItemGroup>

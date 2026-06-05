@@ -374,7 +374,10 @@ namespace AutopilotMonitor.Shared.Models
         /// Cascade-delete state-machine value (Plan §1 P7 / PR3). One of
         /// <see cref="AutopilotMonitor.Shared.Models.Deletion.SessionDeletionState"/> constants.
         /// Empty / null means no cascade in flight (legacy rows; treated as <c>None</c>).
-        /// Surfaced via the SessionsIndex projection so list / search endpoints don't hide locked sessions.
+        /// Written to the primary Sessions table only — the deletion CAS path does not sync
+        /// SessionsIndex, so this is NOT part of the index mirror today and is read on the
+        /// truth-served detail/guard paths. Mirroring it into SessionsIndex (so list/search can flag
+        /// locked sessions) is a deferred follow-up.
         /// </summary>
         public string DeletionState { get; set; } = string.Empty;
 

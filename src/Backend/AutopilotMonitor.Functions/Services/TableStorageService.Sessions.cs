@@ -74,63 +74,8 @@ namespace AutopilotMonitor.Functions.Services
                     }
                 }
 
-                // Build index entity with all SessionSummary fields
-                var indexEntity = new TableEntity(tenantId, indexRowKey)
-                {
-                    ["SessionId"] = sessionId,
-                    ["SerialNumber"] = sessionEntity.GetString("SerialNumber") ?? string.Empty,
-                    ["DeviceName"] = sessionEntity.GetString("DeviceName") ?? string.Empty,
-                    ["Manufacturer"] = sessionEntity.GetString("Manufacturer") ?? string.Empty,
-                    ["Model"] = sessionEntity.GetString("Model") ?? string.Empty,
-                    ["StartedAt"] = EnsureUtc(startedAt),
-                    ["Status"] = sessionEntity.GetString("Status") ?? "InProgress",
-                    ["CurrentPhase"] = sessionEntity.GetInt32("CurrentPhase") ?? 0,
-                    ["CurrentPhaseDetail"] = sessionEntity.GetString("CurrentPhaseDetail") ?? string.Empty,
-                    ["EventCount"] = sessionEntity.GetInt32("EventCount") ?? 0,
-                    ["EnrollmentType"] = sessionEntity.GetString("EnrollmentType") ?? "v1",
-                    ["IsPreProvisioned"] = sessionEntity.GetBoolean("IsPreProvisioned") ?? false,
-                    ["IsHybridJoin"] = sessionEntity.GetBoolean("IsHybridJoin") ?? false,
-                    ["IsUserDriven"] = sessionEntity.GetBoolean("IsUserDriven") ?? false,
-                    ["AgentVersion"] = sessionEntity.GetString("AgentVersion") ?? string.Empty,
-                    ["OsName"] = sessionEntity.GetString("OsName") ?? string.Empty,
-                    ["OsBuild"] = sessionEntity.GetString("OsBuild") ?? string.Empty,
-                    ["OsDisplayVersion"] = sessionEntity.GetString("OsDisplayVersion") ?? string.Empty,
-                    ["OsEdition"] = sessionEntity.GetString("OsEdition") ?? string.Empty,
-                    ["OsLanguage"] = sessionEntity.GetString("OsLanguage") ?? string.Empty,
-                    ["GeoCountry"] = sessionEntity.GetString("GeoCountry") ?? string.Empty,
-                    ["GeoRegion"] = sessionEntity.GetString("GeoRegion") ?? string.Empty,
-                    ["GeoCity"] = sessionEntity.GetString("GeoCity") ?? string.Empty,
-                    ["GeoLoc"] = sessionEntity.GetString("GeoLoc") ?? string.Empty
-                };
-
-                // Copy nullable fields
-                var completedAt = sessionEntity.GetDateTimeOffset("CompletedAt")?.UtcDateTime;
-                if (completedAt.HasValue)
-                    indexEntity["CompletedAt"] = EnsureUtc(completedAt.Value);
-
-                var failureReason = sessionEntity.GetString("FailureReason");
-                if (!string.IsNullOrEmpty(failureReason))
-                    indexEntity["FailureReason"] = failureReason;
-
-                var durationSeconds = sessionEntity.GetInt32("DurationSeconds");
-                if (durationSeconds.HasValue)
-                    indexEntity["DurationSeconds"] = durationSeconds.Value;
-
-                var diagnosticsBlobName = sessionEntity.GetString("DiagnosticsBlobName");
-                if (!string.IsNullOrEmpty(diagnosticsBlobName))
-                    indexEntity["DiagnosticsBlobName"] = diagnosticsBlobName;
-
-                var diagnosticsBlobDestination = sessionEntity.GetString("DiagnosticsBlobDestination");
-                if (!string.IsNullOrEmpty(diagnosticsBlobDestination))
-                    indexEntity["DiagnosticsBlobDestination"] = diagnosticsBlobDestination;
-
-                var lastEventAt = sessionEntity.GetDateTimeOffset("LastEventAt")?.UtcDateTime;
-                if (lastEventAt.HasValue)
-                    indexEntity["LastEventAt"] = EnsureUtc(lastEventAt.Value);
-
-                var resumedAt = sessionEntity.GetDateTimeOffset("ResumedAt")?.UtcDateTime;
-                if (resumedAt.HasValue)
-                    indexEntity["ResumedAt"] = EnsureUtc(resumedAt.Value);
+                // Build index entity from the single SessionsIndex field manifest (lean read-model contract).
+                var indexEntity = BuildSessionIndexEntity(sessionEntity, indexRowKey, startedAt);
 
                 await indexTableClient.UpsertEntityAsync(indexEntity);
 
@@ -146,6 +91,115 @@ namespace AutopilotMonitor.Functions.Services
             {
                 _logger.LogWarning(ex, "Failed to upsert session index for {SessionId}", sessionEntity.RowKey);
             }
+        }
+
+        /// <summary>
+        /// Single source of truth for the SessionsIndex field projection. The SessionsIndex is a
+        /// FULL MIRROR of the primary Sessions row, differing only in RowKey (inverted-tick prefix
+        /// for newest-first / date-range / cursor paging that the GUID-keyed Sessions table cannot
+        /// do). It serves the session list / search / stats AND the <c>/api/raw/sessions</c> endpoint
+        /// (which returns every stored index column verbatim, see <c>RawEntityProjection</c>) directly
+        /// — no hydration from Sessions — so it must carry the same column set the session lifecycle
+        /// writes. This builder is the ONE place that set is defined; it must stay a SUPERSET of every
+        /// field any <c>MergeSessionIndexAsync</c> call site writes, otherwise a StartedAt-shift full
+        /// upsert would drop a merged field until the next merge (the recurring drift bug, e.g.
+        /// ab90423b). Keep aligned with <c>MapToSessionSummary</c> (read side).
+        ///
+        /// Not mirrored here: fields owned by separate write subsystems that do not touch the index —
+        /// <c>PendingActionsJson</c>/<c>PendingActionsQueuedAt</c> (ServerActions) and
+        /// <c>DeletionState</c>/<c>PendingDeletionManifestId</c> (deletion CAS). They are primary-only
+        /// by construction (no index writer); routing them through the index sync is a follow-up.
+        /// </summary>
+        internal static TableEntity BuildSessionIndexEntity(TableEntity sessionEntity, string indexRowKey, DateTime startedAt)
+        {
+            var tenantId = sessionEntity.PartitionKey;
+            var sessionId = sessionEntity.RowKey;
+
+            var indexEntity = new TableEntity(tenantId, indexRowKey)
+            {
+                ["SessionId"] = sessionId,
+                ["SerialNumber"] = sessionEntity.GetString("SerialNumber") ?? string.Empty,
+                ["DeviceName"] = sessionEntity.GetString("DeviceName") ?? string.Empty,
+                ["Manufacturer"] = sessionEntity.GetString("Manufacturer") ?? string.Empty,
+                ["Model"] = sessionEntity.GetString("Model") ?? string.Empty,
+                ["StartedAt"] = EnsureUtc(startedAt),
+                ["Status"] = sessionEntity.GetString("Status") ?? "InProgress",
+                ["CurrentPhase"] = sessionEntity.GetInt32("CurrentPhase") ?? 0,
+                ["CurrentPhaseDetail"] = sessionEntity.GetString("CurrentPhaseDetail") ?? string.Empty,
+                ["EventCount"] = sessionEntity.GetInt32("EventCount") ?? 0,
+                ["EnrollmentType"] = sessionEntity.GetString("EnrollmentType") ?? "v1",
+                ["IsPreProvisioned"] = sessionEntity.GetBoolean("IsPreProvisioned") ?? false,
+                ["IsHybridJoin"] = sessionEntity.GetBoolean("IsHybridJoin") ?? false,
+                ["IsUserDriven"] = sessionEntity.GetBoolean("IsUserDriven") ?? false,
+                ["AgentVersion"] = sessionEntity.GetString("AgentVersion") ?? string.Empty,
+                // Search-filterable column: search/MCP push an OData filter on ImeAgentVersion against
+                // the index, so it MUST be projected (was previously absent → filter matched nothing).
+                ["ImeAgentVersion"] = sessionEntity.GetString("ImeAgentVersion") ?? string.Empty,
+                ["OsName"] = sessionEntity.GetString("OsName") ?? string.Empty,
+                ["OsBuild"] = sessionEntity.GetString("OsBuild") ?? string.Empty,
+                ["OsDisplayVersion"] = sessionEntity.GetString("OsDisplayVersion") ?? string.Empty,
+                ["OsEdition"] = sessionEntity.GetString("OsEdition") ?? string.Empty,
+                ["OsLanguage"] = sessionEntity.GetString("OsLanguage") ?? string.Empty,
+                ["GeoCountry"] = sessionEntity.GetString("GeoCountry") ?? string.Empty,
+                ["GeoRegion"] = sessionEntity.GetString("GeoRegion") ?? string.Empty,
+                ["GeoCity"] = sessionEntity.GetString("GeoCity") ?? string.Empty,
+                ["GeoLoc"] = sessionEntity.GetString("GeoLoc") ?? string.Empty,
+                // Always-present counts/flags — mirror Sessions defaults (read side defaults to 0/false).
+                ["PlatformScriptCount"] = sessionEntity.GetInt32("PlatformScriptCount") ?? 0,
+                ["RemediationScriptCount"] = sessionEntity.GetInt32("RemediationScriptCount") ?? 0,
+                ["ExcessiveEventsAlerted"] = sessionEntity.GetBoolean("ExcessiveEventsAlerted") ?? false,
+                ["ExcessiveEventsAutoActioned"] = sessionEntity.GetBoolean("ExcessiveEventsAutoActioned") ?? false
+            };
+
+            // Nullable fields — only written when present.
+            var completedAt = sessionEntity.GetDateTimeOffset("CompletedAt")?.UtcDateTime;
+            if (completedAt.HasValue)
+                indexEntity["CompletedAt"] = EnsureUtc(completedAt.Value);
+
+            var failureReason = sessionEntity.GetString("FailureReason");
+            if (!string.IsNullOrEmpty(failureReason))
+                indexEntity["FailureReason"] = failureReason;
+
+            var failureSource = sessionEntity.GetString("FailureSource");
+            if (!string.IsNullOrEmpty(failureSource))
+                indexEntity["FailureSource"] = failureSource;
+
+            var failureSnapshotJson = sessionEntity.GetString("FailureSnapshotJson");
+            if (!string.IsNullOrEmpty(failureSnapshotJson))
+                indexEntity["FailureSnapshotJson"] = failureSnapshotJson;
+
+            // AdminMarkedAction is rendered as the "manual" badge in the dashboard session LIST
+            // (index-served), so it belongs in the projection — otherwise a StartedAt-shift full
+            // upsert drops it until the next merge.
+            var adminMarkedAction = sessionEntity.GetString("AdminMarkedAction");
+            if (!string.IsNullOrEmpty(adminMarkedAction))
+                indexEntity["AdminMarkedAction"] = adminMarkedAction;
+
+            var durationSeconds = sessionEntity.GetInt32("DurationSeconds");
+            if (durationSeconds.HasValue)
+                indexEntity["DurationSeconds"] = durationSeconds.Value;
+
+            var diagnosticsBlobName = sessionEntity.GetString("DiagnosticsBlobName");
+            if (!string.IsNullOrEmpty(diagnosticsBlobName))
+                indexEntity["DiagnosticsBlobName"] = diagnosticsBlobName;
+
+            var diagnosticsBlobDestination = sessionEntity.GetString("DiagnosticsBlobDestination");
+            if (!string.IsNullOrEmpty(diagnosticsBlobDestination))
+                indexEntity["DiagnosticsBlobDestination"] = diagnosticsBlobDestination;
+
+            var lastEventAt = sessionEntity.GetDateTimeOffset("LastEventAt")?.UtcDateTime;
+            if (lastEventAt.HasValue)
+                indexEntity["LastEventAt"] = EnsureUtc(lastEventAt.Value);
+
+            var resumedAt = sessionEntity.GetDateTimeOffset("ResumedAt")?.UtcDateTime;
+            if (resumedAt.HasValue)
+                indexEntity["ResumedAt"] = EnsureUtc(resumedAt.Value);
+
+            var stalledAt = sessionEntity.GetDateTimeOffset("StalledAt")?.UtcDateTime;
+            if (stalledAt.HasValue)
+                indexEntity["StalledAt"] = EnsureUtc(stalledAt.Value);
+
+            return indexEntity;
         }
 
         /// <summary>
@@ -178,72 +232,58 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Centralizes the SessionsIndex dual-write decision shared by the session-mutation paths
+        /// (UpdateSessionStatusAsync normal + ETag force-write, IncrementSessionEventCountAsync): when
+        /// an earlier event shifted StartedAt the index RowKey (inverted ticks) changes, so rebuild the
+        /// row via a full upsert (delete-old + create-new); otherwise merge just the changed fields,
+        /// resolving the IndexRowKey from the already-read session entity with a StartedAt fallback.
+        /// </summary>
+        /// <param name="sessionEntity">the session row already read on the mutation path (source of IndexRowKey / StartedAt fallback).</param>
+        /// <param name="mergeFields">the changed-field entity to merge when StartedAt did NOT shift.</param>
+        /// <param name="currentStartedAt">the session's current StartedAt (pre-shift).</param>
+        /// <param name="earliestEventTimestamp">earliest observed event time; a value &lt; currentStartedAt means StartedAt shifted.</param>
+        private async Task SyncSessionIndexAsync(
+            string tenantId,
+            string sessionId,
+            TableEntity sessionEntity,
+            TableEntity mergeFields,
+            DateTime currentStartedAt,
+            DateTime? earliestEventTimestamp)
+        {
+            if (earliestEventTimestamp.HasValue && earliestEventTimestamp.Value < currentStartedAt)
+            {
+                // StartedAt shifted — recompute IndexRowKey via full upsert (delete-old + create-new).
+                var sessionsClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
+                var fullEntity = (await sessionsClient.GetEntityAsync<TableEntity>(tenantId, sessionId)).Value;
+                await UpsertSessionIndexAsync(fullEntity, earliestEventTimestamp.Value);
+            }
+            else
+            {
+                var indexRowKey = sessionEntity.GetString("IndexRowKey");
+
+                // Fallback: if IndexRowKey was lost (e.g. StoreSessionAsync Replace race), compute it
+                // from StartedAt + SessionId so the index still gets updated.
+                if (string.IsNullOrEmpty(indexRowKey))
+                {
+                    var sessionStartedAt = sessionEntity.GetDateTimeOffset("StartedAt")?.UtcDateTime;
+                    if (sessionStartedAt.HasValue)
+                    {
+                        indexRowKey = ComputeIndexRowKey(sessionStartedAt.Value, sessionId);
+                        _logger.LogWarning("Session {SessionId}: IndexRowKey was null, computed fallback from StartedAt", sessionId);
+                    }
+                }
+
+                await MergeSessionIndexAsync(tenantId, indexRowKey, mergeFields);
+            }
+        }
+
+        /// <summary>
         /// Maps an index entity (from SessionsIndex table) to SessionSummary.
-        /// The key difference from MapToSessionSummary: SessionId comes from a stored property
+        /// The key difference from the primary-table mapping: SessionId comes from a stored property
         /// instead of RowKey (which contains the inverted-tick key in the index).
         /// </summary>
         private SessionSummary MapIndexEntityToSessionSummary(TableEntity entity)
-        {
-            var startedAt = SafeGetDateTime(entity, "StartedAt") ?? DateTime.UtcNow;
-            var completedAt = SafeGetDateTime(entity, "CompletedAt");
-
-            var statusString = entity.GetString("Status") ?? "InProgress";
-            if (!Enum.TryParse<SessionStatus>(statusString, ignoreCase: true, out var status))
-            {
-                status = SessionStatus.Unknown;
-            }
-
-            return new SessionSummary
-            {
-                SessionId = entity.GetString("SessionId") ?? ExtractSessionIdFromIndexRowKey(entity.RowKey),
-                TenantId = entity.PartitionKey,
-                SerialNumber = entity.GetString("SerialNumber") ?? string.Empty,
-                DeviceName = entity.GetString("DeviceName") ?? string.Empty,
-                Manufacturer = entity.GetString("Manufacturer") ?? string.Empty,
-                Model = entity.GetString("Model") ?? string.Empty,
-                StartedAt = startedAt,
-                CompletedAt = completedAt,
-                CurrentPhase = SafeGetInt32(entity, "CurrentPhase") ?? 0,
-                CurrentPhaseDetail = entity.GetString("CurrentPhaseDetail") ?? string.Empty,
-                Status = status,
-                FailureReason = entity.GetString("FailureReason") ?? string.Empty,
-                FailureSource = entity.GetString("FailureSource") ?? string.Empty,
-                AdminMarkedAction = entity.GetString("AdminMarkedAction"),
-                PendingActionsJson = entity.GetString("PendingActionsJson") ?? string.Empty,
-                PendingActionsQueuedAt = SafeGetDateTime(entity, "PendingActionsQueuedAt"),
-                EventCount = SafeGetInt32(entity, "EventCount") ?? 0,
-                DurationSeconds = ComputeEffectiveDuration(entity, status, startedAt, completedAt),
-                EnrollmentType = entity.GetString("EnrollmentType") ?? "v1",
-                DiagnosticsBlobName = entity.GetString("DiagnosticsBlobName"),
-                DiagnosticsBlobDestination = entity.GetString("DiagnosticsBlobDestination"),
-                LastEventAt = SafeGetDateTime(entity, "LastEventAt"),
-                IsPreProvisioned = entity.GetBoolean("IsPreProvisioned") ?? false,
-                IsHybridJoin = entity.GetBoolean("IsHybridJoin") ?? false,
-                ResumedAt = SafeGetDateTime(entity, "ResumedAt"),
-                StalledAt = SafeGetDateTime(entity, "StalledAt"),
-                OsName = entity.GetString("OsName") ?? string.Empty,
-                OsBuild = entity.GetString("OsBuild") ?? string.Empty,
-                OsDisplayVersion = entity.GetString("OsDisplayVersion") ?? string.Empty,
-                OsEdition = entity.GetString("OsEdition") ?? string.Empty,
-                OsLanguage = entity.GetString("OsLanguage") ?? string.Empty,
-                IsUserDriven = entity.GetBoolean("IsUserDriven") ?? false,
-                AgentVersion = entity.GetString("AgentVersion") ?? string.Empty,
-                ImeAgentVersion = entity.GetString("ImeAgentVersion") ?? string.Empty,
-                GeoCountry = entity.GetString("GeoCountry") ?? string.Empty,
-                GeoRegion = entity.GetString("GeoRegion") ?? string.Empty,
-                GeoCity = entity.GetString("GeoCity") ?? string.Empty,
-                GeoLoc = entity.GetString("GeoLoc") ?? string.Empty,
-                PlatformScriptCount = SafeGetInt32(entity, "PlatformScriptCount") ?? 0,
-                RemediationScriptCount = SafeGetInt32(entity, "RemediationScriptCount") ?? 0,
-                ExcessiveEventsAlerted = entity.GetBoolean("ExcessiveEventsAlerted") ?? false,
-                ExcessiveEventsAutoActioned = entity.GetBoolean("ExcessiveEventsAutoActioned") ?? false,
-                FailureSnapshotJson = entity.GetString("FailureSnapshotJson") ?? string.Empty,
-                // PR3: cascade-delete state-machine columns. Empty/null on legacy rows is fine —
-                // SessionDeletionGuard treats null/empty as "None" (no cascade in flight).
-                DeletionState = entity.GetString("DeletionState") ?? string.Empty,
-                PendingDeletionManifestId = entity.GetString("PendingDeletionManifestId"),
-            };
-        }
+            => MapToSessionSummary(entity, entity.GetString("SessionId") ?? ExtractSessionIdFromIndexRowKey(entity.RowKey));
 
         // ===== SESSION MANAGEMENT METHODS =====
 
@@ -1414,31 +1454,8 @@ namespace AutopilotMonitor.Functions.Services
                     // This drastically reduces ETag conflicts when concurrent requests update different fields.
                     await tableClient.UpdateEntityAsync(update, session.ETag, TableUpdateMode.Merge);
 
-                    // Dual-write: keep SessionsIndex in sync
-                    if (earliestEventTimestamp.HasValue && earliestEventTimestamp.Value < currentStartedAt)
-                    {
-                        // StartedAt shifted — recompute IndexRowKey via full upsert (delete-old + create-new)
-                        var fullEntity = (await tableClient.GetEntityAsync<TableEntity>(tenantId, sessionId)).Value;
-                        await UpsertSessionIndexAsync(fullEntity, earliestEventTimestamp.Value);
-                    }
-                    else
-                    {
-                        var indexRowKey = session.GetString("IndexRowKey");
-
-                        // Fallback: if IndexRowKey was lost (e.g. StoreSessionAsync Replace race),
-                        // compute it from StartedAt + SessionId so the index still gets updated.
-                        if (string.IsNullOrEmpty(indexRowKey))
-                        {
-                            var sessionStartedAt = session.GetDateTimeOffset("StartedAt")?.UtcDateTime;
-                            if (sessionStartedAt.HasValue)
-                            {
-                                indexRowKey = ComputeIndexRowKey(sessionStartedAt.Value, sessionId);
-                                _logger.LogWarning("Session {SessionId}: IndexRowKey was null, computed fallback from StartedAt", sessionId);
-                            }
-                        }
-
-                        await MergeSessionIndexAsync(tenantId, indexRowKey, update);
-                    }
+                    // Dual-write: keep SessionsIndex in sync (StartedAt-shift → full upsert, else merge).
+                    await SyncSessionIndexAsync(tenantId, sessionId, session, update, currentStartedAt, earliestEventTimestamp);
 
                     _logger.LogInformation($"Updated session {sessionId} status to {status}");
                     return true;
@@ -1582,27 +1599,8 @@ namespace AutopilotMonitor.Functions.Services
                             // Unconditional merge write — ETag.All bypasses concurrency check
                             await forceTableClient.UpdateEntityAsync(forceUpdate, ETag.All, TableUpdateMode.Merge);
 
-                            // Dual-write: keep SessionsIndex in sync
-                            if (earliestEventTimestamp.HasValue && earliestEventTimestamp.Value < freshStartedAt)
-                            {
-                                // StartedAt shifted — recompute IndexRowKey via full upsert
-                                var updatedEntity = (await forceTableClient.GetEntityAsync<TableEntity>(tenantId, sessionId)).Value;
-                                await UpsertSessionIndexAsync(updatedEntity, earliestEventTimestamp.Value);
-                            }
-                            else
-                            {
-                                var forceIndexRowKey = freshSession.GetString("IndexRowKey");
-                                if (string.IsNullOrEmpty(forceIndexRowKey))
-                                {
-                                    var forceStartedAt2 = freshSession.GetDateTimeOffset("StartedAt")?.UtcDateTime;
-                                    if (forceStartedAt2.HasValue)
-                                    {
-                                        forceIndexRowKey = ComputeIndexRowKey(forceStartedAt2.Value, sessionId);
-                                        _logger.LogWarning("Session {SessionId}: IndexRowKey was null in force-write path, computed fallback from StartedAt", sessionId);
-                                    }
-                                }
-                                await MergeSessionIndexAsync(tenantId, forceIndexRowKey, forceUpdate);
-                            }
+                            // Dual-write: keep SessionsIndex in sync (StartedAt-shift → full upsert, else merge).
+                            await SyncSessionIndexAsync(tenantId, sessionId, freshSession, forceUpdate, freshStartedAt, earliestEventTimestamp);
 
                             _logger.LogInformation($"Force-updated session {sessionId} status to {status} (unconditional merge after ETag exhaustion)");
                             return true;
@@ -1714,26 +1712,8 @@ namespace AutopilotMonitor.Functions.Services
 
                     await tableClient.UpdateEntityAsync(update, entity.ETag, TableUpdateMode.Merge);
 
-                    // Dual-write: keep SessionsIndex in sync
-                    if (earliestEventTimestamp.HasValue && earliestEventTimestamp.Value < currentStartedAt)
-                    {
-                        // StartedAt shifted — the IndexRowKey (inverted ticks) must be recomputed.
-                        // Re-read the full entity (now updated) and upsert to handle delete-old + create-new.
-                        var fullEntity = (await tableClient.GetEntityAsync<TableEntity>(tenantId, sessionId)).Value;
-                        await UpsertSessionIndexAsync(fullEntity, earliestEventTimestamp.Value);
-                    }
-                    else
-                    {
-                        // No StartedAt change — efficient merge into existing index entry
-                        var indexRowKey = entity.GetString("IndexRowKey");
-                        if (string.IsNullOrEmpty(indexRowKey))
-                        {
-                            var incStartedAt = entity.GetDateTimeOffset("StartedAt")?.UtcDateTime;
-                            if (incStartedAt.HasValue)
-                                indexRowKey = ComputeIndexRowKey(incStartedAt.Value, sessionId);
-                        }
-                        await MergeSessionIndexAsync(tenantId, indexRowKey, update);
-                    }
+                    // Dual-write: keep SessionsIndex in sync (StartedAt-shift → full upsert, else merge).
+                    await SyncSessionIndexAsync(tenantId, sessionId, entity, update, currentStartedAt, earliestEventTimestamp);
 
                     return;
                 }
@@ -2113,6 +2093,18 @@ namespace AutopilotMonitor.Functions.Services
                     ["ImeAgentVersion"] = version
                 };
                 await tableClient.UpdateEntityAsync(entity, ETag.All, TableUpdateMode.Merge);
+
+                // Mirror to SessionsIndex — ImeAgentVersion is a search-filterable index column
+                // (search/MCP push an OData filter on it against the index), so it must be kept in
+                // sync or the filter matches nothing and the listed value is always empty.
+                var idxRef = await tableClient.GetEntityAsync<TableEntity>(
+                    tenantId, sessionId, select: new[] { "IndexRowKey" });
+                var indexRowKey = idxRef.Value.GetString("IndexRowKey");
+                if (!string.IsNullOrEmpty(indexRowKey))
+                {
+                    await MergeSessionIndexAsync(tenantId, indexRowKey,
+                        new TableEntity(tenantId, indexRowKey) { ["ImeAgentVersion"] = version });
+                }
             }
             catch (RequestFailedException ex) when (ex.Status == 404)
             {
@@ -2171,9 +2163,18 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Maps a TableEntity to SessionSummary
+        /// Maps a TableEntity from the primary Sessions table to SessionSummary.
+        /// SessionId is the entity RowKey on the primary table.
         /// </summary>
         private SessionSummary MapToSessionSummary(TableEntity entity)
+            => MapToSessionSummary(entity, entity.RowKey);
+
+        /// <summary>
+        /// Core entity → SessionSummary mapper shared by the primary-table and SessionsIndex paths.
+        /// The two tables only differ in how SessionId is sourced (RowKey vs. stored property), so
+        /// callers pass the resolved <paramref name="sessionId"/> and everything else maps identically.
+        /// </summary>
+        private SessionSummary MapToSessionSummary(TableEntity entity, string sessionId)
         {
             // All typed getters (GetInt32, GetDateTime, etc.) throw InvalidOperationException
             // when a property exists but has a different type (e.g. legacy data stored as string
@@ -2185,13 +2186,13 @@ namespace AutopilotMonitor.Functions.Services
             var statusString = entity.GetString("Status") ?? "InProgress";
             if (!Enum.TryParse<SessionStatus>(statusString, ignoreCase: true, out var status))
             {
-                _logger.LogWarning($"Failed to parse status '{statusString}' for session {entity.RowKey}, defaulting to Unknown");
+                _logger.LogWarning($"Failed to parse status '{statusString}' for session {sessionId}, defaulting to Unknown");
                 status = SessionStatus.Unknown;
             }
 
             return new SessionSummary
             {
-                SessionId = entity.RowKey,
+                SessionId = sessionId,
                 TenantId = entity.PartitionKey,
                 SerialNumber = entity.GetString("SerialNumber") ?? string.Empty,
                 DeviceName = entity.GetString("DeviceName") ?? string.Empty,
