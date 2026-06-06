@@ -65,6 +65,17 @@ namespace AutopilotMonitor.Functions.Services.Monitoring
         public async Task<double?> GetTotalAsync(
             string resourceId, string metricName, DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
         {
+            // Azure Monitor rejects ranges shorter than one minute (end must be >= start + 1min).
+            // This happens when a caller anchors "from" to start-of-day and the call lands on the
+            // 00:00 UTC boundary (from == to). Skip the round-trip rather than absorb a 400.
+            if (to - from < TimeSpan.FromMinutes(1))
+            {
+                _logger.LogDebug(
+                    "Skipping Azure Monitor query for {Metric}: range {From}..{To} is shorter than 1 minute",
+                    metricName, from, to);
+                return null;
+            }
+
             try
             {
                 var response = await _client.QueryResourceAsync(
