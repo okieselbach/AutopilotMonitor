@@ -63,6 +63,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private const int EventLogScanTimeoutMs = 2000;
         private const int AppWorkloadTailTimeoutMs = 1000;
 
+        // Cross-source caps for the aggregated probe result (enforced during merge).
+        private const int MaxRawSamples = 5;
+        private const int MaxActiveInstalls = 10;
+
         // Terminal ESP failure EventIDs in ModernDeployment-Diagnostics-Provider channels.
         // Conservative list — we prefer to NOT auto-terminate on unknown IDs and let the user decide.
         //
@@ -205,16 +209,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
             // Run each source best-effort; one failure does not skip the others.
             if (_sources.Contains("provisioning_registry"))
-                RunWithTimeout(() => ScanProvisioningRegistry(result), RegistryScanTimeoutMs, "provisioning_registry", result);
+                RunWithTimeout(ScanProvisioningRegistry, RegistryScanTimeoutMs, "provisioning_registry", result);
 
             if (_sources.Contains("diagnostics_registry"))
-                RunWithTimeout(() => ScanDiagnosticsRegistry(result), DiagnosticsRegistryScanTimeoutMs, "diagnostics_registry", result);
+                RunWithTimeout(ScanDiagnosticsRegistry, DiagnosticsRegistryScanTimeoutMs, "diagnostics_registry", result);
 
             if (_sources.Contains("eventlog"))
-                RunWithTimeout(() => ScanEventLogs(result), EventLogScanTimeoutMs, "eventlog", result);
+                RunWithTimeout(ScanEventLogs, EventLogScanTimeoutMs, "eventlog", result);
 
             if (_sources.Contains("appworkload_log"))
-                RunWithTimeout(() => ScanAppWorkloadTail(result), AppWorkloadTailTimeoutMs, "appworkload_log", result);
+                RunWithTimeout(ScanAppWorkloadTail, AppWorkloadTailTimeoutMs, "appworkload_log", result);
 
             result.DurationMs = (int)(DateTime.UtcNow - started).TotalMilliseconds;
 
@@ -266,27 +270,77 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             }
         }
 
-        private void RunWithTimeout(Action action, int timeoutMs, string sourceName, ProbeResult result)
+        private void RunWithTimeout(Action<ProbeResult> scan, int timeoutMs, string sourceName, ProbeResult result)
         {
-            try
+            // Enforce a real hard timeout: run the source on a dedicated background thread and
+            // join with the cap. A wedged source (e.g. an EventLogReader query that never returns,
+            // or a registry/file handle that blocks) would otherwise hang the IdleCheckCallback
+            // worker for the entire agent lifetime — and .NET has no safe way to abort the
+            // in-flight read. The scan writes into an isolated scratch result; we merge it into the
+            // live result only on in-time, successful completion. On timeout we abandon the worker
+            // (read-only + IsBackground, so it dies with the process and never touches the live
+            // result → no data race) and mark the source failed. The probe fires at most a handful
+            // of times per session (at the idle thresholds), so the per-source thread cost is
+            // negligible.
+            var scratch = new ProbeResult { ProbeIndex = result.ProbeIndex, IdleMinutes = result.IdleMinutes };
+            Exception captured = null;
+
+            var worker = new Thread(() =>
             {
-                // Run on the calling thread but guard against exceptions. We intentionally do not
-                // spawn a new thread per source — the IdleCheckCallback already runs on a worker
-                // thread, and spinning extra threads would be heavier than the work itself.
-                // The timeoutMs is enforced via source-internal reads (FileStream, Registry handles
-                // are using-scoped and the reads themselves are bounded).
-                var sw = System.Diagnostics.Stopwatch.StartNew();
-                action();
-                sw.Stop();
-                if (sw.ElapsedMilliseconds > timeoutMs)
-                {
-                    _logger.Warning($"StallProbeCollector: {sourceName} scan exceeded soft timeout ({sw.ElapsedMilliseconds}ms > {timeoutMs}ms)");
-                }
-            }
-            catch (Exception ex)
+                try { scan(scratch); }
+                catch (Exception ex) { captured = ex; }
+            })
             {
-                _logger.Warning($"StallProbeCollector: {sourceName} scan failed: {ex.Message}");
+                IsBackground = true,
+                Name = $"StallProbe-{sourceName}"
+            };
+
+            worker.Start();
+            bool completed = worker.Join(timeoutMs);
+
+            if (!completed)
+            {
+                _logger.Warning($"StallProbeCollector: {sourceName} scan exceeded hard timeout ({timeoutMs}ms) — abandoned");
                 result.SourcesFailed.Add(sourceName);
+                return;
+            }
+
+            if (captured != null)
+            {
+                _logger.Warning($"StallProbeCollector: {sourceName} scan failed: {captured.Message}");
+                result.SourcesFailed.Add(sourceName);
+                return;
+            }
+
+            MergeProbeResult(result, scratch);
+        }
+
+        // Folds a single source's scratch result into the aggregated probe result, enforcing the
+        // cross-source caps that the individual scans can only enforce within their own scope.
+        private static void MergeProbeResult(ProbeResult target, ProbeResult source)
+        {
+            target.Anomalies.AddRange(source.Anomalies);
+            target.SourcesFailed.AddRange(source.SourcesFailed);
+
+            foreach (var install in source.ActiveInstalls)
+            {
+                if (target.ActiveInstalls.Count >= MaxActiveInstalls)
+                    break;
+                if (!target.ActiveInstalls.Contains(install))
+                    target.ActiveInstalls.Add(install);
+            }
+
+            foreach (var sample in source.RawSamples)
+            {
+                if (target.RawSamples.Count >= MaxRawSamples)
+                    break;
+                target.RawSamples.Add(sample);
+            }
+
+            if (source.IsTerminal && !target.IsTerminal)
+            {
+                target.IsTerminal = true;
+                target.TerminalReason = source.TerminalReason;
             }
         }
 
@@ -308,7 +362,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         json.IndexOf("\"subcategoryState\":\"failed\"", StringComparison.OrdinalIgnoreCase) >= 0)
                     {
                         result.Anomalies.Add($"provisioning_registry:{valueName}");
-                        if (result.RawSamples.Count < 5)
+                        if (result.RawSamples.Count < MaxRawSamples)
                             result.RawSamples.Add($"{valueName}: {Truncate(json, 400)}");
                     }
                 }
@@ -374,7 +428,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                                     continue;
 
                                 foundCount++;
-                                if (result.RawSamples.Count < 5)
+                                if (result.RawSamples.Count < MaxRawSamples)
                                 {
                                     string desc = null;
                                     try { desc = record.FormatDescription(); }
@@ -433,7 +487,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     // Positive-signal scan: active installations recently logged.
                     foreach (Match m in ActiveInstallRegex.Matches(content))
                     {
-                        if (result.ActiveInstalls.Count < 10 && !result.ActiveInstalls.Contains(m.Value))
+                        if (result.ActiveInstalls.Count < MaxActiveInstalls && !result.ActiveInstalls.Contains(m.Value))
                             result.ActiveInstalls.Add(m.Value);
                     }
 
@@ -446,7 +500,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         int sampled = 0;
                         foreach (Match m in failureMatches)
                         {
-                            if (sampled >= 3 || result.RawSamples.Count >= 5)
+                            if (sampled >= 3 || result.RawSamples.Count >= MaxRawSamples)
                                 break;
                             // Extract the enclosing line for context.
                             int lineStart = content.LastIndexOf('\n', Math.Max(0, m.Index));
