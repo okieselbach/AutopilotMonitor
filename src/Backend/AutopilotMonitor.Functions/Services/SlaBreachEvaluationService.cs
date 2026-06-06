@@ -10,6 +10,7 @@ using AutopilotMonitor.Shared.Models.Config;
 using AutopilotMonitor.Shared.Pagination;
 using Microsoft.ApplicationInsights;
 using Microsoft.Extensions.Logging;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Services
 {
@@ -241,7 +242,7 @@ namespace AutopilotMonitor.Functions.Services
 
                     if (completed.Count > 0)
                     {
-                        var p95 = CalculatePercentile(completed, 95);
+                        var p95 = MetricsMath.Percentile(completed, 95);
                         var target = config.SlaTargetMaxDurationMinutes.Value;
                         var isBreaching = p95 > target;
                         if (isBreaching) breaches++;
@@ -746,13 +747,5 @@ namespace AutopilotMonitor.Functions.Services
             SlaBreachType.Duration => "CurrentMonth",
             _ => "CurrentPeriod",
         };
-
-        private static double CalculatePercentile(List<double> sortedValues, int percentile)
-        {
-            if (sortedValues.Count == 0) return 0;
-            var index = (int)Math.Ceiling(percentile / 100.0 * sortedValues.Count) - 1;
-            index = Math.Max(0, Math.Min(index, sortedValues.Count - 1));
-            return Math.Round(sortedValues[index], 1);
-        }
     }
 }

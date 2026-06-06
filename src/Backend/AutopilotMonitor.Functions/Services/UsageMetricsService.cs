@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Logging;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Services
 {
@@ -163,9 +164,9 @@ namespace AutopilotMonitor.Functions.Services
             {
                 var durations = completedSessions.Select(s => s.DurationSeconds!.Value / 60.0).OrderBy(d => d).ToList();
                 performanceMetrics.AvgDurationMinutes = Math.Round(durations.Average(), 1);
-                performanceMetrics.MedianDurationMinutes = CalculatePercentile(durations, 50);
-                performanceMetrics.P95DurationMinutes = CalculatePercentile(durations, 95);
-                performanceMetrics.P99DurationMinutes = CalculatePercentile(durations, 99);
+                performanceMetrics.MedianDurationMinutes = MetricsMath.Percentile(durations, 50);
+                performanceMetrics.P95DurationMinutes = MetricsMath.Percentile(durations, 95);
+                performanceMetrics.P99DurationMinutes = MetricsMath.Percentile(durations, 99);
             }
 
             // Hardware Metrics
@@ -306,9 +307,9 @@ namespace AutopilotMonitor.Functions.Services
             {
                 var durations = completedSessions.Select(s => s.DurationSeconds!.Value / 60.0).OrderBy(d => d).ToList();
                 performanceMetrics.AvgDurationMinutes = Math.Round(durations.Average(), 1);
-                performanceMetrics.MedianDurationMinutes = CalculatePercentile(durations, 50);
-                performanceMetrics.P95DurationMinutes = CalculatePercentile(durations, 95);
-                performanceMetrics.P99DurationMinutes = CalculatePercentile(durations, 99);
+                performanceMetrics.MedianDurationMinutes = MetricsMath.Percentile(durations, 50);
+                performanceMetrics.P95DurationMinutes = MetricsMath.Percentile(durations, 95);
+                performanceMetrics.P99DurationMinutes = MetricsMath.Percentile(durations, 99);
             }
 
             // Hardware Metrics
@@ -388,15 +389,6 @@ namespace AutopilotMonitor.Functions.Services
 
             var succeeded = sessions.Count(s => s.Status == SessionStatus.Succeeded);
             return Math.Round((succeeded / (double)completed) * 100, 1);
-        }
-
-        private double CalculatePercentile(List<double> sortedValues, int percentile)
-        {
-            if (sortedValues.Count == 0) return 0;
-
-            var index = (int)Math.Ceiling((percentile / 100.0) * sortedValues.Count) - 1;
-            index = Math.Max(0, Math.Min(index, sortedValues.Count - 1));
-            return Math.Round(sortedValues[index], 1);
         }
     }
 }

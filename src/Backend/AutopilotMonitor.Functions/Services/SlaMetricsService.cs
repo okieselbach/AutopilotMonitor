@@ -9,6 +9,7 @@ using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Metrics;
 using Microsoft.Extensions.Logging;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Services
 {
@@ -282,7 +283,7 @@ namespace AutopilotMonitor.Functions.Services
                 .ToList();
 
             var avgDuration = durations.Count > 0 ? Math.Round(durations.Average(), 1) : 0;
-            var p95Duration = CalculatePercentile(durations, 95);
+            var p95Duration = MetricsMath.Percentile(durations, 95);
 
             var durationTarget = config?.SlaTargetMaxDurationMinutes;
             var durationViolations = durationTarget.HasValue
@@ -302,15 +303,6 @@ namespace AutopilotMonitor.Functions.Services
                 SuccessRateMet = config?.SlaTargetSuccessRate == null || successRate >= (double)config.SlaTargetSuccessRate,
                 DurationTargetMet = durationTarget == null || p95Duration <= durationTarget.Value,
             };
-        }
-
-        private static double CalculatePercentile(List<double> sortedValues, int percentile)
-        {
-            if (sortedValues.Count == 0) return 0;
-
-            var index = (int)Math.Ceiling((percentile / 100.0) * sortedValues.Count) - 1;
-            index = Math.Max(0, Math.Min(index, sortedValues.Count - 1));
-            return Math.Round(sortedValues[index], 1);
         }
     }
 }

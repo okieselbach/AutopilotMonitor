@@ -11,6 +11,7 @@ using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Services
 {
@@ -112,9 +113,9 @@ namespace AutopilotMonitor.Functions.Services
             {
                 var durations = completedWithDuration.Select(s => s.DurationSeconds!.Value / 60.0).OrderBy(d => d).ToList();
                 avgDuration = Math.Round(durations.Average(), 1);
-                medianDuration = CalculatePercentile(durations, 50);
-                p95Duration = CalculatePercentile(durations, 95);
-                p99Duration = CalculatePercentile(durations, 99);
+                medianDuration = MetricsMath.Percentile(durations, 50);
+                p95Duration = MetricsMath.Percentile(durations, 95);
+                p99Duration = MetricsMath.Percentile(durations, 99);
             }
 
             var manufacturers = sessions
@@ -422,18 +423,6 @@ namespace AutopilotMonitor.Functions.Services
                 CacheControl = cacheControl
             });
             await blobClient.SetAccessTierAsync(AccessTier.Hot);
-        }
-
-        /// <summary>
-        /// Calculates percentile value from sorted list
-        /// </summary>
-        private double CalculatePercentile(List<double> sortedValues, int percentile)
-        {
-            if (sortedValues.Count == 0) return 0;
-
-            var index = (int)Math.Ceiling((percentile / 100.0) * sortedValues.Count) - 1;
-            index = Math.Max(0, Math.Min(index, sortedValues.Count - 1));
-            return Math.Round(sortedValues[index], 1);
         }
 
         /// <summary>
