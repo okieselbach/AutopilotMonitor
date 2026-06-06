@@ -334,6 +334,11 @@ namespace AutopilotMonitor.Functions.Services
                 int currentPhase = (int)EnrollmentPhase.Start;
                 string status = SessionStatus.InProgress.ToString();
                 int eventCount = 0;
+                // Cumulative script counters are maintained incrementally by IncrementSessionEventCountAsync.
+                // They MUST survive re-registration — the Replace below would otherwise zero them on every
+                // agent restart, undercounting scripts run before the restart and drifting Sessions vs. SessionsIndex.
+                int platformScriptCount = 0;
+                int remediationScriptCount = 0;
                 DateTime? completedAt = null;
                 string failureReason = string.Empty;
                 bool isPreProvisioned = registration.IsPreProvisioned;
@@ -367,6 +372,8 @@ namespace AutopilotMonitor.Functions.Services
                     currentPhase = existingEntity.GetInt32("CurrentPhase") ?? currentPhase;
                     status = existingEntity.GetString("Status") ?? status;
                     eventCount = existingEntity.GetInt32("EventCount") ?? eventCount;
+                    platformScriptCount = existingEntity.GetInt32("PlatformScriptCount") ?? platformScriptCount;
+                    remediationScriptCount = existingEntity.GetInt32("RemediationScriptCount") ?? remediationScriptCount;
                     completedAt = existingEntity.GetDateTimeOffset("CompletedAt")?.UtcDateTime;
                     failureReason = existingEntity.GetString("FailureReason") ?? string.Empty;
 
@@ -442,7 +449,9 @@ namespace AutopilotMonitor.Functions.Services
                     ["EnrollmentType"] = registration.EnrollmentType ?? "v1",
                     ["CurrentPhase"] = currentPhase,
                     ["Status"] = status,
-                    ["EventCount"] = eventCount
+                    ["EventCount"] = eventCount,
+                    ["PlatformScriptCount"] = platformScriptCount,
+                    ["RemediationScriptCount"] = remediationScriptCount
                 };
 
                 if (completedAt.HasValue)
