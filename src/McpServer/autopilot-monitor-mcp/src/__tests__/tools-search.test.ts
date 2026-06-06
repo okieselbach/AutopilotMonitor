@@ -10,11 +10,16 @@ import {
   normalizeRawEvent,
   scoreEvent,
   queryHasProblemIntent,
+  isProblemIntentKeyword,
   extractEventTypeCandidates,
   selectEventTypeCandidates,
   diversifyBySession,
   prioritizeFailureTypes,
   extractErrorCodeNeedles,
+  computeKeywordSpecificity,
+  orderBySelectivity,
+  dedupeSynonymConcepts,
+  entityRecallHint,
 } from '../tools/search.js';
 import { scanLexical } from '../search-provider.js';
 import type { SearchDocument } from '../search-provider.js';
@@ -72,6 +77,9 @@ function fakeClock(startMs = 0, stepMs = 0): () => number {
 }
 
 const BASE = '/api/raw/events';
+
+// Keep the test's notion of "rare" in sync with the implementation gate (RARE_THRESHOLD = 3).
+const RARE_THRESHOLD_FOR_TEST = 3;
 
 describe('fetchEventsViaIndex', () => {
   it('drains a single event type across pages and reports truncated=false', async () => {
@@ -545,6 +553,137 @@ describe('prioritizeFailureTypes', () => {
   it('is a no-op when no type is a failure signal', () => {
     const input = ['tpm_status', 'download_progress', 'desktop_arrived'];
     expect(prioritizeFailureTypes(input)).toEqual(input);
+  });
+});
+
+describe('isProblemIntentKeyword', () => {
+  it('flags failure-intent stems, not entity words', () => {
+    expect(isProblemIntentKeyword('failed')).toBe(true);
+    expect(isProblemIntentKeyword('timeout')).toBe(true);
+    expect(isProblemIntentKeyword('stuck')).toBe(true);
+    expect(isProblemIntentKeyword('bitlocker')).toBe(false);
+    expect(isProblemIntentKeyword('download')).toBe(false);
+  });
+});
+
+describe('computeKeywordSpecificity', () => {
+  it('rates a named entity as far rarer than a generic failure word', () => {
+    const spec = computeKeywordSpecificity(['bitlocker', 'failed', 'download']);
+    // "bitlocker" → only bitlocker_status; "failed" → the whole *_failed family.
+    expect(spec.get('bitlocker')).toBe(1);
+    expect(spec.get('download')!).toBeLessThanOrEqual(RARE_THRESHOLD_FOR_TEST);
+    expect(spec.get('failed')!).toBeGreaterThan(spec.get('bitlocker')!);
+    expect(spec.get('failed')!).toBeGreaterThan(RARE_THRESHOLD_FOR_TEST);
+  });
+});
+
+describe('dedupeSynonymConcepts', () => {
+  it('collapses two query words from the SAME synonym group to one concept', () => {
+    // "stuck" and "timeout" are one concept — must not double-count coverage.
+    expect(dedupeSynonymConcepts(['app', 'download', 'stuck', 'timeout'])).toEqual(['app', 'download', 'stuck']);
+  });
+  it('is a no-op when there are no intra-group duplicates', () => {
+    expect(dedupeSynonymConcepts(['bitlocker', 'encryption', 'failed'])).toEqual(['bitlocker', 'encryption', 'failed']);
+  });
+});
+
+describe('orderBySelectivity (fetch-fairness - rare named entity walked first)', () => {
+  it('puts the type selected by the RAREST keyword first, so it is not starved', () => {
+    const kws = ['bitlocker', 'encryption', 'failed'];
+    const spec = computeKeywordSpecificity(kws);
+    // enrollment_failed (generic "failed") must NOT precede bitlocker_status (rare "bitlocker").
+    const ordered = orderBySelectivity(['enrollment_failed', 'bitlocker_status'], kws, spec);
+    expect(ordered[0]).toBe('bitlocker_status');
+  });
+
+  it('preserves failure-priority as the within-selectivity tie-break', () => {
+    const kws = ['app', 'install'];
+    const spec = computeKeywordSpecificity(kws);
+    // app_install_failed / _started have the same selectivity → failure first (old behavior).
+    const ordered = orderBySelectivity(['app_install_started', 'app_install_failed'], kws, spec);
+    expect(ordered).toEqual(['app_install_failed', 'app_install_started']);
+  });
+});
+
+describe('scoreEvent — intra-query synonym de-dup', () => {
+  it('does not let a doubled timeout concept inflate an off-topic type above the named entity', () => {
+    const kws = ['app', 'download', 'stuck', 'timeout'];
+    const spec = computeKeywordSpecificity(kws);
+    // hello_wait_timeout matches only the timeout concept (stuck≡timeout → counted once);
+    // app_download_started matches the named entity "download" (+"app").
+    const hello = scoreEvent({ eventType: 'hello_wait_timeout', severity: 'Info' }, kws, true, undefined, spec)!;
+    const dl = scoreEvent({ eventType: 'app_download_started', severity: 'Info' }, kws, true, undefined, spec)!;
+    expect(dl.score).toBeGreaterThan(hello.score);
+  });
+});
+
+describe('scoreEvent — specificity-gated named-entity boost', () => {
+  it('lifts a rare Info entity (bitlocker_status) ABOVE a generic-failure Error on a problem query', () => {
+    const kws = ['bitlocker', 'encryption', 'failed'];
+    const spec = computeKeywordSpecificity(kws);
+    const entity = scoreEvent({ eventType: 'bitlocker_status', severity: 'Info' }, kws, true, undefined, spec)!;
+    const generic = scoreEvent({ eventType: 'enrollment_failed', severity: 'Error' }, kws, true, undefined, spec)!;
+    expect(entity.score).toBeGreaterThan(generic.score);
+  });
+
+  it('does NOT boost a high-volume benign type matched only by GENERIC words (no flood)', () => {
+    const kws = ['app', 'install', 'error'];
+    const spec = computeKeywordSpecificity(kws);
+    // "app"/"install" are not rare (>3 types) → app_install_started stays Info-damped, so a real
+    // failure still outranks it on a problem query.
+    const benign = scoreEvent({ eventType: 'app_install_started', severity: 'Info' }, kws, true, undefined, spec)!;
+    const failure = scoreEvent({ eventType: 'app_install_failed', severity: 'Error' }, kws, true, undefined, spec)!;
+    expect(failure.score).toBeGreaterThan(benign.score);
+  });
+
+  it('is inert without the specificity map (existing callers unaffected)', () => {
+    const kws = ['bitlocker', 'failed'];
+    const withMap = scoreEvent({ eventType: 'bitlocker_status', severity: 'Info' }, kws, true, undefined, computeKeywordSpecificity(kws))!;
+    const without = scoreEvent({ eventType: 'bitlocker_status', severity: 'Info' }, kws, true)!;
+    expect(withMap.score).toBeGreaterThan(without.score); // boost only applies when the map is present
+  });
+});
+
+describe('starvation repro — rare entity is captured within a tight budget once ordered first', () => {
+  it('orderBySelectivity + a 1-type budget fetches bitlocker_status, not the generic flood', async () => {
+    const kws = ['bitlocker', 'failed'];
+    const spec = computeKeywordSpecificity(kws);
+    const ordered = orderBySelectivity(['enrollment_failed', 'bitlocker_status'], kws, spec);
+
+    const pages: Record<string, Page> = {
+      [`${BASE}?eventType=bitlocker_status&pageSize=200`]: {
+        events: [{ sessionId: 'b1', eventType: 'bitlocker_status' }],
+        // drains in one page
+      },
+      [`${BASE}?eventType=enrollment_failed&pageSize=200`]: {
+        events: [{ sessionId: 'e1', eventType: 'enrollment_failed' }],
+      },
+    };
+
+    // Wall-clock expires after the FIRST type's page (deadline=10: pre-loop now()=0 sets it,
+    // the bitlocker_status check at now()=8 passes, the enrollment_failed check at now()=16 trips).
+    const res = await fetchEventsViaIndex(
+      ordered, BASE, undefined,
+      { maxPagesPerType: 5, wallClockMs: 10 },
+      fakeFetcher(pages), fakeClock(0, 8),
+    );
+
+    // Pre-fix (failure-first order) this would fetch enrollment_failed and starve bitlocker_status.
+    expect(res.events.map((e) => e.eventType)).toContain('bitlocker_status');
+    expect(res.truncated).toBe(true); // budget genuinely cut the walk short
+  });
+});
+
+describe('entityRecallHint', () => {
+  it('names the entity event type for exhaustive recall', () => {
+    const kws = ['bitlocker', 'failed'];
+    const hint = entityRecallHint(kws, computeKeywordSpecificity(kws));
+    expect(hint).toContain('bitlocker_status');
+    expect(hint).toContain('search_sessions_by_event');
+  });
+  it('returns undefined when no rare named entity is present', () => {
+    const kws = ['enrollment', 'failed'];
+    expect(entityRecallHint(kws, computeKeywordSpecificity(kws))).toBeUndefined();
   });
 });
 

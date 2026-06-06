@@ -297,7 +297,7 @@ export async function fetchEventsViaIndex(
  * `recallNote` let the model react (narrow the query) instead of trusting a
  * silently-capped result.
  */
-function recallSummary(searchMethod: string, truncated: boolean): { truncated: boolean; recallNote?: string } {
+function recallSummary(searchMethod: string, truncated: boolean, entityRecallHint?: string): { truncated: boolean; recallNote?: string } {
   if (searchMethod === 'legacy-failed-sessions') {
     return {
       truncated: true,
@@ -313,10 +313,27 @@ function recallSummary(searchMethod: string, truncated: boolean): { truncated: b
       recallNote:
         'The scan stopped at its page/time budget before draining every matching session, so results are ' +
         'incomplete. Narrow the query (add a sessionId, a specific eventType, or tighter keywords), or use ' +
-        'search_sessions_by_event / get_session_events for exhaustive per-type recall.',
+        'search_sessions_by_event / get_session_events for exhaustive per-type recall.' +
+        (entityRecallHint ? ` ${entityRecallHint}` : ''),
     };
   }
   return { truncated: false };
+}
+
+/**
+ * Build a recallNote suffix that names the SPECIFIC event type(s) behind a rare named-entity
+ * keyword, so a truncated entity query (e.g. "BitLocker…") points straight at
+ * search_sessions_by_event(eventType="bitlocker_status") for exhaustive recall.
+ */
+export function entityRecallHint(keywords: string[], specificity: Map<string, number>): string | undefined {
+  const types = [...new Set(
+    keywords
+      .filter((kw) => !isProblemIntentKeyword(kw) && (specificity.get(kw) ?? Infinity) <= RARE_THRESHOLD)
+      .flatMap((kw) => extractEventTypeCandidates([kw])),
+  )].slice(0, 3);
+  if (types.length === 0) return undefined;
+  return `For the named entity, scan its exact type(s) exhaustively: ` +
+    `search_sessions_by_event(eventType="${types.join('" / "')}").`;
 }
 
 /**
@@ -377,6 +394,7 @@ async function fetchSessionEvents(
   budget: FetchBudget = DEEP_BUDGET,
   query = '',
   eventTypeIndex?: SearchProvider,
+  keywordSpecificity: Map<string, number> = new Map(),
 ): Promise<{ events: EventEntry[]; sessionIds: string[]; searchMethod: string; truncated: boolean; semanticTypeScores: Map<string, number> }> {
   const noSemanticScores = new Map<string, number>();
 
@@ -393,9 +411,11 @@ async function fetchSessionEvents(
   if (queryKeywords && queryKeywords.length > 0) {
     const { candidates: ranked, semanticTypeScores } = await selectEventTypeCandidates(query, queryKeywords, eventTypeIndex);
     if (ranked.length > 0) {
-      // On a problem query, walk failure-signal types first so they survive the cap AND are
-      // fetched before high-volume benign types exhaust the budget (see prioritizeFailureTypes).
-      const ordered = queryHasProblemIntent(queryKeywords) ? prioritizeFailureTypes(ranked) : ranked;
+      // Walk the type selected by the RAREST query keyword first, so the specific type the user
+      // named (bitlocker_status, app_download_started) is fetched before a high-volume generic
+      // type (enrollment_failed) drains the budget. Failure-priority is preserved as the within-
+      // selectivity tie-break (see orderBySelectivity / prioritizeFailureTypes).
+      const ordered = orderBySelectivity(ranked, queryKeywords, keywordSpecificity);
       // Cap the per-type fan-out to the most-relevant types. If we dropped any,
       // recall is partial → flag truncated rather than silently narrowing. (Legacy
       // is reserved for the genuine "no keyword maps to any event type" case below.)
@@ -529,11 +549,14 @@ const PROBLEM_INTENT_STEMS = [
   'problem', 'issue', 'stall', 'retry', 'retries', 'missing',
 ];
 
+/** True when a single keyword carries failure/anomaly intent (prefix-aware, both directions). */
+export function isProblemIntentKeyword(kw: string): boolean {
+  return PROBLEM_INTENT_STEMS.some((stem) => kw.startsWith(stem) || (kw.length >= 4 && stem.startsWith(kw)));
+}
+
 /** True when the query keywords imply the caller is looking for a problem. */
 export function queryHasProblemIntent(keywords: string[]): boolean {
-  return keywords.some((kw) =>
-    PROBLEM_INTENT_STEMS.some((stem) => kw.startsWith(stem) || (kw.length >= 4 && stem.startsWith(kw))),
-  );
+  return keywords.some(isProblemIntentKeyword);
 }
 
 const MIN_PREFIX_LEN = 4;
@@ -549,6 +572,77 @@ function prefixAwareMatch(text: string, keyword: string): boolean {
     if (word.slice(0, prefixLen) === keyword.slice(0, prefixLen)) return true;
   }
   return false;
+}
+
+/**
+ * A keyword that selects FEW event types is far more discriminating than one that selects many:
+ * "bitlocker" maps to a single type (bitlocker_status), "failed" to ~7. We use this specificity to
+ * (a) walk the rare-keyword type FIRST so it isn't starved out of the budget by a high-volume
+ * generic-failure type (orderBySelectivity), and (b) protect a rare named-entity type-match from
+ * the problem-intent Info damp (scoreEvent's entity boost). The count is over the full known-type
+ * catalog via the same prefix-aware match the candidate selection uses, so it is consistent with
+ * which types a keyword would actually fetch.
+ */
+export function computeKeywordSpecificity(keywords: string[]): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const kw of keywords) {
+    if (m.has(kw)) continue;
+    m.set(kw, KNOWN_EVENT_TYPES.reduce((n, et) => n + (prefixAwareMatch(et, kw) ? 1 : 0), 0));
+  }
+  return m;
+}
+
+/** Keyword type-match count at/below this is treated as a discriminating named entity (e.g. "bitlocker"=1, "download"=2). */
+const RARE_THRESHOLD = 3;
+
+/**
+ * Severity-intent multiplier for an event whose TYPE was matched by a rare, non-problem entity
+ * keyword on a problem query. Above the 1.5 failure boost so the specifically-named entity
+ * (bitlocker_status, Info) deterministically clears the generic-failure flood (enrollment_failed,
+ * Error ×1.5) instead of being damped ×0.6 as a benign Info event.
+ */
+const ENTITY_BOOST = 1.6;
+
+/**
+ * Selectivity of an event type = the rarest specificity among the query keywords that lexically
+ * match it (lower = more discriminating). A type matched by no keyword (semantic-only recall extra)
+ * gets +Infinity so it sorts last. Used as the primary candidate-walk order key.
+ */
+function typeSelectivity(eventType: string, keywords: string[], specificity: Map<string, number>): number {
+  let best = Infinity;
+  for (const kw of keywords) {
+    if (prefixAwareMatch(eventType, kw)) {
+      const s = specificity.get(kw) ?? Infinity;
+      if (s < best) best = s;
+    }
+  }
+  return best;
+}
+
+/**
+ * Order candidate event types for the cross-session walk so the type selected by the RAREST query
+ * keyword is fetched first. This is the fix for candidate-walk starvation: a depth-first walk that
+ * led with a high-volume generic-failure type (enrollment_failed, hello_wait_timeout) drained the
+ * page/wall-clock budget before the specific type the user actually named (bitlocker_status,
+ * app_download_started) was ever fetched. Ordering rarest-keyword-first lets the cheap specific
+ * type drain in one page and be captured before the budget is spent.
+ *
+ * Ties (same selectivity) preserve the old behavior: prioritizeFailureTypes runs WITHIN each
+ * selectivity bucket, so among equally-specific types a failure type (app_install_failed) still
+ * walks before a benign high-volume one (app_install_started). The sort is stable, so the incoming
+ * relevance order (keyword-hit count, then semantic) is otherwise preserved.
+ */
+export function orderBySelectivity(types: string[], keywords: string[], specificity: Map<string, number>): string[] {
+  const buckets = new Map<number, string[]>();
+  for (const t of types) {
+    const sel = typeSelectivity(t, keywords, specificity);
+    const bucket = buckets.get(sel) ?? [];
+    bucket.push(t);
+    buckets.set(sel, bucket);
+  }
+  return [...buckets.keys()]
+    .sort((a, b) => a - b)
+    .flatMap((sel) => prioritizeFailureTypes(buckets.get(sel)!));
 }
 
 /**
@@ -575,6 +669,28 @@ const SYNONYM_LOOKUP: ReadonlyMap<string, readonly string[]> = (() => {
   }
   return m;
 })();
+
+/**
+ * Collapse query keywords that fall in the SAME synonym group down to one representative concept
+ * (first occurrence kept), preserving order and keeping non-synonym keywords as-is. Because
+ * keywordMatchesField already expands a single keyword to its whole group, one representative per
+ * group is sufficient — and it stops a query that spells the same concept two ways (e.g. "stuck"
+ * AND "timeout") from counting as two matched keywords, which inflated coverage for off-topic types.
+ * A no-op for queries with no intra-group duplicates.
+ */
+export function dedupeSynonymConcepts(keywords: string[]): string[] {
+  const seenGroups = new Set<readonly string[]>();
+  const out: string[] = [];
+  for (const kw of keywords) {
+    const group = SYNONYM_LOOKUP.get(kw);
+    if (group) {
+      if (seenGroups.has(group)) continue;
+      seenGroups.add(group);
+    }
+    out.push(kw);
+  }
+  return out;
+}
 
 /**
  * Match a SYNONYM at word granularity (whole word, or a shared word-prefix of >= MIN_PREFIX_LEN),
@@ -628,12 +744,18 @@ type ScoredEvent = {
  * lift events whose severity/type marks a failure and damp benign Info/Trace
  * events so a successful `enrollment_complete` can't outrank a real error just
  * because it incidentally matched a keyword. A no-op (1.0) when intent is absent.
+ *
+ * `entityTypeMatch` is set when this event's TYPE was matched by a rare, non-problem entity
+ * keyword (e.g. "bitlocker" → bitlocker_status): such an event is exactly what the user named,
+ * so it gets ENTITY_BOOST instead of the benign-Info damp — see scoreEvent. The benign-health
+ * detection guard still wins (a mis-stamped compliant detection is never the named entity).
  */
-function severityIntentFactor(e: EventEntry, boostFailures: boolean): number {
+function severityIntentFactor(e: EventEntry, boostFailures: boolean, entityTypeMatch = false): number {
   if (!boostFailures) return 1;
   // A compliant health-script detection mis-stamped script_failed/Error is benign — damp it
   // like an Info event so it can't outrank (or sit alongside) real failures on a problem query.
   if (isBenignHealthDetectionReport(e.eventType, e.data)) return 0.6;
+  if (entityTypeMatch) return ENTITY_BOOST;
   const sev = (e.severity ?? '').toLowerCase();
   const type = (e.eventType ?? '').toLowerCase();
   if (sev === 'error' || sev === 'critical' || type.includes('failed') || type === 'error_detected') return 1.5;
@@ -652,12 +774,18 @@ function severityIntentFactor(e: EventEntry, boostFailures: boolean): number {
  * gate (e.g. `system_reboot_detected` for "machine restarted unexpectedly"). A strong
  * lexical match still outranks a semantic-only one. Omitted (single-session / legacy) → the
  * scorer behaves exactly as a pure-keyword scorer and returns null on no keyword match.
+ *
+ * `keywordSpecificity` (optional) carries each query keyword's type-match count. When a RARE,
+ * non-problem keyword matches the event TYPE, the event is the specifically-named entity and
+ * earns the ENTITY_BOOST (not the benign-Info damp) on a problem query — see severityIntentFactor.
+ * Omitted → no entity boost (old behavior), which is why the existing unit tests are unaffected.
  */
 export function scoreEvent(
   e: EventEntry,
   queryKeywords: string[],
   boostFailures = false,
   semanticTypeScores?: Map<string, number>,
+  keywordSpecificity?: Map<string, number>,
 ): ScoredEvent | null {
   const fields: Array<{ name: string; text: string; weight: number }> = [
     { name: 'eventType', text: (e.eventType ?? '').toLowerCase(), weight: FIELD_WEIGHTS.eventType },
@@ -667,11 +795,17 @@ export function scoreEvent(
     { name: 'data', text: e.data ? JSON.stringify(e.data).toLowerCase() : '', weight: FIELD_WEIGHTS.data },
   ];
 
+  // Collapse query keywords that share a synonym group to a single concept so two query words
+  // expressing ONE idea (e.g. "stuck" + "timeout") don't double-count coverage/score against an
+  // off-topic type (hello_wait_timeout) and outrank the actually-named entity (app_download_started).
+  const concepts = dedupeSynonymConcepts(queryKeywords);
+
   let totalScore = 0;
   const matched: string[] = [];
   const bestFields = new Set<string>();
+  let entityTypeMatch = false;
 
-  for (const kw of queryKeywords) {
+  for (const kw of concepts) {
     let kwBestWeight = 0;
     let kwBestField = '';
     for (const field of fields) {
@@ -686,6 +820,11 @@ export function scoreEvent(
       totalScore += kwBestWeight;
       matched.push(kw);
       bestFields.add(kwBestField);
+      // A rare, non-problem keyword matching the event TYPE marks this as the named entity.
+      if (kwBestField === 'eventType' && !isProblemIntentKeyword(kw)
+        && (keywordSpecificity?.get(kw) ?? Infinity) <= RARE_THRESHOLD) {
+        entityTypeMatch = true;
+      }
     }
   }
 
@@ -697,12 +836,12 @@ export function scoreEvent(
 
   if (matched.length === 0 && semanticFloor === 0) return null;
 
-  // Lexical score: normalize (max = all keywords matching in eventType, weight 3.0) +
+  // Lexical score: normalize (max = all concepts matching in eventType, weight 3.0) +
   // coverage bonus, then align with problem intent.
-  const maxPossible = queryKeywords.length * FIELD_WEIGHTS.eventType;
+  const maxPossible = concepts.length * FIELD_WEIGHTS.eventType;
   const normalizedScore = maxPossible > 0 ? totalScore / maxPossible : 0;
-  const coverageBonus = (matched.length / queryKeywords.length) * 0.2;
-  const intent = severityIntentFactor(e, boostFailures);
+  const coverageBonus = concepts.length > 0 ? (matched.length / concepts.length) * 0.2 : 0;
+  const intent = severityIntentFactor(e, boostFailures, entityTypeMatch);
   const lexicalScore = (normalizedScore + coverageBonus) * intent;
 
   // Semantic-only matches are damped by intent too, so a benign Info event of a
@@ -835,13 +974,17 @@ export function registerSearchTools(
             MAX_RESULT_SIZE_CHARS.small);
         }
 
+        // Keyword specificity drives both candidate-walk order (rare type first, no starvation)
+        // and the scorer's named-entity boost.
+        const keywordSpecificity = computeKeywordSpecificity(queryKeywords);
+
         const { events, sessionIds, searchMethod, truncated, semanticTypeScores } =
-          await fetchSessionEvents(sessionId, tenantId, queryKeywords, preset.budget, query, eventTypeIndex);
+          await fetchSessionEvents(sessionId, tenantId, queryKeywords, preset.budget, query, eventTypeIndex, keywordSpecificity);
 
         const boostFailures = queryHasProblemIntent(queryKeywords);
         const scored: Array<ScoredEvent & { event: EventEntry }> = [];
         for (let i = 0; i < events.length; i++) {
-          const result = scoreEvent(events[i], queryKeywords, boostFailures, semanticTypeScores);
+          const result = scoreEvent(events[i], queryKeywords, boostFailures, semanticTypeScores, keywordSpecificity);
           if (result && result.score >= minScore) {
             scored.push({ ...result, index: i, event: events[i] });
           }
@@ -879,7 +1022,7 @@ export function registerSearchTools(
           resultCount: results.length,
           semanticOnlyCount,
           matchedSessionIds,
-          ...recallSummary(searchMethod, truncated),
+          ...recallSummary(searchMethod, truncated, entityRecallHint(queryKeywords, keywordSpecificity)),
           results,
         }, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
