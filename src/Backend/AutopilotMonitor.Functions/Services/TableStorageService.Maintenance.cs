@@ -74,14 +74,15 @@ namespace AutopilotMonitor.Functions.Services
         /// Gets audit log entries for a tenant within an optional UTC date window.
         /// No row cap — returns the full filtered set, sorted newest-first.
         /// </summary>
-        public async Task<List<AuditLogEntry>> GetAuditLogsAsync(string tenantId, DateTime? dateFrom = null, DateTime? dateTo = null)
+        public async Task<List<AuditLogEntry>> GetAuditLogsAsync(string tenantId, DateTime? dateFrom = null, DateTime? dateTo = null,
+            AuditLogQueryFilters? filters = null)
         {
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
 
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AuditLogs);
-                var filter = BuildAuditLogFilter(tenantId, dateFrom, dateTo);
+                var filter = BuildAuditLogFilter(tenantId, dateFrom, dateTo, excludeDeletions: false, filters);
                 var query = tableClient.QueryAsync<TableEntity>(filter: filter);
 
                 var logs = new List<AuditLogEntry>();
@@ -102,12 +103,13 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Gets audit log entries across all tenants (Global Admin Mode), optional UTC window.
         /// </summary>
-        public async Task<List<AuditLogEntry>> GetAllAuditLogsAsync(DateTime? dateFrom = null, DateTime? dateTo = null)
+        public async Task<List<AuditLogEntry>> GetAllAuditLogsAsync(DateTime? dateFrom = null, DateTime? dateTo = null,
+            AuditLogQueryFilters? filters = null)
         {
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AuditLogs);
-                var filter = BuildAuditLogFilter(tenantId: null, dateFrom, dateTo);
+                var filter = BuildAuditLogFilter(tenantId: null, dateFrom, dateTo, excludeDeletions: false, filters);
                 var query = string.IsNullOrEmpty(filter)
                     ? tableClient.QueryAsync<TableEntity>()
                     : tableClient.QueryAsync<TableEntity>(filter: filter);
@@ -129,21 +131,21 @@ namespace AutopilotMonitor.Functions.Services
 
         public Task<RawPage<AuditLogEntry>> GetAuditLogsPageAsync(
             string tenantId, DateTime? dateFrom, DateTime? dateTo, int pageSize, string? continuation,
-            bool excludeDeletions = false)
+            bool excludeDeletions = false, AuditLogQueryFilters? filters = null)
         {
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
             return FetchAuditLogPageInternalAsync(
-                BuildAuditLogFilter(tenantId, dateFrom, dateTo, excludeDeletions), pageSize, continuation);
+                BuildAuditLogFilter(tenantId, dateFrom, dateTo, excludeDeletions, filters), pageSize, continuation);
         }
 
         public Task<RawPage<AuditLogEntry>> GetAllAuditLogsPageAsync(
             DateTime? dateFrom, DateTime? dateTo, int pageSize, string? continuation,
-            bool excludeDeletions = false)
+            bool excludeDeletions = false, AuditLogQueryFilters? filters = null)
         {
             // Cross-tenant: per-tenant fan-out + merge by RowKey. Without this
             // fan-out Azure pages by (PK asc, RK asc) cross-partition, surfacing
             // tenants alphabetically rather than newest-first globally.
-            return FetchAllAuditLogsPageAsync(dateFrom, dateTo, pageSize, continuation, excludeDeletions);
+            return FetchAllAuditLogsPageAsync(dateFrom, dateTo, pageSize, continuation, excludeDeletions, filters);
         }
 
         // Upper bound on Azure round-trips per page when back-filling past
@@ -206,7 +208,8 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         private async Task<RawPage<AuditLogEntry>> FetchAllAuditLogsPageAsync(
-            DateTime? dateFrom, DateTime? dateTo, int pageSize, string? continuation, bool excludeDeletions)
+            DateTime? dateFrom, DateTime? dateTo, int pageSize, string? continuation, bool excludeDeletions,
+            AuditLogQueryFilters? filters = null)
         {
             if (pageSize < 1) throw new ArgumentOutOfRangeException(nameof(pageSize));
             try
@@ -252,7 +255,7 @@ namespace AutopilotMonitor.Functions.Services
                 var fetchTasks = activeTenantIds.Select(async tid =>
                 {
                     continuations.TryGetValue(tid, out var prior);
-                    var tenantFilter = BuildAuditLogFilterWithRowKeyBound(tid, dateFrom, dateTo, prior?.LastRowKey, excludeDeletions);
+                    var tenantFilter = BuildAuditLogFilterWithRowKeyBound(tid, dateFrom, dateTo, prior?.LastRowKey, excludeDeletions, filters);
                     var fetched = new List<(string RowKey, AuditLogEntry Item)>();
                     await foreach (var e in tableClient.QueryAsync<TableEntity>(filter: tenantFilter, maxPerPage: pageSize))
                     {
@@ -306,8 +309,29 @@ namespace AutopilotMonitor.Functions.Services
         internal static string DeletionExclusionClause()
             => $"Action ne '{AuditLogDeletionStartedAction}' and Action ne '{AuditLogDeletionCompletedAction}'";
 
+        // Escapes a string literal for an OData filter (single quotes are doubled).
+        private static string EscapeOData(string value) => value.Replace("'", "''");
+
+        // Appends optional exact-match field-filter clauses (action / performedBy /
+        // entityType / entityId). Shared by the tenant and global filter builders so
+        // both audit views filter identically — a drift would silently scope the two
+        // paths differently. Each non-empty value becomes a server-side `eq` clause.
+        private static void AppendAuditFieldFilters(List<string> clauses, AuditLogQueryFilters? filters)
+        {
+            if (filters == null) return;
+            if (!string.IsNullOrEmpty(filters.Action))
+                clauses.Add($"Action eq '{EscapeOData(filters.Action!)}'");
+            if (!string.IsNullOrEmpty(filters.PerformedBy))
+                clauses.Add($"PerformedBy eq '{EscapeOData(filters.PerformedBy!)}'");
+            if (!string.IsNullOrEmpty(filters.EntityType))
+                clauses.Add($"EntityType eq '{EscapeOData(filters.EntityType!)}'");
+            if (!string.IsNullOrEmpty(filters.EntityId))
+                clauses.Add($"EntityId eq '{EscapeOData(filters.EntityId!)}'");
+        }
+
         internal static string BuildAuditLogFilterWithRowKeyBound(
-            string tenantId, DateTime? dateFrom, DateTime? dateTo, string? lastRowKey, bool excludeDeletions)
+            string tenantId, DateTime? dateFrom, DateTime? dateTo, string? lastRowKey, bool excludeDeletions,
+            AuditLogQueryFilters? filters = null)
         {
             var clauses = new List<string>
             {
@@ -316,6 +340,7 @@ namespace AutopilotMonitor.Functions.Services
             };
             if (excludeDeletions)
                 clauses.Add(DeletionExclusionClause());
+            AppendAuditFieldFilters(clauses, filters);
             if (!string.IsNullOrEmpty(lastRowKey))
                 clauses.Add($"RowKey gt '{lastRowKey!.Replace("'", "''")}'");
             if (dateFrom.HasValue)
@@ -341,7 +366,8 @@ namespace AutopilotMonitor.Functions.Services
         // sortable; the user-defined "Timestamp" property is set by LogAuditEntry
         // for parity with the model. We filter on the system Timestamp since it
         // is always indexed.
-        internal static string? BuildAuditLogFilter(string? tenantId, DateTime? dateFrom, DateTime? dateTo, bool excludeDeletions = false)
+        internal static string? BuildAuditLogFilter(string? tenantId, DateTime? dateFrom, DateTime? dateTo,
+            bool excludeDeletions = false, AuditLogQueryFilters? filters = null)
         {
             var clauses = new List<string>
             {
@@ -351,6 +377,7 @@ namespace AutopilotMonitor.Functions.Services
             {
                 clauses.Add(DeletionExclusionClause());
             }
+            AppendAuditFieldFilters(clauses, filters);
             if (!string.IsNullOrEmpty(tenantId))
             {
                 clauses.Add($"PartitionKey eq '{tenantId}'");

@@ -49,15 +49,22 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 var excludeDeletions = string.Equals(query["excludeDeletions"], "true", StringComparison.OrdinalIgnoreCase);
                 var fingerprintScope = excludeDeletions ? "audit:tenant:nodel" : "audit:tenant";
 
+                // Optional exact-match field filters (action / performedBy / entityType /
+                // entityId). Folded into the fingerprint (via filterExtras) so a token
+                // minted for one filter set can't be replayed against another, and echoed
+                // on nextLink so the follow-up request re-parses an identical set.
+                var filters = AuditLogFilterRequest.Parse(query);
+                var filterExtras = AuditLogFilterRequest.ToExtras(filters);
+
                 _logger.LogInformation(
-                    "Fetching audit logs (tenant={TenantId}, dateFrom={DateFrom}, dateTo={DateTo}, pageSize={PageSize}, hasContinuation={HasContinuation}, excludeDeletions={ExcludeDeletions}) for user {User}",
+                    "Fetching audit logs (tenant={TenantId}, dateFrom={DateFrom}, dateTo={DateTo}, pageSize={PageSize}, hasContinuation={HasContinuation}, excludeDeletions={ExcludeDeletions}, filters={FilterCount}) for user {User}",
                     tenantId, parsed.DateFrom, parsed.DateTo,
-                    parsed.PageSize?.ToString() ?? "all", parsed.Continuation != null, excludeDeletions,
+                    parsed.PageSize?.ToString() ?? "all", parsed.Continuation != null, excludeDeletions, filterExtras.Count,
                     userIdentifier);
 
                 if (parsed.PageSize == null)
                 {
-                    var logs = await _maintenanceRepo.GetAuditLogsAsync(tenantId, parsed.DateFrom, parsed.DateTo);
+                    var logs = await _maintenanceRepo.GetAuditLogsAsync(tenantId, parsed.DateFrom, parsed.DateTo, filters);
                     return await req.OkAsync(new { success = true, count = logs.Count, logs });
                 }
 
@@ -70,7 +77,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                             callerTenantId: tenantId,
                             dateFrom: parsed.DateFrom,
                             dateTo: parsed.DateTo,
-                            extras: null,
+                            extras: filterExtras,
                             out azureToken,
                             out var rejectReason))
                     {
@@ -86,7 +93,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 }
 
                 var page = await _maintenanceRepo.GetAuditLogsPageAsync(
-                    tenantId, parsed.DateFrom, parsed.DateTo, parsed.PageSize.Value, azureToken, excludeDeletions);
+                    tenantId, parsed.DateFrom, parsed.DateTo, parsed.PageSize.Value, azureToken, excludeDeletions, filters);
 
                 string? nextLink = null;
                 if (!string.IsNullOrEmpty(page.NextRawToken))
@@ -95,17 +102,22 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                         scope: fingerprintScope,
                         callerTenantId: tenantId,
                         dateFrom: parsed.DateFrom,
-                        dateTo: parsed.DateTo);
+                        dateTo: parsed.DateTo,
+                        extras: filterExtras);
                     var wireToken = ContinuationToken.Encode(page.NextRawToken!, tenantId, fp);
+                    // nextLink must carry both the filter params (so the follow-up
+                    // recomputes an identical fingerprint) and excludeDeletions (which
+                    // is bound via the scope string, re-derived from the echoed param).
+                    var nextLinkExtras = new List<KeyValuePair<string, string?>>(filterExtras);
+                    if (excludeDeletions)
+                        nextLinkExtras.Add(new KeyValuePair<string, string?>("excludeDeletions", "true"));
                     nextLink = DateWindowPagination.BuildNextLink(
                         basePath: "/api/audit/logs",
                         pageSize: parsed.PageSize.Value,
                         wireContinuation: wireToken,
                         dateFrom: parsed.DateFrom,
                         dateTo: parsed.DateTo,
-                        extras: excludeDeletions
-                            ? new[] { new KeyValuePair<string, string?>("excludeDeletions", "true") }
-                            : null);
+                        extras: nextLinkExtras);
                 }
 
                 return await req.OkAsync(new

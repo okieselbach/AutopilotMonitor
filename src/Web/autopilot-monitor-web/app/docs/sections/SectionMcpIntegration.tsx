@@ -267,7 +267,7 @@ export function SectionMcpIntegration() {
                 </tr>
                 <tr>
                   <td className="py-2 pr-4 font-mono text-xs text-amber-700">get_audit_logs</td>
-                  <td className="py-2 text-gray-600">Audit trail of configuration changes, device blocks, and user management actions. Returns up to 100 most recent entries.</td>
+                  <td className="py-2 text-gray-600">Audit trail of configuration changes, device blocks, and user management actions. Filterable by date window, action, actor (performedBy), entity type, and entity id; paginated.</td>
                 </tr>
               </tbody>
             </table>

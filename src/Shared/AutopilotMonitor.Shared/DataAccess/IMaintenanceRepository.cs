@@ -23,10 +23,12 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// No row cap — callers passing very wide windows MUST consider
         /// <see cref="GetAuditLogsPageAsync"/> to bound memory.
         /// </summary>
-        Task<List<AuditLogEntry>> GetAuditLogsAsync(string tenantId, DateTime? dateFrom = null, DateTime? dateTo = null);
+        Task<List<AuditLogEntry>> GetAuditLogsAsync(string tenantId, DateTime? dateFrom = null, DateTime? dateTo = null,
+            AuditLogQueryFilters? filters = null);
 
         /// <summary>Cross-tenant variant of <see cref="GetAuditLogsAsync"/> (Global Admin only).</summary>
-        Task<List<AuditLogEntry>> GetAllAuditLogsAsync(DateTime? dateFrom = null, DateTime? dateTo = null);
+        Task<List<AuditLogEntry>> GetAllAuditLogsAsync(DateTime? dateFrom = null, DateTime? dateTo = null,
+            AuditLogQueryFilters? filters = null);
 
         /// <summary>
         /// Reads a single page of audit log entries for <paramref name="tenantId"/>
@@ -41,12 +43,12 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// </summary>
         Task<RawPage<AuditLogEntry>> GetAuditLogsPageAsync(
             string tenantId, DateTime? dateFrom, DateTime? dateTo, int pageSize, string? continuation,
-            bool excludeDeletions = false);
+            bool excludeDeletions = false, AuditLogQueryFilters? filters = null);
 
         /// <summary>Cross-tenant variant of <see cref="GetAuditLogsPageAsync"/> (Global Admin only).</summary>
         Task<RawPage<AuditLogEntry>> GetAllAuditLogsPageAsync(
             DateTime? dateFrom, DateTime? dateTo, int pageSize, string? continuation,
-            bool excludeDeletions = false);
+            bool excludeDeletions = false, AuditLogQueryFilters? filters = null);
 
         // --- Data Retention Queries ---
         Task<List<SessionSummary>> GetSessionsOlderThanAsync(string tenantId, DateTime cutoffDate);
@@ -94,6 +96,35 @@ namespace AutopilotMonitor.Shared.DataAccess
         public string SessionId { get; set; } = string.Empty;
         public DateTime LastIngestAt { get; set; }
         public int EventCount { get; set; }
+    }
+
+    /// <summary>
+    /// Optional exact-match field filters for audit-log queries. Each non-empty
+    /// value is folded into the server-side OData filter (and the pagination
+    /// fingerprint by the calling function), so a filtered query never falls back
+    /// to in-memory scanning and pagination tokens stay bound to the filter set.
+    /// All matches are case-sensitive equality on the stored column.
+    /// </summary>
+    public class AuditLogQueryFilters
+    {
+        /// <summary>Exact match on the <c>Action</c> column (e.g. "config_updated", "device_blocked").</summary>
+        public string? Action { get; set; }
+
+        /// <summary>Exact match on the <c>PerformedBy</c> column (the actor UPN).</summary>
+        public string? PerformedBy { get; set; }
+
+        /// <summary>Exact match on the <c>EntityType</c> column (e.g. "TenantConfiguration", "Device").</summary>
+        public string? EntityType { get; set; }
+
+        /// <summary>Exact match on the <c>EntityId</c> column (the affected entity's id).</summary>
+        public string? EntityId { get; set; }
+
+        /// <summary>True when no filter field is set — callers can skip the filter plumbing entirely.</summary>
+        public bool IsEmpty =>
+            string.IsNullOrEmpty(Action) &&
+            string.IsNullOrEmpty(PerformedBy) &&
+            string.IsNullOrEmpty(EntityType) &&
+            string.IsNullOrEmpty(EntityId);
     }
 
     public class AuditLogEntry

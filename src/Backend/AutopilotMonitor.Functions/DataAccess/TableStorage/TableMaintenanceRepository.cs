@@ -30,21 +30,23 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             string entityId, string performedBy, Dictionary<string, string>? details = null)
             => _storage.LogAuditEntryAsync(tenantId, action, entityType, entityId, performedBy, details);
 
-        public Task<List<AuditLogEntry>> GetAuditLogsAsync(string tenantId, DateTime? dateFrom = null, DateTime? dateTo = null)
-            => _storage.GetAuditLogsAsync(tenantId, dateFrom, dateTo);
+        public Task<List<AuditLogEntry>> GetAuditLogsAsync(string tenantId, DateTime? dateFrom = null, DateTime? dateTo = null,
+            AuditLogQueryFilters? filters = null)
+            => _storage.GetAuditLogsAsync(tenantId, dateFrom, dateTo, filters);
 
-        public Task<List<AuditLogEntry>> GetAllAuditLogsAsync(DateTime? dateFrom = null, DateTime? dateTo = null)
-            => _storage.GetAllAuditLogsAsync(dateFrom, dateTo);
+        public Task<List<AuditLogEntry>> GetAllAuditLogsAsync(DateTime? dateFrom = null, DateTime? dateTo = null,
+            AuditLogQueryFilters? filters = null)
+            => _storage.GetAllAuditLogsAsync(dateFrom, dateTo, filters);
 
         public Task<RawPage<AuditLogEntry>> GetAuditLogsPageAsync(
             string tenantId, DateTime? dateFrom, DateTime? dateTo, int pageSize, string? continuation,
-            bool excludeDeletions = false)
-            => _storage.GetAuditLogsPageAsync(tenantId, dateFrom, dateTo, pageSize, continuation, excludeDeletions);
+            bool excludeDeletions = false, AuditLogQueryFilters? filters = null)
+            => _storage.GetAuditLogsPageAsync(tenantId, dateFrom, dateTo, pageSize, continuation, excludeDeletions, filters);
 
         public Task<RawPage<AuditLogEntry>> GetAllAuditLogsPageAsync(
             DateTime? dateFrom, DateTime? dateTo, int pageSize, string? continuation,
-            bool excludeDeletions = false)
-            => _storage.GetAllAuditLogsPageAsync(dateFrom, dateTo, pageSize, continuation, excludeDeletions);
+            bool excludeDeletions = false, AuditLogQueryFilters? filters = null)
+            => _storage.GetAllAuditLogsPageAsync(dateFrom, dateTo, pageSize, continuation, excludeDeletions, filters);
 
         public Task<List<SessionSummary>> GetSessionsOlderThanAsync(string tenantId, DateTime cutoffDate)
             => _storage.GetSessionsOlderThanAsync(tenantId, cutoffDate);

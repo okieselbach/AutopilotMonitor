@@ -57,22 +57,30 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                     ? "audit:global"
                     : $"audit:global:tenant:{filterTenantId}";
                 var fingerprintScope = excludeDeletions ? $"{baseScope}:nodel" : baseScope;
+                // Optional exact-match field filters (action / performedBy / entityType /
+                // entityId). Appended to nextLinkExtras so they are bound into the
+                // fingerprint (cross-filter token replay is rejected) AND echoed on
+                // nextLink for self-contained follow-up requests — same mechanism the
+                // tenantId/excludeDeletions discriminators already use here.
+                var filters = AuditLogFilterRequest.Parse(query);
+                var filterExtras = AuditLogFilterRequest.ToExtras(filters);
                 var nextLinkExtras = new List<KeyValuePair<string, string?>>();
                 if (!string.IsNullOrEmpty(filterTenantId))
                     nextLinkExtras.Add(new KeyValuePair<string, string?>("tenantId", filterTenantId));
                 if (excludeDeletions)
                     nextLinkExtras.Add(new KeyValuePair<string, string?>("excludeDeletions", "true"));
+                nextLinkExtras.AddRange(filterExtras);
 
                 _logger.LogInformation(
-                    "Fetching global audit logs (dateFrom={DateFrom}, dateTo={DateTo}, pageSize={PageSize}, filterTenant={Filter}, excludeDeletions={ExcludeDeletions}) for {User}",
+                    "Fetching global audit logs (dateFrom={DateFrom}, dateTo={DateTo}, pageSize={PageSize}, filterTenant={Filter}, excludeDeletions={ExcludeDeletions}, filters={FilterCount}) for {User}",
                     parsed.DateFrom, parsed.DateTo, parsed.PageSize?.ToString() ?? "all",
-                    filterTenantId ?? "(none)", excludeDeletions, userEmail);
+                    filterTenantId ?? "(none)", excludeDeletions, filterExtras.Count, userEmail);
 
                 if (parsed.PageSize == null)
                 {
                     var logs = string.IsNullOrEmpty(filterTenantId)
-                        ? await _maintenanceRepo.GetAllAuditLogsAsync(parsed.DateFrom, parsed.DateTo)
-                        : await _maintenanceRepo.GetAuditLogsAsync(filterTenantId, parsed.DateFrom, parsed.DateTo);
+                        ? await _maintenanceRepo.GetAllAuditLogsAsync(parsed.DateFrom, parsed.DateTo, filters)
+                        : await _maintenanceRepo.GetAuditLogsAsync(filterTenantId, parsed.DateFrom, parsed.DateTo, filters);
                     return await req.OkAsync(new { success = true, count = logs.Count, logs });
                 }
 
@@ -102,9 +110,9 @@ namespace AutopilotMonitor.Functions.Functions.Admin
 
                 var page = string.IsNullOrEmpty(filterTenantId)
                     ? await _maintenanceRepo.GetAllAuditLogsPageAsync(
-                        parsed.DateFrom, parsed.DateTo, parsed.PageSize.Value, azureToken, excludeDeletions)
+                        parsed.DateFrom, parsed.DateTo, parsed.PageSize.Value, azureToken, excludeDeletions, filters)
                     : await _maintenanceRepo.GetAuditLogsPageAsync(
-                        filterTenantId, parsed.DateFrom, parsed.DateTo, parsed.PageSize.Value, azureToken, excludeDeletions);
+                        filterTenantId, parsed.DateFrom, parsed.DateTo, parsed.PageSize.Value, azureToken, excludeDeletions, filters);
 
                 string? nextLink = null;
                 if (!string.IsNullOrEmpty(page.NextRawToken))

@@ -426,28 +426,35 @@ export function registerAdminTools(server: McpServer, ga: boolean): void {
         'Get audit trail of administrative actions: config changes, device blocks, user management, report submissions. ' +
         (ga ? 'Omit tenantId for cross-tenant audit log (Global Admin). ' : '') +
         'Forensics: dateFrom / dateTo (ISO 8601 UTC) bound the search window exactly; without either, the backend defaults to the last 30 days. ' +
+        'Narrow further with exact-match field filters — action (e.g. "config_updated", "device_blocked"), performedBy (actor UPN), ' +
+        'entityType (e.g. "TenantConfiguration", "Device"), entityId (the affected entity\'s id). All are applied server-side and ' +
+        'are case-sensitive equality matches; combine them to answer questions like "every action alice@contoso.com took on this device". ' +
         'Pagination: when "nextLink" is present in the response, more entries are available — call this tool again and pass the ' +
         'whole nextLink string (e.g. "/api/global/audit/logs?pageSize=...&continuation=...&dateFrom=...&dateTo=...") as ' +
-        '"continuation". The tool follows it verbatim so the backend-defaulted date window round-trips correctly (otherwise ' +
-        'a follow-up call would compute a fresh "now" and the token fingerprint would mismatch). Stop when nextLink is absent.',
+        '"continuation". The tool follows it verbatim so the backend-defaulted date window AND any field filters round-trip ' +
+        'correctly (otherwise a follow-up call would compute a fresh "now" and the token fingerprint would mismatch). Stop when nextLink is absent.',
       inputSchema: {
         tenantId: z.string().optional().describe(ga ? 'Tenant ID for tenant-scoped audit log. Omit for cross-tenant view (Global Admin only).' : 'Optional tenant ID. Defaults to your tenant.'),
         dateFrom: z.string().optional().describe('ISO 8601 UTC timestamp — inclusive lower bound of the audit window.'),
         dateTo: z.string().optional().describe('ISO 8601 UTC timestamp — inclusive upper bound of the audit window.'),
+        action: z.string().optional().describe('Exact-match filter on the action (e.g. "config_updated", "device_blocked", "deletion_started").'),
+        performedBy: z.string().optional().describe('Exact-match filter on the actor UPN that performed the action (e.g. "alice@contoso.com").'),
+        entityType: z.string().optional().describe('Exact-match filter on the affected entity type (e.g. "TenantConfiguration", "Device", "User").'),
+        entityId: z.string().optional().describe('Exact-match filter on the affected entity id (e.g. a tenantId, deviceId, or report id).'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional().default(200)
           .describe('Page size (1-1000, default 200). Returns this many entries per call; follow nextLink to fetch more.'),
         continuation: z.string().optional()
-          .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params (incl. resolved dateFrom/dateTo) round-trip correctly.'),
+          .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params (incl. resolved dateFrom/dateTo and field filters) round-trip correctly.'),
       },
       annotations: READ_ONLY,
     },
     async (args) => withToolTelemetry('get_audit_logs', async () => {
       try {
-        const { tenantId, dateFrom, dateTo, pageSize, continuation } = args;
+        const { tenantId, dateFrom, dateTo, action, performedBy, entityType, entityId, pageSize, continuation } = args;
         const basePath = pickGlobalOrTenantPath('/api/global/audit/logs', '/api/audit/logs');
         const path = followNextLink(
           basePath,
-          { tenantId, dateFrom, dateTo, pageSize },
+          { tenantId, dateFrom, dateTo, action, performedBy, entityType, entityId, pageSize },
           continuation,
         );
         const data = await apiFetch(path);
