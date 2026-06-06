@@ -157,16 +157,23 @@ namespace AutopilotMonitor.Functions.Services
             };
 
             // Performance Metrics
+            // Non-terminal (InProgress/Stalled/Pending) sessions carry an unclamped wall-clock
+            // duration (now - StartedAt) that can read weeks and blow out avg/p95/p99. Clamp every
+            // sample to the same ceiling used for app-install durations at ingest, and surface how
+            // many were capped so the window stays honest. Terminal sessions are already <= cap.
+            const int durationCapSeconds = EventTimestampValidator.DefaultMaxDurationSeconds;
             var completedSessions = allSessions.Where(s => s.DurationSeconds.HasValue && s.DurationSeconds.Value > 0).ToList();
             var performanceMetrics = new PerformanceMetrics();
 
             if (completedSessions.Any())
             {
-                var durations = completedSessions.Select(s => s.DurationSeconds!.Value / 60.0).OrderBy(d => d).ToList();
+                var durations = completedSessions.Select(s => Math.Min(s.DurationSeconds!.Value, durationCapSeconds) / 60.0).OrderBy(d => d).ToList();
                 performanceMetrics.AvgDurationMinutes = Math.Round(durations.Average(), 1);
                 performanceMetrics.MedianDurationMinutes = MetricsMath.Percentile(durations, 50);
                 performanceMetrics.P95DurationMinutes = MetricsMath.Percentile(durations, 95);
                 performanceMetrics.P99DurationMinutes = MetricsMath.Percentile(durations, 99);
+                performanceMetrics.SampleCount = durations.Count;
+                performanceMetrics.ClampedSessionCount = completedSessions.Count(s => s.DurationSeconds!.Value > durationCapSeconds);
             }
 
             // Hardware Metrics
@@ -299,17 +306,21 @@ namespace AutopilotMonitor.Functions.Services
                 Note = userActivity.TotalUniqueUsers > 0 ? "" : "No user login activity recorded yet"
             };
 
-            // Performance Metrics
+            // Performance Metrics — clamp runaway non-terminal durations to the shared ceiling and
+            // report how many were capped (see platform path above for the rationale).
+            const int durationCapSeconds = EventTimestampValidator.DefaultMaxDurationSeconds;
             var completedSessions = tenantSessions.Where(s => s.DurationSeconds.HasValue && s.DurationSeconds.Value > 0).ToList();
             var performanceMetrics = new PerformanceMetrics();
 
             if (completedSessions.Any())
             {
-                var durations = completedSessions.Select(s => s.DurationSeconds!.Value / 60.0).OrderBy(d => d).ToList();
+                var durations = completedSessions.Select(s => Math.Min(s.DurationSeconds!.Value, durationCapSeconds) / 60.0).OrderBy(d => d).ToList();
                 performanceMetrics.AvgDurationMinutes = Math.Round(durations.Average(), 1);
                 performanceMetrics.MedianDurationMinutes = MetricsMath.Percentile(durations, 50);
                 performanceMetrics.P95DurationMinutes = MetricsMath.Percentile(durations, 95);
                 performanceMetrics.P99DurationMinutes = MetricsMath.Percentile(durations, 99);
+                performanceMetrics.SampleCount = durations.Count;
+                performanceMetrics.ClampedSessionCount = completedSessions.Count(s => s.DurationSeconds!.Value > durationCapSeconds);
             }
 
             // Hardware Metrics

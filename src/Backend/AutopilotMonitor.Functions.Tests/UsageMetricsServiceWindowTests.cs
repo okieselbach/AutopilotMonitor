@@ -93,6 +93,29 @@ public class UsageMetricsServiceWindowTests
     }
 
     [Fact]
+    public async Task Performance_clamps_runaway_session_duration_and_counts_it()
+    {
+        // Regression for the get_usage_metrics duration skew: a stuck non-terminal session carries
+        // an unclamped wall-clock duration (~40 days here). It must be capped to the shared ceiling
+        // before avg/percentiles, and surfaced via ClampedSessionCount so the window stays honest.
+        const int capMinutes = EventTimestampValidator.DefaultMaxDurationSeconds / 60; // 604800s -> 10080 min
+        var sessions = new List<SessionSummary>
+        {
+            new() { SessionId = "fast",  TenantId = "t1", StartedAt = DateTime.UtcNow.AddMinutes(-10), Status = SessionStatus.Succeeded,  DurationSeconds = 600 },
+            new() { SessionId = "stuck", TenantId = "t1", StartedAt = DateTime.UtcNow.AddDays(-40),    Status = SessionStatus.InProgress, DurationSeconds = 40 * 24 * 3600 },
+        };
+        var (service, _) = CreateService(sessions);
+
+        var result = await service.ComputeTenantUsageMetricsAsync("t1", 90);
+
+        Assert.Equal(2, result.Performance.SampleCount);
+        Assert.Equal(1, result.Performance.ClampedSessionCount);
+        // Without the clamp P99 would be ~57600 min (40 days); clamped it sits at the ceiling.
+        Assert.Equal(capMinutes, result.Performance.P99DurationMinutes);
+        Assert.True(result.Performance.AvgDurationMinutes <= capMinutes);
+    }
+
+    [Fact]
     public async Task Smaller_window_yields_smaller_or_equal_session_total()
     {
         // Three sessions spanning ~80 days

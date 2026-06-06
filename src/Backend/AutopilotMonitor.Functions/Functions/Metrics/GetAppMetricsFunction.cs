@@ -69,11 +69,8 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     };
                 }).ToList();
 
-                var slowestApps = appGroups
-                    .Where(a => a.succeeded > 0)
-                    .OrderByDescending(a => a.avgDurationSeconds)
-                    .Take(10)
-                    .ToList();
+                var slowestApps = MetricsMath.SelectSlowestApps(
+                    appGroups, a => a.succeeded, a => (double)a.avgDurationSeconds, minSamples: 3, take: 10);
 
                 var topFailingApps = appGroups
                     .Where(a => a.failed > 0)

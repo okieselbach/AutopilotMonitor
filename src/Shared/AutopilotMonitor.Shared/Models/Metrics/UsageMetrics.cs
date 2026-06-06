@@ -123,6 +123,16 @@ namespace AutopilotMonitor.Shared.Models
         public double MedianDurationMinutes { get; set; }
         public double P95DurationMinutes { get; set; }
         public double P99DurationMinutes { get; set; }
+
+        /// <summary>Number of sessions contributing to the duration distribution (after the &gt;0 filter).</summary>
+        public int SampleCount { get; set; }
+
+        /// <summary>
+        /// Number of sessions whose raw duration exceeded the clamp ceiling and were capped before
+        /// aggregation. A non-zero value flags stuck/non-terminal sessions skewing the window — the
+        /// percentiles above are computed on the clamped values, not the runaway wall-clock duration.
+        /// </summary>
+        public int ClampedSessionCount { get; set; }
     }
 
     public class HardwareMetrics

@@ -1207,32 +1207,31 @@ namespace AutopilotMonitor.Functions.Services
                 filterParts.Add($"PartitionKey eq '{tenantId}'");
             var oDataFilter = string.Join(" and ", filterParts);
 
-            var groups = new Dictionary<string, (int total, int succeeded, int failed, int inProgress)>(StringComparer.OrdinalIgnoreCase);
+            // Tally every status into its own bucket so the buckets always reconcile to total
+            // (SessionStatusBuckets enforces this by construction — Pending/Stalled/Unknown no
+            // longer vanish from the summary). See SessionStatusBuckets in MetricsMath.cs.
+            var groups = new Dictionary<string, SessionStatusBuckets>(StringComparer.OrdinalIgnoreCase);
 
             await foreach (var entity in indexTableClient.QueryAsync<TableEntity>(filter: oDataFilter))
             {
                 var pk = entity.PartitionKey;
                 var statusStr = entity.GetString("Status") ?? "InProgress";
-
-                if (!groups.TryGetValue(pk, out var g))
-                    g = (0, 0, 0, 0);
-
-                var total = g.total + 1;
-                var succeeded = g.succeeded + (statusStr == "Succeeded" ? 1 : 0);
-                var failed = g.failed + (statusStr == "Failed" ? 1 : 0);
-                var inProg = g.inProgress + (statusStr == "InProgress" ? 1 : 0);
-                groups[pk] = (total, succeeded, failed, inProg);
+                groups.TryGetValue(pk, out var g);
+                groups[pk] = g.Add(statusStr);
             }
 
             return groups.Select(kvp => (object)new
             {
                 tenantId = kvp.Key,
-                totalSessions = kvp.Value.total,
-                succeeded = kvp.Value.succeeded,
-                failed = kvp.Value.failed,
-                inProgress = kvp.Value.inProgress,
-                failureRate = kvp.Value.total > 0
-                    ? Math.Round((double)kvp.Value.failed / kvp.Value.total * 100, 1)
+                totalSessions = kvp.Value.Total,
+                succeeded = kvp.Value.Succeeded,
+                failed = kvp.Value.Failed,
+                inProgress = kvp.Value.InProgress,
+                pending = kvp.Value.Pending,
+                stalled = kvp.Value.Stalled,
+                other = kvp.Value.Other,
+                failureRate = kvp.Value.Total > 0
+                    ? Math.Round((double)kvp.Value.Failed / kvp.Value.Total * 100, 1)
                     : 0.0,
                 windowDays = days
             }).ToList();
