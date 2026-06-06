@@ -95,6 +95,43 @@ export function platformWindowEcho(
   };
 }
 
+/**
+ * Page client-side over an MCP-usage payload. The mcp-usage endpoints return the
+ * full set in one shot (no server-side cursor): the global per-record breakdown
+ * alone can run to thousands of rows and overflow the inline response budget. We
+ * slice whichever array the payload carries ("records" for the per-user and
+ * global breakdowns, "summaries" for the daily view) and echo every other
+ * top-level field (tenantId/userId/usagePlan) verbatim. The "continuation"
+ * carries an integer offset (usage-offset:N); each page re-reads the same set,
+ * so raise pageSize to amortize round-trips on a full sweep. Mirrors the
+ * get_geographic_sessions client-side pager. Exported for unit testing.
+ */
+export function paginateUsage(
+  data: unknown,
+  pageSize: number,
+  continuation?: string,
+): Record<string, unknown> {
+  if (!data || typeof data !== 'object') return { records: [], totalCount: 0, count: 0, offset: 0, nextLink: null };
+  const obj = data as Record<string, unknown>;
+  const arrayKey = Array.isArray(obj.records) ? 'records' : Array.isArray(obj.summaries) ? 'summaries' : null;
+  if (!arrayKey) return obj; // unexpected shape — pass through untouched rather than mangle it
+  const all = obj[arrayKey] as unknown[];
+  const m = continuation ? /^usage-offset:(\d+)$/.exec(continuation) : null;
+  const offset = m ? parseInt(m[1], 10) : 0;
+  const slice = all.slice(offset, offset + pageSize);
+  const nextOffset = offset + pageSize;
+  const nextLink = nextOffset < all.length ? `usage-offset:${nextOffset}` : null;
+  const { records: _records, summaries: _summaries, ...rest } = obj;
+  return {
+    ...rest,
+    totalCount: all.length,
+    count: slice.length,
+    offset,
+    [arrayKey]: slice,
+    nextLink,
+  };
+}
+
 export function registerAdminTools(server: McpServer, ga: boolean): void {
   // Tool 11: get_api_usage — Global Admin only; not registered for normal users
   // (the `if (ga)` guards the whole single server.registerTool(...) statement).
@@ -107,13 +144,21 @@ export function registerAdminTools(server: McpServer, ga: boolean): void {
         'Use to monitor platform usage, identify heavy users, or debug rate limiting. ' +
         'Use userId for a specific user, daily for aggregated summaries, or neither for global per-record breakdown. ' +
         'The daily and global breakdowns are Global Admin only; the per-user (userId) view also works for a ' +
-        'Tenant Admin querying a user within their own tenant.',
+        'Tenant Admin querying a user within their own tenant. ' +
+        'The global per-record breakdown spans every user/endpoint and can run to thousands of rows, so results ' +
+        'are paged: the default pageSize is 200 and the response carries a "nextLink" when more remain — pass that ' +
+        'whole string back as "continuation" to get the next slice, and stop when nextLink is absent. Narrow with ' +
+        'dateFrom/dateTo (default is the full retention window) or daily=true for a compact summary.',
       inputSchema: {
         userId: z.string().optional().describe('Specific user object ID to query usage for'),
         tenantId: z.string().optional().describe('Filter usage by tenant ID'),
         dateFrom: z.string().optional().describe('Start date (YYYY-MM-DD)'),
         dateTo: z.string().optional().describe('End date (YYYY-MM-DD)'),
         daily: z.boolean().optional().default(false).describe('Return daily aggregated summary instead of per-endpoint breakdown'),
+        pageSize: z.coerce.number().int().min(1).max(2000).optional().default(200)
+          .describe('Rows to return per call (1-2000, default 200). Follow nextLink for more; raise it for full sweeps.'),
+        continuation: z.string().optional()
+          .describe('Pass the whole nextLink string from the prior response to fetch the next slice.'),
       },
       annotations: READ_ONLY,
     },
@@ -128,7 +173,7 @@ export function registerAdminTools(server: McpServer, ga: boolean): void {
         } else {
           data = await apiFetch(`/api/global/metrics/mcp-usage${buildQuery(params)}`);
         }
-        return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
+        return toolResultText(paginateUsage(data, args.pageSize, args.continuation), MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
         return toolError('get_api_usage', args, error);
       }
