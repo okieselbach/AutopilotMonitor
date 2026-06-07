@@ -1,3 +1,4 @@
+using System.Collections.Specialized;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 
@@ -27,6 +28,42 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             return Guid.TryParse(raw, out _);
         }
 
+        // ── Opt-in pagination ───────────────────────────────────────────────
+
+        /// <summary>Upper bound for a single <c>apps/list</c> page when the caller opts into pagination.</summary>
+        public const int MaxAppsPageSize = 1000;
+
+        public readonly struct AppsPaging
+        {
+            /// <summary>Null when the caller did not pass <c>pageSize</c> (legacy full-array mode).</summary>
+            public int? PageSize { get; init; }
+            public int Skip { get; init; }
+            public string? Error { get; init; }
+        }
+
+        /// <summary>
+        /// Parses the optional <c>?pageSize=</c> / <c>?skip=</c> pagination params. Absent
+        /// <c>pageSize</c> means legacy mode (return the full array). The apps list is aggregated
+        /// in-memory from a deterministic sort, so a plain integer offset is a stable cursor — no
+        /// HMAC continuation token is needed (unlike the Azure-Table-backed config/all surface).
+        /// </summary>
+        public static AppsPaging ParseAppsPaging(NameValueCollection query)
+        {
+            var pageSizeRaw = query["pageSize"];
+            if (string.IsNullOrEmpty(pageSizeRaw))
+                return new AppsPaging { PageSize = null, Skip = 0 };
+
+            if (!int.TryParse(pageSizeRaw, out var pageSize) || pageSize < 1 || pageSize > MaxAppsPageSize)
+                return new AppsPaging { Error = $"pageSize must be between 1 and {MaxAppsPageSize}" };
+
+            var skip = 0;
+            var skipRaw = query["skip"];
+            if (!string.IsNullOrEmpty(skipRaw) && (!int.TryParse(skipRaw, out skip) || skip < 0))
+                return new AppsPaging { Error = "skip must be a non-negative integer" };
+
+            return new AppsPaging { PageSize = pageSize, Skip = skip };
+        }
+
         // ── Data loaders ────────────────────────────────────────────────────
 
         /// <summary>
@@ -45,9 +82,18 @@ namespace AutopilotMonitor.Functions.Functions.Apps
         // ── /apps/list ──────────────────────────────────────────────────────
 
         /// <summary>
-        /// Builds the list response body (everything except HTTP wrapping).
+        /// Builds the list response body (everything except HTTP wrapping). When <paramref name="pageSize"/>
+        /// is null the legacy full-array body is returned (the web UI paginates client-side); when set, an
+        /// offset-paginated envelope is returned with <c>count</c>/<c>offset</c>/<c>pageSize</c>/<c>nextLink</c>
+        /// (so an MCP caller can page a large fleet's app list). <paramref name="nextLinkForOffset"/> builds the
+        /// route-specific nextLink for the next offset; it is only invoked when more pages remain.
         /// </summary>
-        public static object BuildAppsListResponse(List<AppInstallSummary> allSummaries, int days)
+        public static object BuildAppsListResponse(
+            List<AppInstallSummary> allSummaries,
+            int days,
+            int? pageSize = null,
+            int skip = 0,
+            Func<int, string>? nextLinkForOffset = null)
         {
             var now = DateTime.UtcNow;
             var cutoff = now.AddDays(-days);
@@ -98,7 +144,27 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             })
             .OrderByDescending(a => a.failed)
             .ThenByDescending(a => a.failureRate)
+            .ThenBy(a => a.appName, StringComparer.OrdinalIgnoreCase) // deterministic tiebreaker for stable paging cursors
             .ToList();
+
+            // Legacy mode: caller did not opt into pagination → full array (web UI pages client-side).
+            if (pageSize == null)
+            {
+                return new
+                {
+                    success = true,
+                    totalApps = apps.Count,
+                    totalInstalls = summaries.Count,
+                    windowDays = days,
+                    apps
+                };
+            }
+
+            // Opt-in pagination: offset-based slice over the deterministically sorted list.
+            var offset = skip < 0 ? 0 : skip;
+            var page = apps.Skip(offset).Take(pageSize.Value).ToList();
+            var nextOffset = offset + page.Count;
+            var hasMore = nextOffset < apps.Count;
 
             return new
             {
@@ -106,7 +172,11 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 totalApps = apps.Count,
                 totalInstalls = summaries.Count,
                 windowDays = days,
-                apps
+                count = page.Count,
+                offset,
+                pageSize = pageSize.Value,
+                apps = page,
+                nextLink = hasMore ? nextLinkForOffset?.Invoke(nextOffset) : null
             };
         }
 

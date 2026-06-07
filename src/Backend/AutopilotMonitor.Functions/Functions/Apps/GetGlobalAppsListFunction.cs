@@ -49,8 +49,19 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     "Global apps/list requested (user: {User}, tenantId: {TenantId}, days: {Days})",
                     userEmail, scopedTenantId ?? "<all>", days);
 
+                var paging = AppsAnalyticsHelper.ParseAppsPaging(query);
+                if (paging.Error != null)
+                {
+                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await bad.WriteAsJsonAsync(new { success = false, message = paging.Error });
+                    return bad;
+                }
+
                 var summaries = await AppsAnalyticsHelper.LoadSummariesAsync(_metricsRepo, scopedTenantId);
-                var body = AppsAnalyticsHelper.BuildAppsListResponse(summaries, days);
+                var tenantQs = string.IsNullOrEmpty(scopedTenantId) ? string.Empty : $"&tenantId={scopedTenantId}";
+                var body = AppsAnalyticsHelper.BuildAppsListResponse(
+                    summaries, days, paging.PageSize, paging.Skip,
+                    nextOffset => $"/api/global/apps/list?days={days}&pageSize={paging.PageSize}&skip={nextOffset}{tenantQs}");
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(body);

@@ -38,8 +38,18 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 if (int.TryParse(query["days"], out var parsedDays) && parsedDays > 0 && parsedDays <= 365)
                     days = parsedDays;
 
+                var paging = AppsAnalyticsHelper.ParseAppsPaging(query);
+                if (paging.Error != null)
+                {
+                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await bad.WriteAsJsonAsync(new { success = false, message = paging.Error });
+                    return bad;
+                }
+
                 var summaries = await AppsAnalyticsHelper.LoadSummariesAsync(_metricsRepo, tenantId);
-                var body = AppsAnalyticsHelper.BuildAppsListResponse(summaries, days);
+                var body = AppsAnalyticsHelper.BuildAppsListResponse(
+                    summaries, days, paging.PageSize, paging.Skip,
+                    nextOffset => $"/api/apps/list?days={days}&pageSize={paging.PageSize}&skip={nextOffset}");
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(body);

@@ -59,6 +59,8 @@ type SortKey =
   | "trend";
 type SortDir = "asc" | "desc";
 
+const PAGE_SIZE = 20;
+
 interface InstallsTabProps {
   scope: SoftwareTabScope;
   timeRange: TimeRange;
@@ -77,6 +79,7 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("failureRate");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     if (!scopeInitialized) return;
@@ -143,6 +146,12 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
     });
     return rows;
   }, [data, search, sortKey, sortDir]);
+
+  // Reset to the first page whenever the filtered/sorted set or the loaded data changes.
+  useEffect(() => { setPage(0); }, [search, sortKey, sortDir, data]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredAndSorted.length / PAGE_SIZE));
+  const pageRows = filteredAndSorted.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
 
   const stats = useMemo(() => {
     if (!data) return { totalApps: 0, totalInstalls: 0, avgFailureRate: 0 };
@@ -242,6 +251,7 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
             {search ? "No apps match your search." : "No app install data in this window."}
           </div>
         ) : (
+          <>
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -255,7 +265,7 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {filteredAndSorted.map((row) => (
+              {pageRows.map((row) => (
                 <tr key={row.appName} onClick={() => openApp(row.appName)} className="hover:bg-gray-50 cursor-pointer text-sm">
                   <td className="px-4 py-3 text-gray-900">
                     <span className="font-medium">{row.appName}</span>
@@ -275,6 +285,18 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
               ))}
             </tbody>
           </table>
+          {pageCount > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 text-sm text-gray-600 border-t border-gray-200">
+              <span>{filteredAndSorted.length} apps · page {page + 1} of {pageCount}</span>
+              <div className="flex gap-2">
+                <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}
+                  className="px-3 py-1 rounded-md bg-gray-100 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed">Previous</button>
+                <button onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))} disabled={page >= pageCount - 1}
+                  className="px-3 py-1 rounded-md bg-gray-100 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
+              </div>
+            </div>
+          )}
+          </>
         )}
       </div>
     </>
