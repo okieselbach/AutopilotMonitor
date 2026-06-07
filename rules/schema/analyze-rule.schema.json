@@ -159,7 +159,7 @@
         "source": {
           "type": "string",
           "description": "Source of the signal.",
-          "enum": ["event_type", "event_data", "phase_duration", "event_count", "app_install_duration", "event_correlation"]
+          "enum": ["event_type", "event_data", "event_data_array", "phase_duration", "event_count", "app_install_duration", "event_correlation"]
         },
         "eventType": {
           "type": "string",
@@ -167,7 +167,11 @@
         },
         "dataField": {
           "type": "string",
-          "description": "Data field to match on. Uses dot notation for nested fields (e.g., \"data.errorCode\")."
+          "description": "Data field to match on. Uses dot notation for nested fields (e.g., \"data.errorCode\"). For event_data_array: the array field to iterate (e.g., \"artifacts\")."
+        },
+        "itemField": {
+          "type": "string",
+          "description": "For event_data_array only: the sub-field on each array element to test with operator/value (e.g., \"identity\"). Empty = treat each element as a scalar. The condition matches when ANY element satisfies the operator."
         },
         "operator": {
           "type": "string",

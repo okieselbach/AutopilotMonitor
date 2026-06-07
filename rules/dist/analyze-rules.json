@@ -1657,35 +1657,36 @@
     },
     {
       "ruleId": "ANALYZE-SEC-005",
-      "title": "Provisioning Package Detected",
-      "description": "Detects that one or more provisioning packages (PPKG) were present on the device during enrollment. PPKGs can inject local accounts, certificates, Wi-Fi/VPN profiles, apps (MSI/EXE) and scripts before or during Autopilot. They may be legitimate (bulk enrollment, OEM recovery) or a manipulation vector. This rule is ON by default so any PPKG is surfaced in every tenant. To suppress known-good packages, enable the template rule ANALYZE-SEC-006, set your allow-list, then disable this rule.",
+      "title": "Unexpected Provisioning Package",
+      "description": "Detects provisioning packages (PPKG) that are not on the built-in allow-list. The agent emits one or more provisioning_package_scan events whose artifacts[] arrays list every PPKG (registry package, .ppkg file, or Recovery\\Customizations residue; a large set is split across several events). This rule iterates that array across all of them and fires for any artifact whose identity does not match the allow-list regex. The default allow-list covers the Windows OS-inbox packages that ship on every device (Cosa, Power.EnergyEstimationEngine, Power.Settings, SecureStart) so a clean device stays quiet. To allow your own vendor/recovery packages, enable the template rule ANALYZE-SEC-006, extend its allow-list, then disable this rule.",
       "severity": "warning",
       "category": "security",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "enabled": true,
       "baseConfidence": 80,
       "conditions": [
         {
-          "signal": "ppkg_detected",
-          "source": "event_data",
-          "eventType": "provisioning_package_detected",
-          "dataField": "identity",
-          "operator": "exists",
-          "value": "",
+          "signal": "ppkg_not_allowlisted",
+          "source": "event_data_array",
+          "eventType": "provisioning_package_scan",
+          "dataField": "artifacts",
+          "itemField": "identity",
+          "operator": "not_regex",
+          "value": "^(?:Microsoft\\.Windows\\.Cosa|Power\\.EnergyEstimationEngine|Power\\.Settings|SecureStart\\.Settings)\\b",
           "required": true
         }
       ],
       "confidenceThreshold": 40,
-      "explanation": "A provisioning package (PPKG) artifact was detected on this device during enrollment.\n\n- **Detected package:** `{{identity}}`\n\nProvisioning packages can apply local accounts, certificates, Wi-Fi/VPN profiles, applications (MSI/EXE) and scripts. They are legitimate in bulk-enrollment and OEM-recovery scenarios, but a PPKG appearing on a device that is expected to be \"pure Autopilot\" can also indicate tampering.\n\nReview the `provisioning_package_scan` event in this session for the full inventory (file names, registry package metadata such as ownerType/installTime, and best-effort content indicators).\n\n**To stop alerting on known-good packages (2-step):** enable the template rule **ANALYZE-SEC-006 (Unexpected Provisioning Package)**, set its allow-list regex to match your approved vendor/recovery packages, then disable this rule. ANALYZE-SEC-006 then only fires for packages that are NOT on your allow-list.",
+      "explanation": "A provisioning package (PPKG) was detected that is NOT on the allow-list.\n\n- **Unexpected package:** `{{identity}}`\n\nThe agent reports every PPKG it finds in `provisioning_package_scan` event(s) (see their `artifacts` array(s) for the full list, plus file metadata and best-effort content indicators; large sets span several events). This rule ignores the Windows OS-inbox packages that ship on every device (Cosa, Power.EnergyEstimationEngine, Power.Settings, SecureStart) and only surfaces the rest.\n\nProvisioning packages can apply local accounts, certificates, Wi-Fi/VPN profiles, applications (MSI/EXE) and scripts. They are legitimate in bulk-enrollment and OEM-recovery scenarios, but a PPKG appearing on a device that is expected to be \"pure Autopilot\" can indicate tampering.\n\n**To stop alerting on a known-good package:** enable the template rule **ANALYZE-SEC-006**, add the package to its allow-list regex, then disable this rule. ANALYZE-SEC-006 then only fires for packages outside your extended allow-list.",
       "remediation": [
         {
           "title": "Verify the provisioning package is expected",
           "steps": [
-            "Open the provisioning_package_scan event and review ppkgFiles + packages (packageId, name, ownerType, rank, installTime)",
+            "Open the provisioning_package_scan event and review the artifacts array (identity, source, file path, ownerType/installTime for registry packages)",
             "Confirm whether the package matches a known source: bulk-enrollment PPKG, OEM recovery package, or an internal provisioning workflow",
             "Cross-check the device model/vendor — OEM recovery PPKGs are common and usually benign",
             "If the package is unexpected for a pure-Autopilot device, treat it as a potential manipulation and investigate how it was applied (USB, Recovery\\Customizations, image)",
-            "To allow known-good packages going forward, enable ANALYZE-SEC-006, set the allow-list, then disable this rule"
+            "To allow known-good packages going forward, enable ANALYZE-SEC-006, extend the allow-list, then disable this rule"
           ]
         }
       ],
@@ -1693,47 +1694,49 @@
         "security",
         "provisioning-package",
         "ppkg",
+        "allow-list",
         "tamper"
       ]
     },
     {
       "ruleId": "ANALYZE-SEC-006",
-      "title": "Unexpected Provisioning Package (Allow-List)",
-      "description": "Template rule. Fires only for provisioning packages (PPKG) whose identity is NOT on your allow-list. Use this to suppress known-good vendor/recovery packages while still catching unexpected ones. This rule is OFF by default: enable it, set your allow-list regex, then disable the always-on rule ANALYZE-SEC-005 so only non-allow-listed packages alert.",
+      "title": "Unexpected Provisioning Package (Custom Allow-List)",
+      "description": "Template version of ANALYZE-SEC-005 with a customizable allow-list. Iterates the provisioning_package_scan artifacts[] array and fires for any PPKG whose identity is not on YOUR allow-list regex. The placeholder ships with the same OS-inbox defaults as ANALYZE-SEC-005 — extend it with your own vendor/recovery packages. This rule is OFF by default: enable it, set your allow-list, then disable ANALYZE-SEC-005 so only packages outside your list alert.",
       "severity": "warning",
       "category": "security",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "enabled": false,
       "baseConfidence": 80,
       "conditions": [
         {
           "signal": "ppkg_not_allowlisted",
-          "source": "event_data",
-          "eventType": "provisioning_package_detected",
-          "dataField": "identity",
+          "source": "event_data_array",
+          "eventType": "provisioning_package_scan",
+          "dataField": "artifacts",
+          "itemField": "identity",
           "operator": "not_regex",
-          "value": "Dell Recovery|HP Recovery|Lenovo Recovery",
+          "value": "^(?:Microsoft\\.Windows\\.Cosa|Power\\.EnergyEstimationEngine|Power\\.Settings|SecureStart\\.Settings)\\b",
           "required": true
         }
       ],
       "confidenceThreshold": 40,
-      "explanation": "A provisioning package (PPKG) was detected whose identity does NOT match your configured allow-list.\n\n- **Unexpected package:** `{{identity}}`\n\nThe `identity` value combines the package name, .ppkg file name, ownerType and packageId, so your allow-list regex can match an approved package by any of these. Packages that DO match your allow-list (e.g. OEM recovery packages) are intentionally ignored by this rule.\n\nIf this package should be allowed, add it to the allow-list regex (the 'value' of the 'ppkg_not_allowlisted' condition). If it is genuinely unexpected on a pure-Autopilot device, treat it as a potential manipulation and investigate how it was applied.",
+      "explanation": "A provisioning package (PPKG) was detected whose identity is NOT on your configured allow-list.\n\n- **Unexpected package:** `{{identity}}`\n\nThe `identity` value combines a package's name, .ppkg file name, ownerType and packageId, so your allow-list regex can match an approved package by any of these. The default allow-list already covers the Windows OS-inbox packages (Cosa, Power.EnergyEstimationEngine, Power.Settings, SecureStart) — extend it with your own vendor/recovery packages.\n\nIf this package should be allowed, add it to the allow-list regex (the 'value' of the 'ppkg_not_allowlisted' condition). If it is genuinely unexpected on a pure-Autopilot device, treat it as a potential manipulation and investigate how it was applied.",
       "remediation": [
         {
           "title": "Triage the unexpected package",
           "steps": [
-            "Open the provisioning_package_scan event for the full inventory and the matching provisioning_package_detected event for this package's identity",
+            "Open the provisioning_package_scan event and review the artifacts array for this package's identity and source",
             "Decide: is this a known-good package that should be allow-listed, or genuinely unexpected?",
-            "If known-good: extend the allow-list regex (e.g. add 'Acme Recovery' as 'Dell Recovery|HP Recovery|Acme Recovery')",
+            "If known-good: the allow-list is anchored (^(?:...)\\b), so insert a new alternative INSIDE the group, before the closing ')' — e.g. ...|SecureStart\\.Settings|Acme\\.Recovery)\\b. Appending after the ) or \\b will not match.",
             "If unexpected: investigate the application path (USB media, C:\\Recovery\\Customizations residue, custom image) and the device's chain of custody"
           ]
         },
         {
-          "title": "Activate the allow-list workflow (2-step)",
+          "title": "Activate the custom allow-list workflow (2-step)",
           "steps": [
-            "Enable this rule and set the allow-list regex to match your approved vendor/recovery packages (case-insensitive)",
+            "Enable this rule and extend the allow-list regex by inserting your approved packages as alternatives inside the anchored group (before the closing ')'), case-insensitive",
             "Verify it behaves as expected on a known device",
-            "Disable the always-on rule ANALYZE-SEC-005 so only non-allow-listed packages alert going forward"
+            "Disable the built-in rule ANALYZE-SEC-005 so only packages outside your allow-list alert going forward"
           ]
         }
       ],
@@ -1748,11 +1751,52 @@
         {
           "name": "allowed_packages",
           "label": "Allowed provisioning packages (regex)",
-          "description": "Case-insensitive regex matched against each package's `identity` (name | fileName | ownerType | packageId). Packages matching this pattern are treated as approved and do NOT alert. Combine multiple with '|', e.g. 'Dell Recovery|HP Recovery|CONTOSO-BULK'.",
+          "description": "Case-insensitive regex matched against each package's identity (name | fileName | ownerType | packageId). Packages matching this pattern are treated as approved and do NOT alert. The default is anchored (^...) so it matches only at the START of the identity — extend it by adding an alternative inside the group, e.g. add '|Acme\\.Recovery' before the closing ')'.",
           "conditionIndex": 0,
           "field": "value",
-          "placeholder": "Dell Recovery|HP Recovery|Lenovo Recovery"
+          "placeholder": "^(?:Microsoft\\.Windows\\.Cosa|Power\\.EnergyEstimationEngine|Power\\.Settings|SecureStart\\.Settings)\\b"
         }
+      ]
+    },
+    {
+      "ruleId": "ANALYZE-SEC-007",
+      "title": "Provisioning Package Scan Incomplete",
+      "description": "Fires when the provisioning-package scan hit a per-source collection cap (too many .ppkg files, registry packages, or Recovery\\Customizations residue files to capture them all). When that happens the allow-list rules (ANALYZE-SEC-005/006) could not evaluate every package, so a non-allow-listed package may have gone unseen. A device with that many provisioning packages is itself unusual and worth a manual look.",
+      "severity": "warning",
+      "category": "security",
+      "version": "1.0.0",
+      "enabled": true,
+      "baseConfidence": 80,
+      "conditions": [
+        {
+          "signal": "ppkg_scan_truncated",
+          "source": "event_data",
+          "eventType": "provisioning_package_scan",
+          "dataField": "scanTruncated",
+          "operator": "equals",
+          "value": "true",
+          "required": true
+        }
+      ],
+      "confidenceThreshold": 40,
+      "explanation": "The provisioning-package scan was incomplete: the device had more provisioning packages than the agent captures per source, so a per-source cap was hit (see `ppkgFilesTruncated` / `packagesTruncated` / `recoveryFilesTruncated` on the `provisioning_package_scan` event).\n\nBecause not every package was captured, the allow-list rules (ANALYZE-SEC-005/006) may NOT have evaluated all of them — a non-allow-listed package could be present but unseen. A device carrying this many provisioning packages is also unusual on its own and warrants a manual review.",
+      "remediation": [
+        {
+          "title": "Review the device manually",
+          "steps": [
+            "Open the provisioning_package_scan event and check which counts exceeded the cap (ppkgFileCount / packageCount vs the *Truncated flags)",
+            "Inspect the device directly: C:\\ProgramData\\Microsoft\\Provisioning, C:\\Windows\\Provisioning, C:\\Recovery\\Customizations, and HKLM\\SOFTWARE\\Microsoft\\Provisioning\\Packages",
+            "Confirm whether the large number of provisioning packages is expected for this device/model (e.g. an OEM image) or anomalous",
+            "If anomalous, treat it as a potential manipulation and investigate the device's chain of custody"
+          ]
+        }
+      ],
+      "tags": [
+        "security",
+        "provisioning-package",
+        "ppkg",
+        "truncated",
+        "coverage"
       ]
     }
   ]

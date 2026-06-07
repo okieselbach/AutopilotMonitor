@@ -113,9 +113,7 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
   { value: "gather_result", label: "gather_result", category: "diagnostics",
     description: "Output of another gather rule (can be chained)." },
   { value: "provisioning_package_scan", label: "provisioning_package_scan", category: "diagnostics",
-    description: "Provisioning-package (PPKG) scan run once at DeviceSetup-phase start. Reports raw facts only — .ppkg file presence, Provisioning\\Packages registry metadata, Recovery\\Customizations residue, and best-effort content indicators. PPKGs can come from legitimate bulk enrollment or be a manipulation vector." },
-  { value: "provisioning_package_detected", label: "provisioning_package_detected", category: "diagnostics",
-    description: "One event per detected PPKG artifact — a registry package, a .ppkg file, or a Recovery\\Customizations residue file (the `source` field distinguishes them) — with scalar identity fields (packageName, fileName, ownerType, packageId, identity). Drives the PPKG analyze rules incl. the per-tenant allow-list template (ANALYZE-SEC-005/006)." },
+    description: "Single per-device provisioning-package (PPKG) scan at DeviceSetup-phase start. Carries an artifacts[] array — one entry per registry package, .ppkg file, or Recovery\\Customizations residue (each with a scalar identity) — plus .ppkg file metadata, registry package metadata, and best-effort content indicators. The PPKG analyze rules (ANALYZE-SEC-005/006) iterate the array against an allow-list regex. PPKGs can be legitimate bulk enrollment or a manipulation vector." },
 ];
 
 /** Lookup a single entry by its canonical value (case-insensitive). */

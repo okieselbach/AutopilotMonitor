@@ -1,37 +1,38 @@
 {
   "$schema": "../schema/analyze-rule.schema.json",
   "ruleId": "ANALYZE-SEC-005",
-  "title": "Provisioning Package Detected",
-  "description": "Detects that one or more provisioning packages (PPKG) were present on the device during enrollment. PPKGs can inject local accounts, certificates, Wi-Fi/VPN profiles, apps (MSI/EXE) and scripts before or during Autopilot. They may be legitimate (bulk enrollment, OEM recovery) or a manipulation vector. This rule is ON by default so any PPKG is surfaced in every tenant. To suppress known-good packages, enable the template rule ANALYZE-SEC-006, set your allow-list, then disable this rule.",
+  "title": "Unexpected Provisioning Package",
+  "description": "Detects provisioning packages (PPKG) that are not on the built-in allow-list. The agent emits one or more provisioning_package_scan events whose artifacts[] arrays list every PPKG (registry package, .ppkg file, or Recovery\\Customizations residue; a large set is split across several events). This rule iterates that array across all of them and fires for any artifact whose identity does not match the allow-list regex. The default allow-list covers the Windows OS-inbox packages that ship on every device (Cosa, Power.EnergyEstimationEngine, Power.Settings, SecureStart) so a clean device stays quiet. To allow your own vendor/recovery packages, enable the template rule ANALYZE-SEC-006, extend its allow-list, then disable this rule.",
   "severity": "warning",
   "category": "security",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "enabled": true,
   "baseConfidence": 80,
   "conditions": [
     {
-      "signal": "ppkg_detected",
-      "source": "event_data",
-      "eventType": "provisioning_package_detected",
-      "dataField": "identity",
-      "operator": "exists",
-      "value": "",
+      "signal": "ppkg_not_allowlisted",
+      "source": "event_data_array",
+      "eventType": "provisioning_package_scan",
+      "dataField": "artifacts",
+      "itemField": "identity",
+      "operator": "not_regex",
+      "value": "^(?:Microsoft\\.Windows\\.Cosa|Power\\.EnergyEstimationEngine|Power\\.Settings|SecureStart\\.Settings)\\b",
       "required": true
     }
   ],
   "confidenceThreshold": 40,
-  "explanation": "A provisioning package (PPKG) artifact was detected on this device during enrollment.\n\n- **Detected package:** `{{identity}}`\n\nProvisioning packages can apply local accounts, certificates, Wi-Fi/VPN profiles, applications (MSI/EXE) and scripts. They are legitimate in bulk-enrollment and OEM-recovery scenarios, but a PPKG appearing on a device that is expected to be \"pure Autopilot\" can also indicate tampering.\n\nReview the `provisioning_package_scan` event in this session for the full inventory (file names, registry package metadata such as ownerType/installTime, and best-effort content indicators).\n\n**To stop alerting on known-good packages (2-step):** enable the template rule **ANALYZE-SEC-006 (Unexpected Provisioning Package)**, set its allow-list regex to match your approved vendor/recovery packages, then disable this rule. ANALYZE-SEC-006 then only fires for packages that are NOT on your allow-list.",
+  "explanation": "A provisioning package (PPKG) was detected that is NOT on the allow-list.\n\n- **Unexpected package:** `{{identity}}`\n\nThe agent reports every PPKG it finds in `provisioning_package_scan` event(s) (see their `artifacts` array(s) for the full list, plus file metadata and best-effort content indicators; large sets span several events). This rule ignores the Windows OS-inbox packages that ship on every device (Cosa, Power.EnergyEstimationEngine, Power.Settings, SecureStart) and only surfaces the rest.\n\nProvisioning packages can apply local accounts, certificates, Wi-Fi/VPN profiles, applications (MSI/EXE) and scripts. They are legitimate in bulk-enrollment and OEM-recovery scenarios, but a PPKG appearing on a device that is expected to be \"pure Autopilot\" can indicate tampering.\n\n**To stop alerting on a known-good package:** enable the template rule **ANALYZE-SEC-006**, add the package to its allow-list regex, then disable this rule. ANALYZE-SEC-006 then only fires for packages outside your extended allow-list.",
   "remediation": [
     {
       "title": "Verify the provisioning package is expected",
       "steps": [
-        "Open the provisioning_package_scan event and review ppkgFiles + packages (packageId, name, ownerType, rank, installTime)",
+        "Open the provisioning_package_scan event and review the artifacts array (identity, source, file path, ownerType/installTime for registry packages)",
         "Confirm whether the package matches a known source: bulk-enrollment PPKG, OEM recovery package, or an internal provisioning workflow",
         "Cross-check the device model/vendor — OEM recovery PPKGs are common and usually benign",
         "If the package is unexpected for a pure-Autopilot device, treat it as a potential manipulation and investigate how it was applied (USB, Recovery\\Customizations, image)",
-        "To allow known-good packages going forward, enable ANALYZE-SEC-006, set the allow-list, then disable this rule"
+        "To allow known-good packages going forward, enable ANALYZE-SEC-006, extend the allow-list, then disable this rule"
       ]
     }
   ],
-  "tags": ["security", "provisioning-package", "ppkg", "tamper"]
+  "tags": ["security", "provisioning-package", "ppkg", "allow-list", "tamper"]
 }

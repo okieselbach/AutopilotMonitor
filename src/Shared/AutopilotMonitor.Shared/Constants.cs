@@ -397,17 +397,14 @@ namespace AutopilotMonitor.Shared
             public const string IntegrityBypassAnalysis   = "integrity_bypass_analysis";
             public const string LocalAdminAnalysis        = "local_admin_analysis";
             public const string SecurityWarning           = "security_warning";
-            // Provisioning-package (PPKG) scan — one-shot at DeviceSetup-phase start. Reports raw
-            // facts only (file/registry presence + best-effort content indicators); a backend
-            // analyze-rule judges whether a PPKG is unexpected for the tenant. PPKGs can come from
-            // legitimate bulk enrollment OR be a pre/in-enrollment manipulation vector.
+            // Per-device provisioning-package scan. Carries an `artifacts[]` array (one element per
+            // registry package / .ppkg file / Recovery\Customizations residue, each with a scalar
+            // `identity`). The PPKG analyze rules iterate this array via an event_data_array
+            // condition + allow-list regex — no per-package event spam (a clean Win11 device ships
+            // ~22 OS-inbox .ppkg). A large artifact set is split across MULTIPLE such events
+            // (chunkIndex/chunkCount); the rule engine evaluates the array across all of them.
+            // PPKGs can be legitimate (bulk/OEM) or a manipulation vector.
             public const string ProvisioningPackageScan   = "provisioning_package_scan";
-            // One event per detected PPKG artifact (registry package, .ppkg file, OR
-            // Recovery\Customizations residue file; source field distinguishes them), carrying
-            // SCALAR identity fields so analyze rules can match per package (the rule engine
-            // cannot iterate the aggregate scan event's packages[] array). Drives the PPKG
-            // analyze rules incl. the per-tenant allow-list template (not_regex on `identity`).
-            public const string ProvisioningPackageDetected = "provisioning_package_detected";
             // AutoLogon scan — runs at DeviceSetup-phase completion and at final shutdown. Reports
             // raw facts only (Winlogon registry indicators; DefaultPassword presence-only, never the
             // value) at Info severity. Backend analyze-rules (ANALYZE-SEC-002/003) judge the facts:

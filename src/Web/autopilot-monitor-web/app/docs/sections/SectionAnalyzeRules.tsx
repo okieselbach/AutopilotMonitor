@@ -98,6 +98,29 @@ export function SectionAnalyzeRules() {
           </div>
         </div>
 
+        {/* event_data_array */}
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <div className="px-4 py-2.5 bg-gray-100 border-b border-gray-200">
+            <p className="font-semibold text-sm text-gray-900">Source: <code className="font-mono">event_data_array</code></p>
+          </div>
+          <div className="px-4 py-4 space-y-2 text-sm text-gray-700">
+            <p>Iterates an <strong>array field</strong> inside a single event and tests a sub-field on each element. The condition matches when <strong>any</strong> element satisfies the operator. Use this when one event carries a list (e.g. all detected provisioning packages) and you want to react per item — without needing one event per item.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div><p className="font-medium text-gray-900">Data Field</p><p className="text-gray-500">The array to iterate (e.g. <code className="bg-gray-100 px-1 rounded">artifacts</code>)</p></div>
+              <div><p className="font-medium text-gray-900">Item Field</p><p className="text-gray-500">Sub-field on each element to test (e.g. <code className="bg-gray-100 px-1 rounded">identity</code>). Leave empty to test scalar elements.</p></div>
+              <div><p className="font-medium text-gray-900">Operator / Value</p><p className="text-gray-500">Same operators as <code className="bg-gray-100 px-1 rounded">event_data</code>; applied to each element</p></div>
+            </div>
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded text-xs text-blue-900">
+              <strong>Allow-list pattern:</strong> pair <code className="bg-blue-100 px-1 rounded">not_regex</code> with an allow-list regex in <em>Value</em>. The condition then fires only for elements <strong>not</strong> on the list — every allow-listed element is ignored. Evidence carries the first non-matching item (under the item-field name, so <code className="bg-blue-100 px-1 rounded">{`{{identity}}`}</code> interpolates) plus a <code className="bg-blue-100 px-1 rounded">matchCount</code>.
+            </div>
+            <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-xs">
+              <p className="font-semibold text-green-900 mb-1">Example — flag a provisioning package not on the allow-list</p>
+              <p>Source: <strong>event_data_array</strong> · Event Type: <strong>provisioning_package_scan</strong> · Data Field: <strong>artifacts</strong> · Item Field: <strong>identity</strong> · Operator: <strong>not_regex</strong> · Value: <strong>{`^(?:Power\\.Settings|SecureStart\\.Settings)\\b`}</strong></p>
+              <p className="text-green-700 mt-1">Anchor the allow-list with <code className="bg-green-100 px-1 rounded">^</code> (start) and <code className="bg-green-100 px-1 rounded">\b</code> (boundary) — an unanchored substring pattern would also allow-list an impostor like <code className="bg-green-100 px-1 rounded">Contoso.Power.Settings.Backdoor</code>.</p>
+            </div>
+          </div>
+        </div>
+
         {/* event_count */}
         <div className="border border-gray-200 rounded-lg overflow-hidden">
           <div className="px-4 py-2.5 bg-gray-100 border-b border-gray-200">
@@ -312,6 +335,33 @@ export function SectionAnalyzeRules() {
               <p className="text-gray-400">{`// Confidence Factor (+10 if command had errors)`}</p>
               <p>{`signal: "cmd_error"  condition: "gather_machine_cert_store.error_output exists"  weight: 10`}</p>
             </div>
+          </div>
+        </div>
+
+        {/* Example 6 */}
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <div className="px-4 py-2.5 bg-indigo-50 border-b border-indigo-200">
+            <p className="font-semibold text-sm text-indigo-900">Example 6 — Unexpected Provisioning Package (array + allow-list)</p>
+            <p className="text-xs text-indigo-700 mt-0.5">Fire for any provisioning package (PPKG) that is not on an allow-list — from the scan event(s) that list them all</p>
+          </div>
+          <div className="px-4 py-4 text-xs space-y-2">
+            <div className="p-2 bg-gray-100 rounded text-gray-600">
+              The agent emits a <code>provisioning_package_scan</code> event whose <code>artifacts</code> array lists every PPKG it found (each with an <code>identity</code>). This rule iterates that array instead of expecting one event per package. On devices with very many packages the array is split across several <code>provisioning_package_scan</code> events (<code>chunkIndex</code>/<code>chunkCount</code>) — <code>event_data_array</code> evaluates across all of them, so nothing is missed. (A separate built-in rule, <strong>ANALYZE-SEC-007</strong>, flags the rare case where a per-source collection cap was hit.)
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div><p className="text-gray-500">Category</p><p className="font-medium">security</p></div>
+              <div><p className="text-gray-500">Severity</p><p className="font-medium">warning</p></div>
+              <div><p className="text-gray-500">Base Confidence</p><p className="font-medium">80</p></div>
+              <div><p className="text-gray-500">Threshold</p><p className="font-medium">40</p></div>
+            </div>
+            <div className="bg-gray-50 border border-gray-200 rounded px-3 py-2 font-mono space-y-1">
+              <p className="text-gray-400">{`// Condition (required) — any artifact identity NOT on the allow-list`}</p>
+              <p>{`source: "event_data_array"  eventType: "provisioning_package_scan"`}</p>
+              <p>{`dataField: "artifacts"  itemField: "identity"  operator: "not_regex"`}</p>
+              <p>{`value: "^(?:Microsoft\\.Windows\\.Cosa|Power\\.EnergyEstimationEngine|Power\\.Settings|SecureStart\\.Settings)\\b"`}</p>
+              <p className="text-gray-400 pt-1">{`// Explanation can reference the offending item: "Unexpected package: {{identity}}"`}</p>
+            </div>
+            <p className="text-gray-600">The allow-list above covers the Windows OS-inbox packages that ship on every device, so a clean machine stays quiet. The pattern is <strong>anchored</strong> (<code className="bg-gray-100 px-1 rounded">^(?:…)\b</code>), so to allow your own vendor/recovery packages insert a new alternative <strong>inside the group, before the closing <code className="bg-gray-100 px-1 rounded">)</code></strong> — e.g. <code className="bg-gray-100 px-1 rounded">{`…|SecureStart\\.Settings|Acme\\.Recovery)\\b`}</code> (appending after the <code className="bg-gray-100 px-1 rounded">)</code> won&apos;t match). The built-in rules <strong>ANALYZE-SEC-005</strong> (always on) and <strong>ANALYZE-SEC-006</strong> (template, customizable allow-list) use exactly this pattern.</p>
           </div>
         </div>
 

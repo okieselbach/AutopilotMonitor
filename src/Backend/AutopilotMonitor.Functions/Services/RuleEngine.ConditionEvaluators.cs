@@ -83,6 +83,9 @@ namespace AutopilotMonitor.Functions.Services
                 case "event_data":
                     return EvaluateEventDataCondition(condition, events);
 
+                case "event_data_array":
+                    return EvaluateEventDataArrayCondition(condition, events);
+
                 case "event_count":
                     return EvaluateEventCountCondition(condition, events);
 
@@ -180,6 +183,163 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             return (false, "no matching data");
+        }
+
+        /// <summary>
+        /// Evaluates a condition against an ARRAY field on the event (e.g. provisioning_package_scan's
+        /// <c>artifacts</c>). For each element, the element's <see cref="RuleCondition.ItemField"/>
+        /// (e.g. <c>identity</c>) is tested with Operator/Value; the condition matches when ANY
+        /// element satisfies it. This lets one aggregate event carry many items (no per-item event
+        /// spam) while a rule still reacts per item — e.g. <c>not_regex</c> against an allow-list to
+        /// fire only for array elements NOT on the list. Evidence carries the matched item value
+        /// under <c>field</c>=ItemField (so <c>{{itemField}}</c> interpolates) plus a capped sample.
+        /// </summary>
+        private (bool matched, object evidence) EvaluateEventDataArrayCondition(RuleCondition condition, List<EnrollmentEvent> events)
+        {
+            var matchingEvents = events.Where(e => MatchesEventType(e, condition.EventType)).ToList();
+
+            foreach (var evt in matchingEvents)
+            {
+                if (evt.Data == null) continue;
+                var items = AsEnumerable(GetDataFieldRaw(evt.Data, condition.DataField));
+                if (items == null) continue;
+
+                var matchedValues = new List<string>();
+                foreach (var element in items)
+                {
+                    var itemValue = GetItemFieldValue(element, condition.ItemField);
+                    if (itemValue != null && MatchesOperator(itemValue, condition.Operator, condition.Value))
+                        matchedValues.Add(itemValue);
+                }
+
+                if (matchedValues.Count == 0) continue;
+
+                const int MaxSamples = 10;
+                var fieldName = string.IsNullOrEmpty(condition.ItemField) ? "item" : condition.ItemField;
+                var evidence = new Dictionary<string, object>
+                {
+                    ["eventId"] = evt.EventId,
+                    ["sequence"] = evt.Sequence,
+                    ["timestamp"] = evt.Timestamp,
+                    ["eventType"] = evt.EventType,
+                    ["field"] = fieldName,
+                    ["value"] = matchedValues[0],
+                    ["matchCount"] = matchedValues.Count,
+                    ["matchedItems"] = matchedValues.Take(MaxSamples).ToList(),
+                    ["matchedItemsTruncated"] = matchedValues.Count > MaxSamples,
+                };
+                return (true, evidence);
+            }
+
+            return (false, "no array element matched");
+        }
+
+        /// <summary>
+        /// Raw (object) lookup of a data field — case-insensitive, no stringify. Supports flat keys
+        /// (incl. legacy keys containing a literal dot) and dot-path traversal into nested
+        /// dictionaries / JsonElement objects (e.g. <c>foo.artifacts</c>). Returns the raw value,
+        /// so an array stays an array for <see cref="AsEnumerable"/>.
+        /// </summary>
+        private static object? GetDataFieldRaw(Dictionary<string, object> data, string field)
+        {
+            if (data == null || string.IsNullOrEmpty(field)) return null;
+            if (data.TryGetValue(field, out var v)) return v;
+            var hit = data.Keys.FirstOrDefault(k => k.Equals(field, StringComparison.OrdinalIgnoreCase));
+            if (hit != null) return data[hit];
+            if (field.IndexOf('.') >= 0) return ResolveDotPathRaw(data, field);
+            return null;
+        }
+
+        /// <summary>Walks a dot-path through nested dictionaries / JsonElement objects, returning the raw value.</summary>
+        private static object? ResolveDotPathRaw(IDictionary<string, object> root, string path)
+        {
+            object? current = root;
+            foreach (var part in path.Split('.'))
+            {
+                switch (current)
+                {
+                    case System.Collections.Generic.IDictionary<string, object> dict:
+                        if (!dict.TryGetValue(part, out var next))
+                        {
+                            var hit = dict.Keys.FirstOrDefault(k => k.Equals(part, StringComparison.OrdinalIgnoreCase));
+                            if (hit == null) return null;
+                            next = dict[hit];
+                        }
+                        current = next;
+                        break;
+                    case JsonElement jel when jel.ValueKind == JsonValueKind.Object:
+                        JsonElement? found = null;
+                        if (jel.TryGetProperty(part, out var prop)) found = prop;
+                        else
+                        {
+                            foreach (var p in jel.EnumerateObject())
+                                if (p.Name.Equals(part, StringComparison.OrdinalIgnoreCase)) { found = p.Value; break; }
+                        }
+                        if (found == null) return null;
+                        current = found.Value;
+                        break;
+                    default:
+                        return null;
+                }
+            }
+            return current;
+        }
+
+        /// <summary>
+        /// Materializes an array value as an enumerable of elements. Handles the Newtonsoft path
+        /// (JArray → List&lt;object&gt;, the storage-read shape) and System.Text.Json arrays. A
+        /// string is deliberately NOT treated as an enumerable.
+        /// </summary>
+        private static System.Collections.Generic.IEnumerable<object>? AsEnumerable(object? value)
+        {
+            switch (value)
+            {
+                case null:
+                    return null;
+                case string:
+                    return null;
+                case JsonElement jel:
+                    return jel.ValueKind == JsonValueKind.Array ? jel.EnumerateArray().Cast<object>() : null;
+                case System.Collections.IEnumerable en:
+                    return en.Cast<object>();
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// Extracts an array element's sub-field as a string. Element may be a
+        /// Dictionary&lt;string,object&gt; (storage-read), a JsonElement object, or a scalar
+        /// (when <paramref name="itemField"/> is empty).
+        /// </summary>
+        private static string? GetItemFieldValue(object element, string itemField)
+        {
+            if (element == null) return null;
+
+            if (string.IsNullOrEmpty(itemField))
+            {
+                if (element is JsonElement scalarJel)
+                    return scalarJel.ValueKind == JsonValueKind.String ? scalarJel.GetString() : scalarJel.ToString();
+                if (element is System.Collections.Generic.IDictionary<string, object>) return null;
+                return element.ToString();
+            }
+
+            switch (element)
+            {
+                case System.Collections.Generic.IDictionary<string, object> dict:
+                    if (dict.TryGetValue(itemField, out var dv)) return dv?.ToString();
+                    var hit = dict.Keys.FirstOrDefault(k => k.Equals(itemField, StringComparison.OrdinalIgnoreCase));
+                    return hit != null ? dict[hit]?.ToString() : null;
+                case JsonElement jel when jel.ValueKind == JsonValueKind.Object:
+                    if (jel.TryGetProperty(itemField, out var prop))
+                        return prop.ValueKind == JsonValueKind.String ? prop.GetString() : prop.ToString();
+                    foreach (var p in jel.EnumerateObject())
+                        if (p.Name.Equals(itemField, StringComparison.OrdinalIgnoreCase))
+                            return p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() : p.Value.ToString();
+                    return null;
+                default:
+                    return null;
+            }
         }
 
         private (bool matched, object evidence) EvaluateEventCountCondition(RuleCondition condition, List<EnrollmentEvent> events)

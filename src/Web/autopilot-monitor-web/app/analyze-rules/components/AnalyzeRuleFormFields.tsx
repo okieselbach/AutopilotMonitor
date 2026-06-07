@@ -113,6 +113,7 @@ export default function AnalyzeRuleFormFields({ form, setForm, showRuleId, exist
         <div className="space-y-3">
           {form.conditions.map((cond, idx) => {
             const isCorrelation = cond.source === "event_correlation";
+            const isArray = cond.source === "event_data_array";
             const updateCond = (patch: Partial<RuleCondition>) => {
               const c = [...form.conditions];
               c[idx] = { ...c[idx], ...patch };
@@ -124,6 +125,7 @@ export default function AnalyzeRuleFormFields({ form, setForm, showRuleId, exist
                   <span className="text-xs font-medium text-gray-500">
                     Condition {idx + 1}
                     {isCorrelation && <span className="ml-2 px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs">event_correlation</span>}
+                    {isArray && <span className="ml-2 px-1.5 py-0.5 bg-teal-100 text-teal-700 rounded text-xs">event_data_array</span>}
                   </span>
                   {form.conditions.length > 1 && (
                     <button type="button" onClick={() => setForm({ ...form, conditions: form.conditions.filter((_, i) => i !== idx) })} className="text-xs text-red-500 hover:text-red-700">Remove</button>
@@ -141,11 +143,11 @@ export default function AnalyzeRuleFormFields({ form, setForm, showRuleId, exist
 
                 {/* Row 2: Data field / Operator / Value / Required */}
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-                  <input type="text" value={cond.dataField} onChange={(e) => updateCond({ dataField: e.target.value })} placeholder={isCorrelation ? "Filter field on Event B" : "Data field"} autoComplete="off" className="px-3 py-1.5 border border-gray-300 rounded text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                  <input type="text" value={cond.dataField} onChange={(e) => updateCond({ dataField: e.target.value })} placeholder={isCorrelation ? "Filter field on Event B" : isArray ? "Array field (e.g. artifacts)" : "Data field"} autoComplete="off" className="px-3 py-1.5 border border-gray-300 rounded text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
                   <select value={cond.operator} onChange={(e) => updateCond({ operator: e.target.value })} className="px-3 py-1.5 border border-gray-300 rounded text-sm text-gray-900 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500">
                     {OPERATORS.map((o) => (<option key={o} value={o}>{o}</option>))}
                   </select>
-                  <input type="text" value={cond.value} onChange={(e) => updateCond({ value: e.target.value })} placeholder={isCorrelation ? "Filter value on Event B" : "Value"} autoComplete="off" className="px-3 py-1.5 border border-gray-300 rounded text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                  <input type="text" value={cond.value} onChange={(e) => updateCond({ value: e.target.value })} placeholder={isCorrelation ? "Filter value on Event B" : isArray ? "Value / allow-list regex" : "Value"} autoComplete="off" className="px-3 py-1.5 border border-gray-300 rounded text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
                   <label className="flex items-center space-x-2 text-sm text-gray-700">
                     <input type="checkbox" checked={cond.required} onChange={(e) => updateCond({ required: e.target.checked })} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                     <span>Required</span>
@@ -184,6 +186,20 @@ export default function AnalyzeRuleFormFields({ form, setForm, showRuleId, exist
                         <input type="text" value={cond.eventAFilterValue ?? ""} onChange={(e) => updateCond({ eventAFilterValue: e.target.value })} placeholder="Filter value on Event A" autoComplete="off" className="px-3 py-1.5 border border-indigo-300 rounded text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {/* event_data_array extra field */}
+                {isArray && (
+                  <div className="pt-2 border-t border-teal-200 space-y-2">
+                    <p className="text-xs font-medium text-teal-700">Array settings</p>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Item field <span className="text-gray-400">(sub-field tested on each array element)</span></label>
+                      <input type="text" value={cond.itemField ?? ""} onChange={(e) => updateCond({ itemField: e.target.value })} placeholder="e.g. identity" autoComplete="off" className="w-full px-3 py-1.5 border border-teal-300 rounded text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      <strong>Data field</strong> is the array to iterate (e.g. <code className="bg-gray-100 px-1 rounded">artifacts</code>); the operator/value test runs against <strong>Item field</strong> on each element. The condition matches when <strong>any</strong> element matches — e.g. <code className="bg-gray-100 px-1 rounded">not_regex</code> against an allow-list fires for any element not on the list.
+                    </p>
                   </div>
                 )}
               </div>

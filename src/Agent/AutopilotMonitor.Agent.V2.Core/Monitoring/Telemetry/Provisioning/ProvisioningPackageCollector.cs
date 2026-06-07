@@ -13,8 +13,9 @@ using Microsoft.Win32;
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Provisioning
 {
     /// <summary>
-    /// Scans the device for provisioning-package (PPKG) traces and emits a single
-    /// <see cref="Constants.EventTypes.ProvisioningPackageScan"/> event with the raw facts.
+    /// Scans the device for provisioning-package (PPKG) traces and emits one or more
+    /// <see cref="Constants.EventTypes.ProvisioningPackageScan"/> events with the raw facts (the
+    /// artifact set is split across multiple size-bounded chunk events when large).
     /// <para>
     /// PPKGs are containers that inject settings, apps, accounts, WLAN/VPN, certificates and
     /// scripts before or during enrollment. They can come from legitimate bulk enrollment OR be
@@ -46,10 +47,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Provisioning
 
         // Bound registry recursion so a pathological hive cannot hang the scan.
         private const int MaxRegistryNodesPerPackage = 512;
-        // Cap collection lists so a flooded directory/hive cannot blow up the event payload.
-        private const int MaxPpkgFiles = 50;
-        private const int MaxPackages = 50;
-        private const int MaxRecoveryFiles = 50;
+        // Generous collection caps — purely a memory/time safety net against a pathological
+        // directory/hive (realistic devices have a few dozen). Artifacts beyond these set the
+        // corresponding *Truncated flag → scanTruncated → ANALYZE-SEC-007 alarms. Normal volumes
+        // are emitted in full, split across size-bounded chunk events (see MaxChunkJsonBytes), never dropped.
+        private const int MaxPpkgFiles = 250;
+        private const int MaxPackages = 250;
+        private const int MaxRecoveryFiles = 250;
+        // Chunking is by SERIALIZED SIZE, not a fixed count: identity/dir lengths vary, so a fixed
+        // count could still blow the 30k Table-Storage DataJson limit (truncation → invalid JSON →
+        // the rule can't read `artifacts`). Each event's payload is packed to stay under this budget,
+        // which sits safely below 30k to absorb serializer/escaping differences.
+        private const int MaxChunkJsonBytes = 24000;
+        // Hard cap on per-artifact string fields so a single pathological entry can't blow a chunk.
+        // Allow-list patterns are anchored at the START, so trimming the tail never breaks matching.
+        private const int MaxArtifactFieldLength = 256;
+        // Cap on surfaced scan errors, keeping the chunk-0 aggregate base bounded.
+        private const int MaxScanErrors = 50;
 
         private readonly string _sessionId;
         private readonly string _tenantId;
@@ -72,9 +86,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Provisioning
         }
 
         /// <summary>
-        /// Runs the full scan and emits exactly one <c>provisioning_package_scan</c> event.
-        /// Fail-soft end to end: any probe error is captured into <c>scanErrors</c> and the event
-        /// is still emitted (so the backend can distinguish "scanned clean" from "never scanned").
+        /// Runs the full scan and emits one or more <c>provisioning_package_scan</c> events (the
+        /// artifact set is split across size-bounded chunk events when large; a clean device still
+        /// emits exactly one). Fail-soft end to end: any probe error is captured into
+        /// <c>scanErrors</c> and an event is still emitted (so the backend can distinguish
+        /// "scanned clean" from "never scanned").
         /// </summary>
         public void Scan()
         {
@@ -96,49 +112,138 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Provisioning
 
             var payload = BuildPayload(findings);
             var anyFound = payload.TryGetValue("anyPpkgFound", out var f) && f is bool b && b;
+            var artifacts = (List<Dictionary<string, object>>)payload["artifacts"];
             var message = anyFound
                 ? $"Provisioning-package traces detected (files={findings.Files.Count}, packages={findings.Packages.Count}, recoveryResidue={findings.RecoveryCustomizationsFiles.Count})"
                 : "No provisioning-package traces detected";
 
-            _post.Emit(new EnrollmentEvent
-            {
-                SessionId = _sessionId,
-                TenantId = _tenantId,
-                EventType = Constants.EventTypes.ProvisioningPackageScan,
-                Severity = EventSeverity.Info,
-                Source = SourceName,
-                Phase = EnrollmentPhase.Unknown,
-                Message = message,
-                Data = payload,
-                ImmediateUpload = true,
-            });
+            // The analyze rules iterate the `artifacts` array (event_data_array). To keep every
+            // event's DataJson under the 30k Table-Storage truncation limit WITHOUT dropping any
+            // artifact (which would blind the allow-list rule), split a large artifact set across
+            // MULTIPLE provisioning_package_scan events — the rule engine evaluates the array
+            // condition across ALL matching events in the session, so nothing is lost. The first
+            // chunk carries the full aggregate (counts / contentIndicators / context); later chunks
+            // carry only their artifact slice + chunk metadata.
+            EmitChunkedScan(payload, artifacts, message);
 
-            // One scalar event per detected artifact so analyze rules can match per package
-            // (incl. the allow-list template's not_regex on `identity`). The aggregate event
-            // above keeps the "scanned clean" / counts baseline. None emitted on a clean device.
-            EmitPerPackageEvents(findings);
-
-            _logger.Info($"ProvisioningPackageCollector: scan complete (anyPpkgFound={anyFound}, packages={findings.Packages.Count}, files={findings.Files.Count}, errors={findings.Errors.Count}).");
+            _logger.Info($"ProvisioningPackageCollector: scan complete (anyPpkgFound={anyFound}, packages={findings.Packages.Count}, files={findings.Files.Count}, artifacts={artifacts.Count}, errors={findings.Errors.Count}).");
         }
 
-        private void EmitPerPackageEvents(ProvisioningScanFindings findings)
+        private void EmitChunkedScan(Dictionary<string, object> fullPayload, List<Dictionary<string, object>> artifacts, string message)
         {
-            foreach (var data in BuildDetectedEvents(findings))
+            var chunks = BuildChunkedPayloads(fullPayload, artifacts);
+            for (var i = 0; i < chunks.Count; i++)
             {
-                EmitDetected(data);
+                var chunkMessage = chunks.Count > 1 ? $"{message} (part {i + 1}/{chunks.Count})" : message;
+                _post.Emit(new EnrollmentEvent
+                {
+                    SessionId = _sessionId,
+                    TenantId = _tenantId,
+                    EventType = Constants.EventTypes.ProvisioningPackageScan,
+                    Severity = EventSeverity.Info,
+                    Source = SourceName,
+                    Phase = EnrollmentPhase.Unknown,
+                    Message = chunkMessage,
+                    Data = chunks[i],
+                    ImmediateUpload = true,
+                });
             }
         }
 
         /// <summary>
-        /// The full set of per-artifact <c>provisioning_package_detected</c> payloads: one per
-        /// registry package, one per .ppkg file, and one per Recovery\Customizations residue file
-        /// that is not already covered by a .ppkg file event. <c>BuildPayload</c> derives
-        /// <c>anyPpkgFound</c> from this same set, so the scan verdict and the events the analyze
-        /// rules match on stay consistent by construction.
+        /// Splits the scan payload into one-or-more per-event payloads so each event's serialized
+        /// DataJson stays under <see cref="MaxChunkJsonBytes"/> (well below the 30k Table-Storage
+        /// limit) WITHOUT dropping any artifact. Chunk 0 is the full aggregate (counts, content
+        /// indicators, context) with its artifact slice; continuation chunks carry only the
+        /// rule-relevant fields + their slice. Every chunk gets <c>chunkIndex</c>/<c>chunkCount</c>.
+        /// The rule engine evaluates the event_data_array condition across all chunk events, so the
+        /// complete artifact set is always considered.
+        /// </summary>
+        internal static List<Dictionary<string, object>> BuildChunkedPayloads(
+            Dictionary<string, object> fullPayload,
+            List<Dictionary<string, object>> artifacts)
+        {
+            var total = artifacts.Count;
+            var scanTruncated = fullPayload.TryGetValue("scanTruncated", out var st) && st is bool stb && stb;
+            var result = new List<Dictionary<string, object>>();
+            var emptyArtifacts = new List<Dictionary<string, object>>();
+
+            if (total == 0)
+            {
+                fullPayload["artifacts"] = emptyArtifacts;
+                fullPayload["chunkIndex"] = 0;
+                fullPayload["chunkCount"] = 1;
+                return new List<Dictionary<string, object>> { fullPayload };
+            }
+
+            // Base (non-artifact) JSON size of each chunk kind, measured with the SAME serializer
+            // the transport uses (Newtonsoft), incl. chunk-meta placeholders. Greedy size-based
+            // packing then keeps every chunk's DataJson under MaxChunkJsonBytes regardless of how
+            // long individual identities/dirs are — a fixed artifact COUNT could not guarantee that.
+            fullPayload["chunkIndex"] = 0;
+            fullPayload["chunkCount"] = 0;
+            fullPayload["artifacts"] = emptyArtifacts;
+            var base0 = JsonLength(fullPayload);
+
+            var leanProbe = NewContinuationChunk(total, scanTruncated, emptyArtifacts);
+            leanProbe["chunkIndex"] = 0;
+            leanProbe["chunkCount"] = 0;
+            var baseN = JsonLength(leanProbe);
+
+            // Pack artifacts into slices by serialized size (always >= 1 artifact per slice).
+            var slices = new List<List<Dictionary<string, object>>>();
+            var current = new List<Dictionary<string, object>>();
+            var currentBytes = 0;
+            foreach (var a in artifacts)
+            {
+                var aBytes = JsonLength(a) + 1; // + separating comma
+                var allowance = MaxChunkJsonBytes - (slices.Count == 0 ? base0 : baseN);
+                if (current.Count > 0 && currentBytes + aBytes > allowance)
+                {
+                    slices.Add(current);
+                    current = new List<Dictionary<string, object>>();
+                    currentBytes = 0;
+                }
+                current.Add(a);
+                currentBytes += aBytes;
+            }
+            slices.Add(current);
+
+            for (var i = 0; i < slices.Count; i++)
+            {
+                var data = i == 0 ? fullPayload : NewContinuationChunk(total, scanTruncated, slices[i]);
+                data["artifacts"] = slices[i];
+                data["chunkIndex"] = i;
+                data["chunkCount"] = slices.Count;
+                result.Add(data);
+            }
+
+            return result;
+        }
+
+        private static Dictionary<string, object> NewContinuationChunk(int total, bool scanTruncated, List<Dictionary<string, object>> artifacts)
+            => new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["anyPpkgFound"] = true,
+                ["artifacts"] = artifacts,
+                ["artifactCount"] = total,
+                ["scanTruncated"] = scanTruncated,
+            };
+
+        /// <summary>Serialized length with the transport's serializer (Newtonsoft) — matches the stored DataJson.</summary>
+        private static int JsonLength(object value)
+            => Newtonsoft.Json.JsonConvert.SerializeObject(value, Newtonsoft.Json.Formatting.None).Length;
+
+        /// <summary>
+        /// The full set of per-artifact descriptors embedded in the aggregate scan event's
+        /// <c>artifacts[]</c> array (one per registry package, one per .ppkg file, one per
+        /// Recovery\Customizations residue file not already covered by a .ppkg file event).
+        /// <c>BuildPayload</c> embeds this AND derives <c>anyPpkgFound</c> from it, so the scan
+        /// verdict and what the analyze rules iterate stay consistent by construction.
         /// <para>
         /// Residue dedup is by actual captured path, NOT by ".ppkg" extension: a recovery .ppkg
         /// whose recursive enumeration failed or was truncated is absent from <c>findings.Files</c>,
-        /// so it is NOT silently dropped here — it still gets a (recovery_residue) detected event.
+        /// so it is NOT silently dropped here — it still gets a (recovery_residue) artifact entry.
         /// </para>
         /// </summary>
         internal static List<Dictionary<string, object>> BuildDetectedEvents(ProvisioningScanFindings findings)
@@ -170,25 +275,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Provisioning
             }
 
             return list;
-        }
-
-        private void EmitDetected(Dictionary<string, object> data)
-        {
-            var identity = data.TryGetValue("identity", out var id) ? id?.ToString() : null;
-            _post.Emit(new EnrollmentEvent
-            {
-                SessionId = _sessionId,
-                TenantId = _tenantId,
-                EventType = Constants.EventTypes.ProvisioningPackageDetected,
-                Severity = EventSeverity.Info,
-                Source = SourceName,
-                Phase = EnrollmentPhase.Unknown,
-                Message = string.IsNullOrEmpty(identity)
-                    ? "Provisioning package artifact detected"
-                    : $"Provisioning package artifact detected: {identity}",
-                Data = data,
-                ImmediateUpload = true,
-            });
         }
 
         // ----------------------------------------------------------------------------------
@@ -371,52 +457,39 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Provisioning
 
         internal static Dictionary<string, object> BuildPayload(ProvisioningScanFindings findings)
         {
-            // Derive anyPpkgFound from the SAME set that produces per-package
-            // `provisioning_package_detected` events, so the aggregate "found" verdict and the
-            // events the analyze rules listen on can never diverge (Recovery-residue-only gap fix).
-            var anyPpkgFound = BuildDetectedEvents(findings).Count > 0;
-
-            var ppkgFiles = findings.Files
-                .Select(file => new Dictionary<string, object>
-                {
-                    ["dir"] = file.Directory,
-                    ["name"] = file.Name,
-                    ["path"] = file.FullPath,
-                    ["sizeBytes"] = file.SizeBytes,
-                    ["lastWriteUtc"] = (object?)file.LastWriteUtc ?? string.Empty,
-                })
-                .ToList();
-
-            var packages = findings.Packages
-                .Select(pkg =>
-                {
-                    var d = new Dictionary<string, object> { ["packageId"] = pkg.PackageId };
-                    if (!string.IsNullOrEmpty(pkg.Name)) d["name"] = pkg.Name!;
-                    if (!string.IsNullOrEmpty(pkg.OwnerType)) d["ownerType"] = pkg.OwnerType!;
-                    if (!string.IsNullOrEmpty(pkg.Rank)) d["rank"] = pkg.Rank!;
-                    if (!string.IsNullOrEmpty(pkg.InstallTime)) d["installTime"] = pkg.InstallTime!;
-                    if (pkg.SubKeyNames.Count > 0) d["registrySubKeys"] = pkg.SubKeyNames.ToList();
-                    return d;
-                })
-                .ToList();
+            // `artifacts` is the SINGLE rule-facing array (the rules iterate it via the
+            // event_data_array condition). It is the ONLY detail array on the wire (no duplicate
+            // ppkgFiles/packages, no raw registry subkeys) AND each entry is kept lean, so the
+            // COMPLETE list of collected artifacts fits well under the 30k Table-Storage truncation
+            // limit without a count cap. That completeness matters: a count cap could chop off a
+            // malicious artifact in the tail and the allow-list rule would never see it. The total
+            // is already bounded by the per-source collection caps (files/packages/residue) — and if
+            // any of those bit, `scanTruncated` is set so ANALYZE-SEC-007 alarms ("not fully evaluated").
+            var artifacts = BuildDetectedEvents(findings);
+            var anyPpkgFound = artifacts.Count > 0;
+            var scanTruncated = findings.FilesTruncated || findings.PackagesTruncated || findings.RecoveryFilesTruncated;
 
             return new Dictionary<string, object>
             {
                 ["anyPpkgFound"] = anyPpkgFound,
+                ["artifacts"] = artifacts,
+                ["artifactCount"] = artifacts.Count,
+                // True when a per-source cap bit, i.e. NOT every artifact could be evaluated.
+                // ANALYZE-SEC-007 fires on this so a flooded scan is never silently incomplete.
+                ["scanTruncated"] = scanTruncated,
+                // Counts only — per-artifact detail lives in `artifacts` (no duplicate arrays).
                 ["ppkgFileCount"] = findings.Files.Count,
-                ["ppkgFiles"] = ppkgFiles,
                 ["ppkgFilesTruncated"] = findings.FilesTruncated,
                 ["packageCount"] = findings.Packages.Count,
-                ["packages"] = packages,
                 ["packagesTruncated"] = findings.PackagesTruncated,
                 ["recoveryCustomizationsResidue"] = findings.RecoveryCustomizationsFiles.Count > 0,
-                ["recoveryCustomizationsFiles"] = findings.RecoveryCustomizationsFiles.ToList(),
                 ["recoveryFilesTruncated"] = findings.RecoveryFilesTruncated,
                 // Context only — present on virtually every MDM-enrolled device, NOT a PPKG signal.
                 ["omadmAccountsPresent"] = findings.OmadmAccountsPresent,
                 ["provisioningDiagnosticsPresent"] = findings.DiagnosticsPresent,
                 ["contentIndicators"] = BuildContentIndicators(findings),
-                ["scanErrors"] = findings.Errors.ToList(),
+                // Cap count + per-entry length so the chunk-0 aggregate base stays bounded.
+                ["scanErrors"] = findings.Errors.Take(MaxScanErrors).Select(CapField).ToList(),
             };
         }
 
@@ -477,47 +550,53 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Provisioning
             {
                 if (seen.Add(p)) ordered.Add(p);
             }
-            return string.Join(" | ", ordered);
+            return CapField(string.Join(" | ", ordered));
         }
 
+        /// <summary>Hard-caps a per-artifact string field (tail-trim is safe — allow-list is anchored at start).</summary>
+        private static string CapField(string s)
+            => string.IsNullOrEmpty(s) || s.Length <= MaxArtifactFieldLength ? s : s.Substring(0, MaxArtifactFieldLength);
+
+        // Artifact entries are kept LEAN so the COMPLETE list always fits under the 30k limit (no
+        // count cap that could hide a tail artifact). `identity` already carries name/ownerType/
+        // packageId (registry) or the file name, so those are not repeated; only fields NOT in the
+        // identity (rank/installTime, file dir/size) are added for triage.
         internal static Dictionary<string, object> BuildPackageEventData(PpkgPackageFact pkg)
         {
             var data = new Dictionary<string, object>(StringComparer.Ordinal)
             {
                 ["source"] = "registry",
-                ["packageId"] = pkg.PackageId,
-                ["packageName"] = pkg.Name ?? string.Empty,
-                ["ownerType"] = pkg.OwnerType ?? string.Empty,
-                ["rank"] = pkg.Rank ?? string.Empty,
-                ["installTime"] = pkg.InstallTime ?? string.Empty,
                 ["identity"] = BuildIdentity(pkg.Name, fileName: null, ownerType: pkg.OwnerType, packageId: pkg.PackageId),
             };
+            // Cap every per-artifact string so a single pathological registry value can't push one
+            // artifact past the chunk budget (the packer always keeps >=1 artifact per chunk).
+            if (!string.IsNullOrEmpty(pkg.Rank)) data["rank"] = CapField(pkg.Rank!);
+            if (!string.IsNullOrEmpty(pkg.InstallTime)) data["installTime"] = CapField(pkg.InstallTime!);
             return data;
         }
 
         internal static Dictionary<string, object> BuildFileEventData(PpkgFileFact file)
         {
+            // identity == file name; keep `dir` for location context (Windows = OS-inbox vs
+            // ProgramData/Recovery = applied) and size. Full path/lastWrite omitted to stay lean.
             var data = new Dictionary<string, object>(StringComparer.Ordinal)
             {
                 ["source"] = "file",
-                ["fileName"] = file.Name,
-                ["dir"] = file.Directory,
-                ["path"] = file.FullPath,
-                ["sizeBytes"] = file.SizeBytes,
                 ["identity"] = BuildIdentity(name: null, fileName: file.Name, ownerType: null, packageId: null),
+                ["dir"] = CapField(file.Directory),
+                ["sizeBytes"] = file.SizeBytes,
             };
-            if (!string.IsNullOrEmpty(file.LastWriteUtc)) data["lastWriteUtc"] = file.LastWriteUtc!;
             return data;
         }
 
         internal static Dictionary<string, object> BuildRecoveryResidueEventData(string fileName, string? dir)
         {
+            // identity == file name; keep `dir` for location context.
             return new Dictionary<string, object>(StringComparer.Ordinal)
             {
                 ["source"] = "recovery_residue",
-                ["fileName"] = fileName,
-                ["dir"] = dir ?? string.Empty,
                 ["identity"] = BuildIdentity(name: null, fileName: fileName, ownerType: null, packageId: null),
+                ["dir"] = CapField(dir ?? string.Empty),
             };
         }
 

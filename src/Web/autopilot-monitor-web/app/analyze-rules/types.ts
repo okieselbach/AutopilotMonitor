@@ -22,6 +22,8 @@ export interface RuleCondition {
   operator: string;
   value: string;
   required: boolean;
+  // event_data_array: sub-field tested on each array element (e.g. "identity")
+  itemField?: string;
   // event_correlation fields
   correlateEventType?: string;
   joinField?: string;
@@ -102,7 +104,7 @@ export const CATEGORIES = ["network", "identity", "apps", "device", "esp", "enro
 export const SEVERITIES = ["info", "warning", "high", "critical"] as const;
 export const TRIGGERS = ["single", "correlation"] as const;
 export const OPERATORS = ["equals", "not_equals", "contains", "not_contains", "regex", "not_regex", "gt", "lt", "gte", "lte", "exists", "not_exists", "count_gte", "count_per_group_gte", "in", "not_in"] as const;
-export const SOURCES = ["event_type", "event_data", "phase_duration", "event_count", "event_correlation"] as const;
+export const SOURCES = ["event_type", "event_data", "event_data_array", "phase_duration", "event_count", "event_correlation"] as const;
 export const PRECONDITION_OPERATORS = ["equals", "not_equals", "contains", "not_contains", "regex", "not_regex", "gt", "lt", "gte", "lte", "exists", "not_exists", "in", "not_in"] as const;
 
 export const SEVERITY_COLORS: Record<string, { bg: string; text: string; border: string; dot: string }> = {
@@ -137,6 +139,7 @@ export const EMPTY_CONDITION: RuleCondition = {
   operator: "contains",
   value: "",
   required: true,
+  itemField: "",
   correlateEventType: "",
   joinField: "",
   timeWindowSeconds: null,

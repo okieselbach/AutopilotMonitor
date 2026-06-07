@@ -1,0 +1,36 @@
+{
+  "$schema": "../schema/analyze-rule.schema.json",
+  "ruleId": "ANALYZE-SEC-007",
+  "title": "Provisioning Package Scan Incomplete",
+  "description": "Fires when the provisioning-package scan hit a per-source collection cap (too many .ppkg files, registry packages, or Recovery\\Customizations residue files to capture them all). When that happens the allow-list rules (ANALYZE-SEC-005/006) could not evaluate every package, so a non-allow-listed package may have gone unseen. A device with that many provisioning packages is itself unusual and worth a manual look.",
+  "severity": "warning",
+  "category": "security",
+  "version": "1.0.0",
+  "enabled": true,
+  "baseConfidence": 80,
+  "conditions": [
+    {
+      "signal": "ppkg_scan_truncated",
+      "source": "event_data",
+      "eventType": "provisioning_package_scan",
+      "dataField": "scanTruncated",
+      "operator": "equals",
+      "value": "true",
+      "required": true
+    }
+  ],
+  "confidenceThreshold": 40,
+  "explanation": "The provisioning-package scan was incomplete: the device had more provisioning packages than the agent captures per source, so a per-source cap was hit (see `ppkgFilesTruncated` / `packagesTruncated` / `recoveryFilesTruncated` on the `provisioning_package_scan` event).\n\nBecause not every package was captured, the allow-list rules (ANALYZE-SEC-005/006) may NOT have evaluated all of them — a non-allow-listed package could be present but unseen. A device carrying this many provisioning packages is also unusual on its own and warrants a manual review.",
+  "remediation": [
+    {
+      "title": "Review the device manually",
+      "steps": [
+        "Open the provisioning_package_scan event and check which counts exceeded the cap (ppkgFileCount / packageCount vs the *Truncated flags)",
+        "Inspect the device directly: C:\\ProgramData\\Microsoft\\Provisioning, C:\\Windows\\Provisioning, C:\\Recovery\\Customizations, and HKLM\\SOFTWARE\\Microsoft\\Provisioning\\Packages",
+        "Confirm whether the large number of provisioning packages is expected for this device/model (e.g. an OEM image) or anomalous",
+        "If anomalous, treat it as a potential manipulation and investigate the device's chain of custody"
+      ]
+    }
+  ],
+  "tags": ["security", "provisioning-package", "ppkg", "truncated", "coverage"]
+}

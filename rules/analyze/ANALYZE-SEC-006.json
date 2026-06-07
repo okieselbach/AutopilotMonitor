@@ -1,42 +1,43 @@
 {
   "$schema": "../schema/analyze-rule.schema.json",
   "ruleId": "ANALYZE-SEC-006",
-  "title": "Unexpected Provisioning Package (Allow-List)",
-  "description": "Template rule. Fires only for provisioning packages (PPKG) whose identity is NOT on your allow-list. Use this to suppress known-good vendor/recovery packages while still catching unexpected ones. This rule is OFF by default: enable it, set your allow-list regex, then disable the always-on rule ANALYZE-SEC-005 so only non-allow-listed packages alert.",
+  "title": "Unexpected Provisioning Package (Custom Allow-List)",
+  "description": "Template version of ANALYZE-SEC-005 with a customizable allow-list. Iterates the provisioning_package_scan artifacts[] array and fires for any PPKG whose identity is not on YOUR allow-list regex. The placeholder ships with the same OS-inbox defaults as ANALYZE-SEC-005 — extend it with your own vendor/recovery packages. This rule is OFF by default: enable it, set your allow-list, then disable ANALYZE-SEC-005 so only packages outside your list alert.",
   "severity": "warning",
   "category": "security",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "enabled": false,
   "baseConfidence": 80,
   "conditions": [
     {
       "signal": "ppkg_not_allowlisted",
-      "source": "event_data",
-      "eventType": "provisioning_package_detected",
-      "dataField": "identity",
+      "source": "event_data_array",
+      "eventType": "provisioning_package_scan",
+      "dataField": "artifacts",
+      "itemField": "identity",
       "operator": "not_regex",
-      "value": "Dell Recovery|HP Recovery|Lenovo Recovery",
+      "value": "^(?:Microsoft\\.Windows\\.Cosa|Power\\.EnergyEstimationEngine|Power\\.Settings|SecureStart\\.Settings)\\b",
       "required": true
     }
   ],
   "confidenceThreshold": 40,
-  "explanation": "A provisioning package (PPKG) was detected whose identity does NOT match your configured allow-list.\n\n- **Unexpected package:** `{{identity}}`\n\nThe `identity` value combines the package name, .ppkg file name, ownerType and packageId, so your allow-list regex can match an approved package by any of these. Packages that DO match your allow-list (e.g. OEM recovery packages) are intentionally ignored by this rule.\n\nIf this package should be allowed, add it to the allow-list regex (the 'value' of the 'ppkg_not_allowlisted' condition). If it is genuinely unexpected on a pure-Autopilot device, treat it as a potential manipulation and investigate how it was applied.",
+  "explanation": "A provisioning package (PPKG) was detected whose identity is NOT on your configured allow-list.\n\n- **Unexpected package:** `{{identity}}`\n\nThe `identity` value combines a package's name, .ppkg file name, ownerType and packageId, so your allow-list regex can match an approved package by any of these. The default allow-list already covers the Windows OS-inbox packages (Cosa, Power.EnergyEstimationEngine, Power.Settings, SecureStart) — extend it with your own vendor/recovery packages.\n\nIf this package should be allowed, add it to the allow-list regex (the 'value' of the 'ppkg_not_allowlisted' condition). If it is genuinely unexpected on a pure-Autopilot device, treat it as a potential manipulation and investigate how it was applied.",
   "remediation": [
     {
       "title": "Triage the unexpected package",
       "steps": [
-        "Open the provisioning_package_scan event for the full inventory and the matching provisioning_package_detected event for this package's identity",
+        "Open the provisioning_package_scan event and review the artifacts array for this package's identity and source",
         "Decide: is this a known-good package that should be allow-listed, or genuinely unexpected?",
-        "If known-good: extend the allow-list regex (e.g. add 'Acme Recovery' as 'Dell Recovery|HP Recovery|Acme Recovery')",
+        "If known-good: the allow-list is anchored (^(?:...)\\b), so insert a new alternative INSIDE the group, before the closing ')' — e.g. ...|SecureStart\\.Settings|Acme\\.Recovery)\\b. Appending after the ) or \\b will not match.",
         "If unexpected: investigate the application path (USB media, C:\\Recovery\\Customizations residue, custom image) and the device's chain of custody"
       ]
     },
     {
-      "title": "Activate the allow-list workflow (2-step)",
+      "title": "Activate the custom allow-list workflow (2-step)",
       "steps": [
-        "Enable this rule and set the allow-list regex to match your approved vendor/recovery packages (case-insensitive)",
+        "Enable this rule and extend the allow-list regex by inserting your approved packages as alternatives inside the anchored group (before the closing ')'), case-insensitive",
         "Verify it behaves as expected on a known device",
-        "Disable the always-on rule ANALYZE-SEC-005 so only non-allow-listed packages alert going forward"
+        "Disable the built-in rule ANALYZE-SEC-005 so only packages outside your allow-list alert going forward"
       ]
     }
   ],
@@ -45,10 +46,10 @@
     {
       "name": "allowed_packages",
       "label": "Allowed provisioning packages (regex)",
-      "description": "Case-insensitive regex matched against each package's `identity` (name | fileName | ownerType | packageId). Packages matching this pattern are treated as approved and do NOT alert. Combine multiple with '|', e.g. 'Dell Recovery|HP Recovery|CONTOSO-BULK'.",
+      "description": "Case-insensitive regex matched against each package's identity (name | fileName | ownerType | packageId). Packages matching this pattern are treated as approved and do NOT alert. The default is anchored (^...) so it matches only at the START of the identity — extend it by adding an alternative inside the group, e.g. add '|Acme\\.Recovery' before the closing ')'.",
       "conditionIndex": 0,
       "field": "value",
-      "placeholder": "Dell Recovery|HP Recovery|Lenovo Recovery"
+      "placeholder": "^(?:Microsoft\\.Windows\\.Cosa|Power\\.EnergyEstimationEngine|Power\\.Settings|SecureStart\\.Settings)\\b"
     }
   ]
 }

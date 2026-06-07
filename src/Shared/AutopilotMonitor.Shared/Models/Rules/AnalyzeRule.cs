@@ -194,10 +194,19 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>
         /// Data field to match on.
         /// For "event_data": field to check with Operator/Value.
+        /// For "event_data_array": the ARRAY field to iterate (e.g. "artifacts").
         /// For "event_correlation": optional filter field on Event B (the second event).
         /// Uses dot notation for nested fields (e.g., "data.errorCode").
         /// </summary>
         public string DataField { get; set; } = default!;
+
+        /// <summary>
+        /// For "event_data_array" only: the sub-field on each array element to test with
+        /// Operator/Value (e.g. "identity"). When empty, each element is treated as a scalar.
+        /// The condition matches when ANY element satisfies the operator (e.g. one artifact whose
+        /// identity does not match an allow-list regex).
+        /// </summary>
+        public string ItemField { get; set; } = default!;
 
         /// <summary>
         /// Comparison operator: "equals", "not_equals", "contains", "not_contains", "regex", "not_regex", "gt", "lt", "gte", "lte", "exists", "not_exists", "count_gte"
