@@ -11,8 +11,27 @@ export function SectionAgentChangelog() {
         User-facing changes to the Autopilot Monitor agent, newest first. Only includes changes that affect agent behavior on the device.
       </p>
 
+      {/* ── June 2026 ────────────────────────────────── */}
+      <ChangelogBlock title="June 2026">
+        <Li>Provisioning-package detection — agent scans for Windows provisioning packages (<code className="text-xs bg-gray-100 px-1 py-0.5 rounded">.ppkg</code>) applied to the device and reports them in a single scan event; security rules flag packages outside a built-in allow-list of Windows-inbox packages</Li>
+        <Li>AutoLogon detection — agent reports the device&apos;s automatic sign-in (AutoLogon) configuration and security rules flag it when left enabled</Li>
+        <Li>ESP sub-category state changes are now surfaced even when they aren&apos;t failures (e.g. retry or recovery transitions) for clearer visibility into ESP progress</Li>
+        <Li>Stall-probe file and registry scans now enforce a hard timeout so a slow or locked source can no longer hang the probe</Li>
+      </ChangelogBlock>
+
       {/* ── May 2026 ─────────────────────────────────── */}
       <ChangelogBlock title="May 2026">
+        <Li>RealmJoin client detection — agent detects the RealmJoin client, reports its version, tracks deployment-phase changes, and surfaces per-package install progress</Li>
+        <Li>Device hardware now reports CPU architecture (<code className="text-xs bg-gray-100 px-1 py-0.5 rounded">x86</code> / <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">x64</code> / <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">ARM</code> / <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">ARM64</code>)</Li>
+        <Li>Startup power-state check — agent warns when the device is running on battery below 80%, a frequent driver behind power-management enrollment stalls (enrollments are more reliable on AC power)</Li>
+        <Li>ESP app-install failures are now classified by their HRESULT, surface all failure types (failed / not-installed / error), and a 30-second settle window catches results that arrive late</Li>
+        <Li>Crash mini-dumps are captured for deeper post-mortem analysis when a previous-run crash is detected</Li>
+        <Li>More accurate Health Script results — compliant detections are no longer mislabeled as failed, and detection failures now produce an actionable message for admins</Li>
+        <Li>Fewer false enrollment failures — ESP &quot;continue anyway&quot; with AccountSetup, and self-deploying scenarios, now get a settle window before a failure is finalized</Li>
+        <Li>Shutdown, diagnostics, and summary events are no longer dropped after a terminal enrollment decision</Li>
+        <Li>Bootstrap reports its version so the bootstrap script version is visible in the session</Li>
+        <Li>Agent retries the remote-config fetch with wire-visible fallback when the first attempt fails</Li>
+        <Li>Security hardening for agent self-update, diagnostics URL handling, and PowerShell argument escaping</Li>
         <Li><strong>Agent V2 is now the primary production line</strong> — V2 replaces V1 as the default install. Existing V1 devices keep working; new installs ship the V2 build (bootstrap script and binary renamed from <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">.V2</code> to standard)</Li>
         <Li>Health Scripts lifecycle monitoring — detection, remediation, and post-remediation phases are each captured as separate timeline events with a live &quot;script running&quot; indicator before the result lands</Li>
         <Li>Apps still installing when ESP-Apps times out are flagged as &quot;likely stuck&quot; instead of disappearing from the timeline — admins now see the app name and a hedged outcome</Li>
