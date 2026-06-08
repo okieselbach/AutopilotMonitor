@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useRef, useMemo } from "react";
-import { useRouter } from "next/navigation";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
 import { useSignalR } from "../../contexts/SignalRContext";
 import { useTenant } from "../../contexts/TenantContext";
@@ -9,16 +8,11 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useNotifications } from "../../contexts/NotificationContext";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
-import { extractContinuation, MAX_EAGER_PAGES } from "@/lib/paginationLink";
 import FleetStatCard from "./components/FleetStatCard";
-import { Session } from "@/types";
+import { useFleetHealth } from "./hooks/useFleetHealth";
 import { useAggregatedAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
-
-// Backend caps pageSize at 1000 — use the maximum so a 90-day window on a busy
-// install (10k+ sessions) drains in a handful of round-trips instead of 50+.
-const FLEET_PAGE_SIZE = 1000;
 
 interface AppMetric {
   appName: string;
@@ -41,15 +35,10 @@ interface AppMetricsResponse {
 }
 
 export default function FleetHealthPage() {
-  const router = useRouter();
-
-  const [sessions, setSessions] = useState<Session[]>([]);
   const [appMetrics, setAppMetrics] = useState<AppMetricsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState<"7d" | "30d" | "90d">("7d");
 
   const hasJoinedGroup = useRef(false);
-  const isTimeRangeMount = useRef(true);
 
   const { on, off, isConnected, joinGroup, leaveGroup } = useSignalR();
   const { tenantId } = useTenant();
@@ -61,18 +50,36 @@ export default function FleetHealthPage() {
   const scope = useAggregatedAdminScope();
   const { isGlobalAdmin, selectedTenantId, effectiveTenantId, scopeInitialized, scopeKey } = scope;
 
+  const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
+
+  // Server-aggregated fleet data (stats, timeline, model + failure breakdowns).
+  // Replaces the old client path that drained up to 200k raw sessions into the
+  // browser and aggregated on the main thread.
+  const { data, error } = useFleetHealth({
+    isGlobalAdmin,
+    selectedTenantId,
+    tenantId,
+    scopeInitialized,
+    scopeKey,
+    days,
+    getAccessToken,
+    addNotification,
+    signalR: { on, off, isConnected },
+  });
+
+  // App install metrics are already backend-aggregated; fetch alongside fleet data.
   useEffect(() => {
     if (!scopeInitialized) return;
-    if (isTimeRangeMount.current) {
-      isTimeRangeMount.current = false;
-    }
-    Promise.all([fetchSessions(timeRange), fetchAppMetrics(timeRange)]);
+    fetchAppMetrics(timeRange);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeInitialized, timeRange, scopeKey]);
 
+  // Join this tenant's SignalR group so its session events reach the client; the
+  // useFleetHealth hook listens for newSession/newevents to trigger a debounced
+  // refetch. No group in GA-aggregated mode (effectiveTenantId empty).
   useEffect(() => {
     if (!isConnected) return;
-    if (!effectiveTenantId) return; // no group in aggregated mode
+    if (!effectiveTenantId) return;
     if (hasJoinedGroup.current) return;
     const group = `tenant-${effectiveTenantId}`;
     joinGroup(group);
@@ -85,107 +92,16 @@ export default function FleetHealthPage() {
     };
   }, [isConnected, effectiveTenantId]);
 
-  useEffect(() => {
-    const handleNewSession = (data: { session: Session }) => {
-      if (data.session) {
-        setSessions((prev) => {
-          const idx = prev.findIndex(
-            (s) => s.sessionId === data.session.sessionId
-          );
-          if (idx >= 0) {
-            const updated = [...prev];
-            updated[idx] = data.session;
-            return updated;
-          }
-          return [data.session, ...prev];
-        });
-      }
-    };
-    const handleNewEvents = (data: { sessionId: string; sessionUpdate?: Partial<Session>; session?: Session }) => {
-      const update = data.sessionUpdate || data.session;
-      if (update) {
-        setSessions((prev) => {
-          const idx = prev.findIndex(
-            (s) => s.sessionId === data.sessionId
-          );
-          if (idx >= 0) {
-            const updated = [...prev];
-            updated[idx] = { ...prev[idx], ...update };
-            return updated;
-          }
-          return prev;
-        });
-      }
-    };
-    on("newSession", handleNewSession);
-    on("newevents", handleNewEvents);
-    return () => {
-      off("newSession", handleNewSession);
-      off("newevents", handleNewEvents);
-    };
-  }, [on, off]);
-
-  const fetchSessions = async (range: "7d" | "30d" | "90d" = timeRange) => {
-    try {
-      const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
-      // Pattern A — progressive eager fetch: render the first batch quickly, then
-      // drain remaining pages in the background so fleet stats reflect the full
-      // window even when the tenant has thousands of sessions. The previous
-      // single-call (default 100) silently truncated busy installations.
-      const opts = (continuation?: string) => ({ pageSize: FLEET_PAGE_SIZE, continuation });
-      const buildUrl = (continuation?: string) => isGlobalAdmin
-        ? api.globalSessions.list(selectedTenantId || undefined, days, opts(continuation))
-        : api.sessions.list(tenantId, days, opts(continuation));
-
-      const firstResponse = await authenticatedFetch(buildUrl(), getAccessToken);
-      if (!firstResponse.ok) {
-        addNotification('error', 'Backend Error', `Failed to load sessions: ${firstResponse.statusText}`, 'fleet-health-sessions-error');
-        return;
-      }
-      const firstData = await firstResponse.json();
-      const firstBatch: Session[] = firstData.sessions || [];
-      setSessions(firstBatch);
-      setLoading(false);
-
-      let nextContinuation = extractContinuation(firstData.nextLink);
-      let pages = 1;
-      while (nextContinuation && pages < MAX_EAGER_PAGES) {
-        const resp = await authenticatedFetch(buildUrl(nextContinuation), getAccessToken);
-        if (!resp.ok) {
-          console.warn(`[FleetHealth] eager-fetch stopped at page ${pages + 1} (status=${resp.status})`);
-          break;
-        }
-        const pageData = await resp.json();
-        const batch: Session[] = pageData.sessions || [];
-        if (batch.length > 0) setSessions(prev => prev.concat(batch));
-        nextContinuation = extractContinuation(pageData.nextLink);
-        pages++;
-      }
-      if (pages >= MAX_EAGER_PAGES) {
-        console.warn(`[FleetHealth] eager-fetch hit MAX_EAGER_PAGES=${MAX_EAGER_PAGES}; remaining sessions not loaded`);
-      }
-    } catch (error) {
-      if (error instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', error.message, 'session-expired-error');
-      } else {
-        console.error("Failed to fetch sessions:", error);
-        addNotification('error', 'Backend Not Reachable', 'Unable to load fleet health data. Please check your connection.', 'fleet-health-sessions-error');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const fetchAppMetrics = async (range: "7d" | "30d" | "90d" = timeRange) => {
     try {
-      const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
+      const d = range === "7d" ? 7 : range === "30d" ? 30 : 90;
       const endpoint = isGlobalAdmin
-        ? api.metrics.globalApp(days, selectedTenantId || undefined)
-        : api.metrics.app(tenantId, days);
+        ? api.metrics.globalApp(d, selectedTenantId || undefined)
+        : api.metrics.app(tenantId, d);
       const response = await authenticatedFetch(endpoint, getAccessToken);
       if (response.ok) {
-        const data = await response.json();
-        setAppMetrics(data);
+        const json = await response.json();
+        setAppMetrics(json);
       } else {
         addNotification('error', 'Backend Error', `Failed to load app metrics: ${response.statusText}`, 'fleet-health-metrics-error');
       }
@@ -199,174 +115,54 @@ export default function FleetHealthPage() {
     }
   };
 
-  // Filter sessions by time range
-  const filteredSessions = useMemo(() => {
-    const now = new Date();
-    const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
-    const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-    return sessions.filter((s) => new Date(s.startedAt) >= cutoff);
-  }, [sessions, timeRange]);
+  // Server payload, with presentation-friendly defaults so the JSX renders
+  // without null guards once loading clears. `avgDuration` keeps the card's
+  // original field name (server sends avgDurationMinutes).
+  const s = data?.stats;
+  const stats = {
+    total: s?.total ?? 0,
+    succeeded: s?.succeeded ?? 0,
+    failed: s?.failed ?? 0,
+    inProgress: s?.inProgress ?? 0,
+    successRate: s?.successRate ?? 0,
+    avgDuration: s?.avgDurationMinutes ?? 0,
+  };
+  const modelHealth = data?.modelHealth ?? [];
+  const slowestModels = data?.slowestModels ?? [];
+  const topFailingModels = data?.topFailingModels ?? [];
+  const failureReasons = data?.failureReasons ?? [];
 
-  // Stats
-  const stats = useMemo(() => {
-    const total = filteredSessions.length;
-    const succeeded = filteredSessions.filter(
-      (s) => s.status === "Succeeded"
-    ).length;
-    const failed = filteredSessions.filter(
-      (s) => s.status === "Failed"
-    ).length;
-    const inProgress = filteredSessions.filter(
-      (s) => s.status === "InProgress"
-    ).length;
-    const successRate = total > 0 ? (succeeded / total) * 100 : 0;
-
-    const completedSessions = filteredSessions.filter(
-      (s) => s.status !== "InProgress" && s.durationSeconds > 0
-    );
-    const avgDuration =
-      completedSessions.length > 0
-        ? completedSessions.reduce((sum, s) => sum + s.durationSeconds, 0) /
-          completedSessions.length /
-          60
-        : 0;
-
-    return {
-      total,
-      succeeded,
-      failed,
-      inProgress,
-      successRate,
-      avgDuration: Math.round(avgDuration),
-    };
-  }, [filteredSessions]);
-
-  // Enrollments by day
+  // Timeline points with presentation labels derived from the UTC date string.
   const dailyData = useMemo(() => {
-    const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
-    const now = new Date();
-    const data: {
-      label: string;
-      date: string;
-      success: number;
-      failed: number;
-    }[] = [];
-
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-      const dateStr = d.toISOString().split("T")[0];
-      const dayLabel = d.toLocaleDateString(undefined, {
-        weekday: "short",
-      });
-
-      const daySessions = filteredSessions.filter(
-        (s) =>
-          new Date(s.startedAt).toISOString().split("T")[0] === dateStr
-      );
-
-      data.push({
-        label: days <= 7 ? dayLabel : d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
-        date: dateStr,
-        success: daySessions.filter((s) => s.status === "Succeeded").length,
-        failed: daySessions.filter((s) => s.status === "Failed").length,
-      });
-    }
-
-    return data;
-  }, [filteredSessions, timeRange]);
-
-  // Top failure reasons
-  const failureReasons = useMemo(() => {
-    const reasons: Record<string, number> = {};
-    filteredSessions
-      .filter((s) => s.status === "Failed")
-      .forEach((s) => {
-        const reason = s.failureReason || "Unknown";
-        // Simplify reason for grouping
-        const simplified =
-          reason.length > 50 ? reason.substring(0, 50) + "..." : reason;
-        reasons[simplified] = (reasons[simplified] || 0) + 1;
-      });
-    return Object.entries(reasons)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 5);
-  }, [filteredSessions]);
-
-  // Health by device model
-  const modelHealth = useMemo(() => {
-    const models: Record<
-      string,
-      { total: number; succeeded: number; model: string }
-    > = {};
-    filteredSessions.forEach((s) => {
-      const key = `${s.manufacturer} ${s.model}`.trim() || "Unknown";
-      if (!models[key]) models[key] = { total: 0, succeeded: 0, model: key };
-      models[key].total++;
-      if (s.status === "Succeeded") models[key].succeeded++;
+    const points = data?.dailyData ?? [];
+    return points.map((p) => {
+      const d = new Date(p.date + "T00:00:00");
+      return {
+        date: p.date,
+        label:
+          days <= 7
+            ? d.toLocaleDateString(undefined, { weekday: "short" })
+            : d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+        success: p.success,
+        failed: p.failed,
+      };
     });
-    return Object.values(models)
-      .filter((m) => m.total >= 1)
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 6);
-  }, [filteredSessions]);
+  }, [data, days]);
 
-  // Slowest models by avg enrollment duration
-  const slowestModels = useMemo(() => {
-    const models: Record<string, { totalDuration: number; count: number; model: string }> = {};
-    filteredSessions
-      .filter((s) => s.status === "Succeeded" && s.durationSeconds > 0)
-      .forEach((s) => {
-        const key = `${s.manufacturer} ${s.model}`.trim() || "Unknown";
-        if (!models[key])
-          models[key] = { totalDuration: 0, count: 0, model: key };
-        models[key].totalDuration += s.durationSeconds;
-        models[key].count++;
-      });
-    return Object.values(models)
-      .map((m) => ({
-        model: m.model,
-        avgMinutes: Math.round(m.totalDuration / m.count / 60),
-        count: m.count,
-      }))
-      .sort((a, b) => b.avgMinutes - a.avgMinutes)
-      .slice(0, 5);
-  }, [filteredSessions]);
+  const maxDaily = useMemo(
+    () => Math.max(1, ...dailyData.map((d) => d.success + d.failed)),
+    [dailyData],
+  );
 
-  // Top failing models - models with most failures
-  const topFailingModels = useMemo(() => {
-    const models: Record<string, { failed: number; total: number; model: string }> = {};
-    filteredSessions.forEach((s) => {
-      const key = `${s.manufacturer} ${s.model}`.trim() || "Unknown";
-      if (!models[key]) models[key] = { failed: 0, total: 0, model: key };
-      models[key].total++;
-      if (s.status === "Failed") models[key].failed++;
-    });
-    return Object.values(models)
-      .filter((m) => m.failed > 0)
-      .map((m) => ({
-        model: m.model,
-        failed: m.failed,
-        total: m.total,
-        failureRate: Math.round((m.failed / m.total) * 100),
-      }))
-      .sort((a, b) => b.failed - a.failed)
-      .slice(0, 5);
-  }, [filteredSessions]);
+  const maxFailureCount = useMemo(
+    () => (failureReasons.length > 0 ? Math.max(...failureReasons.map((f) => f.count)) : 1),
+    [failureReasons],
+  );
 
-  const maxDaily = useMemo(() => {
-    return Math.max(
-      1,
-      ...dailyData.map((d) => d.success + d.failed)
-    );
-  }, [dailyData]);
-
-  const maxFailureCount = useMemo(() => {
-    return failureReasons.length > 0
-      ? Math.max(...failureReasons.map(([, c]) => c))
-      : 1;
-  }, [failureReasons]);
-
-  if (loading) {
+  // Spinner on the initial load and while a scope/range switch refetches (data is
+  // reset to null). On error we fall through and render the page shell — the hook
+  // surfaces the failure via a notification, matching the previous behavior.
+  if (!data && !error) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-gray-600">Loading fleet health data...</div>
@@ -465,7 +261,7 @@ export default function FleetHealthPage() {
             <h2 className="text-lg font-semibold text-gray-900 mb-4">
               Enrollments Timeline
             </h2>
-            {filteredSessions.length === 0 ? (
+            {stats.total === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 No enrollments in this time range.
               </div>
@@ -574,25 +370,25 @@ export default function FleetHealthPage() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {failureReasons.map(([reason, count], i) => (
-                    <div key={reason} className="flex items-center space-x-3">
+                  {failureReasons.map((fr, i) => (
+                    <div key={fr.reason} className="flex items-center space-x-3">
                       <span className="text-xs text-gray-400 w-4">
                         {i + 1}.
                       </span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-sm text-gray-700 truncate pr-2">
-                            {reason}
+                            {fr.reason}
                           </span>
                           <span className="text-sm font-medium text-gray-900 flex-shrink-0">
-                            ({count})
+                            ({fr.count})
                           </span>
                         </div>
                         <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
                           <div
                             className="h-full bg-red-400 rounded-full"
                             style={{
-                              width: `${(count / maxFailureCount) * 100}%`,
+                              width: `${(fr.count / maxFailureCount) * 100}%`,
                             }}
                           />
                         </div>
@@ -852,4 +648,3 @@ export default function FleetHealthPage() {
     </ProtectedRoute>
   );
 }
-

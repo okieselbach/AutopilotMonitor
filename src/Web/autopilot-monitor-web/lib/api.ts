@@ -200,6 +200,11 @@ export const api = {
       `${API_BASE_URL}/api/metrics/app${qs({ tenantId, days: String(days) })}`,
     globalApp: (days: number, tenantId?: string) =>
       `${API_BASE_URL}/api/global/metrics/app${qs({ days: String(days), tenantId })}`,
+    // Server-aggregated Fleet Health (replaces client-side raw-session aggregation).
+    fleetHealth: (days: number) =>
+      `${API_BASE_URL}/api/metrics/fleet-health${qs({ days: String(days) })}`,
+    globalFleetHealth: (days: number, tenantId?: string) =>
+      `${API_BASE_URL}/api/global/metrics/fleet-health${qs({ days: String(days), tenantId })}`,
     geographic: (tenantId: string, days: number, groupBy: string) =>
       `${API_BASE_URL}/api/metrics/geographic${qs({ tenantId, days: String(days), groupBy })}`,
     globalGeographic: (days: number, groupBy: string, tenantId?: string) =>
