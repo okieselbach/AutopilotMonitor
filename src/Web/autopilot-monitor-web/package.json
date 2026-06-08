@@ -28,6 +28,7 @@
     "recharts": "^2.15.4"
   },
   "devDependencies": {
+    "@next/bundle-analyzer": "^16.2.7",
     "@types/dagre": "^0.7.54",
     "@types/node": "^22.10.5",
     "@types/react": "^18.2.48",

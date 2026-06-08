@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import withBundleAnalyzer from "@next/bundle-analyzer";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -37,4 +38,8 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// Run `ANALYZE=1 npm run build` to emit interactive treemaps of the
+// client/server bundles into .next/analyze/ for bundle-size investigation.
+export default withBundleAnalyzer({ enabled: process.env.ANALYZE === "1" })(
+  nextConfig,
+);
