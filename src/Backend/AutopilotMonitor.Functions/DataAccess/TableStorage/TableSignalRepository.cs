@@ -49,17 +49,24 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
             foreach (var group in records.GroupBy(r => (r.TenantId, r.SessionId)))
             {
-                var ordered = group.OrderBy(r => r.SessionSignalOrdinal).ToList();
+                // Collapse duplicate RowKeys (D19(SessionSignalOrdinal)) before building the
+                // transaction — Azure Tables rejects the whole batch with InvalidDuplicateRow
+                // otherwise (e.g. an agent replaying an overlapping ordinal). Dedup also yields
+                // RowKey ordering, so the previous OrderBy(ordinal) is no longer needed.
+                var (deduped, dropped) = TableBatchDedup.ByRowKey(group.Select(ToEntity));
+                if (dropped > 0)
+                    _logger.LogWarning(
+                        "Signals: dropped {Dropped} duplicate-RowKey row(s) (last-wins) for {Tenant}_{Session} — agent likely replayed overlapping SessionSignalOrdinal",
+                        dropped, group.Key.TenantId, group.Key.SessionId);
 
-                for (var offset = 0; offset < ordered.Count; offset += TransactionChunkSize)
+                for (var offset = 0; offset < deduped.Count; offset += TransactionChunkSize)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var chunk = ordered.Skip(offset).Take(TransactionChunkSize).ToList();
+                    var chunk = deduped.Skip(offset).Take(TransactionChunkSize).ToList();
                     var actions = chunk
-                        .Select(r => new TableTransactionAction(
-                            TableTransactionActionType.UpsertReplace,
-                            ToEntity(r)))
+                        .Select(e => new TableTransactionAction(
+                            TableTransactionActionType.UpsertReplace, e))
                         .ToList();
 
                     await table.SubmitTransactionAsync(actions, cancellationToken).ConfigureAwait(false);
@@ -68,7 +75,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
                 _logger.LogDebug(
                     "Signals: committed {Count} rows for {Tenant}_{Session}",
-                    ordered.Count, group.Key.TenantId, group.Key.SessionId);
+                    deduped.Count, group.Key.TenantId, group.Key.SessionId);
             }
 
             return committed;

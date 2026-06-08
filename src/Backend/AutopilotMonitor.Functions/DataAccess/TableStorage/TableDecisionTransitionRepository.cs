@@ -51,17 +51,23 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
             foreach (var group in records.GroupBy(r => (r.TenantId, r.SessionId)))
             {
-                var ordered = group.OrderBy(r => r.StepIndex).ToList();
+                // Collapse duplicate RowKeys (D10(StepIndex)) before building the transaction —
+                // Azure Tables rejects the whole batch with InvalidDuplicateRow otherwise. Dedup
+                // also yields RowKey ordering, so the previous OrderBy(StepIndex) is redundant.
+                var (deduped, dropped) = TableBatchDedup.ByRowKey(group.Select(ToEntity));
+                if (dropped > 0)
+                    _logger.LogWarning(
+                        "DecisionTransitions: dropped {Dropped} duplicate-RowKey row(s) (last-wins) for {Tenant}_{Session} — agent likely replayed overlapping StepIndex",
+                        dropped, group.Key.TenantId, group.Key.SessionId);
 
-                for (var offset = 0; offset < ordered.Count; offset += TransactionChunkSize)
+                for (var offset = 0; offset < deduped.Count; offset += TransactionChunkSize)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var chunk = ordered.Skip(offset).Take(TransactionChunkSize).ToList();
+                    var chunk = deduped.Skip(offset).Take(TransactionChunkSize).ToList();
                     var actions = chunk
-                        .Select(r => new TableTransactionAction(
-                            TableTransactionActionType.UpsertReplace,
-                            ToEntity(r)))
+                        .Select(e => new TableTransactionAction(
+                            TableTransactionActionType.UpsertReplace, e))
                         .ToList();
 
                     await table.SubmitTransactionAsync(actions, cancellationToken).ConfigureAwait(false);
@@ -70,7 +76,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
                 _logger.LogDebug(
                     "DecisionTransitions: committed {Count} rows for {Tenant}_{Session}",
-                    ordered.Count, group.Key.TenantId, group.Key.SessionId);
+                    deduped.Count, group.Key.TenantId, group.Key.SessionId);
             }
 
             return committed;

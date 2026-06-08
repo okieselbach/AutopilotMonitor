@@ -84,13 +84,20 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
             foreach (var group in entities.GroupBy(e => e.PartitionKey))
             {
-                var ordered = group.OrderBy(e => e.RowKey, StringComparer.Ordinal).ToList();
+                // Collapse duplicate RowKeys before building the transaction — Azure Tables
+                // rejects the whole batch with InvalidDuplicateRow otherwise. Dedup also yields
+                // RowKey ordering, replacing the previous explicit OrderBy.
+                var (deduped, dropped) = TableBatchDedup.ByRowKey(group);
+                if (dropped > 0)
+                    _logger.LogWarning(
+                        "{Table}: dropped {Dropped} duplicate-RowKey index row(s) (last-wins) for partition {Pk}",
+                        tableName, dropped, group.Key);
 
-                for (var offset = 0; offset < ordered.Count; offset += TransactionChunkSize)
+                for (var offset = 0; offset < deduped.Count; offset += TransactionChunkSize)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var chunk = ordered.Skip(offset).Take(TransactionChunkSize).ToList();
+                    var chunk = deduped.Skip(offset).Take(TransactionChunkSize).ToList();
                     var actions = chunk
                         .Select(e => new TableTransactionAction(TableTransactionActionType.UpsertReplace, e))
                         .ToList();
