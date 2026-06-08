@@ -11,6 +11,8 @@ export interface Session {
   currentPhase: number;
   eventCount: number;
   durationSeconds: number;
+  /** System reboots observed during enrollment (V2 only — 0 for V1 and sessions before this feature). */
+  rebootCount?: number;
   failureReason?: string;
   /** Origin of a Failed status — "" for agent-reported, "rule:<RuleId>" for rule-based, "manual" for portal. */
   failureSource?: string;

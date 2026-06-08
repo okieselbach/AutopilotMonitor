@@ -54,10 +54,13 @@ export default function SessionInfoCard({ session, enrollmentDuration, displaySt
           }
           copyText={session.sessionId}
         />
-        <InfoItem label="Status" value={<StatusBadge status={displayStatus} failureReason={session.failureReason} failureSource={session.failureSource} adminMarkedAction={session.adminMarkedAction} />} />
         <InfoItem label="Started" value={new Date(session.startedAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })} tooltip={lastContactTooltip} />
         <InfoItem label="Duration" value={enrollmentDuration ?? `${Math.round(session.durationSeconds / 60)} min`} tooltip={lastContactTooltip} />
         <InfoItem label="Events" value={session.eventCount.toString()} tooltip={lastContactTooltip} />
+        <InfoItem label="Reboots" value={(session.rebootCount ?? 0).toString()} tooltip="System reboots observed during enrollment (V2 only)" />
+        <InfoItem label="Status" value={<StatusBadge status={displayStatus} failureReason={session.failureReason} failureSource={session.failureSource} adminMarkedAction={session.adminMarkedAction} />} />
+        <InfoItem label="Enrollment Type" value={enrollmentTypeLabel(session, isGatherRulesSession)} />
+        <InfoItem label="Join Type" value={joinTypeLabel(session)} />
       </div>
       {ntpOffset && Math.abs(ntpOffset.offsetSeconds) > 30 && (
         <div className="mt-4 flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
@@ -88,6 +91,23 @@ export default function SessionInfoCard({ session, enrollmentDuration, displaySt
       <FailureSnapshotBlock failureSnapshotJson={session.failureSnapshotJson} />
     </div>
   );
+}
+
+/**
+ * Friendly enrollment-type label for the summary card. V2 = Windows Autopilot Device
+ * Preparation; everything else = classic Autopilot. White Glove (pre-provisioning) is appended
+ * as a qualifier on either rail. Gather-rules diagnostic sessions are labelled distinctly
+ * (they already carry the violet banner above).
+ */
+function enrollmentTypeLabel(session: Session, isGatherRulesSession: boolean): string {
+  if (isGatherRulesSession) return "Gather Rules";
+  const base = session.enrollmentType === "v2" ? "Device Preparation" : "Autopilot";
+  return session.isPreProvisioned ? `${base} (PreProvisioned)` : base;
+}
+
+/** Entra (Azure AD) vs Hybrid Azure AD join, from the session's stored profile-derived flag. */
+function joinTypeLabel(session: Session): string {
+  return session.isHybridJoin ? "Hybrid Join" : "Entra Join";
 }
 
 function InfoItem({ label, value, copyText, tooltip }: { label: string; value: React.ReactNode; copyText?: string; tooltip?: string }) {
