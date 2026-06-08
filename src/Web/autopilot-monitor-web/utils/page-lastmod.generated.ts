@@ -18,6 +18,6 @@ export const PAGE_LASTMOD: Record<string, string> = {
   "/docs/agent-setup": "2026-03-31T23:54:46+02:00",
   "/docs/settings": "2026-05-19T18:45:01+02:00",
   "/docs/gather-rules": "2026-04-14T11:29:55+02:00",
-  "/docs/analyze-rules": "2026-04-03T19:52:58+02:00",
+  "/docs/analyze-rules": "2026-06-07T15:14:51+02:00",
   "/docs/ime-log-patterns": "2026-03-18T09:00:57+01:00",
 };
