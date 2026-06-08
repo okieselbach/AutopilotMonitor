@@ -14,6 +14,7 @@ import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch"
 import { ConfidenceBadge, SeverityBadge } from "./components/DiagnosisBadges";
 import { Session, EnrollmentEvent, RuleResult } from "@/types";
 import { useAdminMode } from "@/hooks/useAdminMode";
+import { isGuid } from "@/utils/inputValidation";
 
 export default function DiagnosisPage() {
   const params = useParams();
@@ -52,6 +53,16 @@ export default function DiagnosisPage() {
     }
     if (hasInitialFetch.current) return;
     hasInitialFetch.current = true;
+
+    // Performance: eager-set sessionTenantId from TenantContext when known, so
+    // the events/analysis effect fires in parallel with fetchSessionDetails
+    // instead of waiting for its roundtrip — eliminates the fetch waterfall.
+    // Global Admins in all-tenant view fall through with null (backend resolves
+    // the tenant from the session itself).
+    if (!globalAdminMode && isGuid(tenantId)) {
+      setSessionTenantId(tenantId);
+    }
+
     fetchSessionDetails();
   }, [sessionId, tenantId, globalAdminMode]);
 
@@ -111,15 +122,20 @@ export default function DiagnosisPage() {
 
   const fetchSessionDetails = async () => {
     try {
-      const endpoint = globalAdminMode
-        ? api.globalSessions.list()
-        : api.sessions.list(tenantId);
+      // Fetch the single session directly instead of pulling the entire session
+      // list and .find()-ing client-side. The backend resolves the tenant via
+      // FindSessionTenantIdAsync for global admins when tenantId is omitted.
+      const knownTenantId = sessionTenantId || (!globalAdminMode ? tenantId : null);
+      const endpoint =
+        knownTenantId && isGuid(knownTenantId)
+          ? api.sessions.get(sessionId, knownTenantId)
+          : api.sessions.get(sessionId);
       const response = await authenticatedFetch(endpoint, getAccessToken);
       if (response.ok) {
         const data = await response.json();
-        const found = data.sessions?.find(
-          (s: Session) => s.sessionId === sessionId
-        );
+        const found =
+          data.session ??
+          data.sessions?.find((s: Session) => s.sessionId === sessionId);
         if (found) {
           setSession(found);
           setSessionTenantId(found.tenantId);
