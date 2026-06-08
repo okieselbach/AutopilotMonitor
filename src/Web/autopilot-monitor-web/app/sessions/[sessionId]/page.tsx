@@ -78,7 +78,6 @@ export default function SessionDetailPage() {
     sessionStatus: detail.session?.status ?? null,
     resolveEffectiveTenantId: detail.resolveEffectiveTenantId,
     sessionRef: detail.sessionRef,
-    sessionIdRef: detail.sessionIdRef,
     fetchSessionDetails: detail.fetchSessionDetails,
     setLoading: detail.setLoading,
     isConnected,

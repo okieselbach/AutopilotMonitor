@@ -18,6 +18,38 @@ const TIMELINE_PAGE_SIZE = 200;
 // drop them until the user manually refreshes. One nachfass-fetch covers the window.
 const TERMINAL_TRAILING_REFETCH_DELAY_MS = 12_000;
 
+/**
+ * Stable event key — mirrors the React `key` used by the timeline rows so that
+ * merge identity and React reconciliation identity agree.
+ */
+function eventKey(e: EnrollmentEvent): string {
+  return e.eventId || `${e.sessionId}-${e.sequence}`;
+}
+
+/**
+ * Append-only merge: returns `prev` plus any events from `incoming` whose key is
+ * not already present. Session telemetry is append-only (events are immutable
+ * once written), so existing rows are never replaced. The timeline relies on two
+ * consequences of this:
+ *   - The rendered list is monotonic — it never shrinks mid-refresh. The
+ *     progressive paging fetch used to wipe the list to the first 200 rows and
+ *     then grow it back as later pages streamed in, which changed the page
+ *     height repeatedly and made the scrollbar/viewport jump while reading.
+ *   - When a refresh brings nothing new, the SAME array reference is returned,
+ *     so React bails out of the re-render entirely — open "Details" panels and
+ *     scroll position stay exactly where the user left them.
+ * New events arrive at the bottom (highest Sequence) and the render-time sort in
+ * useSessionDerivedData keeps ordering correct regardless of append order, so
+ * the browser's native scroll anchoring keeps the viewport pinned.
+ */
+export function mergeNewEvents(prev: EnrollmentEvent[], incoming: EnrollmentEvent[]): EnrollmentEvent[] {
+  if (incoming.length === 0) return prev;
+  const seen = new Set(prev.map(eventKey));
+  const additions = incoming.filter(e => !seen.has(eventKey(e)));
+  if (additions.length === 0) return prev;
+  return prev.concat(additions);
+}
+
 type AddNotification = (
   type: NotificationType,
   title: string,
@@ -32,7 +64,6 @@ interface UseSessionEventsParams {
   sessionStatus: string | null | undefined;
   resolveEffectiveTenantId: () => string | null;
   sessionRef: React.MutableRefObject<Session | null>;
-  sessionIdRef: React.MutableRefObject<string>;
   fetchSessionDetails: () => Promise<void>;
   setLoading: React.Dispatch<React.SetStateAction<boolean>>;
   isConnected: boolean;
@@ -69,7 +100,6 @@ export function useSessionEvents({
   sessionStatus,
   resolveEffectiveTenantId,
   sessionRef,
-  sessionIdRef,
   fetchSessionDetails,
   setLoading,
   isConnected,
@@ -120,17 +150,12 @@ export function useSessionEvents({
       const firstData = await firstResponse.json();
       const firstBatch: EnrollmentEvent[] = Array.isArray(firstData.events) ? firstData.events : [];
 
-      setEvents(prevEvents => {
-        // Keep the last known-good snapshot if backend transiently returns an empty list
-        // AND there is no nextLink to follow (avoids wiping a populated timeline).
-        if (firstBatch.length === 0 && prevEvents.length > 0 && !firstData.nextLink) {
-          console.warn(
-            `[SessionDetail] Ignoring empty event refresh for session ${sessionIdRef.current} (tenant ${effectiveTenantId}); keeping ${prevEvents.length} cached events`
-          );
-          return prevEvents;
-        }
-        return firstBatch;
-      });
+      // Append-only merge instead of replace: the list stays monotonic so it
+      // never shrinks-then-grows across the paged refresh (the old wipe-to-200
+      // behaviour made the scrollbar/viewport jump on every poll). A transient
+      // empty refresh is also naturally absorbed — mergeNewEvents returns the
+      // previous list unchanged when nothing new arrived.
+      setEvents(prev => mergeNewEvents(prev, firstBatch));
 
       // Trigger an early loading=false now: first paint is unblocked.
       setLoading(false);
@@ -168,7 +193,7 @@ export function useSessionEvents({
           const pageData = await resp.json();
           const batch: EnrollmentEvent[] = Array.isArray(pageData.events) ? pageData.events : [];
           if (batch.length > 0) {
-            setEvents(prev => prev.concat(batch));
+            setEvents(prev => mergeNewEvents(prev, batch));
             if (!foundTerminalEvent && batch.some(isTerminalEvent)) {
               foundTerminalEvent = true;
             }
@@ -210,7 +235,7 @@ export function useSessionEvents({
         fetchEvents();
       }
     }
-  }, [sessionId, resolveEffectiveTenantId, sessionRef, sessionIdRef, fetchSessionDetails, setLoading, getAccessToken, addNotification]);
+  }, [sessionId, resolveEffectiveTenantId, sessionRef, fetchSessionDetails, setLoading, getAccessToken, addNotification]);
 
   const scheduleFetchEvents = useCallback((delayMs = 300) => {
     if (eventRefreshTimeoutRef.current) {
