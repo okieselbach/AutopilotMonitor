@@ -603,7 +603,29 @@ namespace AutopilotMonitor.Functions.Services
                 var safe = ODataSanitizer.EscapeValue(filter.ImeAgentVersionPrefix);
                 parts.Add($"ImeAgentVersion ge '{safe}' and ImeAgentVersion lt '{safe}~'");
             }
+            // RebootCount range pushed to OData (numeric, no quoting). "Machines with many
+            // reboots" (RebootCountMin) is a sparse subset, so server-side filtering avoids
+            // walking empty pages — same rationale as the AgentVersion prefix above. Legacy
+            // index rows that predate the projected RebootCount column lack the property and
+            // are excluded by the bound (they carry no reboot data, which is the intended result).
+            if (filter.RebootCountMin.HasValue)
+                parts.Add($"RebootCount ge {filter.RebootCountMin.Value}");
+            if (filter.RebootCountMax.HasValue)
+                parts.Add($"RebootCount le {filter.RebootCountMax.Value}");
             return parts.Count == 0 ? null : string.Join(" and ", parts);
+        }
+
+        /// <summary>
+        /// Client-side RebootCount range predicate. Applied on every search path that does NOT
+        /// push the bound to OData (device-snapshot batch-get and the legacy unpaged scan), and
+        /// redundantly on the OData scan paths as a correctness backstop. Keeps a
+        /// <c>deviceProperties + rebootCountMin</c> query from leaking sub-threshold sessions.
+        /// </summary>
+        internal static bool MatchesRebootCountBounds(SessionSummary session, SessionSearchFilter filter)
+        {
+            if (filter.RebootCountMin.HasValue && session.RebootCount < filter.RebootCountMin.Value) return false;
+            if (filter.RebootCountMax.HasValue && session.RebootCount > filter.RebootCountMax.Value) return false;
+            return true;
         }
 
         private static bool MatchesScanClientFilters(SessionSummary session, SessionSearchFilter filter)
@@ -618,6 +640,9 @@ namespace AutopilotMonitor.Functions.Services
                 return false;
             if (filter.StartedAfter.HasValue && session.StartedAt < filter.StartedAfter.Value) return false;
             if (filter.StartedBefore.HasValue && session.StartedAt > filter.StartedBefore.Value) return false;
+            // RebootCount is also pushed to OData in BuildSearchScanFilter; this is a defensive
+            // backstop so the bound holds even if that push-down is ever weakened.
+            if (!MatchesRebootCountBounds(session, filter)) return false;
             // AgentVersion / ImeAgentVersion (exact + prefix) are pushed to OData
             // in BuildSearchScanFilter — the server has already filtered them out
             // before we see the page. No client-side check needed.
@@ -844,6 +869,8 @@ namespace AutopilotMonitor.Functions.Services
                     && (session.ImeAgentVersion == null
                         || !session.ImeAgentVersion.StartsWith(filter.ImeAgentVersionPrefix!, StringComparison.OrdinalIgnoreCase)))
                     continue;
+                // RebootCount is not in this path's OData (filterParts above) — apply client-side.
+                if (!MatchesRebootCountBounds(session, filter)) continue;
 
                 sessions.Add(session);
                 if (sessions.Count >= filter.Limit) break;
@@ -879,6 +906,9 @@ namespace AutopilotMonitor.Functions.Services
                     && (s.ImeAgentVersion == null
                         || !s.ImeAgentVersion.StartsWith(filter.ImeAgentVersionPrefix!, StringComparison.OrdinalIgnoreCase)))
                     return false;
+                // Device-snapshot path has no RebootCount OData push-down — enforce it here so a
+                // deviceProperties + rebootCountMin query can't return sub-threshold sessions.
+                if (!MatchesRebootCountBounds(s, filter)) return false;
                 return true;
             }).ToList();
         }

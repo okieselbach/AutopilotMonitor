@@ -28,6 +28,14 @@ namespace AutopilotMonitor.Shared.Models
         public string? GeoCountry { get; set; }
         public DateTime? StartedAfter { get; set; }
         public DateTime? StartedBefore { get; set; }
+
+        // Reboot-count range. When set, narrow to sessions whose stored RebootCount is
+        // within [RebootCountMin, RebootCountMax]. Use case: "machines with many reboots"
+        // → RebootCountMin = 5. Sessions that predate the field lack the property and are
+        // excluded by the >= bound (acceptable — they have no reboot data).
+        public int? RebootCountMin { get; set; }
+        public int? RebootCountMax { get; set; }
+
         public int Limit { get; set; } = 50;
 
         // Dynamic device property filters (key = "eventType.propertyName", value = filter expression)

@@ -54,7 +54,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<SessionStats> GetAllSessionStatsAsync(string? tenantIdFilter, int days)
             => _storage.GetAllSessionStatsAsync(tenantIdFilter, days);
 
-        public Task<bool> UpdateSessionStatusAsync(
+        public async Task<bool> UpdateSessionStatusAsync(
             string tenantId, string sessionId, SessionStatus status,
             EnrollmentPhase? currentPhase = null, string? failureReason = null,
             DateTime? completedAt = null, DateTime? earliestEventTimestamp = null,
@@ -63,11 +63,25 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             DateTime? stalledAt = null, bool clearStalledAt = false, bool clearFailureReason = false,
             string? failureSource = null, string? adminMarkedAction = null,
             string? failureSnapshotJson = null)
-            => _storage.UpdateSessionStatusAsync(tenantId, sessionId, status,
+        {
+            var transitioned = await _storage.UpdateSessionStatusAsync(tenantId, sessionId, status,
                 currentPhase, failureReason, completedAt, earliestEventTimestamp,
                 latestEventTimestamp, isPreProvisioned, isUserDriven, resumedAt,
                 stalledAt, clearStalledAt, clearFailureReason, failureSource, adminMarkedAction,
                 failureSnapshotJson);
+
+            // Reconcile the authoritative RebootCount whenever a session actually transitions to a
+            // terminal state through ANY caller — ingest, admin mark (Mark{Succeeded,Failed}Function),
+            // maintenance timeout, or rule-engine fail. This is the single seam they all funnel
+            // through, so the stored count stays correct even on the non-ingest terminal paths that
+            // never run a terminal ingest batch. The ingest path additionally reconciles after its
+            // event-count increment (covering already-terminal batch replays, where this call's
+            // transitioned=false short-circuits). Idempotent + fail-soft, so the redundancy is cheap.
+            if (transitioned && (status == SessionStatus.Succeeded || status == SessionStatus.Failed))
+                await _storage.ReconcileSessionRebootCountAsync(tenantId, sessionId);
+
+            return transitioned;
+        }
 
         public Task<bool> QueueServerActionAsync(string tenantId, string sessionId, ServerAction action)
             => _storage.QueueServerActionAsync(tenantId, sessionId, action);
@@ -79,10 +93,14 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             string tenantId, string sessionId, int increment,
             DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null,
             EnrollmentPhase? currentPhase = null,
-            int platformScriptIncrement = 0, int remediationScriptIncrement = 0)
+            int platformScriptIncrement = 0, int remediationScriptIncrement = 0,
+            int rebootIncrement = 0)
             => _storage.IncrementSessionEventCountAsync(tenantId, sessionId, increment,
                 earliestEventTimestamp, latestEventTimestamp, currentPhase,
-                platformScriptIncrement, remediationScriptIncrement);
+                platformScriptIncrement, remediationScriptIncrement, rebootIncrement);
+
+        public Task ReconcileSessionRebootCountAsync(string tenantId, string sessionId)
+            => _storage.ReconcileSessionRebootCountAsync(tenantId, sessionId);
 
         public Task UpdateSessionDiagnosticsBlobAsync(
             string tenantId, string sessionId, string blobName, string? destination = null)

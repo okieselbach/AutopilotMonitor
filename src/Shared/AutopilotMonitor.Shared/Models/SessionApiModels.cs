@@ -329,6 +329,16 @@ namespace AutopilotMonitor.Shared.Models
         public int RemediationScriptCount { get; set; }
 
         /// <summary>
+        /// Number of system reboots observed during the enrollment. Counts the agent's
+        /// <c>system_reboot_detected</c> events (V2 only — one per reboot, detected via the
+        /// System event-log boot time on the next agent start). Maintained incrementally per
+        /// ingest batch for a live value, then overwritten with an authoritative distinct count
+        /// from the Events table when the session reaches a terminal status (self-corrects any
+        /// at-least-once batch double-count). 0 for V1 sessions and sessions that predate this field.
+        /// </summary>
+        public int RebootCount { get; set; }
+
+        /// <summary>
         /// True once maintenance has emitted an ExcessiveSessionEvents ops alert for this session.
         /// Prevents duplicate alerts on subsequent maintenance runs for the same runaway session.
         /// </summary>

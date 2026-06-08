@@ -237,6 +237,15 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 var (statusTransitioned, whiteGloveStatusTransitioned, failureReason) = await UpdateSessionStatusAsync(
                     request, sessionPrefix, classification);
 
+                // A terminal batch (one that drives Succeeded/Failed) takes its RebootCount from the
+                // authoritative reconcile below, NOT the per-batch increment — otherwise the reboot
+                // events would be added by the increment AND counted by the reconcile (double-count).
+                // Non-terminal batches keep incrementing for a live in-flight value.
+                var isTerminalBatch = classification.CompletionEvent != null
+                    || classification.FailureEvent != null
+                    || classification.EspFailureEvent != null
+                    || classification.GatherCompletionEvent != null;
+
                 // Always increment event count when events were stored
                 if (processedCount > 0)
                 {
@@ -248,9 +257,17 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                         classification.LatestEventTimestamp,
                         currentPhase: classification.LastPhaseChangeEvent?.Phase,
                         platformScriptIncrement: classification.PlatformScriptCount,
-                        remediationScriptIncrement: classification.RemediationScriptCount
+                        remediationScriptIncrement: classification.RemediationScriptCount,
+                        rebootIncrement: isTerminalBatch ? 0 : classification.RebootCount
                     );
                 }
+
+                // Authoritative reboot reconcile: the LAST reboot write on terminal batches. Overwrites
+                // the live incremental value (self-correcting any at-least-once double-count) and runs
+                // even on already-terminal batch replays where UpdateSessionStatusAsync no-ops.
+                // Idempotent (no-ops when already correct) and fail-soft.
+                if (isTerminalBatch)
+                    await _sessionRepo.ReconcileSessionRebootCountAsync(request.TenantId, request.SessionId);
 
                 // Auto-analyze fan-out: enqueue a queue message instead of running fire-and-forget
                 // Task.Run inside the function. The previous in-function approach could be killed
@@ -601,6 +618,12 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                         break;
                     case "session_stalled":
                         classification.SessionStalledEvent = evt;
+                        break;
+                    case "system_reboot_detected":
+                        // Per-batch incremental reboot count (live value during enrollment).
+                        // Overwritten with an authoritative distinct count at the terminal
+                        // transition (UpdateSessionStatusAsync), so a re-sent batch can't inflate it.
+                        classification.RebootCount++;
                         break;
                     case "script_completed":
                     case "script_failed":
@@ -1104,5 +1127,12 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         public Dictionary<string, AppInstallAggregationState> AppInstallUpdates { get; } = new(StringComparer.OrdinalIgnoreCase);
         public int PlatformScriptCount { get; set; }
         public int RemediationScriptCount { get; set; }
+
+        /// <summary>
+        /// Number of <c>system_reboot_detected</c> events seen in this ingest batch (V2 only).
+        /// Drives the per-batch incremental RebootCount; the stored value is later overwritten
+        /// with an authoritative distinct count at the terminal transition.
+        /// </summary>
+        public int RebootCount { get; set; }
     }
 }

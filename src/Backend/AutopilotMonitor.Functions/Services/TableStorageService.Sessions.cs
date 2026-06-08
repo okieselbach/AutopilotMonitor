@@ -147,6 +147,9 @@ namespace AutopilotMonitor.Functions.Services
                 // Always-present counts/flags — mirror Sessions defaults (read side defaults to 0/false).
                 ["PlatformScriptCount"] = sessionEntity.GetInt32("PlatformScriptCount") ?? 0,
                 ["RemediationScriptCount"] = sessionEntity.GetInt32("RemediationScriptCount") ?? 0,
+                // Search-filterable column (rebootCountMin/Max push an OData filter on the index),
+                // so it MUST be projected — otherwise a StartedAt-shift full upsert drops it.
+                ["RebootCount"] = sessionEntity.GetInt32("RebootCount") ?? 0,
                 ["ExcessiveEventsAlerted"] = sessionEntity.GetBoolean("ExcessiveEventsAlerted") ?? false,
                 ["ExcessiveEventsAutoActioned"] = sessionEntity.GetBoolean("ExcessiveEventsAutoActioned") ?? false
             };
@@ -339,6 +342,12 @@ namespace AutopilotMonitor.Functions.Services
                 // agent restart, undercounting scripts run before the restart and drifting Sessions vs. SessionsIndex.
                 int platformScriptCount = 0;
                 int remediationScriptCount = 0;
+                // RebootCount is a cumulative counter maintained by IncrementSessionEventCountAsync.
+                // It MUST survive re-registration — and a reboot is the very thing that triggers a
+                // fresh agent registration, so a Replace that zeroed it would lose the in-flight count
+                // every time it matters most. (The terminal recount would still self-correct the final
+                // value, but the live value must not regress mid-enrollment.)
+                int rebootCount = 0;
                 DateTime? completedAt = null;
                 string failureReason = string.Empty;
                 bool isPreProvisioned = registration.IsPreProvisioned;
@@ -374,6 +383,7 @@ namespace AutopilotMonitor.Functions.Services
                     eventCount = existingEntity.GetInt32("EventCount") ?? eventCount;
                     platformScriptCount = existingEntity.GetInt32("PlatformScriptCount") ?? platformScriptCount;
                     remediationScriptCount = existingEntity.GetInt32("RemediationScriptCount") ?? remediationScriptCount;
+                    rebootCount = existingEntity.GetInt32("RebootCount") ?? rebootCount;
                     completedAt = existingEntity.GetDateTimeOffset("CompletedAt")?.UtcDateTime;
                     failureReason = existingEntity.GetString("FailureReason") ?? string.Empty;
 
@@ -451,7 +461,8 @@ namespace AutopilotMonitor.Functions.Services
                     ["Status"] = status,
                     ["EventCount"] = eventCount,
                     ["PlatformScriptCount"] = platformScriptCount,
-                    ["RemediationScriptCount"] = remediationScriptCount
+                    ["RemediationScriptCount"] = remediationScriptCount,
+                    ["RebootCount"] = rebootCount
                 };
 
                 if (completedAt.HasValue)
@@ -1356,6 +1367,12 @@ namespace AutopilotMonitor.Functions.Services
                             if (durationStart < effectiveCompletedAt)
                                 update["DurationSeconds"] = (int)(effectiveCompletedAt - durationStart).TotalSeconds;
                         }
+                        // RebootCount is NOT reconciled here. The ingest path runs the authoritative
+                        // recount (ReconcileSessionRebootCountAsync) as the LAST reboot write — after
+                        // IncrementSessionEventCountAsync — so it can't be re-inflated by the generic
+                        // increment, and it also covers the already-terminal batch-replay case where
+                        // this method early-returns. Reconciling here (before the increment, and only
+                        // on the normal non-force path) would do neither.
                     }
                     // WhiteGlove Part 1 complete: compute and store Part 1 duration (earliest event → latest event).
                     // This value is used by the dashboard and serves as the authoritative Part 1 duration
@@ -1659,7 +1676,7 @@ namespace AutopilotMonitor.Functions.Services
         /// The caller provides earliestEventTimestamp from the current batch;
         /// no redundant Events-table scan is performed here.
         /// </summary>
-        public async Task IncrementSessionEventCountAsync(string tenantId, string sessionId, int increment, DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null, EnrollmentPhase? currentPhase = null, int platformScriptIncrement = 0, int remediationScriptIncrement = 0)
+        public async Task IncrementSessionEventCountAsync(string tenantId, string sessionId, int increment, DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null, EnrollmentPhase? currentPhase = null, int platformScriptIncrement = 0, int remediationScriptIncrement = 0, int rebootIncrement = 0)
         {
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
             SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
@@ -1719,6 +1736,17 @@ namespace AutopilotMonitor.Functions.Services
                         update["RemediationScriptCount"] = current + remediationScriptIncrement;
                     }
 
+                    // Incremental reboot count (live value during enrollment). Callers pass
+                    // rebootIncrement=0 on terminal batches: there the ingest path instead runs
+                    // ReconcileSessionRebootCountAsync as the LAST reboot write (authoritative
+                    // distinct count from the Events table), which self-corrects any at-least-once
+                    // double-count accumulated here.
+                    if (rebootIncrement > 0)
+                    {
+                        var current = entity.GetInt32("RebootCount") ?? 0;
+                        update["RebootCount"] = current + rebootIncrement;
+                    }
+
                     await tableClient.UpdateEntityAsync(update, entity.ETag, TableUpdateMode.Merge);
 
                     // Dual-write: keep SessionsIndex in sync (StartedAt-shift → full upsert, else merge).
@@ -1741,6 +1769,77 @@ namespace AutopilotMonitor.Functions.Services
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, $"Failed to increment event count for session {sessionId}");
+                    return;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Reconciles the stored <c>RebootCount</c> with the authoritative distinct count of
+        /// <c>system_reboot_detected</c> events for the session. The ingest path calls this as the
+        /// LAST reboot write on terminal batches (after <see cref="IncrementSessionEventCountAsync"/>),
+        /// so it always wins over the per-batch incremental value — self-correcting any at-least-once
+        /// batch double-count and covering already-terminal batch replays (where
+        /// <c>UpdateSessionStatusAsync</c> early-returns without touching the row). Fail-soft: if the
+        /// authoritative count can't be determined (storage error → null), the live value is left
+        /// untouched rather than being zeroed. Idempotent: no-ops when the row is already correct.
+        /// </summary>
+        public async Task ReconcileSessionRebootCountAsync(string tenantId, string sessionId)
+        {
+            SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+            SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
+
+            var authoritative = await CountSessionEventsOfTypeAsync(
+                tenantId, sessionId, Constants.EventTypes.SystemRebootDetected);
+            if (!authoritative.HasValue)
+                return; // storage error — keep the incremental live value, do not zero it
+
+            const int maxRetries = 5;
+            int retryCount = 0;
+
+            while (retryCount < maxRetries)
+            {
+                try
+                {
+                    var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
+                    var entityResponse = await tableClient.GetEntityIfExistsAsync<TableEntity>(tenantId, sessionId);
+                    if (!entityResponse.HasValue)
+                        return;
+                    var entity = entityResponse.Value!;
+
+                    // No-op when already correct — avoids a needless write + index sync on the
+                    // common terminal-batch replay (and on the normal path once the live value
+                    // already matched the events).
+                    if ((entity.GetInt32("RebootCount") ?? 0) == authoritative.Value)
+                        return;
+
+                    var update = new TableEntity(tenantId, sessionId)
+                    {
+                        ["RebootCount"] = authoritative.Value
+                    };
+                    var currentStartedAt = entity.GetDateTimeOffset("StartedAt")?.UtcDateTime ?? DateTime.MaxValue;
+
+                    await tableClient.UpdateEntityAsync(update, entity.ETag, TableUpdateMode.Merge);
+
+                    // Dual-write: keep SessionsIndex in sync (merge — no StartedAt shift here).
+                    await SyncSessionIndexAsync(tenantId, sessionId, entity, update, currentStartedAt, null);
+
+                    return;
+                }
+                catch (Azure.RequestFailedException ex) when (ex.Status == 412)
+                {
+                    retryCount++;
+                    if (retryCount >= maxRetries)
+                    {
+                        _logger.LogWarning($"Failed to reconcile reboot count for session {sessionId} after {maxRetries} retries due to ETag conflicts");
+                        return;
+                    }
+                    var baseDelay = 50 * (int)Math.Pow(2, retryCount - 1);
+                    await Task.Delay(baseDelay + Random.Shared.Next(0, baseDelay));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"Failed to reconcile reboot count for session {sessionId}");
                     return;
                 }
             }
@@ -2243,6 +2342,7 @@ namespace AutopilotMonitor.Functions.Services
                 GeoLoc = entity.GetString("GeoLoc") ?? string.Empty,
                 PlatformScriptCount = SafeGetInt32(entity, "PlatformScriptCount") ?? 0,
                 RemediationScriptCount = SafeGetInt32(entity, "RemediationScriptCount") ?? 0,
+                RebootCount = SafeGetInt32(entity, "RebootCount") ?? 0,
                 ExcessiveEventsAlerted = entity.GetBoolean("ExcessiveEventsAlerted") ?? false,
                 ExcessiveEventsAutoActioned = entity.GetBoolean("ExcessiveEventsAutoActioned") ?? false,
                 FailureSnapshotJson = entity.GetString("FailureSnapshotJson") ?? string.Empty,
@@ -2323,6 +2423,37 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Returns the distinct count of events of a given type for a session, or <c>null</c> if the
+        /// count could not be determined (storage error). Events are written with UpsertReplace and a
+        /// unique RowKey per event, so the number of stored rows equals the true distinct count — making
+        /// this an idempotent, retry-immune authoritative count (used to reconcile RebootCount at the
+        /// terminal transition). Single server-side-filtered partition query; RowKey-only projection.
+        /// </summary>
+        private async Task<int?> CountSessionEventsOfTypeAsync(string tenantId, string sessionId, string eventType)
+        {
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Events);
+                var partitionKey = $"{tenantId}_{sessionId}";
+                var safeType = eventType.Replace("'", "''");
+                var query = tableClient.QueryAsync<TableEntity>(
+                    filter: $"PartitionKey eq '{partitionKey}' and EventType eq '{safeType}'",
+                    select: new[] { "RowKey" }
+                );
+
+                int count = 0;
+                await foreach (var _ in query)
+                    count++;
+                return count;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, $"Could not count '{eventType}' events for session {sessionId}");
+                return null;
+            }
         }
 
         #region IME Version History

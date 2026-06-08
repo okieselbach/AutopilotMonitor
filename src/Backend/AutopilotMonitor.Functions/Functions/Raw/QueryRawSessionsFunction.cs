@@ -125,6 +125,8 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 filter.IsPreProvisioned = pp;
             if (!string.IsNullOrEmpty(isHybridJoin) && bool.TryParse(isHybridJoin, out var hj))
                 filter.IsHybridJoin = hj;
+            if (int.TryParse(query["rebootCountMin"], out var rcMin)) filter.RebootCountMin = rcMin;
+            if (int.TryParse(query["rebootCountMax"], out var rcMax)) filter.RebootCountMax = rcMax;
 
             var callerTenantId = TenantHelper.GetTenantId(req);
 

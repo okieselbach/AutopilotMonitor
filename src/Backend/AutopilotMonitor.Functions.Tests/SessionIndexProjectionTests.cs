@@ -38,6 +38,7 @@ public class SessionIndexProjectionTests
             ["StalledAt"] = new DateTimeOffset(StartedAt.AddMinutes(5)),
             ["PlatformScriptCount"] = 2,
             ["RemediationScriptCount"] = 3,
+            ["RebootCount"] = 4,
             ["ExcessiveEventsAlerted"] = true,
             ["ExcessiveEventsAutoActioned"] = true,
         };
@@ -55,6 +56,9 @@ public class SessionIndexProjectionTests
         Assert.True(idx.GetDateTimeOffset("StalledAt").HasValue);
         Assert.Equal(2, idx.GetInt32("PlatformScriptCount"));
         Assert.Equal(3, idx.GetInt32("RemediationScriptCount"));
+        // RebootCount is a search-filterable column (rebootCountMin/Max push an OData filter on the
+        // index), so it MUST survive a StartedAt-shift full upsert.
+        Assert.Equal(4, idx.GetInt32("RebootCount"));
         Assert.True(idx.GetBoolean("ExcessiveEventsAlerted"));
         Assert.True(idx.GetBoolean("ExcessiveEventsAutoActioned"));
     }
@@ -78,6 +82,7 @@ public class SessionIndexProjectionTests
         // Always-present counts/flags mirror the Sessions defaults.
         Assert.Equal(0, idx.GetInt32("PlatformScriptCount"));
         Assert.Equal(0, idx.GetInt32("RemediationScriptCount"));
+        Assert.Equal(0, idx.GetInt32("RebootCount"));
         Assert.False(idx.GetBoolean("ExcessiveEventsAlerted"));
         Assert.Equal(string.Empty, idx.GetString("ImeAgentVersion"));
     }

@@ -147,6 +147,8 @@ public class SearchSessionsFunction
         if (bool.TryParse(query["isHybridJoin"], out var ihj)) filter.IsHybridJoin = ihj;
         if (DateTime.TryParse(query["startedAfter"], out var sa)) filter.StartedAfter = sa;
         if (DateTime.TryParse(query["startedBefore"], out var sb)) filter.StartedBefore = sb;
+        if (int.TryParse(query["rebootCountMin"], out var rcMin)) filter.RebootCountMin = rcMin;
+        if (int.TryParse(query["rebootCountMax"], out var rcMax)) filter.RebootCountMax = rcMax;
 
         // Dynamic device property filters: any query param starting with "prop."
         var deviceProperties = new Dictionary<string, string>();
@@ -205,6 +207,7 @@ public class SearchSessionsFunction
             if (fields.Contains("agentVersion")) dict["agentVersion"] = s.AgentVersion;
             if (fields.Contains("imeAgentVersion")) dict["imeAgentVersion"] = s.ImeAgentVersion;
             if (fields.Contains("geoCountry")) dict["geoCountry"] = s.GeoCountry;
+            if (fields.Contains("rebootCount")) dict["rebootCount"] = s.RebootCount;
 
             if (dict.Count == 0)
             {

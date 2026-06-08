@@ -65,6 +65,12 @@ namespace AutopilotMonitor.Functions.Services
                     case "session_stalled":
                         classification.SessionStalledEvent = evt;
                         break;
+                    case "system_reboot_detected":
+                        // Per-batch incremental reboot count (live value during enrollment).
+                        // Overwritten with an authoritative distinct count at the terminal
+                        // transition (UpdateSessionStatusAsync), so a re-sent batch can't inflate it.
+                        classification.RebootCount++;
+                        break;
                     case "script_completed":
                     case "script_failed":
                         var scriptType = evt.Data?.ContainsKey("scriptType") == true

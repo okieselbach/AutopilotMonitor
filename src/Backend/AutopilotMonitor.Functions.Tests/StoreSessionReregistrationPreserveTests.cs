@@ -39,6 +39,7 @@ public class StoreSessionReregistrationPreserveTests
             ["EventCount"]             = 42,
             ["PlatformScriptCount"]    = 3,
             ["RemediationScriptCount"] = 5,
+            ["RebootCount"]            = 7,
         };
         existing.ETag = new ETag("0xEXISTING");
 
@@ -64,6 +65,10 @@ public class StoreSessionReregistrationPreserveTests
         // The Replace-written row must still carry the cumulative counters from the existing row.
         Assert.Equal(3, harness.Written!.GetInt32("PlatformScriptCount"));
         Assert.Equal(5, harness.Written.GetInt32("RemediationScriptCount"));
+        // RebootCount is the critical case: a reboot is the very thing that triggers a fresh
+        // agent registration, so this Replace runs precisely when a real in-flight reboot count
+        // must not be zeroed.
+        Assert.Equal(7, harness.Written.GetInt32("RebootCount"));
         // EventCount preservation is the established sibling behaviour — assert it as a sanity anchor.
         Assert.Equal(42, harness.Written.GetInt32("EventCount"));
     }
@@ -91,6 +96,7 @@ public class StoreSessionReregistrationPreserveTests
         Assert.NotNull(harness.Written);
         Assert.Equal(0, harness.Written!.GetInt32("PlatformScriptCount"));
         Assert.Equal(0, harness.Written.GetInt32("RemediationScriptCount"));
+        Assert.Equal(0, harness.Written.GetInt32("RebootCount"));
     }
 
     // ============================================================ Harness ====

@@ -92,12 +92,17 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
         imeAgentVersion: z.string().optional().describe('IME Agent version (exact match, e.g. "1.23.456.789")'),
         imeAgentVersionPrefix: z.string().optional()
           .describe('IME Agent version prefix (e.g. "1.23." matches every 1.23.x build). Mutually exclusive with imeAgentVersion.'),
+        rebootCountMin: z.coerce.number().int().min(0).optional()
+          .describe('Minimum number of reboots observed during enrollment (>=). Use to find "machines with many reboots", ' +
+                    'e.g. rebootCountMin=5. Only populated for v2 enrollments; sessions that predate the field are excluded.'),
+        rebootCountMax: z.coerce.number().int().min(0).optional()
+          .describe('Maximum number of reboots observed during enrollment (<=).'),
         fields: z.string().optional()
           .describe('Comma-separated lean projection (e.g. "sessionId,status,agentVersion,startedAt"). ' +
                     'Use for counting / aggregation to avoid the response cap. Available: sessionId, tenantId, status, ' +
                     'serialNumber, manufacturer, model, deviceName, osBuild, osName, startedAt, completedAt, ' +
                     'durationSeconds, currentPhase, failureReason, eventCount, enrollmentType, isPreProvisioned, ' +
-                    'isUserDriven, isHybridJoin, agentVersion, imeAgentVersion, geoCountry.'),
+                    'isUserDriven, isHybridJoin, agentVersion, imeAgentVersion, geoCountry, rebootCount.'),
         deviceProperties: z.record(z.string(), z.string()).optional().describe(
           'Dynamic device property filters. Keys use "eventType.propertyName" dot notation. ' +
           'See the device_properties catalog (call get_resource(name="device_properties")) for all available keys and types. ' +

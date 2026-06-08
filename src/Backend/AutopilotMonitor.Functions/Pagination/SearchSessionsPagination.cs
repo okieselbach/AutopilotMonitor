@@ -50,6 +50,8 @@ namespace AutopilotMonitor.Functions.Pagination
                 new KeyValuePair<string, string?>("geoCountry", filter.GeoCountry),
                 new KeyValuePair<string, string?>("startedAfter", filter.StartedAfter?.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture)),
                 new KeyValuePair<string, string?>("startedBefore", filter.StartedBefore?.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture)),
+                new KeyValuePair<string, string?>("rebootCountMin", filter.RebootCountMin?.ToString(CultureInfo.InvariantCulture)),
+                new KeyValuePair<string, string?>("rebootCountMax", filter.RebootCountMax?.ToString(CultureInfo.InvariantCulture)),
             };
             if (filter.DeviceProperties != null)
             {
