@@ -15,6 +15,7 @@ using Newtonsoft.Json.Linq;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
 {
@@ -35,6 +36,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         private readonly Func<AppPackageStateList> _getPackageStates;
         private readonly Action<AppPackageState> _onDoTelemetryReceived;
         private readonly string _logFilePath;
+
+        // Office C2R DO support: while an Office worker is active we keep polling even with no IME
+        // downloads, classify the non-IME Office-CDN jobs and hand aggregated stats to the
+        // OfficeInstallDetector (which folds them into the office_install_* events). Office is not an
+        // IME app, so we deliberately do NOT emit download_progress/do_telemetry for it (that would
+        // create a phantom app in the backend AppInstallSummary).
+        private readonly Action<OfficeDoSample> _onOfficeDoSample;
+        private volatile bool _officeActive;
 
         private Runspace _runspace;
         private bool _permanentlyDisabled;
@@ -59,12 +68,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             int intervalSeconds,
             Func<AppPackageStateList> getPackageStates,
             Action<AppPackageState> onDoTelemetryReceived,
-            string logDirectory)
+            string logDirectory,
+            Action<OfficeDoSample> onOfficeDoSample = null)
             : base(sessionId, tenantId, post, logger, intervalSeconds)
         {
             _getPackageStates = getPackageStates ?? throw new ArgumentNullException(nameof(getPackageStates));
             _onDoTelemetryReceived = onDoTelemetryReceived;
             _logFilePath = Path.Combine(logDirectory, LogFileName);
+            _onOfficeDoSample = onOfficeDoSample;
         }
 
         /// <summary>Start dormant — timer does not fire until WakeUp() is called.</summary>
@@ -93,6 +104,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             ResumeTimer();
         }
 
+        /// <summary>
+        /// Office C2R wake source: the OfficeProcessWatcher reports an Office worker started/stopped.
+        /// While active, the collector keeps polling (even with no IME downloads) so it can capture
+        /// Office's DO jobs. Called from any thread.
+        /// </summary>
+        public void NotifyOfficeActive(bool active)
+        {
+            _officeActive = active;
+            if (active)
+            {
+                Logger.Info("[DeliveryOptimizationCollector] Office install active — sampling DO for Office CDN jobs");
+                WakeUp();
+            }
+        }
+
         protected override void Collect()
         {
             if (_permanentlyDisabled || _dormant) return;
@@ -116,29 +142,32 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         private void CollectCore()
         {
 
-            // Guard: check if there's still work to do
+            // Guard: check if there's still work to do. Office C2R has no IME packages, so an active
+            // Office install (from the OfficeProcessWatcher) keeps the collector polling on its own.
             var packageStates = _getPackageStates();
-            if (packageStates == null || packageStates.Count == 0) return;
 
             var hasActiveDownloads = false;
             var hasPendingEnrichment = false;
-            for (int i = 0; i < packageStates.Count; i++)
+            if (packageStates != null)
             {
-                var p = packageStates[i];
-                if (p.InstallationState == AppInstallationState.Downloading ||
-                    p.InstallationState == AppInstallationState.Installing)
-                    hasActiveDownloads = true;
+                for (int i = 0; i < packageStates.Count; i++)
+                {
+                    var p = packageStates[i];
+                    if (p.InstallationState == AppInstallationState.Downloading ||
+                        p.InstallationState == AppInstallationState.Installing)
+                        hasActiveDownloads = true;
 
-                if (!p.HasDoTelemetry && !_enrichedAppIds.Contains(p.Id) &&
-                    p.DownloadingOrInstallingSeen &&
-                    (p.InstallationState == AppInstallationState.Installed ||
-                     p.InstallationState == AppInstallationState.Error))
-                    hasPendingEnrichment = true;
+                    if (!p.HasDoTelemetry && !_enrichedAppIds.Contains(p.Id) &&
+                        p.DownloadingOrInstallingSeen &&
+                        (p.InstallationState == AppInstallationState.Installed ||
+                         p.InstallationState == AppInstallationState.Error))
+                        hasPendingEnrichment = true;
+                }
             }
 
-            if (!hasActiveDownloads && !hasPendingEnrichment)
+            if (!hasActiveDownloads && !hasPendingEnrichment && !_officeActive)
             {
-                Logger.Info("[DeliveryOptimizationCollector] Going dormant — no active downloads or pending enrichment");
+                Logger.Info("[DeliveryOptimizationCollector] Going dormant — no active downloads, pending enrichment or Office install");
                 _dormant = true;
                 PauseTimer();
                 return;
@@ -284,6 +313,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             int progressCount = 0;
             int matchCount = 0;
 
+            // Office C2R DO aggregation across all Office-CDN jobs in this poll.
+            int officeJobCount = 0;
+            long officeFileSize = 0, officeTotalBytes = 0, officeBytesFromPeers = 0,
+                 officeBytesFromHttp = 0, officeBytesFromCacheServer = 0;
+            int officeDownloadMode = -1;
+
             // Build JSONL snapshot for log (only if fingerprint changes)
             var logEntries = new JArray();
 
@@ -323,10 +358,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
 
                 // Try to match to an IME-tracked app
                 var appId = ImeLogTracker.ExtractAppIdFromDoFileId(fileId);
-                if (string.IsNullOrEmpty(appId)) continue;
-
-                var pkg = packageStates.GetPackage(appId);
-                if (pkg == null) continue;
+                var pkg = (!string.IsNullOrEmpty(appId) && packageStates != null)
+                    ? packageStates.GetPackage(appId)
+                    : null;
+                if (pkg == null)
+                {
+                    // Not an IME app. While an Office install is active, accumulate the Office CDN
+                    // jobs for the OfficeInstallDetector (folded into office_install_*; NOT emitted as
+                    // download_progress to avoid a phantom app in the backend AppInstallSummary).
+                    if (_officeActive && IsOfficeCdnJob(sourceUrl))
+                    {
+                        officeJobCount++;
+                        officeFileSize += fileSize;
+                        officeTotalBytes += totalBytes;
+                        officeBytesFromPeers += bytesFromPeers;
+                        officeBytesFromHttp += bytesFromHttp;
+                        officeBytesFromCacheServer += bytesFromCacheServer;
+                        if (downloadMode >= 0) officeDownloadMode = downloadMode;
+                    }
+                    continue;
+                }
 
                 // --- Live download_progress (every poll where bytes changed) ---
                 long lastBytes;
@@ -382,6 +433,30 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                 }
             }
 
+            // Hand aggregated Office DO stats to the OfficeInstallDetector (folded into office_install_*).
+            if (_officeActive && officeJobCount > 0 && _onOfficeDoSample != null)
+            {
+                int officePeerPct = officeTotalBytes > 0 ? (int)((officeBytesFromPeers * 100) / officeTotalBytes) : 0;
+                try
+                {
+                    _onOfficeDoSample(new OfficeDoSample
+                    {
+                        JobCount = officeJobCount,
+                        FileSize = officeFileSize,
+                        TotalBytesDownloaded = officeTotalBytes,
+                        BytesFromPeers = officeBytesFromPeers,
+                        BytesFromHttp = officeBytesFromHttp,
+                        BytesFromCacheServer = officeBytesFromCacheServer,
+                        PercentPeerCaching = officePeerPct,
+                        DownloadMode = officeDownloadMode,
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warning($"[DeliveryOptimizationCollector] onOfficeDoSample threw: {ex.Message}");
+                }
+            }
+
             // Write JSONL log only when overall state changed
             var fingerprint = ComputeFingerprint(logEntries);
             if (fingerprint != _lastSnapshotFingerprint)
@@ -392,6 +467,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
 
             Logger.Verbose($"[DeliveryOptimizationCollector] Poll: {results.Count} entries, " +
                            $"{progressCount} progress updates, {matchCount} new matches ({_enrichedAppIds.Count} total enriched)");
+        }
+
+        /// <summary>
+        /// True when a DO job's SourceURL points at the Office CDN (Office C2R content), i.e. a job
+        /// that is not an IME Win32 app. TODO(office-followup): validate the exact SourceURL/FileId
+        /// shape against a real enrollment's do-status.jsonl and tighten if needed.
+        /// </summary>
+        private static bool IsOfficeCdnJob(string sourceUrl)
+        {
+            if (string.IsNullOrEmpty(sourceUrl)) return false;
+            return sourceUrl.IndexOf("officecdn", StringComparison.OrdinalIgnoreCase) >= 0
+                || sourceUrl.IndexOf("officeclient.microsoft.com", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         // -----------------------------------------------------------------------

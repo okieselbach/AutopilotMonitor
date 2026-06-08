@@ -1,0 +1,39 @@
+{
+  "$schema": "../schema/analyze-rule.schema.json",
+  "ruleId": "ANALYZE-OFFICE-001",
+  "title": "Microsoft 365 Apps Install Failed",
+  "description": "Detects when the Microsoft 365 Apps (Office Click-to-Run) background install did not reach completion. The V2 OfficeInstallDetector watches the C2R client directly (registry + process) and emits office_install_failed when the install scenario was abandoned (worker gone and streaming never finished) or a C2R failure code was observed. This catches Office failures that the Intune integrated app type hides, because IME reports the app done within 1-2 minutes while C2R keeps installing in the background.",
+  "severity": "warning",
+  "category": "apps",
+  "version": "1.0.0",
+  "enabled": true,
+  "baseConfidence": 75,
+  "conditions": [
+    {
+      "signal": "office_install_failed",
+      "source": "event_type",
+      "eventType": "office_install_failed",
+      "operator": "exists",
+      "value": "",
+      "required": true
+    }
+  ],
+  "confidenceFactors": [
+    { "signal": "error_code_present", "condition": "exists", "weight": 15 }
+  ],
+  "confidenceThreshold": 40,
+  "explanation": "The Microsoft 365 Apps (Office Click-to-Run) install did not finish.\n\nThe OfficeInstallDetector watches the C2R client directly and reports the real background install lifecycle. The Intune \"integrated\" Microsoft 365 Apps app type only pushes the configuration XML and starts the C2R bootstrapper, so IME marks the app done within 1-2 minutes while C2R keeps streaming and laying down the product for several more minutes. This event means C2R activity ended (the OfficeC2RClient worker exited and the install scenario cleared) without the StreamingFinished flag being set, or a C2R failure code was observed.\n\nReview the office_install_failed event payload: `products`, `channel`, `phase`, `streamingFinished`, `errorCode` (best-effort — may be empty) and `durationSeconds`.",
+  "remediation": [
+    {
+      "title": "Investigate the Office C2R install failure",
+      "steps": [
+        "Open the office_install_failed event and review products, channel, phase, streamingFinished and errorCode",
+        "Check the Click-to-Run logs on the device (%windir%\\Temp and %temp%, files named <MachineName>-yyyymmdd-nnnn.log) for the failing operation",
+        "Verify the device had network reachability to the Office CDN / Microsoft Connected Cache during the enrollment window",
+        "Confirm the Intune Microsoft 365 Apps app configuration (products, channel, architecture) matches what the device can install",
+        "Re-check the session timeline for a reboot or agent shutdown that may have interrupted the background C2R install"
+      ]
+    }
+  ],
+  "tags": ["apps", "office", "microsoft-365-apps", "click-to-run", "install-failure"]
+}

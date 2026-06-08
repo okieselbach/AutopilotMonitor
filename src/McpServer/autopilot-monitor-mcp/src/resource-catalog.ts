@@ -63,6 +63,10 @@ export const EVENT_TYPES_CATALOG = {
     'do_telemetry',
     'all_apps_completed',
     'app_tracking_summary',
+    'office_install_started',
+    'office_install_progress',
+    'office_install_completed',
+    'office_install_failed',
   ],
   script_events: ['script_started', 'script_completed', 'script_failed'],
   network_events: [

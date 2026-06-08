@@ -284,6 +284,26 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public int DeliveryOptimizationIntervalSeconds { get; set; } = 3;
 
+        /// <summary>
+        /// Enable the Microsoft 365 Apps (Office Click-to-Run) install detector. Event-driven (no idle
+        /// polling): woken by a WMI Win32_ProcessStartTrace push on OfficeC2RClient.exe, progress via
+        /// RegNotifyChangeKeyValue, stop via Process.Exited. Surfaces the real background install
+        /// lifecycle (+ Office's Delivery-Optimization download telemetry) even when the Intune
+        /// "integrated" Office app reports done to IME within 1-2 min. High-value package → on by
+        /// default, kept as a kill-switch. DO sampling reuses DeliveryOptimizationIntervalSeconds.
+        /// Default: true
+        /// </summary>
+        public bool EnableOfficeInstallDetector { get; set; } = true;
+
+        /// <summary>
+        /// Settle window (seconds) for the Office install detector. C2R spawns several short-lived
+        /// OfficeC2RClient.exe workers (with small gaps) during one install; after the last worker
+        /// exits the detector waits this long before deciding terminal completed/failed, so a brief
+        /// gap before the next worker does not produce a premature office_install_failed. A new worker
+        /// within the window keeps the install window open. 0 = decide immediately. Default: 10.
+        /// </summary>
+        public int OfficeInstallSettleSeconds { get; set; } = 10;
+
         // -----------------------------------------------------------------------
         // Stall detection (Ebene 2 — StallProbeCollector)
         // -----------------------------------------------------------------------

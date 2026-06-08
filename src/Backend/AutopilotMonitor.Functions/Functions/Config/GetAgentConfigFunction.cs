@@ -181,7 +181,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(new AgentConfigResponse
             {
-                ConfigVersion = 28, // V2 DAD-liveness threshold (DesktopDetectorNoCandidateTimeoutMinutes, default 10 min); admin-config global setting
+                ConfigVersion = 29, // V2 OfficeInstallDetector (EnableOfficeInstallDetector + OfficeInstallDetectorIntervalSeconds; C2R install lifecycle via registry+process)
                 UploadIntervalSeconds = 10,
                 SelfDestructOnComplete = tenantConfig.SelfDestructOnComplete ?? true,
                 KeepLogFile = tenantConfig.KeepLogFile ?? false,

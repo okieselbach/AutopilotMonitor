@@ -84,6 +84,14 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
     description: "Download progress update (throttled)." },
   { value: "do_telemetry", label: "do_telemetry", category: "app",
     description: "Delivery Optimization peer/mode telemetry for an application download." },
+  { value: "office_install_started", label: "office_install_started", category: "app",
+    description: "Microsoft 365 Apps (Office Click-to-Run) background install detected by the C2R detector." },
+  { value: "office_install_progress", label: "office_install_progress", category: "app",
+    description: "Office C2R install phase changed (Streaming/Finalizing) — emitted only on real state change, not periodically." },
+  { value: "office_install_completed", label: "office_install_completed", category: "app",
+    description: "Office C2R install completed (streaming finished, scenario cleared); carries version reached and duration." },
+  { value: "office_install_failed", label: "office_install_failed", category: "app",
+    description: "Office C2R install ended without reaching completion, or a failure code was observed." },
 
   // -------- Scripts --------
   { value: "script_started", label: "script_started", category: "script",

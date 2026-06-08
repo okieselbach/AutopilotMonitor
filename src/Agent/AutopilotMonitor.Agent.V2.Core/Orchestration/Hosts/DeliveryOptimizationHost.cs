@@ -3,6 +3,7 @@ using System;
 using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.Shared;
@@ -16,6 +17,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private readonly DeliveryOptimizationCollector _collector;
         private readonly ImeLogHost _imeHost;
         private readonly AgentLogger _logger;
+        private readonly OfficeProcessWatcher? _officeProcessWatcher;
         private Action<AppPackageState, AppInstallationState, AppInstallationState>? _prevStateChanged;
         private Action<AppPackageState, AppInstallationState, AppInstallationState>? _chainedHandler;
         private int _disposed;
@@ -27,12 +29,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             IClock clock,
             AgentLogger logger,
             int intervalSeconds,
-            ImeLogHost imeHost)
+            ImeLogHost imeHost,
+            OfficeProcessWatcher? officeProcessWatcher = null,
+            Action<OfficeDoSample>? onOfficeDoSample = null)
         {
             if (ingress == null) throw new ArgumentNullException(nameof(ingress));
             if (clock == null) throw new ArgumentNullException(nameof(clock));
             _imeHost = imeHost;
             _logger = logger;
+            _officeProcessWatcher = officeProcessWatcher;
 
             var post = new InformationalEventPost(ingress, clock);
             _collector = new DeliveryOptimizationCollector(
@@ -47,7 +52,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     try { imeHost.Tracker.OnDoTelemetryReceived?.Invoke(pkg); }
                     catch (Exception ex) { logger.Warning($"DeliveryOptimizationHost: OnDoTelemetryReceived invocation threw: {ex.Message}"); }
                 },
-                logDirectory: Environment.ExpandEnvironmentVariables(Constants.LogDirectory));
+                logDirectory: Environment.ExpandEnvironmentVariables(Constants.LogDirectory),
+                onOfficeDoSample: onOfficeDoSample);
         }
 
         public void Start()
@@ -70,9 +76,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             };
             _imeHost.Tracker.OnAppStateChanged = _chainedHandler;
 
+            // Second wake source: an Office C2R install (no IME package) keeps the collector polling
+            // so it can capture Office's DO CDN jobs.
+            if (_officeProcessWatcher != null)
+            {
+                _officeProcessWatcher.Started += OnOfficeStarted;
+                _officeProcessWatcher.Stopped += OnOfficeStopped;
+            }
+
             _collector.Start();
-            _logger.Info($"DeliveryOptimizationHost: started dormant (interval={_collector}, wakes on Downloading/Installing).");
+            _logger.Info("DeliveryOptimizationHost: started dormant (wakes on Downloading/Installing or an Office C2R install).");
         }
+
+        private void OnOfficeStarted(object? sender, EventArgs e) => _collector.NotifyOfficeActive(true);
+        private void OnOfficeStopped(object? sender, EventArgs e) => _collector.NotifyOfficeActive(false);
 
         public void Stop()
         {
@@ -85,6 +102,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 && object.ReferenceEquals(_imeHost.Tracker.OnAppStateChanged, _chainedHandler))
             {
                 _imeHost.Tracker.OnAppStateChanged = _prevStateChanged;
+            }
+            if (_officeProcessWatcher != null)
+            {
+                try { _officeProcessWatcher.Started -= OnOfficeStarted; } catch { }
+                try { _officeProcessWatcher.Stopped -= OnOfficeStopped; } catch { }
             }
             _collector.Stop();
         }

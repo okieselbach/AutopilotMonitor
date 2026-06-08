@@ -348,9 +348,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 logger: logger,
                 apiBaseUrl: _agentConfig.ApiBaseUrl));
 
-            // M4.6.γ — Delivery-Optimization telemetry. Dormant-by-default: only polls when the
-            // IME log tracker reports an app entering Downloading/Installing (see AppStateChanged
-            // chain below). Needs the IME tracker's PackageStates + OnDoTelemetryReceived hook.
+            // Microsoft 365 Apps (Office C2R) install detector — event-driven (Rev 2): woken by a WMI
+            // Win32_ProcessStartTrace push on OfficeC2RClient.exe (+ startup probe), progress via
+            // RegNotifyChangeKeyValue, stop via Process.Exited. No idle polling. Constructed first so
+            // the DO host can share its process-start signal and feed Office DO stats back to it.
+            // Kill-switchable via remote config.
+            OfficeInstallDetectorHost officeHost = null;
+            if (collectors.EnableOfficeInstallDetector)
+            {
+                officeHost = new OfficeInstallDetectorHost(
+                    sessionId: sessionId,
+                    tenantId: tenantId,
+                    ingress: ingress,
+                    clock: clock,
+                    logger: logger,
+                    settleSeconds: collectors.OfficeInstallSettleSeconds);
+            }
+
+            // M4.6.γ — Delivery-Optimization telemetry. Dormant-by-default: polls only when the IME log
+            // tracker reports an app entering Downloading/Installing (AppStateChanged chain below) OR
+            // an Office C2R install is active (officeHost signal) — the latter lets it capture Office's
+            // DO CDN jobs and fold them into the office_install_* events.
             if (collectors.EnableDeliveryOptimizationCollector && _imeLogHost != null)
             {
                 var doHost = new DeliveryOptimizationHost(
@@ -360,9 +378,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     clock: clock,
                     logger: logger,
                     intervalSeconds: collectors.DeliveryOptimizationIntervalSeconds,
-                    imeHost: _imeLogHost);
+                    imeHost: _imeLogHost,
+                    officeProcessWatcher: officeHost?.ProcessWatcher,
+                    onOfficeDoSample: officeHost != null ? officeHost.SubmitDoSample : (Action<Monitoring.Telemetry.Office.OfficeDoSample>)null);
                 hosts.Add(doHost);
             }
+
+            // Add the Office host AFTER the DO host so the DO host has subscribed to the process-start
+            // signal before the watcher starts (avoids missing the wake for an install already in flight).
+            if (officeHost != null) hosts.Add(officeHost);
 
             // M4.6.δ — Gather-rules runtime executor. Runs the backend-defined rules whose
             // Trigger is "startup" once the agent is up; signal / event / periodic triggers

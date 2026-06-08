@@ -296,6 +296,17 @@ namespace AutopilotMonitor.Shared
             public const string AllAppsCompleted          = "all_apps_completed";
             public const string AppTrackingSummary        = "app_tracking_summary";  // Plan §5 Fix 4b — terminal per-session app summary
 
+            // Microsoft 365 Apps (Office Click-to-Run) install lifecycle — emitted by the V2
+            // OfficeInstallDetector which watches the C2R client (registry + process) directly.
+            // The Intune "integrated" Microsoft 365 Apps app reports done to IME within 1-2 min
+            // while C2R keeps streaming/installing in the background; these events surface the
+            // REAL install progress (phase-granular — no percentage is exposed by Office) plus
+            // products, channel, version reached, duration and a best-effort failure code.
+            public const string OfficeInstallStarted      = "office_install_started";
+            public const string OfficeInstallProgress     = "office_install_progress";
+            public const string OfficeInstallCompleted    = "office_install_completed";
+            public const string OfficeInstallFailed       = "office_install_failed";
+
             // Stall detection (Ebene 2 — StallProbeCollector)
             public const string StallProbeCheck           = "stall_probe_check";   // Trace heartbeat from Probe 2 (15 min) when no anomaly found
             public const string StallProbeResult          = "stall_probe_result";  // Warning when a probe found an anomaly
