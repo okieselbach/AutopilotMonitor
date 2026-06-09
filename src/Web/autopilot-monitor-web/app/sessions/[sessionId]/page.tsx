@@ -584,12 +584,15 @@ export default function SessionDetailPage() {
             </div>
           )}
 
-          {/* Install Progress (from app_install_started, app_install_completed, app_install_failed, app_install_postponed, app_install_skipped events) */}
+          {/* Install Progress (from app_install_* events, plus the office_install_* lifecycle — Office
+              C2R is not an IME app but is rendered here as a first-class install with a live timer +
+              duration via its started/completed/failed events). */}
           {!isGatherRulesSession && (
             <div id="section-install-progress">
             <InstallProgress
               events={events.filter(
                 e => e.eventType === "app_install_started" || e.eventType === "app_install_completed" || e.eventType === "app_install_failed" || e.eventType === "app_install_postponed" || e.eventType === "app_install_skipped"
+                  || e.eventType === "office_install_started" || e.eventType === "office_install_completed" || e.eventType === "office_install_failed"
               )}
               summaryStats={appSummaryStats}
             />

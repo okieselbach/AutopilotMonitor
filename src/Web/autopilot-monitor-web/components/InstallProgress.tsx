@@ -97,11 +97,30 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
       const existing = installMap.get(appName);
       const eventTs = evt.timestamp;
 
-      if (evt.eventType === "app_install_started") {
+      // The Office C2R lifecycle (office_install_*) is not an IME app but maps onto the same
+      // started → completed/failed install flow, so it renders here as a first-class install row
+      // with the live timer + duration. Office has no postponed/skipped variants.
+      const type = evt.eventType;
+      const isStarted = type === "app_install_started" || type === "office_install_started";
+      const isCompleted = type === "app_install_completed" || type === "office_install_completed";
+      const isFailed = type === "app_install_failed" || type === "office_install_failed";
+
+      if (isStarted) {
         // Don't reset an app that already completed — later batch re-scans
         // would overwrite the real duration with near-zero timestamps.
         // Allow restart after failure (retry).
-        if (existing?.state === "Installed") continue;
+        if (existing?.state === "Installed") {
+          // Out-of-order delivery: completed arrived before started (e.g. Office already on disk when
+          // C2R ran — CSP / Win32-wrapper install). Backfill the missing start time so the duration is
+          // computed, without downgrading the completed state.
+          if (!existing.startedAt) {
+            existing.startedAt = eventTs;
+            if (existing.completedAt) {
+              existing.durationMs = Math.max(0, new Date(existing.completedAt).getTime() - new Date(eventTs).getTime());
+            }
+          }
+          continue;
+        }
         installMap.set(appName, {
           appName,
           appId,
@@ -115,7 +134,7 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
           firstSeenIndex: existing?.firstSeenIndex ?? insertionIndex++,
           eventData: d,
         });
-      } else if (evt.eventType === "app_install_completed") {
+      } else if (isCompleted) {
         // Keep the first valid completion — don't let batch re-scans overwrite.
         if (existing?.state === "Installed" && existing.durationMs != null) continue;
         const startTime = existing?.startedAt ? new Date(existing.startedAt).getTime() : null;
@@ -139,7 +158,7 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
           firstSeenIndex: existing?.firstSeenIndex ?? insertionIndex++,
           eventData: d,
         });
-      } else if (evt.eventType === "app_install_failed") {
+      } else if (isFailed) {
         // Don't downgrade from Installed to Failed.
         if (existing?.state === "Installed") continue;
         const startTime = existing?.startedAt ? new Date(existing.startedAt).getTime() : null;

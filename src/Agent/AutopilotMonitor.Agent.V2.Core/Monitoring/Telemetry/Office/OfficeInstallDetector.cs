@@ -254,8 +254,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
             _state = DetectorState.Active;
             _startedAtUtc = _clock.UtcNow;
             _startedTrigger = trigger;
-            ObserveInstallationPath(snap);
+            // Emit started BEFORE surfacing the InstallationPath. The host arms the binary watcher in
+            // that callback, and when Office is ALREADY on disk (installed via the Office CSP / a Win32
+            // wrapper that re-runs C2R) the watcher's initial scan completes the lifecycle synchronously.
+            // Emitting started first guarantees the correct order (started → completed); otherwise a
+            // pre-installed Office produced completed-before-started (field session a7525e97).
             EmitLifecycle(Constants.EventTypes.OfficeInstallStarted, snap, EventSeverity.Info, PhaseOf(snap), isTerminal: false);
+            ObserveInstallationPath(snap);
         }
 
         private void EvaluateActive(OfficeC2RSnapshot snap)

@@ -190,6 +190,41 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Office
             Assert.Single(rig.OfficeEvents());
         }
 
+        [Fact]
+        public void Started_is_emitted_before_a_synchronous_completion()
+        {
+            // Office CSP / Win32-wrapper specialty (field session a7525e97): Office is already on disk
+            // when C2R runs, so the host's OfficeBinaryWatcher (wired here via onInstallationPathObserved)
+            // completes the lifecycle synchronously from inside BeginIfIdle. started MUST still be emitted
+            // first — otherwise completed-before-started breaks the install-progress duration/timer.
+            using var tmp = new TempDirectory();
+            var sink = new FakeSignalIngressSink();
+            var clock = new VirtualClock(At);
+            var post = new InformationalEventPost(sink, clock);
+
+            OfficeInstallDetector sut = null!;
+            sut = new OfficeInstallDetector("S1", "T1", post, NewLogger(tmp.Path), clock,
+                onInstallationPathObserved: _ =>
+                {
+                    sut.CoreBinariesProbe = __ => true; // binaries already present → immediate completion
+                    sut.TryFinalizeCompletion();
+                });
+            var snap = ActiveStreaming();
+            snap.InstallationPath = @"C:\Program Files\Microsoft Office";
+            sut.SnapshotProvider = () => snap;
+
+            sut.OnWorkerStarted();
+
+            var office = sink.Posted
+                .Where(p => p.Payload != null
+                    && p.Payload.TryGetValue(SignalPayloadKeys.EventType, out var et)
+                    && et != null && et.StartsWith("office_install_", StringComparison.Ordinal))
+                .ToList();
+            Assert.Equal(2, office.Count);
+            Assert.Equal(Constants.EventTypes.OfficeInstallStarted, office[0].Payload![SignalPayloadKeys.EventType]);
+            Assert.Equal(Constants.EventTypes.OfficeInstallCompleted, office[1].Payload![SignalPayloadKeys.EventType]);
+        }
+
         // ---------------------------------------------------------------- no progress events
 
         [Fact]
