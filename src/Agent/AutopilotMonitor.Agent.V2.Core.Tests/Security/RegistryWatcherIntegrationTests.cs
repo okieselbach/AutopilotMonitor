@@ -205,5 +205,57 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
                 Assert.Equal(callerFilter, watcher.EffectiveFilter & callerFilter);
             }
         }
+
+        [Fact]
+        public void Stop_after_RequestStop_still_waits_for_the_in_flight_callback()
+        {
+            // Regression guard for the Thread.Join() parity of the RequestStop -> queued-Stop path
+            // (the RealmJoinWatcher appearance-handler shape). RequestStop() must NOT consume the
+            // registration; otherwise a Stop()/Dispose() that runs right after sees a null handle,
+            // skips the blocking Unregister, and returns while the Changed callback is still
+            // executing. Here we park the callback, RequestStop, then assert Stop() blocks until the
+            // callback completes.
+            using var inHandler = new ManualResetEventSlim(false);
+            using var releaseHandler = new ManualResetEventSlim(false);
+            int handlerCompleted = 0;
+
+            using var watcher = new RegistryWatcher(
+                hive: RegistryHive.CurrentUser,
+                subKey: TestSubKey,
+                watchSubtree: false,
+                view: RegistryView.Default,
+                filter: RegistryNativeMethods.RegChangeNotifyFilter.LastSet,
+                trace: null);
+
+            watcher.Changed += (_, __) =>
+            {
+                inHandler.Set();
+                releaseHandler.Wait(TimeSpan.FromSeconds(5));
+                Volatile.Write(ref handlerCompleted, 1);
+            };
+            watcher.Start();
+
+            Thread.Sleep(150);
+            using (var key = Registry.CurrentUser.OpenSubKey(TestSubKey, writable: true))
+            {
+                key!.SetValue("Trigger", "1");
+            }
+
+            Assert.True(inHandler.Wait(TimeSpan.FromSeconds(5)), "Changed callback never entered");
+
+            // Callback is now parked inside the handler. RequestStop must leave the registration
+            // live so the subsequent Stop() can wait on it.
+            watcher.RequestStop();
+
+            // Let the handler finish a little later, on another thread, so Stop() is forced to block.
+            var releaser = new Thread(() => { Thread.Sleep(250); releaseHandler.Set(); }) { IsBackground = true };
+            releaser.Start();
+
+            watcher.Stop();
+
+            // If Stop() honored the in-flight callback it only returned after the handler completed.
+            Assert.Equal(1, Volatile.Read(ref handlerCompleted));
+            releaser.Join();
+        }
     }
 }

@@ -140,7 +140,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             {
                 if (!_running) return;
                 _stopped = true;
-                UnregisterWait();
+
+                // Deliberately do NOT unregister here. A handler frequently calls RequestStop()
+                // and then queues Stop()/Dispose() to another thread (RealmJoinWatcher does exactly
+                // this) while the current OnSignalled callback is still running. If RequestStop
+                // consumed the registration, that queued Stop() would see a null _registeredWait
+                // and skip the blocking Unregister(waitObject) — returning BEFORE the in-flight
+                // callback finished and breaking the Thread.Join() parity guarantee. Leaving the
+                // live registration in place lets Stop() wait on it. The Set() below wakes any
+                // still-pending wait, which then drains as a no-op (proceed is false once _stopped
+                // is set); a callback already in flight is awaited by Stop().
                 try { _signal?.Set(); } catch { /* releasing a pending wait must not throw */ }
             }
         }
