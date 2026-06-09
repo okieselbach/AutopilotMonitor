@@ -352,11 +352,18 @@ export default function SessionDetailPage() {
 
   // Only show full-page loading spinner on the very first load (no data yet).
   // Subsequent refreshes (SignalR, 30s poll) keep the existing UI visible.
+  // NOTE: this early-return MUST stay wrapped in <ProtectedRoute>. On a fresh
+  // direct navigation (new tab, bookmark, shared link) the auth cache is empty,
+  // so `loading` never flips and we'd render this branch forever — bypassing the
+  // auth gate and hanging on "Loading session details..." without ever triggering
+  // the MSAL login redirect. Wrapping here lets ProtectedRoute drive re-auth.
   if (loading && !session && events.length === 0) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-600">Loading session details...</div>
-      </div>
+      <ProtectedRoute>
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-gray-600">Loading session details...</div>
+        </div>
+      </ProtectedRoute>
     );
   }
 

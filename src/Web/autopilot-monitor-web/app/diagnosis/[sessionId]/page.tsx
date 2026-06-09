@@ -246,11 +246,18 @@ export default function DiagnosisPage() {
   );
   const warningEvents = events.filter((e) => e.severity === "Warning");
 
+  // Keep this early-return wrapped in <ProtectedRoute>: on a fresh direct
+  // navigation (new tab, bookmark, shared link) the auth cache is empty, so the
+  // tenant-gated fetch never runs and `loading` stays true forever. Without the
+  // gate here we'd hang on "Loading diagnosis..." and never trigger the MSAL
+  // login redirect. See the matching note in app/sessions/[sessionId]/page.tsx.
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-600">Loading diagnosis...</div>
-      </div>
+      <ProtectedRoute>
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-gray-600">Loading diagnosis...</div>
+        </div>
+      </ProtectedRoute>
     );
   }
 
