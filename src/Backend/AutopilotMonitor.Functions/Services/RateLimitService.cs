@@ -71,10 +71,17 @@ namespace AutopilotMonitor.Functions.Services
                     var oldestRequest = requestHistory.Min();
                     var retryAfter = oldestRequest.Add(_windowDuration).Subtract(now);
 
+                    // Structured fields so a 429 is queryable in App Insights (count vs limit vs
+                    // window). The key may be a cert thumbprint, a bootstrap token, or a UPN
+                    // depending on caller, so only an 8-char prefix is logged — never the full key
+                    // (avoids leaking tokens/PII). Device/tenant/IP identity is on the paired 429
+                    // request row (same operation_Id), enriched in RequestTelemetryMiddleware.
                     _logger.LogWarning(
-                        $"Rate limit exceeded for device {deviceThumbprint.Substring(0, 8)}... " +
-                        $"({requestHistory.Count} requests in last {_windowDuration.TotalSeconds}s)"
-                    );
+                        "Rate limit exceeded: {RequestsInWindow}/{MaxRequests} requests in {WindowSeconds:F0}s window (key prefix {RateLimitKeyPrefix})",
+                        requestHistory.Count,
+                        maxRequestsPerMinute,
+                        _windowDuration.TotalSeconds,
+                        deviceThumbprint.Length >= 8 ? deviceThumbprint.Substring(0, 8) : deviceThumbprint);
 
                     return new RateLimitResult
                     {

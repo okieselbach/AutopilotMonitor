@@ -126,6 +126,11 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 if (!rateLimitResult.IsAllowed)
                     return req.CreateResponse(HttpStatusCode.OK);
 
+                // For the STORED forensic SourceIp, prefer the real client egress IP. The trusted
+                // hop above (used as the un-spoofable rate-limit key) is Front Door's own egress IP
+                // behind Front Door, not the device — which is why stored SourceIp was unusable.
+                var sourceIp = ClientIpExtractor.GetClientEgressIp(req);
+
                 // Gate 5: Tenant existence check (cached — cheap O(1) lookup)
                 var (_, exists) = await _tenantConfigService.TryGetConfigurationAsync(tenantId);
                 if (!exists)
@@ -202,7 +207,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     Message         = message,
                     AgentTimestamp  = report.Timestamp,
                     IngestedAt      = DateTime.UtcNow,
-                    SourceIp        = clientIp,
+                    SourceIp        = sourceIp,
                     CertSourceState = certSourceState,
                     CertThumbprint  = certThumbprint,
                     CertSubject     = certSubject,
@@ -281,7 +286,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     ["HttpStatusCode"]  = report.HttpStatusCode?.ToString() ?? string.Empty,
                     ["Message"]         = message ?? string.Empty,
                     ["AgentTimestamp"]  = report.Timestamp.ToString("O"),
-                    ["SourceIp"]        = clientIp ?? string.Empty,
+                    ["SourceIp"]        = sourceIp ?? string.Empty,
                     ["CertSourceState"] = certSourceState ?? string.Empty,
                     ["CertThumbprint"]  = certThumbprint ?? string.Empty,
                     ["CertSubject"]     = certSubject ?? string.Empty,

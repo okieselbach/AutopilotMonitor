@@ -33,6 +33,28 @@ namespace AutopilotMonitor.Functions.Security
         }
 
         /// <summary>
+        /// Best-effort REAL client egress IP for forensic/diagnostic STORAGE (e.g. distress-report
+        /// SourceIp, audit fields). NOT for rate-limit keys — use <see cref="GetTrustedClientIp"/>
+        /// there, because the value below is spoofable when no trusted proxy populates it.
+        /// <para>
+        /// Behind Azure Front Door the trusted rightmost X-Forwarded-For hop is Front Door's own
+        /// egress IP, not the device — so a stored SourceIp taken from it is useless for identifying
+        /// origin. Front Door sets the true client IP in <c>X-Azure-ClientIP</c>; prefer that and
+        /// fall back to the trusted hop when absent (no Front Door in front).
+        /// </para>
+        /// </summary>
+        public static string GetClientEgressIp(HttpRequestData? req)
+        {
+            if (req == null) return Unknown;
+            if (req.Headers.TryGetValues("X-Azure-ClientIP", out var azValues))
+            {
+                var ip = ExtractTrustedHop(string.Join(",", azValues));
+                if (ip != Unknown) return ip;
+            }
+            return GetTrustedClientIp(req);
+        }
+
+        /// <summary>
         /// Takes the rightmost non-empty entry from an X-Forwarded-For header value and
         /// strips any port suffix or IPv6 brackets. Returns <see cref="Unknown"/> when
         /// the header is missing or contains only whitespace.
