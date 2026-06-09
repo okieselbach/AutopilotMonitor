@@ -559,9 +559,17 @@ export function OpsEventsSection({
                 return (
                   <div className="mt-5 pt-4 border-t border-gray-200 dark:border-gray-700">
                     <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                      Quick-action against the device behind this session:
+                      Review the session, or quick-action against the device behind it:
                     </p>
                     <div className="flex flex-wrap gap-2">
+                      <Link
+                        href={`/sessions/${encodeURIComponent(sessionId)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-900/60 border border-blue-300 dark:border-blue-700"
+                      >
+                        View session
+                      </Link>
                       <Link
                         href={`${baseHref}&action=Block`}
                         onClick={() => setSelectedEvent(null)}
