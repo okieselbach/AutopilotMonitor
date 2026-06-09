@@ -4,8 +4,8 @@
     "logging": {
         "logLevel": {
             "default": "Information",
-            "Function": "Information",
-            "AutopilotMonitor.Functions.Security": "Debug",
+            "Function": "Warning",
+            "AutopilotMonitor.Functions.Security": "Information",
             "Host": "Error",
             "Host.Aggregator": "Error",
             "Host.Results": "Information",

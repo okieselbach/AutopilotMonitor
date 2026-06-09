@@ -25,14 +25,25 @@ namespace AutopilotMonitor.Functions.Telemetry;
 /// </summary>
 public sealed class StorageDependencyFilterProcessor : ITelemetryProcessor
 {
-    // Azure Storage data-plane endpoints. Matching on the dependency Target host is robust
-    // across SDK versions and instrumentation modes (classic "Azure blob"/"Azure table" types
-    // vs. newer Azure SDK ActivitySource namespaces both resolve to these hosts).
+    // Azure Storage data-plane endpoints. Catches the classic HTTP-level dependency shape
+    // ("Azure table"/"Azure queue"/"Azure blob" types), whose Target/Data carry the endpoint host.
     private static readonly string[] StorageEndpointSuffixes =
     {
         ".table.core.windows.net",
         ".queue.core.windows.net",
         ".blob.core.windows.net",
+    };
+
+    // Azure SDK ActivitySource dependency shape, as mapped by the App Insights SDK from the
+    // activity's az.namespace tag ("InProc | {namespace}"). These rows carry only the SDK
+    // operation name (e.g. "TableClient.GetEntity") in Target/Data — no endpoint host — so the
+    // suffix match above can never see them. Live-verified 2026-06-09: this shape was ~80% of
+    // all billed dependency rows. Prefix match keeps other InProc namespaces (AAD, Insights)
+    // and the bare worker "InProc" invocation span untouched.
+    private static readonly string[] StorageInProcTypePrefixes =
+    {
+        "InProc | Microsoft.Tables",   // Azure.Data.Tables
+        "InProc | Microsoft.Storage",  // Azure.Storage.Queues + Azure.Storage.Blobs
     };
 
     private readonly ITelemetryProcessor _next;
@@ -63,7 +74,27 @@ public sealed class StorageDependencyFilterProcessor : ITelemetryProcessor
             return false;
         }
 
-        return IsStorageEndpoint(dependency.Target) || IsStorageEndpoint(dependency.Data);
+        return IsStorageEndpoint(dependency.Target)
+            || IsStorageEndpoint(dependency.Data)
+            || IsStorageInProcType(dependency.Type);
+    }
+
+    private static bool IsStorageInProcType(string? type)
+    {
+        if (string.IsNullOrEmpty(type))
+        {
+            return false;
+        }
+
+        foreach (var prefix in StorageInProcTypePrefixes)
+        {
+            if (type.StartsWith(prefix, System.StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsStorageEndpoint(string? value)
