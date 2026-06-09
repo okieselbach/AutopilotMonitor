@@ -13,8 +13,9 @@ export function SectionAgentChangelog() {
 
       {/* ── June 2026 ────────────────────────────────── */}
       <ChangelogBlock title="June 2026">
+        <Li>Microsoft 365 Apps (Office) install tracking — agent surfaces the real Office Click-to-Run install that the Intune &quot;integrated&quot; app hides (IME reports done within a minute or two while Office keeps streaming in the background); shown as its own install row with live Delivery Optimization download progress</Li>
         <Li>Provisioning-package detection — agent scans for Windows provisioning packages (<code className="text-xs bg-gray-100 px-1 py-0.5 rounded">.ppkg</code>) applied to the device and reports them in a single scan event; security rules flag packages outside a built-in allow-list of Windows-inbox packages</Li>
-        <Li>AutoLogon detection — agent reports the device&apos;s automatic sign-in (AutoLogon) configuration and security rules flag it when left enabled</Li>
+        <Li>AutoLogon detection — agent reports the device&apos;s automatic sign-in (AutoLogon) configuration; security rules now flag it only when a plaintext password is actually stored, so normal Autopilot enrollments no longer produce false positives</Li>
         <Li>ESP sub-category state changes are now surfaced even when they aren&apos;t failures (e.g. retry or recovery transitions) for clearer visibility into ESP progress</Li>
         <Li>Stall-probe file and registry scans now enforce a hard timeout so a slow or locked source can no longer hang the probe</Li>
       </ChangelogBlock>
