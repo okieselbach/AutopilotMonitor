@@ -3,6 +3,7 @@
 import { useAuth } from "../../contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { consumePostLoginReturnUrl } from "../../lib/postLoginReturn";
 
 /**
  * Invisible client component that handles auth redirect logic.
@@ -15,8 +16,14 @@ export function AuthGate() {
 
   useEffect(() => {
     if (isAuthenticated && !isLoading && user) {
+      // Always consume (read + clear) so a stale deep link can't misroute a later
+      // sign-in; only honor it when the user isn't preview-gated.
+      const returnUrl = consumePostLoginReturnUrl();
       if (isPreviewBlocked) {
         router.push("/preview");
+      } else if (returnUrl) {
+        // Restore the deep link the user originally opened before re-auth.
+        router.replace(returnUrl);
       } else if (user.isTenantAdmin || user.isGlobalAdmin || user.role === 'Operator') {
         router.push("/dashboard");
       } else {

@@ -3,6 +3,7 @@
 import { useAuth } from "../contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
+import { savePostLoginReturnUrl } from "../lib/postLoginReturn";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -34,6 +35,10 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false }: Protect
         // entry-point flow for users who arrived via a www → portal
         // cross-origin sign-in nav with no portal-side session yet.
         reloginAttempted.current = true;
+        // Stash the deep link so AuthGate can restore it after re-auth. MSAL has
+        // navigateToLoginRequestUrl=false, so without this the user lands on the
+        // role-default route (e.g. /dashboard) instead of the page they opened.
+        savePostLoginReturnUrl(window.location.pathname + window.location.search);
         login().catch((err) => {
           console.warn('[ProtectedRoute] Login redirect failed, navigating to landing:', err);
           router.push("/");
