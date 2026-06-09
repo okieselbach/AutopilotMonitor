@@ -8,7 +8,7 @@
             "AutopilotMonitor.Functions.Security": "Information",
             "Host": "Error",
             "Host.Aggregator": "Error",
-            "Host.Results": "Information",
+            "Host.Results": "Error",
             "Host.Startup": "Error",
             "Microsoft.Azure.WebJobs": "Error",
             "Microsoft.Azure.WebJobs.Host": "Error",

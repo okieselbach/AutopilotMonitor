@@ -266,7 +266,7 @@ public class RuleEngineDetectionFailureTests
         ruleRepo.Setup(r => r.GetRuleResultsAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(new List<RuleResult>());
 
         var sessionRepo = new Mock<ISessionRepository>();
-        sessionRepo.Setup(s => s.GetSessionEventsAsync(TenantId, SessionId, It.IsAny<int>())).ReturnsAsync(events);
+        sessionRepo.Setup(s => s.GetSessionEventsStrictAsync(TenantId, SessionId, It.IsAny<int>())).ReturnsAsync(events);
 
         var ruleService = new AnalyzeRuleService(ruleRepo.Object, NullLogger<AnalyzeRuleService>.Instance);
         var engine = new RuleEngine(ruleService, ruleRepo.Object, sessionRepo.Object, NullLogger<RuleEngineDetectionFailureTests>.Instance);

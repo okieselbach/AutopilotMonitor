@@ -1675,8 +1675,10 @@ namespace AutopilotMonitor.Functions.Services
         /// Uses Merge mode to safely handle concurrent updates.
         /// The caller provides earliestEventTimestamp from the current batch;
         /// no redundant Events-table scan is performed here.
+        /// Returns the post-merge snapshot (RMW read + applied increments) so the ingest hot path
+        /// can skip its follow-up GetSessionAsync; null on missing row / exhausted retries / error.
         /// </summary>
-        public async Task IncrementSessionEventCountAsync(string tenantId, string sessionId, int increment, DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null, EnrollmentPhase? currentPhase = null, int platformScriptIncrement = 0, int remediationScriptIncrement = 0, int rebootIncrement = 0)
+        public async Task<SessionSummary?> IncrementSessionEventCountAsync(string tenantId, string sessionId, int increment, DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null, EnrollmentPhase? currentPhase = null, int platformScriptIncrement = 0, int remediationScriptIncrement = 0, int rebootIncrement = 0)
         {
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
             SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
@@ -1693,7 +1695,7 @@ namespace AutopilotMonitor.Functions.Services
                     if (!entityResponse.HasValue)
                     {
                         _logger.LogWarning("Session {SessionId} not found when incrementing event count — session may have been cleaned up or not yet registered", sessionId);
-                        return;
+                        return null;
                     }
                     var entity = entityResponse.Value!;
                     var currentCount = entity.GetInt32("EventCount") ?? 0;
@@ -1752,7 +1754,15 @@ namespace AutopilotMonitor.Functions.Services
                     // Dual-write: keep SessionsIndex in sync (StartedAt-shift → full upsert, else merge).
                     await SyncSessionIndexAsync(tenantId, sessionId, entity, update, currentStartedAt, earliestEventTimestamp);
 
-                    return;
+                    // Apply the merged fields onto the RMW read and map it through the shared
+                    // mapper — the post-merge snapshot the caller would otherwise re-read.
+                    foreach (var kvp in update)
+                    {
+                        if (kvp.Key is "PartitionKey" or "RowKey" or "Timestamp" or "odata.etag")
+                            continue;
+                        entity[kvp.Key] = kvp.Value;
+                    }
+                    return MapToSessionSummary(entity);
                 }
                 catch (Azure.RequestFailedException ex) when (ex.Status == 412)
                 {
@@ -1760,7 +1770,7 @@ namespace AutopilotMonitor.Functions.Services
                     if (retryCount >= maxRetries)
                     {
                         _logger.LogWarning($"Failed to increment event count for session {sessionId} after {maxRetries} retries due to ETag conflicts");
-                        return;
+                        return null;
                     }
                     // Exponential backoff with jitter to decorrelate concurrent retries
                     var baseDelay = 50 * (int)Math.Pow(2, retryCount - 1);
@@ -1769,9 +1779,11 @@ namespace AutopilotMonitor.Functions.Services
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, $"Failed to increment event count for session {sessionId}");
-                    return;
+                    return null;
                 }
             }
+
+            return null;
         }
 
         /// <summary>
@@ -1846,40 +1858,61 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Gets all events for a specific session
+        /// Gets all events for a specific session. Fail-soft: storage exceptions degrade to an
+        /// empty list (read-only UI/metrics surfaces prefer a blank timeline over a 500) — which
+        /// makes a read FAILURE indistinguishable from a genuinely empty session. Callers whose
+        /// retry semantics depend on observing failures (queue workers) must use
+        /// <see cref="GetSessionEventsStrictAsync"/> instead.
         /// </summary>
         public async Task<List<EnrollmentEvent>> GetSessionEventsAsync(string tenantId, string sessionId, int maxResults = 1000)
         {
+            // Validate before the catch — malformed GUIDs are caller bugs and must not be
+            // masked as "no events" (same behaviour as before the strict/soft split).
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
             SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
 
             try
             {
-                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Events);
-                var events = new List<EnrollmentEvent>();
-
-                // Events are stored with PartitionKey = "{TenantId}_{SessionId}"
-                var partitionKey = $"{tenantId}_{sessionId}";
-
-                var query = tableClient.QueryAsync<TableEntity>(
-                    filter: $"PartitionKey eq '{partitionKey}'",
-                    maxPerPage: maxResults
-                );
-
-                await foreach (var entity in query)
-                {
-                    events.Add(MapToEnrollmentEvent(entity));
-                }
-
-                // Sort by Sequence ascending — the authoritative event order
-                // (assigned atomically via Interlocked.Increment on the agent)
-                return events.OrderBy(e => e.Sequence).ToList();
+                return await GetSessionEventsStrictAsync(tenantId, sessionId, maxResults);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Failed to get events for session {sessionId}");
                 return new List<EnrollmentEvent>();
             }
+        }
+
+        /// <summary>
+        /// Strict variant of <see cref="GetSessionEventsAsync"/>: storage exceptions PROPAGATE.
+        /// Used on the queue-worker paths (rule analysis, vulnerability correlation) where a
+        /// swallowed read failure would convert a retryable transient fault into silent data
+        /// loss — the worker would delete its message after "analyzing" a truncated stream.
+        /// A genuinely empty session still returns an empty list (successful query, zero rows).
+        /// </summary>
+        public async Task<List<EnrollmentEvent>> GetSessionEventsStrictAsync(string tenantId, string sessionId, int maxResults = 1000)
+        {
+            SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+            SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
+
+            var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Events);
+            var events = new List<EnrollmentEvent>();
+
+            // Events are stored with PartitionKey = "{TenantId}_{SessionId}"
+            var partitionKey = $"{tenantId}_{sessionId}";
+
+            var query = tableClient.QueryAsync<TableEntity>(
+                filter: $"PartitionKey eq '{partitionKey}'",
+                maxPerPage: maxResults
+            );
+
+            await foreach (var entity in query)
+            {
+                events.Add(MapToEnrollmentEvent(entity));
+            }
+
+            // Sort by Sequence ascending — the authoritative event order
+            // (assigned atomically via Interlocked.Increment on the agent)
+            return events.OrderBy(e => e.Sequence).ToList();
         }
 
         /// <summary>

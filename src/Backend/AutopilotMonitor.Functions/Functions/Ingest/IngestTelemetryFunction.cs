@@ -200,9 +200,10 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 // UpdateSessionImeAgentVersionAsync upsert, …) would land rows past the lock and
                 // leave orphan data the manifest cannot describe. One read per batch; absent
                 // Sessions row → silent pass (caller handles session-not-found in its own write).
+                Azure.Data.Tables.TableEntity? guardSessionRow;
                 try
                 {
-                    await _deletionGuard.EnsureWritableAsync(bodyTenantId, sessionId, "V2.IngestTelemetry");
+                    guardSessionRow = await _deletionGuard.EnsureWritableAndGetRowAsync(bodyTenantId, sessionId, "V2.IngestTelemetry");
                 }
                 catch (SessionDeletionLockedException locked)
                 {
@@ -212,10 +213,14 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     return AsOutput(await WriteSessionLockedAsync(req, locked));
                 }
 
+                // Reuse the guard's full-row read: its Status feeds the stall-heal check inside
+                // EventIngestProcessor, saving one Sessions point-read per batch.
+                var preFetchedStatus = TryReadSessionStatus(guardSessionRow);
+
                 // Partition + persist. Events are routed through EventIngestProcessor which runs the
                 // full pipeline (rule engine / app-install aggregation / SignalR / webhooks / ...);
                 // Signal + Transition go straight to their repositories.
-                var outcome = await PersistItemsAsync(items, bodyTenantId, sessionId, validation);
+                var outcome = await PersistItemsAsync(items, bodyTenantId, sessionId, validation, preFetchedStatus);
 
                 _logger.LogInformation(
                     "IngestTelemetry: tenant={Tenant} session={Session} events={E} signals={S} transitions={T} unknown={U}",
@@ -337,6 +342,26 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         }
 
         /// <summary>
+        /// Extracts <c>Status</c> from a Sessions row the deletion guard already loaded. Sessions
+        /// writes Status as a STRING (<c>status.ToString()</c> in UpdateSessionStatusAsync — never
+        /// an int), so this mirrors the canonical mapper's parse: <c>Enum.TryParse</c>,
+        /// case-insensitive. Returns null for missing/unparseable values (incl. a defensive int
+        /// fallback for any legacy numeric shape) — callers then fall back to their own read.
+        /// </summary>
+        internal static SessionStatus? TryReadSessionStatus(Azure.Data.Tables.TableEntity? sessionRow)
+        {
+            if (sessionRow == null || !sessionRow.TryGetValue("Status", out var statusValue))
+                return null;
+
+            return statusValue switch
+            {
+                string s when Enum.TryParse<SessionStatus>(s, ignoreCase: true, out var parsed) => parsed,
+                int i when Enum.IsDefined(typeof(SessionStatus), i) => (SessionStatus)i,
+                _ => null,
+            };
+        }
+
+        /// <summary>
         /// Partitions the incoming batch by <see cref="TelemetryItemDto.Kind"/> and persists each
         /// kind through its destination path. Events go through <see cref="EventIngestProcessor"/>
         /// for full pipeline parity with legacy /api/agent/ingest; Signals + Transitions land
@@ -347,7 +372,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             IReadOnlyList<TelemetryItemDto> items,
             string tenantId,
             string sessionId,
-            SecurityValidationResult validation)
+            SecurityValidationResult validation,
+            SessionStatus? preFetchedStatus)
         {
             var events      = new List<EnrollmentEvent>();
             var signals     = new List<SignalRecord>();
@@ -407,7 +433,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     TenantId  = tenantId,
                     Events    = events,
                 };
-                var processed = await _eventProcessor.ProcessEventsAsync(eventRequest, validation);
+                var processed = await _eventProcessor.ProcessEventsAsync(eventRequest, validation, preFetchedStatus);
 
                 eventCount      = processed.EventsProcessed;
                 adminAction     = processed.AdminAction;

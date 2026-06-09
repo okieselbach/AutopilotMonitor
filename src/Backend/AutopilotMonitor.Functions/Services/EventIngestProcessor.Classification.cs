@@ -105,7 +105,8 @@ namespace AutopilotMonitor.Functions.Services
         };
 
         private async Task<(bool statusTransitioned, bool whiteGloveStatusTransitioned, string? failureReason)>
-            UpdateSessionStatusAsync(IngestEventsRequest request, string sessionPrefix, EventClassification c)
+            UpdateSessionStatusAsync(IngestEventsRequest request, string sessionPrefix, EventClassification c,
+                SessionStatus? preFetchedStatus = null)
         {
             bool statusTransitioned = false;
             bool whiteGloveStatusTransitioned = false;
@@ -207,8 +208,18 @@ namespace AutopilotMonitor.Functions.Services
             }
             else if (c.HasNonPeriodicRealEvent && !statusTransitioned && !whiteGloveStatusTransitioned)
             {
-                var currentSession = await _sessionRepo.GetSessionAsync(request.TenantId, request.SessionId);
-                if (currentSession?.Status == SessionStatus.Stalled)
+                // Stall-heal probe. The pre-fetched status (deletion-guard read, a few ms old) may
+                // ONLY substitute the point-read when this batch performed no status write at all —
+                // the GatherCompletion and WhiteGlove(Resumed) branches above write a new status
+                // without setting the transitioned flags, and a pre-write "Stalled" would then
+                // falsely heal the session back to InProgress over the just-written status.
+                var batchWroteStatus = c.CompletionEvent != null || c.FailureEvent != null
+                    || c.EspFailureEvent != null || c.GatherCompletionEvent != null
+                    || c.WhiteGloveEvent != null || c.WhiteGloveResumedEvent != null;
+                var currentStatus = !batchWroteStatus && preFetchedStatus.HasValue
+                    ? preFetchedStatus
+                    : (await _sessionRepo.GetSessionAsync(request.TenantId, request.SessionId))?.Status;
+                if (currentStatus == SessionStatus.Stalled)
                 {
                     var healed = await _sessionRepo.UpdateSessionStatusAsync(
                         request.TenantId, request.SessionId, SessionStatus.InProgress,

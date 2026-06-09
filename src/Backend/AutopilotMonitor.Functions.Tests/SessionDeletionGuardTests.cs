@@ -193,6 +193,39 @@ public class SessionDeletionGuardTests
             Times.Never);
     }
 
+    [Fact]
+    public async Task EnsureWritableAndGetRowAsync_returns_the_loaded_row_when_unlocked()
+    {
+        // Hot-path reuse contract (V2 ingest): the guard hands back the row it had to load anyway
+        // so callers can read Status & co. without a second point-read.
+        var guard = NewGuard(out var reader);
+        var row = new TableEntity(TenantId, SessionId)
+        {
+            ["DeletionState"] = SessionDeletionState.None,
+            ["Status"] = "InProgress", // Sessions stores Status as string (status.ToString())
+        };
+        reader.Setup(r => r.GetSessionRowAsync(TenantId, SessionId, It.IsAny<CancellationToken>()))
+              .ReturnsAsync(row);
+
+        var returned = await guard.EnsureWritableAndGetRowAsync(TenantId, SessionId, callerContext: "V2.IngestTelemetry");
+
+        Assert.Same(row, returned);
+    }
+
+    [Fact]
+    public async Task EnsureWritableAndGetRowAsync_returns_null_when_row_missing_and_no_tombstone()
+    {
+        var guard = NewGuard(out var reader);
+        reader.Setup(r => r.GetSessionRowAsync(TenantId, SessionId, It.IsAny<CancellationToken>()))
+              .ReturnsAsync((TableEntity?)null);
+        reader.Setup(r => r.GetActiveSessionTombstoneAsync(TenantId, SessionId, It.IsAny<CancellationToken>()))
+              .ReturnsAsync((TableEntity?)null);
+
+        var returned = await guard.EnsureWritableAndGetRowAsync(TenantId, SessionId, callerContext: "V2.IngestTelemetry");
+
+        Assert.Null(returned);
+    }
+
     private static SessionDeletionGuard NewGuard(out Mock<ISessionDeletionInventoryReader> reader)
     {
         reader = new Mock<ISessionDeletionInventoryReader>();

@@ -17,7 +17,10 @@ namespace AutopilotMonitor.Functions.Tests;
 /// without ever re-consulting storage. A block added on instance B (via DeviceBlockFunction)
 /// therefore stayed invisible to instance A — kill signals never reached affected devices.
 ///
-/// Fix: cache miss → storage point-read fallback + stale-positive revalidate window.
+/// Fix: cache miss → storage point-read fallback + stale-entry revalidate window. Since the
+/// negative-cache cost fix (2026-06-09), the "not blocked" answer is cached too: cross-instance
+/// blocks now surface within the revalidation window (same bound that always applied to
+/// unblock / Block→Kill upgrades) instead of on the next call.
 /// </summary>
 public class BlockedDeviceServiceCrossInstanceTests
 {
@@ -30,26 +33,32 @@ public class BlockedDeviceServiceCrossInstanceTests
     [Theory]
     [InlineData("Block")] // Pauses uploads; session remains alive
     [InlineData("Kill")]  // Forces remote self-destruct
-    public async Task IsBlockedAsync_CacheMissAfterTenantLoaded_FallsThroughToStorage(string action)
+    public async Task IsBlockedAsync_BlockFromOtherInstance_SurfacesAfterRevalidationWindow(string action)
     {
         // Arrange — instance A loads the tenant's block list while the device is NOT yet blocked.
         // Action is action-agnostic: the staleness bug hit both Block and Kill the same way,
-        // so the fallback must surface whichever action storage holds.
+        // so the revalidate path must surface whichever action storage holds.
         var repo = new FakeDeviceSecurityRepository();
         var svc = CreateService(repo);
 
         var beforeBlock = await svc.IsBlockedAsync(TenantA, SerialPF55);
-        Assert.False(beforeBlock.isBlocked); // baseline: load happens, cache empty for this device
+        Assert.False(beforeBlock.isBlocked); // baseline: caches the NEGATIVE answer (cost fix)
 
         // Act — another Function App instance writes the block directly to storage (no local-cache
-        // update on this instance, mirroring the actual multi-instance bug).
+        // update on this instance). Within the revalidation window the cached negative answer is
+        // served without a storage read; once the entry ages past the window, the revalidate
+        // point-read must find the block.
         repo.SetBlock(TenantA, SerialPF55, DateTime.UtcNow.AddHours(12), action);
 
-        var afterBlock = await svc.IsBlockedAsync(TenantA, SerialPF55);
+        var withinWindow = await svc.IsBlockedAsync(TenantA, SerialPF55);
+        Assert.False(withinWindow.isBlocked); // fresh negative entry — block not yet visible
 
-        // Assert — cache miss path must point-read storage, find the block, and return it.
-        Assert.True(afterBlock.isBlocked);
-        Assert.Equal(action, afterBlock.action);
+        BackdateCacheEntry(svc, TenantA, SerialPF55, TimeSpan.FromMinutes(5));
+        var afterWindow = await svc.IsBlockedAsync(TenantA, SerialPF55);
+
+        // Assert — the stale-entry revalidate path must point-read storage, find the block, and return it.
+        Assert.True(afterWindow.isBlocked);
+        Assert.Equal(action, afterWindow.action);
     }
 
     [Fact]

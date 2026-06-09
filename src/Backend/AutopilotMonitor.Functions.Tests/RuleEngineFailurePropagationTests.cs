@@ -19,15 +19,15 @@ public class RuleEngineFailurePropagationTests
     private const string SessionId = "b2c3d4e5-f6a7-8901-bcde-f12345678901";
 
     [Fact]
-    public async Task GetSessionEventsAsync_throwing_propagates_to_caller()
+    public async Task GetSessionEventsStrictAsync_throwing_propagates_to_caller()
     {
         var ruleRepo = new Mock<IRuleRepository>();
         ruleRepo.Setup(r => r.GetAnalyzeRulesAsync(It.IsAny<string>())).ReturnsAsync(new List<AnalyzeRule>());
         ruleRepo.Setup(r => r.GetRuleStatesAsync(It.IsAny<string>())).ReturnsAsync(new Dictionary<string, RuleState>());
 
         var sessionRepo = new Mock<ISessionRepository>();
-        sessionRepo.Setup(s => s.GetSessionEventsAsync(TenantId, SessionId, It.IsAny<int>()))
-            .ThrowsAsync(new InvalidOperationException("simulated GetSessionEventsAsync failure"));
+        sessionRepo.Setup(s => s.GetSessionEventsStrictAsync(TenantId, SessionId, It.IsAny<int>()))
+            .ThrowsAsync(new InvalidOperationException("simulated GetSessionEventsStrictAsync failure"));
 
         var ruleService = new AnalyzeRuleService(ruleRepo.Object, NullLogger<AnalyzeRuleService>.Instance);
         var engine = new RuleEngine(ruleService, ruleRepo.Object, sessionRepo.Object, NullLogger<RuleEngineFailurePropagationTests>.Instance);
@@ -35,7 +35,7 @@ public class RuleEngineFailurePropagationTests
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(
             () => engine.AnalyzeSessionAsync(TenantId, SessionId));
 
-        Assert.Contains("simulated GetSessionEventsAsync failure", ex.Message);
+        Assert.Contains("simulated GetSessionEventsStrictAsync failure", ex.Message);
     }
 
     [Fact]
@@ -69,7 +69,7 @@ public class RuleEngineFailurePropagationTests
             .ThrowsAsync(new InvalidOperationException("simulated GetRuleResultsAsync failure"));
 
         var sessionRepo = new Mock<ISessionRepository>();
-        sessionRepo.Setup(s => s.GetSessionEventsAsync(TenantId, SessionId, It.IsAny<int>()))
+        sessionRepo.Setup(s => s.GetSessionEventsStrictAsync(TenantId, SessionId, It.IsAny<int>()))
             .ReturnsAsync(new List<EnrollmentEvent>
             {
                 new() { TenantId = TenantId, SessionId = SessionId, EventType = "phase_changed" }
@@ -88,16 +88,15 @@ public class RuleEngineFailurePropagationTests
     public async Task Empty_event_list_returns_empty_outcome_without_throwing()
     {
         // Confirms the legitimate "no events" case is preserved: AnalyzeSessionAsync returns
-        // an empty outcome cleanly. NOTE: TableStorageService.GetSessionEventsAsync currently
-        // swallows storage exceptions and also returns an empty list — that fail-soft behavior
-        // is a separate architectural defect (queue worker will treat the storage failure as
-        // success). Tracked as a follow-up: storage helpers should fail loud.
+        // an empty outcome cleanly. Since the engine reads via GetSessionEventsStrictAsync
+        // (storage failures throw), an empty list here genuinely means "session without
+        // events" — the historical fail-soft ambiguity is resolved.
         var ruleRepo = new Mock<IRuleRepository>();
         ruleRepo.Setup(r => r.GetAnalyzeRulesAsync(It.IsAny<string>())).ReturnsAsync(new List<AnalyzeRule>());
         ruleRepo.Setup(r => r.GetRuleStatesAsync(It.IsAny<string>())).ReturnsAsync(new Dictionary<string, RuleState>());
 
         var sessionRepo = new Mock<ISessionRepository>();
-        sessionRepo.Setup(s => s.GetSessionEventsAsync(TenantId, SessionId, It.IsAny<int>()))
+        sessionRepo.Setup(s => s.GetSessionEventsStrictAsync(TenantId, SessionId, It.IsAny<int>()))
             .ReturnsAsync(new List<EnrollmentEvent>());
 
         var ruleService = new AnalyzeRuleService(ruleRepo.Object, NullLogger<AnalyzeRuleService>.Instance);

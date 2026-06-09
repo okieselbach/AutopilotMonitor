@@ -96,9 +96,15 @@ namespace AutopilotMonitor.Functions.Services
         /// parse and tenant-mismatch check are the caller's responsibility — the V2 function
         /// does them before it even knows the item is an Event).
         /// </summary>
+        /// <param name="request">Parsed event batch (single session).</param>
+        /// <param name="validation">Security validation result of the carrying HTTP request.</param>
+        /// <param name="preFetchedStatus">Session status from a read the caller already performed
+        /// just before this call (V2 passes the deletion-guard row's status). Used only as a
+        /// point-read saver on paths that tolerate a few-ms-old snapshot; null → read on demand.</param>
         public async Task<EventIngestResult> ProcessEventsAsync(
             IngestEventsRequest request,
-            SecurityValidationResult validation)
+            SecurityValidationResult validation,
+            SessionStatus? preFetchedStatus = null)
         {
             var sessionPrefix = $"[Session: {request.SessionId.Substring(0, Math.Min(8, request.SessionId.Length))}]";
             _logger.LogInformation(
@@ -178,7 +184,7 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             var (statusTransitioned, whiteGloveStatusTransitioned, failureReason) =
-                await UpdateSessionStatusAsync(request, sessionPrefix, classification);
+                await UpdateSessionStatusAsync(request, sessionPrefix, classification, preFetchedStatus);
 
             // A terminal batch (one that drives Succeeded/Failed) takes its RebootCount from the
             // authoritative reconcile below, NOT the per-batch increment — otherwise the reboot
@@ -189,9 +195,14 @@ namespace AutopilotMonitor.Functions.Services
                 || classification.EspFailureEvent != null
                 || classification.GatherCompletionEvent != null;
 
+            // The increment's post-merge snapshot serves as the "updatedSession" for the common
+            // case (non-terminal batch, no diagnostics upload) — it already reflects this batch's
+            // status transition (written above) plus the counter merge, saving the follow-up
+            // GetSessionAsync that used to run on every batch.
+            SessionSummary? updatedSession = null;
             if (processedCount > 0)
             {
-                await _sessionRepo.IncrementSessionEventCountAsync(
+                updatedSession = await _sessionRepo.IncrementSessionEventCountAsync(
                     request.TenantId,
                     request.SessionId,
                     processedCount,
@@ -312,7 +323,12 @@ namespace AutopilotMonitor.Functions.Services
                 }
             }
 
-            var updatedSession = await _sessionRepo.GetSessionAsync(request.TenantId, request.SessionId);
+            // Re-read only when a write AFTER the increment made the snapshot stale: terminal
+            // batches (ReconcileSessionRebootCountAsync) and diagnostics uploads (blob fields) —
+            // or when no increment ran / it returned null (missing row, exhausted ETag retries).
+            if (isTerminalBatch || classification.DiagnosticsUploadedEvent != null)
+                updatedSession = null;
+            updatedSession ??= await _sessionRepo.GetSessionAsync(request.TenantId, request.SessionId);
 
             if (updatedSession != null && updatedSession.Status == SessionStatus.InProgress)
             {

@@ -18,11 +18,14 @@ namespace AutopilotMonitor.Functions.Services
         private readonly IDeviceSecurityRepository _securityRepo;
         private readonly ILogger<BlockedDeviceService> _logger;
 
-        // Positive cache entries are re-validated against storage after this window so that
-        // cross-instance mutations (manual unblock, Action upgrade Block->Kill, UnblockAt change)
-        // propagate. Negative answers from a cache miss go through the storage point-read
-        // on every call (see IsBlockedAsync), so no TTL is needed there.
-        private static readonly TimeSpan EntryRevalidateAfter = TimeSpan.FromSeconds(30);
+        // Cache entries (positive AND negative) are re-validated against storage after this
+        // window so that cross-instance mutations (new block from another instance, manual
+        // unblock, Action upgrade Block->Kill, UnblockAt change) propagate within seconds.
+        // Negative entries matter for cost: without them every ingest request from a healthy
+        // (never-blocked) device paid one BlockedDevices point-read on the response path.
+        private static readonly TimeSpan DefaultEntryRevalidateAfter = TimeSpan.FromSeconds(30);
+
+        private readonly TimeSpan _entryRevalidateAfter;
 
         // Cache key: "tenantId|serialNumber" (upper-cased serial number for case-insensitive matching)
         // Cache value: BlockCacheEntry with UnblockAt, Action, BlockedSessionIds, LastCheckedUtc.
@@ -34,9 +37,17 @@ namespace AutopilotMonitor.Functions.Services
         private readonly ConcurrentDictionary<string, bool> _loadedTenants = new(StringComparer.OrdinalIgnoreCase);
 
         public BlockedDeviceService(IDeviceSecurityRepository securityRepo, ILogger<BlockedDeviceService> logger)
+            : this(securityRepo, logger, DefaultEntryRevalidateAfter)
+        {
+        }
+
+        /// <summary>Test seam: lets tests shrink the revalidation window without a clock abstraction.</summary>
+        internal BlockedDeviceService(
+            IDeviceSecurityRepository securityRepo, ILogger<BlockedDeviceService> logger, TimeSpan entryRevalidateAfter)
         {
             _securityRepo = securityRepo;
             _logger = logger;
+            _entryRevalidateAfter = entryRevalidateAfter;
         }
 
         /// <summary>
@@ -52,14 +63,13 @@ namespace AutopilotMonitor.Functions.Services
         /// update the local instance's cache. Two safety nets bridge other instances to storage:
         /// <list type="bullet">
         ///   <item>Cache miss after the tenant was loaded → storage point-read on the spot,
-        ///   then promote into the cache. Lets a newly-set Block/Kill on another instance reach
-        ///   this instance immediately instead of waiting for the lazy load that never re-runs.</item>
-        ///   <item>Positive cache hit older than <see cref="EntryRevalidateAfter"/> → storage
-        ///   point-read to re-confirm. Lets manual Unblock, Action upgrade (Block→Kill), or
-        ///   UnblockAt changes from another instance propagate within seconds.</item>
+        ///   then promote the answer (positive OR negative) into the cache. The negative entry
+        ///   is the hot-path cost fix: healthy devices answer from memory instead of paying a
+        ///   point-read per ingest request.</item>
+        ///   <item>Cache hit older than the revalidation window → storage point-read to
+        ///   re-confirm. Bounds cross-instance propagation (new Block/Kill, manual Unblock,
+        ///   Block→Kill upgrade, UnblockAt change) to the window for both directions.</item>
         /// </list>
-        /// Each safety net is one indexed point-read on the BlockedDevices table — negligible
-        /// next to ingest cost.
         /// </para>
         /// </summary>
         public async Task<(bool isBlocked, DateTime? unblockAt, string action, string? blockedSessionIds)> IsBlockedAsync(
@@ -79,9 +89,9 @@ namespace AutopilotMonitor.Functions.Services
 
             if (_cache.TryGetValue(cacheKey, out entry))
             {
-                // Stale positive entry → revalidate against storage so cross-instance mutations
-                // (manual unblock, Block→Kill upgrade, UnblockAt change) propagate.
-                if (DateTime.UtcNow - entry.LastCheckedUtc > EntryRevalidateAfter)
+                // Stale entry (positive or negative) → revalidate against storage so cross-instance
+                // mutations (new block, manual unblock, Block→Kill upgrade, UnblockAt change) propagate.
+                if (DateTime.UtcNow - entry.LastCheckedUtc > _entryRevalidateAfter)
                 {
                     entry = await RefreshCacheEntryFromStorageAsync(tenantId, serialNumber, cacheKey);
                     if (entry == null)
@@ -93,10 +103,17 @@ namespace AutopilotMonitor.Functions.Services
                 // Cache miss after tenant was loaded — another instance may have added a block
                 // since our LoadTenantBlockListAsync ran. Fall through to storage for one point-read
                 // so we don't blindly return "not blocked" for the lifetime of this instance.
+                // The refresh caches the negative answer, so the next requests within the
+                // revalidation window skip storage entirely.
                 entry = await RefreshCacheEntryFromStorageAsync(tenantId, serialNumber, cacheKey);
                 if (entry == null)
                     return (false, null, "Block", null);
             }
+
+            // Fresh negative entry — device known not-blocked, no storage round-trip needed.
+            // Must run before the UnblockAt check below (negative entries carry no UnblockAt).
+            if (!entry.IsBlocked)
+                return (false, null, "Block", null);
 
             if (DateTime.UtcNow >= entry.UnblockAt)
             {
@@ -147,7 +164,14 @@ namespace AutopilotMonitor.Functions.Services
 
             if (!isBlocked || unblockAt == null)
             {
-                _cache.TryRemove(cacheKey, out _);
+                // Cache the negative answer so healthy devices don't pay a point-read per request.
+                // Revalidated after the same window as positive entries, so a block set on another
+                // instance still propagates within seconds.
+                _cache[cacheKey] = new BlockCacheEntry
+                {
+                    IsBlocked = false,
+                    LastCheckedUtc = DateTime.UtcNow,
+                };
                 return null;
             }
 
@@ -185,14 +209,22 @@ namespace AutopilotMonitor.Functions.Services
                 },
                 (_, existing) =>
                 {
+                    // A cached negative entry carries no real block scope — its null
+                    // BlockedSessionIds must NOT be read as "whole-device block" below, or a
+                    // session-aware auto-block would silently widen to the whole device (and
+                    // skip the new-session auto-unblock) until the next revalidation.
+                    var wasNegative = !existing.IsBlocked;
+                    existing.IsBlocked = true;
                     existing.UnblockAt = unblockAt;
                     existing.Action = action ?? "Block";
-                    // Merge session IDs; whole-device block (null) takes precedence
-                    if (blockedSessionId != null && existing.BlockedSessionIds != null)
+                    // Merge session IDs; a positive whole-device block (null) takes precedence
+                    if (wasNegative)
+                        existing.BlockedSessionIds = blockedSessionId; // take the new block's scope verbatim
+                    else if (blockedSessionId != null && existing.BlockedSessionIds != null)
                         existing.BlockedSessionIds = TableDeviceSecurityRepository.MergeSessionId(existing.BlockedSessionIds, blockedSessionId);
                     else if (blockedSessionId == null)
                         existing.BlockedSessionIds = null; // Manual/whole-device block overrides session-aware
-                    // else: existing is null (whole-device) — keep it null
+                    // else: existing is a positive whole-device block — keep it null
                     existing.LastCheckedUtc = DateTime.UtcNow;
                     return existing;
                 });
@@ -270,6 +302,11 @@ namespace AutopilotMonitor.Functions.Services
 
         private class BlockCacheEntry
         {
+            /// <summary>
+            /// False = cached negative answer ("device not blocked", confirmed against storage at
+            /// <see cref="LastCheckedUtc"/>). Negative entries carry no meaningful UnblockAt/Action.
+            /// </summary>
+            public bool IsBlocked { get; set; } = true;
             public DateTime UnblockAt { get; set; }
             public string Action { get; set; } = "Block";
             public string? BlockedSessionIds { get; set; }

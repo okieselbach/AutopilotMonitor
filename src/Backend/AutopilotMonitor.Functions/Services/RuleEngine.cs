@@ -51,14 +51,13 @@ namespace AutopilotMonitor.Functions.Services
             var outcome = new AnalysisOutcome();
 
             var activeRules = await _ruleService.GetActiveRulesForTenantAsync(tenantId);
-            var allEvents = await _sessionRepo.GetSessionEventsAsync(tenantId, sessionId);
+            // Strict read: storage failures propagate (→ queue retry / poison) instead of
+            // degrading to an empty list — an empty result here therefore really means a
+            // session without events, never a swallowed transient fault.
+            var allEvents = await _sessionRepo.GetSessionEventsStrictAsync(tenantId, sessionId);
 
             if (allEvents.Count == 0)
             {
-                // NOTE: TableStorageService.GetSessionEventsAsync swallows Storage exceptions
-                // and returns an empty list. A transient read failure is therefore indistinguishable
-                // from a genuinely empty session here. Tracked as a follow-up: storage helpers
-                // should fail loud so the queue worker retries instead of deleting the message.
                 _logger.LogInformation($"No events found for session {sessionId}, skipping analysis");
                 return outcome;
             }

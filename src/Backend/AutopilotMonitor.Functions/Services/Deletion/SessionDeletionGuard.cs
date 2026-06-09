@@ -68,19 +68,28 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         /// with <see cref="SessionTombstoneRecord.TombstonedStateLabel"/> as the current-state
         /// label. Genuine 404 (no marker) → silent pass for the fresh-enrollment path.
         /// </summary>
-        public async Task EnsureWritableAsync(string tenantId, string sessionId, string callerContext, CancellationToken cancellationToken = default)
+        public Task EnsureWritableAsync(string tenantId, string sessionId, string callerContext, CancellationToken cancellationToken = default)
+            => EnsureWritableAndGetRowAsync(tenantId, sessionId, callerContext, cancellationToken);
+
+        /// <summary>
+        /// Same contract as <see cref="EnsureWritableAsync"/>, but returns the full Sessions row
+        /// the guard had to load anyway (null when the row does not exist and no tombstone marker
+        /// is active). Lets hot-path callers reuse the read — e.g. telemetry ingest feeds the
+        /// row's <c>Status</c> into the stall-heal check instead of issuing a second point-read.
+        /// </summary>
+        public async Task<TableEntity?> EnsureWritableAndGetRowAsync(string tenantId, string sessionId, string callerContext, CancellationToken cancellationToken = default)
         {
             var sessionRow = await _reader.GetSessionRowAsync(tenantId, sessionId, cancellationToken);
             if (sessionRow != null)
             {
                 ThrowIfLocked(sessionRow, callerContext);
-                return;
+                return sessionRow;
             }
 
             // Sessions row absent → check the tombstone marker. Marker present → still locked.
             // Marker absent → safe to proceed (fresh registration or post-retention slot reuse).
             var tombstone = await _reader.GetActiveSessionTombstoneAsync(tenantId, sessionId, cancellationToken);
-            if (tombstone == null) return;
+            if (tombstone == null) return null;
 
             var manifestId = tombstone.GetString(AutopilotMonitor.Shared.Models.Deletion.SessionTombstoneRecord.Columns.ManifestId);
             _logger.LogInformation(

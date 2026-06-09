@@ -8,6 +8,7 @@ using AutopilotMonitor.Functions.Functions.Sessions;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Middleware;
 using AutopilotMonitor.Functions.Services;
+using Microsoft.ApplicationInsights.Extensibility;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -52,7 +53,15 @@ builder.Services.Configure<JsonSerializerOptions>(options =>
 });
 
 builder.Services
-    .AddApplicationInsightsTelemetryWorkerService()
+    .AddApplicationInsightsTelemetryWorkerService(options =>
+    {
+        // The DEFAULT worker-side adaptive sampler has no excluded types: under load it thinned
+        // the enriched request copies from RequestTelemetryMiddleware (TenantId/CorrelationId —
+        // the per-call audit record) to ~15%, while the unenriched HOST request items stayed
+        // unsampled (host.json excludedTypes only governs the host pipeline). Protection was
+        // inverted. Disabled here and re-added below with Request + Event excluded.
+        options.EnableAdaptiveSampling = false;
+    })
     .ConfigureFunctionsApplicationInsights();
 
 // Drop successful Azure Storage dependencies (Table/Queue/Blob) from the worker telemetry
@@ -60,6 +69,19 @@ builder.Services
 // rows are high-volume, low-value. Failed storage calls and all non-storage dependencies
 // (HTTP/Graph/SQL/SignalR) are preserved. See StorageDependencyFilterProcessor for the contract.
 builder.Services.AddApplicationInsightsTelemetryProcessor<AutopilotMonitor.Functions.Telemetry.StorageDependencyFilterProcessor>();
+
+// Re-introduce worker-side adaptive sampling with Request + Event excluded: the enriched
+// request items stay complete (with host.json "Host.Results": "Error" they are the ONLY
+// success-request record), and customEvents are low-volume ops signals worth keeping whole.
+// Traces/dependencies/exceptions remain adaptively sampled. The sampler is appended to the
+// processor chain AFTER the DI-registered processors above, so the dropped storage chatter
+// no longer pressures the sampling rate of everything else.
+builder.Services.Configure<TelemetryConfiguration>(config =>
+{
+    var chain = config.DefaultTelemetrySink.TelemetryProcessorChainBuilder;
+    chain.UseAdaptiveSampling(maxTelemetryItemsPerSecond: 5, excludedTypes: "Request;Event");
+    chain.Build();
+});
 
 // Configure JWT Authentication for Multi-Tenant Azure AD
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

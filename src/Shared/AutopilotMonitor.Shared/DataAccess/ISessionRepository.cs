@@ -73,7 +73,13 @@ namespace AutopilotMonitor.Shared.DataAccess
             DateTime? stalledAt = null, bool clearStalledAt = false, bool clearFailureReason = false,
             string? failureSource = null, string? adminMarkedAction = null,
             string? failureSnapshotJson = null);
-        Task IncrementSessionEventCountAsync(
+        /// <summary>
+        /// Increments per-session counters via read-modify-write. Returns the post-merge session
+        /// snapshot (the RMW read with the applied increments) so hot-path callers can skip a
+        /// follow-up <see cref="GetSessionAsync"/>; null when the row is missing or the update
+        /// could not be applied (caller falls back to its own read).
+        /// </summary>
+        Task<SessionSummary?> IncrementSessionEventCountAsync(
             string tenantId, string sessionId, int increment,
             DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null,
             EnrollmentPhase? currentPhase = null,
@@ -132,6 +138,13 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<bool> StoreEventAsync(EnrollmentEvent evt);
         Task<List<EnrollmentEvent>> StoreEventsBatchAsync(List<EnrollmentEvent> events);
         Task<List<EnrollmentEvent>> GetSessionEventsAsync(string tenantId, string sessionId, int maxResults = 1000);
+        /// <summary>
+        /// Strict variant of <see cref="GetSessionEventsAsync"/>: storage failures PROPAGATE
+        /// instead of degrading to an empty list. Queue-worker paths (rule analysis,
+        /// vulnerability correlation) require this so a transient read failure is retried via
+        /// visibility timeout instead of silently producing an empty analysis.
+        /// </summary>
+        Task<List<EnrollmentEvent>> GetSessionEventsStrictAsync(string tenantId, string sessionId, int maxResults = 1000);
         Task<List<EnrollmentEvent>> GetSessionEventsByTypeAsync(string tenantId, string sessionId, string eventType, int maxResults = 200);
 
         /// <summary>
