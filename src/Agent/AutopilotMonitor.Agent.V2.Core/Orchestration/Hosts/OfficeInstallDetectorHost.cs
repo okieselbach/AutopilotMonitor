@@ -135,7 +135,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private void OnBinaryAppeared(object? sender, EventArgs e)
         {
             var outcome = _detector.TryFinalizeCompletion();
-            if (outcome == OfficeInstallDetector.CompletionOutcome.NotYet) return; // FS event but probe disagreed — keep watching
+            if (outcome == OfficeInstallDetector.CompletionOutcome.NotYet)
+            {
+                // Binary FS event (or a re-probe) but the on-disk proof isn't there yet — keep watching
+                // AND arm the bounded defensive re-probe. This covers the integrate-junction race where
+                // C2R finishes the lay-down without a further *.exe filesystem event (field session
+                // c2171821). Armed only here (on a NotYet), never on the happy path, so the common
+                // install does no polling at all. ScheduleRecheck is idempotent.
+                OfficeBinaryWatcher? watcher;
+                lock (_lock) { watcher = _lifecycleEnded ? null : _binaryWatcher; }
+                watcher?.ScheduleRecheck();
+                return;
+            }
 
             lock (_lock) { _lifecycleEnded = true; }
             DisposeWatchers();

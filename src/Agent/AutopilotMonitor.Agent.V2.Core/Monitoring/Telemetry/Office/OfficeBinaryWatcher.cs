@@ -16,11 +16,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
     /// stream near-instant — field session 7da7dead).
     /// <para>
     /// <b>Any-of</b> by design: a deployment can exclude products (e.g. Word only, no Outlook), so the
-    /// first of the four binaries to appear is enough. The watcher fires <see cref="BinaryAppeared"/>
-    /// exactly once. It is armed only once the <c>InstallationPath</c> is known from the registry (so we
-    /// watch the correct tree). On a clean enrollment the binaries are absent at arm time and the
-    /// FileSystemWatcher catches their creation during integrate; an initial scan also completes
-    /// immediately if they are already present (armed late / update-over-existing).
+    /// first of the four binaries to appear is enough. The watcher fires <see cref="BinaryAppeared"/> on
+    /// EVERY matching filesystem event (NOT once) until it is disposed — the host re-probes on each raise
+    /// and disposes the watcher when the lifecycle terminates. Raising repeatedly is deliberate: the
+    /// first FS event for a binary can precede the on-disk completion proof under
+    /// <c>{InstallationPath}\root\OfficeNN\</c> (the binary is streamed before the integrate <c>root</c>
+    /// junction is laid down), so a single early raise must NOT be the only chance to complete — field
+    /// session c2171821, where Office finished on disk yet no completed event fired.
+    /// </para>
+    /// <para>
+    /// <b>Defensive re-probe</b> (<see cref="ScheduleRecheck"/>): C2R can create the <c>root</c> junction
+    /// at integrate-end without raising a further per-file <c>*.exe</c> event (the files already exist at
+    /// the junction target). The host arms a bounded re-probe timer — only after a raise that the probe
+    /// rejected as not-yet — that re-raises <see cref="BinaryAppeared"/> on a cadence until the proof is
+    /// found or the bound is exhausted. It is never armed on the happy path (first probe already finds
+    /// the binaries), so there is no polling in the common case.
     /// </para>
     /// Fail-soft: any failure is logged and the watcher stays quiet (no false completion).
     /// </summary>
@@ -30,25 +40,39 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
         // enumerated (IncludeSubdirectories), never hardcoded.
         private const int ArmRetryDelaySeconds = 5;
         private const int MaxArmRetries = 24; // ~2 min — the InstallationPath dir is normally already present
+        private const int DefaultRecheckIntervalMs = 10_000; // 10 s
+        private const int DefaultMaxRechecks = 30; // ~5 min of bounded defensive re-probing
 
         private readonly string _installationPath;
         private readonly HashSet<string> _binaries; // upper-cased leaf names
         private readonly AgentLogger _logger;
+        private readonly int _recheckIntervalMs;
+        private readonly int _maxRechecks;
         private readonly object _lock = new object();
 
         private FileSystemWatcher? _fsw;
         private Timer? _armRetryTimer;
+        private Timer? _recheckTimer;
         private int _armAttempts;
-        private int _fired;   // 0/1 — BinaryAppeared raised at most once
+        private int _recheckAttempts;
+        private int _raising;  // 0/1 — coalesces concurrent raises (re-entrancy guard, NOT a one-shot latch)
         private bool _disposed;
 
-        /// <summary>Raised once when a core Office binary is present on disk (install complete).</summary>
+        /// <summary>Raised whenever a core Office binary may be present on disk — the host probes and
+        /// either completes the lifecycle or keeps watching.</summary>
         public event EventHandler? BinaryAppeared;
 
-        public OfficeBinaryWatcher(string installationPath, IEnumerable<string> binaries, AgentLogger logger)
+        public OfficeBinaryWatcher(
+            string installationPath,
+            IEnumerable<string> binaries,
+            AgentLogger logger,
+            int recheckIntervalMs = DefaultRecheckIntervalMs,
+            int maxRechecks = DefaultMaxRechecks)
         {
             _installationPath = installationPath ?? throw new ArgumentNullException(nameof(installationPath));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _recheckIntervalMs = recheckIntervalMs > 0 ? recheckIntervalMs : DefaultRecheckIntervalMs;
+            _maxRechecks = maxRechecks > 0 ? maxRechecks : DefaultMaxRechecks;
             _binaries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var b in binaries ?? Array.Empty<string>()) _binaries.Add(b);
         }
@@ -62,15 +86,58 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
             }
         }
 
+        /// <summary>
+        /// Arm the bounded defensive re-probe. Called by the host after a <see cref="BinaryAppeared"/>
+        /// raise whose on-disk probe came back not-yet — covers the integrate-junction race where no
+        /// further filesystem event arrives. Idempotent (a single timer); self-cancels after
+        /// <see cref="_maxRechecks"/> attempts and is cancelled on <see cref="Dispose"/>. Never armed on
+        /// the happy path, so the common install does no polling at all.
+        /// </summary>
+        public void ScheduleRecheck()
+        {
+            lock (_lock)
+            {
+                if (_disposed || _recheckTimer != null) return; // already scheduled (or done)
+                _recheckAttempts = 0;
+                _recheckTimer = new Timer(OnRecheck, null, TimeSpan.FromMilliseconds(_recheckIntervalMs), Timeout.InfiniteTimeSpan);
+            }
+        }
+
+        private void OnRecheck(object? state)
+        {
+            lock (_lock)
+            {
+                if (_disposed) return;
+                if (_recheckAttempts++ >= _maxRechecks)
+                {
+                    _logger.Debug($"[OfficeBinaryWatcher] completion re-probe exhausted after {_maxRechecks} attempts — no on-disk proof");
+                    _recheckTimer?.Dispose();
+                    _recheckTimer = null;
+                    return;
+                }
+            }
+
+            // Re-raise OUTSIDE the lock: the host's handler probes and may dispose this watcher on
+            // completion (which cancels the timer). Holding _lock across the external callback would risk
+            // a lock-ordering deadlock with the host.
+            Raise();
+
+            lock (_lock)
+            {
+                if (_disposed || _recheckTimer == null) return; // host completed/disposed during the raise
+                _recheckTimer.Change(TimeSpan.FromMilliseconds(_recheckIntervalMs), Timeout.InfiniteTimeSpan);
+            }
+        }
+
         // Caller holds _lock.
         private void TryArm()
         {
-            if (_disposed || _fired != 0 || _fsw != null) return;
+            if (_disposed || _fsw != null) return;
 
             // Initial scan — the binaries may already be present (armed late / update over existing).
             if (CoreBinariesPresent())
             {
-                RaiseOnce();
+                Raise();
                 return;
             }
 
@@ -105,7 +172,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
                 _logger.Info($"[OfficeBinaryWatcher] watching '{_installationPath}' for core Office binaries");
 
                 // Race: a binary may have appeared between the scan above and arming — re-scan once.
-                if (CoreBinariesPresent()) RaiseOnce();
+                if (CoreBinariesPresent()) Raise();
             }
             catch (Exception ex)
             {
@@ -130,7 +197,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
                 if (!string.IsNullOrEmpty(leaf) && _binaries.Contains(leaf))
                 {
                     _logger.Info($"[OfficeBinaryWatcher] core Office binary appeared: {leaf}");
-                    RaiseOnce();
+                    Raise();
                 }
             }
             catch (Exception ex)
@@ -142,11 +209,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
         private bool CoreBinariesPresent()
             => OfficeInstallDetector.CoreBinariesPresentOnDisk(_installationPath, _logger);
 
-        private void RaiseOnce()
+        /// <summary>
+        /// Raise <see cref="BinaryAppeared"/>. Repeatable (NOT a one-shot): the host re-probes on each
+        /// raise and disposes the watcher when the lifecycle terminates. The <see cref="_raising"/> guard
+        /// only coalesces concurrent raises (FS-thread + timer-thread) so they do not overlap; sequential
+        /// raises are intended.
+        /// </summary>
+        private void Raise()
         {
-            if (Interlocked.Exchange(ref _fired, 1) != 0) return;
-            try { BinaryAppeared?.Invoke(this, EventArgs.Empty); }
+            if (Volatile.Read(ref _disposed)) return;
+            if (Interlocked.Exchange(ref _raising, 1) != 0) return; // a raise is already in flight — coalesce
+            try
+            {
+                if (Volatile.Read(ref _disposed)) return;
+                BinaryAppeared?.Invoke(this, EventArgs.Empty);
+            }
             catch (Exception ex) { _logger.Warning($"[OfficeBinaryWatcher] BinaryAppeared handler threw: {ex.Message}"); }
+            finally { Interlocked.Exchange(ref _raising, 0); }
         }
 
         public void Dispose()
@@ -157,6 +236,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
                 _disposed = true;
                 _armRetryTimer?.Dispose();
                 _armRetryTimer = null;
+                _recheckTimer?.Dispose();
+                _recheckTimer = null;
                 if (_fsw != null)
                 {
                     try { _fsw.EnableRaisingEvents = false; } catch { }
