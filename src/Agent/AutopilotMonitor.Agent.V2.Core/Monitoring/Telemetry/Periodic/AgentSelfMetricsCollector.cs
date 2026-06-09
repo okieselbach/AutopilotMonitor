@@ -62,7 +62,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             // Prime the baseline for delta calculations
             try
             {
-                var proc = Process.GetCurrentProcess();
+                using var proc = Process.GetCurrentProcess();
                 _prevCpuTime = proc.TotalProcessorTime;
                 _prevWallTime = DateTime.UtcNow;
             }
@@ -90,7 +90,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             // --- Process metrics (no WMI, no PerformanceCounter) ---
             try
             {
-                var proc = Process.GetCurrentProcess();
+                using var proc = Process.GetCurrentProcess();
                 proc.Refresh(); // ensure fresh values
 
                 // CPU %: (delta CPU time) / (delta wall time) / cores * 100

@@ -28,6 +28,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
                 {
                     int index = 0;
                     foreach (ManagementObject obj in searcher.Get())
+                    using (obj) // ManagementObject holds native WMI/COM memory — dispose per iteration
                     {
                         var item = new Dictionary<string, object>();
                         foreach (var prop in obj.Properties)

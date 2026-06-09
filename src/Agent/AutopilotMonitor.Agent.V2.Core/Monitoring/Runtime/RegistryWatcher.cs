@@ -10,12 +10,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
     /// <summary>
     /// Watches a registry key for changes using RegNotifyChangeKeyValue.
     /// Raises Changed whenever the watched key/subtree changes.
-    /// 
+    ///
     /// Notes:
     /// - Notification is for the key scope, not one individual value.
     /// - To track a specific value, read/compare that value in the Changed handler.
-    /// - Uses a dedicated background thread for robustness.
+    /// - Backed by a <see cref="ThreadPool"/> wait (<see cref="ThreadPool.RegisterWaitForSingleObject"/>)
+    ///   on the async-signalled change event — NOT a dedicated background thread. This is the same
+    ///   lightweight pattern used by <c>Monitoring/Telemetry/Office/RegistryChangeWatcher</c>; it
+    ///   removes one OS thread (~1 MB committed stack) per watcher. The public contract — the ctor,
+    ///   <see cref="Changed"/>/<see cref="Error"/> events, <see cref="Start"/>, <see cref="RequestStop"/>,
+    ///   <see cref="Stop"/> (which rethrows a captured background failure) and <see cref="Dispose"/> —
+    ///   is preserved verbatim.
     /// </summary>
+    /// <remarks>
+    /// Threading contract: <see cref="Changed"/> is raised on a ThreadPool thread, OUTSIDE the
+    /// internal lock, so a handler may freely call <see cref="RequestStop"/> (the documented way to
+    /// stop from inside a handler). RegNotifyChangeKeyValue is single-shot, so the watcher re-arms
+    /// after each notification — there is, by design, a tiny window between the signal and the
+    /// re-arm during which an intermediate change is collapsed into the next notification; callers
+    /// always re-read current state in their handler, so no edge is lost in practice.
+    /// </remarks>
     internal sealed class RegistryWatcher : IDisposable
     {
         private readonly UIntPtr _hive;
@@ -27,15 +41,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
 
         private readonly object _sync = new object();
 
-        private CancellationTokenSource _cts;
-        private Thread _thread;
+        private SafeRegistryHandle _keyHandle;
+        private AutoResetEvent _signal;
+        private RegisteredWaitHandle _registeredWait;
+        private bool _running;
+        private bool _stopped;
         private Exception _backgroundException;
         private bool _disposed;
 
         public event EventHandler Changed;
         public event EventHandler<Exception> Error;
 
-        /// <param name="trace">Optional trace callback for diagnostic logging (called on every loop iteration).</param>
+        /// <param name="trace">Optional trace callback for diagnostic logging (called on arm / signal / re-arm).</param>
         public RegistryWatcher(
             RegistryHive hive,
             string subKey,
@@ -60,7 +77,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             {
                 lock (_sync)
                 {
-                    return _thread != null;
+                    return _running;
                 }
             }
         }
@@ -69,112 +86,97 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         {
             ThrowIfDisposed();
 
+            Exception openError;
             lock (_sync)
             {
-                if (_thread != null)
+                if (_running)
                     throw new InvalidOperationException("Watcher is already running.");
 
+                _running = true;
+                _stopped = false;
                 _backgroundException = null;
-                _cts = new CancellationTokenSource();
+                _signal = new AutoResetEvent(false);
 
-                _thread = new Thread(WatchThreadMain)
-                {
-                    IsBackground = true,
-                    Name = $"RegistryWatcher: {_subKey}"
-                };
-
-                _thread.Start(_cts.Token);
+                // Open the key + arm the first async notification synchronously, so by the time
+                // Start() returns the kernel is already tracking changes on our handle (callers
+                // and tests rely on the watch being live shortly after Start). A RegOpenKeyEx /
+                // RegNotifyChangeKeyValue failure does NOT throw from Start() — to preserve the
+                // dedicated-thread contract it is captured, surfaced via Error, and rethrown on
+                // Stop(). Every production caller wraps Start() in try/catch and swallows the
+                // Stop() rethrow, so this keeps their behaviour identical.
+                openError = OpenKeyAndArm();
+                if (openError != null)
+                    _backgroundException = openError;
             }
+
+            if (openError != null)
+                RaiseError(openError);
         }
 
         /// <summary>
-        /// Requests stop without blocking.
-        /// Safe to call from Changed handlers.
+        /// Requests stop without blocking. Safe to call from Changed handlers (it does not dispose
+        /// the underlying handles — that happens in <see cref="Stop"/>/<see cref="Dispose"/> — it
+        /// only guarantees no further Changed is raised).
         /// </summary>
         public void RequestStop()
         {
             lock (_sync)
             {
-                _cts?.Cancel();
+                if (!_running) return;
+                _stopped = true;
+                UnregisterWait();
+                try { _signal?.Set(); } catch { /* releasing a pending wait must not throw */ }
             }
         }
 
         /// <summary>
-        /// Stops and waits for the watcher thread to exit.
-        /// Avoid calling from inside Changed; use RequestStop there.
+        /// Stops the watcher and releases its handles. Rethrows a captured background failure
+        /// (other than cancellation) as an <see cref="InvalidOperationException"/>, preserving the
+        /// original dedicated-thread contract. Avoid calling from inside Changed; use
+        /// <see cref="RequestStop"/> there.
         /// </summary>
         public void Stop()
         {
-            Thread threadToJoin = null;
-            CancellationTokenSource ctsToDispose = null;
-            Exception backgroundException = null;
+            Exception backgroundException;
 
             lock (_sync)
             {
-                if (_thread == null)
+                if (!_running)
                     return;
 
-                _cts.Cancel();
-                threadToJoin = _thread;
-            }
+                _running = false;
+                _stopped = true;
 
-            threadToJoin.Join();
+                UnregisterWait();
 
-            lock (_sync)
-            {
+                try { _signal?.Set(); } catch { /* release any pending wait */ }
+                try { _signal?.Dispose(); } catch { /* dispose must not throw */ }
+                _signal = null;
+
+                try { _keyHandle?.Dispose(); } catch { /* dispose must not throw */ }
+                _keyHandle = null;
+
                 backgroundException = _backgroundException;
-
-                ctsToDispose = _cts;
-                _cts = null;
-                _thread = null;
                 _backgroundException = null;
             }
 
-            ctsToDispose?.Dispose();
+            _trace?.Invoke("Stopped (cancellation requested)");
 
             if (backgroundException != null &&
                 !(backgroundException is OperationCanceledException))
             {
                 throw new InvalidOperationException(
-                    "Registry watcher stopped because the background thread failed.",
+                    "Registry watcher stopped because the background notification failed.",
                     backgroundException);
             }
         }
 
-        private void WatchThreadMain(object state)
-        {
-            var cancellationToken = (CancellationToken)state;
-
-            try
-            {
-                WatchLoop(cancellationToken);
-            }
-            catch (OperationCanceledException ex)
-            {
-                lock (_sync)
-                {
-                    _backgroundException = ex;
-                }
-            }
-            catch (Exception ex)
-            {
-                lock (_sync)
-                {
-                    _backgroundException = ex;
-                }
-
-                try
-                {
-                    Error?.Invoke(this, ex);
-                }
-                catch
-                {
-                    // Never let handler exceptions escape the background thread.
-                }
-            }
-        }
-
-        private void WatchLoop(CancellationToken cancellationToken)
+        /// <summary>
+        /// Opens the watched key and arms the first async notification. Must hold <see cref="_sync"/>.
+        /// Returns the failure exception (so the caller can capture/surface it without throwing) or
+        /// <c>null</c> on success.
+        /// </summary>
+        private Exception OpenKeyAndArm()
         {
             int samDesired = RegistryNativeMethods.GetSamDesired(_view);
 
@@ -189,81 +191,127 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
 
             if (openResult != 0)
             {
-                throw new Win32Exception(
+                return new Win32Exception(
                     openResult,
                     $"RegOpenKeyEx failed for '{_subKey}' (view: {_view}).");
             }
 
+            _keyHandle = keyHandle;
             _trace?.Invoke($"RegOpenKeyEx succeeded — handle valid: {!keyHandle.IsInvalid}");
 
-            using (keyHandle)
-            using (var changedEvent = new AutoResetEvent(false))
-            using (var cancelEvent = new ManualResetEvent(false))
-            using (cancellationToken.Register(() => cancelEvent.Set()))
+            return ArmNotify();
+        }
+
+        /// <summary>
+        /// Arms one async RegNotifyChangeKeyValue and registers a ThreadPool wait on the change
+        /// event. Single-shot — re-armed after each notification by <see cref="OnSignalled"/>.
+        /// Must hold <see cref="_sync"/>. Returns the failure exception or <c>null</c> on success.
+        /// </summary>
+        private Exception ArmNotify()
+        {
+            if (_disposed || _stopped || _keyHandle == null || _signal == null)
+                return null;
+
+            _trace?.Invoke($"RegNotifyChangeKeyValue (subtree={_watchSubtree}, filter=0x{(uint)_filter:X})");
+
+            int notifyResult = RegistryNativeMethods.RegNotifyChangeKeyValue(
+                _keyHandle,
+                _watchSubtree,
+                _filter,
+                _signal.SafeWaitHandle,
+                true);
+
+            if (notifyResult != 0)
             {
-                WaitHandle[] waitHandles = { changedEvent, cancelEvent };
-                int iteration = 0;
+                return new Win32Exception(
+                    notifyResult,
+                    $"RegNotifyChangeKeyValue failed for '{_subKey}'.");
+            }
 
-                while (!cancellationToken.IsCancellationRequested)
+            UnregisterWait();
+            _registeredWait = ThreadPool.RegisterWaitForSingleObject(
+                _signal,
+                OnSignalled,
+                state: null,
+                millisecondsTimeOutInterval: Timeout.Infinite,
+                executeOnlyOnce: true);
+
+            _trace?.Invoke("Armed — waiting for change notification (ThreadPool)");
+            return null;
+        }
+
+        private void OnSignalled(object state, bool timedOut)
+        {
+            // Drop the (now-consumed, executeOnlyOnce) registration reference.
+            lock (_sync)
+            {
+                _registeredWait = null;
+            }
+
+            bool proceed;
+            lock (_sync)
+            {
+                proceed = _running && !_stopped && !_disposed && !timedOut;
+            }
+
+            if (!proceed)
+            {
+                _trace?.Invoke("Signalled after stop/dispose — ignoring");
+                return;
+            }
+
+            _trace?.Invoke("Change notification received — invoking Changed handler");
+
+            // Raise Changed OUTSIDE the lock so a handler may call RequestStop() (or post work to
+            // another thread) without risk of a lock-ordering surprise. Handler exceptions are
+            // routed to Error, never allowed to escape the ThreadPool callback.
+            try
+            {
+                Changed?.Invoke(this, EventArgs.Empty);
+            }
+            catch (Exception ex)
+            {
+                RaiseError(ex);
+            }
+
+            // Re-arm for the next change (RegNotifyChangeKeyValue is single-shot).
+            Exception armError = null;
+            lock (_sync)
+            {
+                if (!_running || _stopped || _disposed)
                 {
-                    iteration++;
-
-                    _trace?.Invoke($"Iteration {iteration}: calling RegNotifyChangeKeyValue (subtree={_watchSubtree}, filter=0x{(uint)_filter:X})");
-
-                    int notifyResult = RegistryNativeMethods.RegNotifyChangeKeyValue(
-                        keyHandle,
-                        _watchSubtree,
-                        _filter,
-                        changedEvent.SafeWaitHandle,
-                        true);
-
-                    if (notifyResult != 0)
-                    {
-                        throw new Win32Exception(
-                            notifyResult,
-                            $"RegNotifyChangeKeyValue failed for '{_subKey}'.");
-                    }
-
-                    _trace?.Invoke($"Iteration {iteration}: waiting for change notification...");
-
-                    int signaled = WaitHandle.WaitAny(waitHandles);
-
-                    if (signaled == WaitHandle.WaitTimeout)
-                    {
-                        _trace?.Invoke($"Iteration {iteration}: WaitAny returned WaitTimeout — continuing");
-                        continue;
-                    }
-
-                    if (signaled == 1)
-                    {
-                        _trace?.Invoke($"Iteration {iteration}: cancel event signaled — exiting loop");
-                        break;
-                    }
-
-                    _trace?.Invoke($"Iteration {iteration}: change notification received — invoking Changed handler");
-
-                    try
-                    {
-                        Changed?.Invoke(this, EventArgs.Empty);
-                    }
-                    catch (Exception ex)
-                    {
-                        try
-                        {
-                            Error?.Invoke(this, ex);
-                        }
-                        catch
-                        {
-                            // Ignore secondary error-handler failures.
-                        }
-                    }
-
-                    _trace?.Invoke($"Iteration {iteration}: Changed handler completed");
+                    _trace?.Invoke("Stop requested during Changed — not re-arming");
+                    return;
                 }
 
-                _trace?.Invoke("WatchLoop exiting (cancellation requested)");
-                cancellationToken.ThrowIfCancellationRequested();
+                armError = ArmNotify();
+                if (armError != null)
+                    _backgroundException = armError;
             }
+
+            if (armError != null)
+                RaiseError(armError);
+        }
+
+        private void RaiseError(Exception ex)
+        {
+            try
+            {
+                Error?.Invoke(this, ex);
+            }
+            catch
+            {
+                // Never let an Error-handler exception escape the ThreadPool callback / Start.
+            }
+        }
+
+        /// <summary>Unregisters the pending ThreadPool wait without blocking. Must hold <see cref="_sync"/>.</summary>
+        private void UnregisterWait()
+        {
+            // Unregister(null) is non-blocking: it does NOT wait for an in-flight callback, so it is
+            // safe to call from within OnSignalled itself (mirrors Office RegistryChangeWatcher).
+            try { _registeredWait?.Unregister(null); } catch { /* best-effort */ }
+            _registeredWait = null;
         }
 
         public void Dispose()
@@ -280,7 +328,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 // Dispose must not throw.
             }
 
-            _disposed = true;
+            lock (_sync)
+            {
+                _disposed = true;
+            }
         }
 
         private void ThrowIfDisposed()
