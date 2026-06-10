@@ -104,40 +104,5 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             }
             finally { coordinator.Dispose(); }
         }
-
-        // ------------------------------------------------------------------ ProvisioningStatusTrackerAdapter
-
-        [Fact]
-        public void Provisioning_adapter_forwards_full_args_to_signal_payload()
-        {
-            using var tmp = new TempDirectory();
-            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
-            var clock = new VirtualClock(Fixed);
-            var ingress = new FakeSignalIngressSink();
-            var tracker = new ProvisioningStatusTracker(
-                sessionId: "S1",
-                tenantId: "T1",
-                post: new InformationalEventPost(new FakeSignalIngressSink(), clock),
-                logger: logger);
-
-            try
-            {
-                using var adapter = new ProvisioningStatusTrackerAdapter(tracker, ingress, clock);
-
-                adapter.TriggerEspFailureFromTest(new EspFailureDetectedEventArgs(
-                    failureType: "Provisioning_DeviceSetup_Apps_Failed",
-                    errorCode: "0x87d1041c",
-                    failedSubcategory: "Apps",
-                    category: "DeviceSetup"));
-
-                var posted = Assert.Single(ingress.Posted);
-                Assert.Equal(DecisionSignalKind.EspTerminalFailure, posted.Kind);
-                Assert.Equal("Provisioning_DeviceSetup_Apps_Failed", posted.Payload!["failureType"]);
-                Assert.Equal("0x87d1041c", posted.Payload!["errorCode"]);
-                Assert.Equal("Apps", posted.Payload!["failedSubcategory"]);
-                Assert.Equal("DeviceSetup", posted.Payload!["category"]);
-            }
-            finally { tracker.Dispose(); }
-        }
     }
 }

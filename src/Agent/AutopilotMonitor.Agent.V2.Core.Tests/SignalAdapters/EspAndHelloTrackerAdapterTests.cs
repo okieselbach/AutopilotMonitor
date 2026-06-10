@@ -57,6 +57,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             Assert.Equal("unknown", posted.Payload![SignalPayloadKeys.HelloOutcome]);
         }
 
+        [Theory]
+        [InlineData("completed")]
+        [InlineData("skipped")]
+        [InlineData("timeout")]
+        [InlineData("not_configured")]
+        [InlineData("wizard_not_started")]
+        public void HelloOutcome_propagates_verbatim_to_payload(string outcome)
+        {
+            using var f = new Fixture();
+            using var adapter = new EspAndHelloTrackerAdapter(f.Coordinator, f.Ingress, f.Clock);
+
+            adapter.TriggerHelloFromTest(outcome);
+
+            Assert.Equal(outcome, f.Ingress.Posted[0].Payload![SignalPayloadKeys.HelloOutcome]);
+        }
+
         [Fact]
         public void FinalizingEvent_emits_EspPhaseChanged_with_FinalizingSetup_payload()
         {
@@ -95,6 +111,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             Assert.Equal(DecisionSignalKind.EspTerminalFailure, posted.Kind);
             Assert.Equal("CoordinatorMergedFailure", posted.Payload!["failureType"]);
             Assert.Contains("merged", posted.Evidence.DerivationInputs!["subSource"]);
+        }
+
+        [Fact]
+        public void EspFailureEvent_empty_type_falls_back_to_unknown()
+        {
+            using var f = new Fixture();
+            using var adapter = new EspAndHelloTrackerAdapter(f.Coordinator, f.Ingress, f.Clock);
+
+            // Empty failureType is normalized to "unknown" by EspFailureDetectedEventArgs.
+            adapter.TriggerEspFailureFromTest("");
+
+            Assert.Equal("unknown", f.Ingress.Posted[0].Payload!["failureType"]);
         }
 
         [Fact]

@@ -25,9 +25,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
     ///   <item><b>EspAndHelloHost</b> — <see cref="EspAndHelloTracker"/> coordinator
     ///     (internally aggregates HelloTracker + ShellCoreTracker + ProvisioningStatusTracker
     ///     + ModernDeploymentTracker) wired via <see cref="EspAndHelloTrackerAdapter"/>.
-    ///     This is the single production entry for the ESP+Hello signal surface — avoids
-    ///     double emission that would happen if the sub-tracker adapters were also wired
-    ///     in parallel (§4.x M4.3 tech-debt note about adapter duplication).</item>
+    ///     This is the single production entry for the ESP+Hello signal surface: the sub-trackers
+    ///     are private to the coordinator and only their re-raised events are adapted here, so
+    ///     there is exactly one DecisionSignal per source event (no double emission).</item>
     ///   <item><b>DesktopArrivalHost</b> — <see cref="DesktopArrivalDetector"/> + <see cref="DesktopArrivalDetectorAdapter"/>.</item>
     ///   <item><b>AadJoinHost</b> — <see cref="AadJoinWatcher"/> + <see cref="AadJoinWatcherAdapter"/>.</item>
     ///   <item><b>ImeLogHost</b> — <see cref="ImeLogTracker"/> + <see cref="ImeProcessWatcher"/>

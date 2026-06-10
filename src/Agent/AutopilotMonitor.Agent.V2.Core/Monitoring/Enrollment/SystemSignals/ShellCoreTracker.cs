@@ -299,10 +299,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     catch (Exception ex) { _logger.Error($"EspFailureDetected handler failed for '{detectedFailureType}'", ex); }
                 }
 
-                // Fire EspExited AFTER event emission. Subscribers (ShellCoreTrackerAdapter) post
-                // a DecisionSignalKind.EspExiting so the engine can arm HelloSafety on the genuine
-                // post-AccountSetup exit. Engine-side guard (ShouldTransitionToAwaitingHello)
-                // distinguishes intermediate exits from the real one.
+                // Fire EspExited AFTER event emission. The coordinator (EspAndHelloTracker) re-raises
+                // this and EspAndHelloTrackerAdapter posts a DecisionSignalKind.EspExiting so the
+                // engine can arm HelloSafety on the genuine post-AccountSetup exit. Engine-side guard
+                // (ShouldTransitionToAwaitingHello) distinguishes intermediate exits from the real one.
                 if (eventType == Constants.EventTypes.EspExiting)
                 {
                     try { EspExited?.Invoke(this, new EspExitedEventArgs(timestamp)); }
