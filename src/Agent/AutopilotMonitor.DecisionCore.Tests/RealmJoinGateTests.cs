@@ -113,6 +113,25 @@ namespace AutopilotMonitor.DecisionCore.Tests
         }
 
         [Fact]
+        public void Closed_gate_tags_the_deferred_transition_with_the_gate_name_suffix()
+        {
+            // ARCH-F1 forward-proof: the defer trigger suffix is derived from the closed gate's
+            // CompletionGate.Name (":<Name>Closed") inside CompleteThroughFinalizingOrDefer, not
+            // hardcoded at the call site. A new gate registered in s_completionGates inherits the
+            // same deferral shape with its own suffix — this test locks the derivation so a rename
+            // or a regression back to per-site hardcoding is caught.
+            var engine = new DecisionEngine();
+            var state = PrimeClassicAwaitingDesktop(engine);
+            state = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(5),
+                new Dictionary<string, string> { [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "100" })).NewState;
+
+            var step = engine.Reduce(state, MakeSignal(6, DecisionSignalKind.DesktopArrived, T0.AddMinutes(6)));
+
+            Assert.True(step.Transition.Taken);
+            Assert.Equal(nameof(DecisionSignalKind.DesktopArrived) + ":RealmJoinGateClosed", step.Transition.Trigger);
+        }
+
+        [Fact]
         public void RealmJoinResolved_after_hello_and_desktop_triggers_finalizing_via_classic_path()
         {
             // Same setup as the previous test, then RealmJoinResolved (phase 110) lands. The

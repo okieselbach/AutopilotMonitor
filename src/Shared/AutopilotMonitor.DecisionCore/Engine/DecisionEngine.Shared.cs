@@ -409,29 +409,17 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // synthetic-timeout terminal event shares the same grace window + phase-declaration
             // pathway as the happy-path handlers. AwaitingDesktop path is unchanged.
             //
-            // RealmJoin gate: while RJ is detected and unresolved, defer Finalizing. The
-            // synthetic Hello-timeout fact stays recorded; the RJ resolved/timeout handler
-            // routes through CompleteIfDeferredOrBookkeep when both gates are ready.
-            if (desktopAlreadyArrived && RealmJoinGateOpen(state))
+            // Completion gates (ARCH-F1): while a gate (e.g. an active RealmJoin deployment) is
+            // closed, defer Finalizing. The synthetic Hello-timeout fact stays recorded; the
+            // gate's release handler routes through CompleteIfDeferredOrBookkeep.
+            if (desktopAlreadyArrived)
             {
-                return TransitionToFinalizing(
+                return CompleteThroughFinalizingOrDefer(
                     state: state,
                     signal: signal,
                     preparedBuilder: builder,
                     nextStepIndex: nextStep,
                     trigger: $"DeadlineFired:{DeadlineNames.HelloSafety}");
-            }
-
-            if (desktopAlreadyArrived)
-            {
-                var deferredState = builder.Build();
-                var deferredTransition = BuildTakenTransition(
-                    before: state,
-                    signal: signal,
-                    toStage: state.Stage,
-                    nextStepIndex: nextStep,
-                    trigger: $"DeadlineFired:{DeadlineNames.HelloSafety}:RealmJoinGateClosed");
-                return new DecisionStep(deferredState, deferredTransition, Array.Empty<DecisionEffect>());
             }
 
             builder.WithStage(SessionStage.AwaitingDesktop);

@@ -227,38 +227,21 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // This lets the backend see phase_transition(FinalizingSetup) + enrollment_complete
             // before IsTerminal() fires and EnrollmentTerminationHandler tears down the spool.
             //
-            // RealmJoin gate: while RJ is detected and unresolved, the Finalizing transition
-            // is deferred. Hello+Desktop facts are still recorded; the next RealmJoinResolved
-            // or RealmJoinTimeout signal releases the deferred completion via
+            // Completion gates (ARCH-F1): while a gate (e.g. an active RealmJoin deployment) is
+            // closed the Finalizing transition is deferred. Hello+Desktop facts are still
+            // recorded; the gate's release handler re-attempts completion via
             // CompleteIfDeferredOrBookkeep().
-            if (desktopAlreadyArrived && RealmJoinGateOpen(state))
+            if (desktopAlreadyArrived)
             {
-                return TransitionToFinalizing(
+                return CompleteThroughFinalizingOrDefer(
                     state: state,
                     signal: signal,
                     preparedBuilder: builder,
                     nextStepIndex: nextStep,
                     trigger: nameof(DecisionSignalKind.HelloResolved),
-                    extraLeadingEffects: helloSafetyCancelEffect != null
+                    leadingEffects: helloSafetyCancelEffect != null
                         ? new[] { helloSafetyCancelEffect }
                         : null);
-            }
-
-            if (desktopAlreadyArrived)
-            {
-                // RJ gate closed: defer Finalizing. Stay in the current stage; the RJ
-                // resolved/timeout handler will route through CompleteIfDeferredOrBookkeep().
-                var deferredState = builder.Build();
-                var deferredTransition = BuildTakenTransition(
-                    before: state,
-                    signal: signal,
-                    toStage: state.Stage,
-                    nextStepIndex: nextStep,
-                    trigger: nameof(DecisionSignalKind.HelloResolved) + ":RealmJoinGateClosed");
-                var deferredEffects = helloSafetyCancelEffect != null
-                    ? new[] { helloSafetyCancelEffect }
-                    : Array.Empty<DecisionEffect>();
-                return new DecisionStep(deferredState, deferredTransition, deferredEffects);
             }
 
             builder.WithStage(SessionStage.AwaitingDesktop);
@@ -377,30 +360,15 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     };
                 }
 
-                if (RealmJoinGateOpen(state))
-                {
-                    return TransitionToFinalizing(
-                        state: state,
-                        signal: signal,
-                        preparedBuilder: builder,
-                        nextStepIndex: nextStep,
-                        trigger: nameof(DecisionSignalKind.DesktopArrived) + ":HelloDisabledFastPath",
-                        extraLeadingEffects: extraEffects);
-                }
-
-                // RJ gate closed: synthetic Hello + Desktop are recorded; defer Finalizing
-                // until the RJ resolved/timeout handler releases the gate.
-                var fastPathDeferredState = builder.Build();
-                var fastPathDeferredTransition = BuildTakenTransition(
-                    before: state,
+                // Completion gates (ARCH-F1): synthetic Hello + Desktop are recorded; complete
+                // through Finalizing when all gates are open, else defer until a gate releases.
+                return CompleteThroughFinalizingOrDefer(
+                    state: state,
                     signal: signal,
-                    toStage: state.Stage,
+                    preparedBuilder: builder,
                     nextStepIndex: nextStep,
-                    trigger: nameof(DecisionSignalKind.DesktopArrived) + ":HelloDisabledFastPath:RealmJoinGateClosed");
-                var fastPathDeferredEffects = extraEffects != null
-                    ? extraEffects.ToArray()
-                    : Array.Empty<DecisionEffect>();
-                return new DecisionStep(fastPathDeferredState, fastPathDeferredTransition, fastPathDeferredEffects);
+                    trigger: nameof(DecisionSignalKind.DesktopArrived) + ":HelloDisabledFastPath",
+                    leadingEffects: extraEffects);
             }
 
             // Plan §5 Fix 6: mirror of HandleHelloResolvedV1. When both prerequisites are in,
@@ -420,31 +388,17 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     builder.CancelDeadline(DeadlineNames.HelloSafety);
                 }
 
-                if (RealmJoinGateOpen(state))
-                {
-                    return TransitionToFinalizing(
-                        state: state,
-                        signal: signal,
-                        preparedBuilder: builder,
-                        nextStepIndex: nextStep,
-                        trigger: nameof(DecisionSignalKind.DesktopArrived),
-                        extraLeadingEffects: helloSafetyCancelEffect != null
-                            ? new[] { helloSafetyCancelEffect }
-                            : null);
-                }
-
-                // RJ gate closed: Desktop fact is recorded; defer Finalizing.
-                var deferredState = builder.Build();
-                var deferredTransition = BuildTakenTransition(
-                    before: state,
+                // Completion gates (ARCH-F1): Desktop fact recorded; complete through Finalizing
+                // when all gates are open, else defer.
+                return CompleteThroughFinalizingOrDefer(
+                    state: state,
                     signal: signal,
-                    toStage: state.Stage,
+                    preparedBuilder: builder,
                     nextStepIndex: nextStep,
-                    trigger: nameof(DecisionSignalKind.DesktopArrived) + ":RealmJoinGateClosed");
-                var deferredEffects = helloSafetyCancelEffect != null
-                    ? new[] { helloSafetyCancelEffect }
-                    : Array.Empty<DecisionEffect>();
-                return new DecisionStep(deferredState, deferredTransition, deferredEffects);
+                    trigger: nameof(DecisionSignalKind.DesktopArrived),
+                    leadingEffects: helloSafetyCancelEffect != null
+                        ? new[] { helloSafetyCancelEffect }
+                        : null);
             }
 
             // Desktop came first: keep current stage (AwaitingHello or EspAccountSetup) until

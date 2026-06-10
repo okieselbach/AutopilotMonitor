@@ -412,6 +412,12 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
             if (classicReady)
             {
+                // This IS the gate-release path: the RealmJoin gate has just opened (the caller
+                // wrote WithResolved / WithTimeoutOutcome into preparedBuilder), so complete
+                // directly. Note the completion gates read `state` (pre-resolution), where RJ is
+                // still closed — routing this through CompleteThroughFinalizingOrDefer would
+                // re-defer on the very gate we just released. A future second gate that must
+                // re-block here would re-check the *post* state (WDP-v2 follow-up, ARCH-F1).
                 var extra = leadingEffect != null ? new[] { leadingEffect } : null;
                 return TransitionToFinalizing(
                     state: state,
