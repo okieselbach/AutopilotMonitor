@@ -217,6 +217,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 _helloWizardStarted = false;
                 _espExitSeen = false;
                 HelloOutcome = null;
+                // MON-C2 — clear the one-shot unknown-policy grace flag too, otherwise a fresh
+                // post-resume wait that hits an undetected policy would skip its grace re-arm and
+                // resolve straight to not_configured.
+                _helloUnknownGraceUsed = false;
             }
             _logger.Info("HelloTracker: Reset for ESP resumption — Hello tracking restarted");
         }

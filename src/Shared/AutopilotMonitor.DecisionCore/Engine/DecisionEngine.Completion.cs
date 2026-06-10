@@ -10,9 +10,20 @@ namespace AutopilotMonitor.DecisionCore.Engine
     // SelfDeploying / RealmJoin engine partials, each with its own near-identical
     // RealmJoinGateOpen check + ":RealmJoinGateClosed" defer block. That duplication was the
     // origin of the premature/duplicate enrollment_complete regressions (8b8d611d, 08c99638,
-    // 330f73f3). This partial centralizes the gate SET and the deferral shape so adding a new
-    // completion precondition (e.g. WDP v2 device-association settle) is one entry in
-    // s_completionGates rather than an edit at every completion site.
+    // 330f73f3). This partial centralizes the gate SET and the deferral shape for the
+    // completion-ATTEMPT sites — the four Classic/Shared handlers that route a "both
+    // prerequisites in" decision through CompleteThroughFinalizingOrDefer. Those sites inherit a
+    // new gate purely by it appearing in s_completionGates.
+    //
+    // Two paths intentionally do NOT consult the collection (single-gate-correct today; a second
+    // gate must wire them explicitly — they are the gate's release/origin, not attempt sites):
+    //   * the RealmJoin release path (CompleteIfDeferredOrBookkeep, DecisionEngine.RealmJoin.cs)
+    //     completes directly because it evaluates the PRE-resolution state where the gate it just
+    //     opened still reads closed; a second gate that must re-block here needs a post-state
+    //     re-check;
+    //   * the SelfDeploying deadline path (HandleDeviceOnlyEspDetectionDeadlineFired) owns a
+    //     gate-specific deferral (SelfDeployingDeferredCompletion on RealmJoinFacts, released by
+    //     the RealmJoin handlers) and so checks RealmJoinGateOpen directly.
     public sealed partial class DecisionEngine
     {
         /// <summary>
@@ -37,10 +48,12 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
         /// <summary>
         /// The ordered set of completion preconditions. <b>Append-only</b>: a new enrollment
-        /// scenario registers one gate here and every completion site that routes through
-        /// <see cref="CompleteThroughFinalizingOrDefer"/> inherits it — no per-site edits.
-        /// RealmJoin is the only gate today (the SelfDeploying deadline path additionally owns a
-        /// gate-specific deferral; see <c>HandleDeviceOnlyEspDetectionDeadlineFired</c>).
+        /// scenario registers one gate here and every completion-ATTEMPT site that routes through
+        /// <see cref="CompleteThroughFinalizingOrDefer"/> inherits it with no per-site edits.
+        /// RealmJoin is the only gate today. Note this collection does NOT cover the RealmJoin
+        /// release path or the SelfDeploying deadline path — both are gate-specific by design
+        /// (see the class-level remarks); a second gate that must block there needs explicit
+        /// wiring, not just an entry here.
         /// </summary>
         private static readonly CompletionGate[] s_completionGates =
         {

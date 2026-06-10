@@ -172,6 +172,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
         }
 
         [Fact]
+        public void Esp_resumption_reset_re_grants_the_unknown_policy_grace()
+        {
+            // The one-shot grace flag must reset on ESP resumption (hybrid-join mid-enrollment
+            // reboot). Without the reset a fresh post-resume wait that hits an undetected policy
+            // would skip its grace and resolve straight to not_configured.
+            using var f = new Fixture();
+            f.Tracker.StartHelloWaitTimer();
+            f.Tracker.TriggerWaitTimeoutForTest();   // unknown → grace consumed
+            Assert.False(f.Tracker.IsHelloCompleted);
+
+            f.Tracker.ResetForEspResumption();
+
+            f.Tracker.StartHelloWaitTimer();
+            f.Tracker.TriggerWaitTimeoutForTest();   // unknown again → must re-grant grace, not complete
+
+            Assert.False(f.Tracker.IsHelloCompleted);
+            Assert.Null(f.Tracker.HelloOutcome);
+            Assert.True(f.Tracker.IsWaitTimerActiveForTest);
+        }
+
+        [Fact]
         public void HelloTerminalEvent_after_policy_disabled_emits_mismatch_warning()
         {
             // PR4: a Hello terminal arriving while the tracker still believes policy=disabled
