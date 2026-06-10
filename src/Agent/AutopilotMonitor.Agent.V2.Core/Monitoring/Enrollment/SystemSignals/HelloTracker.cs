@@ -85,6 +85,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private bool _isHelloCompleted;
         private bool _helloWizardStarted;
         private bool _espExitSeen;
+        // MON-C2 — one-shot guard so the "policy not yet detected" grace re-arm of the wait
+        // timer can fire at most once before falling through to the not-configured resolution.
+        private bool _helloUnknownGraceUsed;
         private readonly object _stateLock = new object();
 
         public event EventHandler HelloCompleted;
@@ -955,11 +958,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     return;
                 }
 
-                // Timeout expired without Hello wizard starting.
-                // If Hello policy is known to be ENABLED, the wizard simply hasn't appeared yet
-                // (e.g. Windows is still setting up prerequisites). Do NOT declare enrollment
-                // complete — start the long HelloCompletion timer and keep waiting.
-                if (_isHelloPolicyEnabled)
+                // Timeout expired without the Hello wizard starting. Resolve into one of three
+                // cases — only a *positively detected DISABLED* policy is a real "Hello not
+                // configured" signal (MON-C2):
+                //
+                //   * policy known ENABLED  — wizard simply hasn't appeared yet; keep waiting on
+                //                             the long completion timer.
+                //   * policy NOT YET DETECTED — a slow MDM/CSP sync can land the policy read after
+                //                             this wait; force-completing to "not_configured" now
+                //                             would prematurely resolve Hello on a device that is
+                //                             actually configured. Grant one bounded grace re-arm
+                //                             for detection to catch up.
+                //   * policy known DISABLED (or still unknown after the grace) — genuinely not
+                //                             configured / skipped; resolve completion.
+                var policyKnownEnabled = _isPolicyConfigured && _isHelloPolicyEnabled;
+                var policyUnknown = !_isPolicyConfigured;
+
+                if (policyKnownEnabled)
                 {
                     _logger.Info($"Hello wait timeout ({_helloWaitTimeoutSeconds}s) expired but Hello policy is enabled — " +
                                  $"wizard not yet visible, starting long completion timer ({HelloCompletionTimeoutSeconds}s)");
@@ -979,6 +994,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                             { "timeoutSeconds", _helloWaitTimeoutSeconds },
                             { "espExitDetected", _espExitSeen },
                             { "helloPolicyEnabled", true },
+                            { "policyDetected", true },
                             { "action", "extended_wait" }
                         },
                         ImmediateUpload = true
@@ -988,8 +1004,44 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     return;
                 }
 
+                if (policyUnknown && !_helloUnknownGraceUsed)
+                {
+                    _helloUnknownGraceUsed = true;
+                    _logger.Info($"Hello wait timeout ({_helloWaitTimeoutSeconds}s) expired with Hello policy not yet detected — " +
+                                 $"granting a {_helloWaitTimeoutSeconds}s grace for a slow policy sync before assuming not configured");
+
+                    _post.Emit(new EnrollmentEvent
+                    {
+                        SessionId = _sessionId,
+                        TenantId = _tenantId,
+                        EventType = Constants.EventTypes.HelloWaitTimeout,
+                        Severity = EventSeverity.Info,
+                        Source = "EspAndHelloTracker",
+                        Phase = EnrollmentPhase.Unknown,
+                        Message = $"Hello wizard did not start within {_helloWaitTimeoutSeconds}s after ESP exit and Hello policy " +
+                                  $"is not yet detected — waiting a further {_helloWaitTimeoutSeconds}s for a slow policy sync",
+                        Data = new Dictionary<string, object>
+                        {
+                            { "timeoutSeconds", _helloWaitTimeoutSeconds },
+                            { "espExitDetected", _espExitSeen },
+                            { "helloPolicyEnabled", false },
+                            { "policyDetected", false },
+                            { "action", "unknown_policy_grace" }
+                        },
+                        ImmediateUpload = true
+                    });
+
+                    // Re-arm the existing one-shot wait timer for a single bounded grace window.
+                    // The 10s-interval policy check timer keeps running and may flip the policy to
+                    // enabled/disabled within this window; otherwise the next fire resolves it.
+                    _helloWaitTimer?.Change(TimeSpan.FromSeconds(_helloWaitTimeoutSeconds), TimeSpan.FromMilliseconds(-1));
+                    return;
+                }
+
                 _logger.Info($"Hello wait timeout ({_helloWaitTimeoutSeconds}s) expired without Hello wizard starting");
-                _logger.Info("Hello policy not detected as enabled — assuming Hello is not configured or was skipped");
+                _logger.Info(_isPolicyConfigured
+                    ? "Hello policy detected as disabled — assuming Hello is not configured or was skipped"
+                    : "Hello policy still not detected after grace — assuming Hello is not configured or was skipped");
 
                 _isHelloCompleted = true;
                 HelloOutcome = "not_configured";
@@ -1009,6 +1061,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         { "timeoutSeconds", _helloWaitTimeoutSeconds },
                         { "espExitDetected", _espExitSeen },
                         { "helloPolicyEnabled", false },
+                        { "policyDetected", _isPolicyConfigured },
                         { "action", "enrollment_complete" }
                     },
                     ImmediateUpload = true

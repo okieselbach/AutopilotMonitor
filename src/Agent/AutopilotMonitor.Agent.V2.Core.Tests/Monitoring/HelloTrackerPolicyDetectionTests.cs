@@ -113,6 +113,64 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
             Assert.Null(f.Tracker.HelloOutcome);
         }
 
+        // ---- MON-C2: policy-not-yet-detected must not force premature not_configured ----
+
+        [Fact]
+        public void Wait_timeout_with_unknown_policy_grants_grace_and_defers_completion()
+        {
+            // Policy never detected (slow MDM/CSP sync). The first wait timeout must NOT
+            // resolve Hello to not_configured — it grants one bounded grace re-arm and keeps
+            // waiting so a late policy read can still land.
+            using var f = new Fixture();
+            // Deliberately skip SetPolicyForTest so _isPolicyConfigured stays false (unknown).
+            f.Tracker.StartHelloWaitTimer();
+
+            f.Tracker.TriggerWaitTimeoutForTest();
+
+            Assert.False(f.Tracker.IsHelloCompleted);
+            Assert.Null(f.Tracker.HelloOutcome);
+            // Wait timer re-armed for the grace window; completion timer NOT started.
+            Assert.True(f.Tracker.IsWaitTimerActiveForTest);
+            Assert.False(f.Tracker.IsCompletionTimerActiveForTest);
+        }
+
+        [Fact]
+        public void Wait_timeout_unknown_policy_after_grace_completes_not_configured()
+        {
+            // If the policy is STILL unknown after the one-shot grace window, the device is
+            // genuinely not configured (DetectHelloPolicy returns null forever) — resolve to
+            // not_configured so enrollment is not stranded.
+            using var f = new Fixture();
+            f.Tracker.StartHelloWaitTimer();
+
+            f.Tracker.TriggerWaitTimeoutForTest();   // grace re-arm
+            Assert.False(f.Tracker.IsHelloCompleted);
+
+            f.Tracker.TriggerWaitTimeoutForTest();   // grace exhausted, still unknown
+
+            Assert.True(f.Tracker.IsHelloCompleted);
+            Assert.Equal("not_configured", f.Tracker.HelloOutcome);
+        }
+
+        [Fact]
+        public void Wait_timeout_unknown_then_policy_enabled_during_grace_extends_wait()
+        {
+            // The slow-sync race the grace exists for: policy lands as ENABLED during the grace
+            // window. The next wait timeout must take the extended-wait path (long completion
+            // timer), never not_configured.
+            using var f = new Fixture();
+            f.Tracker.StartHelloWaitTimer();
+
+            f.Tracker.TriggerWaitTimeoutForTest();   // unknown → grace re-arm
+
+            f.Tracker.SetPolicyForTest(helloEnabled: true, source: "CSP/Intune (device-scoped)");
+            f.Tracker.TriggerWaitTimeoutForTest();   // now known-enabled → extend
+
+            Assert.False(f.Tracker.IsHelloCompleted);
+            Assert.Null(f.Tracker.HelloOutcome);
+            Assert.True(f.Tracker.IsCompletionTimerActiveForTest);
+        }
+
         [Fact]
         public void HelloTerminalEvent_after_policy_disabled_emits_mismatch_warning()
         {
