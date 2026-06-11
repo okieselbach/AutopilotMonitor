@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -51,170 +50,73 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
     public sealed class EnrollmentTerminationHandler
     {
         private static readonly TimeSpan DefaultLateEventGrace = TimeSpan.FromMilliseconds(2000);
-        private static readonly TimeSpan DefaultSpoolDrain = TimeSpan.FromMilliseconds(10000); // V1 parity: up to 20 × 500ms drains before shutdown.exe
         // Option 1 (WG Part 1 graceful-exit hardening, 2026-04-30): poll cadence for the
         // active spool-empty drain. 50ms is short enough that we exit the bounded wait
         // within ~one cadence after the last upload is acknowledged, but long enough that
         // an empty spool only costs a single sleep call.
         private static readonly TimeSpan SpoolDrainPollInterval = TimeSpan.FromMilliseconds(50);
 
+        // ARCH-F2 (V2 agent review 2026-06-10): the former 25-parameter constructor is
+        // grouped into four cohesive surfaces (session context, app-tracking read model,
+        // drain status, shutdown gate) plus a handful of direct infrastructure parameters.
+        // The per-parameter rationale comments (c117946b, 080edee9, 7dd4e593, Codex
+        // Finding 2, Option 1/2 hardening, plan §11) moved onto the corresponding
+        // interface members.
+        private readonly TerminationSessionContext _session;
+        private readonly IAppTrackingReadModel _appTracking;
+        private readonly IDrainStatus _drain;
+        private readonly IShutdownGate _shutdownGate;
+
+        // Session-context scalars copied to fields once — immutable for the handler's
+        // lifetime. Only IsWhiteGlovePart2 must be read lazily via _session, because the
+        // orchestrator resolves the Part-2 hint after this handler is constructed.
         private readonly AgentConfiguration _configuration;
-        private readonly AgentLogger _logger;
         private readonly string _stateDirectory;
         private readonly DateTime _agentStartTimeUtc;
-        private readonly Func<DecisionState> _currentStateAccessor;
-        // F5 (debrief 7dd4e593) — accept any IReadOnlyList<AppPackageState> so the
-        // termination summary can iterate the union of phase-snapshotted apps + live
-        // _packageStates (V2's clear-on-phase-transition would otherwise drop the
-        // DeviceSetup apps from app_tracking_summary and the SummaryDialog).
-        private readonly Func<IReadOnlyList<AppPackageState>> _packageStatesAccessor;
-        private readonly Func<IReadOnlyDictionary<string, AppInstallTiming>> _appTimingsAccessor;
-        // V1-parity field: count of IME apps the tracker has marked as "ignored" (e.g. uninstall
-        // intents that don't surface in the install pipeline). Lives on the live
-        // <c>AppPackageStateList</c> only, hence a separate accessor — the deduped phase-snapshot
-        // union accessed via <see cref="_packageStatesAccessor"/> doesn't carry it.
-        private readonly Func<int> _ignoredCountAccessor;
+        private readonly string _agentVersion;
+        private readonly SessionIdPersistence _sessionPersistence;
+        private readonly string _dialogExePathOverride;
+
+        private readonly AgentLogger _logger;
         private readonly Func<CleanupService> _cleanupServiceFactory;
         private readonly Func<bool, string, Task<DiagnosticsUploadResult>> _uploadDiagnosticsAsync;
-        private readonly Action _signalShutdown;
         private readonly Action _stopPeripheralCollectors;
-        private readonly string _dialogExePathOverride;
         private readonly AgentAnalyzerManager _analyzerManager;
         private readonly InformationalEventPost _post;
-        private readonly SessionIdPersistence _sessionPersistence;
-        private readonly Action<int> _triggerReboot;
         private readonly TimeSpan _lateEventGracePeriod;
-        private readonly TimeSpan _spoolDrainPeriod;
-        private readonly string _agentVersion;
-        // Option 1 (WG Part 1 graceful-exit hardening, 2026-04-30): when wired, the
-        // termination handler polls this accessor every <see cref="SpoolDrainPollInterval"/>
-        // during <see cref="DrainSpool"/> and exits the wait as soon as it returns 0
-        // (spool fully acknowledged by the backend). Falls back to the bounded
-        // <see cref="_spoolDrainPeriod"/> timeout if the spool never drains. Null = legacy
-        // blind-delay behaviour (kept for tests + safety on the off-chance the orchestrator
-        // wiring fails to provide it).
-        private readonly Func<int> _pendingItemCountAccessor;
-        // Codex Finding 2 (2026-04-30): the termination handler is now dispatched off the
-        // ingress worker, so it can wait for the worker to actually process the lifecycle
-        // events the handler posts (agent_shutting_down, whiteglove_part1_complete,
-        // analyzer events) BEFORE polling the spool — without this the spool-empty check
-        // would trivially fire on already-uploaded items while the just-posted events are
-        // still in the ingress channel. Polled in <see cref="DrainSpool"/> as the first
-        // wait step. Null = legacy behaviour (no ingress-drain wait, just spool-drain).
-        private readonly Func<long> _ingressPendingSignalCountAccessor;
-        // Option 2 (same hardening): writes the <c>clean-exit.marker</c> file directly,
-        // before <see cref="_signalShutdown"/> hands control to the main thread. This wins
-        // the race against an admin-triggered reseal-reboot — without this hook the marker
-        // is only written by the AppDomain.ProcessExit handler, which Windows can pre-empt.
-        // Null = no early write (tests / parity with the original blind-exit path).
-        private readonly Action _writeCleanExitMarker;
-        // V1-symmetric Part-2 hint accessor (plan §11). A Part-2 resume runs as a fresh
-        // Classic enrollment after Archive-and-Reset, so the terminal Stage is
-        // <c>Completed</c>/<c>Failed</c> like any first-run completion. The shutdown
-        // analyzer pipeline still needs to know it was a Part-2 run so SoftwareInventoryAnalyzer
-        // can tag findings with phase=2 and the backend's vulnerability-correlation pipeline
-        // can filter Part-2 inventory out of the Part-1 set. Wired by AgentRuntimeHost as
-        // <c>() =&gt; orchestrator.IsWhiteGlovePart2</c>; null in tests = legacy (always
-        // treats as Part-1/null).
-        private readonly Func<bool> _isWhiteGlovePart2Accessor;
-
-        // Shutdown-gap closure (2026-05-15): cross-path idempotency gate shared with the
-        // AgentRuntimeHost's gap emitters (Ctrl+C, ProcessExit, unhandled exception,
-        // runtime-host finally). The handler calls TryClaim() before emitting
-        // <c>agent_shutting_down</c> in <see cref="EmitAgentShuttingDown"/> so a Terminated
-        // event that races a Ctrl+C cannot produce two events on the wire. Null = legacy
-        // behaviour (always emit; backward compat for tests + standalone construction).
-        private readonly Func<bool> _tryClaimShutdownEvent;
-
-        // c117946b debrief (2026-05-12): on terminal ESP-Apps failure, promote any apps the
-        // agent observed in <see cref="AppInstallationState.Installing"/> to Error so the
-        // user sees a name (not just an opaque "installing: 1" counter) and the
-        // app_install_failed event carries the canonical failureType. Accessor is invoked
-        // ONLY when the discriminator in <see cref="ShouldPromoteActiveInstallsAsStuck"/>
-        // matches — every other terminal path leaves app states untouched. Returns the list
-        // of promoted appIds for logging; null = legacy (no promotion).
-        //
-        // Session 080edee9 follow-up (2026-05-28): third parameter carries the HRESULT from
-        // the failed Apps subcategory (e.g. <c>0x87D1041C</c>) when available, so the
-        // promotion can stamp <see cref="AppPackageState.ErrorCode"/> + emit an enriched
-        // <c>app_install_failed</c> event. Null = no HRESULT observed → fallback to the
-        // legacy "esp_apps_timeout" classification.
-        private readonly Func<string, string, string, IReadOnlyList<string>> _promoteActiveInstallsToStuck;
-
-        // Session 080edee9 follow-up + Codex review (P2/P3, 2026-05-28): accessor
-        // returning the latest ESP failure context (HRESULT + failedSubcategory +
-        // category) observed by ProvisioningStatusTracker. Read once during
-        // <see cref="MaybePromoteActiveInstallsAsStuck"/>. The classifier first
-        // checks <c>snapshot.IsAppsSubcategory</c> — only then does the HRESULT
-        // drive the failureType. A non-Apps ESP failure (DevicePreparation/*,
-        // DeviceSetup/SecurityPolicies, AccountSetup/CertificatesAccountSetup)
-        // falls through to the generic <c>esp_apps_timeout</c> wording so a
-        // non-app HRESULT cannot mis-classify in-flight installs.
-        // Null accessor or null snapshot = no HRESULT context → fallback.
-        private readonly Func<EspTerminalFailureSnapshot> _lastEspTerminalFailureAccessor;
-
         private int _handled;
 
         public EnrollmentTerminationHandler(
-            AgentConfiguration configuration,
+            TerminationSessionContext session,
+            IAppTrackingReadModel appTracking,
+            IDrainStatus drainStatus,
+            IShutdownGate shutdownGate,
             AgentLogger logger,
-            string stateDirectory,
-            DateTime agentStartTimeUtc,
-            Func<DecisionState> currentStateAccessor,
-            Func<IReadOnlyList<AppPackageState>> packageStatesAccessor,
             Func<CleanupService> cleanupServiceFactory,
             Func<bool, string, Task<DiagnosticsUploadResult>> uploadDiagnosticsAsync,
-            Action signalShutdown,
-            string dialogExePathOverride = null,
             AgentAnalyzerManager analyzerManager = null,
             InformationalEventPost post = null,
-            SessionIdPersistence sessionPersistence = null,
-            Action<int> triggerReboot = null,
-            TimeSpan? lateEventGracePeriod = null,
-            TimeSpan? spoolDrainPeriod = null,
-            Func<IReadOnlyDictionary<string, AppInstallTiming>> appTimingsAccessor = null,
-            string agentVersion = null,
             Action stopPeripheralCollectors = null,
-            Func<int> ignoredCountAccessor = null,
-            Func<int> pendingItemCountAccessor = null,
-            Action writeCleanExitMarker = null,
-            Func<long> ingressPendingSignalCountAccessor = null,
-            Func<bool> isWhiteGlovePart2Accessor = null,
-            Func<string, string, string, IReadOnlyList<string>> promoteActiveInstallsToStuck = null,
-            Func<bool> tryClaimShutdownEvent = null,
-            Func<EspTerminalFailureSnapshot> lastEspTerminalFailureAccessor = null)
+            TimeSpan? lateEventGracePeriod = null)
         {
-            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+            _session = session ?? throw new ArgumentNullException(nameof(session));
+            _appTracking = appTracking ?? throw new ArgumentNullException(nameof(appTracking));
+            _drain = drainStatus ?? throw new ArgumentNullException(nameof(drainStatus));
+            _shutdownGate = shutdownGate ?? throw new ArgumentNullException(nameof(shutdownGate));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _stateDirectory = string.IsNullOrEmpty(stateDirectory) ? throw new ArgumentNullException(nameof(stateDirectory)) : stateDirectory;
-            _agentStartTimeUtc = agentStartTimeUtc;
-            _currentStateAccessor = currentStateAccessor ?? throw new ArgumentNullException(nameof(currentStateAccessor));
-            _packageStatesAccessor = packageStatesAccessor ?? throw new ArgumentNullException(nameof(packageStatesAccessor));
-            // Plan §5 Fix 4 — optional timing accessor (older call sites / tests without IME
-            // plumbing pass null → empty timings, which is handled below).
-            _appTimingsAccessor = appTimingsAccessor ?? (() => new Dictionary<string, AppInstallTiming>());
-            // Default to 0 when the host doesn't supply an accessor (e.g. tests without an
-            // ImeLogTracker wired up). Live ignoredCount only matters when there's a real tracker.
-            _ignoredCountAccessor = ignoredCountAccessor ?? (() => 0);
             _cleanupServiceFactory = cleanupServiceFactory ?? throw new ArgumentNullException(nameof(cleanupServiceFactory));
             _uploadDiagnosticsAsync = uploadDiagnosticsAsync ?? throw new ArgumentNullException(nameof(uploadDiagnosticsAsync));
-            _signalShutdown = signalShutdown ?? throw new ArgumentNullException(nameof(signalShutdown));
-            _stopPeripheralCollectors = stopPeripheralCollectors;
-            _dialogExePathOverride = dialogExePathOverride;
             _analyzerManager = analyzerManager;
             _post = post;
-            _sessionPersistence = sessionPersistence;
-            _triggerReboot = triggerReboot ?? DefaultTriggerReboot;
+            _stopPeripheralCollectors = stopPeripheralCollectors;
             _lateEventGracePeriod = lateEventGracePeriod ?? DefaultLateEventGrace;
-            _spoolDrainPeriod = spoolDrainPeriod ?? DefaultSpoolDrain;
-            _agentVersion = agentVersion ?? string.Empty;
-            _pendingItemCountAccessor = pendingItemCountAccessor;
-            _writeCleanExitMarker = writeCleanExitMarker;
-            _ingressPendingSignalCountAccessor = ingressPendingSignalCountAccessor;
-            _isWhiteGlovePart2Accessor = isWhiteGlovePart2Accessor;
-            _promoteActiveInstallsToStuck = promoteActiveInstallsToStuck;
-            _tryClaimShutdownEvent = tryClaimShutdownEvent;
-            _lastEspTerminalFailureAccessor = lastEspTerminalFailureAccessor;
+
+            _configuration = session.Configuration;
+            _stateDirectory = session.StateDirectory;
+            _agentStartTimeUtc = session.AgentStartTimeUtc;
+            _agentVersion = session.AgentVersion;
+            _sessionPersistence = session.SessionPersistence;
+            _dialogExePathOverride = session.DialogExePathOverride;
         }
 
         /// <summary>
@@ -337,14 +239,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             }
             finally
             {
-                try { _signalShutdown(); }
+                try { _shutdownGate.SignalShutdown(); }
                 catch (Exception ex) { _logger.Warning($"EnrollmentTerminationHandler: signalShutdown threw: {ex.Message}"); }
             }
         }
 
         private DecisionState TryGetCurrentState()
         {
-            try { return _currentStateAccessor(); }
+            try { return _appTracking.CurrentState; }
             catch (Exception ex)
             {
                 _logger.Warning($"EnrollmentTerminationHandler: current state accessor threw: {ex.Message}");
@@ -354,7 +256,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
 
         private IReadOnlyList<AppPackageState> TryGetPackageStates()
         {
-            try { return _packageStatesAccessor(); }
+            try { return _appTracking.PackageStates; }
             catch (Exception ex)
             {
                 _logger.Warning($"EnrollmentTerminationHandler: package states accessor threw: {ex.Message}");
@@ -364,7 +266,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
 
         private IReadOnlyDictionary<string, AppInstallTiming> TryGetAppTimings()
         {
-            try { return _appTimingsAccessor() ?? new Dictionary<string, AppInstallTiming>(); }
+            try { return _appTracking.AppTimings ?? new Dictionary<string, AppInstallTiming>(); }
             catch (Exception ex)
             {
                 _logger.Warning($"EnrollmentTerminationHandler: app timings accessor threw: {ex.Message}");
@@ -397,7 +299,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 int? wgPart;
                 if (args.StageName == SessionStage.WhiteGloveSealed.ToString())
                     wgPart = 1;
-                else if (_isWhiteGlovePart2Accessor != null && _isWhiteGlovePart2Accessor())
+                else if (_session.IsWhiteGlovePart2)
                     wgPart = 2;
                 else
                     wgPart = null;
@@ -492,7 +394,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
 
         private int TryGetIgnoredCount()
         {
-            try { return _ignoredCountAccessor(); }
+            try { return _appTracking.IgnoredCount; }
             catch (Exception ex)
             {
                 _logger.Warning($"EnrollmentTerminationHandler: ignoredCount accessor threw: {ex.Message}");
@@ -525,20 +427,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         ///         deadline; the agent has stopped monitoring, not the ESP).</item>
         /// </list>
         /// <para>
-        /// Best-effort: any accessor failure is logged and swallowed. Skipped silently when
-        /// the host did not wire <see cref="_promoteActiveInstallsToStuck"/> (tests).
+        /// Best-effort: any accessor failure is logged and swallowed.
         /// </para>
         /// </summary>
         private void MaybePromoteActiveInstallsAsStuck(DecisionState state, EnrollmentTerminatedEventArgs args)
         {
-            if (_promoteActiveInstallsToStuck == null) return;
             if (!ShouldPromoteActiveInstallsAsStuck(state, args)) return;
 
             try
             {
                 var timeoutMinutes = state.ScenarioObservations?.EspSyncFailureTimeoutMinutes?.Value;
                 EspTerminalFailureSnapshot failureContext = null;
-                try { failureContext = _lastEspTerminalFailureAccessor?.Invoke(); }
+                try { failureContext = _appTracking.LastEspTerminalFailure; }
                 catch (Exception ex) { _logger.Warning($"EnrollmentTerminationHandler: lastEspTerminalFailureAccessor threw: {ex.Message}"); }
 
                 // Codex review (P3, 2026-05-28): only let the HRESULT drive the per-app
@@ -555,7 +455,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
 
                 var (failureType, message) = AppFailureTypes.ClassifyEspAppsFailure(effectiveErrorCode, timeoutMinutes);
 
-                var promoted = _promoteActiveInstallsToStuck(failureType, message, effectiveErrorCode);
+                var promoted = _appTracking.PromoteActiveInstallsToStuck(failureType, message, effectiveErrorCode);
                 var count = promoted?.Count ?? 0;
                 if (count > 0)
                 {
@@ -747,7 +647,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
 
             try
             {
-                _triggerReboot(delay);
+                _shutdownGate.TriggerReboot(delay);
                 _logger.Info($"EnrollmentTerminationHandler: standalone reboot queued via shutdown.exe /r /t {delay}.");
             }
             catch (Exception ex)
@@ -797,14 +697,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         // stage) and for diagnostics to show how long the agent ran.
         // <para>
         // Shutdown-gap closure (2026-05-15): participates in the cross-path idempotency gate
-        // owned by AgentRuntimeHost so a Terminated event that races a Ctrl+C / ProcessExit
-        // does not produce two <c>agent_shutting_down</c> events on the wire. When the gate
-        // is not wired (tests / standalone construction), the legacy always-emit behaviour
-        // is preserved.
+        // owned by AgentRuntimeHost (via <see cref="IShutdownGate.TryClaimShutdownEvent"/>)
+        // so a Terminated event that races a Ctrl+C / ProcessExit does not produce two
+        // <c>agent_shutting_down</c> events on the wire.
         // </para>
         private void EmitAgentShuttingDown(EnrollmentTerminatedEventArgs args)
         {
-            if (_tryClaimShutdownEvent != null && !_tryClaimShutdownEvent())
+            if (!_shutdownGate.TryClaimShutdownEvent())
             {
                 _logger.Debug("EnrollmentTerminationHandler: agent_shutting_down already emitted via gap-path — skipping duplicate.");
                 return;
@@ -864,19 +763,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         }
 
         /// <summary>
-        /// Option 2 helper — writes the <c>clean-exit.marker</c> early via the host-supplied
-        /// hook so the next agent run classifies <c>previousExit=clean</c> instead of
-        /// <c>reboot_kill</c>, even when Windows kills the process between
-        /// <see cref="_signalShutdown"/> and the legacy <c>AppDomain.ProcessExit</c> handler
-        /// (typical race in admin-triggered reseal-reboots). No-op when the host did not
-        /// wire the accessor (legacy call sites + tests).
+        /// Option 2 helper — writes the <c>clean-exit.marker</c> early via
+        /// <see cref="IShutdownGate.WriteCleanExitMarker"/> so the next agent run classifies
+        /// <c>previousExit=clean</c> instead of <c>reboot_kill</c>, even when Windows kills
+        /// the process between <see cref="IShutdownGate.SignalShutdown"/> and the legacy
+        /// <c>AppDomain.ProcessExit</c> handler (typical race in admin-triggered
+        /// reseal-reboots).
         /// </summary>
         private void TryWriteCleanExitMarker()
         {
-            if (_writeCleanExitMarker == null) return;
             try
             {
-                _writeCleanExitMarker();
+                _shutdownGate.WriteCleanExitMarker();
                 _logger.Debug("EnrollmentTerminationHandler: clean-exit marker written (early).");
             }
             catch (Exception ex)
@@ -920,32 +818,33 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             //   Phase B — wait for the spool to acknowledge upload to the backend (the
             //     pre-Codex-Finding-2 behaviour, kept).
             //
-            // When neither accessor is wired (tests / paranoid fallback), we keep V1
+            // When neither surface is observable (tests / paranoid fallback), we keep V1
             // parity and just sleep the bounded period.
-            if (_spoolDrainPeriod <= TimeSpan.Zero) return;
+            var drainPeriod = _drain.SpoolDrainPeriod;
+            if (drainPeriod <= TimeSpan.Zero) return;
 
-            if (_ingressPendingSignalCountAccessor == null && _pendingItemCountAccessor == null)
+            if (!_drain.CanObserveIngress && !_drain.CanObserveSpool)
             {
-                try { Task.Delay(_spoolDrainPeriod).Wait(); }
+                try { Task.Delay(drainPeriod).Wait(); }
                 catch { /* best-effort */ }
                 return;
             }
 
-            var deadline = DateTime.UtcNow + _spoolDrainPeriod;
+            var deadline = DateTime.UtcNow + drainPeriod;
 
-            if (_ingressPendingSignalCountAccessor != null)
+            if (_drain.CanObserveIngress)
             {
                 WaitFor(
                     label: "ingress",
-                    pollAccessor: () => _ingressPendingSignalCountAccessor(),
+                    pollAccessor: () => _drain.IngressPendingSignalCount,
                     deadline: deadline);
             }
 
-            if (_pendingItemCountAccessor != null)
+            if (_drain.CanObserveSpool)
             {
                 WaitFor(
                     label: "spool",
-                    pollAccessor: () => (long)_pendingItemCountAccessor(),
+                    pollAccessor: () => (long)_drain.SpoolPendingItemCount,
                     deadline: deadline);
             }
         }
@@ -1001,18 +900,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             if (_post == null || evt == null) return;
             try { _post.Emit(evt); }
             catch (Exception ex) { _logger.Debug($"EnrollmentTerminationHandler: event emission '{evt?.EventType}' threw: {ex.Message}"); }
-        }
-
-        private static void DefaultTriggerReboot(int delaySeconds)
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "shutdown.exe"),
-                Arguments = $"/r /t {delaySeconds} /c \"Autopilot enrollment completed - rebooting\"",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            Process.Start(psi);
         }
     }
 }

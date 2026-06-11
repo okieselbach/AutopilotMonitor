@@ -176,12 +176,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
             {
                 config ??= BuildConfig();
                 return new EnrollmentTerminationHandler(
-                    configuration: config,
+                    session: new TerminationSessionContext(
+                        configuration: config,
+                        stateDirectory: StateDir,
+                        agentStartTimeUtc: StartUtc,
+                        agentVersion: agentVersion,
+                        sessionPersistence: SessionPersistence),
+                    appTracking: new RigAppTracking(this),
+                    drainStatus: new RigDrainStatus(this),
+                    shutdownGate: new RigShutdownGate(this),
                     logger: Logger,
-                    stateDirectory: StateDir,
-                    agentStartTimeUtc: StartUtc,
-                    currentStateAccessor: () => State,
-                    packageStatesAccessor: () => Packages,
                     cleanupServiceFactory: () => CleanupService,
                     uploadDiagnosticsAsync: (succeeded, suffix) =>
                     {
@@ -190,42 +194,84 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
                         LastDiagnosticsSuffix = suffix;
                         return Task.FromResult(DiagnosticsResult ?? new DiagnosticsUploadResult { BlobName = "blob" });
                     },
-                    signalShutdown: () =>
-                    {
-                        Interlocked.Increment(ref ShutdownSignalled);
-                        TerminationActionLog.Add("signalShutdown");
-                    },
                     analyzerManager: null,
                     post: Post,
-                    sessionPersistence: SessionPersistence,
-                    triggerReboot: delay =>
-                    {
-                        Interlocked.Increment(ref RebootInvocations);
-                        RebootDelaySeconds = delay;
-                    },
                     // Zero out the timing ceremony for tests — production paths are covered by
                     // the dedicated V1-parity tests below which opt back in via their own Rig.
-                    lateEventGracePeriod: TimeSpan.Zero,
-                    spoolDrainPeriod: SpoolDrainPeriodOverride,
-                    appTimingsAccessor: () => AppTimingsOverride ?? new Dictionary<string, AppInstallTiming>(),
-                    agentVersion: agentVersion,
-                    pendingItemCountAccessor: PendingItemCountAccessor,
-                    writeCleanExitMarker: WriteCleanExitMarkerHook ?? new Action(() =>
-                    {
-                        Interlocked.Increment(ref CleanExitMarkerWrites);
-                        TerminationActionLog.Add("writeCleanExitMarker");
-                    }),
-                    ingressPendingSignalCountAccessor: IngressPendingSignalCountAccessor,
-                    promoteActiveInstallsToStuck: (failureType, message, errorCode) =>
-                    {
-                        PromotionCalls.Add((failureType, message, errorCode));
-                        return PromotionReturnValue;
-                    },
-                    tryClaimShutdownEvent: TryClaimShutdownEventOverride,
-                    lastEspTerminalFailureAccessor: () => LastEspTerminalFailureOverride);
+                    lateEventGracePeriod: TimeSpan.Zero);
             }
 
             public void Dispose() => Tmp.Dispose();
+        }
+
+        /// <summary>ARCH-F2 — grouped read-model fake over the rig's mutable test state.</summary>
+        private sealed class RigAppTracking : IAppTrackingReadModel
+        {
+            private readonly Rig _rig;
+            public RigAppTracking(Rig rig) { _rig = rig; }
+
+            public DecisionState CurrentState => _rig.State;
+            public IReadOnlyList<AppPackageState>? PackageStates => _rig.Packages;
+            public IReadOnlyDictionary<string, AppInstallTiming>? AppTimings =>
+                _rig.AppTimingsOverride ?? new Dictionary<string, AppInstallTiming>();
+            public int IgnoredCount => 0;
+
+            public IReadOnlyList<string> PromoteActiveInstallsToStuck(string failureType, string message, string? errorCode)
+            {
+                _rig.PromotionCalls.Add((failureType, message, errorCode!));
+                return _rig.PromotionReturnValue;
+            }
+
+            public EspTerminalFailureSnapshot? LastEspTerminalFailure => _rig.LastEspTerminalFailureOverride;
+        }
+
+        /// <summary>
+        /// ARCH-F2 — drain fake. The nullable rig accessors map onto the capability flags:
+        /// an unset accessor means the surface is unobservable (legacy blind-delay path).
+        /// </summary>
+        private sealed class RigDrainStatus : IDrainStatus
+        {
+            private readonly Rig _rig;
+            public RigDrainStatus(Rig rig) { _rig = rig; }
+
+            public TimeSpan SpoolDrainPeriod => _rig.SpoolDrainPeriodOverride;
+            public bool CanObserveIngress => _rig.IngressPendingSignalCountAccessor != null;
+            public long IngressPendingSignalCount => _rig.IngressPendingSignalCountAccessor!();
+            public bool CanObserveSpool => _rig.PendingItemCountAccessor != null;
+            public int SpoolPendingItemCount => _rig.PendingItemCountAccessor!();
+        }
+
+        /// <summary>ARCH-F2 — recording shutdown gate (no real shutdown.exe in tests).</summary>
+        private sealed class RigShutdownGate : IShutdownGate
+        {
+            private readonly Rig _rig;
+            public RigShutdownGate(Rig rig) { _rig = rig; }
+
+            public void SignalShutdown()
+            {
+                Interlocked.Increment(ref _rig.ShutdownSignalled);
+                _rig.TerminationActionLog.Add("signalShutdown");
+            }
+
+            public void TriggerReboot(int delaySeconds)
+            {
+                Interlocked.Increment(ref _rig.RebootInvocations);
+                _rig.RebootDelaySeconds = delaySeconds;
+            }
+
+            public void WriteCleanExitMarker()
+            {
+                if (_rig.WriteCleanExitMarkerHook != null)
+                {
+                    _rig.WriteCleanExitMarkerHook();
+                    return;
+                }
+                Interlocked.Increment(ref _rig.CleanExitMarkerWrites);
+                _rig.TerminationActionLog.Add("writeCleanExitMarker");
+            }
+
+            // Null override = legacy always-emit behaviour (claim always succeeds).
+            public bool TryClaimShutdownEvent() => _rig.TryClaimShutdownEventOverride?.Invoke() ?? true;
         }
 
         private static EnrollmentTerminatedEventArgs Args(

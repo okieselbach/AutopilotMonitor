@@ -122,9 +122,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             }
 
             // --- Spool stats (P2 telemetry) ---
-            // _telemetrySpool is the live transport-layer spool, plumbed through
-            // DefaultComponentFactory.SetTelemetrySpool from EnrollmentOrchestrator.Start
-            // step 3. Null only on test fakes that don't construct a real spool.
+            // _telemetrySpool is the live transport-layer spool, passed by
+            // EnrollmentOrchestrator.Start into IComponentFactory.CreateCollectorHosts
+            // (ARCH-F4). Null only on test fakes that don't construct a real spool.
             int pendingItemCount = 0;
             long spoolFileSizeBytes = 0L;
             if (_telemetrySpool != null)
