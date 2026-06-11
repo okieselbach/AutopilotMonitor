@@ -93,6 +93,35 @@ namespace AutopilotMonitor.DecisionCore.Tests
         }
 
         [Fact]
+        public void RealmJoinDetected_records_ProductVersion_and_ReleaseChannel_facts()
+        {
+            var engine = new DecisionEngine();
+            var state = PrimeClassicAwaitingDesktop(engine);
+
+            var step = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(5),
+                new Dictionary<string, string>
+                {
+                    [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "100",
+                    [DecisionEngine.RealmJoinPayloadKeys.ProductVersion] = "4.21.6",
+                    [DecisionEngine.RealmJoinPayloadKeys.ReleaseChannel] = "canary",
+                }));
+
+            Assert.Equal("4.21.6", step.NewState.RealmJoinFacts.ProductVersion!.Value);
+            Assert.Equal("canary", step.NewState.RealmJoinFacts.ReleaseChannel!.Value);
+
+            // Set-once: a replayed Detected signal with different values must not overwrite.
+            var replay = engine.Reduce(step.NewState, MakeSignal(6, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(6),
+                new Dictionary<string, string>
+                {
+                    [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "100",
+                    [DecisionEngine.RealmJoinPayloadKeys.ProductVersion] = "9.9.9",
+                    [DecisionEngine.RealmJoinPayloadKeys.ReleaseChannel] = "beta",
+                }));
+            Assert.Equal("4.21.6", replay.NewState.RealmJoinFacts.ProductVersion!.Value);
+            Assert.Equal("canary", replay.NewState.RealmJoinFacts.ReleaseChannel!.Value);
+        }
+
+        [Fact]
         public void RealmJoinGate_closed_defers_finalizing_when_DesktopArrived_arrives_with_hello_already_resolved()
         {
             // Sequence: Hello + RealmJoinDetected before Desktop, then DesktopArrived. The AND-gate

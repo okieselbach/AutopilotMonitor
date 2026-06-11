@@ -33,6 +33,7 @@ namespace AutopilotMonitor.DecisionCore.State
             outcome: null,
             selfDeployingDeferredCompletion: null,
             productVersion: null,
+            releaseChannel: null,
             packages: Array.Empty<RealmJoinPackageFact>());
 
         public RealmJoinFacts(
@@ -42,6 +43,7 @@ namespace AutopilotMonitor.DecisionCore.State
             SignalFact<string>? outcome,
             SignalFact<bool>? selfDeployingDeferredCompletion,
             SignalFact<string>? productVersion,
+            SignalFact<string>? releaseChannel,
             IReadOnlyList<RealmJoinPackageFact> packages)
         {
             DetectedUtc = detectedUtc;
@@ -50,6 +52,7 @@ namespace AutopilotMonitor.DecisionCore.State
             Outcome = outcome;
             SelfDeployingDeferredCompletion = selfDeployingDeferredCompletion;
             ProductVersion = productVersion;
+            ReleaseChannel = releaseChannel;
             Packages = packages ?? Array.Empty<RealmJoinPackageFact>();
         }
 
@@ -74,11 +77,18 @@ namespace AutopilotMonitor.DecisionCore.State
         public SignalFact<bool>? SelfDeployingDeferredCompletion { get; }
 
         /// <summary>
-        /// <c>ProductVersion</c> read from <c>C:\Program Files\RealmJoin\RealmJoin.exe</c> at
-        /// detection time. Observability-only — never gates a decision. Null when the binary
-        /// was missing or unreadable.
+        /// Bare version parsed from <c>C:\Program Files\RealmJoin\RealmJoin.exe</c>'s
+        /// file-version resource at detection time. Observability-only — never gates a
+        /// decision. Null when the binary was missing or unreadable.
         /// </summary>
         public SignalFact<string>? ProductVersion { get; }
+
+        /// <summary>
+        /// RJ release channel parsed from the version string's SemVer prerelease tag at
+        /// detection time: <c>"release"</c> (untagged stable), <c>"beta"</c> or <c>"canary"</c>.
+        /// Observability-only — never gates a decision. Null when the version was unreadable.
+        /// </summary>
+        public SignalFact<string>? ReleaseChannel { get; }
 
         /// <summary>Tracked per-package install rows (machine + user scope combined).</summary>
         public IReadOnlyList<RealmJoinPackageFact> Packages { get; }
@@ -93,6 +103,7 @@ namespace AutopilotMonitor.DecisionCore.State
                 outcome: Outcome,
                 selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
                 productVersion: ProductVersion,
+                releaseChannel: ReleaseChannel,
                 packages: Packages);
         }
 
@@ -112,6 +123,27 @@ namespace AutopilotMonitor.DecisionCore.State
                 outcome: Outcome,
                 selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
                 productVersion: new SignalFact<string>(productVersion, sourceSignalOrdinal),
+                releaseChannel: ReleaseChannel,
+                packages: Packages);
+        }
+
+        /// <summary>
+        /// Set-once observability fact carrying the RJ release channel parsed from the
+        /// <c>RealmJoin.exe</c> version string. No-op when <paramref name="releaseChannel"/>
+        /// is empty or already set. Pure metadata — never participates in a gate decision.
+        /// </summary>
+        public RealmJoinFacts WithReleaseChannel(string releaseChannel, long sourceSignalOrdinal)
+        {
+            if (ReleaseChannel != null) return this;
+            if (string.IsNullOrEmpty(releaseChannel)) return this;
+            return new RealmJoinFacts(
+                detectedUtc: DetectedUtc,
+                resolvedUtc: ResolvedUtc,
+                lastDeploymentPhase: LastDeploymentPhase,
+                outcome: Outcome,
+                selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
+                productVersion: ProductVersion,
+                releaseChannel: new SignalFact<string>(releaseChannel, sourceSignalOrdinal),
                 packages: Packages);
         }
 
@@ -125,6 +157,7 @@ namespace AutopilotMonitor.DecisionCore.State
                 outcome: new SignalFact<string>(OutcomeResolved, sourceSignalOrdinal),
                 selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
                 productVersion: ProductVersion,
+                releaseChannel: ReleaseChannel,
                 packages: Packages);
         }
 
@@ -138,6 +171,7 @@ namespace AutopilotMonitor.DecisionCore.State
                 outcome: Outcome,
                 selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
                 productVersion: ProductVersion,
+                releaseChannel: ReleaseChannel,
                 packages: Packages);
         }
 
@@ -151,6 +185,7 @@ namespace AutopilotMonitor.DecisionCore.State
                 outcome: new SignalFact<string>(OutcomeTimeout, sourceSignalOrdinal),
                 selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
                 productVersion: ProductVersion,
+                releaseChannel: ReleaseChannel,
                 packages: Packages);
         }
 
@@ -164,6 +199,7 @@ namespace AutopilotMonitor.DecisionCore.State
                 outcome: Outcome,
                 selfDeployingDeferredCompletion: new SignalFact<bool>(true, sourceSignalOrdinal),
                 productVersion: ProductVersion,
+                releaseChannel: ReleaseChannel,
                 packages: Packages);
         }
 
@@ -183,6 +219,7 @@ namespace AutopilotMonitor.DecisionCore.State
                 outcome: Outcome,
                 selfDeployingDeferredCompletion: null,
                 productVersion: ProductVersion,
+                releaseChannel: ReleaseChannel,
                 packages: Packages);
         }
 
@@ -237,6 +274,7 @@ namespace AutopilotMonitor.DecisionCore.State
                 outcome: Outcome,
                 selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
                 productVersion: ProductVersion,
+                releaseChannel: ReleaseChannel,
                 packages: copy);
         }
 
@@ -305,6 +343,7 @@ namespace AutopilotMonitor.DecisionCore.State
                 outcome: Outcome,
                 selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
                 productVersion: ProductVersion,
+                releaseChannel: ReleaseChannel,
                 packages: copy);
         }
     }

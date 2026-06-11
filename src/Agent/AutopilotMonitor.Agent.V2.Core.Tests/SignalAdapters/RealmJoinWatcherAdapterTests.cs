@@ -86,6 +86,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
         }
 
         [Fact]
+        public void TriggerDetectedFromTest_includes_ReleaseChannel_when_provided()
+        {
+            using var f = new Fixture();
+            using var adapter = new RealmJoinWatcherAdapter(f.Watcher, f.Ingress, f.Clock);
+
+            adapter.TriggerDetectedFromTest(phase: 100, productVersion: "4.21.6", releaseChannel: "canary");
+
+            var decision = f.Ingress.Posted.Single(p => p.Kind == DecisionSignalKind.RealmJoinDetected);
+            Assert.Equal("4.21.6", decision.Payload![DecisionEngine.RealmJoinPayloadKeys.ProductVersion]);
+            Assert.Equal("canary", decision.Payload[DecisionEngine.RealmJoinPayloadKeys.ReleaseChannel]);
+
+            var info = f.Ingress.Posted.Single(p =>
+                p.Kind == DecisionSignalKind.InformationalEvent
+                && p.Payload != null
+                && p.Payload.TryGetValue(SignalPayloadKeys.EventType, out var et)
+                && et == SharedEventTypes.RealmJoinDetected);
+            Assert.Equal("canary", info.Payload!["releaseChannel"]);
+            Assert.Contains("version=4.21.6", info.Payload[SignalPayloadKeys.Message]);
+            Assert.Contains("channel=canary", info.Payload[SignalPayloadKeys.Message]);
+        }
+
+        [Fact]
         public void TriggerDetectedFromTest_omits_ProductVersion_when_null_or_empty()
         {
             using var f = new Fixture();
@@ -95,6 +117,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
 
             var decision = f.Ingress.Posted.Single(p => p.Kind == DecisionSignalKind.RealmJoinDetected);
             Assert.False(decision.Payload!.ContainsKey(DecisionEngine.RealmJoinPayloadKeys.ProductVersion));
+            Assert.False(decision.Payload.ContainsKey(DecisionEngine.RealmJoinPayloadKeys.ReleaseChannel));
 
             var info = f.Ingress.Posted.Single(p =>
                 p.Kind == DecisionSignalKind.InformationalEvent
@@ -102,7 +125,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
                 && p.Payload.TryGetValue(SignalPayloadKeys.EventType, out var et)
                 && et == SharedEventTypes.RealmJoinDetected);
             Assert.False(info.Payload!.ContainsKey("productVersion"));
+            Assert.False(info.Payload.ContainsKey("releaseChannel"));
             Assert.DoesNotContain("version=", info.Payload[SignalPayloadKeys.Message]);
+            Assert.DoesNotContain("channel=", info.Payload[SignalPayloadKeys.Message]);
         }
 
         [Fact]

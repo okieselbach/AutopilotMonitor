@@ -103,30 +103,68 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         public const string RealmJoinExePathX86 = @"C:\Program Files (x86)\RealmJoin\RealmJoin.exe";
 
         /// <summary>
-        /// Best-effort read of <c>RealmJoin.exe</c>'s ProductVersion via
+        /// Release-channel name reported when the version string carries no SemVer prerelease
+        /// tag. Per the RJ developer, only beta/canary builds are tagged — untagged == stable.
+        /// </summary>
+        public const string ReleaseChannelStable = "release";
+
+        /// <summary>
+        /// Best-effort read of <c>RealmJoin.exe</c>'s version + release channel via
         /// <see cref="FileVersionInfo.GetVersionInfo"/>. Wrapped in a defensive try/catch so a
-        /// missing/locked/inaccessible binary returns <c>null</c> instead of throwing —
+        /// missing/locked/inaccessible binary returns an empty result instead of throwing —
         /// version is observability-only and must never block the detection signal. Probes the
         /// canonical 64-bit path first, then the (x86) fallback.
         /// </summary>
-        public static string? TryReadRealmJoinProductVersion()
+        public static RealmJoinVersionInfo TryReadRealmJoinVersionInfo()
         {
-            return TryReadVersion(RealmJoinExePath) ?? TryReadVersion(RealmJoinExePathX86);
+            return TryReadVersionInfo(RealmJoinExePath) ?? TryReadVersionInfo(RealmJoinExePathX86) ?? RealmJoinVersionInfo.Empty;
         }
 
-        private static string? TryReadVersion(string path)
+        private static RealmJoinVersionInfo? TryReadVersionInfo(string path)
         {
             try
             {
                 if (!File.Exists(path)) return null;
                 var info = FileVersionInfo.GetVersionInfo(path);
-                var version = info.ProductVersion;
-                return string.IsNullOrWhiteSpace(version) ? info.FileVersion : version;
+                // RJ inverts the usual .NET SDK resource layout: the FileVersion STRING entry
+                // carries the full SemVer including the channel tag and build metadata
+                // ("4.21.6-canary+476277.d320cac0") while the ProductVersion string is the
+                // channel-less "4.21.6". Prefer FileVersion, fall back to ProductVersion.
+                var raw = !string.IsNullOrWhiteSpace(info.FileVersion) ? info.FileVersion : info.ProductVersion;
+                if (string.IsNullOrWhiteSpace(raw)) return null;
+                return ParseVersionAndChannel(raw!);
             }
             catch
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Split a SemVer-shaped version string (<c>version[-prerelease][+buildmetadata]</c>)
+        /// into the bare version and the RJ release channel. The prerelease tag IS the channel
+        /// ("beta", "canary"); absence of a tag means <see cref="ReleaseChannelStable"/>.
+        /// Build metadata is dropped.
+        /// </summary>
+        internal static RealmJoinVersionInfo ParseVersionAndChannel(string raw)
+        {
+            var value = raw.Trim();
+            var plus = value.IndexOf('+');
+            if (plus >= 0) value = value.Substring(0, plus);
+
+            var dash = value.IndexOf('-');
+            if (dash < 0)
+            {
+                return new RealmJoinVersionInfo(
+                    productVersion: value.Length == 0 ? null : value,
+                    releaseChannel: value.Length == 0 ? null : ReleaseChannelStable);
+            }
+
+            var version = value.Substring(0, dash).Trim();
+            var channel = value.Substring(dash + 1).Trim();
+            return new RealmJoinVersionInfo(
+                productVersion: version.Length == 0 ? null : version,
+                releaseChannel: channel.Length == 0 ? ReleaseChannelStable : channel);
         }
 
         /// <summary>
@@ -223,6 +261,31 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 return false;
             }
         }
+    }
+
+    /// <summary>
+    /// Version + release channel of the installed <c>RealmJoin.exe</c>, parsed from its
+    /// file-version resource by <see cref="RealmJoinInfo.TryReadRealmJoinVersionInfo"/>.
+    /// Both fields are <c>null</c> when the binary is missing or unreadable.
+    /// </summary>
+    internal readonly struct RealmJoinVersionInfo
+    {
+        public static readonly RealmJoinVersionInfo Empty = new RealmJoinVersionInfo(null, null);
+
+        public RealmJoinVersionInfo(string? productVersion, string? releaseChannel)
+        {
+            ProductVersion = productVersion;
+            ReleaseChannel = releaseChannel;
+        }
+
+        /// <summary>Bare version without prerelease tag or build metadata, e.g. <c>4.21.6</c>.</summary>
+        public string? ProductVersion { get; }
+
+        /// <summary>
+        /// SemVer prerelease tag ("beta", "canary") or <see cref="RealmJoinInfo.ReleaseChannelStable"/>
+        /// when the version string carries no tag.
+        /// </summary>
+        public string? ReleaseChannel { get; }
     }
 
     /// <summary>

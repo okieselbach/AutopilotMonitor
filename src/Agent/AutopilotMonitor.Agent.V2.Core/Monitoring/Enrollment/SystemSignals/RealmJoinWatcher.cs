@@ -13,16 +13,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
     {
         public int DeploymentPhase { get; }
         /// <summary>
-        /// ProductVersion read from <c>C:\Program Files\RealmJoin\RealmJoin.exe</c>
-        /// (or the x86 fallback). <c>null</c> when the binary is missing, locked, or read
-        /// fails — version is observability-only and never blocks detection.
+        /// Bare version parsed from <c>C:\Program Files\RealmJoin\RealmJoin.exe</c>'s
+        /// file-version resource (or the x86 fallback), e.g. <c>4.21.6</c>. <c>null</c> when
+        /// the binary is missing, locked, or read fails — version is observability-only and
+        /// never blocks detection.
         /// </summary>
         public string? ProductVersion { get; }
 
-        public RealmJoinDetectedEventArgs(int deploymentPhase, string? productVersion = null)
+        /// <summary>
+        /// RJ release channel parsed from the version string's SemVer prerelease tag
+        /// ("beta", "canary"); <see cref="RealmJoinInfo.ReleaseChannelStable"/> when untagged;
+        /// <c>null</c> when the version was unreadable.
+        /// </summary>
+        public string? ReleaseChannel { get; }
+
+        public RealmJoinDetectedEventArgs(int deploymentPhase, string? productVersion = null, string? releaseChannel = null)
         {
             DeploymentPhase = deploymentPhase;
             ProductVersion = productVersion;
+            ReleaseChannel = releaseChannel;
         }
     }
 
@@ -546,12 +555,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             if (fireDetected)
             {
                 var initial = phase ?? 0;
-                // Read RJ ProductVersion best-effort (fail-soft to null) ONLY when the Detected
-                // event actually fires — single read per session lifetime keeps any potential
-                // file-system cost to a single hit.
-                var productVersion = RealmJoinInfo.TryReadRealmJoinProductVersion();
-                _logger.Info($"RealmJoinWatcher: RJ detected (phase={initial}, productVersion={productVersion ?? "<unknown>"})");
-                try { RealmJoinDetected?.Invoke(this, new RealmJoinDetectedEventArgs(initial, productVersion)); }
+                // Read RJ version + release channel best-effort (fail-soft to null) ONLY when
+                // the Detected event actually fires — single read per session lifetime keeps
+                // any potential file-system cost to a single hit.
+                var versionInfo = RealmJoinInfo.TryReadRealmJoinVersionInfo();
+                _logger.Info($"RealmJoinWatcher: RJ detected (phase={initial}, productVersion={versionInfo.ProductVersion ?? "<unknown>"}, releaseChannel={versionInfo.ReleaseChannel ?? "<unknown>"})");
+                try { RealmJoinDetected?.Invoke(this, new RealmJoinDetectedEventArgs(initial, versionInfo.ProductVersion, versionInfo.ReleaseChannel)); }
                 catch (Exception ex) { _logger.Error("RealmJoinWatcher: RealmJoinDetected handler threw", ex); }
             }
 

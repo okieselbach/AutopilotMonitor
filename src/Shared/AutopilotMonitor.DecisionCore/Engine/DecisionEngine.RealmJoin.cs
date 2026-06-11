@@ -31,8 +31,11 @@ namespace AutopilotMonitor.DecisionCore.Engine
             public const string Scope = "scope";          // "machine" | "user"
             public const string Success = "success";       // "true" | "false"
             public const string LastExitCode = "lastExitCode";
-            // Set on RealmJoinDetected by the agent adapter from RealmJoin.exe ProductVersion.
+            // Set on RealmJoinDetected by the agent adapter from RealmJoin.exe's
+            // file-version resource: bare version + release channel ("release"/"beta"/"canary"
+            // — the SemVer prerelease tag, absent tag == stable release).
             public const string ProductVersion = "productVersion";
+            public const string ReleaseChannel = "releaseChannel";
         }
 
         /// <summary>
@@ -80,6 +83,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
             var phase = TryReadPhase(signal);
             var productVersion = TryReadString(signal, RealmJoinPayloadKeys.ProductVersion);
+            var releaseChannel = TryReadString(signal, RealmJoinPayloadKeys.ReleaseChannel);
             var updatedFacts = state.RealmJoinFacts.WithDetected(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
             if (phase.HasValue)
             {
@@ -88,6 +92,10 @@ namespace AutopilotMonitor.DecisionCore.Engine
             if (!string.IsNullOrEmpty(productVersion))
             {
                 updatedFacts = updatedFacts.WithProductVersion(productVersion!, signal.SessionSignalOrdinal);
+            }
+            if (!string.IsNullOrEmpty(releaseChannel))
+            {
+                updatedFacts = updatedFacts.WithReleaseChannel(releaseChannel!, signal.SessionSignalOrdinal);
             }
             builder.RealmJoinFacts = updatedFacts;
 

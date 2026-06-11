@@ -51,8 +51,8 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         }
 
         // Test seams
-        internal void TriggerDetectedFromTest(int phase, string? productVersion = null) =>
-            OnDetected(this, new RealmJoinDetectedEventArgs(phase, productVersion));
+        internal void TriggerDetectedFromTest(int phase, string? productVersion = null, string? releaseChannel = null) =>
+            OnDetected(this, new RealmJoinDetectedEventArgs(phase, productVersion, releaseChannel));
         internal void TriggerResolvedFromTest(int phase) => OnResolved(this, new RealmJoinResolvedEventArgs(phase));
         internal void TriggerPhaseChangedFromTest(int prev, int curr) => OnPhaseChanged(this, new RealmJoinPhaseChangedEventArgs(prev, curr));
         internal void TriggerPackageStartedFromTest(string scope, RealmJoinPackageSnapshot snap) => OnPackageStarted(this, new RealmJoinPackageEventArgs(scope, snap));
@@ -68,6 +68,10 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             {
                 payload[DecisionEngine.RealmJoinPayloadKeys.ProductVersion] = e.ProductVersion!;
             }
+            if (!string.IsNullOrEmpty(e.ReleaseChannel))
+            {
+                payload[DecisionEngine.RealmJoinPayloadKeys.ReleaseChannel] = e.ReleaseChannel!;
+            }
 
             _ingress.Post(
                 kind: DecisionSignalKind.RealmJoinDetected,
@@ -75,7 +79,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 sourceOrigin: SourceLabel,
                 evidence: BuildEvidence(
                     "realmjoin-detected-v1",
-                    $"RealmJoin Parameters key observed (phase={e.DeploymentPhase}, productVersion={e.ProductVersion ?? "<unknown>"})"),
+                    $"RealmJoin Parameters key observed (phase={e.DeploymentPhase}, productVersion={e.ProductVersion ?? "<unknown>"}, releaseChannel={e.ReleaseChannel ?? "<unknown>"})"),
                 payload: payload);
 
             var data = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -87,11 +91,16 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             {
                 data["productVersion"] = e.ProductVersion!;
             }
+            if (!string.IsNullOrEmpty(e.ReleaseChannel))
+            {
+                data["releaseChannel"] = e.ReleaseChannel!;
+            }
             var versionTail = string.IsNullOrEmpty(e.ProductVersion) ? string.Empty : $", version={e.ProductVersion}";
+            var channelTail = string.IsNullOrEmpty(e.ReleaseChannel) ? string.Empty : $", channel={e.ReleaseChannel}";
             _post.Emit(
                 eventType: SharedConstants.EventTypes.RealmJoinDetected,
                 source: SourceLabel,
-                message: $"RealmJoin deployment detected (phase={e.DeploymentPhase}{versionTail})",
+                message: $"RealmJoin deployment detected (phase={e.DeploymentPhase}{versionTail}{channelTail})",
                 severity: EventSeverity.Info,
                 immediateUpload: true,
                 data: data,
