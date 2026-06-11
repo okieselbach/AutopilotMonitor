@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Management;
 using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
 using SharedEventTypes = AutopilotMonitor.Shared.Constants.EventTypes;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
@@ -13,6 +14,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
     /// Fires DesktopArrived event exactly once per agent lifetime.
     /// Used for enrollment completion in no-ESP scenarios (WDP v2, ESP disabled) and
     /// as a backup signal for AccountSetup phase correction.
+    /// <para>
+    /// Owner resolution (session 4d5a0b78 fix, 2026-06-11): primary path is a WTS session
+    /// query (<c>WTSQuerySessionInformation</c> with WTSUserName/WTSDomainName) — fast and
+    /// independent of the WinMgmt service; WMI <c>Win32_Process.GetOwner</c> is the fallback.
+    /// On the affected device class GetOwner failed on every poll, so the owner was never
+    /// resolved and the Desktop half of the completion AND-gate starved.
+    /// </para>
     /// <para>
     /// <b>Liveness telemetry</b> (state-change-only, max 3 events per detector lifetime, NOT periodic):
     /// </para>
@@ -44,8 +52,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private bool _explorerEverSeen;            // any explorer.exe observed at all (session 0 OR not)
         private bool _anyNonZeroSessionEverSeen;   // explorer.exe in a non-SYSTEM session observed
         private int _wmiErrorCountSinceStart;
+        private int _wtsErrorCountSinceStart;
         private bool _noCandidateFired;
         private readonly int _noCandidateTimeoutMinutes;
+
+        // Test seams (session 4d5a0b78 fix): owner resolution is injectable so unit tests can
+        // drive the WTS-primary / WMI-fallback order without a live session manager or WinMgmt.
+        // Null = production defaults (GetSessionOwnerViaWts / GetProcessOwnerViaWmi).
+        internal Func<int, string> SessionOwnerResolver { get; set; }
+        internal Func<int, string> ProcessOwnerResolver { get; set; }
 
         /// <summary>
         /// System/service account names that should NOT be considered real users.
@@ -132,6 +147,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             _explorerEverSeen = false;
             _anyNonZeroSessionEverSeen = false;
             _wmiErrorCountSinceStart = 0;
+            _wtsErrorCountSinceStart = 0;
             _noCandidateFired = false;
 
             ArmTimer(startReason: "real-user-switch-reset");
@@ -188,8 +204,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
                         _anyNonZeroSessionEverSeen = true;
 
-                        var owner = GetProcessOwner(proc.Id);
-                        if (owner == null)
+                        var owner = ResolveOwner(proc.Id, proc.SessionId);
+                        if (string.IsNullOrEmpty(owner))
                             continue;
 
                         // Check against exclusion list
@@ -302,6 +318,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         { "explorerProcessCount", explorerProcessCount },
                         { "anyNonZeroSessionObserved", _anyNonZeroSessionEverSeen },
                         { "wmiErrorCount", _wmiErrorCountSinceStart },
+                        { "wtsErrorCount", _wtsErrorCountSinceStart },
                     });
             }
             catch (Exception ex) { _logger.Verbose($"DesktopArrivalDetector: first-poll emit failed: {ex.Message}"); }
@@ -337,6 +354,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         { "explorerEverSeen", _explorerEverSeen },
                         { "anyNonZeroSessionEverSeen", _anyNonZeroSessionEverSeen },
                         { "wmiErrorCount", _wmiErrorCountSinceStart },
+                        { "wtsErrorCount", _wtsErrorCountSinceStart },
                     });
             }
             catch (Exception ex) { _logger.Verbose($"DesktopArrivalDetector: no-candidate emit failed: {ex.Message}"); }
@@ -365,7 +383,65 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         }
 
         /// <summary>
-        /// Gets the owner of a process using WMI (Win32_Process.GetOwner).
+        /// Resolves the owning user of an explorer.exe candidate. Session 4d5a0b78 fix
+        /// (2026-06-11): the WMI <c>Win32_Process.GetOwner</c> call failed on every poll on
+        /// some devices (wmiErrorCount == pollCount) while the agent ran for over an hour —
+        /// the owner was never resolved, <c>desktop_arrived</c> never fired, and the Desktop
+        /// half of the completion AND-gate starved. WTS is now the primary path: a single
+        /// kernel round-trip against the session manager (no WinMgmt dependency, much
+        /// cheaper than a WMI query), keyed by the process's session id — explorer.exe runs
+        /// as the session's logged-on user. WMI remains the fallback when WTS returns no
+        /// user for the session.
+        /// <para>
+        /// Returns "DOMAIN\User" or "User", or null when both paths fail. Each path's
+        /// failures are counted separately (<see cref="_wtsErrorCountSinceStart"/> /
+        /// <see cref="_wmiErrorCountSinceStart"/>) and surfaced via the first_poll /
+        /// no_candidate liveness payloads.
+        /// </para>
+        /// </summary>
+        internal string ResolveOwner(int processId, int sessionId)
+        {
+            string owner = null;
+            try
+            {
+                owner = (SessionOwnerResolver ?? GetSessionOwnerViaWts)(sessionId);
+            }
+            catch (Exception ex)
+            {
+                _logger.Debug($"DesktopArrivalDetector: WTS owner resolution threw for session {sessionId}: {ex.Message}");
+            }
+            if (!string.IsNullOrEmpty(owner))
+                return owner;
+
+            _wtsErrorCountSinceStart++;
+            return (ProcessOwnerResolver ?? GetProcessOwnerViaWmi)(processId);
+        }
+
+        /// <summary>
+        /// Primary owner resolution: WTSQuerySessionInformation(WTSUserName/WTSDomainName)
+        /// for the process's session. Returns null when the API fails or the session has no
+        /// associated user (caller counts it and falls back to WMI).
+        /// </summary>
+        private string GetSessionOwnerViaWts(int sessionId)
+        {
+            try
+            {
+                var user = WtsNativeMethods.QuerySessionString(sessionId, WtsNativeMethods.WTSUserName);
+                if (string.IsNullOrEmpty(user))
+                    return null;
+
+                var domain = WtsNativeMethods.QuerySessionString(sessionId, WtsNativeMethods.WTSDomainName);
+                return string.IsNullOrEmpty(domain) ? user : $"{domain}\\{user}";
+            }
+            catch (Exception ex)
+            {
+                _logger.Debug($"DesktopArrivalDetector: WTS session query failed for session {sessionId}: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Fallback owner resolution: WMI (Win32_Process.GetOwner).
         /// Returns "DOMAIN\User" or "User" string, or null on failure.
         /// <para>
         /// P3 fix (2026-05-15): WMI exceptions are caught here AND bumped onto
@@ -375,7 +451,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// leaving GetOwner-specific failures invisible.
         /// </para>
         /// </summary>
-        private string GetProcessOwner(int processId)
+        private string GetProcessOwnerViaWmi(int processId)
         {
             try
             {

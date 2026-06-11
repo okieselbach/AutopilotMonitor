@@ -179,6 +179,94 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
         }
 
         // ============================================================================
+        // Owner resolution: WTS primary, WMI fallback (session 4d5a0b78 fix, 2026-06-11)
+        // ============================================================================
+        // Session 4d5a0b78: WMI Win32_Process.GetOwner failed on EVERY poll on a device
+        // (wmiErrorCount == pollCount), the owner was never resolved and desktop_arrived
+        // never fired — the Desktop half of the completion AND-gate starved. WTS session
+        // queries are now the primary path; WMI is only consulted when WTS yields no user.
+
+        private static DesktopArrivalDetector BuildDetector(TempDirectory tmp) =>
+            new DesktopArrivalDetector(new AgentLogger(tmp.Path, AgentLogLevel.Info));
+
+        [Fact]
+        public void ResolveOwner_uses_WTS_result_without_consulting_WMI()
+        {
+            using var tmp = new TempDirectory();
+            using var detector = BuildDetector(tmp);
+            var wmiCalled = false;
+            detector.SessionOwnerResolver = sessionId => "CONTOSO\\alice";
+            detector.ProcessOwnerResolver = pid => { wmiCalled = true; return "CONTOSO\\bob"; };
+
+            var owner = detector.ResolveOwner(processId: 1234, sessionId: 2);
+
+            Assert.Equal("CONTOSO\\alice", owner);
+            Assert.False(wmiCalled);
+        }
+
+        [Fact]
+        public void ResolveOwner_falls_back_to_WMI_when_WTS_returns_null()
+        {
+            using var tmp = new TempDirectory();
+            using var detector = BuildDetector(tmp);
+            detector.SessionOwnerResolver = sessionId => null;
+            detector.ProcessOwnerResolver = pid => "CONTOSO\\alice";
+
+            Assert.Equal("CONTOSO\\alice", detector.ResolveOwner(1234, 2));
+        }
+
+        [Fact]
+        public void ResolveOwner_falls_back_to_WMI_when_WTS_returns_empty()
+        {
+            // WTSQuerySessionInformation can succeed with an empty user name (no user
+            // associated with the session) — must be treated like a miss, not a real owner.
+            using var tmp = new TempDirectory();
+            using var detector = BuildDetector(tmp);
+            detector.SessionOwnerResolver = sessionId => "";
+            detector.ProcessOwnerResolver = pid => "CONTOSO\\alice";
+
+            Assert.Equal("CONTOSO\\alice", detector.ResolveOwner(1234, 2));
+        }
+
+        [Fact]
+        public void ResolveOwner_falls_back_to_WMI_when_WTS_throws()
+        {
+            using var tmp = new TempDirectory();
+            using var detector = BuildDetector(tmp);
+            detector.SessionOwnerResolver = sessionId => throw new System.ComponentModel.Win32Exception(5);
+            detector.ProcessOwnerResolver = pid => "CONTOSO\\alice";
+
+            Assert.Equal("CONTOSO\\alice", detector.ResolveOwner(1234, 2));
+        }
+
+        [Fact]
+        public void ResolveOwner_returns_null_when_both_paths_fail()
+        {
+            using var tmp = new TempDirectory();
+            using var detector = BuildDetector(tmp);
+            detector.SessionOwnerResolver = sessionId => null;
+            detector.ProcessOwnerResolver = pid => null;
+
+            Assert.Null(detector.ResolveOwner(1234, 2));
+        }
+
+        [Fact]
+        public void ResolveOwner_passes_session_id_to_WTS_and_pid_to_WMI()
+        {
+            using var tmp = new TempDirectory();
+            using var detector = BuildDetector(tmp);
+            int? seenSessionId = null;
+            int? seenPid = null;
+            detector.SessionOwnerResolver = sessionId => { seenSessionId = sessionId; return null; };
+            detector.ProcessOwnerResolver = pid => { seenPid = pid; return null; };
+
+            detector.ResolveOwner(processId: 4711, sessionId: 3);
+
+            Assert.Equal(3, seenSessionId);
+            Assert.Equal(4711, seenPid);
+        }
+
+        // ============================================================================
         // DAD-liveness telemetry (2026-05-15) — Started / FirstPoll / NoCandidate
         // ============================================================================
 
