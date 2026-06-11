@@ -90,20 +90,31 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
       const d = evt.data;
       if (!d) continue;
 
-      const appName = d.appName ?? d.app_name ?? d.appId ?? d.app_id ?? "Unknown App";
-      if (appName === "Unknown App") continue;
+      const type = evt.eventType;
 
-      const appId = d.appId ?? d.app_id ?? appName;
+      // RealmJoin packages (realmjoin_package_*) carry packageId/displayName instead of
+      // appId/appName. The "RJ: " prefix keeps them distinguishable from Intune apps in
+      // mixed-install sessions and doubles as the map key (no collision with IME app names).
+      const isRealmJoin = type === "realmjoin_package_started" || type === "realmjoin_package_completed";
+      const rawName = isRealmJoin
+        ? (d.displayName ?? d.display_name ?? d.packageId ?? d.package_id)
+        : (d.appName ?? d.app_name ?? d.appId ?? d.app_id);
+      if (!rawName) continue;
+      const appName = isRealmJoin ? `RJ: ${rawName}` : rawName;
+      const appId = (isRealmJoin ? (d.packageId ?? d.package_id) : (d.appId ?? d.app_id)) ?? appName;
+
       const existing = installMap.get(appName);
       const eventTs = evt.timestamp;
 
       // The Office C2R lifecycle (office_install_*) is not an IME app but maps onto the same
       // started → completed/failed install flow, so it renders here as a first-class install row
       // with the live timer + duration. Office has no postponed/skipped variants.
-      const type = evt.eventType;
-      const isStarted = type === "app_install_started" || type === "office_install_started";
-      const isCompleted = type === "app_install_completed" || type === "office_install_completed";
-      const isFailed = type === "app_install_failed" || type === "office_install_failed";
+      // RealmJoin has no separate failed event — realmjoin_package_completed carries
+      // success ("true"/"false") + lastExitCode, so success=false routes to the failed branch.
+      const rjFailed = type === "realmjoin_package_completed" && String(d.success).toLowerCase() === "false";
+      const isStarted = type === "app_install_started" || type === "office_install_started" || type === "realmjoin_package_started";
+      const isCompleted = type === "app_install_completed" || type === "office_install_completed" || (type === "realmjoin_package_completed" && !rjFailed);
+      const isFailed = type === "app_install_failed" || type === "office_install_failed" || rjFailed;
 
       if (isStarted) {
         // Don't reset an app that already completed — later batch re-scans
@@ -153,7 +164,7 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
           isLikelyStuck: false,
           isDetectionFailure: false,
           isInstallFailure: false,
-          exitCode: d.exitCode ?? d.exit_code,
+          exitCode: d.exitCode ?? d.exit_code ?? d.lastExitCode ?? d.last_exit_code,
           hresultFromWin32: d.hresultFromWin32 ?? d.hresult_from_win32,
           firstSeenIndex: existing?.firstSeenIndex ?? insertionIndex++,
           eventData: d,
@@ -187,7 +198,7 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
           confidence,
           errorDetail: d.errorDetail ?? d.error_detail,
           errorPatternId: d.errorPatternId ?? d.error_pattern_id,
-          exitCode: d.exitCode ?? d.exit_code,
+          exitCode: d.exitCode ?? d.exit_code ?? d.lastExitCode ?? d.last_exit_code,
           hresultFromWin32: d.hresultFromWin32 ?? d.hresult_from_win32,
           // Session 080edee9 follow-up — ESP-level HRESULT carried on promoted
           // app_install_failed events from the V2 termination handler.

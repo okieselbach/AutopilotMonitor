@@ -593,13 +593,15 @@ export default function SessionDetailPage() {
 
           {/* Install Progress (from app_install_* events, plus the office_install_* lifecycle — Office
               C2R is not an IME app but is rendered here as a first-class install with a live timer +
-              duration via its started/completed/failed events). */}
+              duration via its started/completed/failed events — and the realmjoin_package_* lifecycle,
+              rendered with an "RJ: " name prefix to keep mixed Intune/RealmJoin installs apart). */}
           {!isGatherRulesSession && (
             <div id="section-install-progress">
             <InstallProgress
               events={events.filter(
                 e => e.eventType === "app_install_started" || e.eventType === "app_install_completed" || e.eventType === "app_install_failed" || e.eventType === "app_install_postponed" || e.eventType === "app_install_skipped"
                   || e.eventType === "office_install_started" || e.eventType === "office_install_completed" || e.eventType === "office_install_failed"
+                  || e.eventType === "realmjoin_package_started" || e.eventType === "realmjoin_package_completed"
               )}
               summaryStats={appSummaryStats}
             />
