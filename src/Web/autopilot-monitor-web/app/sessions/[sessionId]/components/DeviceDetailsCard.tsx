@@ -149,6 +149,7 @@ export default function DeviceDetailsCard({ events, latestAgentVersion }: { even
   const autopilotProfile = normalizeAutopilotProfile(getEventData("autopilot_profile"));
   const aadJoinStatus = getEventData("aad_join_status");
   const imeVersion = getEventData("ime_agent_version");
+  const realmJoinInfo = getEventData("realmjoin_detected");
   const bitLockerStatus = getEventData("bitlocker_status");
   const secureBootStatus = getEventData("secureboot_status");
   const tpmStatus = getEventData("tpm_status");
@@ -328,7 +329,7 @@ export default function DeviceDetailsCard({ events, latestAgentVersion }: { even
           {/* Right Column: System, Autopilot Profile, Hardware */}
           <div className="flex-1 flex flex-col gap-6">
             {/* System */}
-            {(estimatedBootTime || agentStarted?.agentVersion || imeVersion || aadJoinStatus?.joinType || deviceLocation?.country || deviceLocation?.Country || deviceLocation?.timezone || deviceLocation?.Timezone) && (
+            {(estimatedBootTime || agentStarted?.agentVersion || imeVersion || realmJoinInfo?.productVersion || aadJoinStatus?.joinType || deviceLocation?.country || deviceLocation?.Country || deviceLocation?.timezone || deviceLocation?.Timezone) && (
               <DetailSection title="System">
                 {estimatedBootTime && (
                   <DetailRow label="Boot Time" value={estimatedBootTime.toLocaleString([], { dateStyle: "short", timeStyle: "medium" })} />
@@ -356,6 +357,16 @@ export default function DeviceDetailsCard({ events, latestAgentVersion }: { even
                   );
                 })()}
                 {imeVersion && <DetailRow label="IME Agent Version" value={imeVersion.version ?? imeVersion.agentVersion ?? "Unknown"} />}
+                {realmJoinInfo?.productVersion && (
+                  <DetailRow
+                    label="RealmJoin Agent Version"
+                    value={
+                      realmJoinInfo.releaseChannel && realmJoinInfo.releaseChannel !== "release"
+                        ? `${realmJoinInfo.productVersion} (${realmJoinInfo.releaseChannel})`
+                        : realmJoinInfo.productVersion
+                    }
+                  />
+                )}
                 {(deviceLocation?.country || deviceLocation?.Country) && (
                   <DetailRow label="Country" value={deviceLocation.country ?? deviceLocation.Country} />
                 )}
