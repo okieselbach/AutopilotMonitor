@@ -425,6 +425,12 @@ namespace AutopilotMonitor.DecisionCore.Engine
             }
 
             builder.WithStage(SessionStage.AwaitingDesktop);
+
+            // Liveness plan PR2: Hello just resolved synthetically (Timeout) but Desktop is
+            // still missing — a blocked completion attempt; surface what we are waiting on.
+            var waitingEffect = BuildCompletionWaitingEffect(
+                state, builder, signal, trigger: $"DeadlineFired:{DeadlineNames.HelloSafety}");
+
             var newState = builder.Build();
 
             var transition = BuildTakenTransition(
@@ -436,7 +442,10 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
             // AwaitingDesktop path: terminal effect is deferred to the later DesktopArrived
             // handler (which will itself route through Finalizing per Fix 6).
-            return new DecisionStep(newState, transition, Array.Empty<DecisionEffect>());
+            return new DecisionStep(
+                newState,
+                transition,
+                waitingEffect != null ? new[] { waitingEffect } : Array.Empty<DecisionEffect>());
         }
 
         // ============================================================== diagnostic signals
@@ -788,6 +797,14 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
             if (!shouldPromote)
             {
+                // Liveness plan PR2: the strong gate fact is recorded but no promotion happens
+                // here — say what completion still waits on. In the typical ordering (fact
+                // before esp_exiting) that is hello/desktop; the fingerprint dedupes repeats
+                // and duplicate signals on an already-satisfied state emit nothing.
+                var waitingEffect = BuildCompletionWaitingEffect(
+                    state, builder, signal,
+                    trigger: nameof(DecisionSignalKind.AccountSetupProvisioningComplete) + ":NoPromote");
+
                 var newState = builder.Build();
                 var transition = BuildTakenTransition(
                     before: state,
@@ -795,7 +812,10 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     toStage: state.Stage,
                     nextStepIndex: nextStep,
                     trigger: nameof(DecisionSignalKind.AccountSetupProvisioningComplete));
-                return new DecisionStep(newState, transition, Array.Empty<DecisionEffect>());
+                return new DecisionStep(
+                    newState,
+                    transition,
+                    waitingEffect != null ? new[] { waitingEffect } : Array.Empty<DecisionEffect>());
             }
 
             // Deferred-completion parity (session caa6cf50 fix, 2026-06-11): when the strong gate

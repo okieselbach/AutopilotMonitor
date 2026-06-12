@@ -274,6 +274,12 @@ namespace AutopilotMonitor.Shared
             public const string DesktopDetectorFirstPoll    = "desktop_detector_first_poll"; // 1x after first PollForDesktop() completes
             public const string DesktopDetectorNoCandidate  = "desktop_detector_no_candidate"; // 1x after threshold polls without resolution (configurable)
             public const string CompletionCheck     = "completion_check";
+            // Liveness plan PR2 — emitted (state-change-only, deduped via the
+            // CompletionWaitingFingerprint state fact) whenever the DecisionEngine blocks or
+            // defers a completion attempt. Data.missingPrerequisites names the stable literals
+            // the engine is still waiting on (account_setup_provisioning_complete,
+            // hello_resolution, desktop_arrival, realmjoin_resolution).
+            public const string CompletionWaiting   = "completion_waiting";
             public const string ScriptStarted       = "script_started";
             public const string ScriptCompleted     = "script_completed";
             public const string ScriptFailed        = "script_failed";

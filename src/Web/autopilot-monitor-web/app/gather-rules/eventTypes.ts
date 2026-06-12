@@ -34,6 +34,8 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
     description: "User desktop detected (explorer.exe under real user)." },
   { value: "completion_check", label: "completion_check", category: "enrollment",
     description: "Throttled state-machine snapshot during completion evaluation." },
+  { value: "completion_waiting", label: "completion_waiting", category: "enrollment",
+    description: "Engine blocked or deferred a completion attempt; missingPrerequisites lists what it is still waiting on (deduped, emitted only when the set changes)." },
   { value: "agent_started", label: "agent_started", category: "enrollment",
     description: "Agent process started." },
   { value: "agent_shutdown", label: "agent_shutdown (V1)", category: "enrollment",

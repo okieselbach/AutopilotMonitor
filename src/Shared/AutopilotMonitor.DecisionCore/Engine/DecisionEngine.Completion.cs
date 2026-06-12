@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using AutopilotMonitor.DecisionCore.Signals;
 using AutopilotMonitor.DecisionCore.State;
+using SharedConstants = AutopilotMonitor.Shared.Constants;
 
 namespace AutopilotMonitor.DecisionCore.Engine
 {
@@ -111,14 +112,147 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
             // Gate closed: defer Finalizing. Stay in the current stage; the gate's resolved/
             // timeout handler routes back through completion once it re-opens.
+            //
+            // Liveness plan PR2: surface what completion is waiting on (state-change-only —
+            // the fingerprint fact dedupes repeats of the same missing-set).
+            var deferTrigger = trigger + ":" + closedGate + "Closed";
+            var waitingEffect = BuildCompletionWaitingEffect(state, preparedBuilder, signal, deferTrigger);
+
             var deferredState = preparedBuilder.Build();
             var deferredTransition = BuildTakenTransition(
                 before: state,
                 signal: signal,
                 toStage: state.Stage,
                 nextStepIndex: nextStepIndex,
-                trigger: trigger + ":" + closedGate + "Closed");
-            return new DecisionStep(deferredState, deferredTransition, MaterializeEffects(leadingEffects));
+                trigger: deferTrigger);
+            return new DecisionStep(
+                deferredState,
+                deferredTransition,
+                AppendEffect(MaterializeEffects(leadingEffects), waitingEffect));
+        }
+
+        // ====================================================== completion_waiting (PR2)
+
+        /// <summary>Stable literals for <c>completion_waiting</c>'s <c>missingPrerequisites</c> data field.</summary>
+        internal static class CompletionPrerequisites
+        {
+            public const string AccountSetupProvisioningComplete = "account_setup_provisioning_complete";
+            public const string HelloResolution = "hello_resolution";
+            public const string DesktopArrival = "desktop_arrival";
+            public const string RealmJoinResolution = "realmjoin_resolution";
+        }
+
+        /// <summary>
+        /// Compute the ordered list of completion prerequisites the engine is still waiting on
+        /// for <paramref name="state"/>. Liveness plan PR2 — feeds the <c>completion_waiting</c>
+        /// event's <c>missingPrerequisites</c> field and the dedupe fingerprint.
+        /// </summary>
+        internal static List<string> BuildMissingCompletionPrerequisites(DecisionState state) =>
+            BuildMissingCompletionPrerequisitesCore(
+                accountSetupProvisioned: state.AccountSetupProvisioningSucceededUtc != null,
+                skipUserEsp: state.ScenarioObservations.SkipUserEsp?.Value == true,
+                helloResolved: state.HelloResolvedUtc != null,
+                helloPolicyDisabled: state.HelloPolicyEnabled?.Value == false,
+                desktopArrived: state.DesktopArrivedUtc != null,
+                realmJoinGateOpen: RealmJoinGateOpen(state));
+
+        private static List<string> BuildMissingCompletionPrerequisitesCore(
+            bool accountSetupProvisioned,
+            bool skipUserEsp,
+            bool helloResolved,
+            bool helloPolicyDisabled,
+            bool desktopArrived,
+            bool realmJoinGateOpen)
+        {
+            var missing = new List<string>(4);
+            if (!accountSetupProvisioned && !skipUserEsp)
+                missing.Add(CompletionPrerequisites.AccountSetupProvisioningComplete);
+            if (!helloResolved && !helloPolicyDisabled)
+                missing.Add(CompletionPrerequisites.HelloResolution);
+            if (!desktopArrived)
+                missing.Add(CompletionPrerequisites.DesktopArrival);
+            if (!realmJoinGateOpen)
+                missing.Add(CompletionPrerequisites.RealmJoinResolution);
+            return missing;
+        }
+
+        /// <summary>
+        /// Build the <c>completion_waiting</c> timeline effect for a blocked / deferred
+        /// completion attempt, or <c>null</c> when nothing should be emitted. Liveness plan PR2.
+        /// <para>
+        /// The missing-prerequisites set is computed from the <paramref name="builder"/>'s
+        /// in-flight facts (so facts the current handler just recorded — e.g. a freshly resolved
+        /// Hello — are not listed as missing). State-change-only by construction: when the
+        /// comma-joined set equals <see cref="DecisionState.CompletionWaitingFingerprint"/> on
+        /// the <paramref name="before"/> state, no event is emitted. Otherwise the fingerprint
+        /// fact is advanced on the builder and the effect is returned. An empty missing-set
+        /// (e.g. a duplicate signal on an already-satisfied state) emits nothing.
+        /// </para>
+        /// </summary>
+        private static DecisionEffect? BuildCompletionWaitingEffect(
+            DecisionState before,
+            DecisionStateBuilder builder,
+            DecisionSignal signal,
+            string trigger,
+            IReadOnlyDictionary<string, string>? extraData = null)
+        {
+            var missing = BuildMissingCompletionPrerequisitesCore(
+                accountSetupProvisioned: builder.AccountSetupProvisioningSucceededUtc != null,
+                skipUserEsp: builder.ScenarioObservations.SkipUserEsp?.Value == true,
+                helloResolved: builder.HelloResolvedUtc != null,
+                helloPolicyDisabled: builder.HelloPolicyEnabled?.Value == false,
+                desktopArrived: builder.DesktopArrivedUtc != null,
+                realmJoinGateOpen: RealmJoinGateOpen(builder.RealmJoinFacts));
+            if (missing.Count == 0) return null;
+
+            var fingerprint = string.Join(",", missing);
+            if (before.CompletionWaitingFingerprint?.Value == fingerprint) return null;
+
+            builder.CompletionWaitingFingerprint =
+                new SignalFact<string>(fingerprint, signal.SessionSignalOrdinal);
+
+            var parameters = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["eventType"] = SharedConstants.EventTypes.CompletionWaiting,
+                ["source"] = "DecisionEngine",
+                ["severity"] = "Info",
+                ["immediateUpload"] = "false",
+                ["message"] = $"Completion is waiting on: {fingerprint}",
+                ["missingPrerequisites"] = fingerprint,
+                ["trigger"] = trigger,
+                ["stage"] = builder.Stage.ToString(),
+            };
+
+            if (builder.Deadlines.Count > 0)
+            {
+                var names = new string[builder.Deadlines.Count];
+                for (var i = 0; i < builder.Deadlines.Count; i++)
+                {
+                    var d = builder.Deadlines[i];
+                    names[i] = $"{d.Name}={d.DueAtUtc:o}";
+                }
+                parameters["armedDeadlines"] = string.Join(",", names);
+            }
+
+            if (extraData != null)
+            {
+                foreach (var kv in extraData)
+                {
+                    if (!parameters.ContainsKey(kv.Key)) parameters[kv.Key] = kv.Value;
+                }
+            }
+
+            return new DecisionEffect(DecisionEffectKind.EmitEventTimelineEntry, parameters: parameters);
+        }
+
+        /// <summary>Append an optional effect to a materialized effect array (no-op when null).</summary>
+        private static DecisionEffect[] AppendEffect(DecisionEffect[] effects, DecisionEffect? extra)
+        {
+            if (extra == null) return effects;
+            var combined = new DecisionEffect[effects.Length + 1];
+            Array.Copy(effects, combined, effects.Length);
+            combined[effects.Length] = extra;
+            return combined;
         }
 
         /// <summary>

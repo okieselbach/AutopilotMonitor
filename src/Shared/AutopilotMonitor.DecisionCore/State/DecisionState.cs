@@ -62,7 +62,8 @@ namespace AutopilotMonitor.DecisionCore.State
             SignalFact<DateTime>? deviceSetupResolvedUtc = null,
             string? schemaVersion = null,
             SignalFact<DateTime>? espAdvisoryFailureRecordedUtc = null,
-            SignalFact<DateTime>? imeUserSessionCompletedUtc = null)
+            SignalFact<DateTime>? imeUserSessionCompletedUtc = null,
+            SignalFact<string>? completionWaitingFingerprint = null)
         {
             if (string.IsNullOrEmpty(sessionId))
             {
@@ -104,6 +105,7 @@ namespace AutopilotMonitor.DecisionCore.State
             SchemaVersion = schemaVersion ?? CurrentSchemaVersion;
             EspAdvisoryFailureRecordedUtc = espAdvisoryFailureRecordedUtc;
             ImeUserSessionCompletedUtc = imeUserSessionCompletedUtc;
+            CompletionWaitingFingerprint = completionWaitingFingerprint;
         }
 
         public string SessionId { get; }
@@ -285,6 +287,17 @@ namespace AutopilotMonitor.DecisionCore.State
         /// </para>
         /// </summary>
         public SignalFact<DateTime>? ImeUserSessionCompletedUtc { get; }
+
+        /// <summary>
+        /// Dedupe anchor for the <c>completion_waiting</c> observability event (liveness plan
+        /// PR2). Holds the comma-joined list of missing completion prerequisites that was last
+        /// surfaced on the timeline (e.g. <c>"hello_resolution,desktop_arrival"</c>). The
+        /// engine's blocked/deferred completion sites only emit a new <c>completion_waiting</c>
+        /// event when the freshly computed set differs from this fingerprint — making the event
+        /// state-change-only by construction (no heartbeats). Null until the first blocked
+        /// completion attempt; additive-nullable, no snapshot-schema bump.
+        /// </summary>
+        public SignalFact<string>? CompletionWaitingFingerprint { get; }
 
         public string SchemaVersion { get; }
 

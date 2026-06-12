@@ -46,9 +46,17 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// terminal transition.
         /// </summary>
         internal static bool RealmJoinGateOpen(DecisionState state) =>
-            state.RealmJoinFacts.DetectedUtc == null
-            || state.RealmJoinFacts.ResolvedUtc != null
-            || state.RealmJoinFacts.Outcome != null;
+            RealmJoinGateOpen(state.RealmJoinFacts);
+
+        /// <summary>
+        /// Facts-level overload — lets the <c>completion_waiting</c> helper (liveness plan PR2)
+        /// evaluate the gate against a <see cref="DecisionStateBuilder"/>'s in-flight facts
+        /// before the new state is materialized.
+        /// </summary>
+        internal static bool RealmJoinGateOpen(RealmJoinFacts facts) =>
+            facts.DetectedUtc == null
+            || facts.ResolvedUtc != null
+            || facts.Outcome != null;
 
         /// <summary>
         /// Build the 60-min RJ hard-timeout deadline. Floored at <see cref="DecisionState.AgentBootUtc"/>

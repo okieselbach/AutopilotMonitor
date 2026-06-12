@@ -24,6 +24,7 @@ export const EVENT_TYPES_CATALOG = {
     'esp_exiting',
     'esp_config_detected',
     'completion_check',
+    'completion_waiting',
     'enrollment_complete',
     'enrollment_failed',
     'desktop_arrived',

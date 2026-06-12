@@ -175,6 +175,34 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     };
                 }
 
+                // Liveness plan PR2: a post-AccountSetup guard-blocked exit is a blocked
+                // completion attempt — say what the engine is still waiting on (state-change-
+                // only via the fingerprint fact). The resolution window's due-time rides along
+                // so consumers see when the AdvisoryCompletion backstop will resolve the
+                // session either way. Pre-AccountSetup handoff exits stay silent — they are
+                // the normal Device→Account transition, not a completion attempt.
+                if (state.AccountSetupEnteredUtc != null)
+                {
+                    Dictionary<string, string>? waitingExtra = null;
+                    foreach (var d in builder.Deadlines)
+                    {
+                        if (d.Name == DeadlineNames.AdvisoryCompletion)
+                        {
+                            waitingExtra = new Dictionary<string, string>(1)
+                            {
+                                ["resolutionDeadlineDueAtUtc"] = d.DueAtUtc.ToString("o"),
+                            };
+                            break;
+                        }
+                    }
+
+                    var waitingEffect = BuildCompletionWaitingEffect(
+                        state, builder, signal,
+                        trigger: nameof(DecisionSignalKind.EspExiting) + ":GuardBlocked",
+                        extraData: waitingExtra);
+                    exitEffects = AppendEffect(exitEffects, waitingEffect);
+                }
+
                 var noopTransition = BuildTakenTransition(
                     before: state,
                     signal: signal,
@@ -272,6 +300,12 @@ namespace AutopilotMonitor.DecisionCore.Engine
             }
 
             builder.WithStage(SessionStage.AwaitingDesktop);
+
+            // Liveness plan PR2: Hello is in but Desktop is not — a blocked completion attempt.
+            // Computed on the builder so the just-recorded Hello facts are not listed as missing.
+            var waitingEffect = BuildCompletionWaitingEffect(
+                state, builder, signal, trigger: nameof(DecisionSignalKind.HelloResolved));
+
             var newState = builder.Build();
 
             var transition = BuildTakenTransition(
@@ -284,7 +318,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
             var effects = helloSafetyCancelEffect != null
                 ? new[] { helloSafetyCancelEffect }
                 : Array.Empty<DecisionEffect>();
-            return new DecisionStep(newState, transition, effects);
+            return new DecisionStep(newState, transition, AppendEffect(effects, waitingEffect));
         }
 
         /// <summary>
@@ -431,6 +465,14 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // Desktop came first: keep current stage (AwaitingHello or EspAccountSetup) until
             // HelloResolved arrives.
             builder.WithStage(state.Stage);
+
+            // Liveness plan PR2: Desktop is in but completion is still blocked (Hello pending,
+            // or the Hello-disabled fast-path's strong gate is not satisfied) — surface the
+            // missing prerequisites. Covers both the gate-false fast-path and the plain
+            // desktop-first ordering; the fingerprint dedupes against earlier emissions.
+            var waitingEffect = BuildCompletionWaitingEffect(
+                state, builder, signal, trigger: nameof(DecisionSignalKind.DesktopArrived));
+
             var newState = builder.Build();
 
             var transition = BuildTakenTransition(
@@ -440,7 +482,10 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 nextStepIndex: nextStep,
                 trigger: nameof(DecisionSignalKind.DesktopArrived));
 
-            return new DecisionStep(newState, transition, Array.Empty<DecisionEffect>());
+            return new DecisionStep(
+                newState,
+                transition,
+                waitingEffect != null ? new[] { waitingEffect } : Array.Empty<DecisionEffect>());
         }
 
         /// <summary>

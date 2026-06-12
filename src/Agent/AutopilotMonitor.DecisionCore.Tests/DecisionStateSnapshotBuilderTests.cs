@@ -110,7 +110,9 @@ namespace AutopilotMonitor.DecisionCore.Tests
             // terminal failures → 15.
             // Session 8bc1180f (2026-06-12) added `imeUserSessionCompletedUtc` as the
             // IME-evidence anchor for the AdvisoryCompletion conjunction → 16.
-            Assert.Equal(16, facts.Count);
+            // Liveness plan PR2 (2026-06-12) added `completionWaitingFingerprint` as the
+            // state-change-only dedupe anchor for the completion_waiting event → 17.
+            Assert.Equal(17, facts.Count);
             Assert.All(facts.Values, v => Assert.Null(v));
         }
 
@@ -228,10 +230,12 @@ namespace AutopilotMonitor.DecisionCore.Tests
             // 2026-05-22) added `espAdvisoryFailureRecordedUtc` as the fire-once gate
             // for downgraded ESP terminal failures → 15. Session 8bc1180f (2026-06-12)
             // added `imeUserSessionCompletedUtc` as the IME-evidence anchor for the
-            // AdvisoryCompletion conjunction → 16. If this number ever changes, both
+            // AdvisoryCompletion conjunction → 16. Liveness plan PR2 (2026-06-12) added
+            // `completionWaitingFingerprint` as the state-change-only dedupe anchor for
+            // the completion_waiting event → 17. If this number ever changes, both
             // the count expectation AND the actual snapshot output need to evolve in
             // lockstep.
-            Assert.Equal(16, expectedFactKeys.Count);
+            Assert.Equal(17, expectedFactKeys.Count);
 
             var snapshot = DecisionStateSnapshotBuilder.Build(DecisionState.CreateInitial("s", "t"));
             var facts = (Dictionary<string, object?>)snapshot["facts"]!;
