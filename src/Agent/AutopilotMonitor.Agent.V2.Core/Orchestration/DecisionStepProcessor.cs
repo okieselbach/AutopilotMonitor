@@ -1,5 +1,7 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
@@ -8,6 +10,8 @@ using AutopilotMonitor.Agent.V2.Core.Telemetry.Transitions;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.Signals;
 using AutopilotMonitor.DecisionCore.State;
+using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 {
@@ -64,12 +68,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private readonly int _quarantineThreshold;
         private readonly Action<DecisionState>? _onTerminalStageReached;
         private readonly TelemetryTransitionEmitter? _transitionEmitter;
+        private readonly InformationalEventPost? _informationalEvents;
 
         private DecisionState _currentState;
         private int _consecutiveJournalFailures;
         private bool _quarantineTriggered;
         private bool _terminalNotified;
         private int _passThroughStepsSinceSnapshot; // H1a — pass-through steps skipped since last snapshot
+        private bool _parkedTripwireFired; // liveness PR1 — one-shot per agent run, no state-schema touch
 
         public DecisionStepProcessor(
             DecisionState initialState,
@@ -80,7 +86,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             AgentLogger logger,
             int quarantineThreshold = DefaultQuarantineThreshold,
             Action<DecisionState>? onTerminalStageReached = null,
-            TelemetryTransitionEmitter? transitionEmitter = null)
+            TelemetryTransitionEmitter? transitionEmitter = null,
+            InformationalEventPost? informationalEvents = null)
         {
             if (quarantineThreshold <= 0)
             {
@@ -98,6 +105,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _quarantineThreshold = quarantineThreshold;
             _onTerminalStageReached = onTerminalStageReached;
             _transitionEmitter = transitionEmitter;
+            _informationalEvents = informationalEvents;
 
             // If recovery loaded a state that already sits on a terminal stage (e.g. a crash
             // after a success-path step but before Stop()), treat it as already-notified so we
@@ -263,7 +271,92 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 }
             }
 
+            // 6) "No silent parking" tripwire (liveness plan PR1). The engine is edge-triggered:
+            //    facts get recorded, but nothing guarantees another signal ever re-asks the
+            //    completion question — a session can be parked with no deadline armed. The three
+            //    known dead-end variants (8bc1180f, caa6cf50, 1ec8f4c6) are covered by dedicated
+            //    arming sites; this invariant check is the tripwire for variant 4. Expected to
+            //    NEVER fire in production — every occurrence is a bug report. Skipped on abort
+            //    steps: the caller is about to synthesise a terminal signal anyway.
+            if (!_parkedTripwireFired
+                && _informationalEvents != null
+                && !effectResult.SessionMustAbort
+                && IsParkedWithoutDeadline(_currentState))
+            {
+                _parkedTripwireFired = true;
+                EmitParkedTripwire(_currentState, signal);
+            }
+
             return effectResult;
+        }
+
+        /// <summary>
+        /// Liveness invariant (plan PR1): a non-terminal session that has entered the
+        /// post-AccountSetup dead-end zone must always have a resolution-capable deadline armed.
+        /// The dead-end zone begins when the ESP side is gone or has failed — i.e. the ESP final
+        /// exit happened at-or-after AccountSetup entry, OR an advisory-defanged failure was
+        /// recorded — because from that point on no further ESP/IME registry signal is guaranteed
+        /// to arrive. <see cref="DeadlineNames.ClassifierTick"/> does not count: it re-arms itself
+        /// and never resolves a session, so it would mask the invariant. DeviceSetup-phase hangs
+        /// are out of scope here (covered by the stall-probe path); pre-final-exit AccountSetup is
+        /// healthy (ESP/IME are actively producing signals).
+        /// </summary>
+        private static bool IsParkedWithoutDeadline(DecisionState state)
+        {
+            if (state.Stage.IsTerminal()) return false;
+            if (state.Stage == SessionStage.Unknown || state.Stage == SessionStage.SessionStarted) return false;
+            if (state.AccountSetupEnteredUtc == null) return false;
+
+            var deadEndZoneEntered =
+                state.EspAdvisoryFailureRecordedUtc != null
+                || (state.EspFinalExitUtc != null
+                    && state.EspFinalExitUtc.Value >= state.AccountSetupEnteredUtc.Value);
+            if (!deadEndZoneEntered) return false;
+
+            foreach (var deadline in state.Deadlines)
+            {
+                if (!string.Equals(deadline.Name, DeadlineNames.ClassifierTick, StringComparison.Ordinal))
+                    return false; // a resolution-capable deadline is armed — not parked
+            }
+
+            return true;
+        }
+
+        private void EmitParkedTripwire(DecisionState state, DecisionSignal signal)
+        {
+            try
+            {
+                var census = DecisionStateSignalCensus.Build(state);
+                var data = new Dictionary<string, string>(capacity: 6, comparer: StringComparer.Ordinal)
+                {
+                    ["stage"] = state.Stage.ToString(),
+                    ["stepIndex"] = state.StepIndex.ToString(CultureInfo.InvariantCulture),
+                    ["signalOrdinal"] = signal.SessionSignalOrdinal.ToString(CultureInfo.InvariantCulture),
+                    ["accountSetupEnteredUtc"] = state.AccountSetupEnteredUtc!.Value
+                        .ToString("o", CultureInfo.InvariantCulture),
+                    ["signalsSeen"] = string.Join(",", census.SignalsSeen),
+                    ["armedDeadlines"] = string.Join(",", state.Deadlines.Select(d => d.Name)),
+                };
+
+                _informationalEvents!.Emit(
+                    eventType: Constants.EventTypes.SessionParkedWithoutDeadline,
+                    source: "DecisionStepProcessor",
+                    message: $"Session is parked without a resolution-capable deadline at stage {state.Stage} — " +
+                             "no signal is guaranteed to ever re-ask the completion question.",
+                    severity: EventSeverity.Warning,
+                    immediateUpload: true,
+                    data: data);
+
+                _logger.Warning(
+                    $"DecisionStepProcessor: session parked without deadline at stage={state.Stage} " +
+                    $"stepIndex={state.StepIndex} signalsSeen=[{data["signalsSeen"]}] " +
+                    $"armedDeadlines=[{data["armedDeadlines"]}] — tripwire fired (one-shot).");
+            }
+            catch (Exception ex)
+            {
+                // Observability must never break the step pipeline.
+                _logger.Error("DecisionStepProcessor: parked-tripwire emission failed.", ex);
+            }
         }
 
         /// <summary>

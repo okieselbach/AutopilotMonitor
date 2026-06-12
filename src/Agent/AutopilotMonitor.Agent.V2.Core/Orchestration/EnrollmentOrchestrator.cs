@@ -674,7 +674,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 logger: _logger,
                 quarantineThreshold: _quarantineThreshold,
                 onTerminalStageReached: OnDecisionTerminalStage,
-                transitionEmitter: _transitionEmitter);
+                transitionEmitter: _transitionEmitter,
+                // Liveness PR1 — the parked-without-deadline tripwire posts through the relay
+                // (target is set to the real ingress at step 11, before any ApplyStep can run).
+                informationalEvents: new InformationalEventPost(_sinkRelay, _clock, _logger));
 
             // 9) Trace-Ordinal. Recovery-seed = max(SignalLog, Journal, Spool) so restart after a
             //    crash never re-uses a SessionTraceOrdinal already persisted by a prior session.
