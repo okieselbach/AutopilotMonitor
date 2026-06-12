@@ -8,8 +8,10 @@ import { registerTools } from './tools.js';
 import { registerResources } from './resources.js';
 import { registerPrompts } from './prompts.js';
 import { loadKnowledgeDocs } from './knowledge-base.js';
-import { createSearchProvider } from './search-factory.js';
+import { createSearchProvider, resolveBackend } from './search-factory.js';
 import type { SearchBackend, SearchProvider } from './search-provider.js';
+import { MODEL_NAME, VectorSearchProvider, embed } from './vector-search-provider.js';
+import { validatePrecomputedIndex } from './precomputed-index.js';
 import { buildEventTypeSearchDocs } from './resource-catalog.js';
 import { createOAuthRouter } from './oauth.js';
 import { accessGuard } from './access-guard.js';
@@ -56,6 +58,39 @@ async function buildSearchIndexes(backend?: SearchBackend): Promise<{
   return { knowledgeBase: kb, eventTypeIndex: et };
 }
 
+/**
+ * Hydrate both vector indexes from the build-time precomputed file (see
+ * precompute-embeddings.ts). Returns null with a logged reason whenever the
+ * file is absent, stale, or malformed — the caller then computes at boot,
+ * which is slow (35-55s of inference on 0.25 vCPU) but never stale.
+ */
+const SEARCH_INDEX_PATH = process.env.SEARCH_INDEX_PATH ?? resolve(__dirname, '..', 'search-index.json');
+
+function tryLoadPrecomputedIndexes(): { knowledgeBase: SearchProvider; eventTypeIndex: SearchProvider } | null {
+  let raw: string;
+  try {
+    raw = readFileSync(SEARCH_INDEX_PATH, 'utf-8');
+  } catch {
+    console.error(`[startup] No precomputed search index at ${SEARCH_INDEX_PATH} — computing embeddings at boot.`);
+    return null;
+  }
+  try {
+    const validated = validatePrecomputedIndex(JSON.parse(raw), MODEL_NAME, docs, eventTypeDocs);
+    if (!validated.ok) {
+      console.error(`[startup] Precomputed search index rejected (${validated.reason}) — computing embeddings at boot.`);
+      return null;
+    }
+    const kb = new VectorSearchProvider();
+    kb.indexPrecomputed(validated.knowledgeBase);
+    const et = new VectorSearchProvider();
+    et.indexPrecomputed(validated.eventTypes);
+    return { knowledgeBase: kb, eventTypeIndex: et };
+  } catch (err) {
+    console.error('[startup] Failed to read precomputed search index — computing embeddings at boot:', err);
+    return null;
+  }
+}
+
 // Boot indexing must never crash-loop the container: the vector provider's first
 // index() call loads the embedding model, and although the Docker image pre-bakes
 // the model cache, a missing/corrupt cache falls through to a HuggingFace CDN
@@ -65,14 +100,27 @@ async function buildSearchIndexes(backend?: SearchBackend): Promise<{
 console.error(`Initializing search provider (${docs.length} documents)…`);
 let knowledgeBase: SearchProvider;
 let eventTypeIndex: SearchProvider;
-try {
-  ({ knowledgeBase, eventTypeIndex } = await buildSearchIndexes());
-} catch (err) {
-  console.error('[startup] Search index initialization failed (embedding model unavailable?) — falling back to the keyword (fuse) backend:', err);
-  ({ knowledgeBase, eventTypeIndex } = await buildSearchIndexes('fuse'));
+const precomputed = (await resolveBackend()) === 'vector' ? tryLoadPrecomputedIndexes() : null;
+if (precomputed) {
+  ({ knowledgeBase, eventTypeIndex } = precomputed);
+  // Serving precomputed vectors does not need the embedder — only incoming
+  // queries do. Warm it in the background so neither boot nor the readiness
+  // probe waits on the model load; a search arriving first awaits the same
+  // memoized load instead of failing.
+  embed('embedder warmup').then(
+    () => console.error('Query embedder warm.'),
+    (err) => console.error('[startup] Query embedder warmup failed — semantic ranking degrades until it loads:', err),
+  );
+} else {
+  try {
+    ({ knowledgeBase, eventTypeIndex } = await buildSearchIndexes());
+  } catch (err) {
+    console.error('[startup] Search index initialization failed (embedding model unavailable?) — falling back to the keyword (fuse) backend:', err);
+    ({ knowledgeBase, eventTypeIndex } = await buildSearchIndexes('fuse'));
+  }
 }
-console.error(`Search provider ready: ${knowledgeBase.name} — ${knowledgeBase.size} documents indexed.`);
-console.error(`Event-type index ready: ${eventTypeIndex.name} — ${eventTypeIndex.size} types indexed.`);
+console.error(`Search provider ready: ${knowledgeBase.name} — ${knowledgeBase.size} documents indexed${precomputed ? ' (precomputed)' : ''}.`);
+console.error(`Event-type index ready: ${eventTypeIndex.name} — ${eventTypeIndex.size} types indexed${precomputed ? ' (precomputed)' : ''}.`);
 
 // Server-level guidance. The host surfaces this once per connection, so it is
 // the right home for cross-cutting strategy that would otherwise be duplicated

@@ -10,28 +10,39 @@ import type { FeatureExtractionPipeline } from '@huggingface/transformers';
 import type { SearchDocument, SearchOptions, SearchProvider, SearchResult } from './search-provider.js';
 import { scanLexical } from './search-provider.js';
 
-const MODEL_NAME = 'Xenova/all-MiniLM-L6-v2';
+export const MODEL_NAME = 'Xenova/all-MiniLM-L6-v2';
 
 // ── Shared singleton embedder ────────────────────────────────
 
-let embedder: FeatureExtractionPipeline | null = null;
+// Memoize the PROMISE, not the resolved pipeline: with the background warmup at
+// boot, a query can race the warmup — caching the result only would let both
+// callers construct a pipeline and hold the model twice (~2× model RAM on a
+// 0.5 Gi container). A rejected load is cleared so the next call can retry.
+let embedderPromise: Promise<FeatureExtractionPipeline> | null = null;
 
-async function getEmbedder(): Promise<FeatureExtractionPipeline> {
-  if (!embedder) {
-    // Dynamic import + cast to avoid TS2590 from the overloaded pipeline() signature
-    const { pipeline, env } = await import('@huggingface/transformers');
-    // The library's default model cache lives inside node_modules/@huggingface/
-    // transformers/.cache — an npm-layout implementation detail. HF_CACHE_DIR pins
-    // it to a stable path so the Docker build can pre-bake the model and a
-    // scale-to-zero cold start never depends on the HuggingFace CDN.
-    if (process.env.HF_CACHE_DIR) {
-      env.cacheDir = process.env.HF_CACHE_DIR;
-    }
-    embedder = (await (pipeline as Function)('feature-extraction', MODEL_NAME, {
-      dtype: 'q8',
-    })) as FeatureExtractionPipeline;
+async function createEmbedder(): Promise<FeatureExtractionPipeline> {
+  // Dynamic import + cast to avoid TS2590 from the overloaded pipeline() signature
+  const { pipeline, env } = await import('@huggingface/transformers');
+  // The library's default model cache lives inside node_modules/@huggingface/
+  // transformers/.cache — an npm-layout implementation detail. HF_CACHE_DIR pins
+  // it to a stable path so the Docker build can pre-bake the model and a
+  // scale-to-zero cold start never depends on the HuggingFace CDN.
+  if (process.env.HF_CACHE_DIR) {
+    env.cacheDir = process.env.HF_CACHE_DIR;
   }
-  return embedder;
+  return (await (pipeline as Function)('feature-extraction', MODEL_NAME, {
+    dtype: 'q8',
+  })) as FeatureExtractionPipeline;
+}
+
+function getEmbedder(): Promise<FeatureExtractionPipeline> {
+  if (!embedderPromise) {
+    embedderPromise = createEmbedder().catch((err) => {
+      embedderPromise = null;
+      throw err;
+    });
+  }
+  return embedderPromise;
 }
 
 /** Compute a normalized embedding for a single text. */
@@ -58,17 +69,33 @@ function cosineSimilarity(a: number[], b: number[]): number {
 
 // ── Provider implementation ──────────────────────────────────
 
-interface StoredDocument extends SearchDocument {
+/** An indexed document with its embedding — the unit of build-time serialization. */
+export interface PrecomputedDocument extends SearchDocument {
   embedding: number[];
 }
 
 export class VectorSearchProvider implements SearchProvider {
   readonly name = `vector/${MODEL_NAME}`;
   readonly semanticCapable = true;
-  private documents: StoredDocument[] = [];
+  private documents: PrecomputedDocument[] = [];
 
   get size(): number {
     return this.documents.length;
+  }
+
+  /**
+   * Hydrate the index from build-time precomputed embeddings WITHOUT loading the
+   * model. This is the production boot path: embedding the static corpus at boot
+   * cost 35-55s of ONNX inference on the 0.25 vCPU container; loading vectors
+   * from disk is milliseconds. The embedder is still loaded lazily for queries.
+   */
+  indexPrecomputed(docs: PrecomputedDocument[]): void {
+    this.documents.push(...docs);
+  }
+
+  /** Export the indexed documents with embeddings for build-time serialization. */
+  serialize(): PrecomputedDocument[] {
+    return this.documents;
   }
 
   async index(docs: SearchDocument[]): Promise<void> {
