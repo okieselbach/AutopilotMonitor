@@ -32,6 +32,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         [InlineData("stall_probe_check")]
         [InlineData("stall_probe_result")]
         [InlineData("session_stalled")]
+        // OS-eventlog forwarding — observability, not enrollment progress (session 8bc1180f:
+        // an EventID-100 burst must not keep the periodic collectors alive).
+        [InlineData("modern_deployment_log")]
         // Agent health / control / transport — not device/enrollment progress (P2).
         [InlineData("collector_degraded")]
         [InlineData("telemetry_upload_poisoned")]
@@ -59,6 +62,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         public void Non_periodic_informational_event_is_activity()
         {
             var payload = new Dictionary<string, string> { [SignalPayloadKeys.EventType] = "esp_phase_changed" };
+            Assert.True(SignalActivityClassifier.IsRealActivity(DecisionSignalKind.InformationalEvent, payload));
+        }
+
+        [Theory]
+        // Genuine ModernDeployment warnings/errors stay real activity — only the Info/Debug
+        // `modern_deployment_log` forwarding is excluded.
+        [InlineData("modern_deployment_warning")]
+        [InlineData("modern_deployment_error")]
+        public void Modern_deployment_warning_and_error_remain_activity(string eventType)
+        {
+            var payload = new Dictionary<string, string> { [SignalPayloadKeys.EventType] = eventType };
             Assert.True(SignalActivityClassifier.IsRealActivity(DecisionSignalKind.InformationalEvent, payload));
         }
 

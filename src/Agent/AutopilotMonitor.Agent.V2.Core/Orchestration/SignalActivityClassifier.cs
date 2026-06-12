@@ -47,6 +47,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             SharedConstants.EventTypes.StallProbeResult,
             SharedConstants.EventTypes.SessionStalled,
 
+            // OS-eventlog forwarding — observability, not device/enrollment progress. Windows
+            // re-reads its Autopilot policy cache at arbitrary times (observed: 689 EventID-100
+            // records in one minute, session 8bc1180f) entirely decoupled from enrollment
+            // activity; letting those bursts reset the idle clocks would keep the periodic
+            // collectors alive indefinitely. Only the Info/Debug-severity `modern_deployment_log`
+            // type is excluded — `modern_deployment_warning` / `modern_deployment_error` stay
+            // real activity (rare, and worth keeping diagnostics running for).
+            SharedConstants.EventTypes.ModernDeploymentLog,
+
             // Agent health / control / transport — not device/enrollment progress.
             SharedConstants.EventTypes.CollectorDegraded,
             SharedConstants.EventTypes.TelemetryUploadPoisoned,

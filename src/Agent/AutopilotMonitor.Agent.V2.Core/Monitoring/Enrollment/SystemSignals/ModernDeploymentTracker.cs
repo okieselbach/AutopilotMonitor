@@ -38,6 +38,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         internal const string WhiteGloveBackfillStateFileName = "whiteglove-backfill.json";
 
+        /// <summary>
+        /// Per-EventId emission caps for harmless-downgraded events (session 8bc1180f,
+        /// 2026-06-12). Windows can dump hundreds of identical EventID-100 "Autopilot policy
+        /// not found" records in a single minute (observed: 689/min → signal-ingress queue
+        /// saturated at 256/256). Forwarding each one as a Debug event has zero diagnostic
+        /// value beyond a count, so per EventId the first
+        /// <see cref="HarmlessRollupIndividualLimit"/> occurrences are forwarded individually
+        /// and afterwards only every <see cref="HarmlessRollupEmitEvery"/>th occurrence is
+        /// emitted, carrying the cumulative <c>occurrenceCount</c>. Counter-based (no timers)
+        /// so the suppression is deterministic and replay-safe; the tail below the next
+        /// multiple is intentionally absorbed — the last emitted rollup carries the running
+        /// total, which bounds the loss to &lt; one bucket.
+        /// </summary>
+        internal const int HarmlessRollupIndividualLimit = 3;
+
+        /// <summary>See <see cref="HarmlessRollupIndividualLimit"/>.</summary>
+        internal const int HarmlessRollupEmitEvery = 100;
+
         private readonly AgentLogger _logger;
         private readonly string _sessionId;
         private readonly string _tenantId;
@@ -52,6 +70,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private EventLogWatcher _managementWatcher;
         private bool _whiteGloveStartDetected;
         private readonly object _stateLock = new object();
+
+        // Cumulative per-EventId occurrence counters for harmless-downgraded events.
+        // EventRecordWritten callbacks can run concurrently → guarded by its own lock.
+        private readonly Dictionary<int, int> _harmlessOccurrenceCounts = new Dictionary<int, int>();
+        private readonly object _harmlessCountLock = new object();
 
         public ModernDeploymentTracker(
             string sessionId,
@@ -268,10 +291,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             // 1005, 1010 "Autopilot.dll WIL hardwareinfo.cpp HRESULT 0x80070002" — no real
             // enrollment impact). Events stay visible in the timeline (Debug severity) for
             // troubleshooting.
-            if ((effectiveLevel == 2 || effectiveLevel == 3) && _harmlessEventIds.Contains(eventId))
+            var harmlessDowngraded = (effectiveLevel == 2 || effectiveLevel == 3) && _harmlessEventIds.Contains(eventId);
+            var occurrenceCount = 0;
+            if (harmlessDowngraded)
             {
                 eventType = Constants.EventTypes.ModernDeploymentLog;
                 severity = EventSeverity.Debug;
+
+                // Burst rollup (session 8bc1180f): forward the first N occurrences per
+                // EventId individually, then only every Kth with the cumulative count.
+                lock (_harmlessCountLock)
+                {
+                    _harmlessOccurrenceCounts.TryGetValue(eventId, out occurrenceCount);
+                    occurrenceCount++;
+                    _harmlessOccurrenceCounts[eventId] = occurrenceCount;
+                }
+                if (occurrenceCount > HarmlessRollupIndividualLimit
+                    && occurrenceCount % HarmlessRollupEmitEvery != 0)
+                {
+                    return; // suppressed — counted toward the next rollup emission
+                }
             }
 
             var description = string.IsNullOrEmpty(formattedDescription)
@@ -292,6 +331,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 { "backfilled", isBackfill }
             };
 
+            var message = $"[{shortName}] EventID {eventId}: {truncated}";
+            if (harmlessDowngraded)
+            {
+                data["occurrenceCount"] = occurrenceCount;
+                if (occurrenceCount > HarmlessRollupIndividualLimit)
+                {
+                    data["rollup"] = true;
+                    message = $"[{shortName}] EventID {eventId}: {occurrenceCount} occurrences so far " +
+                        $"(harmless-ID rollup, intermediate occurrences suppressed). Last: {truncated}";
+                }
+            }
+
             _post.Emit(new EnrollmentEvent
             {
                 SessionId = _sessionId,
@@ -300,7 +351,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 Severity = severity,
                 Source = "ModernDeploymentWatcher",
                 Phase = EnrollmentPhase.Unknown,
-                Message = $"[{shortName}] EventID {eventId}: {truncated}",
+                Message = message,
                 Data = data
             });
         }
