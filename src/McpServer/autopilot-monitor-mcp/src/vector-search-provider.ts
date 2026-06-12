@@ -19,7 +19,14 @@ let embedder: FeatureExtractionPipeline | null = null;
 async function getEmbedder(): Promise<FeatureExtractionPipeline> {
   if (!embedder) {
     // Dynamic import + cast to avoid TS2590 from the overloaded pipeline() signature
-    const { pipeline } = await import('@huggingface/transformers');
+    const { pipeline, env } = await import('@huggingface/transformers');
+    // The library's default model cache lives inside node_modules/@huggingface/
+    // transformers/.cache — an npm-layout implementation detail. HF_CACHE_DIR pins
+    // it to a stable path so the Docker build can pre-bake the model and a
+    // scale-to-zero cold start never depends on the HuggingFace CDN.
+    if (process.env.HF_CACHE_DIR) {
+      env.cacheDir = process.env.HF_CACHE_DIR;
+    }
     embedder = (await (pipeline as Function)('feature-extraction', MODEL_NAME, {
       dtype: 'q8',
     })) as FeatureExtractionPipeline;
@@ -57,6 +64,7 @@ interface StoredDocument extends SearchDocument {
 
 export class VectorSearchProvider implements SearchProvider {
   readonly name = `vector/${MODEL_NAME}`;
+  readonly semanticCapable = true;
   private documents: StoredDocument[] = [];
 
   get size(): number {

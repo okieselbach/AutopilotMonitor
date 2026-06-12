@@ -348,7 +348,12 @@ export type EventTypeCandidates = { candidates: string[]; semanticTypeScores: Ma
  * semantic signals: keyword/prefix matches first (high precision), then the semantically
  * closest types from the vector-indexed catalog (recall for queries whose words don't
  * appear in any type name, e.g. "app stuck downloading" → download_progress). Degrades to
- * keyword-only when no vector index is available (fuse backend / not yet indexed / error).
+ * keyword-only when no semantic index is available (fuse backend / not yet indexed / error).
+ *
+ * The semantic path is gated on `semanticCapable`, not mere index presence: the
+ * SEMANTIC_TYPE_MIN_SCORE threshold and the downstream per-event floor are calibrated
+ * for embedding cosines — a fuse index would feed inverted fuzzy-match scores through
+ * them as fake cosines, selecting arbitrary candidates.
  *
  * The returned `semanticTypeScores` map carries each semantically-selected type's cosine
  * score downstream so scoreEvent() can floor (not discard) those events — without it the
@@ -361,7 +366,7 @@ export async function selectEventTypeCandidates(
 ): Promise<EventTypeCandidates> {
   const keywordCandidates = extractEventTypeCandidates(keywords);
   const semanticTypeScores = new Map<string, number>();
-  if (!eventTypeIndex || eventTypeIndex.size === 0) {
+  if (!eventTypeIndex || !eventTypeIndex.semanticCapable || eventTypeIndex.size === 0) {
     return { candidates: keywordCandidates, semanticTypeScores };
   }
 
@@ -504,6 +509,21 @@ function extractKeywords(query: string): string[] {
     .replace(/[^\w\s-]/g, ' ')
     .split(/\s+/)
     .filter((w) => (w.length > 2 || DOMAIN_SHORT_KEYWORDS.has(w)) && (DOMAIN_SHORT_KEYWORDS.has(w) || !KEYWORD_STOP_WORDS.has(w)));
+}
+
+/**
+ * Resolve the final keyword set: caller-supplied `keywords` are ADDITIVE to
+ * auto-extraction, never a replacement — the schema promises "additional", and
+ * replacing silently discarded all query-derived recall. Caller keywords are
+ * also lowercased because every downstream matcher (candidate selection,
+ * scoreEvent, specificity) compares against lowercased text — an uppercase
+ * keyword like "BitLocker" matched nothing and produced a silent empty result.
+ */
+export function resolveQueryKeywords(query: string, callerKeywords?: string[]): string[] {
+  const supplied = (callerKeywords ?? [])
+    .map((k) => k.trim().toLowerCase())
+    .filter((k) => k.length > 0);
+  return [...new Set([...supplied, ...extractKeywords(query)])];
 }
 
 // ── Error-code fallback ─────────────────────────────────────────────────
@@ -953,7 +973,7 @@ export function registerSearchTools(
         minScore: z.coerce.number().min(0).max(1).optional()
           .describe('Minimum relevance score (0-1). Defaults: 0.1 (fast) / 0.05 (deep). Lower surfaces weaker matches.'),
         keywords: z.array(z.string()).optional()
-          .describe('Additional exact keywords for matching. Auto-extracted from query if omitted.'),
+          .describe('Additional exact keywords, merged (case-insensitively) with those auto-extracted from the query.'),
         guaranteedTopRanked: z.coerce.number().min(0).max(50).optional().default(3)
           .describe('How many top results (by pure relevance score) are locked to the head in rank order, exempt from cross-session diversification. Default 3 keeps the strongest hits on top while spreading the rest across sessions. Set =topK to trust the ranking and disable diversification entirely; set 0 for maximum session diversity. Ignored for single-session (sessionId) searches.'),
       },
@@ -967,7 +987,7 @@ export function registerSearchTools(
         const minScore = args.minScore ?? preset.defaultMinScore;
 
         // Extract keywords FIRST so we can use them for index-based pre-filtering
-        const queryKeywords = keywords ?? extractKeywords(query);
+        const queryKeywords = resolveQueryKeywords(query, keywords);
         if (queryKeywords.length === 0) {
           return toolResultText(
             { query, resultCount: 0, results: [], note: 'No searchable keywords extracted from query.' },
@@ -1012,7 +1032,11 @@ export function registerSearchTools(
 
         return toolResultText({
           query,
-          searchBackend: 'hybrid-keyword-semantic',
+          // Honest reporting: semantic type-selection contributed only when the
+          // per-type cosine map is non-empty. Single-session, legacy-fallback,
+          // fuse-backend and embedder-failure paths all rank purely by keyword.
+          searchBackend: semanticTypeScores.size > 0 ? 'hybrid-keyword-semantic' : 'keyword-only',
+          searchProvider: eventTypeIndex?.name,
           depth,
           searchMethod,
           keywordsUsed: queryKeywords,

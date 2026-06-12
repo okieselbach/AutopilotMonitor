@@ -9,6 +9,7 @@ import { registerResources } from './resources.js';
 import { registerPrompts } from './prompts.js';
 import { loadKnowledgeDocs } from './knowledge-base.js';
 import { createSearchProvider } from './search-factory.js';
+import type { SearchBackend, SearchProvider } from './search-provider.js';
 import { buildEventTypeSearchDocs } from './resource-catalog.js';
 import { createOAuthRouter } from './oauth.js';
 import { accessGuard } from './access-guard.js';
@@ -39,18 +40,38 @@ if (!process.env.MCP_PUBLIC_URL) {
 
 console.error('Loading knowledge base documents…');
 const docs = await loadKnowledgeDocs(RULES_DIR);
-
-console.error(`Initializing search provider (${docs.length} documents)…`);
-const knowledgeBase = await createSearchProvider();
-await knowledgeBase.index(docs);
-console.error(`Search provider ready: ${knowledgeBase.name} — ${knowledgeBase.size} documents indexed.`);
-
-// Separate tiny provider over the event-type catalog → semantic candidate selection
-// for event search ("app stuck downloading" → download_progress/do_telemetry). Shares
-// the embedder singleton with the knowledge base, so this adds ~no memory.
 const eventTypeDocs = buildEventTypeSearchDocs();
-const eventTypeIndex = await createSearchProvider();
-await eventTypeIndex.index(eventTypeDocs);
+
+async function buildSearchIndexes(backend?: SearchBackend): Promise<{
+  knowledgeBase: SearchProvider;
+  eventTypeIndex: SearchProvider;
+}> {
+  const kb = await createSearchProvider(backend);
+  await kb.index(docs);
+  // Separate tiny provider over the event-type catalog → semantic candidate selection
+  // for event search ("app stuck downloading" → download_progress/do_telemetry). Shares
+  // the embedder singleton with the knowledge base, so this adds ~no memory.
+  const et = await createSearchProvider(backend);
+  await et.index(eventTypeDocs);
+  return { knowledgeBase: kb, eventTypeIndex: et };
+}
+
+// Boot indexing must never crash-loop the container: the vector provider's first
+// index() call loads the embedding model, and although the Docker image pre-bakes
+// the model cache, a missing/corrupt cache falls through to a HuggingFace CDN
+// download — unreachable CDN or blocked egress would otherwise be a top-level
+// rejection killing every scale-to-zero cold start. Degrade to the keyword (fuse)
+// backend instead; search quality drops but the server stays up.
+console.error(`Initializing search provider (${docs.length} documents)…`);
+let knowledgeBase: SearchProvider;
+let eventTypeIndex: SearchProvider;
+try {
+  ({ knowledgeBase, eventTypeIndex } = await buildSearchIndexes());
+} catch (err) {
+  console.error('[startup] Search index initialization failed (embedding model unavailable?) — falling back to the keyword (fuse) backend:', err);
+  ({ knowledgeBase, eventTypeIndex } = await buildSearchIndexes('fuse'));
+}
+console.error(`Search provider ready: ${knowledgeBase.name} — ${knowledgeBase.size} documents indexed.`);
 console.error(`Event-type index ready: ${eventTypeIndex.name} — ${eventTypeIndex.size} types indexed.`);
 
 // Server-level guidance. The host surfaces this once per connection, so it is

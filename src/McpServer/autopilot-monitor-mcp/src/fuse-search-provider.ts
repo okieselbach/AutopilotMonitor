@@ -12,6 +12,9 @@ import { scanLexical } from './search-provider.js';
 
 export class FuseSearchProvider implements SearchProvider {
   readonly name = 'fuse';
+  // Inverted Fuse scores are NOT cosine similarities — consumers with
+  // cosine-calibrated thresholds must skip semantic treatment for this backend.
+  readonly semanticCapable = false;
   private documents: SearchDocument[] = [];
   private fuse: Fuse<SearchDocument> | null = null;
 

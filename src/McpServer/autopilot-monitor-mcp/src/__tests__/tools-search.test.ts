@@ -20,6 +20,7 @@ import {
   orderBySelectivity,
   dedupeSynonymConcepts,
   entityRecallHint,
+  resolveQueryKeywords,
 } from '../tools/search.js';
 import { scanLexical } from '../search-provider.js';
 import type { SearchDocument } from '../search-provider.js';
@@ -327,6 +328,33 @@ describe('normalizeRawEvent (raw PascalCase → enriched camelCase)', () => {
   });
 });
 
+describe('resolveQueryKeywords (caller keywords are additive + lowercased)', () => {
+  it('lowercases caller keywords so they can match the lowercased corpus', () => {
+    // Regression: `keywords: ["BitLocker"]` used to flow through verbatim and match
+    // nothing — silent empty result.
+    expect(resolveQueryKeywords('encryption stuck', ['BitLocker'])).toEqual(['bitlocker', 'encryption', 'stuck']);
+  });
+
+  it('merges caller keywords with auto-extraction instead of replacing it', () => {
+    // Regression: `??` replaced extraction entirely, discarding query-derived recall.
+    const out = resolveQueryKeywords('bitlocker encryption failed', ['0x87D1041C']);
+    expect(out).toEqual(['0x87d1041c', 'bitlocker', 'encryption', 'failed']);
+  });
+
+  it('dedupes a caller keyword already extracted from the query', () => {
+    expect(resolveQueryKeywords('bitlocker failed', ['BitLocker'])).toEqual(['bitlocker', 'failed']);
+  });
+
+  it('drops empty / whitespace-only caller keywords', () => {
+    expect(resolveQueryKeywords('bitlocker failed', ['  ', '', ' TPM '])).toEqual(['tpm', 'bitlocker', 'failed']);
+  });
+
+  it('falls back to pure auto-extraction when no keywords are supplied', () => {
+    expect(resolveQueryKeywords('bitlocker failed')).toEqual(['bitlocker', 'failed']);
+    expect(resolveQueryKeywords('bitlocker failed', [])).toEqual(['bitlocker', 'failed']);
+  });
+});
+
 describe('queryHasProblemIntent', () => {
   it('detects failure-intent stems (incl. inflections)', () => {
     expect(queryHasProblemIntent(['error'])).toBe(true);
@@ -434,8 +462,9 @@ describe('extractEventTypeCandidates — ranking + broad-catalog coverage', () =
 
 describe('selectEventTypeCandidates (lexical + semantic blend)', () => {
   // Minimal fake vector provider returning canned semantic hits.
-  const provider = (eventTypes: string[], opts: { throws?: boolean; size?: number } = {}) => ({
+  const provider = (eventTypes: string[], opts: { throws?: boolean; size?: number; semanticCapable?: boolean } = {}) => ({
     name: 'fake',
+    semanticCapable: opts.semanticCapable ?? true,
     size: opts.size ?? eventTypes.length,
     index: async () => {},
     search: async () => {
@@ -477,6 +506,14 @@ describe('selectEventTypeCandidates (lexical + semantic blend)', () => {
 
   it('falls back to keyword-only if the embedder throws', async () => {
     const out = await selectEventTypeCandidates('bitlocker', ['bitlocker'], provider(['tpm_status'], { throws: true }));
+    expect(out.candidates).toEqual(['bitlocker_status']);
+    expect(out.semanticTypeScores.size).toBe(0);
+  });
+
+  it('skips semantic selection for a non-semantic (fuse) backend — its scores are not cosines', async () => {
+    // Regression: gating on index PRESENCE alone let SEARCH_BACKEND=fuse feed inverted
+    // fuzzy-match scores through cosine-calibrated thresholds as fake cosines.
+    const out = await selectEventTypeCandidates('bitlocker', ['bitlocker'], provider(['tpm_status'], { semanticCapable: false }));
     expect(out.candidates).toEqual(['bitlocker_status']);
     expect(out.semanticTypeScores.size).toBe(0);
   });

@@ -33,6 +33,16 @@ export interface SearchProvider {
   /** Human-readable backend name (e.g. "vector/all-MiniLM-L6-v2", "fuse"). */
   readonly name: string;
 
+  /**
+   * True only when `search()` scores are genuine embedding cosine similarities.
+   * Consumers that apply cosine-calibrated thresholds or floors (e.g. the
+   * event-type candidate selection's SEMANTIC_TYPE_MIN_SCORE and the per-event
+   * semantic floor) MUST gate on this flag: a fuzzy-text backend's inverted
+   * Fuse scores live on a different scale, and flowing them through cosine
+   * thresholds produces arbitrary candidate selection and floor values.
+   */
+  readonly semanticCapable: boolean;
+
   /** Number of currently indexed documents. */
   readonly size: number;
 
