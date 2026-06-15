@@ -21,6 +21,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         private PerformanceCounter _cpuCounter;
         private PerformanceCounter _diskQueueCounter;
 
+        // MON-B10 — one-shot low-disk warning. disk_free_gb was previously only visible inside the
+        // Debug performance_snapshot payload (filtered out of timelines), so a disk-starved enrollment
+        // had no actionable signal. Emit a single disk_space_low Warning on the transition below the
+        // threshold; re-arm only after free space recovers past a higher mark (hysteresis) so the
+        // event stays state-change-only and never turns into a heartbeat.
+        private const double DiskLowThresholdGb = 2.0;
+        private const double DiskRecoveryThresholdGb = 3.0;
+        private bool _diskLowWarned;
+
         // Network throughput tracking
         private string _activeNicId;
         private string _activeNicName;
@@ -141,8 +150,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             {
                 var systemDrive = Path.GetPathRoot(Environment.SystemDirectory);
                 var driveInfo = new DriveInfo(systemDrive);
-                data["disk_free_gb"] = Math.Round(driveInfo.AvailableFreeSpace / (1024.0 * 1024 * 1024), 1);
-                data["disk_total_gb"] = Math.Round(driveInfo.TotalSize / (1024.0 * 1024 * 1024), 1);
+                var freeGb = driveInfo.AvailableFreeSpace / (1024.0 * 1024 * 1024);
+                var totalGb = driveInfo.TotalSize / (1024.0 * 1024 * 1024);
+                data["disk_free_gb"] = Math.Round(freeGb, 1);
+                data["disk_total_gb"] = Math.Round(totalGb, 1);
+
+                // MON-B10 — surface a dedicated Warning the moment the drive crosses below the
+                // threshold, instead of leaving the only signal buried in this Debug snapshot.
+                if (EvaluateDiskLowTransition(freeGb, ref _diskLowWarned))
+                {
+                    EmitDiskLowWarning(freeGb, totalGb, systemDrive);
+                }
             }
             catch (Exception ex)
             {
@@ -259,6 +277,63 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                     Data = data
                 });
             }
+        }
+
+        /// <summary>
+        /// State-change-only decision for the one-shot low-disk warning. Returns <c>true</c> exactly on
+        /// the transition below <see cref="DiskLowThresholdGb"/>. Once warned the collector stays silent
+        /// (no heartbeat) until free space recovers past <see cref="DiskRecoveryThresholdGb"/>, which
+        /// re-arms it — so a single enrollment that expands then cleans its temp/download cache can warn
+        /// again without flapping inside the 1 GB hysteresis band.
+        /// </summary>
+        /// <param name="freeGb">Current free space on the system drive, in GB.</param>
+        /// <param name="alreadyWarned">Per-collector latch: <c>true</c> while a low-disk warning is in
+        /// effect. Updated in place to reflect the new armed state.</param>
+        internal static bool EvaluateDiskLowTransition(double freeGb, ref bool alreadyWarned)
+        {
+            if (freeGb < DiskLowThresholdGb)
+            {
+                if (alreadyWarned) return false; // still low, already warned → stay quiet
+                alreadyWarned = true;
+                return true;
+            }
+
+            if (freeGb >= DiskRecoveryThresholdGb)
+            {
+                alreadyWarned = false; // recovered with margin → re-arm for a future drop
+            }
+
+            return false;
+        }
+
+        private void EmitDiskLowWarning(double freeGb, double totalGb, string drive)
+        {
+            var data = new Dictionary<string, object>(capacity: 4, StringComparer.Ordinal)
+            {
+                ["disk_free_gb"] = Math.Round(freeGb, 1),
+                ["disk_total_gb"] = Math.Round(totalGb, 1),
+                ["threshold_gb"] = DiskLowThresholdGb,
+                ["drive"] = drive ?? "?",
+            };
+
+            Post.Emit(new EnrollmentEvent
+            {
+                SessionId = SessionId,
+                TenantId = TenantId,
+                Timestamp = DateTime.UtcNow,
+                EventType = Constants.EventTypes.DiskSpaceLow,
+                Severity = EventSeverity.Warning,
+                Source = "PerformanceCollector",
+                Phase = EnrollmentPhase.Unknown,
+                ImmediateUpload = true,
+                Message = $"Low disk space on {drive ?? "?"}: {Math.Round(freeGb, 1)} GB free " +
+                          $"(below {DiskLowThresholdGb:0} GB threshold)",
+                Data = data
+            });
+
+            Logger.Warning(
+                $"Low disk space on {drive ?? "?"}: {Math.Round(freeGb, 1)} GB free " +
+                $"(threshold {DiskLowThresholdGb:0} GB)");
         }
 
         /// <summary>
