@@ -169,8 +169,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 onRealUserJoined: desktopArrivalHost.RequestResetForRealUserSwitch);
             hosts.Add(aadJoinHost);
 
-            realmJoinHost = new RealmJoinHost(logger, ingress, clock);
-            hosts.Add(realmJoinHost);
+            // RealmJoin support is opt-in per tenant (portal toggle → AnalyzerConfiguration.
+            // EnableRealmJoinWatcher, default off). When disabled, leave realmJoinHost null:
+            // the DesktopArrival observer above already null-guards it, so the HKU watcher is
+            // never armed and no RealmJoin signals are produced. The compile-time const
+            // RealmJoinHost.RealmJoinTrackingEnabled remains a build-time master kill-switch;
+            // the effective enable is (remote flag AND const).
+            var analyzers = _remoteConfig.Analyzers ?? new AnalyzerConfiguration();
+            if (analyzers.EnableRealmJoinWatcher && RealmJoinHost.RealmJoinTrackingEnabled)
+            {
+                realmJoinHost = new RealmJoinHost(logger, ingress, clock);
+                hosts.Add(realmJoinHost);
+            }
+            else
+            {
+                logger.Info($"DefaultComponentFactory: RealmJoinHost not created (EnableRealmJoinWatcher={analyzers.EnableRealmJoinWatcher}, RealmJoinTrackingEnabled={RealmJoinHost.RealmJoinTrackingEnabled})");
+            }
 
             // Single-rail refactor (plan §5.8) — DeviceInfoCollector existed in V2.Core but had
             // no host so the Device-Details UI block was empty in V2 sessions (V1-Parity Issue #2).

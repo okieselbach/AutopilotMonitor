@@ -73,6 +73,7 @@ export interface TenantConfiguration {
   localAdminAllowedAccountsJson?: string;
   enableSoftwareInventoryAnalyzer?: boolean;
   enableIntegrityBypassAnalyzer?: boolean;
+  enableRealmJoinWatcher?: boolean;
   // Bootstrap token
   bootstrapTokenEnabled?: boolean;
   // Unrestricted mode

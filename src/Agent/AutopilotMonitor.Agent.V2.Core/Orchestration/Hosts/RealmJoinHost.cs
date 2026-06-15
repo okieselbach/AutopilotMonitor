@@ -20,9 +20,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         public string Name => "RealmJoinWatcher";
 
         /// <summary>
-        /// Single-line kill-switch — set to <c>false</c> to disable the entire RJ
-        /// tracking pipeline without changes elsewhere. Kept internal so a redeploy is
-        /// the only way to flip it (no remote-config toggle by design).
+        /// Compile-time master kill-switch — set to <c>false</c> to disable the entire RJ
+        /// tracking pipeline without changes elsewhere. This is now a build-time backstop in
+        /// addition to the per-tenant remote toggle (AnalyzerConfiguration.EnableRealmJoinWatcher,
+        /// default off): DefaultComponentFactory only creates this host when both are true.
         /// </summary>
         internal const bool RealmJoinTrackingEnabled = true;
 

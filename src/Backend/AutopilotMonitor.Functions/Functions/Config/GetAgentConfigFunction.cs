@@ -181,7 +181,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(new AgentConfigResponse
             {
-                ConfigVersion = 29, // V2 OfficeInstallDetector (EnableOfficeInstallDetector + OfficeInstallDetectorIntervalSeconds; C2R install lifecycle via registry+process)
+                ConfigVersion = 30, // V2 RealmJoin watcher portal toggle (EnableRealmJoinWatcher; tenant-scoped, default off; gates RealmJoinHost creation)
                 UploadIntervalSeconds = 10,
                 SelfDestructOnComplete = tenantConfig.SelfDestructOnComplete ?? true,
                 KeepLogFile = tenantConfig.KeepLogFile ?? false,
@@ -206,7 +206,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     EnableLocalAdminAnalyzer = tenantConfig.EnableLocalAdminAnalyzer ?? true,
                     LocalAdminAllowedAccounts = tenantConfig.GetLocalAdminAllowedAccounts(),
                     EnableSoftwareInventoryAnalyzer = tenantConfig.EnableSoftwareInventoryAnalyzer ?? false,
-                    EnableIntegrityBypassAnalyzer = tenantConfig.EnableIntegrityBypassAnalyzer ?? true
+                    EnableIntegrityBypassAnalyzer = tenantConfig.EnableIntegrityBypassAnalyzer ?? true,
+                    EnableRealmJoinWatcher = tenantConfig.EnableRealmJoinWatcher ?? false
                 },
                 LatestAgentSha256 = latestAgentSha256,
                 LatestAgentExeSha256 = latestAgentExeSha256,

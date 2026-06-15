@@ -449,5 +449,13 @@ namespace AutopilotMonitor.Shared.Models
         /// Default: true
         /// </summary>
         public bool EnableIntegrityBypassAnalyzer { get; set; } = true;
+
+        /// <summary>
+        /// Whether to enable the RealmJoin watcher, which tracks RealmJoin deployment
+        /// state and enrollment packages during provisioning. This is not an IAgentAnalyzer;
+        /// the flag gates creation of the RealmJoin collector host in the agent runtime.
+        /// Default: false (opt-in; most tenants do not deploy via RealmJoin).
+        /// </summary>
+        public bool EnableRealmJoinWatcher { get; set; } = false;
     }
 }

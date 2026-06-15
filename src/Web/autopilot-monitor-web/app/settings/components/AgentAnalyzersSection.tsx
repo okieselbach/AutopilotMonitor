@@ -13,6 +13,8 @@ interface AgentAnalyzersSectionProps {
   setEnableSoftwareInventoryAnalyzer: (value: boolean) => void;
   enableIntegrityBypassAnalyzer: boolean;
   setEnableIntegrityBypassAnalyzer: (value: boolean) => void;
+  enableRealmJoinWatcher: boolean;
+  setEnableRealmJoinWatcher: (value: boolean) => void;
   onSave: () => Promise<void> | void;
   onReset: () => void;
   saving: boolean;
@@ -43,6 +45,8 @@ export default function AgentAnalyzersSection({
   setEnableSoftwareInventoryAnalyzer,
   enableIntegrityBypassAnalyzer,
   setEnableIntegrityBypassAnalyzer,
+  enableRealmJoinWatcher,
+  setEnableRealmJoinWatcher,
   onSave,
   onReset,
   saving,
@@ -221,6 +225,33 @@ export default function AgentAnalyzersSection({
               className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${enableIntegrityBypassAnalyzer ? 'bg-rose-500' : 'bg-gray-300'}`}
             >
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enableIntegrityBypassAnalyzer ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
+        </div>
+
+        {/* ── Divider ─────────────────────────────────────── */}
+        <div className="border-t border-gray-200" />
+
+        {/* ── RealmJoin Watcher ───────────────────────────── */}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">RealmJoin Watcher</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Tracks RealmJoin deployment state and enrollment packages during provisioning (deployment phase,
+            per-package start/completion, and the RealmJoin completion gate). Leave this off unless this tenant
+            deploys via RealmJoin — for all other tenants it produces no signal and is best left disabled.
+          </p>
+
+          {/* Enable toggle */}
+          <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-rose-200 transition-colors">
+            <div>
+              <p className="font-medium text-gray-900">Enable RealmJoin Watcher</p>
+              <p className="text-sm text-gray-500">Off by default. Enable for tenants that provision devices with RealmJoin</p>
+            </div>
+            <button
+              onClick={() => setEnableRealmJoinWatcher(!enableRealmJoinWatcher)}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${enableRealmJoinWatcher ? 'bg-rose-500' : 'bg-gray-300'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enableRealmJoinWatcher ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
           </div>
         </div>

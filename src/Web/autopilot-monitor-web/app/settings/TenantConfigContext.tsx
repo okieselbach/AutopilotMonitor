@@ -106,6 +106,8 @@ interface TenantConfigContextValue {
   setEnableSoftwareInventoryAnalyzer: (v: boolean) => void;
   enableIntegrityBypassAnalyzer: boolean;
   setEnableIntegrityBypassAnalyzer: (v: boolean) => void;
+  enableRealmJoinWatcher: boolean;
+  setEnableRealmJoinWatcher: (v: boolean) => void;
   handleSaveAgentAnalyzers: () => void;
   handleResetAgentAnalyzers: () => void;
 
@@ -337,6 +339,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const [newAllowedAccount, setNewAllowedAccount] = useState("");
   const [enableSoftwareInventoryAnalyzer, setEnableSoftwareInventoryAnalyzer] = useState(false);
   const [enableIntegrityBypassAnalyzer, setEnableIntegrityBypassAnalyzer] = useState(true);
+  const [enableRealmJoinWatcher, setEnableRealmJoinWatcher] = useState(false);
 
   // Unrestricted mode
   const [unrestrictedMode, setUnrestrictedMode] = useState(false);
@@ -448,6 +451,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         }
         setEnableSoftwareInventoryAnalyzer(data.enableSoftwareInventoryAnalyzer ?? false);
         setEnableIntegrityBypassAnalyzer(data.enableIntegrityBypassAnalyzer ?? true);
+        setEnableRealmJoinWatcher(data.enableRealmJoinWatcher ?? false);
         setUnrestrictedMode(data.unrestrictedMode ?? false);
 
         // Parse SAS expiry and fire notification to bell if needed
@@ -638,6 +642,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         localAdminAllowedAccountsJson: localAdminAllowedAccounts.length > 0 ? JSON.stringify(localAdminAllowedAccounts) : "",
         enableSoftwareInventoryAnalyzer,
         enableIntegrityBypassAnalyzer,
+        enableRealmJoinWatcher,
         unrestrictedMode,
       };
 
@@ -686,7 +691,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     slaNotifyOnAppInstallBreach, slaNotifyOnConsecutiveFailures, slaConsecutiveFailureThreshold,
     diagnosticsBlobSasUrl, diagnosticsUploadMode, diagnosticsUploadDestination, tenantDiagPaths,
     enableLocalAdminAnalyzer, localAdminAllowedAccounts, enableSoftwareInventoryAnalyzer,
-    enableIntegrityBypassAnalyzer, unrestrictedMode,
+    enableIntegrityBypassAnalyzer, enableRealmJoinWatcher, unrestrictedMode,
   ]);
 
   // -----------------------------------------------------------------------
@@ -890,6 +895,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     setNewAllowedAccount("");
     setEnableSoftwareInventoryAnalyzer(config.enableSoftwareInventoryAnalyzer ?? false);
     setEnableIntegrityBypassAnalyzer(config.enableIntegrityBypassAnalyzer ?? true);
+    setEnableRealmJoinWatcher(config.enableRealmJoinWatcher ?? false);
   }, [config]);
 
   const handleSaveNotifications = useCallback(() => saveConfiguration("notifications"), [saveConfiguration]);
@@ -1271,6 +1277,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       newAllowedAccount, setNewAllowedAccount,
       enableSoftwareInventoryAnalyzer, setEnableSoftwareInventoryAnalyzer,
       enableIntegrityBypassAnalyzer, setEnableIntegrityBypassAnalyzer,
+      enableRealmJoinWatcher, setEnableRealmJoinWatcher,
       handleSaveAgentAnalyzers, handleResetAgentAnalyzers,
 
       // Unrestricted mode

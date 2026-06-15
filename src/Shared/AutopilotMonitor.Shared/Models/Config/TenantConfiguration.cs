@@ -328,6 +328,13 @@ namespace AutopilotMonitor.Shared.Models
         public bool? EnableIntegrityBypassAnalyzer { get; set; } = null;
 
         /// <summary>
+        /// Whether the RealmJoin watcher is enabled for this tenant's devices.
+        /// RealmJoin enrollment-package tracking is off by default; enable only for
+        /// tenants that deploy via RealmJoin. null = use agent default (false).
+        /// </summary>
+        public bool? EnableRealmJoinWatcher { get; set; } = null;
+
+        /// <summary>
         /// JSON-serialized list of additional local account names that are considered expected
         /// on a newly enrolled device (merged with built-in defaults on the agent).
         /// Example: ["SupportAdmin", "TechDesk"]
