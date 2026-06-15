@@ -92,6 +92,7 @@ export const EVENT_TYPES_CATALOG = {
     'aad_join_status',
     'cert_validation',
     'device_location',
+    'outbound_ip',
     'timezone_auto_set',
     'ntp_time_check',
     'power_state_check',

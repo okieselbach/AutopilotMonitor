@@ -62,6 +62,31 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Runtime
             Assert.Equal("ipinfo.io", evt.Data["source"]);
         }
 
+        // ================================================================= Outbound IP
+
+        [Fact]
+        public void BuildOutboundIpEvent_returns_trace_outbound_ip_event_with_ip_and_source()
+        {
+            var cfg = Config();
+            var loc = new GeoLocationResult
+            {
+                // RFC 5737 documentation range — never a real address.
+                Ip = "203.0.113.7",
+                Source = "ipinfo.io",
+            };
+
+            var evt = StartupEnvironmentProbes.BuildOutboundIpEvent(cfg, loc);
+
+            Assert.Equal("outbound_ip", evt.EventType);
+            Assert.Equal(EventSeverity.Trace, evt.Severity);
+            Assert.Equal("StartupEnvironmentProbes", evt.Source);
+            Assert.Equal("S1", evt.SessionId);
+            Assert.Equal("T1", evt.TenantId);
+            Assert.Contains("203.0.113.7", evt.Message);
+            Assert.Equal("203.0.113.7", evt.Data["ip"]);
+            Assert.Equal("ipinfo.io", evt.Data["source"]);
+        }
+
         // ================================================================= Geo failure
 
         [Fact]

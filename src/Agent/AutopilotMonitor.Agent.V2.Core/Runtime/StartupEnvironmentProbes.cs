@@ -116,6 +116,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
                 if (gate == null || !gate.AlreadySucceeded(Constants.EventTypes.DeviceLocation))
                 {
                     SafeEmit(post, logger, BuildGeoEvent(configuration, attempt.Location));
+
+                    // Outbound (public egress) IP — Trace severity so it stays out of the
+                    // timeline by default; persisted/queryable for network correlation.
+                    if (!string.IsNullOrEmpty(attempt.Location.Ip))
+                        SafeEmit(post, logger, BuildOutboundIpEvent(configuration, attempt.Location));
+
                     gate?.MarkSucceeded(Constants.EventTypes.DeviceLocation);
                 }
                 else
@@ -204,6 +210,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
                 Message = $"Device location: {location.City}, {location.Region}, {location.Country} (via {location.Source})",
                 Data = location.ToDictionary(),
                 ImmediateUpload = true,
+            };
+
+        internal static EnrollmentEvent BuildOutboundIpEvent(AgentConfiguration configuration, GeoLocationResult location) =>
+            new EnrollmentEvent
+            {
+                SessionId = configuration.SessionId,
+                TenantId = configuration.TenantId,
+                EventType = Constants.EventTypes.OutboundIp,
+                Severity = EventSeverity.Trace,
+                Source = "StartupEnvironmentProbes",
+                Phase = EnrollmentPhase.Unknown,
+                Timestamp = DateTime.UtcNow,
+                Message = $"Outbound IP {location.Ip} (via {location.Source})",
+                Data = new Dictionary<string, object>
+                {
+                    { "ip", location.Ip },
+                    { "source", location.Source },
+                },
             };
 
         internal static EnrollmentEvent BuildGeoFailureEvent(AgentConfiguration configuration, GeoLocationAttemptResult? attempt) =>

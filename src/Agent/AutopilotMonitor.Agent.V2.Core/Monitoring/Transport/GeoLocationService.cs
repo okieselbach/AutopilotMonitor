@@ -17,6 +17,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         public string Timezone { get; set; }
         public string Source { get; set; }
 
+        /// <summary>
+        /// Public/outbound (egress) IP as observed by the provider. Captured for
+        /// network-correlation purposes and emitted as a separate Trace event — it is
+        /// deliberately NOT part of <see cref="ToDictionary"/> so it never reaches the
+        /// timeline-visible <c>device_location</c> event.
+        /// </summary>
+        public string Ip { get; set; }
+
         public Dictionary<string, object> ToDictionary()
         {
             return new Dictionary<string, object>
@@ -118,6 +126,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                         City = json.Value<string>("city"),
                         Loc = json.Value<string>("loc"),
                         Timezone = json.Value<string>("timezone"),
+                        Ip = json.Value<string>("ip"),
                         Source = "ipinfo"
                     };
 
@@ -170,6 +179,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                         City = json.Value<string>("city"),
                         Loc = loc,
                         Timezone = json.Value<string>("time_zone"),
+                        Ip = json.Value<string>("ip"),
                         Source = "ifconfig.co"
                     };
 
