@@ -38,6 +38,70 @@ export default function ChangelogPage() {
             <div>
               <div className="flex items-center gap-3 mb-3">
                 <span className="text-xs font-mono font-semibold text-gray-400 uppercase tracking-wider">
+                  2026-06-16 - 12:00 CET
+                </span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                  Platform Update
+                </span>
+              </div>
+              <h2 className="text-base font-semibold text-gray-900 mb-2">
+                Software hub with self-service vulnerability exposure, faster Fleet Health, and expanded MCP tools
+              </h2>
+              <ul className="space-y-2 text-sm text-gray-600 leading-relaxed list-none">
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">Software hub with self-service vulnerability exposure</span> — The App Health page is now a tabbed <Link href="/apps" className="text-blue-600 hover:text-blue-800 underline">Software</Link> hub bringing app installs, installed-software inventory, and CVE/KEV vulnerability exposure together in one place. For the first time, tenant admins can see their own fleet's vulnerability exposure (Fleet Exposure) — previously a Global-Admin-only view — with per-device matches, a severity breakdown, and data-source sync-status counters.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">Faster Fleet Health on large fleets</span> — Fleet Health now loads from server-aggregated metrics endpoints instead of draining up to 200,000 sessions into the browser, so the dashboard opens far faster on big fleets with identical numbers.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">"Not registered" devices overview</span> — A new view under enrollment validation lists, per serial number, devices rejected with HTTP 403 over the last 14 days because they were not in the tenant's Autopilot or Corporate Identifier registry.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">Richer session detail</span> — The Session Info card now shows Reboots, Enrollment Type (Device Preparation / Autopilot, with PreProvisioned and Gather Rules qualifiers), Join Type (Hybrid / Entra), and a "last contact" tooltip. Per-session reboot count is also stored and queryable via MCP.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">Office &amp; RealmJoin install rows</span> — Microsoft 365 Apps (Office) and RealmJoin packages now appear as first-class rows in the session Install Progress alongside Intune apps, with live timers, durations, and exit-code badges. The RealmJoin agent version is shown in the session System panel, and the RealmJoin watcher is now a per-tenant portal toggle (default off).</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">Expanded MCP tools</span> — New <code>get_software_inventory</code> and <code>get_app_install_metrics</code> tools surface installed-software inventory and per-app install metrics (including Delivery Optimization peer/MCC offload savings); <code>get_audit_logs</code> gains action / performed-by / entity-type / entity-id filters; <code>list_tenants</code> and a fleet vulnerability summary were added; raw session/event query tools now return literal table rows; hybrid event search is genuinely semantic; and the tool surface is role-aware so Global-Admin-only tools are hidden from regular users. Analysis output also resolves rule-template placeholders so explanations never leak raw <code>{"{{...}}"}</code> tokens.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">Clearer error reporting</span> — Event and error views now show enriched, human-readable error-code descriptions and clearly distinguish a detection-failure from an install-failure from a "likely stuck" enrollment.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">Deep links survive re-authentication</span> — Opening a session, diagnosis, or other in-app link in a new tab now returns you to that page after login instead of dropping you on the dashboard.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">Health dashboard MCP card</span> — The Health dashboard adds an MCP Server card with version and wake-aware cold-start handling, alongside the SignalR quota card.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">Device auto-block on runaway sessions</span> — Devices that emit an excessive number of session events can now be auto-blocked and their sessions killed, with block/kill-by-session-ID shortcuts and ops-alert integration.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">CPU architecture</span> — Device hardware now reports CPU architecture (<code>x86</code> / <code>x64</code> / <code>ARM</code> / <code>ARM64</code>) as a queryable property.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-gray-400 flex-shrink-0">•</span>
+                  <span><span className="font-medium text-gray-800">Security hardening</span> — Added <code>nosniff</code> and stricter <code>x-forwarded-for</code> handling, tightened query-filter validation, enforced tenant-id presence on scoped endpoints, and patched a prototype-pollution advisory in a web dependency.</span>
+                </li>
+              </ul>
+            </div>
+
+            <div>
+              <div className="flex items-center gap-3 mb-3">
+                <span className="text-xs font-mono font-semibold text-gray-400 uppercase tracking-wider">
                   2026-05-19 - 12:00 CET
                 </span>
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">

@@ -88,7 +88,7 @@ export function SectionMcpIntegration() {
           <div>
             <h4 className="text-sm font-semibold text-gray-700 mb-2">Server URL</h4>
             <div className="bg-gray-900 rounded-lg p-4 font-mono text-sm text-green-400 overflow-x-auto">
-              https://autopilotmonitor-mcp.azurewebsites.net/mcp
+              https://autopilotmonitor-mcp.kindwave-58b4b547.westeurope.azurecontainerapps.io/mcp
             </div>
           </div>
 
@@ -112,7 +112,7 @@ export function SectionMcpIntegration() {
   "servers": {
     "autopilot-monitor": {
       "type": "http",
-      "url": "https://autopilotmonitor-mcp.azurewebsites.net/mcp"
+      "url": "https://autopilotmonitor-mcp.kindwave-58b4b547.westeurope.azurecontainerapps.io/mcp"
     }
   }
 }`}
@@ -124,7 +124,7 @@ export function SectionMcpIntegration() {
             <p className="text-sm font-medium text-blue-900 mb-1">Verify your connection</p>
             <p className="text-sm text-blue-800">
               After configuring the server, ask your AI assistant: <em>&quot;List all available tools from Autopilot Monitor&quot;</em>.
-              You should see 16+ tools listed. If authentication fails, ensure your MCP access has been enabled by an administrator.
+              You should see 20+ tools listed. If authentication fails, ensure your MCP access has been enabled by an administrator.
             </p>
           </div>
         </div>
@@ -226,6 +226,10 @@ export function SectionMcpIntegration() {
                   <td className="py-2 text-gray-600">Aggregated enrollment metrics: failure rates, slowest/most-failing apps, session counts. Supports 7, 30, or 90 day windows.</td>
                 </tr>
                 <tr>
+                  <td className="py-2 pr-4 font-mono text-xs text-emerald-700">get_app_install_metrics</td>
+                  <td className="py-2 text-gray-600">App-install health over a window: top failing apps with failure rates and their most common failure codes, slowest apps by average install duration, and a Delivery Optimization rollup (bytes from peers / Microsoft Connected Cache vs. CDN, plus peer-offload percentage). 1&ndash;365 day window (default 30).</td>
+                </tr>
+                <tr>
                   <td className="py-2 pr-4 font-mono text-xs text-emerald-700">get_geographic_metrics</td>
                   <td className="py-2 text-gray-600">Geographic distribution of enrollments with performance comparisons across locations.</td>
                 </tr>
@@ -234,12 +238,20 @@ export function SectionMcpIntegration() {
                   <td className="py-2 text-gray-600">Drill into a specific location by country, region, or city to see enrollment details.</td>
                 </tr>
                 <tr>
-                  <td className="py-2 pr-4 font-mono text-xs text-emerald-700">get_usage_metrics</td>
-                  <td className="py-2 text-gray-600">Platform usage statistics: active tenants, feature adoption, and usage trends.</td>
+                  <td className="py-2 pr-4 font-mono text-xs text-emerald-700">get_vulnerability_summary</td>
+                  <td className="py-2 text-gray-600">Vulnerability exposure summary from detected CVEs: affected device count, distinct CVE and CISA Known-Exploited (KEV) counts, severity breakdown, and the top CVEs ranked by affected devices. Use <code className="bg-gray-100 px-1 rounded text-xs">search_sessions_by_cve</code> for the device list of a single CVE.</td>
                 </tr>
                 <tr>
-                  <td className="py-2 pr-4 font-mono text-xs text-emerald-700">get_api_usage</td>
-                  <td className="py-2 text-gray-600">Your MCP/API usage per endpoint per day. Monitor your own consumption and rate limits.</td>
+                  <td className="py-2 pr-4 font-mono text-xs text-emerald-700">get_rule_stats</td>
+                  <td className="py-2 text-gray-600">Firing statistics for analyze and gather rules: which rules fire most often, their hit rates (fires/evaluations), and daily trends. Filter by rule type and date window to keep responses lean.</td>
+                </tr>
+                <tr>
+                  <td className="py-2 pr-4 font-mono text-xs text-emerald-700">get_ime_version_history</td>
+                  <td className="py-2 text-gray-600">History of all IME (Intune Management Extension) agent versions seen across enrollments &mdash; first/last seen and session counts per version. A permanent archive that survives data retention, useful for tracking Microsoft IME rollouts.</td>
+                </tr>
+                <tr>
+                  <td className="py-2 pr-4 font-mono text-xs text-emerald-700">get_usage_metrics</td>
+                  <td className="py-2 text-gray-600">Usage statistics for your tenant: session volumes, feature adoption, success rate, and active users. 1&ndash;365 day window (default 30).</td>
                 </tr>
               </tbody>
             </table>
@@ -250,7 +262,7 @@ export function SectionMcpIntegration() {
         <div className="mb-8">
           <h4 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-amber-500" />
-            Device Management &amp; Administration
+            Inventory &amp; Audit
           </h4>
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -262,8 +274,8 @@ export function SectionMcpIntegration() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 <tr>
-                  <td className="py-2 pr-4 font-mono text-xs text-amber-700">list_blocked_devices</td>
-                  <td className="py-2 text-gray-600">List devices currently blocked from enrolling in your tenant.</td>
+                  <td className="py-2 pr-4 font-mono text-xs text-amber-700">get_software_inventory</td>
+                  <td className="py-2 text-gray-600">Installed-software catalog discovered on enrolled devices, deduplicated by normalized vendor/name/version with publisher, registry source, CPE mapping for vulnerability correlation, session count, and last-seen. Paginated &mdash; pass the returned <span className="font-mono text-xs">nextLink</span> back as <span className="font-mono text-xs">continuation</span>.</td>
                 </tr>
                 <tr>
                   <td className="py-2 pr-4 font-mono text-xs text-amber-700">get_audit_logs</td>
@@ -291,11 +303,15 @@ export function SectionMcpIntegration() {
               <tbody className="divide-y divide-gray-100">
                 <tr>
                   <td className="py-2 pr-4 font-mono text-xs text-gray-700">query_raw_events</td>
-                  <td className="py-2 text-gray-600">Query raw event data with flexible filters and field projection. Pass a lean <span className="font-mono text-xs">fields=</span> list to drop the heavy per-event <span className="font-mono text-xs">data</span> payload for counting/aggregation. When querying by session ID the tenant is auto-resolved (Global Admin). Useful for custom analysis beyond the high-level tools.</td>
+                  <td className="py-2 text-gray-600">Query raw event data with flexible filters and field projection. Pass a lean <span className="font-mono text-xs">fields=</span> list to drop the heavy per-event <span className="font-mono text-xs">data</span> payload for counting/aggregation. When querying by session ID the tenant is auto-resolved from the session. Useful for custom analysis beyond the high-level tools.</td>
                 </tr>
                 <tr>
                   <td className="py-2 pr-4 font-mono text-xs text-gray-700">query_raw_sessions</td>
                   <td className="py-2 text-gray-600">Query raw session data with field projection. Select specific fields to reduce response size for bulk analysis.</td>
+                </tr>
+                <tr>
+                  <td className="py-2 pr-4 font-mono text-xs text-gray-700">get_resource</td>
+                  <td className="py-2 text-gray-600">Returns a named discovery catalog (<code className="bg-gray-100 px-1 rounded text-xs">event_types</code> or <code className="bg-gray-100 px-1 rounded text-xs">device_properties</code>) for clients that cannot read MCP-protocol resources directly. Consult it before filtering by event type or device property.</td>
                 </tr>
               </tbody>
             </table>
@@ -385,14 +401,13 @@ export function SectionMcpIntegration() {
       <div className="bg-white rounded-lg shadow-md p-8">
         <h3 className="text-xl font-semibold text-gray-900 mb-4">Rate Limits</h3>
         <p className="text-gray-700 leading-relaxed mb-4">
-          MCP requests are rate-limited per user to ensure fair usage. The default limit is <strong>60 requests per minute</strong>.
-          Your administrator may adjust this via usage plans. You can check your current usage with the{" "}
-          <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">get_api_usage</code> tool.
+          MCP requests are rate-limited per user to ensure fair usage. The limit is <strong>60 requests per minute</strong>,
+          enforced as a sliding 60-second window per signed-in user.
         </p>
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
           <p className="text-sm text-amber-800">
-            If you hit the rate limit, the server returns HTTP 429. Your AI client will typically retry automatically
-            after the cooldown period.
+            If you hit the limit, the server returns HTTP 429 with <code className="bg-amber-100 px-1 rounded text-xs">retryAfterSeconds: 60</code>.
+            Your AI client will typically retry automatically once the window clears.
           </p>
         </div>
       </div>
