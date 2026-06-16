@@ -1,7 +1,6 @@
 using System.Text;
 using AutopilotMonitor.Shared.Models;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace AutopilotMonitor.Functions.Functions.Ingest
 {
@@ -63,7 +62,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     var evt = JsonConvert.DeserializeObject<EnrollmentEvent>(lines[i]);
                     if (evt != null)
                     {
-                        NormalizeEventData(evt);
+                        EventDataNormalizer.Normalize(evt);
                         events.Add(evt);
                     }
                 }
@@ -75,31 +74,6 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             }
 
             return (metadata.SessionId, metadata.TenantId, events);
-        }
-
-        internal static void NormalizeEventData(EnrollmentEvent evt)
-        {
-            if (evt.Data == null || evt.Data.Count == 0) return;
-            var normalized = new Dictionary<string, object>();
-            foreach (var kvp in evt.Data)
-                normalized[kvp.Key] = ConvertJTokenToNative(kvp.Value);
-            evt.Data = normalized;
-        }
-
-        private static object ConvertJTokenToNative(object value)
-        {
-            if (value is JArray jArray)
-                return jArray.Select(item => ConvertJTokenToNative(item)).ToList<object>();
-            if (value is JObject jObject)
-            {
-                var dict = new Dictionary<string, object>();
-                foreach (var prop in jObject.Properties())
-                    dict[prop.Name] = ConvertJTokenToNative(prop.Value);
-                return dict;
-            }
-            if (value is JValue jValue)
-                return jValue.Value ?? string.Empty;
-            return value;
         }
     }
 }

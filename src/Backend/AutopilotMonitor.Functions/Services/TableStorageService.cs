@@ -266,16 +266,8 @@ namespace AutopilotMonitor.Functions.Services
             try
             {
                 var deserialized = JsonConvert.DeserializeObject<Dictionary<string, object>>(dataJson);
-                if (deserialized == null)
-                    return new Dictionary<string, object>();
-
-                // Convert all JToken values to native types
-                var result = new Dictionary<string, object>();
-                foreach (var kvp in deserialized)
-                {
-                    result[kvp.Key] = ConvertJTokenToNative(kvp.Value);
-                }
-                return result;
+                // Convert all JToken values to native types (shared with the ingest paths).
+                return Functions.Ingest.EventDataNormalizer.NormalizeMap(deserialized);
             }
             catch
             {
@@ -288,32 +280,6 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
-        /// <summary>
-        /// Converts JToken objects (JArray, JObject) to native .NET types
-        /// This fixes the issue where Newtonsoft.Json deserialization creates JToken objects
-        /// that get serialized incorrectly as nested empty arrays
-        /// </summary>
-        private object ConvertJTokenToNative(object value)
-        {
-            if (value is JArray jArray)
-            {
-                return jArray.Select(item => ConvertJTokenToNative(item)).ToList();
-            }
-            else if (value is JObject jObject)
-            {
-                var dict = new Dictionary<string, object>();
-                foreach (var prop in jObject.Properties())
-                {
-                    dict[prop.Name] = ConvertJTokenToNative(prop.Value);
-                }
-                return dict;
-            }
-            else if (value is JValue jValue)
-            {
-                return jValue.Value ?? string.Empty;
-            }
-            return value;
-        }
     }
 
 }

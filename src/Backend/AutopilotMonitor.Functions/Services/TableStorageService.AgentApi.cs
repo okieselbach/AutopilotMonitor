@@ -209,7 +209,7 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
-        private static bool? DetectHasSSD(Dictionary<string, object> data)
+        internal static bool? DetectHasSSD(Dictionary<string, object> data)
         {
             try
             {
@@ -222,9 +222,11 @@ namespace AutopilotMonitor.Functions.Services
 
                     if (diskDict.TryGetValue("mediaType", out var mt))
                     {
+                        // The agent reports composite media types such as "NVMe SSD", so match on
+                        // substring rather than equality (an exact compare missed every real disk).
                         var mtStr = mt?.ToString() ?? "";
-                        if (mtStr.Equals("SSD", StringComparison.OrdinalIgnoreCase) ||
-                            mtStr.Equals("NVMe", StringComparison.OrdinalIgnoreCase))
+                        if (mtStr.IndexOf("SSD", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            mtStr.IndexOf("NVMe", StringComparison.OrdinalIgnoreCase) >= 0)
                             return true;
                     }
                 }

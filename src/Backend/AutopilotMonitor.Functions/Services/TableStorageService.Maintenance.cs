@@ -616,14 +616,24 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Gets all unique tenant IDs from sessions table
+        /// Gets all known tenant IDs from the TenantConfiguration table (one "config" row per
+        /// tenant). This replaces an O(corpus) scan of the entire Sessions table — the maintenance
+        /// pass only needs the tenant set, not every session, and the tenant set grows with the
+        /// number of onboarded tenants, not the session history.
+        ///
+        /// Trade-off: a tenant whose config row was deleted (full offboarding) but whose old
+        /// sessions still linger will no longer be visited by maintenance sweeps. That is
+        /// acceptable — the offboarding cascade removes those sessions anyway, and a merely
+        /// disabled tenant keeps its config row and is still processed.
         /// </summary>
         public async Task<List<string>> GetAllTenantIdsAsync()
         {
             try
             {
-                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
-                var query = tableClient.QueryAsync<TableEntity>(select: new[] { "PartitionKey" });
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.TenantConfiguration);
+                var query = tableClient.QueryAsync<TableEntity>(
+                    filter: "RowKey eq 'config'",
+                    select: new[] { "PartitionKey" });
 
                 var tenantIds = new HashSet<string>();
                 await foreach (var entity in query)

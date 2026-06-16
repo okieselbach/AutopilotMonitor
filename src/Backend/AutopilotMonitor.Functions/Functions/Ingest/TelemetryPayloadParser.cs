@@ -25,6 +25,11 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             {
                 var evt = JsonConvert.DeserializeObject<EnrollmentEvent>(item.PayloadJson!);
                 if (evt == null) return null;
+                // Convert Newtonsoft JObject/JArray nodes in nested Data values to native .NET
+                // types — same contract as the V1 NDJSON path. Without this, nested values reach
+                // System.Text.Json downstream (e.g. UpsertDeviceSnapshotAsync) as JToken and
+                // serialize to corrupt output (e.g. "disks":[[[[]],[[]]]]).
+                EventDataNormalizer.Normalize(evt);
                 // Tenant/Session stamped by the function after return; here we only deserialise.
                 return evt;
             }
