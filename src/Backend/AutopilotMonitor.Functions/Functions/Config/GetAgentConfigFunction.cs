@@ -181,7 +181,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(new AgentConfigResponse
             {
-                ConfigVersion = 30, // V2 RealmJoin watcher portal toggle (EnableRealmJoinWatcher; tenant-scoped, default off; gates RealmJoinHost creation)
+                ConfigVersion = 31, // V2 keep-awake-during-User-ESP portal toggle (KeepAwakeDuringUserEsp; tenant-scoped, default off; gates UserEspKeepAwake host)
                 UploadIntervalSeconds = 10,
                 SelfDestructOnComplete = tenantConfig.SelfDestructOnComplete ?? true,
                 KeepLogFile = tenantConfig.KeepLogFile ?? false,
@@ -207,7 +207,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     LocalAdminAllowedAccounts = tenantConfig.GetLocalAdminAllowedAccounts(),
                     EnableSoftwareInventoryAnalyzer = tenantConfig.EnableSoftwareInventoryAnalyzer ?? false,
                     EnableIntegrityBypassAnalyzer = tenantConfig.EnableIntegrityBypassAnalyzer ?? true,
-                    EnableRealmJoinWatcher = tenantConfig.EnableRealmJoinWatcher ?? false
+                    EnableRealmJoinWatcher = tenantConfig.EnableRealmJoinWatcher ?? false,
+                    KeepAwakeDuringUserEsp = tenantConfig.KeepAwakeDuringUserEsp ?? false
                 },
                 LatestAgentSha256 = latestAgentSha256,
                 LatestAgentExeSha256 = latestAgentExeSha256,

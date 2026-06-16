@@ -74,6 +74,7 @@ export interface TenantConfiguration {
   enableSoftwareInventoryAnalyzer?: boolean;
   enableIntegrityBypassAnalyzer?: boolean;
   enableRealmJoinWatcher?: boolean;
+  keepAwakeDuringUserEsp?: boolean;
   // Bootstrap token
   bootstrapTokenEnabled?: boolean;
   // Unrestricted mode

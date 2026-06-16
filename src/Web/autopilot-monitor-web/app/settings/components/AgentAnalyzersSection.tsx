@@ -15,6 +15,8 @@ interface AgentAnalyzersSectionProps {
   setEnableIntegrityBypassAnalyzer: (value: boolean) => void;
   enableRealmJoinWatcher: boolean;
   setEnableRealmJoinWatcher: (value: boolean) => void;
+  keepAwakeDuringUserEsp: boolean;
+  setKeepAwakeDuringUserEsp: (value: boolean) => void;
   onSave: () => Promise<void> | void;
   onReset: () => void;
   saving: boolean;
@@ -47,6 +49,8 @@ export default function AgentAnalyzersSection({
   setEnableIntegrityBypassAnalyzer,
   enableRealmJoinWatcher,
   setEnableRealmJoinWatcher,
+  keepAwakeDuringUserEsp,
+  setKeepAwakeDuringUserEsp,
   onSave,
   onReset,
   saving,
@@ -252,6 +256,33 @@ export default function AgentAnalyzersSection({
               className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${enableRealmJoinWatcher ? 'bg-rose-500' : 'bg-gray-300'}`}
             >
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enableRealmJoinWatcher ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
+        </div>
+
+        {/* ── Divider ─────────────────────────────────────── */}
+        <div className="border-t border-gray-200" />
+
+        {/* ── Keep Awake During User-ESP ──────────────────── */}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">Keep Awake During User-ESP</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Keeps the device awake (system and display) during the User-ESP (Account Setup) phase so idle
+            standby or sleep cannot stall app installs and account provisioning. Reboots are unaffected.
+            The hold is released automatically once the User-ESP phase completes.
+          </p>
+
+          {/* Enable toggle */}
+          <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-rose-200 transition-colors">
+            <div>
+              <p className="font-medium text-gray-900">Enable Keep Awake During User-ESP</p>
+              <p className="text-sm text-gray-500">Off by default. Enable for devices that drop into standby during the user phase of enrollment</p>
+            </div>
+            <button
+              onClick={() => setKeepAwakeDuringUserEsp(!keepAwakeDuringUserEsp)}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${keepAwakeDuringUserEsp ? 'bg-rose-500' : 'bg-gray-300'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${keepAwakeDuringUserEsp ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
           </div>
         </div>

@@ -457,5 +457,14 @@ namespace AutopilotMonitor.Shared.Models
         /// Default: false (opt-in; most tenants do not deploy via RealmJoin).
         /// </summary>
         public bool EnableRealmJoinWatcher { get; set; } = false;
+
+        /// <summary>
+        /// Whether to keep the device awake (system + display) during the User-ESP (AccountSetup)
+        /// phase so idle standby/sleep cannot stall app installs or account provisioning. This is
+        /// not an IAgentAnalyzer; the flag gates creation of the UserEspKeepAwake host in the agent
+        /// runtime. Reboots are unaffected (the hold only resets idle timers).
+        /// Default: false (opt-in per tenant).
+        /// </summary>
+        public bool KeepAwakeDuringUserEsp { get; set; } = false;
     }
 }

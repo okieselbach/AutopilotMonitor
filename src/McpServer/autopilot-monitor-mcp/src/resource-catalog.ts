@@ -131,6 +131,8 @@ export const EVENT_TYPES_CATALOG = {
     'previous_crash_detected',
     'performance_collector_stopped',
     'agent_metrics_collector_stopped',
+    'keep_awake_engaged',
+    'keep_awake_released',
     'agent_unrestricted_mode_changed',
     'remote_config_fetch_failed',
     'agent_trace',

@@ -44,6 +44,10 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
     description: "Agent process is shutting down. V2 canonical event; reason field disambiguates (decision_terminal / max_lifetime / auth_failure / ctrl_c / process_exit / unhandled_exception)." },
   { value: "phase_transition", label: "phase_transition", category: "enrollment",
     description: "Enrollment phase transition detected." },
+  { value: "keep_awake_engaged", label: "keep_awake_engaged", category: "enrollment",
+    description: "Opt-in keep-awake hold engaged on entering the User-ESP (AccountSetup) phase — device is kept awake (system + display) so standby/sleep cannot stall app installs or account setup. Reboots are unaffected. Off by default per tenant." },
+  { value: "keep_awake_released", label: "keep_awake_released", category: "enrollment",
+    description: "Keep-awake hold released — reason is account_setup_complete (User-ESP finished), host_stop (session teardown), or safety_cap (the backstop timer elapsed without completion)." },
 
   // -------- Stall detection (Ebene 2) --------
   { value: "session_stalled", label: "session_stalled", category: "stall",

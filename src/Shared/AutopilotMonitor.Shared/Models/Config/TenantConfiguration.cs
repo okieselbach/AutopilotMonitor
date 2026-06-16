@@ -335,6 +335,13 @@ namespace AutopilotMonitor.Shared.Models
         public bool? EnableRealmJoinWatcher { get; set; } = null;
 
         /// <summary>
+        /// Whether to keep the device awake during the User-ESP (AccountSetup) phase for this
+        /// tenant's devices. Prevents idle standby/sleep from stalling app installs / account
+        /// provisioning; reboots are unaffected. Off by default. null = use agent default (false).
+        /// </summary>
+        public bool? KeepAwakeDuringUserEsp { get; set; } = null;
+
+        /// <summary>
         /// JSON-serialized list of additional local account names that are considered expected
         /// on a newly enrolled device (merged with built-in defaults on the agent).
         /// Example: ["SupportAdmin", "TechDesk"]

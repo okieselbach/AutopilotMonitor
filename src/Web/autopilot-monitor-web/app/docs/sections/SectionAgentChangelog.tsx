@@ -13,6 +13,7 @@ export function SectionAgentChangelog() {
 
       {/* ── June 2026 ────────────────────────────────── */}
       <ChangelogBlock title="June 2026">
+        <Li>Optional keep-awake during the User-ESP (Account Setup) phase — when enabled per tenant (off by default), the agent keeps the device awake so it can&apos;t drop into standby and stall app installs or account setup; the hold is released automatically once the phase completes, and device reboots are unaffected</Li>
         <Li>Fewer stuck enrollments — Classic sessions where a skipped user-ESP app or an advisory &quot;continue anyway&quot; ESP failure left completion waiting now resolve through a short completion deadline instead of running into the 6-hour timeout</Li>
         <Li>Desktop-arrival detection no longer stalls on devices where the owner lookup failed — the agent resolves the signed-in user via a Windows session (WTS) query, with the previous method as fallback</Li>
         <Li>When an app still installing blocks enrollment completion, the agent now names the specific app holding up the AccountSetup gate instead of just reporting a stall</Li>

@@ -186,6 +186,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 logger.Info($"DefaultComponentFactory: RealmJoinHost not created (EnableRealmJoinWatcher={analyzers.EnableRealmJoinWatcher}, RealmJoinTrackingEnabled={RealmJoinHost.RealmJoinTrackingEnabled})");
             }
 
+            // Keep-awake during User-ESP — opt-in per tenant (portal toggle → AnalyzerConfiguration.
+            // KeepAwakeDuringUserEsp, default off). The host observes the signal rail and holds the
+            // device awake (system + display) from AccountSetup entry until provisioning completes
+            // (or a safety cap), so idle standby cannot stall app installs / account setup. Reboots
+            // are unaffected; the OS auto-clears the hold on process exit.
+            if (analyzers.KeepAwakeDuringUserEsp)
+            {
+                hosts.Add(new UserEspKeepAwakeHost(
+                    sessionId: sessionId,
+                    tenantId: tenantId,
+                    ingress: ingress,
+                    clock: clock,
+                    logger: logger));
+            }
+
             // Single-rail refactor (plan §5.8) — DeviceInfoCollector existed in V2.Core but had
             // no host so the Device-Details UI block was empty in V2 sessions (V1-Parity Issue #2).
             // Kernel host: always on, not remote-config-gated; fires CollectAll on Start on a

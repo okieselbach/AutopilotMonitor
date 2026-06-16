@@ -12,6 +12,7 @@ export function SectionAgentAnalyzers() {
     enableSoftwareInventoryAnalyzer, setEnableSoftwareInventoryAnalyzer,
     enableIntegrityBypassAnalyzer, setEnableIntegrityBypassAnalyzer,
     enableRealmJoinWatcher, setEnableRealmJoinWatcher,
+    keepAwakeDuringUserEsp, setKeepAwakeDuringUserEsp,
     handleSaveAgentAnalyzers, handleResetAgentAnalyzers,
     savingSection,
   } = useTenantConfig();
@@ -32,6 +33,8 @@ export function SectionAgentAnalyzers() {
         setEnableIntegrityBypassAnalyzer={setEnableIntegrityBypassAnalyzer}
         enableRealmJoinWatcher={enableRealmJoinWatcher}
         setEnableRealmJoinWatcher={setEnableRealmJoinWatcher}
+        keepAwakeDuringUserEsp={keepAwakeDuringUserEsp}
+        setKeepAwakeDuringUserEsp={setKeepAwakeDuringUserEsp}
         onSave={handleSaveAgentAnalyzers}
         onReset={handleResetAgentAnalyzers}
         saving={savingSection === "agentAnalyzers"}
