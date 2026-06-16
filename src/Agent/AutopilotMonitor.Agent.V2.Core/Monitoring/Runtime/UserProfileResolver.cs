@@ -1,10 +1,10 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.Management;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
 {
@@ -13,8 +13,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
     ///
     /// The agent runs as SYSTEM, so standard environment variables like %USERPROFILE% or
     /// %LOCALAPPDATA% resolve to the SYSTEM profile — not the logged-on user. This class
-    /// detects the real user via explorer.exe ownership (WMI) and caches the result for
-    /// the agent's lifetime.
+    /// detects the real user via explorer.exe ownership (WTS session query, WMI fallback —
+    /// see <see cref="Interop.ProcessOwnerLookup"/>) and caches the result for the agent's lifetime.
     ///
     /// Usage in paths: %LOGGED_ON_USER_PROFILE%\AppData\Local\RealmJoin\Logs\*.log
     /// </summary>
@@ -115,7 +115,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                         if (proc.SessionId == 0)
                             continue;
 
-                        var userName = GetProcessOwnerUserName(proc.Id);
+                        var userName = ProcessOwnerLookup.ResolveOwner(proc.Id, proc.SessionId);
                         if (userName == null)
                             continue;
 
@@ -144,38 +144,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             catch
             {
                 // WMI or process enumeration failure — no user detected
-            }
-
-            return null;
-        }
-
-        /// <summary>
-        /// Gets the owner of a process using WMI (Win32_Process.GetOwner).
-        /// Returns "DOMAIN\User" or "User" string, or null on failure.
-        /// </summary>
-        private static string GetProcessOwnerUserName(int processId)
-        {
-            try
-            {
-                using (var searcher = new ManagementObjectSearcher(
-                    $"SELECT * FROM Win32_Process WHERE ProcessId = {processId}"))
-                {
-                    foreach (ManagementObject obj in searcher.Get())
-                    {
-                        var outParams = new object[2];
-                        var result = (uint)obj.InvokeMethod("GetOwner", outParams);
-                        if (result == 0)
-                        {
-                            var user = outParams[0]?.ToString();
-                            var domain = outParams[1]?.ToString();
-                            return string.IsNullOrEmpty(domain) ? user : $"{domain}\\{user}";
-                        }
-                    }
-                }
-            }
-            catch
-            {
-                // WMI failure — return null
             }
 
             return null;

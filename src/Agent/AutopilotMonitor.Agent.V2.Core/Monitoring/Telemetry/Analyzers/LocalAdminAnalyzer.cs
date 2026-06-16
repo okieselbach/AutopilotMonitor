@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Management;
 using AutopilotMonitor.Agent.V2.Core.Logging;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
@@ -379,7 +380,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                         if (proc.SessionId == 0)
                             continue;
 
-                        string owner = GetExplorerOwner(proc.Id);
+                        string owner = ProcessOwnerLookup.ResolveOwner(proc.Id, proc.SessionId);
                         if (string.IsNullOrEmpty(owner))
                             continue;
 
@@ -415,38 +416,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
             }
 
             return users;
-        }
-
-        /// <summary>
-        /// Gets the owner of a process via WMI Win32_Process.GetOwner.
-        /// Returns "DOMAIN\User" or "User", or null on failure.
-        /// </summary>
-        private string GetExplorerOwner(int processId)
-        {
-            try
-            {
-                using (var searcher = new ManagementObjectSearcher(
-                    $"SELECT * FROM Win32_Process WHERE ProcessId = {processId}"))
-                {
-                    foreach (ManagementObject obj in searcher.Get())
-                    {
-                        var outParams = new object[2];
-                        var result = (uint)obj.InvokeMethod("GetOwner", outParams);
-                        if (result == 0)
-                        {
-                            var user   = outParams[0]?.ToString();
-                            var domain = outParams[1]?.ToString();
-                            return string.IsNullOrEmpty(domain) ? user : $"{domain}\\{user}";
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.Debug($"{Name}: WMI GetOwner failed for PID {processId}: {ex.Message}");
-            }
-
-            return null;
         }
 
         /// <summary>

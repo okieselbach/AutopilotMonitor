@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Management;
 using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
@@ -404,7 +403,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             string owner = null;
             try
             {
-                owner = (SessionOwnerResolver ?? GetSessionOwnerViaWts)(sessionId);
+                owner = (SessionOwnerResolver ?? ProcessOwnerLookup.ViaWts)(sessionId);
             }
             catch (Exception ex)
             {
@@ -418,70 +417,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         }
 
         /// <summary>
-        /// Primary owner resolution: WTSQuerySessionInformation(WTSUserName/WTSDomainName)
-        /// for the process's session. Returns null when the API fails or the session has no
-        /// associated user (caller counts it and falls back to WMI).
-        /// </summary>
-        private string GetSessionOwnerViaWts(int sessionId)
-        {
-            try
-            {
-                var user = WtsNativeMethods.QuerySessionString(sessionId, WtsNativeMethods.WTSUserName);
-                if (string.IsNullOrEmpty(user))
-                    return null;
-
-                var domain = WtsNativeMethods.QuerySessionString(sessionId, WtsNativeMethods.WTSDomainName);
-                return string.IsNullOrEmpty(domain) ? user : $"{domain}\\{user}";
-            }
-            catch (Exception ex)
-            {
-                _logger.Debug($"DesktopArrivalDetector: WTS session query failed for session {sessionId}: {ex.Message}");
-                return null;
-            }
-        }
-
-        /// <summary>
-        /// Fallback owner resolution: WMI (Win32_Process.GetOwner).
-        /// Returns "DOMAIN\User" or "User" string, or null on failure.
-        /// <para>
-        /// P3 fix (2026-05-15): WMI exceptions are caught here AND bumped onto
-        /// <see cref="_wmiErrorCountSinceStart"/> so the first_poll / no_candidate
-        /// observability events report the real error rate. Previously the outer
-        /// poll catch only counted top-level errors (Process.GetProcessesByName etc.),
-        /// leaving GetOwner-specific failures invisible.
-        /// </para>
+        /// Default WMI fallback seam. Delegates the <c>Win32_Process.GetOwner</c> query to the
+        /// shared <see cref="ProcessOwnerLookup"/> and bumps <see cref="_wmiErrorCountSinceStart"/>
+        /// when the query errored, so the first_poll / no_candidate liveness payloads keep
+        /// reporting the real GetOwner failure rate (P3 fix 2026-05-15). Tests replace this seam
+        /// via <see cref="ProcessOwnerResolver"/>.
         /// </summary>
         private string GetProcessOwnerViaWmi(int processId)
         {
-            try
-            {
-                using (var searcher = new ManagementObjectSearcher(
-                    $"SELECT * FROM Win32_Process WHERE ProcessId = {processId}"))
-                {
-                    foreach (ManagementObject obj in searcher.Get())
-                    {
-                        var outParams = new object[2];
-                        var result = (uint)obj.InvokeMethod("GetOwner", outParams);
-                        if (result == 0)
-                        {
-                            var user = outParams[0]?.ToString();
-                            var domain = outParams[1]?.ToString();
-                            return string.IsNullOrEmpty(domain) ? user : $"{domain}\\{user}";
-                        }
-                        // WMI returned a non-zero ManagementBaseObject.InvokeMethod result —
-                        // count it as an error so the liveness payload reflects the failure
-                        // rate. Common causes: PID just exited, owner ACL refused.
-                        _wmiErrorCountSinceStart++;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
+            var owner = ProcessOwnerLookup.ViaWmi(processId, out var wmiErrored);
+            if (wmiErrored)
                 _wmiErrorCountSinceStart++;
-                _logger.Debug($"DesktopArrivalDetector: WMI GetOwner failed for PID {processId}: {ex.Message}");
-            }
-
-            return null;
+            return owner;
         }
 
         /// <summary>

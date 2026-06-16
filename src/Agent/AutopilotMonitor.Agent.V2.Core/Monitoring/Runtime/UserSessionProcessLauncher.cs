@@ -1,6 +1,5 @@
 using System;
 using System.Diagnostics;
-using System.Management;
 using System.Runtime.InteropServices;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
@@ -290,7 +289,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                             continue;
                         }
 
-                        var owner = GetProcessOwner(proc.Id);
+                        var owner = ProcessOwnerLookup.ResolveOwner(proc.Id, proc.SessionId);
                         if (owner == null || IsExcludedUser(owner))
                         {
                             proc.Dispose();
@@ -317,30 +316,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 logger.Debug($"UserSessionProcessLauncher: Error finding explorer.exe: {ex.Message}");
             }
 
-            return null;
-        }
-
-        private static string GetProcessOwner(int processId)
-        {
-            try
-            {
-                using (var searcher = new ManagementObjectSearcher(
-                    $"SELECT * FROM Win32_Process WHERE ProcessId = {processId}"))
-                {
-                    foreach (ManagementObject obj in searcher.Get())
-                    {
-                        var outParams = new object[2];
-                        var result = (uint)obj.InvokeMethod("GetOwner", outParams);
-                        if (result == 0)
-                        {
-                            var user = outParams[0]?.ToString();
-                            var domain = outParams[1]?.ToString();
-                            return string.IsNullOrEmpty(domain) ? user : $"{domain}\\{user}";
-                        }
-                    }
-                }
-            }
-            catch { }
             return null;
         }
 
