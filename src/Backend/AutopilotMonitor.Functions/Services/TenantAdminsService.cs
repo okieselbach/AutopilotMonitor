@@ -187,35 +187,50 @@ public class TenantAdminsService
     // -----------------------------------------------------------------------
 
     /// <summary>
-    /// Gets the role info for a tenant member. Returns null if user is not a member.
+    /// Gets the role info for a tenant member. Returns null if the user has no enabled row
+    /// (either no row at all or a disabled row). For Entra app-role reconciliation use
+    /// <see cref="GetTableMembershipAsync"/>, which distinguishes "no row" from "disabled row".
     /// </summary>
     public virtual async Task<MemberRoleInfo?> GetMemberRoleAsync(string tenantId, string? upn)
     {
+        var (state, role) = await GetTableMembershipAsync(tenantId, upn);
+        return state == TableMemberState.Enabled ? role : null;
+    }
+
+    /// <summary>
+    /// Gets the tri-state table membership for a user: whether a TenantAdmins row is absent,
+    /// disabled, or enabled (with its role). The disabled/absent distinction is required by the
+    /// Entra app-role resolver so a disabled row stays an explicit deny and is never silently
+    /// re-authorized through an app-role claim.
+    /// </summary>
+    public virtual async Task<(TableMemberState State, MemberRoleInfo? Role)> GetTableMembershipAsync(string tenantId, string? upn)
+    {
         if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(upn))
-            return null;
+            return (TableMemberState.NotPresent, null);
 
         tenantId = tenantId.ToLowerInvariant();
         upn = upn.ToLowerInvariant();
 
-        var cacheKey = $"tenant-member:{tenantId}:{upn}";
-        if (_cache.TryGetValue<MemberRoleInfo?>(cacheKey, out var cached))
+        var cacheKey = $"tenant-member-state:{tenantId}:{upn}";
+        if (_cache.TryGetValue<(TableMemberState, MemberRoleInfo?)>(cacheKey, out var cached))
             return cached;
 
         var member = await _adminRepo.GetTenantMemberAsync(tenantId, upn);
-        if (member == null || !member.IsEnabled)
-        {
-            _cache.Set(cacheKey, (MemberRoleInfo?)null, _cacheDuration);
-            return null;
-        }
 
-        var role = new MemberRoleInfo
-        {
-            Role = member.Role ?? Constants.TenantRoles.Admin,
-            CanManageBootstrapTokens = member.CanManageBootstrapTokens
-        };
+        (TableMemberState State, MemberRoleInfo? Role) result;
+        if (member == null)
+            result = (TableMemberState.NotPresent, null);
+        else if (!member.IsEnabled)
+            result = (TableMemberState.Disabled, null);
+        else
+            result = (TableMemberState.Enabled, new MemberRoleInfo
+            {
+                Role = member.Role ?? Constants.TenantRoles.Admin,
+                CanManageBootstrapTokens = member.CanManageBootstrapTokens
+            });
 
-        _cache.Set(cacheKey, (MemberRoleInfo?)role, _cacheDuration);
-        return role;
+        _cache.Set(cacheKey, result, _cacheDuration);
+        return result;
     }
 
     /// <summary>
@@ -293,6 +308,7 @@ public class TenantAdminsService
     {
         _cache.Remove($"tenant-admin:{tenantId}:{upn}");
         _cache.Remove($"tenant-member:{tenantId}:{upn}");
+        _cache.Remove($"tenant-member-state:{tenantId}:{upn}");
     }
 }
 

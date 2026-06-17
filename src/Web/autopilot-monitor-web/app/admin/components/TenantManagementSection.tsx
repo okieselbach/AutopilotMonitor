@@ -20,6 +20,7 @@ export interface TenantConfiguration {
   allowInsecureAgentRequests?: boolean;
   bootstrapTokenEnabled?: boolean;
   unrestrictedModeEnabled?: boolean;
+  entraAppRolesEnabled?: boolean;
   dataRetentionDays: number;
   sessionTimeoutHours: number;
   planTier?: string;
@@ -569,6 +570,21 @@ export function TenantManagementSection({
                 />
                 <span className="text-sm font-medium text-gray-700">Enable Unrestricted Mode</span>
               </label>
+
+              <div>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingTenant.entraAppRolesEnabled ?? false}
+                    onChange={(e) => setEditingTenant({ ...editingTenant, entraAppRolesEnabled: e.target.checked })}
+                    className="w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Enable Entra App Roles</span>
+                </label>
+                <p className="text-xs text-gray-400 mt-1 ml-6">
+                  Allow Admin/Operator roles to be granted via Entra app-role assignments on the Enterprise App (the token&apos;s roles claim), in addition to the member table. The member table always wins.
+                </p>
+              </div>
 
               {/* Data Management */}
               <div>

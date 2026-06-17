@@ -26,15 +26,18 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
     private readonly ILogger<PolicyEnforcementMiddleware> _logger;
     private readonly GlobalAdminService _globalAdminService;
     private readonly TenantAdminsService _tenantAdminsService;
+    private readonly TenantConfigurationService _tenantConfigService;
 
     public PolicyEnforcementMiddleware(
         ILogger<PolicyEnforcementMiddleware> logger,
         GlobalAdminService globalAdminService,
-        TenantAdminsService tenantAdminsService)
+        TenantAdminsService tenantAdminsService,
+        TenantConfigurationService tenantConfigService)
     {
         _logger = logger;
         _globalAdminService = globalAdminService;
         _tenantAdminsService = tenantAdminsService;
+        _tenantConfigService = tenantConfigService;
     }
 
     public async Task Invoke(FunctionContext context, FunctionExecutionDelegate next)
@@ -226,13 +229,13 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
                 return CatalogDecisionResult.Deny(userIdentifier, "N/A", "NoJWT");
 
             case EndpointPolicy.MemberRead:
-                return await EvaluateMemberReadAsync(tenantId, upn, userIdentifier);
+                return await EvaluateMemberReadAsync(tenantId, upn, principal, userIdentifier);
 
             case EndpointPolicy.TenantAdminOrGA:
-                return await EvaluateTenantAdminOrGAAsync(tenantId, upn, userIdentifier);
+                return await EvaluateTenantAdminOrGAAsync(tenantId, upn, principal, userIdentifier);
 
             case EndpointPolicy.BootstrapManagerOrGA:
-                return await EvaluateBootstrapManagerOrGAAsync(tenantId, upn, userIdentifier);
+                return await EvaluateBootstrapManagerOrGAAsync(tenantId, upn, principal, userIdentifier);
 
             case EndpointPolicy.GlobalAdminOnly:
                 return await EvaluateGlobalAdminOnlyAsync(upn, userIdentifier);
@@ -243,7 +246,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
     }
 
     private async Task<CatalogDecisionResult> EvaluateMemberReadAsync(
-        string? tenantId, string? upn, string userIdentifier)
+        string? tenantId, string? upn, ClaimsPrincipal? principal, string userIdentifier)
     {
         if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(upn))
             return CatalogDecisionResult.Deny(userIdentifier, "N/A", "MissingClaims");
@@ -251,16 +254,16 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         if (await _globalAdminService.IsGlobalAdminAsync(upn))
             return CatalogDecisionResult.Allow(userIdentifier, "GlobalAdmin", "GABypass");
 
-        var role = await _tenantAdminsService.GetMemberRoleAsync(tenantId, upn);
+        var role = await ResolveEffectiveRoleAsync(tenantId, upn, principal);
         if (role == null)
             return CatalogDecisionResult.Deny(userIdentifier, "NonMember", "NotInTenant");
 
         // MemberRead allows Admin, Operator, AND Viewer
-        return CatalogDecisionResult.Allow(userIdentifier, role.Role ?? "Admin", "TenantMember");
+        return CatalogDecisionResult.Allow(userIdentifier, role.Role, "TenantMember");
     }
 
     private async Task<CatalogDecisionResult> EvaluateTenantAdminOrGAAsync(
-        string? tenantId, string? upn, string userIdentifier)
+        string? tenantId, string? upn, ClaimsPrincipal? principal, string userIdentifier)
     {
         if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(upn))
             return CatalogDecisionResult.Deny(userIdentifier, "N/A", "MissingClaims");
@@ -268,16 +271,15 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         if (await _globalAdminService.IsGlobalAdminAsync(upn))
             return CatalogDecisionResult.Allow(userIdentifier, "GlobalAdmin", "GABypass");
 
-        if (await _tenantAdminsService.IsTenantAdminAsync(tenantId, upn))
+        var role = await ResolveEffectiveRoleAsync(tenantId, upn, principal);
+        if (role?.Role == Constants.TenantRoles.Admin)
             return CatalogDecisionResult.Allow(userIdentifier, Constants.TenantRoles.Admin, "TenantAdmin");
 
-        var role = await _tenantAdminsService.GetMemberRoleAsync(tenantId, upn);
-        var roleName = role?.Role ?? "NonMember";
-        return CatalogDecisionResult.Deny(userIdentifier, roleName, "NotAdminOrGA");
+        return CatalogDecisionResult.Deny(userIdentifier, role?.Role ?? "NonMember", "NotAdminOrGA");
     }
 
     private async Task<CatalogDecisionResult> EvaluateBootstrapManagerOrGAAsync(
-        string? tenantId, string? upn, string userIdentifier)
+        string? tenantId, string? upn, ClaimsPrincipal? principal, string userIdentifier)
     {
         if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(upn))
             return CatalogDecisionResult.Deny(userIdentifier, "N/A", "MissingClaims");
@@ -285,12 +287,39 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         if (await _globalAdminService.IsGlobalAdminAsync(upn))
             return CatalogDecisionResult.Allow(userIdentifier, "GlobalAdmin", "GABypass");
 
-        if (await _tenantAdminsService.CanManageBootstrapAsync(tenantId, upn))
+        var role = await ResolveEffectiveRoleAsync(tenantId, upn, principal);
+        var canManageBootstrap = role != null &&
+            (role.Role == Constants.TenantRoles.Admin ||
+             (role.Role == Constants.TenantRoles.Operator && role.CanManageBootstrapTokens));
+
+        if (canManageBootstrap)
             return CatalogDecisionResult.Allow(userIdentifier, "BootstrapManager", "CanManageBootstrap");
 
-        var role = await _tenantAdminsService.GetMemberRoleAsync(tenantId, upn);
-        var roleName = role?.Role ?? "NonMember";
-        return CatalogDecisionResult.Deny(userIdentifier, roleName, "NoBootstrapPermission");
+        return CatalogDecisionResult.Deny(userIdentifier, role?.Role ?? "NonMember", "NoBootstrapPermission");
+    }
+
+    /// <summary>
+    /// Resolves the effective tenant member role: the TenantAdmins table entry if present,
+    /// otherwise — when the tenant has Entra app-roles enabled — the role derived from the token's
+    /// "roles" claim. Table always wins (manual override). The tenant-config lookup is only
+    /// performed when there is no table entry, so the common (table member) path stays cheap.
+    /// </summary>
+    private async Task<MemberRoleInfo?> ResolveEffectiveRoleAsync(
+        string tenantId, string upn, ClaimsPrincipal? principal)
+    {
+        var (state, tableRole) = await _tenantAdminsService.GetTableMembershipAsync(tenantId, upn);
+
+        // Table-first: an enabled row wins, a disabled row is an explicit deny. Both skip the
+        // claim path entirely — and avoid the tenant-config lookup. Only when no row exists do
+        // we consult the Entra app-role claim (gated by the per-tenant opt-in flag).
+        if (state != TableMemberState.NotPresent)
+            return EntraAppRoleResolver.Resolve(state, tableRole, appRoles: null, appRolesEnabled: false);
+
+        if (principal == null)
+            return null;
+
+        var config = await _tenantConfigService.GetConfigurationAsync(tenantId);
+        return EntraAppRoleResolver.Resolve(state, tableRole, principal.GetAppRoles(), config.EntraAppRolesEnabled);
     }
 
     private async Task<CatalogDecisionResult> EvaluateGlobalAdminOnlyAsync(

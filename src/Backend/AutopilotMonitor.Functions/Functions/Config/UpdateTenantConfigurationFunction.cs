@@ -109,6 +109,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     if (config.AllowInsecureAgentRequests != existingConfig.AllowInsecureAgentRequests ||
                         config.BootstrapTokenEnabled != existingConfig.BootstrapTokenEnabled ||
                         config.UnrestrictedModeEnabled != existingConfig.UnrestrictedModeEnabled ||
+                        config.EntraAppRolesEnabled != existingConfig.EntraAppRolesEnabled ||
                         config.CustomRateLimitRequestsPerMinute != existingConfig.CustomRateLimitRequestsPerMinute ||
                         config.RateLimitRequestsPerMinute != existingConfig.RateLimitRequestsPerMinute ||
                         config.Disabled != existingConfig.Disabled ||
@@ -122,6 +123,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     config.AllowInsecureAgentRequests = existingConfig.AllowInsecureAgentRequests;
                     config.BootstrapTokenEnabled = existingConfig.BootstrapTokenEnabled;
                     config.UnrestrictedModeEnabled = existingConfig.UnrestrictedModeEnabled;
+                    config.EntraAppRolesEnabled = existingConfig.EntraAppRolesEnabled;
                     config.CustomRateLimitRequestsPerMinute = existingConfig.CustomRateLimitRequestsPerMinute;
                     config.RateLimitRequestsPerMinute = existingConfig.RateLimitRequestsPerMinute;
                     config.Disabled = existingConfig.Disabled;

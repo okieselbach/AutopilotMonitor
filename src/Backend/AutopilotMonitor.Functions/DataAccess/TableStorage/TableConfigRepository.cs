@@ -391,6 +391,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 { "BootstrapTokenEnabled", config.BootstrapTokenEnabled },
                 { "UnrestrictedModeEnabled", config.UnrestrictedModeEnabled },
                 { "UnrestrictedMode", config.UnrestrictedMode },
+                { "EntraAppRolesEnabled", config.EntraAppRolesEnabled },
                 { "OnboardedAt", config.OnboardedAt },
                 { "PlanTier", config.PlanTier },
                 // SLA targets
@@ -479,6 +480,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 BootstrapTokenEnabled = entity.GetBoolean("BootstrapTokenEnabled") ?? false,
                 UnrestrictedModeEnabled = entity.GetBoolean("UnrestrictedModeEnabled") ?? false,
                 UnrestrictedMode = entity.GetBoolean("UnrestrictedMode") ?? false,
+                EntraAppRolesEnabled = entity.GetBoolean("EntraAppRolesEnabled") ?? false,
                 OnboardedAt = entity.GetDateTime("OnboardedAt"),
                 PlanTier = entity.GetString("PlanTier") ?? "free",
                 // SLA targets

@@ -1,5 +1,6 @@
 using System.Net;
 using AutopilotMonitor.Functions.Extensions;
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
@@ -87,19 +88,25 @@ public class AuthFunction
         var tenantConfigTask = _tenantConfigService.GetConfigurationAsync(tenantId);
         var isGlobalAdminTask = _globalAdminService.IsGlobalAdminAsync(upn);
         var isApprovedTask = _previewWhitelistService.IsApprovedAsync(tenantId);
-        var memberRoleTask = _tenantAdminsService.GetMemberRoleAsync(tenantId, upn);
+        var membershipTask = _tenantAdminsService.GetTableMembershipAsync(tenantId, upn);
         var mcpCheckTask = _mcpUserService.IsAllowedAsync(upn);
         var existingAdminsTask = _tenantAdminsService.GetTenantAdminsAsync(tenantId);
 
         await Task.WhenAll(tenantConfigTask, isGlobalAdminTask, isApprovedTask,
-                           memberRoleTask, mcpCheckTask, existingAdminsTask);
+                           membershipTask, mcpCheckTask, existingAdminsTask);
 
         var tenantConfig = tenantConfigTask.Result;
         var isGlobalAdmin = isGlobalAdminTask.Result;
         var isApproved = isApprovedTask.Result;
-        var memberRole = memberRoleTask.Result;
+        var (tableState, tableRole) = membershipTask.Result;
         var mcpCheck = mcpCheckTask.Result;
         var existingAdmins = existingAdminsTask.Result;
+
+        // Reconcile the TenantAdmins table state with any Entra app-role claim. An enabled row
+        // wins; a disabled row is an explicit deny (claim ignored); only a missing row falls back
+        // to the claim, and only when the tenant has app-roles enabled.
+        var memberRole = EntraAppRoleResolver.Resolve(
+            tableState, tableRole, principal.GetAppRoles(), tenantConfig.EntraAppRolesEnabled);
 
         // --- Side-effects that don't affect the auth decision ---
         await HandleNewTenantDomainAsync(tenantConfig, tenantId, upn);
@@ -362,9 +369,11 @@ public class AuthFunction
             });
         }
 
-        // Determine admin status: auto-admin if first user (no existing admins and no role yet)
+        // Determine admin status: auto-admin if first user (no existing admins and no role yet).
+        // needsAutoAdmin keys off the absence of ANY effective role (table or claim) so a
+        // claim-derived Admin/Operator in a claim-only tenant is NOT written into the table.
         bool isTenantAdmin = memberRole?.Role == Constants.TenantRoles.Admin;
-        bool needsAutoAdmin = !isTenantAdmin && !hasTenantAdmins;
+        bool needsAutoAdmin = memberRole == null && !hasTenantAdmins;
         if (needsAutoAdmin)
         {
             isTenantAdmin = true;

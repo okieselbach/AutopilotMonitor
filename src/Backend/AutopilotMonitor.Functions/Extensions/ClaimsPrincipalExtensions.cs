@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Security.Claims;
 using Microsoft.Azure.Functions.Worker;
 
@@ -103,6 +106,23 @@ public static class ClaimsPrincipalExtensions
     {
         var tenantId = principal.GetTenantId();
         return !string.IsNullOrEmpty(tenantId);
+    }
+
+    /// <summary>
+    /// Gets all Entra ID app-role values assigned to the user (the "roles" claim emitted by the
+    /// application's Enterprise App). Returns an empty list when no app roles are present.
+    /// Reads both the raw "roles"/"role" claims and the mapped <see cref="ClaimTypes.Role"/> URI
+    /// to stay robust regardless of JwtSecurityTokenHandler inbound claim mapping. App roles are
+    /// multi-valued; duplicates are removed case-insensitively.
+    /// </summary>
+    public static IReadOnlyList<string> GetAppRoles(this ClaimsPrincipal principal)
+    {
+        return principal.Claims
+            .Where(c => c.Type == "roles" || c.Type == "role" || c.Type == ClaimTypes.Role)
+            .Select(c => c.Value)
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     /// <summary>

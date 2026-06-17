@@ -4,6 +4,7 @@ using System.Net;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Extensions;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
@@ -48,7 +49,8 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
         /// </summary>
         [Function("GetFeedbackStatus")]
         public async Task<HttpResponseData> GetStatus(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "feedback/status")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "feedback/status")] HttpRequestData req,
+            FunctionContext context)
         {
             try
             {
@@ -66,20 +68,27 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
                 //      depend only on (tenantId, upn) — fan them out in parallel so
                 //      the endpoint is bounded by the slowest read instead of summing
                 //      four sequential round-trips on Flex Consumption.
-                var roleTask = _tenantAdminsService.GetMemberRoleAsync(tenantId, upn);
+                var membershipTask = _tenantAdminsService.GetTableMembershipAsync(tenantId, upn);
                 var tenantConfigTask = _tenantConfigService.GetConfigurationAsync(tenantId);
                 var sessionsTask = _sessionRepo.GetSessionsPageAsync(tenantId, days: null, pageSize: 1, continuation: null);
                 var feedbackTask = _feedbackRepo.GetInAppFeedbackAsync(upn);
 
-                await Task.WhenAll(roleTask, tenantConfigTask, sessionsTask, feedbackTask);
+                await Task.WhenAll(membershipTask, tenantConfigTask, sessionsTask, feedbackTask);
 
-                // 3. Role check — only Admin + Operator
-                var roleInfo = roleTask.Result;
+                // Tenant config is needed both for the app-role opt-in flag (role check) and the
+                // tenant age check below.
+                var tenantConfig = tenantConfigTask.Result;
+
+                // 3. Role check — only Admin + Operator. Use the effective role so Entra-only
+                //    members (app-role claim, no table row) are eligible too, consistent with
+                //    auth/me and the protected APIs. A disabled table row stays ineligible.
+                var (tableState, tableRole) = membershipTask.Result;
+                var roleInfo = EntraAppRoleResolver.Resolve(
+                    tableState, tableRole, context.GetUser()?.GetAppRoles(), tenantConfig.EntraAppRolesEnabled);
                 if (roleInfo == null || roleInfo.Role == Constants.TenantRoles.Viewer)
                     return await WriteJson(req, new { eligible = false });
 
                 // 4. Tenant age check
-                var tenantConfig = tenantConfigTask.Result;
                 if (tenantConfig.OnboardedAt == null ||
                     (DateTime.UtcNow - tenantConfig.OnboardedAt.Value).TotalDays < adminConfig.FeedbackMinTenantAgeDays)
                     return await WriteJson(req, new { eligible = false });

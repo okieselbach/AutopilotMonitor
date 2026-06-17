@@ -246,6 +246,26 @@ public class AuthFunctionTests
     }
 
     [Fact]
+    public void AutoAdmin_NotTriggered_ForClaimDerivedOperator_WhenNoTableMembers()
+    {
+        // Regression guard: a claim-derived role (no table members yet) must NOT auto-promote the
+        // user into the TenantAdmins table. needsAutoAdmin keys off memberRole == null, not on
+        // "not admin", so an Entra app-role Operator in a claim-only tenant stays an Operator.
+        var result = AuthFunction.BuildAuthResult(
+            DefaultConfig(), isGlobalAdmin: false, isPreviewApproved: true,
+            memberRole: OperatorRole(), // came from the "roles" claim
+            mcpCheck: McpDenied(),
+            hasTenantAdmins: false, // no explicit TenantAdmins table rows
+            TenantId, Upn, DisplayName, ObjectId);
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.NeedsAutoAdmin);
+        var body = ToDynamic(result.Body);
+        Assert.False((bool)body.isTenantAdmin);
+        Assert.Equal(Constants.TenantRoles.Operator, (string)body.role);
+    }
+
+    [Fact]
     public void AutoAdmin_NotTriggered_WhenUserAlreadyAdmin()
     {
         var result = AuthFunction.BuildAuthResult(

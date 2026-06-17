@@ -394,6 +394,19 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public bool UnrestrictedMode { get; set; } = false;
 
+        // ===== ENTRA APP ROLES (RBAC) =====
+
+        /// <summary>
+        /// When enabled, tenant member roles (Admin / Operator) may also be granted via Entra ID
+        /// app-role assignments on the application's Enterprise App (the "roles" claim in the user's
+        /// token), in addition to the TenantAdmins table. Resolution is table-first: an explicit
+        /// TenantAdmins entry always overrides a claim-derived role (e.g. to grant an Operator
+        /// CanManageBootstrapTokens). Only Admin and Operator are claim-mappable; the platform-wide
+        /// GlobalAdmin role is never derived from claims. Off by default — per-tenant opt-in.
+        /// Backend-only setting: not delivered to the agent (no ConfigVersion impact).
+        /// </summary>
+        public bool EntraAppRolesEnabled { get; set; } = false;
+
         // ===== DIAGNOSTICS LOG PATHS =====
 
         /// <summary>
