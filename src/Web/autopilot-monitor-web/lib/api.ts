@@ -109,6 +109,14 @@ export const api = {
       `${API_BASE_URL}/api/config/${tenantId}/autopilot-device-validation/consent-failure`,
     autopilotConsentSuccess: (tenantId: string) =>
       `${API_BASE_URL}/api/config/${tenantId}/autopilot-device-validation/consent-success`,
+    /**
+     * Probe whether the app's core validation permission is already effectively granted in
+     * the tenant (pre-approved by someone with consent rights), so a rights-less admin can be
+     * enabled without running the failing /adminconsent redirect. Returns
+     * { accessPresent, isTransient, requiredPermission }.
+     */
+    autopilotAccessCheck: (tenantId: string) =>
+      `${API_BASE_URL}/api/config/${tenantId}/autopilot-device-validation/access-check`,
     testNotification: (tenantId: string) =>
       `${API_BASE_URL}/api/config/${tenantId}/test-notification`,
     latestVersions: (opts?: { refresh?: boolean }) =>

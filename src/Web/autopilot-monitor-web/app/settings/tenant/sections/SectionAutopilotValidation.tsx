@@ -13,7 +13,7 @@ export function SectionAutopilotValidation() {
     validateDeviceAssociation,
     handleToggleDeviceAssociationValidation,
     autopilotConsentInProgress, savingSection,
-    beginDeviceValidationConsentFlow,
+    beginDeviceValidationConsentFlow, detectExistingAccess,
   } = useTenantConfig();
 
   const { user, getAccessToken } = useAuth();
@@ -39,6 +39,7 @@ export function SectionAutopilotValidation() {
         autopilotConsentInProgress={autopilotConsentInProgress}
         saving={savingSection === "autopilotValidation"}
         onBeginConsent={beginDeviceValidationConsentFlow}
+        onDetectExistingAccess={detectExistingAccess}
       />
       <NotRegisteredDevicesInsights getAccessToken={getAccessToken} />
     </>

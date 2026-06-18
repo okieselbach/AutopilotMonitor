@@ -223,6 +223,7 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "config/{tenantId}/autopilot-device-validation/consent-status",  EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("POST",   "config/{tenantId}/autopilot-device-validation/consent-failure", EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("POST",   "config/{tenantId}/autopilot-device-validation/consent-success", EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
+        new("GET",    "config/{tenantId}/autopilot-device-validation/access-check",    EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("POST",   "config/{tenantId}/test-notification",                           EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
 
         // ── Graph add-on permissions ────────────────────────────────────────

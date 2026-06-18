@@ -16,6 +16,11 @@ interface AutopilotValidationSectionProps {
   autopilotConsentInProgress: boolean;
   saving: boolean;
   onBeginConsent: (trigger: 'autopilot' | 'corporate' | 'device-preparation') => void;
+  /**
+   * Probe for pre-approved consent and enable the given validation without the redirect — for
+   * admins without consent rights whose tenant already had the app approved by someone else.
+   */
+  onDetectExistingAccess?: (trigger: 'autopilot' | 'corporate' | 'device-preparation') => void | Promise<void>;
 }
 
 export default function AutopilotValidationSection({
@@ -29,6 +34,7 @@ export default function AutopilotValidationSection({
   autopilotConsentInProgress,
   saving,
   onBeginConsent,
+  onDetectExistingAccess,
 }: AutopilotValidationSectionProps) {
   const anyValidationEnabled = validateAutopilotDevice || validateCorporateIdentifier;
   const [disableConfirm, setDisableConfirm] = useState<'autopilot' | 'corporate' | null>(null);
@@ -66,6 +72,20 @@ export default function AutopilotValidationSection({
     setDisableConfirm(null);
   };
 
+  // Per-validation "detect existing access" affordance — probes for pre-approved consent and
+  // enables that specific validation without the redirect. Shown under a disabled toggle.
+  const renderDetectButton = (trigger: 'autopilot' | 'corporate' | 'device-preparation') =>
+    onDetectExistingAccess ? (
+      <button
+        type="button"
+        onClick={() => { void onDetectExistingAccess(trigger); }}
+        disabled={saving || autopilotConsentInProgress}
+        className="text-xs font-medium text-amber-700 hover:text-amber-800 underline underline-offset-2 disabled:opacity-60 disabled:cursor-not-allowed"
+      >
+        Detect existing access
+      </button>
+    ) : null;
+
   return (
     <div className="bg-white rounded-lg shadow">
       <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-amber-50 to-orange-50">
@@ -89,10 +109,15 @@ export default function AutopilotValidationSection({
         </div>
       </div>
       <div className="p-6 space-y-5">
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
           <p className="text-sm text-gray-700">
-            Both validations require the <strong>DeviceManagementServiceConfig.Read.All</strong> permission. Enabling either option starts Microsoft Entra admin consent if not already granted. After consent, the setting is saved automatically. Granting consent requires at least the <strong>Application Administrator</strong> or <strong>Global Administrator</strong> Entra role.
+            These validations require the <strong>DeviceManagementServiceConfig.Read.All</strong> permission. Enabling an option starts Microsoft Entra admin consent if not already granted. After consent, the setting is saved automatically. Granting consent requires at least the <strong>Application Administrator</strong> or <strong>Global Administrator</strong> Entra role.
           </p>
+          {onDetectExistingAccess && (
+            <p className="text-sm text-gray-700">
+              Already approved by your organization? In larger tenants the app is often pre-approved by someone with consent rights. If so, use <strong>Detect existing access</strong> under a disabled option to enable it without running the consent flow.
+            </p>
+          )}
         </div>
 
         {/* Windows Autopilot (v1) */}
@@ -113,6 +138,7 @@ export default function AutopilotValidationSection({
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${validateAutopilotDevice ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
           </label>
+          {!validateAutopilotDevice && renderDetectButton('autopilot')}
         </div>
 
         {/* Windows Autopilot Device Preparation (v2) */}
@@ -133,6 +159,7 @@ export default function AutopilotValidationSection({
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${validateCorporateIdentifier ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
           </label>
+          {!validateCorporateIdentifier && renderDetectButton('corporate')}
         </div>
 
         {/* DevPrep Device Association — Private Preview, GA-gated, shadow-mode (no enrollment block) */}
@@ -160,6 +187,7 @@ export default function AutopilotValidationSection({
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${validateDeviceAssociation ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>
             </label>
+            {!validateDeviceAssociation && renderDetectButton('device-preparation')}
           </div>
         )}
 

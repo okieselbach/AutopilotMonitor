@@ -7,6 +7,16 @@ namespace AutopilotMonitor.Shared.Models.Graph
     /// </summary>
     public static class GraphAppPermissions
     {
+        /// <summary>
+        /// Core enrollment device-validation permission. Required to read
+        /// <c>windowsAutopilotDeviceIdentities</c> (Autopilot Device Validation) and
+        /// <c>importedDeviceIdentities</c> (Corporate Identifier Validation). Part of the
+        /// publisher manifest's default-consent set — present in the SP's token <c>roles</c>
+        /// claim once admin consent has been granted by anyone in the tenant. Used by the
+        /// access-check probe to silently reconcile pre-approved consent.
+        /// </summary>
+        public const string DeviceManagementServiceConfigReadAll = "DeviceManagementServiceConfig.Read.All";
+
         /// <summary>Read display names + file names of Intune device management scripts (Platform Scripts + Remediations).</summary>
         public const string DeviceManagementScriptsReadAll = "DeviceManagementScripts.Read.All";
 

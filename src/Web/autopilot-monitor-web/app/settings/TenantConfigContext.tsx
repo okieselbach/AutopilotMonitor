@@ -8,6 +8,22 @@ import { useNotifications } from "../../contexts/NotificationContext";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { trackEvent } from "@/lib/appInsights";
+import { classifyAccessCheck, type AccessCheckOutcome, type AccessCheckPayload } from "@/lib/accessCheck";
+
+type ValidationTrigger = "autopilot" | "corporate" | "device-preparation";
+
+// Human label for a validation trigger.
+const validationLabel = (t: ValidationTrigger) =>
+  t === "corporate" ? "Corporate Identifier Validation"
+    : t === "device-preparation" ? "DevPrep Device Association Validation"
+      : "Autopilot Device Validation";
+
+// Enable-confirmation suffix. DevPrep is shadow-mode (no hard gate), so its wording differs
+// from the agent-gating validations.
+const validationEnabledSuffix = (t: ValidationTrigger) =>
+  t === "device-preparation"
+    ? " enabled (shadow mode — does not block enrollment)."
+    : " enabled. Backend agent endpoints are now unlocked for this tenant.";
 import { parseSasExpiry } from "./components/DiagnosticsSection";
 import { TenantConfiguration, TenantAdmin, DiagnosticsLogPath } from "./types";
 import { type BootstrapSessionItem } from "./components/BootstrapSessionsSection";
@@ -48,6 +64,12 @@ interface TenantConfigContextValue {
   handleToggleDeviceAssociationValidation: (newValue: boolean) => Promise<void>;
   autopilotConsentInProgress: boolean;
   beginDeviceValidationConsentFlow: (trigger: "autopilot" | "corporate" | "device-preparation") => Promise<void>;
+  /**
+   * Probe whether the multi-tenant app is already pre-approved in this tenant (by someone with
+   * consent rights) and, if so, enable validation without running the /adminconsent redirect —
+   * the "rights-less admin" escape hatch.
+   */
+  detectExistingAccess: (trigger: "autopilot" | "corporate" | "device-preparation") => Promise<void>;
 
   // Hardware whitelist
   manufacturerWhitelist: string;
@@ -579,8 +601,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // -----------------------------------------------------------------------
   // Save configuration (shared by all sections)
   // -----------------------------------------------------------------------
-  const saveConfiguration = useCallback(async (sectionName: string, overrides?: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean; validateDeviceAssociation?: boolean }) => {
-    if (!tenantId || !config) return;
+  const saveConfiguration = useCallback(async (sectionName: string, overrides?: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean; validateDeviceAssociation?: boolean }): Promise<boolean> => {
+    if (!tenantId || !config) return false;
 
     try {
       setSavingSection(sectionName);
@@ -672,6 +694,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       trackEvent("settings_saved", { section: sectionName });
       setSuccessMessage("Configuration saved successfully!");
       setTimeout(() => setSuccessMessage(null), 3000);
+      return true;
     } catch (err) {
       if (err instanceof TokenExpiredError) {
         addNotification('error', 'Session Expired', err.message, 'session-expired-error');
@@ -680,6 +703,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         trackEvent("settings_error", { action: "save", section: sectionName, error: msg });
         setError(msg);
       }
+      return false;
     } finally {
       setSavingSection(null);
     }
@@ -702,6 +726,59 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // -----------------------------------------------------------------------
   // Consent flow
   // -----------------------------------------------------------------------
+
+  // Probe-only: fetch the access-check and classify it. No persistence, no messaging.
+  // A non-ok response or thrown error (except token-expiry) is treated as "transient" (retryable),
+  // never "absent" — we must not conclude "no access" from an inconclusive probe.
+  const probeAccessCheck = useCallback(async (): Promise<AccessCheckOutcome> => {
+    if (!tenantId) return "absent";
+
+    let ok = false;
+    let payload: AccessCheckPayload | undefined;
+    try {
+      const response = await authenticatedFetch(api.config.autopilotAccessCheck(tenantId), getAccessToken);
+      ok = response.ok;
+      if (ok) payload = await response.json();
+    } catch (err) {
+      if (err instanceof TokenExpiredError) throw err;
+      return "transient";
+    }
+    return classifyAccessCheck(ok, payload);
+  }, [tenantId, getAccessToken]);
+
+  // Persist the validation gate bool for a trigger via the shared config PUT. Returns true ONLY
+  // on a confirmed server persist — saveConfiguration reports failure as false (and sets the
+  // error). Callers MUST NOT claim success without checking this, or the admin sees "enabled"
+  // while the gate bool never landed. Message is caller-owned (reconcile vs normal-consent differ).
+  const persistValidation = useCallback(
+    async (trigger: ValidationTrigger): Promise<boolean> => {
+      if (trigger === "corporate") return saveConfiguration("autopilotValidation", { validateCorporateIdentifier: true });
+      if (trigger === "device-preparation") return saveConfiguration("autopilotValidation", { validateDeviceAssociation: true });
+      return saveConfiguration("autopilotValidation", { validateAutopilotDevice: true });
+    },
+    [saveConfiguration],
+  );
+
+  // Rights-less-admin reconcile: probe whether the app's core validation permission is already
+  // effectively granted in this tenant (pre-approved by someone with consent rights). If so,
+  // persist the gate bool — opening the UI badge AND the agent hard gate — without ever running
+  // the /adminconsent redirect the rights-less admin can't complete. Returns "reconciled"
+  // (enabled), "transient" (inconclusive, retry), "absent" (no access), or "failed" (access
+  // present but the persist did not land — so callers never show success on a swallowed save error).
+  const tryReconcilePreApprovedConsent = useCallback(
+    async (trigger: ValidationTrigger): Promise<AccessCheckOutcome | "failed"> => {
+      const outcome = await probeAccessCheck();
+      if (outcome !== "reconciled") return outcome;
+
+      const saved = await persistValidation(trigger);
+      if (!saved) return "failed";
+
+      setSuccessMessage(`Access is already approved by your organization — ${validationLabel(trigger)}${validationEnabledSuffix(trigger)}`);
+      return "reconciled";
+    },
+    [probeAccessCheck, persistValidation],
+  );
+
   const beginDeviceValidationConsentFlow = useCallback(async (trigger: "autopilot" | "corporate" | "device-preparation") => {
     if (!tenantId) return;
     try {
@@ -760,12 +837,6 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       sessionStorage.removeItem("consentTrigger");
 
       if (consentError) {
-        const errorText = consentErrorDescription
-          ? `${consentError}: ${decodeURIComponent(consentErrorDescription)}`
-          : consentError;
-        setError(`Admin consent failed: ${errorText}`);
-        setAutopilotConsentInProgress(false);
-
         // Report consent failure to backend for observability —
         // without this, Azure AD errors (e.g. AADSTS50011 redirect mismatch)
         // are invisible to our monitoring.
@@ -782,6 +853,36 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
           // Best-effort — don't block the UI if reporting fails
         }
 
+        // Rights-less-admin path: the redirect may have failed only because THIS admin lacks
+        // consent rights, while the app is already pre-approved in the tenant. Probe and, if the
+        // permission is effectively present, silently enable instead of surfacing the error.
+        try {
+          const reconcileTrigger: ValidationTrigger =
+            trigger === "corporate" ? "corporate" : trigger === "device-preparation" ? "device-preparation" : "autopilot";
+          const outcome = await tryReconcilePreApprovedConsent(reconcileTrigger);
+          if (outcome === "reconciled" || outcome === "failed") {
+            // "reconciled": silently enabled. "failed": access was present but the config persist
+            // failed — saveConfiguration already surfaced that error; don't overwrite it with the
+            // (now misleading) consent error.
+            setAutopilotConsentInProgress(false);
+            router.replace("/settings/tenant/autopilot");
+            return;
+          }
+        } catch (err) {
+          if (err instanceof TokenExpiredError) {
+            addNotification('error', 'Session Expired', err.message, 'session-expired-error');
+            setAutopilotConsentInProgress(false);
+            router.replace("/settings/tenant/autopilot");
+            return;
+          }
+          // otherwise fall through to surface the original consent error
+        }
+
+        const errorText = consentErrorDescription
+          ? `${consentError}: ${decodeURIComponent(consentErrorDescription)}`
+          : consentError;
+        setError(`Admin consent failed: ${errorText}`);
+        setAutopilotConsentInProgress(false);
         router.replace("/settings/tenant/autopilot");
         return;
       }
@@ -816,12 +917,25 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
           // swallow — observability only
         }
 
-        if (trigger === "corporate") {
-          await saveConfiguration("autopilotValidation", { validateCorporateIdentifier: true });
-          setSuccessMessage("Corporate Identifier Validation enabled. Backend agent endpoints are now unlocked for this tenant.");
+        // Verify the concrete role is present before opening the gate. consent-status only proves
+        // a token is acquirable (SP provisioned) — NOT that DeviceManagementServiceConfig.Read.All
+        // is in the roles claim. Persist ONLY on an authoritative "reconciled": a transient probe
+        // (timeout / Graph 5xx / propagation lag) is inconclusive, so opening the gate on it would
+        // re-introduce the exact risk this check closes (gate open while the role is unproven).
+        const reconcileTrigger: ValidationTrigger =
+          trigger === "corporate" ? "corporate" : trigger === "device-preparation" ? "device-preparation" : "autopilot";
+
+        const probe = await probeAccessCheck();
+        if (probe === "reconciled") {
+          const saved = await persistValidation(reconcileTrigger);
+          if (saved) {
+            setSuccessMessage(`${validationLabel(reconcileTrigger)}${validationEnabledSuffix(reconcileTrigger)}`);
+          }
+        } else if (probe === "transient") {
+          setError("Admin consent succeeded, but the required permission could not be confirmed yet (access is still propagating). Please retry in a moment — toggle the option again or use 'Detect existing access'.");
         } else {
-          await saveConfiguration("autopilotValidation", { validateAutopilotDevice: true });
-          setSuccessMessage("Autopilot Device Validation enabled. Backend agent endpoints are now unlocked for this tenant.");
+          // "absent" — consent went through but the role is genuinely not on the app in this tenant.
+          setError("Admin consent succeeded, but the required permission (DeviceManagementServiceConfig.Read.All) is not granted to the app in this tenant. Ensure it is included when granting consent, then try again.");
         }
         router.replace("/settings/tenant/autopilot");
       } catch (err) {
@@ -836,7 +950,36 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     };
 
     handleConsentCallback();
-  }, [tenantId, config, router, getAccessToken, addNotification, saveConfiguration]);
+  }, [tenantId, config, router, getAccessToken, addNotification, tryReconcilePreApprovedConsent, probeAccessCheck, persistValidation]);
+
+  // Manual "Detect existing access" affordance — for admins who never even attempt the consent
+  // redirect because they know they lack consent rights. Probes and, on success, enables
+  // validation silently; otherwise surfaces an actionable message.
+  const detectExistingAccess = useCallback(async (trigger: ValidationTrigger) => {
+    if (!tenantId) return;
+    try {
+      setAutopilotConsentInProgress(true);
+      setError(null);
+      setSuccessMessage(null);
+
+      const outcome = await tryReconcilePreApprovedConsent(trigger);
+      if (outcome === "transient") {
+        setError("Couldn't verify access right now (timed out). Please try again in a moment.");
+      } else if (outcome === "absent") {
+        setError("No existing access detected for this tenant. Complete admin consent, or ask someone with consent rights (Application or Global Administrator) to approve the app first.");
+      }
+      // "reconciled" => success message already set by the helper.
+      // "failed" => access present but persist failed; saveConfiguration already set the error.
+    } catch (err) {
+      if (err instanceof TokenExpiredError) {
+        addNotification('error', 'Session Expired', err.message, 'session-expired-error');
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to detect existing access");
+      }
+    } finally {
+      setAutopilotConsentInProgress(false);
+    }
+  }, [tenantId, tryReconcilePreApprovedConsent, addNotification]);
 
   // -----------------------------------------------------------------------
   // Test webhook
@@ -1250,7 +1393,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       validateCorporateIdentifier, setValidateCorporateIdentifier,
       validateDeviceAssociation, setValidateDeviceAssociation,
       handleToggleDeviceAssociationValidation,
-      autopilotConsentInProgress, beginDeviceValidationConsentFlow,
+      autopilotConsentInProgress, beginDeviceValidationConsentFlow, detectExistingAccess,
 
       // Hardware whitelist
       manufacturerWhitelist, setManufacturerWhitelist,
