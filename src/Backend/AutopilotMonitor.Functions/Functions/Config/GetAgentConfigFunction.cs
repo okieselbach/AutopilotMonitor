@@ -118,6 +118,19 @@ namespace AutopilotMonitor.Functions.Functions.Config
         }
 
         /// <summary>
+        /// Decides whether the agent should perform diagnostics uploads at all.
+        /// The CustomerSas destination is gated on a per-tenant SAS URL being present, but the
+        /// Hosted destination has no such URL (the platform owns the storage) — so gating purely
+        /// on the SAS URL silently disabled uploads for every Hosted-destination tenant. Enable
+        /// when either a customer SAS is configured OR the destination is Hosted.
+        /// </summary>
+        internal static bool ResolveDiagnosticsUploadEnabled(string? diagnosticsBlobSasUrl, string? destination)
+        {
+            return !string.IsNullOrEmpty(diagnosticsBlobSasUrl)
+                || string.Equals(destination, "Hosted", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
         /// Returns the (ZipSha256, ExeSha256) pair appropriate for the calling agent.
         /// Reads the X-Agent-Version header, parses the major, and dispatches to the
         /// corresponding per-line field set on <see cref="AdminConfiguration"/> via
@@ -197,7 +210,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 EnrollmentSummaryBrandingImageUrl = tenantConfig.EnrollmentSummaryBrandingImageUrl,
                 EnrollmentSummaryLaunchRetrySeconds = tenantConfig.EnrollmentSummaryLaunchRetrySeconds ?? 120,
                 MaxBatchSize = tenantConfig.MaxBatchSize ?? 100,
-                DiagnosticsUploadEnabled = !string.IsNullOrEmpty(tenantConfig.DiagnosticsBlobSasUrl),
+                DiagnosticsUploadEnabled = ResolveDiagnosticsUploadEnabled(
+                    tenantConfig.DiagnosticsBlobSasUrl, tenantConfig.DiagnosticsUploadDestination),
                 DiagnosticsUploadMode = tenantConfig.DiagnosticsUploadMode ?? "Off",
                 DiagnosticsLogPaths = diagLogPaths,
                 Collectors = collectors,

@@ -31,4 +31,27 @@ public class GetAgentConfigFunctionTests
         var actual = GetAgentConfigFunction.ParseAgentMajor(agentVersion);
         Assert.Equal(expectedMajor, actual);
     }
+
+    [Theory]
+    // CustomerSas: gated on the per-tenant SAS URL being present.
+    [InlineData("https://acct.blob.core.windows.net/c?sv=...", "CustomerSas", true)]
+    [InlineData(null, "CustomerSas", false)]
+    [InlineData("", "CustomerSas", false)]
+    // Hosted: platform owns the storage, no per-tenant SAS URL — must still enable uploads.
+    // Regression guard for the bug where Hosted-destination tenants silently never uploaded.
+    [InlineData(null, "Hosted", true)]
+    [InlineData("", "Hosted", true)]
+    [InlineData(null, "hosted", true)]   // case-insensitive
+    // Hosted with a SAS also set (belt-and-braces) stays enabled.
+    [InlineData("https://acct.blob.core.windows.net/c?sv=...", "Hosted", true)]
+    // Unknown/empty destination with no SAS → disabled (no silent uploads to nowhere).
+    [InlineData(null, null, false)]
+    [InlineData(null, "", false)]
+    [InlineData(null, "Bogus", false)]
+    public void ResolveDiagnosticsUploadEnabled_GatesOnSasOrHosted(
+        string? diagnosticsBlobSasUrl, string? destination, bool expected)
+    {
+        var actual = GetAgentConfigFunction.ResolveDiagnosticsUploadEnabled(diagnosticsBlobSasUrl, destination);
+        Assert.Equal(expected, actual);
+    }
 }
