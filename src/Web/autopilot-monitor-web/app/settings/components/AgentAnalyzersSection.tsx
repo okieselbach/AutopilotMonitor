@@ -298,10 +298,11 @@ export default function AgentAnalyzersSection({
         <div>
           <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">Detect OOBE Console Access (Shift+F10)</h3>
           <p className="text-sm text-gray-500 mb-4">
-            Flags a SYSTEM command prompt opened during enrollment — the classic Shift+F10 OOBE bypass
-            (winlogon.exe spawning cmd.exe as SYSTEM). Emits a Warning event with the full process
-            signature. A startup scan of the cmd.exe prefetch artifact additionally covers a console
-            opened before the agent installed.
+            Flags an interactive command prompt opened during enrollment — the classic Shift+F10 OOBE
+            bypass. Detects an interactive-session cmd.exe with a bare (non-scripted) command line and
+            emits a Warning event with the process signature; it stops once the real-user desktop arrives
+            (Shift+F10 no longer possible). A startup scan of the cmd.exe prefetch artifact additionally
+            covers a console opened before the agent installed.
           </p>
           <p className="text-sm text-amber-600 mb-4">
             Best-effort, not gapless: a Shift+F10 pressed very early in OOBE may only be detected

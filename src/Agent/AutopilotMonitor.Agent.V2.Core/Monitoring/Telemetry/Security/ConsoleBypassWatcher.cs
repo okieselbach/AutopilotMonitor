@@ -47,9 +47,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
         internal static readonly string[] WatchedProcessNames = { "cmd.exe" };
 
         // cmd switches that turn the shell into a one-shot scripted invocation (install/script), as
-        // opposed to a bare interactive console. Matched as a whitespace-delimited /c or /k token.
+        // opposed to a bare interactive console. Matched as a /c or /k token anywhere in the ARGUMENTS
+        // (the executable path is stripped first) so combined switches like /d/q/c are caught too.
         private static readonly Regex ScriptSwitchRegex =
-            new Regex(@"(?:^|\s)/[ck]\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+            new Regex(@"/[ck]\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private readonly AgentLogger _logger;
         private readonly Func<int, ProcessProbe?> _processProbe;
@@ -67,6 +68,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
         /// </summary>
         public event EventHandler<ConsoleSpawnInfo>? BypassConsoleDetected;
 
+        /// <summary>
+        /// Raised when the WMI <c>Win32_ProcessStartTrace</c> watcher fails to arm — the LIVE detector
+        /// is dead and only the one-shot startup probe ran. The host surfaces this as a
+        /// <c>collector_degraded</c> event so the backend can tell "no console seen" from "detector
+        /// never started".
+        /// </summary>
+        public event EventHandler<Exception>? WatcherArmFailed;
+
         /// <param name="processProbe">Resolves the command line + owner for a live PID; returns null
         /// when the process has already exited (the instant-close race). Defaults to a WMI query.</param>
         public ConsoleBypassWatcher(AgentLogger logger, Func<int, ProcessProbe?>? processProbe = null)
@@ -83,8 +92,32 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
                 _started = true;
             }
 
-            // 1) Startup probe — a console already open before the watcher armed. Win32_Process exposes
-            //    SessionId directly, so the same classification path is reused.
+            // 1) ETW-backed push on console creation — armed FIRST so a console spawned during the
+            //    startup snapshot below is still caught by the live trace. The _seen set dedups the
+            //    overlap (a console that starts mid-arming is seen by both). Arming after the snapshot
+            //    would leave a blind gap for a fast cmd that starts between snapshot and arm.
+            try
+            {
+                var query = new WqlEventQuery(
+                    "SELECT * FROM Win32_ProcessStartTrace WHERE ProcessName = 'cmd.exe'");
+                _startWatcher = new ManagementEventWatcher(query);
+                _startWatcher.EventArrived += OnProcessStartTrace;
+                _startWatcher.Start();
+                _logger.Info("[ConsoleBypassWatcher] watching Win32_ProcessStartTrace for cmd.exe (interactive-session + bare command line)");
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"[ConsoleBypassWatcher] could not start WMI process-start watcher " +
+                    $"({ex.GetType().Name}: {ex.Message}); relying on the startup probe only.");
+                _startWatcher = null;
+                // Surface the dead live detector so the backend can distinguish it from a clean run.
+                var handler = WatcherArmFailed;
+                try { handler?.Invoke(this, ex); } catch { /* never throw from Start */ }
+            }
+
+            // 2) Startup probe — catch a console already open before the watcher armed. Win32_Process
+            //    exposes SessionId directly, so the same classification path is reused. Runs AFTER the
+            //    arm so there is no gap; overlap with the live trace is deduped by _seen.
             try
             {
                 using var searcher = new ManagementObjectSearcher(
@@ -106,23 +139,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
             catch (Exception ex)
             {
                 _logger.Warning($"[ConsoleBypassWatcher] startup probe failed: {ex.Message}");
-            }
-
-            // 2) ETW-backed push on console creation — no polling.
-            try
-            {
-                var query = new WqlEventQuery(
-                    "SELECT * FROM Win32_ProcessStartTrace WHERE ProcessName = 'cmd.exe'");
-                _startWatcher = new ManagementEventWatcher(query);
-                _startWatcher.EventArrived += OnProcessStartTrace;
-                _startWatcher.Start();
-                _logger.Info("[ConsoleBypassWatcher] watching Win32_ProcessStartTrace for cmd.exe (interactive-session + bare command line)");
-            }
-            catch (Exception ex)
-            {
-                _logger.Warning($"[ConsoleBypassWatcher] could not start WMI process-start watcher " +
-                    $"({ex.GetType().Name}: {ex.Message}); relying on the startup probe only.");
-                _startWatcher = null;
             }
         }
 
@@ -205,9 +221,29 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
         }
 
         /// <summary>True when the command line carries a <c>/c</c> or <c>/k</c> run-command switch
-        /// (a scripted invocation), false for a bare interactive shell.</summary>
+        /// (a scripted invocation), false for a bare interactive shell. The executable token is
+        /// stripped first so a path can never spoof a switch, and switches may be combined
+        /// (e.g. <c>cmd /d/q/c exit 9</c>).</summary>
         internal static bool HasScriptArgument(string commandLine)
-            => !string.IsNullOrEmpty(commandLine) && ScriptSwitchRegex.IsMatch(commandLine);
+        {
+            if (string.IsNullOrEmpty(commandLine)) return false;
+            return ScriptSwitchRegex.IsMatch(StripExecutable(commandLine));
+        }
+
+        /// <summary>Returns the command line with the leading executable token (quoted or
+        /// whitespace-delimited) removed, so switch detection only inspects the arguments.</summary>
+        internal static string StripExecutable(string commandLine)
+        {
+            var s = commandLine.TrimStart();
+            if (s.Length == 0) return string.Empty;
+            if (s[0] == '"')
+            {
+                int end = s.IndexOf('"', 1);
+                return end >= 0 ? s.Substring(end + 1) : string.Empty;
+            }
+            int space = s.IndexOf(' ');
+            return space >= 0 ? s.Substring(space + 1) : string.Empty;
+        }
 
         private static ProcessProbe? DefaultProbe(int pid)
         {

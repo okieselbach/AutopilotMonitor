@@ -468,14 +468,14 @@ namespace AutopilotMonitor.Shared.Models
         public bool KeepAwakeDuringUserEsp { get; set; } = false;
 
         /// <summary>
-        /// Whether to detect a SYSTEM console opened during enrollment — the classic Shift+F10 OOBE
-        /// bypass (winlogon.exe spawning cmd.exe as SYSTEM). Gates BOTH the live ConsoleBypass host
-        /// (cmd.exe with parent winlogon.exe) and the startup ConsolePrefetchScanner (CMD.EXE-*.pf
-        /// ran after boot). Detection is best-effort, not gapless — a press before the agent installs
-        /// is only coarsely covered by the prefetch artifact. Security-sensitive; not an IAgentAnalyzer
-        /// toggle in the usual sense (it also gates a collector host).
-        /// Default: true (opt-out per tenant — a Shift+F10 SYSTEM console during enrollment is a finding
-        /// worth surfacing by default; tenants that knowingly use Shift+F10 for support can disable it).
+        /// Whether to detect an interactive console opened during enrollment — the classic Shift+F10 OOBE
+        /// bypass. Gates BOTH the live ConsoleBypass host (an interactive-session cmd.exe with a bare,
+        /// non-scripted command line; stopped on real-user desktop arrival) and the startup
+        /// ConsolePrefetchScanner (CMD.EXE-*.pf ran after boot). Detection is best-effort, not gapless —
+        /// a press before the agent installs is only coarsely covered by the prefetch artifact.
+        /// Security-sensitive; not an IAgentAnalyzer toggle in the usual sense (it also gates a collector host).
+        /// Default: true (opt-out per tenant — a Shift+F10 console during enrollment is a finding worth
+        /// surfacing by default; tenants that knowingly use Shift+F10 for support can disable it).
         /// </summary>
         public bool EnableConsoleBypassDetection { get; set; } = true;
     }

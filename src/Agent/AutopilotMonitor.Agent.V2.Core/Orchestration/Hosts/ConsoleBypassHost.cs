@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.Shared;
@@ -52,6 +53,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _post = new InformationalEventPost(ingress, clock, logger);
             _watcher = watcher ?? new ConsoleBypassWatcher(logger);
             _watcher.BypassConsoleDetected += OnBypassConsoleDetected;
+            _watcher.WatcherArmFailed += OnWatcherArmFailed;
         }
 
         public void Start() => _watcher.Start();
@@ -108,10 +110,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             }
         }
 
+        // The WMI live watcher could not arm — surface it as collector_degraded so the backend can
+        // tell "no console detected" from "live detector never started" (MON-D1 pattern).
+        private void OnWatcherArmFailed(object? sender, Exception ex)
+        {
+            CollectorDegradationReporter.Report(_post, _sessionId, _tenantId, Name, "watcher_arm_failed", ex);
+        }
+
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
             try { _watcher.BypassConsoleDetected -= OnBypassConsoleDetected; } catch { }
+            try { _watcher.WatcherArmFailed -= OnWatcherArmFailed; } catch { }
             try { _watcher.Dispose(); } catch { }
         }
 

@@ -143,14 +143,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Security
         [InlineData(@"""C:\WINDOWS\system32\cmd.exe""", false)]
         [InlineData(@"cmd.exe /d", false)]                       // /d skips AutoRun — still interactive
         [InlineData(@"C:\cmd\cmd.exe", false)]                   // folder named 'cmd', not a switch
+        [InlineData(@"""C:/k/cmd.exe""", false)]                  // forward-slash path stripped before scan
         [InlineData("", false)]
         [InlineData(@"cmd.exe /c whoami", true)]
         [InlineData(@"cmd.exe /C whoami", true)]
         [InlineData(@"cmd.exe /k", true)]
+        [InlineData(@"cmd.exe /d/q/c exit 9", true)]             // combined switches — the field case
+        [InlineData(@"cmd.exe /D/Q/K stay", true)]
         [InlineData(@"""C:\WINDOWS\system32\cmd.exe"" /c ""x.bat""", true)]
         public void HasScriptArgument_detects_run_command_switch(string commandLine, bool expected)
         {
             Assert.Equal(expected, ConsoleBypassWatcher.HasScriptArgument(commandLine));
+        }
+
+        [Theory]
+        [InlineData(@"C:\WINDOWS\system32\cmd.exe", "")]
+        [InlineData(@"cmd.exe /d/q/c exit 9", "/d/q/c exit 9")]
+        [InlineData(@"""C:\Program Files\x\cmd.exe"" /c y", @" /c y")]
+        public void StripExecutable_removes_leading_exe_token(string commandLine, string expected)
+        {
+            Assert.Equal(expected, ConsoleBypassWatcher.StripExecutable(commandLine));
         }
     }
 }

@@ -41,7 +41,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
             "coarse: a console executed on this device; cannot distinguish a human Shift+F10 from a " +
             "legitimate install-launched cmd once ESP is running (cmd.exe shares one prefetch artifact)";
         private const string CoverageNote =
-            "complements the live winlogon-parent watcher by covering the pre-agent OOBE window";
+            "complements the live console watcher by covering the pre-agent OOBE window";
 
         private readonly string _sessionId;
         private readonly string _tenantId;
