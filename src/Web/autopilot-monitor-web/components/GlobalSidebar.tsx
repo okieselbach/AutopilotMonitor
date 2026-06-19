@@ -271,7 +271,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
   // --- Render helpers ---
 
   const renderIcon = (icon: ReactNode | undefined, sizeClass = "w-4 h-4") => {
-    if (icon) return <span className={`shrink-0 ${sizeClass}`}>{icon}</span>;
+    if (icon) return <span className={`shrink-0 inline-flex items-center ${sizeClass}`}>{icon}</span>;
     return <DefaultSectionIcon className={`shrink-0 ${sizeClass}`} />;
   };
 
@@ -322,7 +322,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
       <li key={item.id}>
         <Link href={item.href} onClick={() => setMobileDrawerOpen(false)} className={`${base} px-3 py-1.5`}>
           {renderIcon(item.icon, "w-4 h-4")}
-          <span className="truncate relative top-px">{item.label}</span>
+          <span className="truncate">{item.label}</span>
         </Link>
       </li>
     );
@@ -367,7 +367,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
         <li key={item.id}>
           <Link href={item.href} onClick={() => setMobileDrawerOpen(false)} className={`${base} px-3 py-1.5`}>
             {renderIcon(item.icon, "w-4 h-4")}
-            <span className="truncate relative top-px">{item.label}</span>
+            <span className="truncate">{item.label}</span>
           </Link>
         </li>
       );
@@ -377,7 +377,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
       <li key={item.id}>
         <button onClick={() => scrollTo(item.id)} className={`${base} w-full text-left px-3 py-1.5`}>
           {renderIcon(item.icon, "w-4 h-4")}
-          <span className="truncate relative top-px">{item.label}</span>
+          <span className="truncate">{item.label}</span>
         </button>
       </li>
     );
@@ -489,7 +489,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                           }`}
                           title={expandItem.label}
                         >
-                          <span className="shrink-0 w-4.5 h-4.5">{expandItem.icon}</span>
+                          <span className="shrink-0 inline-flex items-center justify-center w-4.5 h-4.5">{expandItem.icon}</span>
                           <span className="absolute left-full ml-2 px-2 py-1 rounded bg-gray-900 text-white text-xs whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 dark:bg-gray-700">
                             {expandItem.label}
                           </span>
@@ -513,8 +513,8 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                               : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
                         }`}
                       >
-                        <span className="shrink-0 w-4 h-4">{expandItem.icon}</span>
-                        <span className="truncate flex-1 text-left relative top-px">{expandItem.label}</span>
+                        <span className="shrink-0 inline-flex items-center w-4 h-4">{expandItem.icon}</span>
+                        <span className="truncate flex-1 text-left">{expandItem.label}</span>
                         <svg
                           className={`w-3.5 h-3.5 shrink-0 text-gray-400 transition-transform duration-150 ${isExpanded ? "rotate-90" : ""}`}
                           fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
@@ -628,7 +628,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                       }`}
                       title={group.name}
                     >
-                      <span className="shrink-0 w-4.5 h-4.5">
+                      <span className="shrink-0 inline-flex items-center justify-center w-4.5 h-4.5">
                         {group.icon ? group.icon : renderIcon(undefined, "w-4.5 h-4.5")}
                       </span>
                       <span className="absolute left-full ml-2 px-2 py-1 rounded bg-gray-900 text-white text-xs whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 dark:bg-gray-700">
@@ -651,11 +651,11 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                     }`}
                   >
                     {/* Group icon */}
-                    <span className="shrink-0 w-4 h-4">
+                    <span className="shrink-0 inline-flex items-center w-4 h-4">
                       {group.icon ? group.icon : renderIcon(undefined, "w-4 h-4")}
                     </span>
                     {/* Group label */}
-                    <span className="truncate flex-1 text-left relative top-px">{group.name}</span>
+                    <span className="truncate flex-1 text-left">{group.name}</span>
                     {/* Chevron */}
                     <svg
                       className={`w-3.5 h-3.5 shrink-0 text-gray-400 transition-transform duration-150 ${isExpanded ? "rotate-90" : ""}`}
