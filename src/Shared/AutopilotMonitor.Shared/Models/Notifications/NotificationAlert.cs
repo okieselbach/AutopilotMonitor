@@ -9,6 +9,13 @@ namespace AutopilotMonitor.Shared.Models.Notifications
     /// </summary>
     public class NotificationAlert
     {
+        /// <summary>
+        /// Machine-readable event type for routing/filtering by generic webhook consumers
+        /// (e.g. "enrollment_succeeded", "enrollment_failed", "hardware_rejected", "sla_breach").
+        /// Only serialized by the generic JSON renderer; ignored by Teams/Slack renderers.
+        /// </summary>
+        public string? EventType { get; set; }
+
         /// <summary>Main title, e.g. "Enrollment Succeeded".</summary>
         public string Title { get; set; } = default!;
 

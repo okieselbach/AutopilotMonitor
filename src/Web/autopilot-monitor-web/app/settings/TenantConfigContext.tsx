@@ -153,6 +153,8 @@ interface TenantConfigContextValue {
   setWebhookNotifyOnFailure: (v: boolean) => void;
   webhookNotifyOnStart: boolean;
   setWebhookNotifyOnStart: (v: boolean) => void;
+  webhookCustomHeaders: string;
+  setWebhookCustomHeaders: (v: string) => void;
   testingWebhook: boolean;
   testWebhookResult: { success: boolean; message: string } | null;
   handleTestWebhook: () => Promise<void>;
@@ -334,6 +336,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const [webhookNotifyOnSuccess, setWebhookNotifyOnSuccess] = useState(true);
   const [webhookNotifyOnFailure, setWebhookNotifyOnFailure] = useState(true);
   const [webhookNotifyOnStart, setWebhookNotifyOnStart] = useState(false);
+  const [webhookCustomHeaders, setWebhookCustomHeaders] = useState("");
   const [testingWebhook, setTestingWebhook] = useState(false);
   const [testWebhookResult, setTestWebhookResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -439,18 +442,21 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
           setWebhookNotifyOnSuccess(data.webhookNotifyOnSuccess ?? true);
           setWebhookNotifyOnFailure(data.webhookNotifyOnFailure ?? true);
           setWebhookNotifyOnStart(data.webhookNotifyOnStart ?? false);
+          setWebhookCustomHeaders(data.webhookCustomHeadersJson ?? "");
         } else if (data.teamsWebhookUrl) {
           setWebhookProviderType(1); // TeamsLegacyConnector
           setWebhookUrl(data.teamsWebhookUrl);
           setWebhookNotifyOnSuccess(data.teamsNotifyOnSuccess ?? true);
           setWebhookNotifyOnFailure(data.teamsNotifyOnFailure ?? true);
           setWebhookNotifyOnStart(data.teamsNotifyOnStart ?? false);
+          setWebhookCustomHeaders("");
         } else {
           setWebhookProviderType(0);
           setWebhookUrl("");
           setWebhookNotifyOnSuccess(true);
           setWebhookNotifyOnFailure(true);
           setWebhookNotifyOnStart(false);
+          setWebhookCustomHeaders("");
         }
         // SLA Targets
         setSlaTargetSuccessRate(data.slaTargetSuccessRate ?? null);
@@ -650,6 +656,9 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         webhookNotifyOnSuccess,
         webhookNotifyOnFailure,
         webhookNotifyOnStart,
+        // Custom headers only apply to the generic provider; clear them otherwise so a
+        // provider switch does not leave stale auth headers persisted.
+        webhookCustomHeadersJson: webhookProviderType === 20 ? (webhookCustomHeaders || undefined) : undefined,
         // Legacy compat: mirror to old fields during transition
         teamsWebhookUrl: webhookProviderType === 1 ? (webhookUrl || undefined) : undefined,
         teamsNotifyOnSuccess: webhookNotifyOnSuccess,
@@ -721,6 +730,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     enableGeoLocation, enableTimezoneAutoSet, enableImeMatchLog, logLevel, showScriptOutput, showEnrollmentSummary,
     enrollmentSummaryTimeoutSeconds, enrollmentSummaryBrandingImageUrl, enrollmentSummaryLaunchRetrySeconds,
     webhookProviderType, webhookUrl, webhookNotifyOnSuccess, webhookNotifyOnFailure, webhookNotifyOnStart,
+    webhookCustomHeaders,
     slaTargetSuccessRate, slaTargetMaxDurationMinutes, slaTargetAppInstallSuccessRate,
     slaNotifyOnSuccessRateBreach, slaSuccessRateNotifyThreshold, slaNotifyOnDurationBreach,
     slaNotifyOnAppInstallBreach, slaNotifyOnConsecutiveFailures, slaConsecutiveFailureThreshold,
@@ -1064,18 +1074,21 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       setWebhookNotifyOnSuccess(config.webhookNotifyOnSuccess ?? true);
       setWebhookNotifyOnFailure(config.webhookNotifyOnFailure ?? true);
       setWebhookNotifyOnStart(config.webhookNotifyOnStart ?? false);
+      setWebhookCustomHeaders(config.webhookCustomHeadersJson ?? "");
     } else if (config.teamsWebhookUrl) {
       setWebhookProviderType(1);
       setWebhookUrl(config.teamsWebhookUrl);
       setWebhookNotifyOnSuccess(config.teamsNotifyOnSuccess ?? true);
       setWebhookNotifyOnFailure(config.teamsNotifyOnFailure ?? true);
       setWebhookNotifyOnStart(config.teamsNotifyOnStart ?? false);
+      setWebhookCustomHeaders("");
     } else {
       setWebhookProviderType(0);
       setWebhookUrl("");
       setWebhookNotifyOnSuccess(true);
       setWebhookNotifyOnFailure(true);
       setWebhookNotifyOnStart(false);
+      setWebhookCustomHeaders("");
     }
   }, [config]);
 
@@ -1456,6 +1469,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       webhookNotifyOnSuccess, setWebhookNotifyOnSuccess,
       webhookNotifyOnFailure, setWebhookNotifyOnFailure,
       webhookNotifyOnStart, setWebhookNotifyOnStart,
+      webhookCustomHeaders, setWebhookCustomHeaders,
       testingWebhook, testWebhookResult,
       handleTestWebhook, handleSaveNotifications, handleResetNotifications,
 

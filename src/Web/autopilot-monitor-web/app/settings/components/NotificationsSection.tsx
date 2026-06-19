@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import SaveResetBar from "./SaveResetBar";
 
 interface NotificationsSectionProps {
@@ -13,6 +14,8 @@ interface NotificationsSectionProps {
   setWebhookNotifyOnFailure: (v: boolean) => void;
   webhookNotifyOnStart: boolean;
   setWebhookNotifyOnStart: (v: boolean) => void;
+  webhookCustomHeaders: string;
+  setWebhookCustomHeaders: (v: string) => void;
   onTestWebhook: () => Promise<void>;
   testingWebhook: boolean;
   testWebhookResult: { success: boolean; message: string } | null;
@@ -21,12 +24,112 @@ interface NotificationsSectionProps {
   saving: boolean;
 }
 
+const GENERIC_PROVIDER = 20;
+
 const PROVIDERS = [
   { value: 0, label: "None (disabled)", placeholder: "" },
   { value: 1, label: "Microsoft Teams (Legacy Connector)", placeholder: "https://your-org.webhook.office.com/webhookb2/...", badge: "Deprecated", badgeColor: "bg-amber-100 text-amber-800" },
   { value: 2, label: "Microsoft Teams (Workflow Webhook)", placeholder: "https://prod-xx.westeurope.logic.azure.com:443/workflows/...", badge: "Recommended", badgeColor: "bg-green-100 text-green-800" },
   { value: 10, label: "Slack", placeholder: "https://hooks.slack.com/services/T.../B.../..." },
+  { value: GENERIC_PROVIDER, label: "Generic JSON (ticketing / automation)", placeholder: "https://your-system.example.com/api/webhooks/autopilot" },
 ];
+
+type HeaderRow = { key: string; value: string };
+
+function parseHeaderRows(json: string): HeaderRow[] {
+  if (!json || !json.trim()) return [];
+  try {
+    const obj = JSON.parse(json);
+    if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+      return Object.entries(obj).map(([key, value]) => ({ key, value: String(value) }));
+    }
+  } catch {
+    // Malformed JSON (e.g. legacy/hand-edited value) — start from an empty editor.
+  }
+  return [];
+}
+
+function serializeHeaderRows(rows: HeaderRow[]): string {
+  const obj: Record<string, string> = {};
+  for (const { key, value } of rows) {
+    const k = key.trim();
+    if (k) obj[k] = value;
+  }
+  return Object.keys(obj).length > 0 ? JSON.stringify(obj) : "";
+}
+
+/**
+ * Key→value editor for generic-webhook custom headers. Owns row state locally and serializes
+ * to the JSON string the backend persists; re-syncs only on external changes (config load/reset).
+ */
+function WebhookHeaderEditor({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [rows, setRows] = useState<HeaderRow[]>(() => parseHeaderRows(value));
+  const lastSerialized = useRef(value);
+
+  useEffect(() => {
+    if (value !== lastSerialized.current) {
+      setRows(parseHeaderRows(value));
+      lastSerialized.current = value;
+    }
+  }, [value]);
+
+  const commit = (next: HeaderRow[]) => {
+    setRows(next);
+    const json = serializeHeaderRows(next);
+    lastSerialized.current = json;
+    onChange(json);
+  };
+
+  return (
+    <div>
+      <span className="text-gray-700 font-medium">Custom Headers</span>
+      <p className="text-sm text-gray-500 mb-2">
+        Optional HTTP headers sent with every request — e.g. <code className="font-mono">Authorization</code> with an API key
+        for your ticketing system or SMTP gateway. Framing headers (Host, Content-Type, …) are ignored.
+      </p>
+      <div className="space-y-2">
+        {rows.map((row, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <input
+              type="text"
+              value={row.key}
+              onChange={(e) => commit(rows.map((r, j) => (j === i ? { ...r, key: e.target.value } : r)))}
+              placeholder="Header name"
+              className="block w-1/3 px-3 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors font-mono text-sm"
+            />
+            <input
+              type="text"
+              value={row.value}
+              onChange={(e) => commit(rows.map((r, j) => (j === i ? { ...r, value: e.target.value } : r)))}
+              placeholder="Value"
+              className="block flex-1 px-3 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors font-mono text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => commit(rows.filter((_, j) => j !== i))}
+              className="flex-shrink-0 p-2 text-gray-400 hover:text-red-600 transition-colors"
+              aria-label="Remove header"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={() => commit([...rows, { key: "", value: "" }])}
+        className="mt-2 inline-flex items-center text-sm font-medium text-sky-600 hover:text-sky-700 transition-colors"
+      >
+        <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+        </svg>
+        Add header
+      </button>
+    </div>
+  );
+}
 
 export default function NotificationsSection({
   webhookProviderType,
@@ -39,6 +142,8 @@ export default function NotificationsSection({
   setWebhookNotifyOnFailure,
   webhookNotifyOnStart,
   setWebhookNotifyOnStart,
+  webhookCustomHeaders,
+  setWebhookCustomHeaders,
   onTestWebhook,
   testingWebhook,
   testWebhookResult,
@@ -74,7 +179,13 @@ export default function NotificationsSection({
             <div className="flex items-center gap-2">
               <select
                 value={webhookProviderType}
-                onChange={(e) => setWebhookProviderType(Number(e.target.value))}
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  setWebhookProviderType(next);
+                  // Custom headers are generic-only; clear them when leaving the generic provider so
+                  // a later switch back can't revive stale auth headers and persist them to a new endpoint.
+                  if (next !== GENERIC_PROVIDER) setWebhookCustomHeaders("");
+                }}
                 className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors"
               >
                 {PROVIDERS.map((p) => (
@@ -111,6 +222,8 @@ export default function NotificationsSection({
                   ? "Create a Workflow in Teams (Channel → Manage channel → Workflows → \"Post to a channel when a webhook request is received\") and paste the URL here."
                   : webhookProviderType === 10
                   ? "Create an Incoming Webhook in Slack (Apps → Incoming Webhooks → Add to channel) and paste the URL here."
+                  : webhookProviderType === GENERIC_PROVIDER
+                  ? "Any HTTPS endpoint that accepts a JSON POST. Receives a stable payload (schemaVersion + eventType, e.g. \"enrollment_succeeded\") for ticketing, automation, or an SMTP gateway like Postal."
                   : "Create an Incoming Webhook in your Teams channel (Channel → Connectors → Incoming Webhook) and paste the URL here."}
               </p>
               <div className="flex items-center gap-2">
@@ -129,6 +242,11 @@ export default function NotificationsSection({
               </div>
             </label>
           </div>
+        )}
+
+        {/* Custom Headers (generic provider only) */}
+        {webhookProviderType === GENERIC_PROVIDER && (
+          <WebhookHeaderEditor value={webhookCustomHeaders} onChange={setWebhookCustomHeaders} />
         )}
 
         {/* Notify on Start */}

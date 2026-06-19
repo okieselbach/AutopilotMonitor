@@ -231,7 +231,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                             if (!string.IsNullOrEmpty(webhookUrl) && providerTypeInt != 0)
                             {
                                 var alert = NotificationAlertBuilder.BuildHardwareRejectedAlert(manufacturer, model, serialNumber);
-                                _ = _webhookNotification.SendNotificationAsync(webhookUrl, (WebhookProviderType)providerTypeInt, alert);
+                                _ = _webhookNotification.SendNotificationAsync(webhookUrl, (WebhookProviderType)providerTypeInt, alert, config.GetGenericWebhookHeaders());
                             }
                         }
                     }

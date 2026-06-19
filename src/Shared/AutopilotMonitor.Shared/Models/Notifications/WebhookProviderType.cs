@@ -16,5 +16,12 @@ namespace AutopilotMonitor.Shared.Models.Notifications
 
         /// <summary>Slack Incoming Webhook (Block Kit format).</summary>
         Slack = 10,
+
+        /// <summary>
+        /// Generic JSON webhook. Posts a stable, channel-agnostic JSON payload (schemaVersion + eventType)
+        /// to any HTTP endpoint — for ticketing systems, automation, or SMTP gateways (e.g. Postal).
+        /// Supports per-tenant custom request headers for API-key authentication.
+        /// </summary>
+        GenericJson = 20,
     }
 }

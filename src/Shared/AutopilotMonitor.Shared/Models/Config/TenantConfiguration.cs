@@ -548,6 +548,15 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public bool WebhookNotifyOnStart { get; set; } = false;
 
+        /// <summary>
+        /// Custom HTTP request headers (JSON object: { "Header-Name": "value", ... }) sent with every
+        /// generic-webhook POST. Used for API-key authentication against ticketing systems / SMTP gateways.
+        /// Only applied when the effective provider is <see cref="Notifications.WebhookProviderType.GenericJson"/>.
+        /// Restricted headers (Host, Content-Length, Content-Type, etc.) are ignored — see
+        /// <see cref="GetGenericWebhookHeaders"/>.
+        /// </summary>
+        public string WebhookCustomHeadersJson { get; set; } = default!;
+
         // ===== SLA TARGETS =====
 
         /// <summary>
@@ -639,6 +648,64 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public bool GetEffectiveNotifyOnStart()
             => !string.IsNullOrEmpty(WebhookUrl) ? WebhookNotifyOnStart : TeamsNotifyOnStart;
+
+        /// <summary>
+        /// HTTP headers that must never be set via the custom-header mechanism: framing/host/content
+        /// headers are owned by the HTTP client and overriding them breaks the request or enables
+        /// request-smuggling. Compared case-insensitively.
+        /// </summary>
+        private static readonly HashSet<string> RestrictedWebhookHeaders = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Host", "Content-Length", "Content-Type", "Transfer-Encoding", "Connection",
+            "Keep-Alive", "Upgrade", "TE", "Trailer", "Expect", "Proxy-Connection",
+        };
+
+        /// <summary>
+        /// Parses <see cref="WebhookCustomHeadersJson"/> into header name/value pairs for the generic
+        /// webhook dispatcher. Returns an empty dictionary unless the effective provider is
+        /// <see cref="Notifications.WebhookProviderType.GenericJson"/>, the JSON is a parseable object,
+        /// and after dropping restricted headers and blank names/values. Never throws.
+        /// </summary>
+        public IReadOnlyDictionary<string, string> GetGenericWebhookHeaders()
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            var (_, providerType) = GetEffectiveWebhookConfig();
+            if (providerType != (int)Notifications.WebhookProviderType.GenericJson)
+                return result;
+
+            if (string.IsNullOrWhiteSpace(WebhookCustomHeadersJson))
+                return result;
+
+            try
+            {
+                using var doc = JsonDocument.Parse(WebhookCustomHeadersJson);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                    return result;
+
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                {
+                    if (prop.Value.ValueKind != JsonValueKind.String)
+                        continue;
+
+                    var name = prop.Name.Trim();
+                    var value = prop.Value.GetString();
+
+                    if (string.IsNullOrWhiteSpace(name) || string.IsNullOrEmpty(value))
+                        continue;
+                    if (RestrictedWebhookHeaders.Contains(name))
+                        continue;
+
+                    result[name] = value!;
+                }
+            }
+            catch (JsonException)
+            {
+                // Malformed JSON → no custom headers (fail-soft; dispatch still proceeds).
+            }
+
+            return result;
+        }
 
         /// <summary>
         /// Checks if the tenant is currently disabled

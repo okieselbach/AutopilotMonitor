@@ -28,13 +28,17 @@ namespace AutopilotMonitor.Functions.Services.Notifications
                 [WebhookProviderType.TeamsLegacyConnector] = new LegacyTeamsConnectorRenderer(),
                 [WebhookProviderType.TeamsWorkflowWebhook] = new TeamsWorkflowAdaptiveCardRenderer(),
                 [WebhookProviderType.Slack] = new SlackRenderer(),
+                [WebhookProviderType.GenericJson] = new GenericJsonRenderer(),
             };
         }
 
         /// <summary>
         /// Sends a notification (fire-and-forget, non-fatal). Exceptions are logged as warnings.
+        /// <paramref name="customHeaders"/> (generic webhooks only) are attached to the request,
+        /// e.g. an API-key/Authorization header for a ticketing system or SMTP gateway.
         /// </summary>
-        public async Task SendNotificationAsync(string webhookUrl, WebhookProviderType providerType, NotificationAlert alert)
+        public async Task SendNotificationAsync(string webhookUrl, WebhookProviderType providerType, NotificationAlert alert,
+            IReadOnlyDictionary<string, string>? customHeaders = null)
         {
             if (string.IsNullOrEmpty(webhookUrl) || providerType == WebhookProviderType.None)
                 return;
@@ -50,8 +54,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
                 await SsrfGuard.ValidateDestinationAsync(webhookUrl);
 
                 var json = renderer.RenderToJson(alert);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-                var response = await _http.PostAsync(webhookUrl, content);
+                var response = await PostAsync(webhookUrl, json, customHeaders);
 
                 if (response.IsSuccessStatusCode)
                     _logger.LogInformation("Webhook notification sent: {Summary} (provider={ProviderType})", alert.Summary, providerType);
@@ -69,8 +72,10 @@ namespace AutopilotMonitor.Functions.Services.Notifications
 
         /// <summary>
         /// Sends a notification and returns the result (for test endpoint). Not fire-and-forget.
+        /// <paramref name="customHeaders"/> (generic webhooks only) are attached to the request.
         /// </summary>
-        public async Task<WebhookTestResult> SendNotificationWithResultAsync(string webhookUrl, WebhookProviderType providerType, NotificationAlert alert)
+        public async Task<WebhookTestResult> SendNotificationWithResultAsync(string webhookUrl, WebhookProviderType providerType, NotificationAlert alert,
+            IReadOnlyDictionary<string, string>? customHeaders = null)
         {
             if (string.IsNullOrEmpty(webhookUrl))
                 return new WebhookTestResult { Success = false, Message = "Webhook URL is not configured." };
@@ -93,8 +98,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
             try
             {
                 var json = renderer.RenderToJson(alert);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-                var response = await _http.PostAsync(webhookUrl, content);
+                var response = await PostAsync(webhookUrl, json, customHeaders);
                 var statusCode = (int)response.StatusCode;
 
                 if (response.IsSuccessStatusCode)
@@ -116,6 +120,25 @@ namespace AutopilotMonitor.Functions.Services.Notifications
             }
         }
 
+        /// <summary>
+        /// POSTs the rendered JSON, attaching any custom headers as request headers. Restricted
+        /// (framing/host/content) headers are already filtered upstream by GetGenericWebhookHeaders().
+        /// </summary>
+        private Task<HttpResponseMessage> PostAsync(string webhookUrl, string json, IReadOnlyDictionary<string, string>? customHeaders)
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, webhookUrl)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json"),
+            };
+
+            if (customHeaders != null)
+            {
+                foreach (var header in customHeaders)
+                    request.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            }
+
+            return _http.SendAsync(request);
+        }
     }
 
     public class WebhookTestResult

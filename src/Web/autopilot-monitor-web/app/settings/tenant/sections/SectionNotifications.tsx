@@ -11,6 +11,7 @@ export function SectionNotifications() {
     webhookNotifyOnSuccess, setWebhookNotifyOnSuccess,
     webhookNotifyOnFailure, setWebhookNotifyOnFailure,
     webhookNotifyOnStart, setWebhookNotifyOnStart,
+    webhookCustomHeaders, setWebhookCustomHeaders,
     handleTestWebhook, testingWebhook, testWebhookResult,
     handleSaveNotifications, handleResetNotifications,
     savingSection,
@@ -30,6 +31,8 @@ export function SectionNotifications() {
         setWebhookNotifyOnFailure={setWebhookNotifyOnFailure}
         webhookNotifyOnStart={webhookNotifyOnStart}
         setWebhookNotifyOnStart={setWebhookNotifyOnStart}
+        webhookCustomHeaders={webhookCustomHeaders}
+        setWebhookCustomHeaders={setWebhookCustomHeaders}
         onTestWebhook={handleTestWebhook}
         testingWebhook={testingWebhook}
         testWebhookResult={testWebhookResult}

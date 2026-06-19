@@ -47,6 +47,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
 
             var alert = new NotificationAlert
             {
+                EventType = success ? "enrollment_succeeded" : "enrollment_failed",
                 Title = title,
                 Summary = summary,
                 Severity = severity,
@@ -84,6 +85,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
 
             var alert = new NotificationAlert
             {
+                EventType = isResume ? "preprovisioning_resumed" : "enrollment_started",
                 Title = title,
                 Summary = summary,
                 Severity = NotificationSeverity.Info,
@@ -127,6 +129,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
 
             var alert = new NotificationAlert
             {
+                EventType = success ? "preprovisioning_completed" : "preprovisioning_failed",
                 Title = title,
                 Summary = summary,
                 Severity = severity,
@@ -150,6 +153,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
         {
             return new NotificationAlert
             {
+                EventType = "test",
                 Title = "\ud83d\udd14 Test Notification",
                 Summary = "This is a test notification from Autopilot Monitor.",
                 Severity = NotificationSeverity.Info,
@@ -175,6 +179,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
 
             return new NotificationAlert
             {
+                EventType = "hardware_rejected",
                 Title = "\u26a0\ufe0f Hardware Not Whitelisted",
                 Summary = $"Device rejected: {hardwareText} is not in your hardware whitelist",
                 Severity = NotificationSeverity.Warning,
@@ -298,6 +303,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
 
             var alert = new NotificationAlert
             {
+                EventType = "sla_breach",
                 Title = title,
                 Summary = summary,
                 Severity = NotificationSeverity.Warning,
@@ -346,6 +352,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
 
             var alert = new NotificationAlert
             {
+                EventType = "sla_resolved",
                 Title = $"✅ SLA Breach Resolved: {label}",
                 Summary = $"SLA breach resolved for tenant {tenantId}: {label} is back within target.",
                 Severity = NotificationSeverity.Success,
@@ -375,6 +382,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
         {
             var alert = new NotificationAlert
             {
+                EventType = "consecutive_failures",
                 Title = $"\ud83d\udea8 {consecutiveFailures} Consecutive Enrollment Failures",
                 Summary = $"Alert: {consecutiveFailures} enrollments failed in a row for tenant {tenantId}",
                 Severity = NotificationSeverity.Error,

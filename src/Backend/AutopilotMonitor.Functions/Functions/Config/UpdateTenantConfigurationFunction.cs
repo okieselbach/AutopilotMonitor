@@ -78,6 +78,13 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     await badRequest.WriteAsJsonAsync(new { success = false, message = $"Invalid Teams Webhook URL: {teamsUrlError}" });
                     return badRequest;
                 }
+                var headersError = ValidateWebhookCustomHeaders(config.WebhookCustomHeadersJson);
+                if (headersError != null)
+                {
+                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badRequest.WriteAsJsonAsync(new { success = false, message = $"Invalid custom headers: {headersError}" });
+                    return badRequest;
+                }
                 // Only validate the customer-supplied SAS URL when the tenant has actually
                 // selected the CustomerSas destination. In Hosted mode the field is unused at
                 // runtime (see GetDiagnosticsUploadUrlFunction), so a stale/legacy value left
@@ -175,6 +182,77 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 await response.WriteAsJsonAsync(new { error = "Internal server error" });
                 return response;
             }
+        }
+
+        private const int MaxCustomHeadersJsonLength = 8192;
+        private const int MaxCustomHeaderCount = 25;
+
+        /// <summary>
+        /// Validates the generic-webhook custom-headers JSON. Returns an error message, or null when
+        /// valid/empty. Enforces a JSON object of string values, valid HTTP token names, no CR/LF
+        /// header-injection, and size caps. Restricted (framing/host/content) headers are not rejected
+        /// here — they are silently ignored at dispatch by TenantConfiguration.GetGenericWebhookHeaders().
+        /// </summary>
+        internal static string? ValidateWebhookCustomHeaders(string? json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+                return null;
+
+            if (json.Length > MaxCustomHeadersJsonLength)
+                return $"too large (max {MaxCustomHeadersJsonLength} characters).";
+
+            System.Text.Json.JsonDocument doc;
+            try
+            {
+                doc = System.Text.Json.JsonDocument.Parse(json);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return "not valid JSON.";
+            }
+
+            using (doc)
+            {
+                if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object)
+                    return "must be a JSON object of header name/value pairs.";
+
+                var count = 0;
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                {
+                    if (++count > MaxCustomHeaderCount)
+                        return $"too many headers (max {MaxCustomHeaderCount}).";
+
+                    if (prop.Value.ValueKind != System.Text.Json.JsonValueKind.String)
+                        return $"header \"{prop.Name}\" must have a string value.";
+
+                    if (!IsValidHeaderName(prop.Name))
+                        return $"\"{prop.Name}\" is not a valid HTTP header name.";
+
+                    var value = prop.Value.GetString();
+                    if (value != null && (value.IndexOf('\r') >= 0 || value.IndexOf('\n') >= 0))
+                        return $"value for \"{prop.Name}\" must not contain line breaks.";
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>Validates an HTTP header name as an RFC 7230 token (no whitespace, controls, or separators).</summary>
+        private static bool IsValidHeaderName(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return false;
+
+            foreach (var ch in name)
+            {
+                var isTokenChar =
+                    (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') ||
+                    "!#$%&'*+-.^_`|~".IndexOf(ch) >= 0;
+                if (!isTokenChar)
+                    return false;
+            }
+
+            return true;
         }
     }
 }

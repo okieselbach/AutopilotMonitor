@@ -870,6 +870,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 return;
 
             var providerType = (WebhookProviderType)providerTypeInt;
+            var customHeaders = tenantConfig.GetGenericWebhookHeaders();
             var sessionUrl = updatedSession != null
                 ? $"https://portal.autopilotmonitor.com/sessions/{request.SessionId}"
                 : null;
@@ -905,7 +906,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                         sessionUrl: sessionUrl);
                     NotificationAlertBuilder.AddRuleResultSections(alert, ruleResults);
 
-                    _ = _webhookNotificationService.SendNotificationAsync(webhookUrl, providerType, alert)
+                    _ = _webhookNotificationService.SendNotificationAsync(webhookUrl, providerType, alert, customHeaders)
                         .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
                             "Fire-and-forget webhook notification failed"), TaskContinuationOptions.OnlyOnFaulted);
                 }
@@ -928,7 +929,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     sessionUrl: sessionUrl);
                 NotificationAlertBuilder.AddRuleResultSections(alert, ruleResults);
 
-                _ = _webhookNotificationService.SendNotificationAsync(webhookUrl, providerType, alert)
+                _ = _webhookNotificationService.SendNotificationAsync(webhookUrl, providerType, alert, customHeaders)
                     .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
                         "Fire-and-forget webhook notification failed"), TaskContinuationOptions.OnlyOnFaulted);
             }
@@ -950,7 +951,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     sessionUrl: sessionUrl);
                 NotificationAlertBuilder.AddRuleResultSections(alert, ruleResults);
 
-                _ = _webhookNotificationService.SendNotificationAsync(webhookUrl, providerType, alert)
+                _ = _webhookNotificationService.SendNotificationAsync(webhookUrl, providerType, alert, customHeaders)
                     .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
                         "Fire-and-forget webhook notification failed"), TaskContinuationOptions.OnlyOnFaulted);
             }

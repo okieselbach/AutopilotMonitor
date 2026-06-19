@@ -260,7 +260,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     isResume: isResume,
                     sessionUrl: sessionUrl);
 
-                await _webhookNotificationService.SendNotificationAsync(webhookUrl, (WebhookProviderType)providerTypeInt, alert);
+                await _webhookNotificationService.SendNotificationAsync(webhookUrl, (WebhookProviderType)providerTypeInt, alert, tenantConfig.GetGenericWebhookHeaders());
             }
             catch (Exception ex)
             {

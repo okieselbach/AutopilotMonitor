@@ -197,6 +197,7 @@ const WEBHOOK_PROVIDERS: Record<number, string> = {
   1: 'Teams (Legacy Connector)',
   2: 'Teams (Workflow Webhook)',
   10: 'Slack',
+  20: 'Generic JSON',
 };
 
 function formatValue(val: unknown): string {

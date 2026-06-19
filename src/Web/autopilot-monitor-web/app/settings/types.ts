@@ -43,6 +43,7 @@ export interface TenantConfiguration {
   webhookNotifyOnFailure?: boolean;
   webhookNotifyOnHardwareRejection?: boolean;
   webhookNotifyOnStart?: boolean;
+  webhookCustomHeadersJson?: string;
   // SLA targets
   slaTargetSuccessRate?: number;
   slaTargetMaxDurationMinutes?: number;

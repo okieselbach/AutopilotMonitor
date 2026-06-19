@@ -551,7 +551,7 @@ namespace AutopilotMonitor.Functions.Services
             var (webhookUrl, providerType) = config.GetEffectiveWebhookConfig();
             if (!string.IsNullOrEmpty(webhookUrl) && providerType != 0)
             {
-                await _webhookService.SendNotificationAsync(webhookUrl, (Shared.Models.Notifications.WebhookProviderType)providerType, alert);
+                await _webhookService.SendNotificationAsync(webhookUrl, (Shared.Models.Notifications.WebhookProviderType)providerType, alert, config.GetGenericWebhookHeaders());
             }
 
             await _tenantNotificationService.CreateNotificationAsync(
@@ -594,7 +594,7 @@ namespace AutopilotMonitor.Functions.Services
             var (webhookUrl, providerType) = config.GetEffectiveWebhookConfig();
             if (!string.IsNullOrEmpty(webhookUrl) && providerType != 0)
             {
-                await _webhookService.SendNotificationAsync(webhookUrl, (Shared.Models.Notifications.WebhookProviderType)providerType, alert);
+                await _webhookService.SendNotificationAsync(webhookUrl, (Shared.Models.Notifications.WebhookProviderType)providerType, alert, config.GetGenericWebhookHeaders());
             }
 
             await _tenantNotificationService.CreateNotificationAsync(
@@ -682,7 +682,7 @@ namespace AutopilotMonitor.Functions.Services
                     var (webhookUrl, providerType) = config.GetEffectiveWebhookConfig();
                     if (!string.IsNullOrEmpty(webhookUrl) && providerType != 0)
                     {
-                        await _webhookService.SendNotificationAsync(webhookUrl, (Shared.Models.Notifications.WebhookProviderType)providerType, alert);
+                        await _webhookService.SendNotificationAsync(webhookUrl, (Shared.Models.Notifications.WebhookProviderType)providerType, alert, config.GetGenericWebhookHeaders());
                     }
 
                     await _tenantNotificationService.CreateNotificationAsync(

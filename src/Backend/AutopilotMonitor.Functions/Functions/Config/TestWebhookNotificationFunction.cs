@@ -58,7 +58,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
                 var providerType = (WebhookProviderType)providerTypeInt;
                 var testAlert = NotificationAlertBuilder.BuildTestAlert();
-                var result = await _webhookNotificationService.SendNotificationWithResultAsync(webhookUrl, providerType, testAlert);
+                var result = await _webhookNotificationService.SendNotificationWithResultAsync(webhookUrl, providerType, testAlert, tenantConfig.GetGenericWebhookHeaders());
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new
