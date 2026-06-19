@@ -322,7 +322,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
       <li key={item.id}>
         <Link href={item.href} onClick={() => setMobileDrawerOpen(false)} className={`${base} px-3 py-1.5`}>
           {renderIcon(item.icon, "w-4 h-4")}
-          <span className="truncate">{item.label}</span>
+          <span className="truncate relative top-[0.5px]">{item.label}</span>
         </Link>
       </li>
     );
@@ -367,7 +367,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
         <li key={item.id}>
           <Link href={item.href} onClick={() => setMobileDrawerOpen(false)} className={`${base} px-3 py-1.5`}>
             {renderIcon(item.icon, "w-4 h-4")}
-            <span className="truncate">{item.label}</span>
+            <span className="truncate relative top-[0.5px]">{item.label}</span>
           </Link>
         </li>
       );
@@ -377,7 +377,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
       <li key={item.id}>
         <button onClick={() => scrollTo(item.id)} className={`${base} w-full text-left px-3 py-1.5`}>
           {renderIcon(item.icon, "w-4 h-4")}
-          <span className="truncate">{item.label}</span>
+          <span className="truncate relative top-[0.5px]">{item.label}</span>
         </button>
       </li>
     );
@@ -396,12 +396,18 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
       {isAuthenticated && (
         <>
           {/* Dashboard — hidden for regular users (no admin/operator access) */}
-          {!isRegularUser && renderGlobalItem(DASHBOARD_ITEM)}
+          {!isRegularUser && (
+            <ul className="space-y-0.5">
+              {renderGlobalItem(DASHBOARD_ITEM)}
+            </ul>
+          )}
 
           {/* Regular user: only show Progress Portal */}
           {isRegularUser && (
             <div className={`${collapseState === "full" || isMobile ? "mt-3" : "mt-1"}`}>
-              {REGULAR_USER_ITEMS.map((item) => renderGlobalItem(item))}
+              <ul className="space-y-0.5">
+                {REGULAR_USER_ITEMS.map((item) => renderGlobalItem(item))}
+              </ul>
             </div>
           )}
 
@@ -508,7 +514,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                         }`}
                       >
                         <span className="shrink-0 w-4 h-4">{expandItem.icon}</span>
-                        <span className="truncate flex-1 text-left">{expandItem.label}</span>
+                        <span className="truncate flex-1 text-left relative top-[0.5px]">{expandItem.label}</span>
                         <svg
                           className={`w-3.5 h-3.5 shrink-0 text-gray-400 transition-transform duration-150 ${isExpanded ? "rotate-90" : ""}`}
                           fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
@@ -567,7 +573,9 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
       {/* Public (unauthenticated): show public nav items */}
       {!isAuthenticated && (
         <>
-          {renderGlobalItem({ id: "home", label: "Home", href: "/", icon: DASHBOARD_ITEM.icon })}
+          <ul className="space-y-0.5">
+            {renderGlobalItem({ id: "home", label: "Home", href: "/", icon: DASHBOARD_ITEM.icon })}
+          </ul>
           <div className={`${collapseState === "full" || isMobile ? "mt-3" : "mt-1"}`}>
             <ul className="space-y-0.5">
               {renderGlobalItem({ id: "docs", label: "Docs", href: "/docs", icon: <BookOpenIcon /> })}
@@ -647,7 +655,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                       {group.icon ? group.icon : renderIcon(undefined, "w-4 h-4")}
                     </span>
                     {/* Group label */}
-                    <span className="truncate flex-1 text-left">{group.name}</span>
+                    <span className="truncate flex-1 text-left relative top-[0.5px]">{group.name}</span>
                     {/* Chevron */}
                     <svg
                       className={`w-3.5 h-3.5 shrink-0 text-gray-400 transition-transform duration-150 ${isExpanded ? "rotate-90" : ""}`}
