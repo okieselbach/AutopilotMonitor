@@ -201,6 +201,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     logger: logger));
             }
 
+            // OOBE-console / Shift+F10 detection — opt-OUT per tenant (portal toggle →
+            // AnalyzerConfiguration.EnableConsoleBypassDetection, default ON). The LIVE half: a WMI
+            // Win32_ProcessStartTrace watcher that flags a cmd.exe spawned with parent winlogon.exe
+            // (the SYSTEM-console fingerprint) as a Warning oobe_console_spawned. The STARTUP-FORENSIC
+            // half (ConsolePrefetchScanner, covering the pre-agent OOBE window) is registered by the
+            // AgentAnalyzerManager under the same flag. Detection is best-effort, not gapless.
+            if (analyzers.EnableConsoleBypassDetection)
+            {
+                hosts.Add(new ConsoleBypassHost(
+                    sessionId: sessionId,
+                    tenantId: tenantId,
+                    ingress: ingress,
+                    clock: clock,
+                    logger: logger));
+            }
+
             // Single-rail refactor (plan §5.8) — DeviceInfoCollector existed in V2.Core but had
             // no host so the Device-Details UI block was empty in V2 sessions (V1-Parity Issue #2).
             // Kernel host: always on, not remote-config-gated; fires CollectAll on Start on a

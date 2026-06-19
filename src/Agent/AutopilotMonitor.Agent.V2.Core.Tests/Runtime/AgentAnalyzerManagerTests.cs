@@ -43,6 +43,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Runtime
                     EnableLocalAdminAnalyzer = false,
                     EnableSoftwareInventoryAnalyzer = false,
                     EnableIntegrityBypassAnalyzer = false,
+                    EnableConsoleBypassDetection = false, // default-on opt-out; off for this isolation test
                 });
 
             sut.Initialize();
@@ -62,6 +63,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Runtime
                     EnableLocalAdminAnalyzer = true,
                     EnableSoftwareInventoryAnalyzer = false,
                     EnableIntegrityBypassAnalyzer = true,
+                    EnableConsoleBypassDetection = false, // default-on opt-out; off so the count stays exact
                 });
 
             sut.Initialize();
@@ -75,16 +77,54 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Runtime
         }
 
         [Fact]
+        public void Initialize_registers_ConsolePrefetchScanner_when_console_bypass_detection_on()
+        {
+            using var tmp = new TempDirectory();
+            var sut = new AgentAnalyzerManager(
+                Config(), NewLogger(tmp.Path), NewPost(),
+                new AnalyzerConfiguration
+                {
+                    EnableLocalAdminAnalyzer = false,
+                    EnableSoftwareInventoryAnalyzer = false,
+                    EnableIntegrityBypassAnalyzer = false,
+                    EnableConsoleBypassDetection = true,
+                });
+
+            sut.Initialize();
+            Assert.Contains("ConsolePrefetchScanner", sut.Analyzers.Select(a => a.Name));
+        }
+
+        [Fact]
+        public void Initialize_omits_ConsolePrefetchScanner_when_console_bypass_detection_off()
+        {
+            using var tmp = new TempDirectory();
+            var sut = new AgentAnalyzerManager(
+                Config(), NewLogger(tmp.Path), NewPost(),
+                new AnalyzerConfiguration
+                {
+                    EnableLocalAdminAnalyzer = false,
+                    EnableSoftwareInventoryAnalyzer = false,
+                    EnableIntegrityBypassAnalyzer = false,
+                    EnableConsoleBypassDetection = false,
+                });
+
+            sut.Initialize();
+            Assert.DoesNotContain("ConsolePrefetchScanner", sut.Analyzers.Select(a => a.Name));
+        }
+
+        [Fact]
         public void Initialize_tolerates_null_analyzer_config()
         {
             using var tmp = new TempDirectory();
             var sut = new AgentAnalyzerManager(Config(), NewLogger(tmp.Path), NewPost(), analyzerConfig: null);
 
             sut.Initialize();
-            // Default AnalyzerConfiguration enables LocalAdmin + IntegrityBypass, disables SoftwareInventory.
+            // Default AnalyzerConfiguration enables LocalAdmin + IntegrityBypass + ConsoleBypassDetection
+            // (opt-out), disables SoftwareInventory.
             var names = sut.Analyzers.Select(a => a.Name).ToList();
             Assert.Contains("LocalAdminAnalyzer", names);
             Assert.Contains("IntegrityBypassAnalyzer", names);
+            Assert.Contains("ConsolePrefetchScanner", names);
             Assert.Contains("AutoLogonAnalyzer", names);
             Assert.DoesNotContain("SoftwareInventoryAnalyzer", names);
         }
@@ -194,6 +234,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Runtime
                     EnableLocalAdminAnalyzer = false,
                     EnableSoftwareInventoryAnalyzer = false,
                     EnableIntegrityBypassAnalyzer = false,
+                    EnableConsoleBypassDetection = false,
                 });
             sut.Initialize();
             var ex = Record.Exception(() => sut.RunShutdown());
@@ -213,6 +254,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Runtime
                     EnableLocalAdminAnalyzer = false,
                     EnableSoftwareInventoryAnalyzer = false,
                     EnableIntegrityBypassAnalyzer = false,
+                    EnableConsoleBypassDetection = false,
                 });
 
             sut.RunDeviceSetupCompleteAutoLogonCheck();

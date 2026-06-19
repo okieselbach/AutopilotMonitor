@@ -194,7 +194,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(new AgentConfigResponse
             {
-                ConfigVersion = 31, // V2 keep-awake-during-User-ESP portal toggle (KeepAwakeDuringUserEsp; tenant-scoped, default off; gates UserEspKeepAwake host)
+                ConfigVersion = 32, // V2 OOBE-console / Shift+F10 detection portal toggle (EnableConsoleBypassDetection; tenant-scoped, default ON / opt-out; gates ConsoleBypass host + ConsolePrefetchScanner)
                 UploadIntervalSeconds = 10,
                 SelfDestructOnComplete = tenantConfig.SelfDestructOnComplete ?? true,
                 KeepLogFile = tenantConfig.KeepLogFile ?? false,
@@ -222,7 +222,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     EnableSoftwareInventoryAnalyzer = tenantConfig.EnableSoftwareInventoryAnalyzer ?? false,
                     EnableIntegrityBypassAnalyzer = tenantConfig.EnableIntegrityBypassAnalyzer ?? true,
                     EnableRealmJoinWatcher = tenantConfig.EnableRealmJoinWatcher ?? false,
-                    KeepAwakeDuringUserEsp = tenantConfig.KeepAwakeDuringUserEsp ?? false
+                    KeepAwakeDuringUserEsp = tenantConfig.KeepAwakeDuringUserEsp ?? false,
+                    EnableConsoleBypassDetection = tenantConfig.EnableConsoleBypassDetection ?? true
                 },
                 LatestAgentSha256 = latestAgentSha256,
                 LatestAgentExeSha256 = latestAgentExeSha256,

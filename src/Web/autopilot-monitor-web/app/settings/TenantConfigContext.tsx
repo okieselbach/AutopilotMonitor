@@ -132,13 +132,15 @@ interface TenantConfigContextValue {
   setEnableRealmJoinWatcher: (v: boolean) => void;
   keepAwakeDuringUserEsp: boolean;
   setKeepAwakeDuringUserEsp: (v: boolean) => void;
+  enableConsoleBypassDetection: boolean;
+  setEnableConsoleBypassDetection: (v: boolean) => void;
   handleSaveAgentAnalyzers: () => void;
   handleResetAgentAnalyzers: () => void;
 
   // Unrestricted mode
   unrestrictedMode: boolean;
   setUnrestrictedMode: (v: boolean) => void;
-  handleSaveUnrestrictedMode: () => void;
+  handleSaveUnrestrictedMode: (value: boolean) => Promise<boolean>;
 
   // Notifications / Webhook
   webhookProviderType: number;
@@ -365,6 +367,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const [enableIntegrityBypassAnalyzer, setEnableIntegrityBypassAnalyzer] = useState(true);
   const [enableRealmJoinWatcher, setEnableRealmJoinWatcher] = useState(false);
   const [keepAwakeDuringUserEsp, setKeepAwakeDuringUserEsp] = useState(false);
+  const [enableConsoleBypassDetection, setEnableConsoleBypassDetection] = useState(true);
 
   // Unrestricted mode
   const [unrestrictedMode, setUnrestrictedMode] = useState(false);
@@ -478,6 +481,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         setEnableIntegrityBypassAnalyzer(data.enableIntegrityBypassAnalyzer ?? true);
         setEnableRealmJoinWatcher(data.enableRealmJoinWatcher ?? false);
         setKeepAwakeDuringUserEsp(data.keepAwakeDuringUserEsp ?? false);
+        setEnableConsoleBypassDetection(data.enableConsoleBypassDetection ?? true);
         setUnrestrictedMode(data.unrestrictedMode ?? false);
 
         // Parse SAS expiry and fire notification to bell if needed
@@ -601,7 +605,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // -----------------------------------------------------------------------
   // Save configuration (shared by all sections)
   // -----------------------------------------------------------------------
-  const saveConfiguration = useCallback(async (sectionName: string, overrides?: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean; validateDeviceAssociation?: boolean }): Promise<boolean> => {
+  const saveConfiguration = useCallback(async (sectionName: string, overrides?: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean; validateDeviceAssociation?: boolean; unrestrictedMode?: boolean }): Promise<boolean> => {
     if (!tenantId || !config) return false;
 
     try {
@@ -612,6 +616,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       const autopilotDeviceValidationValue = overrides?.validateAutopilotDevice ?? validateAutopilotDevice;
       const corporateIdentifierValidationValue = overrides?.validateCorporateIdentifier ?? validateCorporateIdentifier;
       const deviceAssociationValidationValue = overrides?.validateDeviceAssociation ?? validateDeviceAssociation;
+      const unrestrictedModeValue = overrides?.unrestrictedMode ?? unrestrictedMode;
 
       const updatedConfig: TenantConfiguration = {
         ...config,
@@ -670,7 +675,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         enableIntegrityBypassAnalyzer,
         enableRealmJoinWatcher,
         keepAwakeDuringUserEsp,
-        unrestrictedMode,
+        enableConsoleBypassDetection,
+        unrestrictedMode: unrestrictedModeValue,
       };
 
       const response = await authenticatedFetch(api.config.tenant(tenantId), getAccessToken, {
@@ -720,7 +726,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     slaNotifyOnAppInstallBreach, slaNotifyOnConsecutiveFailures, slaConsecutiveFailureThreshold,
     diagnosticsBlobSasUrl, diagnosticsUploadMode, diagnosticsUploadDestination, tenantDiagPaths,
     enableLocalAdminAnalyzer, localAdminAllowedAccounts, enableSoftwareInventoryAnalyzer,
-    enableIntegrityBypassAnalyzer, enableRealmJoinWatcher, keepAwakeDuringUserEsp, unrestrictedMode,
+    enableIntegrityBypassAnalyzer, enableRealmJoinWatcher, keepAwakeDuringUserEsp,
+    enableConsoleBypassDetection, unrestrictedMode,
   ]);
 
   // -----------------------------------------------------------------------
@@ -1045,6 +1052,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     setEnableIntegrityBypassAnalyzer(config.enableIntegrityBypassAnalyzer ?? true);
     setEnableRealmJoinWatcher(config.enableRealmJoinWatcher ?? false);
     setKeepAwakeDuringUserEsp(config.keepAwakeDuringUserEsp ?? false);
+    setEnableConsoleBypassDetection(config.enableConsoleBypassDetection ?? true);
   }, [config]);
 
   const handleSaveNotifications = useCallback(() => saveConfiguration("notifications"), [saveConfiguration]);
@@ -1103,7 +1111,14 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     setSessionTimeoutHours(config.sessionTimeoutHours ?? 5);
   }, [config]);
 
-  const handleSaveUnrestrictedMode = useCallback(() => saveConfiguration("unrestrictedMode"), [saveConfiguration]);
+  // Persist the toggle with the new value passed explicitly. The on/off value MUST be threaded
+  // through as an override rather than read from `unrestrictedMode` state: the toggle calls this
+  // synchronously after setUnrestrictedMode(...), so the closed-over state is still stale at the
+  // time the PUT body is built (matches the handleToggleDeviceAssociationValidation pattern).
+  const handleSaveUnrestrictedMode = useCallback(
+    (value: boolean) => saveConfiguration("unrestrictedMode", { unrestrictedMode: value }),
+    [saveConfiguration],
+  );
 
   /**
    * Toggle the DevPrep "Device association" shadow validation. No consent flow needed —
@@ -1428,6 +1443,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       enableIntegrityBypassAnalyzer, setEnableIntegrityBypassAnalyzer,
       enableRealmJoinWatcher, setEnableRealmJoinWatcher,
       keepAwakeDuringUserEsp, setKeepAwakeDuringUserEsp,
+      enableConsoleBypassDetection, setEnableConsoleBypassDetection,
       handleSaveAgentAnalyzers, handleResetAgentAnalyzers,
 
       // Unrestricted mode

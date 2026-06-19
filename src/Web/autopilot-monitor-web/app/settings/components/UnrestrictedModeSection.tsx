@@ -5,7 +5,7 @@ import { useState } from "react";
 interface UnrestrictedModeSectionProps {
   unrestrictedMode: boolean;
   setUnrestrictedMode: (value: boolean) => void;
-  onSave: () => Promise<void> | void;
+  onSave: (value: boolean) => Promise<unknown> | void;
   saving: boolean;
 }
 
@@ -22,13 +22,13 @@ export default function UnrestrictedModeSection({
       // Turning OFF — no confirmation needed
       setUnrestrictedMode(false);
       setAcknowledged(false);
-      // Auto-save after state update
-      setTimeout(() => onSave(), 0);
+      // Pass the new value explicitly — the React state update above is async, so onSave()
+      // would otherwise persist the stale (pre-toggle) value.
+      onSave(false);
     } else if (acknowledged) {
       // Turning ON with acknowledgment
       setUnrestrictedMode(true);
-      // Auto-save after state update
-      setTimeout(() => onSave(), 0);
+      onSave(true);
     }
   };
 

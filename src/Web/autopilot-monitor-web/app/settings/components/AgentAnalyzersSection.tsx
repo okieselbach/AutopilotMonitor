@@ -17,6 +17,8 @@ interface AgentAnalyzersSectionProps {
   setEnableRealmJoinWatcher: (value: boolean) => void;
   keepAwakeDuringUserEsp: boolean;
   setKeepAwakeDuringUserEsp: (value: boolean) => void;
+  enableConsoleBypassDetection: boolean;
+  setEnableConsoleBypassDetection: (value: boolean) => void;
   onSave: () => Promise<void> | void;
   onReset: () => void;
   saving: boolean;
@@ -51,6 +53,8 @@ export default function AgentAnalyzersSection({
   setEnableRealmJoinWatcher,
   keepAwakeDuringUserEsp,
   setKeepAwakeDuringUserEsp,
+  enableConsoleBypassDetection,
+  setEnableConsoleBypassDetection,
   onSave,
   onReset,
   saving,
@@ -283,6 +287,38 @@ export default function AgentAnalyzersSection({
               className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${keepAwakeDuringUserEsp ? 'bg-rose-500' : 'bg-gray-300'}`}
             >
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${keepAwakeDuringUserEsp ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
+        </div>
+
+        {/* ── Divider ─────────────────────────────────────── */}
+        <div className="border-t border-gray-200" />
+
+        {/* ── OOBE Console / Shift+F10 Detection ───────────── */}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">Detect OOBE Console Access (Shift+F10)</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Flags a SYSTEM command prompt opened during enrollment — the classic Shift+F10 OOBE bypass
+            (winlogon.exe spawning cmd.exe as SYSTEM). Emits a Warning event with the full process
+            signature. A startup scan of the cmd.exe prefetch artifact additionally covers a console
+            opened before the agent installed.
+          </p>
+          <p className="text-sm text-amber-600 mb-4">
+            Best-effort, not gapless: a Shift+F10 pressed very early in OOBE may only be detected
+            coarsely (via the prefetch artifact), and detection cannot block the console — it only reports it.
+          </p>
+
+          {/* Enable toggle */}
+          <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-rose-200 transition-colors">
+            <div>
+              <p className="font-medium text-gray-900">Enable OOBE Console Detection</p>
+              <p className="text-sm text-gray-500">On by default. Disable only if your support staff knowingly use Shift+F10 during enrollment</p>
+            </div>
+            <button
+              onClick={() => setEnableConsoleBypassDetection(!enableConsoleBypassDetection)}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${enableConsoleBypassDetection ? 'bg-rose-500' : 'bg-gray-300'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enableConsoleBypassDetection ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
           </div>
         </div>

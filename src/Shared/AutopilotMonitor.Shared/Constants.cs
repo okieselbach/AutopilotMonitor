@@ -449,6 +449,19 @@ namespace AutopilotMonitor.Shared
             // SEC-003, escalated) and an optional kiosk allow-list template (ANALYZE-SEC-004, off by
             // default). AutoLogon may be legitimate (kiosk) OR an enrollment/OOBE manipulation vector.
             public const string AutoLogonAnalysis         = "autologon_analysis";
+            // OOBE-console / Shift+F10 detection (per-tenant opt-OUT, AnalyzerConfiguration.
+            // EnableConsoleBypassDetection, default ON). Two complementary Warning signals:
+            //   oobe_console_spawned    — LIVE: a cmd.exe spawned with parent winlogon.exe while the
+            //                             agent runs (the Shift+F10 SYSTEM-console fingerprint). Precise,
+            //                             low false-positive. Misses presses BEFORE the agent installed.
+            //   console_prefetch_detected — STARTUP FORENSIC: a CMD.EXE-*.pf prefetch artifact whose
+            //                             last-run is after boot. Covers the pre-agent OOBE window the
+            //                             live watcher cannot see, but cannot attribute the run to
+            //                             Shift+F10 vs. a legitimate install-launched cmd once ESP runs
+            //                             (cmd.exe shares one .pf). Both carry coverageComplete=false +
+            //                             an honest coverageNote — detection is best-effort, not gapless.
+            public const string OobeConsoleSpawned        = "oobe_console_spawned";
+            public const string ConsolePrefetchDetected   = "console_prefetch_detected";
 
             // Termination / diagnostics / server actions
             public const string EnrollmentSummaryShown    = "enrollment_summary_shown";

@@ -342,6 +342,14 @@ namespace AutopilotMonitor.Shared.Models
         public bool? KeepAwakeDuringUserEsp { get; set; } = null;
 
         /// <summary>
+        /// Whether to detect a SYSTEM console opened during enrollment (Shift+F10 OOBE bypass) for
+        /// this tenant's devices. Gates the live ConsoleBypass watcher + the startup prefetch scanner.
+        /// On by default (opt-out); tenants that knowingly use Shift+F10 for support can disable it.
+        /// null = use agent default (true).
+        /// </summary>
+        public bool? EnableConsoleBypassDetection { get; set; } = null;
+
+        /// <summary>
         /// JSON-serialized list of additional local account names that are considered expected
         /// on a newly enrolled device (merged with built-in defaults on the agent).
         /// Example: ["SupportAdmin", "TechDesk"]

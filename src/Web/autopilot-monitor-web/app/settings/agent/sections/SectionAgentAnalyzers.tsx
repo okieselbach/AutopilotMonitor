@@ -13,6 +13,7 @@ export function SectionAgentAnalyzers() {
     enableIntegrityBypassAnalyzer, setEnableIntegrityBypassAnalyzer,
     enableRealmJoinWatcher, setEnableRealmJoinWatcher,
     keepAwakeDuringUserEsp, setKeepAwakeDuringUserEsp,
+    enableConsoleBypassDetection, setEnableConsoleBypassDetection,
     handleSaveAgentAnalyzers, handleResetAgentAnalyzers,
     savingSection,
   } = useTenantConfig();
@@ -35,6 +36,8 @@ export function SectionAgentAnalyzers() {
         setEnableRealmJoinWatcher={setEnableRealmJoinWatcher}
         keepAwakeDuringUserEsp={keepAwakeDuringUserEsp}
         setKeepAwakeDuringUserEsp={setKeepAwakeDuringUserEsp}
+        enableConsoleBypassDetection={enableConsoleBypassDetection}
+        setEnableConsoleBypassDetection={setEnableConsoleBypassDetection}
         onSave={handleSaveAgentAnalyzers}
         onReset={handleResetAgentAnalyzers}
         saving={savingSection === "agentAnalyzers"}

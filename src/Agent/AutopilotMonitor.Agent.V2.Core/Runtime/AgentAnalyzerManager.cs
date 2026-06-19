@@ -101,6 +101,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
                 _logger.Info("IntegrityBypassAnalyzer disabled by remote config");
             }
 
+            // ConsolePrefetchScanner — startup-forensic half of the OOBE-console / Shift+F10
+            // detection (same opt-out flag, default ON, as the live ConsoleBypass host). Scans for a CMD.EXE-*.pf
+            // prefetch artifact that ran after boot, covering the pre-agent OOBE window the live
+            // watcher cannot see. Restart-deduped via the StartupEventGate.
+            if (_analyzerConfig.EnableConsoleBypassDetection)
+            {
+                _analyzers.Add(new ConsolePrefetchScanner(
+                    _configuration.SessionId,
+                    _configuration.TenantId,
+                    _post,
+                    _logger,
+                    _startupEventGate));
+                _logger.Info("ConsolePrefetchScanner registered");
+            }
+            else
+            {
+                _logger.Info("ConsolePrefetchScanner disabled by remote config");
+            }
+
             // AutoLogon analyzer is ALWAYS registered (no remote-config toggle): it reports raw
             // Winlogon facts at Info severity and the grading lives in backend analyze-rules. Its
             // startup run is a no-op; it fires at DeviceSetup-phase completion and at final shutdown.

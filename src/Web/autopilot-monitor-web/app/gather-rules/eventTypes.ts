@@ -132,6 +132,10 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
     description: "Output of another gather rule (can be chained)." },
   { value: "provisioning_package_scan", label: "provisioning_package_scan", category: "diagnostics",
     description: "Single per-device provisioning-package (PPKG) scan at DeviceSetup-phase start. Carries an artifacts[] array — one entry per registry package, .ppkg file, or Recovery\\Customizations residue (each with a scalar identity) — plus .ppkg file metadata, registry package metadata, and best-effort content indicators. The PPKG analyze rules (ANALYZE-SEC-005/006) iterate the array against an allow-list regex. PPKGs can be legitimate bulk enrollment or a manipulation vector." },
+  { value: "oobe_console_spawned", label: "oobe_console_spawned", category: "diagnostics",
+    description: "LIVE detection of a SYSTEM console opened during enrollment — the Shift+F10 OOBE bypass (cmd.exe spawned with parent winlogon.exe). Warning severity. On by default, opt-out per tenant (EnableConsoleBypassDetection). Best-effort: only consoles spawned after the agent started are observable (coverageComplete=false)." },
+  { value: "console_prefetch_detected", label: "console_prefetch_detected", category: "diagnostics",
+    description: "STARTUP-FORENSIC complement to oobe_console_spawned: a CMD.EXE-*.pf prefetch artifact whose last-run is after boot, covering the pre-agent OOBE window. Warning severity. Attribution is coarse — cmd.exe shares one prefetch file, so once ESP runs the timestamp cannot be attributed to Shift+F10 vs. a legitimate install-launched cmd (coverageComplete=false)." },
 ];
 
 /** Lookup a single entry by its canonical value (case-insensitive). */

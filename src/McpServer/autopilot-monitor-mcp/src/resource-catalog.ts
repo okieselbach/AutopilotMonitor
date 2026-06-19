@@ -154,6 +154,8 @@ export const EVENT_TYPES_CATALOG = {
     'integrity_bypass_analysis',
     'local_admin_analysis',
     'autologon_analysis',
+    'oobe_console_spawned',
+    'console_prefetch_detected',
     'security_warning',
     'security_audit',
     'provisioning_package_scan',
