@@ -206,6 +206,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 // Platform script: AgentExecutor.log entries create/enrich, IME log entries also create
                 if (!_pendingPlatformScripts.ContainsKey(id))
                 {
+                    // A fresh start for this policy (no pending entry) begins a NEW execution.
+                    // Clear any emitted-marker from a prior run so IME re-evaluations / retries of
+                    // the same platform-script policy within one agent lifetime are not silently
+                    // deduped away. Within a single run the start always precedes exit/result, so
+                    // this never clears the current run's own marker.
+                    _platformScriptResultEmitted.Remove(id);
                     _pendingPlatformScripts[id] = new ScriptExecutionState
                     {
                         PolicyId = id,
@@ -254,6 +260,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             if (script != null)
             {
                 script.ExitCode = exitCode;
+                // Stamp when we learned the script's exit code so the deadline-based fallback
+                // (FlushStalePlatformScriptResults) can fire if IME never logs its authoritative
+                // PS-SCRIPT-RESULT line in time. Prefer the source CMTrace timestamp (already
+                // UTC-normalized by the parser) so replayed log content is dated correctly.
+                if (string.Equals(script.ScriptType, "platform", StringComparison.OrdinalIgnoreCase))
+                    script.ExitObservedAtUtc = LastMatchedLogTimestamp ?? DateTime.UtcNow;
                 _logger.Debug($"ImeLogTracker: script exit code {exitCode} for {script.PolicyId}");
             }
         }
@@ -304,6 +316,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
             if (string.IsNullOrEmpty(id)) return;
 
+            // Dedup: the deadline-based fallback (FlushStalePlatformScriptResults) may already have
+            // emitted this script from its AgentExecutor exit code because IME's authoritative
+            // PS-SCRIPT-RESULT line arrived late. The fallback carries the same exit code + stdout,
+            // so re-emitting here would duplicate the timeline entry and inflate counts. Drop the
+            // now-redundant pending entry and skip.
+            if (_platformScriptResultEmitted.Contains(id))
+            {
+                _logger.Debug($"ImeLogTracker: platform script {id} PS-SCRIPT-RESULT arrived after fallback emit — skipping duplicate");
+                _pendingPlatformScripts.Remove(id);
+                if (string.Equals(_lastPlatformScriptPolicyId, id, StringComparison.OrdinalIgnoreCase))
+                    _lastPlatformScriptPolicyId = null;
+                return;
+            }
+
             // Merge with pending AgentExecutor data if available
             if (!_pendingPlatformScripts.TryGetValue(id, out var script))
             {
@@ -315,12 +341,140 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             }
 
             script.Result = result;
+            script.ResultSource = "ime_policy_result";
 
             _logger.Info($"ImeLogTracker: platform script completed: {id}, result={result}, exit={script.ExitCode}");
 
             EmitScriptEvent(script);
+            _platformScriptResultEmitted.Add(id);
             _pendingPlatformScripts.Remove(id);
             if (string.Equals(_lastPlatformScriptPolicyId, id, StringComparison.OrdinalIgnoreCase))
+                _lastPlatformScriptPolicyId = null;
+        }
+
+        /// <summary>
+        /// Grace period after a platform script's AgentExecutor exit code is observed before
+        /// <see cref="FlushStalePlatformScriptResults"/> emits a completion from that exit code.
+        /// IME logs its authoritative <c>PS-SCRIPT-RESULT</c> line within ~1 s of exit on healthy
+        /// reporting cycles, so 15 s lets the normal path win virtually always — the fallback is a
+        /// true safety net for the case where IME has not flushed its batch-send to the Microsoft
+        /// service before the (often short) Autopilot enrollment ends and the agent terminates.
+        /// </summary>
+        private static readonly TimeSpan PlatformScriptResultGrace = TimeSpan.FromSeconds(15);
+
+        /// <summary>
+        /// Policy IDs of platform scripts already emitted (via either the authoritative
+        /// PS-SCRIPT-RESULT path or the exit-code fallback). Guards against double emission when
+        /// both fire for the same script.
+        /// </summary>
+        private readonly HashSet<string> _platformScriptResultEmitted =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Emits a <c>script_completed</c>/<c>script_failed</c> for every pending platform script
+        /// that has a known AgentExecutor exit code but whose IME <c>PS-SCRIPT-RESULT</c> line has
+        /// not arrived within <see cref="PlatformScriptResultGrace"/>. Without this, scripts that
+        /// completed shortly before the agent terminates are silently dropped (the
+        /// <c>_pendingPlatformScripts</c> buffer is neither persisted nor flushed on dispose), so a
+        /// device that ran N platform scripts could surface only the long-running one that happened
+        /// to get its IME result logged in time. Result is derived from the exit code (0 → Success,
+        /// else Failed) and tagged <c>resultSource=agentexecutor_fallback</c> so the data is honest
+        /// about its provenance.
+        /// <para>
+        /// Runs on the single-threaded polling loop (no locking needed, same as the handlers).
+        /// <paramref name="force"/> bypasses the grace check for the final pass on shutdown.
+        /// </para>
+        /// </summary>
+        internal void FlushStalePlatformScriptResults(DateTime nowUtc, bool force = false)
+        {
+            if (_pendingPlatformScripts.Count == 0) return;
+
+            List<string> toRemove = null;
+            foreach (var kv in _pendingPlatformScripts)
+            {
+                var script = kv.Value;
+
+                // Already emitted by the authoritative path — just drop the stale buffer entry.
+                if (_platformScriptResultEmitted.Contains(script.PolicyId))
+                {
+                    (toRemove ??= new List<string>()).Add(kv.Key);
+                    continue;
+                }
+
+                // No exit code yet → the script is still running; nothing to emit.
+                if (!script.ExitCode.HasValue) continue;
+
+                if (!force)
+                {
+                    if (!script.ExitObservedAtUtc.HasValue) continue;
+                    if (nowUtc - script.ExitObservedAtUtc.Value < PlatformScriptResultGrace) continue;
+                }
+
+                script.Result = script.ExitCode.Value == 0 ? "Success" : "Failed";
+                script.ResultSource = "agentexecutor_fallback";
+
+                _logger.Info(
+                    $"ImeLogTracker: platform script {script.PolicyId} result not seen within " +
+                    $"{PlatformScriptResultGrace.TotalSeconds:F0}s{(force ? " (shutdown flush)" : "")} — " +
+                    $"emitting from AgentExecutor exit code {script.ExitCode.Value} (fallback)");
+
+                EmitScriptEvent(script);
+                _platformScriptResultEmitted.Add(script.PolicyId);
+                (toRemove ??= new List<string>()).Add(kv.Key);
+            }
+
+            if (toRemove != null)
+            {
+                foreach (var key in toRemove)
+                {
+                    _pendingPlatformScripts.Remove(key);
+                    if (string.Equals(_lastPlatformScriptPolicyId, key, StringComparison.OrdinalIgnoreCase))
+                        _lastPlatformScriptPolicyId = null;
+                }
+            }
+        }
+
+        /// <summary>Test seam: inject a pending platform script as if AgentExecutor.log had reported
+        /// its start + exit code, without an IME PS-SCRIPT-RESULT line.</summary>
+        internal void SeedPendingPlatformScriptForTesting(string policyId, int? exitCode, DateTime? exitObservedAtUtc, string stdout = null)
+        {
+            // Mirrors a fresh execution start: a new run clears any prior emitted-marker (see
+            // HandleScriptStarted) so re-runs of the same policy within one lifetime emit again.
+            _platformScriptResultEmitted.Remove(policyId);
+            _pendingPlatformScripts[policyId] = new ScriptExecutionState
+            {
+                PolicyId = policyId,
+                ScriptType = "platform",
+                ExitCode = exitCode,
+                ExitObservedAtUtc = exitObservedAtUtc,
+                Stdout = stdout,
+            };
+            _lastPlatformScriptPolicyId = policyId;
+        }
+
+        /// <summary>Test seam: simulate the authoritative IME PS-SCRIPT-RESULT path for a platform
+        /// script (same code as <see cref="HandleScriptCompleted"/> minus regex extraction).</summary>
+        internal void CompletePlatformScriptFromImeResultForTesting(string policyId, string result)
+        {
+            if (string.IsNullOrEmpty(policyId)) return;
+
+            if (_platformScriptResultEmitted.Contains(policyId))
+            {
+                _pendingPlatformScripts.Remove(policyId);
+                if (string.Equals(_lastPlatformScriptPolicyId, policyId, StringComparison.OrdinalIgnoreCase))
+                    _lastPlatformScriptPolicyId = null;
+                return;
+            }
+
+            if (!_pendingPlatformScripts.TryGetValue(policyId, out var script))
+                script = new ScriptExecutionState { PolicyId = policyId, ScriptType = "platform" };
+
+            script.Result = result;
+            script.ResultSource = "ime_policy_result";
+            EmitScriptEvent(script);
+            _platformScriptResultEmitted.Add(policyId);
+            _pendingPlatformScripts.Remove(policyId);
+            if (string.Equals(_lastPlatformScriptPolicyId, policyId, StringComparison.OrdinalIgnoreCase))
                 _lastPlatformScriptPolicyId = null;
         }
 

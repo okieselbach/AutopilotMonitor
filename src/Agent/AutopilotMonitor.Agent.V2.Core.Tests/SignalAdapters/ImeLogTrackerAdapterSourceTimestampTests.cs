@@ -133,6 +133,63 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
         }
 
         [Fact]
+        public void ScriptCompleted_fallback_binds_to_exit_timestamp_and_drops_stale_patternId()
+        {
+            using var f = new ImeLogTrackerAdapterFixture(ClockNow);
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            // The exit-code fallback emits up to a grace period after the script's exit line, by
+            // which point an UNRELATED later line is the "last matched" one. The fallback event must
+            // bind to the script's own exit timestamp and must NOT inherit the stale patternId.
+            var exitAt = ClockNow.AddMinutes(-3);
+            f.Tracker.LastMatchedLogTimestamp = ClockNow.AddMinutes(-1); // unrelated later line
+            f.Tracker.LastMatchedPatternId = "UNRELATED-LATER-PATTERN";
+
+            adapter.TriggerScriptCompletedFromTest(new ScriptExecutionState
+            {
+                PolicyId = "dece354a",
+                ScriptType = "platform",
+                ExitCode = 0,
+                Result = "Success",
+                ResultSource = "agentexecutor_fallback",
+                ExitObservedAtUtc = exitAt,
+            });
+
+            var info = f.InfoEvent(SharedEventTypes.ScriptCompleted);
+            Assert.Equal(exitAt, info.OccurredAtUtc);
+            Assert.False(info.Payload!.ContainsKey("patternId"));
+            Assert.Equal("agentexecutor_fallback", info.Payload["resultSource"]);
+        }
+
+        [Fact]
+        public void ScriptCompleted_authoritative_path_keeps_patternId_and_last_matched_timestamp()
+        {
+            using var f = new ImeLogTrackerAdapterFixture(ClockNow);
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            // Regression guard: the normal IME-result path is unchanged — it still uses the
+            // last-matched timestamp + patternId (the PS-SCRIPT-RESULT line that drove the emit).
+            var sourceTs = ClockNow.AddMinutes(-2);
+            f.Tracker.LastMatchedLogTimestamp = sourceTs;
+            f.Tracker.LastMatchedPatternId = "PS-SCRIPT-RESULT";
+
+            adapter.TriggerScriptCompletedFromTest(new ScriptExecutionState
+            {
+                PolicyId = "35ed39d9",
+                ScriptType = "platform",
+                ExitCode = 0,
+                Result = "Success",
+                ResultSource = "ime_policy_result",
+                ExitObservedAtUtc = ClockNow.AddMinutes(-30), // present but must be ignored on this path
+            });
+
+            var info = f.InfoEvent(SharedEventTypes.ScriptCompleted);
+            Assert.Equal(sourceTs, info.OccurredAtUtc);
+            Assert.Equal("PS-SCRIPT-RESULT", info.Payload!["patternId"]);
+            Assert.Equal("ime_policy_result", info.Payload["resultSource"]);
+        }
+
+        [Fact]
         public void WhiteGloveSealingPattern_uses_source_log_timestamp()
         {
             using var f = new ImeLogTrackerAdapterFixture(ClockNow);

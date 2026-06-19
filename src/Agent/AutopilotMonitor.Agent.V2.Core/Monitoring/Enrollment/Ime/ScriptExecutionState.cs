@@ -33,6 +33,25 @@ public class ScriptExecutionState
     /// <summary>"Success" or "Failed" (platform scripts).</summary>
     public string Result { get; set; }
 
+    /// <summary>
+    /// Provenance of <see cref="Result"/> for platform scripts:
+    /// <c>"ime_policy_result"</c> — authoritative <c>PS-SCRIPT-RESULT</c> line from
+    /// <c>IntuneManagementExtension.log</c>; <c>"agentexecutor_fallback"</c> — derived from the
+    /// AgentExecutor.log exit code because IME never logged its policy-result line before the
+    /// deadline (short Autopilot enrollments end inside IME's batch-send gap). Surfaced as
+    /// <c>resultSource</c> on the emitted event so the UI/MCP can flag fallback-grounded results.
+    /// Null for health scripts and for events emitted before this field existed.
+    /// </summary>
+    public string ResultSource { get; set; }
+
+    /// <summary>
+    /// UTC timestamp at which the AgentExecutor.log exit-code line for this platform script was
+    /// observed. Drives the deadline check in
+    /// <see cref="ImeLogTracker.FlushStalePlatformScriptResults"/> — set only on the platform path
+    /// (PS-AGENT exit code); null until an exit code is seen.
+    /// </summary>
+    public System.DateTime? ExitObservedAtUtc { get; set; }
+
     /// <summary>"True" or "False" compliance result (remediation detection / post-detection only).</summary>
     public string ComplianceResult { get; set; }
 

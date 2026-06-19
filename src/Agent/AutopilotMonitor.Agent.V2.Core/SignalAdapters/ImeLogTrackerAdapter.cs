@@ -262,8 +262,19 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         /// </para>
         /// </summary>
         private DateTime ResolveOccurredAt(out bool derivedFromClock, out DateTime? rawSourceTimestamp)
+            => ResolveOccurredAt(null, out derivedFromClock, out rawSourceTimestamp);
+
+        /// <summary>
+        /// Overload that prefers an explicit source timestamp over
+        /// <see cref="ImeLogTracker.LastMatchedLogTimestamp"/>. Used by the platform-script
+        /// exit-code fallback: the fallback emit happens up to a grace period after the script's
+        /// exit line was parsed, by which point an unrelated later log line may be the "last
+        /// matched" one — so the fallback passes the script's own exit-observed timestamp here to
+        /// keep the event on the correct point of the timeline. Same staleness/skew clamp applies.
+        /// </summary>
+        private DateTime ResolveOccurredAt(DateTime? sourceTsOverride, out bool derivedFromClock, out DateTime? rawSourceTimestamp)
         {
-            rawSourceTimestamp = _tracker.LastMatchedLogTimestamp;
+            rawSourceTimestamp = sourceTsOverride ?? _tracker.LastMatchedLogTimestamp;
             if (rawSourceTimestamp.HasValue)
             {
                 // CMTrace log timestamps from IME are emitted in UTC, but DateTimeKind may
@@ -794,6 +805,11 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             if (script.ExitCode.HasValue) data["exitCode"] = script.ExitCode.Value.ToString(culture);
             if (!string.IsNullOrEmpty(script.RunContext)) data["runContext"] = script.RunContext!;
             if (!string.IsNullOrEmpty(script.Result)) data["result"] = script.Result!;
+            // Provenance of the result: "ime_policy_result" (authoritative IME PS-SCRIPT-RESULT) vs
+            // "agentexecutor_fallback" (derived from the AgentExecutor exit code because IME never
+            // logged its result line before the deadline). Lets the UI/MCP flag fallback-grounded
+            // platform-script completions. Platform scripts only — null for health scripts.
+            if (!string.IsNullOrEmpty(script.ResultSource)) data["resultSource"] = script.ResultSource!;
             if (!string.IsNullOrEmpty(script.ComplianceResult)) data["complianceResult"] = script.ComplianceResult!;
             if (script.RemediationStatus.HasValue) data["remediationStatus"] = script.RemediationStatus.Value.ToString(culture);
             if (script.TargetType.HasValue) data["targetType"] = script.TargetType.Value.ToString(culture);
@@ -801,10 +817,24 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             if (!string.IsNullOrEmpty(script.ErrorDetails)) data["errorDetails"] = script.ErrorDetails!;
             if (!string.IsNullOrEmpty(script.Stdout)) data["stdout"] = script.Stdout!;
             if (!string.IsNullOrEmpty(script.Stderr)) data["stderr"] = script.Stderr!;
-            var patternId = _tracker.LastMatchedPatternId;
-            if (!string.IsNullOrEmpty(patternId)) data["patternId"] = patternId!;
 
-            var now = ResolveOccurredAt(out var derivedFromClock, out var rawSourceTs);
+            // The exit-code fallback emits asynchronously to log parsing, so the tracker's
+            // "last matched" pattern/timestamp belong to an unrelated later line. Bind the event to
+            // the script's own exit-observed timestamp and omit the misleading patternId instead.
+            var isFallback = string.Equals(script.ResultSource, "agentexecutor_fallback", StringComparison.Ordinal);
+            if (!isFallback)
+            {
+                var patternId = _tracker.LastMatchedPatternId;
+                if (!string.IsNullOrEmpty(patternId)) data["patternId"] = patternId!;
+            }
+
+            bool derivedFromClock;
+            DateTime? rawSourceTs;
+            DateTime now;
+            if (isFallback && script.ExitObservedAtUtc.HasValue)
+                now = ResolveOccurredAt(script.ExitObservedAtUtc, out derivedFromClock, out rawSourceTs);
+            else
+                now = ResolveOccurredAt(out derivedFromClock, out rawSourceTs);
             TagDerivedTimestamp(data, derivedFromClock, rawSourceTs);
 
             var label = IsRemediation(script.ScriptType) ? "Remediation script" : "Platform script";

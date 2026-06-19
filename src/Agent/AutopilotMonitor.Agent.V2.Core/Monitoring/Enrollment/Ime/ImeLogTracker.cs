@@ -486,6 +486,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     try
                     {
                         await CheckLogFilesAsync(token);
+
+                        // Safety net: emit completions for platform scripts whose AgentExecutor
+                        // exit code we already have but whose authoritative IME PS-SCRIPT-RESULT
+                        // line never arrived within the grace period. Runs on this same loop
+                        // thread (no locking) so it observes the buffer right after parsing.
+                        FlushStalePlatformScriptResults(DateTime.UtcNow);
                     }
                     catch (OperationCanceledException) { break; }
                     catch (Exception ex)
@@ -507,6 +513,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
                     try { await Task.Delay(_pollingIntervalMs, token); } catch (OperationCanceledException) { break; }
                 }
+
+                // Final pass: force-flush any platform script that completed within the last grace
+                // window before shutdown (exit code known, IME result still pending). Best-effort —
+                // emits only while callbacks are still wired (i.e. the adapter hasn't been disposed).
+                try { FlushStalePlatformScriptResults(DateTime.UtcNow, force: true); }
+                catch (Exception ex) { _logger.Warning($"ImeLogTracker: shutdown script flush failed: {ex.Message}"); }
 
                 // Final state save on shutdown
                 if (_stateDirty)
