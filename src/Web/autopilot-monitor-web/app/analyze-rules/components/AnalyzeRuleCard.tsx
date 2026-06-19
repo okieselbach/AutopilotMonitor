@@ -31,6 +31,9 @@ interface AnalyzeRuleCardProps {
   onSetJsonText: (text: string) => void;
   onSetJsonError: (error: string | null) => void;
   readOnly?: boolean;
+  /** "template" renders the card as a copy blueprint (used inside the Templates tab):
+      a static template glyph instead of a toggle, plus a create/already-created banner. */
+  variant?: "default" | "template";
   onConfigureTemplate?: (rule: AnalyzeRule) => void;
   templateCopyExists?: boolean;
   templateCopyRuleId?: string;
@@ -47,9 +50,11 @@ export default function AnalyzeRuleCard({
   onDelete, onExport,
   onSetJsonModeEdit, onSetJsonText, onSetJsonError,
   readOnly = false,
+  variant = "default",
   onConfigureTemplate, templateCopyExists, templateCopyRuleId, onScrollToCopy,
   hitRate, fireCount,
 }: AnalyzeRuleCardProps) {
+  const isTemplateVariant = variant === "template";
   const [showJson, setShowJson] = useState(false);
   const sevColor = getSeverityColor(rule.severity);
   const catColor = getCategoryColor(rule.category);
@@ -68,7 +73,11 @@ export default function AnalyzeRuleCard({
       {/* Collapsed Header */}
       <div className="p-4 cursor-pointer select-none" onClick={() => { if (isEditing) return; onToggle(); }}>
         <div className="flex items-center space-x-4">
-          {readOnly ? (
+          {isTemplateVariant ? (
+            <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-amber-100 text-amber-600" title="Template — enabling creates a custom rule copy">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h9a2 2 0 002-2v-3m-9-4h6m-6 4h6m2-11l4 4m0 0l-4 4m4-4H9" /></svg>
+            </span>
+          ) : readOnly ? (
             <span className={`inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full ${rule.enabled ? "bg-green-500" : "bg-gray-300"}`} title={rule.enabled ? "Enabled" : "Disabled"}>
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white ${rule.enabled ? "translate-x-6" : "translate-x-1"}`} />
             </span>
@@ -136,6 +145,39 @@ export default function AnalyzeRuleCard({
           <svg className={`w-5 h-5 text-gray-400 transition-transform flex-shrink-0 ${isExpanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
         </div>
       </div>
+
+      {/* Template-tab call-to-action / already-created banner.
+          Always visible (not gated on expand) so the copy state is obvious at a glance. */}
+      {isTemplateVariant && !readOnly && (
+        templateCopyExists ? (
+          <div className="mx-4 mb-4 -mt-1 rounded-lg border border-green-200 bg-green-50 p-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm text-green-800 min-w-0">
+              <svg className="w-4 h-4 flex-shrink-0 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <span className="truncate">
+                Custom rule already created{templateCopyRuleId ? <>: <code className="bg-green-100 px-1 rounded text-xs">{templateCopyRuleId}</code></> : ""}.
+              </span>
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); if (templateCopyRuleId && onScrollToCopy) onScrollToCopy(templateCopyRuleId); }}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-green-300 text-green-800 bg-white hover:bg-green-100 transition-colors flex-shrink-0"
+            >
+              View / edit
+            </button>
+          </div>
+        ) : (
+          <div className="mx-4 mb-4 -mt-1 rounded-lg border border-amber-200 bg-amber-50 p-3 flex items-center justify-between gap-3">
+            <p className="text-sm text-amber-800 min-w-0">
+              This is a copy template. Enabling it creates an editable custom rule for your tenant — the template itself stays unchanged.
+            </p>
+            <button
+              onClick={(e) => { e.stopPropagation(); onConfigureTemplate?.(rule); }}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-colors flex-shrink-0 whitespace-nowrap"
+            >
+              Create custom rule
+            </button>
+          </div>
+        )
+      )}
 
       {/* Expanded Details (read-only) */}
       {isExpanded && !isEditing && (

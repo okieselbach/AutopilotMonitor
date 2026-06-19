@@ -17,6 +17,7 @@ import { useAuthenticatedFetch, useNotificationMessages, useGlobalAdminScope } f
 import { GlobalAdminBanner } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 
+import { isTemplateRule } from "@/lib/analyzeRuleTabs";
 import { AnalyzeRule, RuleForm, EMPTY_FORM, EMPTY_CONDITION, ruleToForm } from "./types";
 import AnalyzeRuleFormFields from "./components/AnalyzeRuleFormFields";
 import AnalyzeRuleCard from "./components/AnalyzeRuleCard";
@@ -44,6 +45,9 @@ export default function AnalyzeRulesPage() {
   const [severityFilter, setSeverityFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
+
+  // Active tab: "rules" (all real rules) vs "templates" (copy blueprints)
+  const [activeTab, setActiveTab] = useState<"rules" | "templates">("rules");
 
   // Expanded / editing state
   const [expandedRuleId, setExpandedRuleId] = useState<string | null>(null);
@@ -311,10 +315,11 @@ export default function AnalyzeRulesPage() {
     if (result !== null) {
       const newRuleId = `${configureTemplateRule.ruleId}-CUSTOM`;
       trackEvent("rule_created_from_template", { ruleType: "analyze", templateRuleId: configureTemplateRule.ruleId });
-      showSuccess(`Rule "${configureTemplateRule.title}" configured and enabled successfully!`);
+      showSuccess(`Custom rule created from "${configureTemplateRule.title}" and enabled — see the Rules tab.`);
       setConfigureTemplateRule(null);
       await fetchRules();
-      // Auto-expand the newly created custom rule
+      // Surface the new custom rule where it lives: switch to the Rules tab and expand it.
+      setActiveTab("rules");
       setExpandedRuleId(newRuleId);
     }
     setCreatingFromTemplate(false);
@@ -353,14 +358,26 @@ export default function AnalyzeRulesPage() {
     const matchesCategory =
       categoryFilter === "all" || rule.category.toLowerCase() === categoryFilter.toLowerCase();
 
+    // Tab membership: templates live in their own tab; everything else (incl. custom
+    // copies derived from a template) is a "real" rule.
+    const ruleIsTemplate = isTemplateRule(rule);
+    const matchesTab = activeTab === "templates" ? ruleIsTemplate : !ruleIsTemplate;
+
+    // Type filter only applies in the Rules tab (it's hidden in the Templates tab).
     const matchesType =
+      activeTab === "templates" ||
       typeFilter === "all" ||
       (typeFilter === "builtin" && rule.isBuiltIn && !rule.isCommunity) ||
       (typeFilter === "community" && rule.isCommunity) ||
       (typeFilter === "custom" && !rule.isBuiltIn && !rule.isCommunity);
 
-    return matchesSearch && matchesSeverity && matchesCategory && matchesType;
+    return matchesTab && matchesSearch && matchesSeverity && matchesCategory && matchesType;
   });
+
+  // Total template count (unfiltered) drives the tab badge + whether the tab bar shows at all.
+  const templateCount = rulesList.filter(isTemplateRule).length;
+  const ruleTabCount = rulesList.length - templateCount;
+  const showTabs = templateCount > 0;
 
   // Summary stats
   const totalRules = rulesList.length;
@@ -523,6 +540,49 @@ export default function AnalyzeRulesPage() {
                 );
               })()}
 
+              {/* Tab bar — only shown when at least one template exists. Keeps the page
+                  unchanged for tenants without templates. */}
+              {showTabs && (
+                <div className="border-b border-gray-200">
+                  <nav className="-mb-px flex space-x-6" aria-label="Rule tabs">
+                    {([
+                      { key: "rules" as const, label: "Rules", count: ruleTabCount },
+                      { key: "templates" as const, label: "Templates", count: templateCount },
+                    ]).map((tab) => (
+                      <button
+                        key={tab.key}
+                        onClick={() => { setActiveTab(tab.key); if (tab.key === "templates") setShowCreateForm(false); }}
+                        className={`whitespace-nowrap py-3 px-1 border-b-2 text-sm font-medium transition-colors ${
+                          activeTab === tab.key
+                            ? "border-indigo-500 text-indigo-600"
+                            : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                        }`}
+                      >
+                        {tab.label}
+                        <span className={`ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                          activeTab === tab.key ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-600"
+                        }`}>
+                          {tab.count}
+                        </span>
+                      </button>
+                    ))}
+                  </nav>
+                </div>
+              )}
+
+              {/* Templates tab intro */}
+              {activeTab === "templates" && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start space-x-3">
+                  <svg className="w-5 h-5 text-amber-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <p className="text-sm text-amber-800">
+                    These are <span className="font-semibold">copy templates</span>, not directly-active rules. Enabling one prompts for your
+                    environment-specific values and creates an editable custom rule for your tenant. The created rule then appears in the <span className="font-semibold">Rules</span> tab.
+                  </p>
+                </div>
+              )}
+
               {/* Filter Bar + Create Button */}
               <RuleFilterBar
                 searchQuery={searchQuery}
@@ -550,7 +610,8 @@ export default function AnalyzeRulesPage() {
                       ...uniqueCategories.map((cat) => ({ value: cat, label: cat.charAt(0).toUpperCase() + cat.slice(1) })),
                     ],
                   },
-                  {
+                  // Type filter is meaningless in the Templates tab → hide it there.
+                  ...(activeTab === "templates" ? [] : [{
                     label: "Type",
                     value: typeFilter,
                     onChange: setTypeFilter,
@@ -560,10 +621,10 @@ export default function AnalyzeRulesPage() {
                       { value: "community", label: "Community" },
                       { value: "custom", label: "Custom" },
                     ],
-                  },
+                  }]),
                 ]}
                 onExportAll={isReadOnly ? undefined : handleExportAll}
-                onCreateNew={isReadOnly || isGlobalOverride ? undefined : () => { setShowCreateForm(!showCreateForm); if (showCreateForm) setNewRule({ ...EMPTY_FORM, conditions: [{ ...EMPTY_CONDITION }] }); }}
+                onCreateNew={isReadOnly || isGlobalOverride || activeTab === "templates" ? undefined : () => { setShowCreateForm(!showCreateForm); if (showCreateForm) setNewRule({ ...EMPTY_FORM, conditions: [{ ...EMPTY_CONDITION }] }); }}
                 createLabel="Create Custom Rule"
                 showCreateForm={showCreateForm && !isGlobalOverride && !isReadOnly}
               />
@@ -643,7 +704,13 @@ export default function AnalyzeRulesPage() {
               {/* Rules List */}
               {filteredRules.length === 0 ? (
                 <EmptyState
-                  message={rulesList.length === 0 ? "No analyze rules found." : "No rules match your current filters."}
+                  message={
+                    rulesList.length === 0
+                      ? "No analyze rules found."
+                      : activeTab === "templates"
+                        ? "No templates match your current filters."
+                        : "No rules match your current filters."
+                  }
                   onClearFilters={() => { setSearchQuery(""); setSeverityFilter("all"); setCategoryFilter("all"); setTypeFilter("all"); }}
                   showClearButton={!!(searchQuery || severityFilter !== "all" || categoryFilter !== "all" || typeFilter !== "all")}
                 />
@@ -679,6 +746,7 @@ export default function AnalyzeRulesPage() {
                       onSetJsonText={setJsonText}
                       onSetJsonError={setJsonError}
                       readOnly={isReadOnly}
+                      variant={activeTab === "templates" ? "template" : "default"}
                       onConfigureTemplate={(r) => setConfigureTemplateRule(r)}
                       templateCopyExists={templateCopyMap.has(rule.ruleId)}
                       templateCopyRuleId={templateCopyMap.get(rule.ruleId)}
