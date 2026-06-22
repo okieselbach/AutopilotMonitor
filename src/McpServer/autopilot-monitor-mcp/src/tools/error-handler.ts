@@ -41,11 +41,16 @@ export function toolError(
     parts.push(`**Error in ${toolName}**: ${p.error ?? error.message}`);
     if (p.hint) parts.push(`**Suggestion**: ${p.hint}`);
     if (p.correlationId) parts.push(`**Correlation ID**: ${p.correlationId}`);
-    if (p.exceptionType) parts.push(`**Exception type**: ${p.exceptionType}`);
+    // exceptionType (CLR type names) is an internal fingerprint the model has no
+    // legitimate reason to act on — deliberately NOT surfaced here, mirroring the
+    // 5xx sanitization above. correlationId + errorCode remain as operator handles.
     if (p.errorCode) parts.push(`**Error code**: ${p.errorCode}`);
   } else if (error instanceof ApiError) {
     // API error but non-JSON body
-    if (error.status === 403) {
+    if (error.status === 401) {
+      parts.push(`**Authentication required in ${toolName}**: your session is not authenticated or has expired.`);
+      parts.push('**Suggestion**: Re-authenticate and retry.');
+    } else if (error.status === 403) {
       parts.push(`**Access denied in ${toolName}**: you do not have permission to perform this operation.`);
     } else if (error.status === 404) {
       parts.push(`**Not found in ${toolName}**: The requested resource does not exist. Verify IDs, table names, or filters.`);
@@ -57,11 +62,20 @@ export function toolError(
       parts.push(`**Error in ${toolName}** (HTTP ${error.status}): ${truncated}`);
     }
   } else {
+    const name = error instanceof Error ? error.name : '';
     const message = error instanceof Error ? error.message : String(error);
+    // `AbortSignal.timeout()` rejects fetch with a DOMException whose NAME is
+    // 'TimeoutError' but whose MESSAGE is "The operation was aborted due to
+    // timeout" — so match on name first; the message checks are belt-and-braces
+    // for other abort/timeout shapes.
     if (message.includes('No authentication token')) {
       parts.push(`**Authentication error in ${toolName}**: ${message}`);
       parts.push('**Suggestion**: The MCP session may have expired. Re-authenticate.');
-    } else if (message.includes('TimeoutError') || message.includes('AbortError') || message.includes('timed out')) {
+    } else if (
+      name === 'TimeoutError' || name === 'AbortError' ||
+      message.includes('TimeoutError') || message.includes('AbortError') ||
+      message.includes('timed out') || message.includes('aborted due to timeout')
+    ) {
       parts.push(`**Timeout in ${toolName}**: The backend did not respond in time.`);
       parts.push('**Suggestion**: Try narrowing the query (smaller date range, fewer results, more specific filters).');
     } else {

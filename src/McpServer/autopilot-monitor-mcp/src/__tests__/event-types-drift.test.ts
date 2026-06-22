@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { EVENT_TYPES_CATALOG, INTERNAL_EVENT_TYPES, ALL_EVENT_TYPES } from '../resource-catalog.js';
+import { EXCLUDED_EVENT_TYPES, KEY_EVENT_TYPES, PHASE_EVENT_TYPES } from '../tools/sessions.js';
 
 /** Walk up from this test file to the repo root (marked by AutopilotMonitor.sln). */
 function findConstantsCs(): string | null {
@@ -76,4 +77,28 @@ describe('event-type catalog drift vs C# Constants.EventTypes', () => {
     const dupes = flat.filter((t, i) => flat.indexOf(t) !== i);
     expect(dupes, 'duplicate event types across catalog groups').toEqual([]);
   });
+});
+
+describe('get_session_summary event-type sets ⊆ canonical catalog', () => {
+  // These hand-curated sets in sessions.ts drive timeline filtering/ranking.
+  // A phantom member (a string with no matching event type) silently degrades
+  // get_session_summary — collector noise leaks in, or a real event never
+  // key-ranks. They bypass the C#-drift test above (which only checks the
+  // public catalog), so guard them directly against ALL_EVENT_TYPES.
+  const known = new Set(ALL_EVENT_TYPES);
+  const cases: Array<[string, Set<string>]> = [
+    ['EXCLUDED_EVENT_TYPES', EXCLUDED_EVENT_TYPES],
+    ['KEY_EVENT_TYPES', KEY_EVENT_TYPES],
+    ['PHASE_EVENT_TYPES', PHASE_EVENT_TYPES],
+  ];
+  for (const [name, set] of cases) {
+    it(`${name} contains only real event types`, () => {
+      const phantom = [...set].filter((t) => !known.has(t)).sort();
+      expect(
+        phantom,
+        `${name} (sessions.ts) lists event types absent from the catalog — ` +
+          'fix the typo or add the const; these never match real events:',
+      ).toEqual([]);
+    });
+  }
 });

@@ -16,6 +16,7 @@ import { buildEventTypeSearchDocs } from './resource-catalog.js';
 import { createOAuthRouter } from './oauth.js';
 import { accessGuard } from './access-guard.js';
 import { isGlobalAdmin } from './client.js';
+import { API_BASE_URL } from './config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -37,6 +38,11 @@ if (!process.env.MCP_PUBLIC_URL) {
     'Container App FQDN (re-deploy with the bicep `mcpPublicUrl` parameter).',
   );
 }
+
+// Make the resolved backend host visible in container logs — a misconfigured
+// AUTOPILOT_API_URL silently sends user tokens to the wrong place, so surface
+// the effective value at boot rather than leaving it implicit.
+console.error(`[startup] Backend API base URL: ${API_BASE_URL}`);
 
 // --- Load shared knowledge base (reused across all sessions) ---
 

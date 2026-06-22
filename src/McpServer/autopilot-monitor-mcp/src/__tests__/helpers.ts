@@ -8,7 +8,9 @@
  *   AUTOPILOT_API_TOKEN="eyJ..." npm test
  */
 
-const BASE_URL = process.env.AUTOPILOT_API_URL ?? 'https://autopilotmonitor-api.azurewebsites.net';
+import { API_BASE_URL } from '../config.js';
+
+const BASE_URL = API_BASE_URL;
 const TOKEN = process.env.AUTOPILOT_API_TOKEN ?? '';
 
 export function getToken(): string {

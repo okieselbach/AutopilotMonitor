@@ -11,8 +11,9 @@ import type { Request, Response, NextFunction } from 'express';
 import crypto from 'node:crypto';
 import { extractTokenClaims, isTokenExpired } from './auth.js';
 import { runWithCaller } from './client.js';
+import { API_BASE_URL } from './config.js';
 
-const BASE_URL = process.env.AUTOPILOT_API_URL ?? 'https://autopilotmonitor-api.azurewebsites.net';
+const BASE_URL = API_BASE_URL;
 
 /**
  * Derives the public base URL for the WWW-Authenticate header.

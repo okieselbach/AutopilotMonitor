@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { API_BASE_URL } from './config.js';
 
-const BASE_URL = process.env.AUTOPILOT_API_URL ?? 'https://autopilotmonitor-api.azurewebsites.net';
+const BASE_URL = API_BASE_URL;
 
 /** Default timeout for backend API requests (30 seconds) */
 const API_TIMEOUT_MS = 30_000;

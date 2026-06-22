@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { apiFetch, buildQuery, followNextLink, pickGlobalOrTenantPath, scanUntilMatch } from '../client.js';
+import { apiFetch, ApiError, buildQuery, followNextLink, pickGlobalOrTenantPath, scanUntilMatch } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
 import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport } from './shared.js';
 import { toolError } from './error-handler.js';
@@ -9,22 +9,38 @@ import { interpolateAnalysisResults } from '../interpolate-rule-template.js';
 
 // ── Session summary constants ───────────────────────────────────────────
 
-const EXCLUDED_EVENT_TYPES = new Set([
+// Exported so a drift test (event-types-drift.test.ts) can assert every member
+// is a real Constants.EventTypes value — a phantom here silently degrades
+// get_session_summary (noise leaks in, real events never key-rank).
+export const EXCLUDED_EVENT_TYPES = new Set([
   'performance_snapshot', 'agent_metrics_snapshot',
-  'performance_snapshot_stopped', 'agent_metrics_snapshot_stopped',
+  'performance_collector_stopped', 'agent_metrics_collector_stopped',
   'gather_result', 'gather_rules_collection_completed',
   'software_inventory_analysis', 'security_audit',
   'device_location', 'ntp_time_check', 'ime_agent_version',
 ]);
-const KEY_EVENT_TYPES = new Set([
+export const KEY_EVENT_TYPES = new Set([
   'phase_transition', 'esp_phase_changed', 'enrollment_type_detected',
   'app_install_started', 'app_install_completed', 'app_install_failed', 'app_install_skipped',
   'app_tracking_summary', 'error_detected',
   'enrollment_complete', 'enrollment_failed', 'completion_check',
   'desktop_arrived', 'hello_policy_detected', 'waiting_for_hello', 'hello_completion_timeout',
-  'agent_started', 'agent_shutdown', 'agent_shutting_down', 'trace_event',
+  'agent_started', 'agent_shutdown', 'agent_shutting_down', 'agent_trace',
   'script_started', 'script_completed', 'script_failed', 'vulnerability_report',
 ]);
+// Phase-defining events promoted to the top of the triage timeline. Module-level
+// (not handler-local) so the same drift test can validate it.
+export const PHASE_EVENT_TYPES = new Set([
+  'phase_transition', 'esp_phase_changed', 'enrollment_type_detected',
+  'enrollment_complete', 'enrollment_failed', 'desktop_arrived',
+]);
+// Permissive ISO-8601 guard: rejects unparseable junk (which the backend would
+// silently treat as no filter) while still accepting the date-only and
+// timezone-offset forms the backend honors.
+const IsoDateString = z.string().refine(
+  (s) => !Number.isNaN(Date.parse(s)),
+  { message: 'Must be a parseable ISO 8601 date/datetime, e.g. "2024-01-15" or "2024-01-15T00:00:00Z".' },
+);
 const SEVERITY_RANK: Record<string, number> = { Trace: -1, Debug: 0, Info: 1, Warning: 2, Error: 3, Critical: 4 };
 // Phase labels MUST mirror the backend EnrollmentPhase enum and the web's
 // phaseConstants.ts (the product's source of truth). The only per-enrollment
@@ -84,8 +100,8 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
         isPreProvisioned: z.boolean().optional().describe('Filter by White Glove / pre-provisioned enrollment'),
         isHybridJoin: z.boolean().optional().describe('Filter by Hybrid Azure AD Join'),
         geoCountry: z.string().optional().describe('Country of enrollment (2-letter ISO code, e.g. "DE", "US")'),
-        startedAfter: z.string().optional().describe('ISO 8601 datetime — only sessions started after this'),
-        startedBefore: z.string().optional().describe('ISO 8601 datetime — only sessions started before this'),
+        startedAfter: IsoDateString.optional().describe('ISO 8601 datetime — only sessions started after this'),
+        startedBefore: IsoDateString.optional().describe('ISO 8601 datetime — only sessions started before this'),
         agentVersion: z.string().optional().describe('Monitor Agent version (exact match, e.g. "2.0.626")'),
         agentVersionPrefix: z.string().optional()
           .describe('Monitor Agent version prefix (e.g. "2.0." matches every 2.0.x build). Mutually exclusive with agentVersion (exact wins).'),
@@ -209,17 +225,21 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
       try {
         const { sessionId, tenantId, includeAnalysis } = args;
         const q = buildQuery({ tenantId } as Record<string, string | undefined>);
-        const sessionData = await apiFetch(`/api/sessions/${sessionId}${q}`);
-        let analysisData: unknown = null;
-        if (includeAnalysis) {
-          try {
-            // Substitute {{token}} placeholders from matchedConditions so the raw
-            // explanation/remediation text never leaks literal {{reason}}/{{appName}}/...
-            analysisData = interpolateAnalysisResults(await apiFetch(`/api/sessions/${sessionId}/analysis${q}`));
-          } catch {
-            // analysis may not exist yet
-          }
+        const sessionPromise = apiFetch(`/api/sessions/${sessionId}${q}`);
+        if (!includeAnalysis) {
+          return toolResultText({ session: await sessionPromise, analysis: null }, MAX_RESULT_SIZE_CHARS.small);
         }
+        // Fetch session + analysis in parallel (was sequential). Substitute
+        // {{token}} placeholders so the raw explanation/remediation text never
+        // leaks literal {{reason}}/{{appName}}/…. Swallow ONLY 404 (analysis may
+        // not exist yet) — a 403/500 is a real failure that must surface.
+        const analysisPromise = apiFetch(`/api/sessions/${sessionId}/analysis${q}`)
+          .then(interpolateAnalysisResults)
+          .catch((err: unknown) => {
+            if (err instanceof ApiError && err.status === 404) return null;
+            throw err;
+          });
+        const [sessionData, analysisData] = await Promise.all([sessionPromise, analysisPromise]);
         return toolResultText({ session: sessionData, analysis: analysisData }, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('get_session', args, error);
@@ -376,10 +396,6 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
         // root cause of the previous 80 KB+ responses; callers needing full payloads
         // pull them via get_session_events with the same sessionId.
         const KEY_EVENTS_CAP = 50;
-        const PHASE_EVENT_TYPES = new Set([
-          'phase_transition', 'esp_phase_changed', 'enrollment_type_detected',
-          'enrollment_complete', 'enrollment_failed', 'desktop_arrived',
-        ]);
         const allKey = allEvents.filter((e) => {
           const et = String(e.eventType ?? '');
           if (EXCLUDED_EVENT_TYPES.has(et)) return false;
@@ -496,11 +512,29 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
         if (tenantId) params.tenantId = tenantId;
         const q = buildQuery(params);
         const prefix = pickGlobalOrTenantPath('/api/global/metrics', '/api/metrics');
-        const [summary, apps] = await Promise.all([
-          apiFetch(`${prefix}/summary${q}`).catch(() => null),
-          apiFetch(`${prefix}/app${q}`).catch(() => null),
+        const [summaryRes, appsRes] = await Promise.allSettled([
+          apiFetch(`${prefix}/summary${q}`),
+          apiFetch(`${prefix}/app${q}`),
         ]);
-        return toolResultText({ summary, apps }, MAX_RESULT_SIZE_CHARS.small);
+        // Swallowing both failures as {summary:null, apps:null} reports a 403/500/
+        // timeout as success. Only tolerate a partial failure (one endpoint down);
+        // when BOTH fail, surface the error so the caller doesn't read it as "0".
+        if (summaryRes.status === 'rejected' && appsRes.status === 'rejected') {
+          throw summaryRes.reason;
+        }
+        const summary = summaryRes.status === 'fulfilled' ? summaryRes.value : null;
+        const apps = appsRes.status === 'fulfilled' ? appsRes.value : null;
+        const partialErrors: Record<string, string> = {};
+        if (summaryRes.status === 'rejected') {
+          partialErrors.summary = summaryRes.reason instanceof Error ? summaryRes.reason.message : String(summaryRes.reason);
+        }
+        if (appsRes.status === 'rejected') {
+          partialErrors.apps = appsRes.reason instanceof Error ? appsRes.reason.message : String(appsRes.reason);
+        }
+        return toolResultText(
+          Object.keys(partialErrors).length ? { summary, apps, partialErrors } : { summary, apps },
+          MAX_RESULT_SIZE_CHARS.small,
+        );
       } catch (error: unknown) {
         return toolError('get_metrics', args, error);
       }
@@ -522,7 +556,9 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
         "use pageSize=1000 and follow nextLink repeatedly until absent. Pass the whole nextLink string as " +
         "\"continuation\" so all backend-echoed query params (cveId, minCvssScore, overallRisk) round-trip correctly.",
       inputSchema: {
-        cveId: z.string().describe('CVE identifier (e.g. "CVE-2024-21447")'),
+        cveId: z.string()
+          .regex(/^CVE-\d{4}-\d{4,}$/i, 'Must be a CVE identifier like "CVE-2024-21447" (CVE-YYYY-NNNN+).')
+          .describe('CVE identifier (e.g. "CVE-2024-21447"). Validated — a non-CVE string is rejected, not silently empty.'),
         tenantId: z.string().optional().describe(ga ? 'Tenant ID. Omit for cross-tenant search (Global Admin only).' : 'Optional tenant ID. Defaults to your tenant.'),
         minCvssScore: z.coerce.number().min(0).max(10).optional().describe('Minimum CVSS score filter (e.g. 7.0 for high+critical)'),
         overallRisk: z.enum(['low', 'medium', 'high', 'critical']).optional(),
@@ -536,10 +572,12 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
     async (args) => withToolTelemetry('search_sessions_by_cve', async () => {
       try {
         const { cveId, tenantId, minCvssScore, overallRisk, pageSize, continuation } = args;
+        // Normalize to canonical upper-case form (schema accepts case-insensitive).
+        const normalizedCve = cveId.toUpperCase();
         const basePath = pickGlobalOrTenantPath('/api/global/search/sessions-by-cve', '/api/search/sessions-by-cve');
         const path = followNextLink(
           basePath,
-          { cveId, tenantId, minCvssScore, overallRisk, pageSize },
+          { cveId: normalizedCve, tenantId, minCvssScore, overallRisk, pageSize },
           continuation,
         );
         const data = await apiFetch(path);

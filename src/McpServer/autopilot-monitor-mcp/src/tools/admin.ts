@@ -1045,11 +1045,13 @@ export function registerAdminTools(server: McpServer, ga: boolean): void {
         // The GA inventory endpoint requires a tenantId and 400s without one — guard up front
         // with actionable guidance instead of surfacing a raw 400 from a no-arg call.
         if (ga && !tenantId) {
-          return toolResultText({
-            error: "tenantId is required for scope='inventory' as a Global Admin. " +
-              'Pass a tenantId (use list_tenants to discover IDs), or use scope="unmatched" for the ' +
-              'cross-tenant view of software with no CPE mapping yet.',
-          }, MAX_RESULT_SIZE_CHARS.small);
+          // Route through toolError so the response carries isError:true — a
+          // success-shaped {error:...} envelope would be mistaken for data.
+          return toolError('get_software_inventory', args, new Error(
+            "tenantId is required for scope='inventory' as a Global Admin. " +
+            'Pass a tenantId (use list_tenants to discover IDs), or use scope="unmatched" for the ' +
+            'cross-tenant view of software with no CPE mapping yet.',
+          ));
         }
         // Endpoint returns the whole inventory in one shot, so page it client-side.
         const path = pickGlobalOrTenantPath('/api/vulnerability/software-inventory', '/api/metrics/software-inventory');
