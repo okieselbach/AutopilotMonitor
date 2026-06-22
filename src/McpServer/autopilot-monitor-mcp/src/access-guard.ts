@@ -50,6 +50,12 @@ interface AccessCheckResult {
   reason: string;
   isGlobalAdmin: boolean;
   isGlobalReader: boolean;
+  // Distinguishes a genuine authorization denial (the backend reached a verdict
+  // and said "no" — e.g. user not on the MCP whitelist) from an infrastructure
+  // failure (backend unreachable / malformed response). Both fail closed, but
+  // only the former should be surfaced to the user as "you are not enabled —
+  // ask to be whitelisted"; an infra error is not the user's fault.
+  infraError: boolean;
 }
 
 export function buildCacheKey(upn: string, token: string): string {
@@ -66,6 +72,9 @@ async function checkAccess(upn: string, token: string): Promise<AccessCheckResul
       reason: cached.reason,
       isGlobalAdmin: cached.isGlobalAdmin,
       isGlobalReader: cached.isGlobalReader,
+      // Only genuine backend verdicts are ever cached (infra errors return early
+      // below without caching), so a cache hit is never an infra error.
+      infraError: false,
     };
   }
 
@@ -77,7 +86,7 @@ async function checkAccess(upn: string, token: string): Promise<AccessCheckResul
     const text = await res.text();
     if (!text) {
       console.error(`[access-guard] Backend returned empty body for ${upn} (status=${res.status})`);
-      return { allowed: false, reason: `Backend returned ${res.status} with empty body`, isGlobalAdmin: false, isGlobalReader: false };
+      return { allowed: false, reason: `Backend returned ${res.status} with empty body`, isGlobalAdmin: false, isGlobalReader: false, infraError: true };
     }
 
     const data = JSON.parse(text) as {
@@ -94,14 +103,25 @@ async function checkAccess(upn: string, token: string): Promise<AccessCheckResul
       reason: data.allowed ? (data.accessGrant ?? 'allowed') : (data.reason ?? 'denied'),
       isGlobalAdmin: data.isGlobalAdmin === true || data.globalRole === 'GlobalAdmin',
       isGlobalReader: data.globalRole === 'GlobalReader',
+      // The backend reached a verdict — a deny here is a genuine authorization
+      // decision (e.g. not whitelisted), not an infrastructure problem.
+      infraError: false,
     };
 
-    accessCache.set(cacheKey, { ...result, expiresAt: Date.now() + ACCESS_CACHE_TTL_MS });
+    // Cache only the persisted fields (infraError is request-derived, always
+    // false for a cached verdict — see the cache-hit path above).
+    accessCache.set(cacheKey, {
+      allowed: result.allowed,
+      reason: result.reason,
+      isGlobalAdmin: result.isGlobalAdmin,
+      isGlobalReader: result.isGlobalReader,
+      expiresAt: Date.now() + ACCESS_CACHE_TTL_MS,
+    });
     return result;
   } catch (err) {
     console.error(`[access-guard] Backend check failed for ${upn}:`, err);
     // Fail-closed: deny on backend error
-    return { allowed: false, reason: 'Backend access check unavailable', isGlobalAdmin: false, isGlobalReader: false };
+    return { allowed: false, reason: 'Backend access check unavailable', isGlobalAdmin: false, isGlobalReader: false, infraError: true };
   }
 }
 
@@ -193,7 +213,25 @@ export function accessGuard(req: Request, res: Response, next: NextFunction): vo
   checkAccess(upn, token)
     .then((result) => {
       if (!result.allowed) {
-        res.status(403).json({ error: 'MCP access denied', reason: result.reason });
+        if (result.infraError) {
+          // Backend could not reach a verdict (unreachable / malformed). Fail
+          // closed, but do NOT tell the user they are "not whitelisted" — it is
+          // not their fault and would send them chasing the wrong fix.
+          res.status(403).json({ error: 'MCP access check unavailable', reason: result.reason });
+          return;
+        }
+        // Genuine authorization denial — most commonly the user's account is not
+        // on the MCP whitelist. Spell that out and tell them what to do, so they
+        // can ask the MCP server owner to enable their account instead of being
+        // left guessing why authentication "failed".
+        res.status(403).json({
+          error: 'User not enabled for MCP usage',
+          reason: result.reason,
+          message:
+            `Your account (${upn}) is not enabled to use this Autopilot Monitor MCP server. ` +
+            'Ask the MCP server owner/administrator to whitelist your account for MCP access, ' +
+            'then reconnect.',
+        });
         return;
       }
 
