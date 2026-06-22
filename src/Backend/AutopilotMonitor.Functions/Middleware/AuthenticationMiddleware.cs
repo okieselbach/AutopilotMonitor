@@ -12,6 +12,7 @@ using System.Net;
 using System.Security.Claims;
 using AutopilotMonitor.Functions.Extensions;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Shared.DataAccess;
 
 namespace AutopilotMonitor.Functions.Middleware;
@@ -32,43 +33,6 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
     private const int MaxCacheSize = 500;
     private readonly Dictionary<string, (IConfigurationManager<OpenIdConnectConfiguration> Manager, DateTime LastAccessed)> _configManagerCache;
     private readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
-
-    /// <summary>
-    /// Routes that do not require JWT authentication (exact match).
-    /// Device-to-cloud routes use their own certificate/hardware validation via SecurityValidator.
-    /// Bootstrap device routes use bootstrap token validation via SecurityValidator.
-    /// </summary>
-    private static readonly string[] _anonymousRoutes =
-    {
-        "/api/health",
-        "/api/stats/platform",
-        // Ticket-gated diagnostics download (MCP/AI clients hold no JWT). Authority is the
-        // HMAC-signed ?t= ticket, validated inside DiagnosticsTicketDownloadFunction; authz
-        // already happened at mint time (diagnostics/download-ticket, MemberRead). Must mirror
-        // the PublicAnonymous entry in EndpointAccessPolicyCatalog — this middleware runs BEFORE
-        // PolicyEnforcementMiddleware, so a missing entry here 401s before the policy is honored.
-        "/api/diagnostics/download",
-        "/api/agent/register-session",
-        "/api/agent/ingest",
-        "/api/agent/telemetry",
-        "/api/agent/config",
-        "/api/agent/upload-url",
-        "/api/agent/error",
-        "/api/agent/distress",
-        "/api/bootstrap/register-session",
-        "/api/bootstrap/ingest",
-        "/api/bootstrap/config",
-        "/api/bootstrap/error",
-    };
-
-    /// <summary>
-    /// Route prefixes that do not require JWT authentication (prefix match).
-    /// Used for routes with path parameters where exact match is impossible.
-    /// </summary>
-    private static readonly string[] _anonymousPrefixes =
-    {
-        "/api/bootstrap/validate/",  // /api/bootstrap/validate/{code}
-    };
 
     public AuthenticationMiddleware(
         ILogger<AuthenticationMiddleware> logger,
@@ -95,11 +59,13 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
             return;
         }
 
-        // Allow anonymous routes without JWT validation
+        // Allow JWT-exempt routes (public + device/bootstrap-authenticated) through without
+        // JWT validation. The exempt set is DERIVED from EndpointAccessPolicyCatalog — never a
+        // hand-kept parallel list — so a new anonymous/device route can't drift out of sync here.
         var requestPath = httpContext.Request.Path.Value ?? string.Empty;
-        if (IsAnonymousRoute(requestPath))
+        if (SkipsJwtValidation(httpContext.Request.Method, requestPath))
         {
-            _logger.LogDebug("[Auth Middleware] Anonymous route: {Path}", requestPath);
+            _logger.LogDebug("[Auth Middleware] JWT-exempt route: {Method} {Path}", httpContext.Request.Method, requestPath);
             await next(context);
             return;
         }
@@ -302,18 +268,21 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
         await next(context);
     }
 
-    private static bool IsAnonymousRoute(string path)
+    /// <summary>
+    /// Whether a route is exempt from JWT validation in this middleware. SINGLE SOURCE OF TRUTH is
+    /// <see cref="EndpointAccessPolicyCatalog"/>: a route is JWT-exempt iff its policy is
+    /// <see cref="EndpointPolicy.PublicAnonymous"/> (fully public) or
+    /// <see cref="EndpointPolicy.DeviceOrBootstrapAuth"/> (authenticated later, in-function, via
+    /// device certificate / bootstrap token — not JWT). Deriving from the catalog instead of a
+    /// hand-kept parallel allowlist prevents drift: a new anonymous/device route registered in the
+    /// catalog is automatically exempt here, so it can never be 401'd before
+    /// <c>PolicyEnforcementMiddleware</c> honors its policy (the bug that broke the ticket-gated
+    /// <c>diagnostics/download</c> route). Unregistered routes (FindPolicy == null) are fail-closed:
+    /// JWT required. Method-aware so e.g. an unexpected verb on a public path is not waved through.
+    /// </summary>
+    internal static bool SkipsJwtValidation(string httpMethod, string path)
     {
-        foreach (var route in _anonymousRoutes)
-        {
-            if (path.Equals(route, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-        foreach (var prefix in _anonymousPrefixes)
-        {
-            if (path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-        return false;
+        var entry = EndpointAccessPolicyCatalog.FindPolicy(httpMethod, path);
+        return entry is { Policy: EndpointPolicy.PublicAnonymous or EndpointPolicy.DeviceOrBootstrapAuth };
     }
 }

@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.RegularExpressions;
 using AutopilotMonitor.Functions.Middleware;
 using AutopilotMonitor.Functions.Security;
 using Microsoft.Azure.Functions.Worker;
@@ -288,6 +289,60 @@ public class EndpointPolicyCatalogCompletenessTests
         Assert.Equal(expectedTemplate, entry!.RouteTemplate);
         Assert.Equal(EndpointPolicy.AuthenticatedUserWithRole, entry.Policy);
         Assert.Equal(TenantScoping.None, entry.TenantScoping);
+    }
+
+    /// <summary>
+    /// REGRESSION GUARD (drift bug 2026-06-22): AuthenticationMiddleware runs BEFORE
+    /// PolicyEnforcementMiddleware, so every catalog route whose policy is PublicAnonymous (fully
+    /// public) or DeviceOrBootstrapAuth (authenticated in-function via cert/bootstrap token, not
+    /// JWT) MUST be JWT-exempt in the middleware — otherwise it is 401'd before its policy can ever
+    /// be honored. That is exactly how the ticket-gated diagnostics/download route broke: it was
+    /// registered PublicAnonymous in the catalog but missing from the middleware's (former) parallel
+    /// allowlist. Deriving the exempt set from the catalog makes the drift structurally impossible;
+    /// this test locks the invariant so a future refactor can't reintroduce a hand-kept list.
+    /// </summary>
+    [Fact]
+    public void AnonymousAndDeviceRoutes_AreJwtExemptInAuthMiddleware()
+    {
+        var notExempt = new List<string>();
+
+        foreach (var entry in EndpointAccessPolicyCatalog.Entries)
+        {
+            if (entry.Policy is not (EndpointPolicy.PublicAnonymous or EndpointPolicy.DeviceOrBootstrapAuth))
+                continue;
+
+            // Build a concrete request path from the template (sample value for any {param}).
+            var concrete = "/api/" + Regex.Replace(entry.RouteTemplate, @"\{[^}]+}", "sample");
+            if (!AuthenticationMiddleware.SkipsJwtValidation(entry.HttpMethod, concrete))
+                notExempt.Add($"{entry.HttpMethod} {entry.RouteTemplate} [{entry.Policy}]");
+        }
+
+        Assert.True(notExempt.Count == 0,
+            "These PublicAnonymous/DeviceOrBootstrapAuth routes are NOT JWT-exempt in " +
+            "AuthenticationMiddleware — they will be 401'd before their policy is honored:\n" +
+            string.Join("\n", notExempt.Select(r => $"  - {r}")));
+    }
+
+    /// <summary>
+    /// Conversely, JWT-gated tiers (MemberRead and up) must NOT be exempt — otherwise the middleware
+    /// would wave authenticated traffic through unvalidated. Includes the deliberate contrast pair:
+    /// the ticket-gated diagnostics/download IS exempt (its HMAC ticket is the sole authority), but
+    /// its JWT sibling diagnostics/download-url (MemberRead) stays gated.
+    /// </summary>
+    [Theory]
+    [InlineData("GET",  "/api/diagnostics/download",      true)]   // PublicAnonymous (ticket-gated)
+    [InlineData("GET",  "/api/diagnostics/download-url",  false)]  // MemberRead (JWT)
+    [InlineData("POST", "/api/diagnostics/download-ticket", false)]// MemberRead (JWT) — mints the ticket
+    [InlineData("GET",  "/api/health",                   true)]   // PublicAnonymous
+    [InlineData("POST", "/api/agent/ingest",             true)]   // DeviceOrBootstrapAuth
+    [InlineData("GET",  "/api/bootstrap/validate/ABC123", true)]  // PublicAnonymous (param route)
+    [InlineData("GET",  "/api/sessions",                 false)]  // MemberRead
+    [InlineData("GET",  "/api/config/00000000-0000-0000-0000-000000000001", false)] // TenantAdminOrGlobalReader
+    [InlineData("GET",  "/api/global/sessions",          false)]  // GlobalReadOrAdmin
+    [InlineData("GET",  "/api/nonexistent",              false)]  // unregistered → fail-closed
+    public void SkipsJwtValidation_MatchesPolicyTier(string method, string path, bool expectedExempt)
+    {
+        Assert.Equal(expectedExempt, AuthenticationMiddleware.SkipsJwtValidation(method, path));
     }
 
     /// <summary>
