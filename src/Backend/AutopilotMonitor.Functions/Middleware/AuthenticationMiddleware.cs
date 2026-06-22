@@ -42,6 +42,12 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
     {
         "/api/health",
         "/api/stats/platform",
+        // Ticket-gated diagnostics download (MCP/AI clients hold no JWT). Authority is the
+        // HMAC-signed ?t= ticket, validated inside DiagnosticsTicketDownloadFunction; authz
+        // already happened at mint time (diagnostics/download-ticket, MemberRead). Must mirror
+        // the PublicAnonymous entry in EndpointAccessPolicyCatalog — this middleware runs BEFORE
+        // PolicyEnforcementMiddleware, so a missing entry here 401s before the policy is honored.
+        "/api/diagnostics/download",
         "/api/agent/register-session",
         "/api/agent/ingest",
         "/api/agent/telemetry",
