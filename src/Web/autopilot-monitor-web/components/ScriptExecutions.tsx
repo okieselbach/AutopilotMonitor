@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { compareVersions } from "@/utils/bootstrapVersion";
 import {
   buildScriptItemLabel,
+  formatScriptDuration,
   getPhaseBadge,
   groupScriptItems,
   isDetectOnlyRow,
@@ -321,6 +322,12 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
     statusText = item.result ?? (item.state === "Success" ? "Success" : "Failed");
   }
 
+  // Run duration (from the agent's start→completion timing). Surfaced for every completed
+  // script so slow / inefficient scripts stand out; styled amber past the stale threshold
+  // (10 min) since at that range a script is a plausible enrollment-pipeline blocker.
+  const durationLabel = item.state !== "Running" ? formatScriptDuration(item.durationSeconds) : null;
+  const isSlowDuration = item.durationSeconds != null && item.durationSeconds >= STALE_RUNNING_THRESHOLD_SECONDS;
+
   const hasStdout = item.state !== "Running" && showScriptOutput !== false && item.stdout && item.stdout.trim().length > 0;
   const hasStderr = item.state !== "Running" && item.stderr && item.stderr.trim().length > 0;
   const hasOutput = hasStdout || hasStderr;
@@ -418,6 +425,14 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
               exit {item.exitCode}
             </span>
           )}
+          {durationLabel && (
+            <span
+              className={`font-mono ${isSlowDuration ? "text-amber-600 font-medium" : "text-gray-500"}`}
+              title={isSlowDuration ? "Long run — a script near the IME timeout can block the enrollment pipeline" : "Script run duration"}
+            >
+              {durationLabel}
+            </span>
+          )}
           {item.state !== "Running" && (
             <button
               onClick={() => setShowDetails(!showDetails)}
@@ -443,6 +458,7 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
             {!nested && item.runContext && <span><span className="font-medium text-gray-700">Context:</span> {item.runContext}</span>}
             {!nested && item.targetType != null && <span><span className="font-medium text-gray-700">Target:</span> {item.targetType === 2 ? "Device" : "User"}</span>}
             {item.exitCode != null && <span><span className="font-medium text-gray-700">Exit Code:</span> <span className="font-mono">{item.exitCode}</span></span>}
+            {durationLabel && <span><span className="font-medium text-gray-700">Duration:</span> <span className={`font-mono ${isSlowDuration ? "text-amber-600" : ""}`}>{durationLabel}</span></span>}
             {item.result && <span><span className="font-medium text-gray-700">Result:</span> {item.result}</span>}
             {item.complianceResult && <span><span className="font-medium text-gray-700">Compliance:</span> {item.complianceResult === "True" ? "Compliant" : "Non-compliant"}</span>}
             {!nested && remediationStatusLabel && <span><span className="font-medium text-gray-700">Status:</span> {remediationStatusLabel}</span>}

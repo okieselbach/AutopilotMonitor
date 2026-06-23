@@ -295,12 +295,25 @@ namespace AutopilotMonitor.Shared
             public const string ScriptStarted       = "script_started";
             public const string ScriptCompleted     = "script_completed";
             public const string ScriptFailed        = "script_failed";
+            // A platform script ran to the IME script-execution timeout (~30 min) and was marked
+            // Failed while the enrollment was still in progress — the prime suspect for a stalled
+            // ESP pipeline (IME runs platform scripts serially; one hung script starves app
+            // installs). Emitted at most once per policyId, derived from the script's own
+            // start→completion duration (works on replay since start carries the source log
+            // timestamp). Warning, advisory ("suspected"); no state mutation.
+            public const string ScriptTimeoutSuspected = "script_timeout_suspected";
             public const string EspProvisioningStatus = "esp_provisioning_status";
             public const string SoftwareInventoryAnalysis = "software_inventory_analysis";
             public const string VulnerabilityReport       = "vulnerability_report";
             public const string AgentVersionCheck         = "agent_version_check";
             public const string AgentStarted              = "agent_started";        // Lifecycle anchor — fired Seq=1 at agent boot. PR1: replaces hardcoded string-literals at emit sites.
             public const string AgentShuttingDown         = "agent_shutting_down";  // V2 single-rail plan §6.2 — terminate-hygiene acknowledgement emitted before CleanupService tears down
+            // Low observation coverage: the agent started long after device boot AND lived only
+            // briefly before a terminal outcome — i.e. it arrived after the enrollment had already
+            // decided, so its diagnosis is a post-mortem of the registry/log end-state, not a live
+            // observation. Flags sessions that look like normal multi-minute failures but where the
+            // agent had near-zero coverage of the actual failure window. Warning; termination-time.
+            public const string AgentLateStart            = "agent_late_start";
             public const string SystemRebootDetected      = "system_reboot_detected"; // Lifecycle anchor — fired when previousExitType=reboot_kill. PR1.
             public const string PerformanceCollectorStopped     = "performance_collector_stopped";    // Idle-stop anchor — fired after 15 min idle by PerformanceCollector. PR1.
             public const string AgentMetricsCollectorStopped    = "agent_metrics_collector_stopped";  // Idle-stop anchor — fired after 15 min idle by AgentMetricsCollector. PR1.

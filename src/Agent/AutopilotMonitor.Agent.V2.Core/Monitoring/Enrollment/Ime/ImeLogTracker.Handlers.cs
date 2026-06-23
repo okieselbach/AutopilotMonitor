@@ -215,7 +215,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     _pendingPlatformScripts[id] = new ScriptExecutionState
                     {
                         PolicyId = id,
-                        ScriptType = "platform"
+                        ScriptType = "platform",
+                        // Prefer the source CMTrace timestamp so a script that started before the
+                        // agent launched (replayed log content) is dated to its real start, not now.
+                        // Set only at slot creation: the start line fires twice (agentexecutor + ime
+                        // source) but the earliest wins.
+                        StartedAtUtc = LastMatchedLogTimestamp ?? DateTime.UtcNow,
                     };
                 }
                 _lastPlatformScriptPolicyId = id;
@@ -856,6 +861,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         }
 
         private string _lastEspPhaseDetected;
+
+        /// <summary>
+        /// Last ESP phase the tracker observed ("DeviceSetup" / "AccountSetup"), or null if none
+        /// seen yet (e.g. no-ESP WDP v2). Read-only accessor for the adapter to tag
+        /// <c>script_timeout_suspected</c> with the ESP context the hung script ran in.
+        /// </summary>
+        internal string LastEspPhaseDetected => _lastEspPhaseDetected;
 
         private void HandleEspPhaseDetected(string espPhaseString)
         {

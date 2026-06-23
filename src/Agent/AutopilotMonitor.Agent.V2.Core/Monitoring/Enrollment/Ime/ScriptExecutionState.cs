@@ -15,6 +15,17 @@ public class ScriptExecutionState
     /// <summary>"platform" or "remediation".</summary>
     public string ScriptType { get; set; }
 
+    /// <summary>
+    /// UTC timestamp of the script's first observed start line, taken from the source CMTrace log
+    /// timestamp (so it dates correctly even when the agent replays historic IME log content that
+    /// predates its own launch). Set once at slot creation in
+    /// <see cref="ImeLogTracker.HandleScriptStarted"/>; null when the start line was never seen
+    /// (e.g. a completion observed without a matching start). Drives the per-script run-duration
+    /// surfaced on <c>script_completed</c>/<c>script_failed</c> and the
+    /// <c>script_timeout_suspected</c> heuristic.
+    /// </summary>
+    public System.DateTime? StartedAtUtc { get; set; }
+
     /// <summary>"detection", "remediation", or "post-detection" (remediation scripts only).</summary>
     public string ScriptPart { get; set; }
 

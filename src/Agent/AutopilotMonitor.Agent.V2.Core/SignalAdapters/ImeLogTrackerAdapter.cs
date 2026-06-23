@@ -91,6 +91,15 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         // bootstrap marker line. Lets MCP report "which device runs which bootstrap version".
         private bool _bootstrapDetectedPosted;
 
+        // Platform scripts already flagged with script_timeout_suspected (dedup per policyId).
+        private readonly HashSet<string> _scriptTimeoutSuspectedPosted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // A platform script whose observed run duration reaches this is treated as having hit the
+        // IME script-execution timeout (default ~30 min). 25 min leaves headroom below 30 so clock
+        // jitter / the agent's late replay window can't miss it, while staying well above any
+        // legitimately long install wrapper that completes on its own.
+        private static readonly TimeSpan ScriptTimeoutSuspectedThreshold = TimeSpan.FromMinutes(25);
+
         // Matches the deterministic marker line the bootstrap script writes via Write-Log,
         // e.g. "Bootstrap script version: v2.0" — see scripts/Bootstrap/Install-AutopilotMonitor.ps1.
         // Same shape as the web-side regex in utils/bootstrapVersion.ts; kept in sync intentionally.
@@ -837,6 +846,17 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 now = ResolveOccurredAt(out derivedFromClock, out rawSourceTs);
             TagDerivedTimestamp(data, derivedFromClock, rawSourceTs);
 
+            // Per-script run duration (start line → this completion, `now`). Surfaced on every
+            // script completion so the UI can flag slow / inefficient scripts, not just timed-out
+            // ones. Omitted when the start line was never observed (StartedAtUtc null); clamped at 0
+            // against clock skew between the (possibly clock-derived) completion stamp and start.
+            if (script.StartedAtUtc.HasValue)
+            {
+                var durationSeconds = (now - script.StartedAtUtc.Value).TotalSeconds;
+                if (durationSeconds >= 0)
+                    data["durationSeconds"] = durationSeconds.ToString("F2", culture);
+            }
+
             var label = IsRemediation(script.ScriptType) ? "Remediation script" : "Platform script";
             var shortId = script.PolicyId.Length >= 8 ? script.PolicyId.Substring(0, 8) : script.PolicyId;
             string messageCore;
@@ -869,6 +889,57 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 $"ImeAdapter: script completed policyId={shortId} type={script.ScriptType ?? "?"} result={script.Result ?? "?"} exit={(script.ExitCode.HasValue ? script.ExitCode.Value.ToString() : "n/a")}");
 
             MaybeEmitBootstrapDetected(script, now);
+            MaybeEmitScriptTimeoutSuspected(script, now);
+        }
+
+        /// <summary>
+        /// When a platform script's observed run duration reaches
+        /// <see cref="ScriptTimeoutSuspectedThreshold"/> AND it ended Failed, emit a one-shot
+        /// <c>script_timeout_suspected</c> Warning. IME runs platform scripts serially, so a script
+        /// that hung for its full execution timeout starves the rest of the pipeline (app installs,
+        /// the Autopilot-Monitor bootstrap itself) — the prime suspect when the agent observes a
+        /// late start / pre-failed ESP. Advisory only: no state mutation, the underlying
+        /// <c>script_failed</c> is still emitted separately. Health (remediation) scripts are
+        /// excluded — they re-run on their own cadence and have a different timeout regime.
+        /// </summary>
+        private void MaybeEmitScriptTimeoutSuspected(ScriptExecutionState script, DateTime completionUtc)
+        {
+            if (IsRemediation(script.ScriptType)) return;                 // platform scripts only
+            if (!script.StartedAtUtc.HasValue) return;                    // no start ⇒ no duration
+            if (!string.Equals(script.Result, "Failed", StringComparison.OrdinalIgnoreCase)) return;
+
+            var duration = completionUtc - script.StartedAtUtc.Value;
+            if (duration < ScriptTimeoutSuspectedThreshold) return;
+
+            if (!_scriptTimeoutSuspectedPosted.Add(script.PolicyId)) return; // dedup per policyId
+
+            var culture = System.Globalization.CultureInfo.InvariantCulture;
+            var shortId = script.PolicyId.Length >= 8 ? script.PolicyId.Substring(0, 8) : script.PolicyId;
+            var durationMinutes = duration.TotalMinutes;
+
+            var data = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["policyId"] = script.PolicyId,
+                ["scriptType"] = string.IsNullOrEmpty(script.ScriptType) ? "platform" : script.ScriptType!,
+                ["durationSeconds"] = duration.TotalSeconds.ToString("F2", culture),
+                ["result"] = script.Result ?? "Failed",
+                ["note"] = "Platform script ran to the IME script-execution timeout (~30 min) and was marked Failed while the enrollment was in progress — IME runs platform scripts serially, so this likely blocked app installs / the agent bootstrap. Inspect the script (Intune > Scripts and remediations) for an interactive prompt, an un-timed network call, or a polling loop that never satisfies during OOBE.",
+            };
+            if (script.ExitCode.HasValue) data["exitCode"] = script.ExitCode.Value.ToString(culture);
+            if (!string.IsNullOrEmpty(script.RunContext)) data["runContext"] = script.RunContext!;
+            var espPhase = _tracker.LastEspPhaseDetected;
+            if (!string.IsNullOrEmpty(espPhase)) data["espPhase"] = espPhase!;
+
+            _post.Emit(
+                eventType: SharedEventTypes.ScriptTimeoutSuspected,
+                source: SourceLabel,
+                message: $"Platform script {shortId} ran {durationMinutes:F0} min and was marked Failed — suspected IME script timeout blocking the enrollment.",
+                severity: EventSeverity.Warning,
+                data: data,
+                occurredAtUtc: completionUtc);
+
+            _logger?.Info(
+                $"ImeAdapter: script_timeout_suspected policyId={shortId} duration={durationMinutes:F1}min result={script.Result} espPhase={espPhase ?? "(none)"}");
         }
 
         /// <summary>

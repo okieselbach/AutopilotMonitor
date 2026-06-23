@@ -63,6 +63,52 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
         }
 
         [Fact]
+        public void Build_without_device_boot_omits_coverage_fields()
+        {
+            var state = StateWith(SessionStage.Failed);
+            var args = Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Failed, SessionStage.Failed);
+
+            var status = FinalStatusBuilder.Build(state, args, packageStates: null, agentStartTimeUtc: StartUtc);
+
+            Assert.Null(status.BootToAgentStartSeconds);
+            Assert.Null(status.LowObservationCoverage);
+        }
+
+        [Fact]
+        public void Build_flags_low_observation_coverage_for_late_start_short_session()
+        {
+            var state = StateWith(SessionStage.Failed);
+            // 30 s uptime (terminated = StartUtc + 30 s) and booted 34 min before start.
+            var terminated = StartUtc.AddSeconds(30);
+            var args = new EnrollmentTerminatedEventArgs(
+                reason: EnrollmentTerminationReason.DecisionTerminalStage,
+                outcome: EnrollmentTerminationOutcome.Failed,
+                stageName: SessionStage.Failed.ToString(),
+                terminatedAtUtc: terminated);
+            var deviceBoot = StartUtc.AddMinutes(-34);
+
+            var status = FinalStatusBuilder.Build(state, args, packageStates: null,
+                agentStartTimeUtc: StartUtc, appTimings: null, deviceBootUtc: deviceBoot);
+
+            Assert.True(status.LowObservationCoverage);
+            Assert.Equal(34 * 60, status.BootToAgentStartSeconds!.Value, 0);
+        }
+
+        [Fact]
+        public void Build_sets_boot_latency_but_no_flag_for_prompt_start()
+        {
+            var state = StateWith(SessionStage.Failed);
+            var args = Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Failed, SessionStage.Failed);
+            var deviceBoot = StartUtc.AddMinutes(-2); // agent started 2 min after boot — not late
+
+            var status = FinalStatusBuilder.Build(state, args, packageStates: null,
+                agentStartTimeUtc: StartUtc, appTimings: null, deviceBootUtc: deviceBoot);
+
+            Assert.Null(status.LowObservationCoverage);
+            Assert.Equal(2 * 60, status.BootToAgentStartSeconds!.Value, 0);
+        }
+
+        [Fact]
         public void Build_records_completion_source_from_reason()
         {
             var state = StateWith(SessionStage.Completed);

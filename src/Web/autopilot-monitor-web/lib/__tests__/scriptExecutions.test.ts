@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildScriptItemLabel,
+  formatScriptDuration,
   getPhaseBadge,
   groupScriptItems,
   isDetectOnlyRow,
@@ -728,5 +729,48 @@ describe("groupScriptItems", () => {
       item({ policyId: "p1", scriptType: "platform", scriptPart: undefined, exitCode: 0, result: "Success" }),
     ]);
     expect(cards).toHaveLength(2);
+  });
+});
+
+describe("formatScriptDuration", () => {
+  it("returns null for null/negative/non-finite", () => {
+    expect(formatScriptDuration(undefined)).toBeNull();
+    expect(formatScriptDuration(-1)).toBeNull();
+    expect(formatScriptDuration(Number.NaN)).toBeNull();
+  });
+  it("formats sub-minute as seconds", () => {
+    expect(formatScriptDuration(0)).toBe("0s");
+    expect(formatScriptDuration(42)).toBe("42s");
+    expect(formatScriptDuration(59.4)).toBe("59s"); // rounds down, stays sub-minute
+  });
+  it("rolls 60s into the minutes format", () => {
+    expect(formatScriptDuration(59.6)).toBe("1m 00s"); // rounds up to 60 → minutes branch
+  });
+  it("formats minutes with zero-padded seconds", () => {
+    expect(formatScriptDuration(134)).toBe("2m 14s");
+    expect(formatScriptDuration(1800)).toBe("30m 00s");
+  });
+  it("formats hours with zero-padded minutes", () => {
+    expect(formatScriptDuration(3780)).toBe("1h 03m");
+  });
+});
+
+describe("reduceScriptEvents — durationSeconds", () => {
+  it("parses durationSeconds (string or number) onto the item", () => {
+    const [fromString] = reduceScriptEvents([
+      finalEvent({ data: { policyId: "p1", scriptType: "platform", result: "Success", durationSeconds: "1800.00" } }),
+    ]);
+    expect(fromString.durationSeconds).toBe(1800);
+
+    const [fromNumber] = reduceScriptEvents([
+      finalEvent({ data: { policyId: "p2", scriptType: "platform", result: "Success", durationSeconds: 42 } }),
+    ]);
+    expect(fromNumber.durationSeconds).toBe(42);
+  });
+  it("leaves durationSeconds undefined when absent", () => {
+    const [item] = reduceScriptEvents([
+      finalEvent({ data: { policyId: "p1", scriptType: "platform", result: "Success" } }),
+    ]);
+    expect(item.durationSeconds).toBeUndefined();
   });
 });

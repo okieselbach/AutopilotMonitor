@@ -29,13 +29,29 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             EnrollmentTerminatedEventArgs terminated,
             IReadOnlyList<AppPackageState>? packageStates,
             DateTime agentStartTimeUtc,
-            IReadOnlyDictionary<string, AppInstallTiming>? appTimings = null)
+            IReadOnlyDictionary<string, AppInstallTiming>? appTimings = null,
+            DateTime? deviceBootUtc = null)
         {
             if (state == null) throw new ArgumentNullException(nameof(state));
             if (terminated == null) throw new ArgumentNullException(nameof(terminated));
 
             var uptimeSeconds = Math.Max(0, (terminated.TerminatedAtUtc - agentStartTimeUtc).TotalSeconds);
             var timings = appTimings ?? new Dictionary<string, AppInstallTiming>();
+
+            // Observation-coverage assessment — only when the caller supplied a device boot anchor
+            // (the handler reads it from the monotonic uptime counter; tests may omit it to keep the
+            // builder a pure function). Mirrors the agent_late_start event's gate via the shared
+            // ObservationCoverage helper so the two surfaces cannot drift.
+            double? bootToAgentStartSeconds = null;
+            bool? lowObservationCoverage = null;
+            if (deviceBootUtc.HasValue)
+            {
+                var low = ObservationCoverage.IsLowObservationCoverage(
+                    agentStartTimeUtc, terminated.TerminatedAtUtc, deviceBootUtc.Value,
+                    out var bootToStart, out _);
+                bootToAgentStartSeconds = bootToStart;
+                if (low) lowObservationCoverage = true;
+            }
 
             // Reuse the engine's signal-census logic so on-disk final-status.json and
             // on-the-wire enrollment_complete audit trail use identical naming for the
@@ -52,6 +68,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 HelloOutcome = state.HelloOutcome?.Value ?? "unknown",
                 EnrollmentType = DescribeEnrollmentType(state.ScenarioProfile),
                 AgentUptimeSeconds = uptimeSeconds,
+                BootToAgentStartSeconds = bootToAgentStartSeconds,
+                LowObservationCoverage = lowObservationCoverage,
                 SignalsSeen = census.SignalsSeen,
                 FailureReason = BuildFailureReason(terminated, state),
                 SignalTimestamps = census.SignalTimestamps.Count == 0 ? null : census.SignalTimestamps,

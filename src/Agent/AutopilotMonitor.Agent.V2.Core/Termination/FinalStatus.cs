@@ -41,6 +41,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         [JsonProperty("agentUptimeSeconds")]
         public double AgentUptimeSeconds { get; set; }
 
+        /// <summary>
+        /// V2 schema 2 — seconds between device boot and agent start (post-mortem field; the dialog
+        /// does not render it). Omitted when boot time was not available at build time. Read with
+        /// <see cref="AgentUptimeSeconds"/>: a large value here paired with a small uptime is the
+        /// "agent arrived after the enrollment already decided" signature (see
+        /// <see cref="LowObservationCoverage"/>).
+        /// </summary>
+        [JsonProperty("bootToAgentStartSeconds", NullValueHandling = NullValueHandling.Ignore)]
+        public double? BootToAgentStartSeconds { get; set; }
+
+        /// <summary>
+        /// V2 schema 2 — true when the agent started late AND lived only briefly before terminating,
+        /// i.e. it had near-zero coverage of the actual enrollment/failure window and its diagnosis
+        /// is a post-mortem of the end-state. Emitted only when true (NullValueHandling.Ignore keeps
+        /// normal sessions clean). Mirrors the <c>agent_late_start</c> event.
+        /// </summary>
+        [JsonProperty("lowObservationCoverage", NullValueHandling = NullValueHandling.Ignore)]
+        public bool? LowObservationCoverage { get; set; }
+
         [JsonProperty("signalsSeen")]
         public List<string> SignalsSeen { get; set; } = new List<string>();
 

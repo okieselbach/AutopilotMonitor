@@ -196,6 +196,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                     // promotion above, so the remaining in-flight set is the Downloading/pending tail.
                     MaybeEmitEspAppsFailureCorrelation(state, args);
 
+                    // Low observation coverage: if the agent started long after boot and lived only
+                    // briefly before this terminal outcome, it arrived after the enrollment had
+                    // already decided — flag the session so its post-mortem diagnosis is not mistaken
+                    // for a normal multi-minute failure with full coverage.
+                    MaybeEmitAgentLateStart(args);
+
                     EmitAppTrackingSummary();
                 }
 
@@ -332,7 +338,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             {
                 var packages = TryGetPackageStates();
                 var timings = TryGetAppTimings();
-                var status = FinalStatusBuilder.Build(state, args, packages, _agentStartTimeUtc, timings);
+                var status = FinalStatusBuilder.Build(state, args, packages, _agentStartTimeUtc, timings,
+                    deviceBootUtc: ObservationCoverage.DeviceBootUtc());
                 SummaryDialogLauncher.WriteAndLaunch(status, _configuration, _stateDirectory, _logger, _dialogExePathOverride);
 
                 if (_configuration.ShowEnrollmentSummary)
@@ -570,6 +577,57 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             catch (Exception ex)
             {
                 _logger.Warning($"EnrollmentTerminationHandler: esp_apps_failure_correlation emit failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Emits a one-shot <c>agent_late_start</c> Warning when the agent had low observation
+        /// coverage: it started a long time after device boot AND lived only briefly before this
+        /// terminal outcome (gate in <see cref="ObservationCoverage"/>). Such a session looks like a
+        /// normal multi-minute failure in the list (StartedAt is back-dated to the earliest replayed
+        /// IME-log event) but the agent actually observed only the end-state — so the operator should
+        /// read the diagnosis as a post-mortem reconstruction, not live evidence. No state mutation.
+        /// </summary>
+        private void MaybeEmitAgentLateStart(EnrollmentTerminatedEventArgs args)
+        {
+            try
+            {
+                var deviceBootUtc = ObservationCoverage.DeviceBootUtc();
+                if (!ObservationCoverage.IsLowObservationCoverage(
+                        _agentStartTimeUtc, args.TerminatedAtUtc, deviceBootUtc,
+                        out var bootToStartSeconds, out var uptimeSeconds))
+                    return;
+
+                _logger.Info(
+                    $"EnrollmentTerminationHandler: low observation coverage — agent started " +
+                    $"{bootToStartSeconds / 60.0:F1} min after boot and lived {uptimeSeconds:F0}s; " +
+                    $"emitting agent_late_start.");
+
+                _post.Emit(new EnrollmentEvent
+                {
+                    SessionId = _configuration.SessionId,
+                    TenantId = _configuration.TenantId,
+                    EventType = Constants.EventTypes.AgentLateStart,
+                    Severity = EventSeverity.Warning,
+                    Source = "EnrollmentTerminationHandler",
+                    Phase = EnrollmentPhase.Unknown,
+                    Message = $"Agent started {bootToStartSeconds / 60.0:F0} min after boot and observed only " +
+                              $"{uptimeSeconds:F0}s before terminating ({args.Outcome}) — low coverage of the enrollment window.",
+                    Data = new Dictionary<string, object>
+                    {
+                        { "bootToAgentStartSeconds", Math.Round(bootToStartSeconds, 1) },
+                        { "agentUptimeSeconds", Math.Round(uptimeSeconds, 1) },
+                        { "deviceBootUtc", deviceBootUtc.ToString("o") },
+                        { "agentStartUtc", _agentStartTimeUtc.ToString("o") },
+                        { "outcome", args.Outcome.ToString() },
+                        { "note", "The agent's bootstrap (an Intune platform script) ran only near the end of the enrollment, so the agent observed the already-decided end-state rather than the failure window. Treat the diagnosis as a post-mortem; check for a platform/remediation script that hung ahead of the bootstrap (see script_timeout_suspected)." },
+                    },
+                    ImmediateUpload = true,
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"EnrollmentTerminationHandler: agent_late_start emit failed: {ex.Message}");
             }
         }
 

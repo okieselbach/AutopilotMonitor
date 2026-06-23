@@ -73,7 +73,7 @@ export const EVENT_TYPES_CATALOG = {
     'office_install_failed',
     'office_preinstalled_detected',
   ],
-  script_events: ['script_started', 'script_completed', 'script_failed'],
+  script_events: ['script_started', 'script_completed', 'script_failed', 'script_timeout_suspected'],
   network_events: [
     'network_state_change',
     'network_connectivity_check',
@@ -150,6 +150,7 @@ export const EVENT_TYPES_CATALOG = {
     'telemetry_upload_blocked',
     'session_parked_without_deadline',
     'disk_space_low',
+    'agent_late_start',
   ],
   metrics_events: ['performance_snapshot', 'agent_metrics_snapshot', 'ingress_backpressure'],
   security_events: [

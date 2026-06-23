@@ -56,6 +56,8 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
     description: "Stall probe found an anomaly (ModernDeployment error, DeploymentErrorCode≠0, IME EnforcementState Failed)." },
   { value: "stall_probe_check", label: "stall_probe_check", category: "stall",
     description: "Trace-level heartbeat from a stall probe — proves the logic ran (default: only the 15 min probe)." },
+  { value: "agent_late_start", label: "agent_late_start", category: "stall",
+    description: "Low observation coverage: the agent started long after device boot (≥10 min) AND lived only briefly (≤5 min) before a terminal outcome — it arrived after the enrollment had already decided, so its diagnosis is a post-mortem of the end-state, not a live observation. Carries bootToAgentStartSeconds, agentUptimeSeconds and outcome. Often paired with script_timeout_suspected (a script that hung ahead of the agent bootstrap)." },
 
   // -------- ModernDeployment live capture (Ebene 1) --------
   { value: "modern_deployment_error", label: "modern_deployment_error", category: "esp",
@@ -110,6 +112,8 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
     description: "A platform script completed, or one phase (detection / remediation / post-detection) of a health script completed. Health scripts emit up to three of these per policy run." },
   { value: "script_failed", label: "script_failed", category: "script",
     description: "A platform script crashed (exit code != 0), or the remediation phase of a health script crashed. Health-script detection / post-detection phases use exit code as a compliance verdict (non-zero = non-compliant) and emit script_completed even on non-zero exit; only a true script crash in those phases would surface here." },
+  { value: "script_timeout_suspected", label: "script_timeout_suspected", category: "script",
+    description: "A platform script ran to the IME script-execution timeout (~30 min; threshold 25 min) and was marked Failed while the enrollment was in progress. IME runs platform scripts serially, so a hung script starves app installs and the Autopilot-Monitor bootstrap — the prime suspect behind a late agent start / pre-failed ESP. Advisory (one per policyId); carries durationSeconds, exitCode and espPhase." },
 
   // -------- Diagnostics / misc --------
   { value: "error_detected", label: "error_detected", category: "diagnostics",

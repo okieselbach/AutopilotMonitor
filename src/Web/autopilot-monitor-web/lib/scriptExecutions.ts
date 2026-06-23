@@ -26,9 +26,32 @@ export interface ScriptItem {
   errorDetails?: string;
   stdout?: string;
   stderr?: string;
+  /**
+   * Observed run duration in seconds (start line → completion), surfaced by the agent on
+   * every platform-script completion. Lets the UI flag slow / inefficient scripts. Absent
+   * when the agent never saw the script's start line (e.g. a completion observed on replay
+   * without a matching start).
+   */
+  durationSeconds?: number;
   state: "Running" | "Success" | "Failed";
   timestamp: string;
   bootstrapVersion?: string | null;
+}
+
+/**
+ * Compact human-readable run duration (e.g. "8s", "2m 14s", "1h 03m"). Returns null for
+ * null/negative input so callers can omit the cell entirely.
+ */
+export function formatScriptDuration(seconds?: number): string | null {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return null;
+  const total = Math.round(seconds);
+  if (total < 60) return `${total}s`;
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  if (m < 60) return `${m}m ${s.toString().padStart(2, "0")}s`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return `${h}h ${rm.toString().padStart(2, "0")}m`;
 }
 
 /**
@@ -92,6 +115,7 @@ function dataCompleteness(item: ScriptItem): number {
   if (item.stdout && item.stdout.length > 0) score += 1;
   if (item.stderr && item.stderr.length > 0) score += 1;
   if (item.runContext) score += 1;
+  if (item.durationSeconds != null) score += 1;
   return score;
 }
 
@@ -208,6 +232,7 @@ export function reduceScriptEvents(events: ScriptInputEvent[]): ScriptItem[] {
     if (policyId) policyIdsWithFinal.add(`${policyId}-${scriptType}`);
 
     const exitCode = toNumber(d.exitCode ?? d.exit_code);
+    const durationSeconds = toNumber(d.durationSeconds ?? d.duration_seconds);
     const remediationStatus = toNumber(d.remediationStatus ?? d.remediation_status);
     const targetType = toNumber(d.targetType ?? d.target_type);
     const errorCode = toNumber(d.errorCode ?? d.error_code);
@@ -244,6 +269,7 @@ export function reduceScriptEvents(events: ScriptInputEvent[]): ScriptItem[] {
       errorDetails: d.errorDetails ?? d.error_details,
       stdout,
       stderr,
+      durationSeconds,
       state: isFailureSignal ? "Failed" : "Success",
       timestamp: evt.timestamp,
       bootstrapVersion: scriptType === "platform" ? extractBootstrapVersion(stdout) : null,
