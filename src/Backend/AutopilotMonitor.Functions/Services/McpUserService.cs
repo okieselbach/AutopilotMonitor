@@ -83,7 +83,10 @@ public class McpUserService
 
                 return isMcpUser
                     ? McpAccessCheckResult.Allowed(upn, "McpUser", false)
-                    : McpAccessCheckResult.Denied("Not authorized for MCP access");
+                    // Surfaced to the end user by the MCP server's access guard. Keep it
+                    // self-explanatory so a denied colleague understands they simply need
+                    // to be whitelisted, rather than reading it as an auth failure.
+                    : McpAccessCheckResult.Denied("User not enabled for MCP usage (account is not on the MCP whitelist)");
         }
     }
 

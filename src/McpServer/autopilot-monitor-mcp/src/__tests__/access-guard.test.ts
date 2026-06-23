@@ -190,6 +190,28 @@ describe('accessGuard — 403 (authorization + fail-closed)', () => {
     expect((out.body as { reason: string }).reason).toBe('not on the MCP whitelist');
   });
 
+  it('gives a genuine whitelist denial an actionable message naming the user', async () => {
+    const upn = uniqueUpn();
+    stubBackend({ body: { allowed: false, reason: 'User not enabled for MCP usage' } });
+    const out = await runGuard(mockReq(`Bearer ${validToken(upn)}`));
+    expect(out.status).toBe(403);
+    const body = out.body as { error: string; message: string };
+    expect(body.error).toBe('User not enabled for MCP usage');
+    // The message must name the account and point at the fix (get whitelisted).
+    expect(body.message).toContain(upn);
+    expect(body.message).toMatch(/whitelist/i);
+  });
+
+  it('does NOT label an infrastructure failure as a whitelist problem', async () => {
+    // A cold/unreachable backend must not tell the user they are "not enabled".
+    stubBackend({ reject: true });
+    const out = await runGuard(mockReq(`Bearer ${validToken(uniqueUpn())}`));
+    expect(out.status).toBe(403);
+    const body = out.body as { error: string; message?: string };
+    expect(body.error).not.toBe('User not enabled for MCP usage');
+    expect(body.message).toBeUndefined();
+  });
+
   it('fail-closed: denies when the backend fetch throws (tests-2)', async () => {
     // scale-to-zero ⇒ a cold/unreachable backend is routine. checkAccess must
     // resolve allowed:false, never allowed:true.
