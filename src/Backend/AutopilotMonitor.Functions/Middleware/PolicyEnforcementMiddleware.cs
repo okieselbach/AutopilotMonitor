@@ -240,12 +240,21 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
 
     /// <summary>
     /// The READ policy tiers a delegated (scoped-global / MSP) assignment may satisfy for a tenant in its
-    /// scope. Deliberately excludes every write tier (TenantAdminOrGA, BootstrapManagerOrGA, GlobalAdminOnly)
-    /// and the cross-tenant aggregate tier (GlobalReadOrAdmin — its endpoints fan out over ALL tenants and
-    /// are only safe for delegated callers once bounded to AllowedTenantIds; that bounding lands in Phase 2).
+    /// scope. Deliberately excludes every write tier (TenantAdminOrGA, BootstrapManagerOrGA, GlobalAdminOnly).
+    ///
+    /// GlobalReadOrAdmin is included (Phase 2a) BUT a delegated grant only ever fires on a tenant-SCOPED
+    /// route (RouteParam / QueryParam) for a target in the caller's allowed set — see the
+    /// <c>isScopedRoute &amp;&amp; crossTenant</c> guard in <see cref="DecideAsync"/>. A delegated caller therefore
+    /// reaches a GlobalReadOrAdmin endpoint ONLY on its single-tenant (?tenantId=X / {tenantId}) path, never
+    /// the no-tenantId AGGREGATE path (which fans out over ALL tenants). The catalog enforces the other half
+    /// of this invariant: ONLY GlobalReadOrAdmin routes that strictly restrict to the named tenant carry
+    /// QueryParam/RouteParam scoping; aggregate-only routes stay TenantScoping.None and are thus unreachable
+    /// by delegated callers. Bounded cross-tenant aggregation for the fleet view is a separate later step.
     /// </summary>
     private static bool IsDelegatedReadTier(EndpointPolicy policy)
-        => policy is EndpointPolicy.MemberRead or EndpointPolicy.TenantAdminOrGlobalReader;
+        => policy is EndpointPolicy.MemberRead
+            or EndpointPolicy.TenantAdminOrGlobalReader
+            or EndpointPolicy.GlobalReadOrAdmin;
 
     private async Task<CatalogDecisionResult> EvaluateCatalogPolicyAsync(
         ClaimsPrincipal? principal, EndpointPolicyEntry entry)

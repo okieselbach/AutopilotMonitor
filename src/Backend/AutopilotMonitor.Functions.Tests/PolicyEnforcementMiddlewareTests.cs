@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using AutopilotMonitor.Functions.Middleware;
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
@@ -393,10 +394,11 @@ public class PolicyEnforcementMiddlewareTests
     }
 
     [Fact]
-    public async Task Delegated_DoesNotReachAggregateGlobalEndpoint()
+    public async Task Delegated_AggregateGlobalEndpoint_NoTenantId_IsForbidden()
     {
-        // Cross-tenant AGGREGATE endpoints (GlobalReadOrAdmin) fan out over ALL tenants and are not
-        // bounded to the delegated subset until Phase 2 — a delegated admin must NOT reach them yet.
+        // The no-tenantId AGGREGATE path of a global endpoint fans out over ALL tenants. Even though
+        // global/sessions is QueryParam-scoped (Phase 2a), a delegated caller WITHOUT ?tenantId= resolves no
+        // target ⇒ no delegated grant ⇒ denied. Only the single-tenant (?tenantId=X) path is open to them.
         const string upn = "msp@partner.example";
         var h = BuildHarness();
         h.AsDelegated(TenantB);
@@ -423,5 +425,94 @@ public class PolicyEnforcementMiddlewareTests
         Assert.True(result.Allowed); // the delegated read itself is allowed…
         // …but no config row was persisted for the MSP's home tenant A (nor any tenant).
         h.ConfigRepo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+    }
+
+    // ── Phase 2a: delegated single-tenant access to cross-tenant /api/global/* read endpoints ──
+
+    [Fact]
+    public async Task Delegated_GlobalEndpoint_SingleTenant_InScope_IsAllowed()
+    {
+        // global/sessions?tenantId=B — SAFE route (handler restricts to the named tenant), B in scope.
+        const string upn = "msp@partner.example";
+        var h = BuildHarness();
+        h.AsDelegated(TenantB);
+
+        var result = await h.Middleware.DecideAsync("GET", "/api/global/sessions", TenantB, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed);
+        var rc = result.Context!;
+        Assert.Equal(TenantB, rc.TargetTenantId);
+        Assert.True(rc.IsDelegatedReader);
+        Assert.False(rc.IsGlobalReader);
+        Assert.Contains(TenantB.ToLowerInvariant(), rc.AllowedTenantIds!);
+    }
+
+    [Fact]
+    public async Task Delegated_GlobalEndpoint_SingleTenant_OutOfScope_IsForbidden()
+    {
+        // global/sessions?tenantId=C — C is not in the delegated set ⇒ blocked.
+        const string upn = "msp@partner.example";
+        var h = BuildHarness();
+        h.AsDelegated(TenantB);
+
+        const string tenantC = "33333333-3333-3333-3333-333333333333";
+        var result = await h.Middleware.DecideAsync("GET", "/api/global/sessions", tenantC, AuthedPrincipal(TenantA, upn));
+
+        Assert.False(result.Allowed);
+        Assert.Equal(403, result.StatusCode);
+    }
+
+    [Fact]
+    public async Task Delegated_AggregateOnlyRoute_WithTenantId_StaysBlocked()
+    {
+        // global/presence is AGGREGATE-ONLY: its handler ignores ?tenantId= and returns ALL tenants'
+        // presence. It MUST stay TenantScoping.None so a delegated caller can never reach it — even if they
+        // pass a tenantId in their scope. (If this ever flips to QueryParam it's a cross-tenant leak.)
+        const string upn = "msp@partner.example";
+        var h = BuildHarness();
+        h.AsDelegated(TenantB);
+
+        var result = await h.Middleware.DecideAsync("GET", "/api/global/presence", TenantB, AuthedPrincipal(TenantA, upn));
+
+        Assert.False(result.Allowed);
+        Assert.Equal(403, result.StatusCode);
+    }
+
+    [Fact]
+    public async Task GlobalReader_AggregateGlobalEndpoint_StillWorks()
+    {
+        // Regression: recataloging SAFE routes to QueryParam must not change full-platform behavior.
+        // A Global Reader hitting the aggregate path (no tenantId) is still allowed (HasGlobalScope bypass).
+        const string upn = "reader@contoso.com";
+        var h = BuildHarness();
+        h.AsGlobalRole(Constants.GlobalRoles.GlobalReader);
+
+        var result = await h.Middleware.DecideAsync("GET", "/api/global/sessions", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed);
+    }
+
+    // ── Catalog contract: which global routes are delegated-accessible (single-tenant) vs aggregate-only ──
+    // QueryParam/RouteParam on a GlobalReadOrAdmin route == "handler restricts to the named tenant" ==
+    // reachable by a delegated admin. None == aggregate-only == GA/Reader-only. Pins the leak-critical split.
+
+    [Theory]
+    // SAFE — opened to delegated single-tenant access:
+    [InlineData("GET", "/api/global/sessions", TenantScoping.QueryParam)]
+    [InlineData("GET", "/api/global/audit/logs", TenantScoping.QueryParam)]
+    [InlineData("GET", "/api/global/metrics/app", TenantScoping.QueryParam)]
+    [InlineData("GET", "/api/global/metrics/fleet-health", TenantScoping.QueryParam)]
+    [InlineData("GET", "/api/global/search/sessions", TenantScoping.QueryParam)]
+    // AGGREGATE-ONLY — MUST stay None (unreachable by delegated):
+    [InlineData("GET", "/api/global/presence", TenantScoping.None)]
+    [InlineData("GET", "/api/global/metrics/platform", TenantScoping.None)]
+    [InlineData("GET", "/api/global/distress-reports", TenantScoping.None)]
+    [InlineData("GET", "/api/config/all", TenantScoping.None)]
+    public void GlobalRoute_DelegatedAccessibility_MatchesContract(string method, string path, TenantScoping expected)
+    {
+        var entry = EndpointAccessPolicyCatalog.FindPolicy(method, path);
+        Assert.NotNull(entry);
+        Assert.Equal(EndpointPolicy.GlobalReadOrAdmin, entry!.Policy);
+        Assert.Equal(expected, entry.TenantScoping);
     }
 }
