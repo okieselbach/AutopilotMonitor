@@ -89,7 +89,10 @@ public class AuthFunction
         // --- Parallel data fetch: all independent queries run concurrently ---
         // Fail-fast: if any fetch throws, AggregateException propagates → Azure Functions returns 500.
         // This is intentional — all 6 queries are required for the auth decision.
-        var tenantConfigTask = _tenantConfigService.GetConfigurationAsync(tenantId);
+        // Non-creating read: do NOT auto-persist a default config row just because someone authenticated.
+        // A delegated-only external MSP login must not phantom-onboard its home tenant (see the side-effect
+        // gate below). A genuine first-user still gets their config created by HandleNewTenantDomainAsync.
+        var tenantConfigTask = _tenantConfigService.TryGetConfigurationAsync(tenantId);
         var globalRoleTask = _globalAdminService.GetGlobalRoleAsync(upn);
         var delegatedScopeTask = _delegatedAdminService.GetScopeAsync(upn);
         var isApprovedTask = _previewWhitelistService.IsApprovedAsync(tenantId);
@@ -100,7 +103,7 @@ public class AuthFunction
         await Task.WhenAll(tenantConfigTask, globalRoleTask, delegatedScopeTask, isApprovedTask,
                            membershipTask, mcpCheckTask, existingAdminsTask);
 
-        var tenantConfig = tenantConfigTask.Result;
+        var (tenantConfig, _) = tenantConfigTask.Result;
         var globalRole = globalRoleTask.Result;
         var isGlobalAdmin = globalRole == Constants.GlobalRoles.GlobalAdmin;
         var isGlobalReader = globalRole == Constants.GlobalRoles.GlobalReader;
@@ -119,8 +122,20 @@ public class AuthFunction
             tableState, tableRole, principal.GetAppRoles(), tenantConfig.EntraAppRolesEnabled);
 
         // --- Side-effects that don't affect the auth decision ---
-        await HandleNewTenantDomainAsync(tenantConfig, tenantId, upn);
-        await HandleAutoReEnableAsync(tenantConfig, tenantId);
+        // Run first-login onboarding side-effects (domain/OnboardedBy write + "new tenant signup"
+        // notification, auto-re-enable, and the implicit config-row persistence) ONLY for a genuine
+        // home-tenant participant. A delegated-only external MSP caller — who bypassed the preview gate to
+        // manage OTHER tenants and has no stake in this home tenant (no membership, no platform role) — is
+        // excluded, so a read-only MSP login does not phantom-onboard its home tenant (false signup, default
+        // config row). A delegated user who legitimately participates in their own tenant (member/global)
+        // still onboards normally; the handlers self-gate when the config already exists.
+        var isDelegated = delegatedTenantIds.Count > 0;
+        var isHomeTenantParticipant = !isDelegated || isGlobalAdmin || isGlobalReader || memberRole != null;
+        if (isHomeTenantParticipant)
+        {
+            await HandleNewTenantDomainAsync(tenantConfig, tenantId, upn);
+            await HandleAutoReEnableAsync(tenantConfig, tenantId);
+        }
 
         // --- Pure decision logic (tested by AuthFunctionTests) ---
         var decision = BuildAuthResult(
@@ -396,8 +411,15 @@ public class AuthFunction
         // it removes nothing, and a GlobalReader who should also administer their tenant can be added
         // to TenantAdmins explicitly. (A pure GlobalReader stays read-only everywhere via the write
         // evaluators denying a roleless caller.)
+        // Auto-admin is NOT an existing right — it SILENTLY grants write on first login. Decline it for any
+        // identity that reached this point on a cross-tenant ticket rather than as a genuine home-tenant
+        // first-user: a read-only GlobalReader, AND a delegated ("MSP") admin. A delegated caller logged in
+        // to manage OTHER tenants and bypassed the preview gate; auto-admining their own (possibly
+        // non-customer) home tenant would convert a read-only delegated assignment into write authority over
+        // it. A delegated user who legitimately administers their own tenant has a TenantAdmins row (memberRole
+        // != null), so this only suppresses the silent grant, never an existing right.
         bool isTenantAdmin = memberRole?.Role == Constants.TenantRoles.Admin;
-        bool needsAutoAdmin = memberRole == null && !hasTenantAdmins && !isGlobalReader;
+        bool needsAutoAdmin = memberRole == null && !hasTenantAdmins && !isGlobalReader && !isDelegated;
         if (needsAutoAdmin)
         {
             isTenantAdmin = true;

@@ -305,6 +305,27 @@ public class AuthFunctionTests
         Assert.Equal("TenantSuspended", (string)body.error);
     }
 
+    [Fact]
+    public void AutoAdmin_DelegatedFirstUser_DoesNotAutoAdminHomeTenant()
+    {
+        // A delegated ("MSP") admin logging into a home tenant with NO existing admins must NOT be silently
+        // made its Tenant Admin — that would convert a read-only delegated assignment (for OTHER tenants)
+        // into write authority over the home tenant. Regression for the preview-gate bypass opening the
+        // auto-admin path to delegated callers.
+        var result = AuthFunction.BuildAuthResult(
+            DefaultConfig(), isGlobalAdmin: false, isGlobalReader: false, isPreviewApproved: false,
+            memberRole: null, mcpCheck: McpDenied(),
+            hasTenantAdmins: false,
+            TenantId, Upn, DisplayName, ObjectId,
+            delegatedTenantIds: new[] { "22222222-2222-2222-2222-222222222222" });
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.NeedsAutoAdmin);
+        var body = ToDynamic(result.Body);
+        Assert.False((bool)body.isTenantAdmin);
+        Assert.Null((string?)body.role);
+    }
+
     // -------------------------------------------------------------------------
     // Auto-Admin Logic
     // -------------------------------------------------------------------------
