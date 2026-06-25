@@ -15,14 +15,21 @@ interface ProtectedRouteProps {
    * backend-enforced 403/redaction).
    */
   requireGlobalScope?: boolean;
+  /**
+   * Require FLEET scope: full platform scope (Global Admin / Reader) OR a delegated ("MSP") admin who
+   * manages a subset of tenants. Use for the fleet area, which a delegated admin may VIEW bounded to its
+   * managed tenants. The backend enforces the per-tenant bound on every request; this only gates the
+   * client route so a single-tenant user with no fleet doesn't land on an empty fleet page.
+   */
+  requireFleetScope?: boolean;
 }
 
 /**
- * Protects routes by requiring authentication
- * Optionally requires Global Admin role, or platform scope (Global Admin or read-only Global Reader).
+ * Protects routes by requiring authentication. Optionally requires Global Admin, platform scope
+ * (Global Admin or read-only Global Reader), or fleet scope (platform scope OR a delegated MSP admin).
  */
-export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGlobalScope = false }: ProtectedRouteProps) {
-  const { isAuthenticated, user, hasGlobalScope, isLoading, login } = useAuth();
+export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGlobalScope = false, requireFleetScope = false }: ProtectedRouteProps) {
+  const { isAuthenticated, user, hasGlobalScope, hasFleetScope, isLoading, login } = useAuth();
   const router = useRouter();
 
   // Once authenticated, remember it so transient auth-state flips (e.g. MSAL
@@ -80,7 +87,8 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
   // requireGlobalAdmin → real Global Admin only; requireGlobalScope → Global Admin OR Global Reader.
   const platformDenied =
     (requireGlobalAdmin && user && !user.isGlobalAdmin) ||
-    (requireGlobalScope && user && !hasGlobalScope);
+    (requireGlobalScope && user && !hasGlobalScope) ||
+    (requireFleetScope && user && !hasFleetScope);
   if (platformDenied) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">

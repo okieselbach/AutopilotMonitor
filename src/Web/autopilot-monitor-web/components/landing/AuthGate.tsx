@@ -24,6 +24,9 @@ export function AuthGate() {
       } else if (returnUrl) {
         // Restore the deep link the user originally opened before re-auth.
         router.replace(returnUrl);
+      } else if (user.isDelegated && !user.isTenantAdmin && !user.isGlobalAdmin && !user.isGlobalReader && user.role !== 'Operator') {
+        // A delegated ("MSP") admin with no own-tenant/platform role manages a fleet → land on /fleet.
+        router.push("/fleet");
       } else if (user.isTenantAdmin || user.isGlobalAdmin || user.isGlobalReader || user.role === 'Operator') {
         router.push("/dashboard");
       } else {
