@@ -52,10 +52,13 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var requestCtx = req.GetRequestContext();
                 if (requestCtx.AllowedTenantIds != null)
                 {
-                    var allowed = new System.Collections.Generic.HashSet<string>(
-                        requestCtx.AllowedTenantIds, StringComparer.OrdinalIgnoreCase);
-                    var all = await _configService.GetAllConfigurationsAsync();
-                    var subset = all.Where(c => allowed.Contains(c.TenantId)).ToList();
+                    // READ-bounded, not just response-bounded: point-read ONLY the caller's managed tenants
+                    // instead of scanning every tenant config and filtering in memory. A delegated MSP scoped
+                    // to k tenants triggers k point reads (cached, non-creating — TryGetConfigurationAsync
+                    // never writes a default row). exists==false drops any id with no config row.
+                    var reads = await Task.WhenAll(requestCtx.AllowedTenantIds.Select(async tid =>
+                        await _configService.TryGetConfigurationAsync(tid)));
+                    var subset = reads.Where(r => r.exists).Select(r => r.config).ToList();
                     _logger.LogInformation("GetAllTenantConfigurations (delegated subset, {Count} tenants) by {User}",
                         subset.Count, userIdentifier);
 
