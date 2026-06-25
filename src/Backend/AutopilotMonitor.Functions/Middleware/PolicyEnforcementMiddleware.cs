@@ -448,7 +448,12 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         if (principal == null)
             return null;
 
-        var config = await _tenantConfigService.GetConfigurationAsync(tenantId);
+        // Side-effect-free read: TryGetConfigurationAsync does NOT persist a default row for a missing
+        // tenant (GetConfigurationAsync would). Authorization role resolution must never create config as
+        // a side effect — otherwise an external delegated/MSP user whose own home tenant is not onboarded
+        // would get a phantom TenantConfiguration row written on their first cross-tenant read. A missing
+        // config simply means EntraAppRolesEnabled = false (the default), so the role result is unchanged.
+        var (config, _) = await _tenantConfigService.TryGetConfigurationAsync(tenantId);
         return EntraAppRoleResolver.Resolve(state, tableRole, principal.GetAppRoles(), config.EntraAppRolesEnabled);
     }
 

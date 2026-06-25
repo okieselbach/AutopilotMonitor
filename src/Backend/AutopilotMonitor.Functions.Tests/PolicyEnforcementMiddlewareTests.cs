@@ -3,6 +3,7 @@ using AutopilotMonitor.Functions.Middleware;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -30,6 +31,7 @@ public class PolicyEnforcementMiddlewareTests
     {
         public required PolicyEnforcementMiddleware Middleware { get; init; }
         public required Mock<IAdminRepository> Repo { get; init; }
+        public required Mock<IConfigRepository> ConfigRepo { get; init; }
 
         public void AsGlobalRole(string role) =>
             Repo.Setup(r => r.GetGlobalRoleAsync(It.IsAny<string>())).ReturnsAsync(role);
@@ -70,17 +72,23 @@ public class PolicyEnforcementMiddlewareTests
         repo.Setup(r => r.GetDelegatedTenantsAsync(It.IsAny<string>()))
             .ReturnsAsync(new List<DelegatedAdminEntry>());
 
+        // Captured config repo: GetTenantConfigurationAsync returns null (tenant has no config row) so we can
+        // assert that authorization role resolution never PERSISTS a default row as a side effect.
+        var configRepo = new Mock<IConfigRepository>();
+        configRepo.Setup(r => r.GetTenantConfigurationAsync(It.IsAny<string>()))
+            .ReturnsAsync((TenantConfiguration?)null);
+
         var cache = new MemoryCache(new MemoryCacheOptions());
         var globalAdmin = new GlobalAdminService(repo.Object, cache, NullLogger<GlobalAdminService>.Instance);
         var delegatedAdmin = new DelegatedAdminService(repo.Object, cache, NullLogger<DelegatedAdminService>.Instance);
         var tenantAdmins = new TenantAdminsService(repo.Object, cache, NullLogger<TenantAdminsService>.Instance);
         var tenantConfig = new TenantConfigurationService(
-            Mock.Of<IConfigRepository>(), NullLogger<TenantConfigurationService>.Instance, cache);
+            configRepo.Object, NullLogger<TenantConfigurationService>.Instance, cache);
 
         var mw = new PolicyEnforcementMiddleware(
             NullLogger<PolicyEnforcementMiddleware>.Instance, globalAdmin, delegatedAdmin, tenantAdmins, tenantConfig);
 
-        return new Harness { Middleware = mw, Repo = repo };
+        return new Harness { Middleware = mw, Repo = repo, ConfigRepo = configRepo };
     }
 
     private static ClaimsPrincipal AuthedPrincipal(string tenantId, string upn)
@@ -397,5 +405,23 @@ public class PolicyEnforcementMiddlewareTests
 
         Assert.False(result.Allowed);
         Assert.Equal(403, result.StatusCode);
+    }
+
+    [Fact]
+    public async Task Delegated_Read_DoesNotCreateConfigForMspHomeTenant()
+    {
+        // Regression: authorization role resolution touches the caller's OWN home tenant role path before
+        // the delegated rescue. That lookup must be side-effect-free — an external MSP user whose home
+        // tenant (A) is not onboarded must NOT get a phantom TenantConfiguration row written on their first
+        // cross-tenant read. (See ResolveEffectiveRoleAsync → TryGetConfigurationAsync, non-creating.)
+        const string upn = "msp@partner.example";
+        var h = BuildHarness();
+        h.AsDelegated(TenantB); // delegated reader of B; home tenant A has no membership and no config row
+
+        var result = await h.Middleware.DecideAsync("GET", $"/api/config/{TenantB}", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed); // the delegated read itself is allowed…
+        // …but no config row was persisted for the MSP's home tenant A (nor any tenant).
+        h.ConfigRepo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
     }
 }
