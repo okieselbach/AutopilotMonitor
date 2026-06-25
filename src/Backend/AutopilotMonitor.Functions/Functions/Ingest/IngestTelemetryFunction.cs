@@ -136,7 +136,18 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 var tenantConfig = await _configService.GetConfigurationAsync(tenantIdHeader);
                 var maxPayloadBytes = (tenantConfig?.MaxNdjsonPayloadSizeMB ?? 5) * 1024 * 1024;
 
-                var (exceeded, body) = await ReadBodyWithSizeCapAsync(req.Body, maxPayloadBytes);
+                bool exceeded;
+                List<TelemetryItemDto>? items;
+                try
+                {
+                    (exceeded, items) = await ReadBodyWithSizeCapAsync(req.Body, maxPayloadBytes);
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(ex, "IngestTelemetry: malformed JSON body");
+                    return AsOutput(await WriteErrorAsync(req, HttpStatusCode.BadRequest, "Malformed JSON body"));
+                }
+
                 if (exceeded)
                 {
                     _logger.LogWarning(
@@ -145,17 +156,6 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     return AsOutput(await WriteErrorAsync(
                         req, HttpStatusCode.RequestEntityTooLarge,
                         $"Payload exceeds {maxPayloadBytes / (1024 * 1024)} MB cap"));
-                }
-
-                List<TelemetryItemDto>? items;
-                try
-                {
-                    items = JsonConvert.DeserializeObject<List<TelemetryItemDto>>(body);
-                }
-                catch (JsonException ex)
-                {
-                    _logger.LogWarning(ex, "IngestTelemetry: malformed JSON body");
-                    return AsOutput(await WriteErrorAsync(req, HttpStatusCode.BadRequest, "Malformed JSON body"));
                 }
 
                 if (items == null || items.Count == 0)
@@ -502,12 +502,24 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         }
 
         /// <summary>
-        /// Reads a stream into a string with a strict byte cap. Returns <c>(true, "")</c> as
-        /// soon as the cap would be exceeded — the stream isn't fully drained, which bounds
-        /// memory use even for a malicious sender. Matches the legacy NDJSON parser's guard
-        /// semantics (strict greater-than, so a payload equal to the cap is accepted).
+        /// Buffers the request body under a strict byte cap, then deserialises the telemetry batch
+        /// directly off the buffered bytes. Returns <c>(true, null)</c> as soon as the cap would be
+        /// exceeded — the stream isn't fully drained, which bounds memory use even for a malicious
+        /// sender (strict greater-than, so a payload equal to the cap is accepted; matches the
+        /// legacy NDJSON parser's guard semantics).
+        /// <para>
+        /// Hot-path note: this deserialises through a <see cref="JsonTextReader"/> over the buffered
+        /// <see cref="MemoryStream"/> rather than materialising a full UTF-16 <c>string</c> + a
+        /// <c>ToArray()</c> copy first. That removes ~3× the body size in transient allocations per
+        /// request on the highest-volume backend endpoint — the reader decodes UTF-8 incrementally
+        /// in 8&#160;KB chunks. The cap is still applied <i>before</i> parsing, so an over-cap body
+        /// never reaches the deserialiser.
+        /// </para>
+        /// Throws <see cref="JsonException"/> on malformed JSON (caller maps to 400). The
+        /// deserialiser uses the same default settings as <c>JsonConvert.DeserializeObject</c>, so
+        /// the parse semantics are unchanged — only the intermediate allocations are gone.
         /// </summary>
-        internal static async Task<(bool exceeded, string body)> ReadBodyWithSizeCapAsync(
+        internal static async Task<(bool exceeded, List<TelemetryItemDto>? items)> ReadBodyWithSizeCapAsync(
             Stream source, int maxBytes)
         {
             using var buffered = new MemoryStream();
@@ -517,10 +529,15 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             while ((read = await source.ReadAsync(buffer, 0, buffer.Length)) > 0)
             {
                 total += read;
-                if (total > maxBytes) return (true, string.Empty);
+                if (total > maxBytes) return (true, null);
                 await buffered.WriteAsync(buffer, 0, read);
             }
-            return (false, System.Text.Encoding.UTF8.GetString(buffered.ToArray()));
+
+            buffered.Position = 0;
+            using var textReader = new StreamReader(buffered, System.Text.Encoding.UTF8);
+            using var jsonReader = new JsonTextReader(textReader);
+            var items = JsonSerializer.CreateDefault().Deserialize<List<TelemetryItemDto>>(jsonReader);
+            return (false, items);
         }
 
         /// <summary>

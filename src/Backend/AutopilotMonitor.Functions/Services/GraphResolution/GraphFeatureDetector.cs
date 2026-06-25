@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
@@ -42,6 +43,21 @@ public sealed class GraphFeatureDetector : IGraphFeatureDetector
     {
         public static readonly NegativeAcquireMarker Instance = new();
     }
+
+    /// <summary>
+    /// Cache entry tagged with the per-tenant invalidation generation in effect when its acquire
+    /// started. <see cref="Payload"/> is either a <see cref="GraphTenantTokenContext"/> (success)
+    /// or <see cref="NegativeAcquireMarker"/> (definitive no-consent). Readers accept it only while
+    /// <see cref="Gen"/> still matches the tenant's current generation — a stale write that lands
+    /// after an <see cref="InvalidateTenant"/> carries an older generation and is rejected.
+    /// </summary>
+    private sealed record CachedVerdict(object Payload, long Gen);
+
+    // Per-tenant invalidation generation (see CachedVerdict + InvalidateTenant). Mirrors the
+    // GraphTokenService fix one layer down so the fresh-read contract holds on this cache too.
+    private readonly ConcurrentDictionary<string, long> _invalidationGen = new();
+
+    private long CurrentGen(string tenantId) => _invalidationGen.TryGetValue(tenantId, out var g) ? g : 0;
 
     private readonly GraphTokenService _tokenService;
     private readonly IMemoryCache _cache;
@@ -111,15 +127,23 @@ public sealed class GraphFeatureDetector : IGraphFeatureDetector
     {
         if (string.IsNullOrWhiteSpace(tenantId)) return (null, false);
 
+        // Capture the invalidation generation BEFORE the acquire. If InvalidateTenant runs while we
+        // fetch/parse the token below, the generation changes and the entry we write is tagged with
+        // the now-stale value — so readers reject it and re-acquire. Mirrors the GraphTokenService
+        // fix one layer down, closing the write-after-invalidate race on this cache too.
+        var genAtStart = CurrentGen(tenantId);
+
         var cacheKey = BuildCacheKey(tenantId);
-        if (_cache.TryGetValue(cacheKey, out object? cached) && cached != null)
+        if (_cache.TryGetValue(cacheKey, out CachedVerdict? cached)
+            && cached != null
+            && cached.Gen == CurrentGen(tenantId))
         {
-            if (cached is NegativeAcquireMarker)
+            if (cached.Payload is NegativeAcquireMarker)
             {
                 // Definitive "no consent / no SP in this tenant" verdict from a recent attempt.
                 return (null, false);
             }
-            if (cached is GraphTenantTokenContext cachedCtx
+            if (cached.Payload is GraphTenantTokenContext cachedCtx
                 && cachedCtx.ExpiresAt > _time.GetUtcNow() + ExpirySafetyMargin)
             {
                 return (cachedCtx, false);
@@ -145,7 +169,7 @@ public sealed class GraphFeatureDetector : IGraphFeatureDetector
             // revoked, or the app credentials are misconfigured. Cache the verdict briefly so
             // repeated cross-tenant clicks don't keep replaying the consent-propagation
             // retry chain for the same dead-end tenant.
-            CacheNegativeVerdict(cacheKey);
+            CacheNegativeVerdict(cacheKey, genAtStart);
             return (null, false);
         }
 
@@ -165,7 +189,10 @@ public sealed class GraphFeatureDetector : IGraphFeatureDetector
         };
 
         var ttl = ComputeTtl(expiresAt);
-        _cache.Set(cacheKey, ctx, new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = ttl });
+        // Tag with the generation captured before the acquire (see top of method). A concurrent
+        // InvalidateTenant bumps the generation, so this write — if it lands after the invalidation —
+        // is rejected by readers via the gen check, closing the write-after-invalidate race.
+        _cache.Set(cacheKey, new CachedVerdict(ctx, genAtStart), new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = ttl });
 
         _logger.LogDebug(
             "GraphFeatureDetector: cached token for tenant {TenantId} with {RoleCount} roles, TTL={Ttl}",
@@ -201,15 +228,27 @@ public sealed class GraphFeatureDetector : IGraphFeatureDetector
     public void InvalidateTenant(string tenantId)
     {
         if (string.IsNullOrWhiteSpace(tenantId)) return;
-        // Single cache key carries both the success token AND the negative marker, so one
-        // Remove call clears whichever verdict is currently in flight.
+        // ORDER IS LOAD-BEARING. Invalidate the UNDERLYING token layer FIRST, then bump OUR
+        // generation, then drop our cache. Token-first is what closes the cross-layer overlap race:
+        // otherwise a GetSnapshotAsync starting in the gap could capture our NEW generation yet
+        // still read the OLD (not-yet-invalidated) GraphTokenService cache, and then write a
+        // stale-roles ctx tagged with the new generation — which readers would ACCEPT, re-opening
+        // the stale "not granted" window until our TTL. Because an acquire captures its generation
+        // at method entry (before its token read), invalidating the token layer first guarantees
+        // any acquire able to read a stale token captured its generation before this bump, so its
+        // write loses the gen check. (This also drops the raw-token cache so our own next read can't
+        // re-parse a stale JWT — the original cross-layer fix.)
+        _tokenService.InvalidateTenant(tenantId);
+        _invalidationGen.AddOrUpdate(tenantId, 1, (_, v) => v + 1);
+        // Single cache key carries both the success token AND the negative marker, so one Remove
+        // clears whichever verdict is currently in flight.
         _cache.Remove(BuildCacheKey(tenantId));
         _logger.LogInformation("GraphFeatureDetector: cache invalidated for tenant {TenantId}", tenantId);
     }
 
-    private void CacheNegativeVerdict(string cacheKey)
+    private void CacheNegativeVerdict(string cacheKey, long gen)
     {
-        _cache.Set(cacheKey, NegativeAcquireMarker.Instance, new MemoryCacheEntryOptions
+        _cache.Set(cacheKey, new CachedVerdict(NegativeAcquireMarker.Instance, gen), new MemoryCacheEntryOptions
         {
             AbsoluteExpirationRelativeToNow = NegativeCacheTtl,
         });

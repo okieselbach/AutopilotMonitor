@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading;
@@ -19,6 +20,32 @@ namespace AutopilotMonitor.Functions.Security
     {
         private static readonly TimeSpan ConsentStatusTtl = TimeSpan.FromMinutes(2);
 
+        // App-token cache tuning. TTL = expires_in - skew margin, clamped so a missing/pathological
+        // expires_in can neither thrash the cache nor pin a stale token. Max stays under the typical
+        // ~60-90 min AAD client-credentials lifetime; the 5-min margin covers clock skew between
+        // this worker and the Graph resource server plus the slowest downstream call in a request.
+        private static readonly TimeSpan TokenSkewMargin = TimeSpan.FromMinutes(5);
+        private static readonly TimeSpan MinTokenTtl = TimeSpan.FromSeconds(60);
+        private static readonly TimeSpan MaxTokenTtl = TimeSpan.FromMinutes(55);
+        private static readonly TimeSpan DefaultTokenLifetime = TimeSpan.FromMinutes(35); // when AAD omits expires_in
+        private static readonly TimeSpan TokenGateWait = TimeSpan.FromSeconds(10);
+
+        // One coalescing gate per tenant (see GetAccessTokenAsync). A SemaphoreSlim is tiny and
+        // tenant cardinality is bounded + validated upstream, so these are never evicted.
+        private readonly ConcurrentDictionary<string, SemaphoreSlim> _tokenLocks = new();
+
+        // Per-tenant invalidation generation. Closes the write-after-invalidate race: a token POST
+        // that STARTED before InvalidateTenant captures the old generation and tags its cache entry
+        // with it; InvalidateTenant bumps the generation, so that late stale write is rejected by
+        // every reader (entry.Gen != current) even though it physically lands after the Remove.
+        // Lock-free — the comparison happens at read time against the latest generation.
+        private readonly ConcurrentDictionary<string, long> _tokenCacheGen = new();
+
+        private long CurrentGen(string tenantId) => _tokenCacheGen.TryGetValue(tenantId, out var g) ? g : 0;
+
+        /// <summary>Cached app token tagged with the invalidation generation in effect when its acquire started.</summary>
+        private sealed record CachedAppToken(string Token, long Gen);
+
         private readonly ILogger<GraphTokenService> _logger;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IMemoryCache _cache;
@@ -38,7 +65,7 @@ namespace AutopilotMonitor.Functions.Security
 
         public async Task<GraphConsentStatusResult> GetConsentStatusAsync(string tenantId, CancellationToken ct = default)
         {
-            var cacheKey = $"graph-consent-status:{tenantId}";
+            var cacheKey = ConsentCacheKey(tenantId);
             if (_cache.TryGetValue(cacheKey, out GraphConsentStatusResult? cached) && cached != null)
             {
                 return cached;
@@ -76,6 +103,14 @@ namespace AutopilotMonitor.Functions.Security
 
         public virtual async Task<GraphTokenResult> GetAccessTokenAsync(string tenantId, CancellationToken ct = default)
         {
+            // Serve a still-valid cached app token for this tenant. The cache key is keyed strictly
+            // on the (already authenticated upstream) tenantId — the same value that drives the token
+            // URL below — so a token minted for one tenant can never be served to another.
+            if (TryGetCachedToken(tenantId, out var cachedToken))
+            {
+                return GraphTokenResult.Success(cachedToken);
+            }
+
             var clientId = _configuration["EntraId:ClientId"];
             var clientSecret = _configuration["EntraId:ClientSecret"];
 
@@ -86,6 +121,54 @@ namespace AutopilotMonitor.Functions.Security
                 return GraphTokenResult.PermanentFailure();
             }
 
+            // Stampede guard: coalesce concurrent cache-misses for the same tenant so an enrollment
+            // wave doesn't fan a burst of identical token POSTs at AAD (which would trip its own
+            // throttling). One acquirer fetches + populates the cache; the rest hit it after the
+            // gate. The wait is bounded so a pathological slow acquire (e.g. a no-consent tenant on
+            // the long retry chain) degrades to today's parallel-fetch behaviour instead of pinning
+            // callers indefinitely.
+            var gate = _tokenLocks.GetOrAdd(tenantId, _ => new SemaphoreSlim(1, 1));
+            bool gotGate;
+            try
+            {
+                gotGate = await gate.WaitAsync(TokenGateWait, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // Caller budget exhausted while waiting — transient by definition (never cache).
+                return GraphTokenResult.TransientFailure();
+            }
+
+            try
+            {
+                // Double-check: another thread may have populated the cache while we waited. The
+                // gen-aware read also rejects a stale entry written by an acquire that overlapped an
+                // InvalidateTenant, so we fall through to a fresh mint instead of serving it.
+                if (gotGate && TryGetCachedToken(tenantId, out var tokenAfterWait))
+                {
+                    return GraphTokenResult.Success(tokenAfterWait);
+                }
+
+                return await AcquireTokenViaClientCredentialsAsync(tenantId, clientId, clientSecret, ct);
+            }
+            finally
+            {
+                if (gotGate) gate.Release();
+            }
+        }
+
+        /// <summary>
+        /// Performs the client-credentials POST (with the consent-propagation retry chain) and
+        /// caches a successful token until shortly before its expiry. Failures are never cached, so
+        /// a tenant that loses consent re-acquires (and fails) on the next request after expiry.
+        /// </summary>
+        private async Task<GraphTokenResult> AcquireTokenViaClientCredentialsAsync(
+            string tenantId, string clientId, string clientSecret, CancellationToken ct)
+        {
+            // Capture the invalidation generation BEFORE the POST. If an InvalidateTenant lands
+            // while this POST is in flight, the generation changes and the token we cache below is
+            // tagged with the now-stale value — so readers reject it and re-mint fresh.
+            var genAtStart = CurrentGen(tenantId);
             var tokenUrl = $"https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/token";
 
             // Retry with backoff to handle Azure AD consent propagation delays.
@@ -124,6 +207,12 @@ namespace AutopilotMonitor.Functions.Security
                     {
                         var tokenJson = JsonConvert.DeserializeObject<JObject>(responseBody);
                         var accessToken = tokenJson?["access_token"]?.ToString();
+                        if (!string.IsNullOrEmpty(accessToken))
+                        {
+                            // Cache the freshly minted token (never log its value). TTL derives from
+                            // the token's own expires_in, minus a skew margin, clamped to a safe band.
+                            CacheToken(tenantId, accessToken!, genAtStart, (long?)tokenJson?["expires_in"]);
+                        }
                         return GraphTokenResult.Success(accessToken);
                     }
 
@@ -207,6 +296,64 @@ namespace AutopilotMonitor.Functions.Security
                     attempt++;
                 }
             }
+        }
+
+        private static string TokenCacheKey(string tenantId) => $"graph-token:{tenantId}";
+        private static string ConsentCacheKey(string tenantId) => $"graph-consent-status:{tenantId}";
+
+        /// <summary>
+        /// Drops this tenant's cached app token (and consent-status verdict) so the next acquire
+        /// mints a fresh JWT from AAD. Required for the consent / Graph-permission fresh-read
+        /// contract: after an admin grants consent or assigns app roles, the OLD token still carries
+        /// the OLD <c>roles</c> claim until it expires — serving it would make a post-grant "Refresh"
+        /// keep reporting "not granted" for up to the cache TTL. The single fresh-read entry point
+        /// <c>GraphFeatureDetector.InvalidateTenant</c> calls this so BOTH cache layers are cleared
+        /// together (the detector's parsed-roles cache AND this raw-token cache).
+        /// </summary>
+        public virtual void InvalidateTenant(string tenantId)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId)) return;
+            // Bump the generation FIRST so any token POST already in flight (which captured the old
+            // generation) writes an entry that readers reject as stale — this closes the
+            // write-after-invalidate race, not just the already-written entry. Then drop the current
+            // entries to free memory and clear the coarse consent-status verdict.
+            _tokenCacheGen.AddOrUpdate(tenantId, 1, (_, v) => v + 1);
+            _cache.Remove(TokenCacheKey(tenantId));
+            _cache.Remove(ConsentCacheKey(tenantId));
+        }
+
+        private bool TryGetCachedToken(string tenantId, out string token)
+        {
+            // Accept the cached token only if its generation still matches the tenant's current one.
+            // A mismatch means an InvalidateTenant ran since this entry's acquire started, so the
+            // token may carry a stale roles claim — treat it as a miss and re-mint.
+            if (_cache.TryGetValue(TokenCacheKey(tenantId), out CachedAppToken? cached)
+                && cached != null
+                && !string.IsNullOrEmpty(cached.Token)
+                && cached.Gen == CurrentGen(tenantId))
+            {
+                token = cached.Token;
+                return true;
+            }
+            token = string.Empty;
+            return false;
+        }
+
+        private void CacheToken(string tenantId, string accessToken, long genAtStart, long? expiresInSeconds)
+        {
+            // expires_in is reported by AAD over TLS, so it is trustworthy — but still clamped so a
+            // missing or pathological value cannot pin a stale token (cap) or cause thrash (floor).
+            var lifetime = expiresInSeconds is > 0
+                ? TimeSpan.FromSeconds(expiresInSeconds.Value)
+                : DefaultTokenLifetime;
+            var ttl = lifetime - TokenSkewMargin;
+            if (ttl < MinTokenTtl) ttl = MinTokenTtl;
+            if (ttl > MaxTokenTtl) ttl = MaxTokenTtl;
+
+            _cache.Set(TokenCacheKey(tenantId), new CachedAppToken(accessToken, genAtStart), new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = ttl,
+            });
         }
     }
 

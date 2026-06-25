@@ -313,6 +313,145 @@ public class GraphFeatureDetectorTests
         Assert.Equal(2, tokenService.CallCount);
     }
 
+    [Fact]
+    public async Task InvalidateTenant_drops_underlying_token_cache_so_post_grant_refresh_sees_new_roles()
+    {
+        // Regression for the exact consent-propagation bug: a token acquired BEFORE the grant
+        // carries an empty roles claim, and GraphTokenService caches that raw JWT (~55 min). After
+        // the admin grants the role and hits Refresh (→ InvalidateTenant), the detector must mint a
+        // FRESH token and report the new role — NOT re-parse the stale cached JWT. This exercises
+        // the cross-layer invalidation wiring with a REAL GraphTokenService (not the stub), so a
+        // future change that forgets to clear the token cache fails here.
+        const string tenantId = "66666666-6666-6666-6666-666666666666";
+
+        var handler = new SwappableTokenHandler(
+            BuildJwt(Array.Empty<Claim>(), expires: DateTime.UtcNow.AddHours(1))); // pre-grant: no roles
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        var tokenService = new GraphTokenService(
+            NullLogger<GraphTokenService>.Instance,
+            new SingleHandlerFactory(handler),
+            cache,
+            new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["EntraId:ClientId"] = "test-client",
+                    ["EntraId:ClientSecret"] = "test-secret",
+                })
+                .Build());
+        var telemetry = new TelemetryClient(new TelemetryConfiguration { DisableTelemetry = true });
+        var detector = new GraphFeatureDetector(
+            tokenService, cache, NullLogger<GraphFeatureDetector>.Instance, telemetry);
+
+        // Pre-grant read: empty roles, and the raw JWT is now cached in GraphTokenService.
+        var before = await detector.GetSnapshotAsync(tenantId);
+        Assert.Empty(before.GrantedRoles);
+        Assert.Equal(1, handler.Requests);
+
+        // Admin grants the role; the wire now returns a JWT WITH it.
+        handler.Body = BuildJwt(
+            new[] { new Claim("roles", GraphAppPermissions.DeviceManagementScriptsReadAll) },
+            expires: DateTime.UtcNow.AddHours(1));
+
+        // The fresh-read trigger. Without the cross-layer wiring the stale empty-roles JWT would
+        // still be served and this would keep reporting "not granted".
+        detector.InvalidateTenant(tenantId);
+
+        var after = await detector.GetSnapshotAsync(tenantId);
+        Assert.Contains(GraphAppPermissions.DeviceManagementScriptsReadAll, after.GrantedRoles);
+        Assert.Equal(2, handler.Requests); // fresh token minted, not served from cache
+    }
+
+    [Fact]
+    public async Task InvalidateTenant_during_in_flight_acquire_does_not_cache_stale_roles()
+    {
+        // Write-after-invalidate race on the DETECTOR's own cache: an acquire that started before
+        // InvalidateTenant must not leave a stale parsed-roles ctx behind. The token acquire is
+        // parked in flight; the admin grants + Refreshes (InvalidateTenant) while it is parked; on
+        // release the detector writes a (stale-generation-tagged) ctx. A fresh read MUST reject it
+        // and re-acquire, seeing the newly granted role.
+        const string tenantId = "77777777-7777-7777-7777-777777777777";
+        var tokenService = new GatedStubGraphTokenService(
+            firstToken: BuildJwt(Array.Empty<Claim>(), expires: DateTime.UtcNow.AddHours(1)),       // pre-grant: no roles
+            laterToken: BuildJwt(new[] { new Claim("roles", GraphAppPermissions.DeviceManagementScriptsReadAll) },
+                expires: DateTime.UtcNow.AddHours(1)));
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        var telemetry = new TelemetryClient(new TelemetryConfiguration { DisableTelemetry = true });
+        var detector = new GraphFeatureDetector(
+            tokenService, cache, NullLogger<GraphFeatureDetector>.Instance, telemetry);
+
+        // D1 starts; its token acquire parks in flight (genAtStart captured at method entry).
+        var inflight = detector.GetSnapshotAsync(tenantId);
+        await WaitUntilAsync(() => tokenService.CallCount >= 1, TimeSpan.FromSeconds(2));
+
+        // Admin grants + Refresh WHILE D1 is mid-acquire.
+        detector.InvalidateTenant(tenantId);
+
+        // D1 completes → writes a CachedVerdict tagged with the pre-invalidation generation.
+        tokenService.Release();
+        var before = await inflight;
+        Assert.Empty(before.GrantedRoles); // D1 itself saw the pre-grant token
+
+        // Fresh read must reject the stale-tagged entry (gen mismatch) and re-acquire → new role.
+        var after = await detector.GetSnapshotAsync(tenantId);
+        Assert.Contains(GraphAppPermissions.DeviceManagementScriptsReadAll, after.GrantedRoles);
+        Assert.Equal(2, tokenService.CallCount); // a real re-acquire happened (no stale cache hit)
+    }
+
+    [Fact]
+    public async Task InvalidateTenant_token_layer_first_prevents_stale_detector_write_in_overlap()
+    {
+        // Cross-layer ordering race: InvalidateTenant must invalidate the token layer BEFORE bumping
+        // its own generation. We pause INSIDE the token-layer invalidation and slip a concurrent
+        // GetSnapshotAsync into the gap. With the correct (token-first) order, that overlapping read
+        // cannot leave an accepted stale ctx behind; with the buggy (gen-first) order it would, and
+        // the post-refresh read below would still report the old (no-roles) verdict.
+        const string tenantId = "88888888-8888-8888-8888-888888888888";
+        var handler = new SwappableTokenHandler(
+            BuildJwt(Array.Empty<Claim>(), expires: DateTime.UtcNow.AddHours(1))); // pre-grant: no roles
+        var cache = new MemoryCache(new MemoryCacheOptions());
+
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new System.Threading.ManualResetEventSlim(false);
+        var tokenService = new BarrieredInvalidateTokenService(
+            new SingleHandlerFactory(handler), cache,
+            onInvalidate: () => { entered.TrySetResult(); release.Wait(TimeSpan.FromSeconds(5)); });
+        var telemetry = new TelemetryClient(new TelemetryConfiguration { DisableTelemetry = true });
+        var detector = new GraphFeatureDetector(
+            tokenService, cache, NullLogger<GraphFeatureDetector>.Instance, telemetry);
+
+        // Prime: cache the old (no-roles) token + parsed ctx on both layers.
+        var primed = await detector.GetSnapshotAsync(tenantId);
+        Assert.Empty(primed.GrantedRoles);
+
+        // Admin grants the role on the wire.
+        handler.Body = BuildJwt(
+            new[] { new Claim("roles", GraphAppPermissions.DeviceManagementScriptsReadAll) },
+            expires: DateTime.UtcNow.AddHours(1));
+
+        // Admin Refresh → InvalidateTenant, blocked inside the token-layer invalidation step.
+        var invalidateTask = Task.Run(() => detector.InvalidateTenant(tenantId));
+        await entered.Task;
+
+        // A concurrent read slips into the gap, then we let InvalidateTenant finish.
+        var overlap = await detector.GetSnapshotAsync(tenantId);
+        release.Set();
+        await invalidateTask;
+
+        // Post-refresh read MUST reflect the granted role — no stale entry survived the overlap.
+        var afterRefresh = await detector.GetSnapshotAsync(tenantId);
+        Assert.Contains(GraphAppPermissions.DeviceManagementScriptsReadAll, afterRefresh.GrantedRoles);
+        _ = overlap; // the overlapping read itself may legitimately observe pre-refresh state
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (!condition() && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10);
+        }
+    }
+
     // ── Test seam: token service stub + detector factory ──────────────────────────────
 
     /// <summary>
@@ -346,6 +485,85 @@ public class GraphFeatureDetectorTests
             return Task.FromResult(NextResults.Count > 0
                 ? NextResults.Dequeue()
                 : GraphTokenResult.PermanentFailure());
+        }
+    }
+
+    /// <summary>
+    /// Token-service stub whose FIRST acquire parks until <see cref="Release"/> is called (modelling
+    /// a token fetch in flight while an InvalidateTenant runs), returning <c>firstToken</c>; every
+    /// later acquire returns <c>laterToken</c> immediately. Drives the detector's in-flight
+    /// write-after-invalidate test. CallCount is incremented BEFORE parking and read thread-safely.
+    /// </summary>
+    private sealed class GatedStubGraphTokenService : GraphTokenService
+    {
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly string _firstToken;
+        private readonly string _laterToken;
+        private int _calls;
+
+        public GatedStubGraphTokenService(string firstToken, string laterToken)
+            : base(
+                NullLogger<GraphTokenService>.Instance,
+                new NoopHttpClientFactory(),
+                new MemoryCache(new MemoryCacheOptions()),
+                new ConfigurationBuilder()
+                    .AddInMemoryCollection(new Dictionary<string, string?>
+                    {
+                        ["EntraId:ClientId"] = "test-client-id",
+                        ["EntraId:ClientSecret"] = "test-secret",
+                    })
+                    .Build())
+        {
+            _firstToken = firstToken;
+            _laterToken = laterToken;
+        }
+
+        public int CallCount => System.Threading.Volatile.Read(ref _calls);
+        public void Release() => _release.TrySetResult();
+
+        public override async Task<GraphTokenResult> GetAccessTokenAsync(string tenantId, CancellationToken ct = default)
+        {
+            var n = System.Threading.Interlocked.Increment(ref _calls);
+            if (n == 1)
+            {
+                await _release.Task.ConfigureAwait(false);
+                return GraphTokenResult.Success(_firstToken);
+            }
+            return GraphTokenResult.Success(_laterToken);
+        }
+    }
+
+    /// <summary>
+    /// Real GraphTokenService (real token cache + generation + HTTP path) whose InvalidateTenant is
+    /// wrapped with a test-controlled barrier, run BEFORE delegating to the base. Lets a test pause
+    /// inside the token-layer invalidation and interleave a concurrent acquire, to prove the
+    /// cross-layer ordering in GraphFeatureDetector.InvalidateTenant.
+    /// </summary>
+    private sealed class BarrieredInvalidateTokenService : GraphTokenService
+    {
+        private readonly Action _onInvalidate;
+
+        public BarrieredInvalidateTokenService(
+            System.Net.Http.IHttpClientFactory factory, IMemoryCache cache, Action onInvalidate)
+            : base(
+                NullLogger<GraphTokenService>.Instance,
+                factory,
+                cache,
+                new ConfigurationBuilder()
+                    .AddInMemoryCollection(new Dictionary<string, string?>
+                    {
+                        ["EntraId:ClientId"] = "test-client-id",
+                        ["EntraId:ClientSecret"] = "test-secret",
+                    })
+                    .Build())
+        {
+            _onInvalidate = onInvalidate;
+        }
+
+        public override void InvalidateTenant(string tenantId)
+        {
+            _onInvalidate();
+            base.InvalidateTenant(tenantId);
         }
     }
 

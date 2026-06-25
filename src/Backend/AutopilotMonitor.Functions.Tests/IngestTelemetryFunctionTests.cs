@@ -48,53 +48,88 @@ public class IngestTelemetryFunctionTests
     [Fact]
     public async Task ReadBodyWithSizeCapAsync_accepts_body_under_cap()
     {
-        var payload = Encoding.UTF8.GetBytes("[{\"kind\":\"Event\"}]");
+        var payload = Encoding.UTF8.GetBytes("[{\"Kind\":\"Event\"}]");
         using var stream = new MemoryStream(payload);
 
-        var (exceeded, body) = await IngestTelemetryFunction.ReadBodyWithSizeCapAsync(stream, maxBytes: 1024);
+        var (exceeded, items) = await IngestTelemetryFunction.ReadBodyWithSizeCapAsync(stream, maxBytes: 1024);
 
         Assert.False(exceeded);
-        Assert.Equal("[{\"kind\":\"Event\"}]", body);
+        Assert.NotNull(items);
+        var item = Assert.Single(items!);
+        Assert.Equal("Event", item.Kind);
+    }
+
+    [Fact]
+    public async Task ReadBodyWithSizeCapAsync_preserves_PayloadJson_as_raw_string()
+    {
+        // Hot-path contract: the inner payload stays an opaque escaped string on the envelope —
+        // the batch parse must NOT re-parse/re-serialise it (that's TelemetryPayloadParser's job,
+        // exactly once, downstream). Guards against an accidental round-trip that would mangle it.
+        var payload = Encoding.UTF8.GetBytes(
+            "[{\"Kind\":\"Event\",\"PayloadJson\":\"{\\\"EventType\\\":\\\"x\\\",\\\"n\\\":1}\"}]");
+        using var stream = new MemoryStream(payload);
+
+        var (exceeded, items) = await IngestTelemetryFunction.ReadBodyWithSizeCapAsync(stream, maxBytes: 1024);
+
+        Assert.False(exceeded);
+        var item = Assert.Single(items!);
+        Assert.Equal("{\"EventType\":\"x\",\"n\":1}", item.PayloadJson);
     }
 
     [Fact]
     public async Task ReadBodyWithSizeCapAsync_accepts_body_exactly_at_cap()
     {
-        // Strict greater-than semantics (matches legacy NdjsonParser): equal-to is OK.
-        var payload = new byte[100];
+        // Strict greater-than semantics (matches legacy NdjsonParser): equal-to is OK. Pad a valid
+        // batch with trailing whitespace (ignored by the parser) to land exactly on the cap.
+        var json = "[{\"Kind\":\"Signal\",\"PayloadJson\":\"{}\"}]".PadRight(100);
+        var payload = Encoding.UTF8.GetBytes(json);
+        Assert.Equal(100, payload.Length); // ASCII → 1 byte/char
         using var stream = new MemoryStream(payload);
 
-        var (exceeded, body) = await IngestTelemetryFunction.ReadBodyWithSizeCapAsync(stream, maxBytes: 100);
+        var (exceeded, items) = await IngestTelemetryFunction.ReadBodyWithSizeCapAsync(stream, maxBytes: 100);
 
         Assert.False(exceeded);
-        Assert.Equal(100, Encoding.UTF8.GetByteCount(body));
+        Assert.Single(items!);
     }
 
     [Fact]
     public async Task ReadBodyWithSizeCapAsync_rejects_body_over_cap_without_draining_full_stream()
     {
-        // 1 MB payload with a 100-byte cap → short-circuits after a single buffer read.
+        // 1 MB payload with a 100-byte cap → short-circuits after a single buffer read, before
+        // the deserialiser is ever invoked.
         var payload = new byte[1_000_000];
         using var stream = new MemoryStream(payload);
 
-        var (exceeded, body) = await IngestTelemetryFunction.ReadBodyWithSizeCapAsync(stream, maxBytes: 100);
+        var (exceeded, items) = await IngestTelemetryFunction.ReadBodyWithSizeCapAsync(stream, maxBytes: 100);
 
         Assert.True(exceeded);
-        Assert.Equal(string.Empty, body);
+        Assert.Null(items);
         // Stream position advanced past the cap but not to EOF — the helper bails early to
         // bound memory on hostile senders.
         Assert.True(stream.Position < stream.Length);
     }
 
     [Fact]
-    public async Task ReadBodyWithSizeCapAsync_empty_stream_returns_empty_body()
+    public async Task ReadBodyWithSizeCapAsync_empty_stream_returns_null_items()
     {
         using var stream = new MemoryStream(Array.Empty<byte>());
 
-        var (exceeded, body) = await IngestTelemetryFunction.ReadBodyWithSizeCapAsync(stream, maxBytes: 1024);
+        var (exceeded, items) = await IngestTelemetryFunction.ReadBodyWithSizeCapAsync(stream, maxBytes: 1024);
 
         Assert.False(exceeded);
-        Assert.Equal(string.Empty, body);
+        Assert.Null(items);
+    }
+
+    [Fact]
+    public async Task ReadBodyWithSizeCapAsync_throws_on_malformed_json()
+    {
+        // Malformed JSON surfaces as JsonException so the HTTP trigger maps it to 400 — the cap
+        // path must not swallow it as an empty/successful parse.
+        var payload = Encoding.UTF8.GetBytes("[{\"Kind\":\"Event\"");
+        using var stream = new MemoryStream(payload);
+
+        await Assert.ThrowsAnyAsync<Newtonsoft.Json.JsonException>(
+            () => IngestTelemetryFunction.ReadBodyWithSizeCapAsync(stream, maxBytes: 1024));
     }
 
     // ============================================================ Batch PartitionKey uniformity
