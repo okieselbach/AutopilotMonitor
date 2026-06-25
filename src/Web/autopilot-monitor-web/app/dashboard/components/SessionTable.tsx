@@ -593,7 +593,7 @@ export function SessionTable({
                   onClick={() => {
                     setShowSearchSuggestions(false);
                     setSearchSelectedIndex(-1);
-                    router.push(`/sessions/${s.session.sessionId}`);
+                    router.push(linkFor(s.session.sessionId));
                   }}
                   className={`w-full text-left px-4 py-2.5 flex items-center gap-3 transition-colors ${
                     idx === searchSelectedIndex ? "bg-blue-50" : "hover:bg-gray-50"
