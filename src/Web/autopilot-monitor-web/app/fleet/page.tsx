@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTenantList, type TenantInfo } from "@/hooks/useTenantList";
 import { useFleetSummaries } from "./hooks/useFleetSummaries";
@@ -111,7 +112,10 @@ function RollupTile({ label, value, tone = "default" }: { label: string; value: 
 
 function FleetCard({ tenant, summary }: { tenant: TenantInfo; summary?: FleetSummary }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+    <Link
+      href={`/fleet/${encodeURIComponent(tenant.tenantId)}`}
+      className="block rounded-lg border border-gray-200 bg-white p-5 shadow-sm transition-colors hover:border-blue-400 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-blue-500"
+    >
       <div className="truncate text-base font-semibold text-gray-900 dark:text-white">
         {tenant.domainName || "Unknown domain"}
       </div>
@@ -130,7 +134,7 @@ function FleetCard({ tenant, summary }: { tenant: TenantInfo; summary?: FleetSum
           danger={!!summary && successTone(summary.successRatePct, summary.succeededLastNDays + summary.failedLastNDays) === "danger"}
         />
       </div>
-    </div>
+    </Link>
   );
 }
 
