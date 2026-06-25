@@ -439,27 +439,38 @@ namespace AutopilotMonitor.Functions.Services
         // ===== DATA RETENTION METHODS =====
 
         /// <summary>
-        /// Gets sessions older than a specific date for a tenant
+        /// Gets sessions older than a specific date for a tenant, capped at <paramref name="maxResults"/>.
+        /// The retention fanout only advances a fixed number of sessions per run, so the read is
+        /// server-bounded to that cap instead of materializing the whole backlog every run.
         /// </summary>
-        public async Task<List<SessionSummary>> GetSessionsOlderThanAsync(string tenantId, DateTime cutoffDate)
+        public async Task<List<SessionSummary>> GetSessionsOlderThanAsync(string tenantId, DateTime cutoffDate, int maxResults = int.MaxValue)
         {
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+            if (maxResults <= 0) return new List<SessionSummary>();
 
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
 
-                // Query sessions for this tenant older than cutoff date
+                // Query sessions for this tenant older than cutoff date.
                 var filter = $"PartitionKey eq '{tenantId}' and StartedAt lt datetime'{cutoffDate:yyyy-MM-ddTHH:mm:ss}Z'";
-                var query = tableClient.QueryAsync<TableEntity>(filter: filter);
+
+                // Bound the server read: cap page size to maxResults and stop enumerating once we
+                // have that many. Azure Tables has no server-side OrderBy, so this returns the first
+                // maxResults rows in RowKey order — the same ordering as the previous full scan, it
+                // just stops reading once the cap is reached. Unbounded callers pass int.MaxValue.
+                int? maxPerPage = maxResults == int.MaxValue ? (int?)null : maxResults;
+                var query = tableClient.QueryAsync<TableEntity>(filter: filter, maxPerPage: maxPerPage);
 
                 var sessions = new List<SessionSummary>();
                 await foreach (var entity in query)
                 {
                     sessions.Add(MapToSessionSummary(entity));
+                    if (sessions.Count >= maxResults)
+                        break;
                 }
 
-                _logger.LogInformation($"Found {sessions.Count} sessions older than {cutoffDate:yyyy-MM-dd} for tenant {tenantId}");
+                _logger.LogInformation($"Found {sessions.Count} sessions older than {cutoffDate:yyyy-MM-dd} for tenant {tenantId} (cap={maxResults})");
                 return sessions;
             }
             catch (Exception ex)

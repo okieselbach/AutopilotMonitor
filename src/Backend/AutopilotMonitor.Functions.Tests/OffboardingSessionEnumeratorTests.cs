@@ -109,7 +109,7 @@ public class OffboardingSessionEnumeratorTests
         public Task<RawPage<AuditLogEntry>> GetAuditLogsPageAsync(string tenantId, DateTime? dateFrom, DateTime? dateTo, int pageSize, string? continuation, bool excludeDeletions = false, AuditLogQueryFilters? filters = null) => throw new NotImplementedException();
         public Task<RawPage<AuditLogEntry>> GetAllAuditLogsPageAsync(DateTime? dateFrom, DateTime? dateTo, int pageSize, string? continuation, bool excludeDeletions = false, AuditLogQueryFilters? filters = null) => throw new NotImplementedException();
         public Task<int> DeleteAuditLogsOlderThanAsync(DateTime cutoffUtc) => throw new NotImplementedException();
-        public Task<List<SessionSummary>> GetSessionsOlderThanAsync(string tenantId, DateTime cutoffDate) => throw new NotImplementedException();
+        public Task<List<SessionSummary>> GetSessionsOlderThanAsync(string tenantId, DateTime cutoffDate, int maxResults = int.MaxValue) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetSessionsByDateRangeAsync(DateTime startDate, DateTime endDate, string? tenantId = null) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetStalledSessionsAsync(string tenantId, DateTime cutoffTime) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetAgentSilentSessionsAsync(string tenantId, DateTime silenceCutoff, DateTime hardCutoff) => throw new NotImplementedException();

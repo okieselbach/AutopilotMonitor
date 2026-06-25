@@ -50,9 +50,9 @@ public class SessionRetentionFanoutServiceTests
         harness.WithTenant(TenantB, retentionDays: 120, sessions: new[] { Old("b1", 45), Old("b2", 200) });
 
         // The repo only returns sessions older than each cutoff. Wire each tenant's mock to honor that.
-        harness.MaintenanceRepo.Setup(m => m.GetSessionsOlderThanAsync(TenantA, It.IsAny<DateTime>()))
+        harness.MaintenanceRepo.Setup(m => m.GetSessionsOlderThanAsync(TenantA, It.IsAny<DateTime>(), It.IsAny<int>()))
             .ReturnsAsync(new List<SessionSummary> { Summary(TenantA, "a1") });
-        harness.MaintenanceRepo.Setup(m => m.GetSessionsOlderThanAsync(TenantB, It.Is<DateTime>(d => d <= DateTime.UtcNow.AddDays(-120))))
+        harness.MaintenanceRepo.Setup(m => m.GetSessionsOlderThanAsync(TenantB, It.Is<DateTime>(d => d <= DateTime.UtcNow.AddDays(-120)), It.IsAny<int>()))
             .ReturnsAsync(new List<SessionSummary> { Summary(TenantB, "b2") });
 
         var result = await harness.Sut.RunAsync(CancellationToken.None);
@@ -85,6 +85,25 @@ public class SessionRetentionFanoutServiceTests
     }
 
     [Fact]
+    public async Task RunAsync_reads_session_backlog_server_bounded_to_cap_plus_one()
+    {
+        // Codex HIGH fix: the fanout must NOT materialize the whole backlog. It reads at most
+        // MaxEnqueuesPerTenantPerRun+1 (the +1 is the "more remaining" probe) so a large backlog
+        // is no longer reread+rematerialized every run while only 100 sessions advance.
+        var harness = new Harness();
+        harness.WithTenant(TenantA, retentionDays: 30, sessions: new[] { Old("s1", 60) });
+
+        await harness.Sut.RunAsync(CancellationToken.None);
+
+        harness.MaintenanceRepo.Verify(
+            m => m.GetSessionsOlderThanAsync(
+                TenantA,
+                It.IsAny<DateTime>(),
+                SessionRetentionFanoutService.MaxEnqueuesPerTenantPerRun + 1),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task RunAsync_skips_tenant_with_DataRetentionDays_zero()
     {
         var harness = new Harness();
@@ -94,7 +113,7 @@ public class SessionRetentionFanoutServiceTests
 
         Assert.Equal(0, result.SessionsEnqueued);
         // GetSessionsOlderThanAsync must not have been called for that tenant.
-        harness.MaintenanceRepo.Verify(m => m.GetSessionsOlderThanAsync(TenantA, It.IsAny<DateTime>()), Times.Never);
+        harness.MaintenanceRepo.Verify(m => m.GetSessionsOlderThanAsync(TenantA, It.IsAny<DateTime>(), It.IsAny<int>()), Times.Never);
     }
 
     // ────────────────────────────────────────────────────────────────────────── PR6 follow-up F2 ─
@@ -228,7 +247,7 @@ public class SessionRetentionFanoutServiceTests
         harness.Enqueuer.Verify(e => e.EnqueueAsync(TenantB, It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<DeletionActor>(), It.IsAny<DeletionRetentionContext?>(), It.IsAny<CancellationToken>()),
             Times.Never);
-        harness.MaintenanceRepo.Verify(m => m.GetSessionsOlderThanAsync(TenantB, It.IsAny<DateTime>()), Times.Never);
+        harness.MaintenanceRepo.Verify(m => m.GetSessionsOlderThanAsync(TenantB, It.IsAny<DateTime>(), It.IsAny<int>()), Times.Never);
     }
 
     // ───────────────────────────────────────────────────────────────────────────────────────────────
@@ -322,7 +341,7 @@ public class SessionRetentionFanoutServiceTests
             _tenantIds.Add(tenantId);
             TenantConfig.Setup(t => t.GetConfigurationAsync(tenantId))
                 .ReturnsAsync(new TenantConfiguration { TenantId = tenantId, DataRetentionDays = retentionDays });
-            MaintenanceRepo.Setup(m => m.GetSessionsOlderThanAsync(tenantId, It.IsAny<DateTime>()))
+            MaintenanceRepo.Setup(m => m.GetSessionsOlderThanAsync(tenantId, It.IsAny<DateTime>(), It.IsAny<int>()))
                 .ReturnsAsync(new List<SessionSummary>(WithTenantId(tenantId, sessions)));
         }
 
@@ -332,7 +351,7 @@ public class SessionRetentionFanoutServiceTests
             TenantConfig.Setup(t => t.GetConfigurationAsync(tenantId))
                 .ReturnsAsync(new TenantConfiguration { TenantId = tenantId, DataRetentionDays = retentionDays });
             foreach (var s in sessions) s.TenantId = tenantId;
-            MaintenanceRepo.Setup(m => m.GetSessionsOlderThanAsync(tenantId, It.IsAny<DateTime>())).ReturnsAsync(sessions);
+            MaintenanceRepo.Setup(m => m.GetSessionsOlderThanAsync(tenantId, It.IsAny<DateTime>(), It.IsAny<int>())).ReturnsAsync(sessions);
         }
 
         private static IEnumerable<SessionSummary> WithTenantId(string tenantId, IEnumerable<SessionSummary> sessions)

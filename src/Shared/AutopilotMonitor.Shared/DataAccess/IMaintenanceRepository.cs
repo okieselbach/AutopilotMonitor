@@ -57,7 +57,12 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<int> DeleteAuditLogsOlderThanAsync(DateTime cutoffUtc);
 
         // --- Data Retention Queries ---
-        Task<List<SessionSummary>> GetSessionsOlderThanAsync(string tenantId, DateTime cutoffDate);
+        /// <summary>
+        /// Sessions older than <paramref name="cutoffDate"/> for a tenant, capped at
+        /// <paramref name="maxResults"/> (server-bounded read). The retention fanout passes its
+        /// per-run dispatch cap so it never materializes a backlog it cannot process in one run.
+        /// </summary>
+        Task<List<SessionSummary>> GetSessionsOlderThanAsync(string tenantId, DateTime cutoffDate, int maxResults = int.MaxValue);
         Task<List<SessionSummary>> GetSessionsByDateRangeAsync(DateTime startDate, DateTime endDate, string? tenantId = null);
         Task<List<SessionSummary>> GetStalledSessionsAsync(string tenantId, DateTime cutoffTime);
         Task<List<SessionSummary>> GetAgentSilentSessionsAsync(string tenantId, DateTime silenceCutoff, DateTime hardCutoff);

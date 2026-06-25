@@ -145,7 +145,15 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             }
 
             var cutoffUtc = DateTime.UtcNow.AddDays(-retentionDays);
-            var oldSessions = await _maintenanceRepo.GetSessionsOlderThanAsync(tenantId, cutoffUtc).ConfigureAwait(false);
+
+            // Server-bounded read: fetch one more than the per-run dispatch cap. The loop below
+            // only ever advances MaxEnqueuesPerTenantPerRun sessions, so loading the whole backlog
+            // every run is wasted I/O that grows with the backlog. The "+1" is a cheap probe that
+            // lets us tell "exactly cap eligible, done" from "cap+ eligible, more deferred" without
+            // scanning the rest — it is observability only and is never dispatched.
+            const int fetchLimit = MaxEnqueuesPerTenantPerRun + 1;
+            var oldSessions = await _maintenanceRepo.GetSessionsOlderThanAsync(tenantId, cutoffUtc, fetchLimit).ConfigureAwait(false);
+            bool moreRemaining = oldSessions.Count > MaxEnqueuesPerTenantPerRun;
 
             if (oldSessions.Count == 0)
             {
@@ -163,9 +171,12 @@ namespace AutopilotMonitor.Functions.Services.Deletion
 
                 if (processed >= MaxEnqueuesPerTenantPerRun)
                 {
+                    // We only fetched cap+1, so we know "more remain" but not the exact backlog
+                    // size (that would require the full scan this change removes). Report it as a
+                    // floor — the next run drains the following batch.
                     _logger.LogInformation(
-                        "Tenant {TenantId}: hit rate limit ({Limit}/run) — deferring remaining {Remaining} sessions to next run",
-                        tenantId, MaxEnqueuesPerTenantPerRun, oldSessions.Count - processed);
+                        "Tenant {TenantId}: hit rate limit ({Limit}/run) — at least one more batch deferred to next run",
+                        tenantId, MaxEnqueuesPerTenantPerRun);
                     result.RateLimitedTenants++;
                     break;
                 }
@@ -223,15 +234,18 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                 {
                     { "RetentionDays", retentionDays.ToString() },
                     { "CutoffUtc", cutoffUtc.ToString("o") },
-                    { "Eligible", oldSessions.Count.ToString() },
+                    // Read is capped at MaxEnqueuesPerTenantPerRun+1, so this is a floor, not the
+                    // exact backlog size. MoreRemaining=true ⇒ at least one further batch is pending.
+                    { "EligibleThisRun", Math.Min(oldSessions.Count, MaxEnqueuesPerTenantPerRun).ToString() },
+                    { "MoreRemaining", moreRemaining.ToString() },
                     { "Enqueued", enqueued.ToString() },
                     { "Skipped", skipped.ToString() },
                     { "AbortedByKillSwitch", result.AbortedByKillSwitch.ToString() },
                 }).ConfigureAwait(false);
 
             _logger.LogInformation(
-                "Tenant {TenantId}: retention fanout — cutoff={Cutoff:o} eligible={Eligible} enqueued={Enqueued} skipped={Skipped}",
-                tenantId, cutoffUtc, oldSessions.Count, enqueued, skipped);
+                "Tenant {TenantId}: retention fanout — cutoff={Cutoff:o} eligibleThisRun={Eligible} moreRemaining={More} enqueued={Enqueued} skipped={Skipped}",
+                tenantId, cutoffUtc, Math.Min(oldSessions.Count, MaxEnqueuesPerTenantPerRun), moreRemaining, enqueued, skipped);
         }
 
         /// <summary>
