@@ -122,8 +122,8 @@ public class MaintenanceServicePoisonQueueTests
     public void MonitoredPoisonQueues_CoversAllProducerQueues()
     {
         // Guard against silently adding a new producer queue without a poison entry.
-        // If a fifth queue is introduced, MonitoredPoisonQueues + this assertion must move together.
-        Assert.Equal(4, MaintenanceService.MonitoredPoisonQueues.Length);
+        // If a new queue is introduced, MonitoredPoisonQueues + this assertion must move together.
+        Assert.Equal(6, MaintenanceService.MonitoredPoisonQueues.Length);
         Assert.Contains(
             Constants.QueueNames.AnalyzeOnEnrollmentEnd + "-poison",
             MaintenanceService.MonitoredPoisonQueues);
@@ -136,6 +136,13 @@ public class MaintenanceServicePoisonQueueTests
         // PR1 critical-table backup queue (plan §Wave5 #2).
         Assert.Contains(
             Constants.QueueNames.CriticalTableBackupPoison,
+            MaintenanceService.MonitoredPoisonQueues);
+        // Self-hosted poll-loop workers (no QueueTrigger) — see SessionDeletionWorker / TenantOffboardingWorker.
+        Assert.Contains(
+            Constants.QueueNames.SessionDeletion + "-poison",
+            MaintenanceService.MonitoredPoisonQueues);
+        Assert.Contains(
+            Constants.QueueNames.TenantOffboardingPoison,
             MaintenanceService.MonitoredPoisonQueues);
     }
 

@@ -27,7 +27,9 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Queues whose poison sibling we watch. Order matches the production-impact
         /// ranking (rule analysis &gt; vulnerability correlation &gt; index reconcile —
-        /// the last one has a 2 h reconcile-timer as safety net).
+        /// index-reconcile has a 2 h reconcile-timer as safety net). Session-deletion and
+        /// tenant-offboarding are self-hosted poll loops (no QueueTrigger): their poisoned
+        /// work would otherwise be invisible to the central health/ops signal.
         /// </summary>
         internal static readonly string[] MonitoredPoisonQueues =
         {
@@ -35,6 +37,8 @@ namespace AutopilotMonitor.Functions.Services
             Constants.QueueNames.VulnerabilityCorrelate + "-poison",
             Constants.QueueNames.TelemetryIndexReconcile + "-poison",
             Constants.QueueNames.CriticalTableBackupPoison,
+            Constants.QueueNames.SessionDeletion + "-poison",
+            Constants.QueueNames.TenantOffboardingPoison,
         };
 
         /// <summary>Default warning threshold — every poison message is a 5x-failed handler call.</summary>
