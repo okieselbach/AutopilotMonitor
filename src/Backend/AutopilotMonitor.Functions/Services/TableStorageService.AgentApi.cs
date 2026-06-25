@@ -307,6 +307,12 @@ namespace AutopilotMonitor.Functions.Services
 
         // ===== SEARCH METHODS =====
 
+        /// <summary>Typeahead only inspects sessions started within this many days (recent-window scan bound).</summary>
+        private const int QuickSearchWindowDays = 90;
+
+        /// <summary>Hard upper bound on index rows a single typeahead request may scan (cost backstop).</summary>
+        private const int QuickSearchMaxScannedRows = 5000;
+
         /// <summary>
         /// Lightweight typeahead search: matches SessionId, SerialNumber, or DeviceName.
         /// Supports exact contains match (priority) and fuzzy match (edit distance &lt;= 2).
@@ -319,13 +325,24 @@ namespace AutopilotMonitor.Functions.Services
             var fuzzyResults = new List<QuickSearchResult>();
             var q = query.Trim();
 
-            // Tenant-scoped or cross-tenant scan
-            string? filter = !string.IsNullOrEmpty(tenantId)
-                ? $"PartitionKey eq '{tenantId}'"
-                : null;
+            // Bound the scan so a single typeahead request cannot walk an ever-growing index:
+            //   1. Recent-window bound — RowKey is the inverted-tick prefix (newest-first), so
+            //      `RowKey lt '{cutoff}'` keeps the scan to sessions started within the window.
+            //      Typeahead targets recent enrollments; older sessions are out of scope.
+            //   2. Hard scanned-row cap — backstop for the fuzzy-only / no-match case, which
+            //      otherwise reads every remaining row in the partition (or the whole table for
+            //      global scope) because exact-over-fuzzy ordering forbids an early break.
+            var windowBound = $"RowKey lt '{ComputeCutoffRowKeyPrefix(QuickSearchWindowDays)}'";
+            string filter = !string.IsNullOrEmpty(tenantId)
+                ? $"PartitionKey eq '{tenantId}' and {windowBound}"
+                : windowBound;
 
+            var scannedRows = 0;
             await foreach (var entity in indexTableClient.QueryAsync<TableEntity>(filter: filter))
             {
+                if (++scannedRows > QuickSearchMaxScannedRows)
+                    break;
+
                 var sessionId = entity.GetString("SessionId") ?? ExtractSessionIdFromIndexRowKey(entity.RowKey);
                 var serial = entity.GetString("SerialNumber") ?? string.Empty;
                 var deviceName = entity.GetString("DeviceName") ?? string.Empty;
