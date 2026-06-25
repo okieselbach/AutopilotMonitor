@@ -158,22 +158,35 @@ try {
     # Organizations restore (one user signs in + restores DURING OOBE). All three must hold:
     #   OOBE InProgress  AND  exactly one profile  AND  that profile created < N minutes ago.
     $oobeRelax = $false
-    if ($profilePaths.Count -eq 1 -and (Test-OobeInProgress)) {
+    $oobeInProgress = Test-OobeInProgress
+    if ($profilePaths.Count -eq 1 -and $oobeInProgress) {
         try {
             $created = (Get-Item -LiteralPath $profilePaths[0] -Force -ErrorAction Stop).CreationTimeUtc
             $ageMin = ((Get-Date).ToUniversalTime() - $created).TotalMinutes
             if ($ageMin -ge 0 -and $ageMin -lt $OobeProfileMaxAgeMinutes) {
                 $oobeRelax = $true
                 Write-Log ("OOBE-relax active: OOBE InProgress + single profile created {0:N1}min ago (< {1}min). Guards 2+3 relaxed (Windows Backup restore case)." -f $ageMin, $OobeProfileMaxAgeMinutes)
+            } else {
+                Write-Log ("OOBE-relax NOT applied: OOBE InProgress + single profile '{0}', but profile created {1:N1}min ago (created {2:u}) is outside the [0, {3})min window." -f (Split-Path $profilePaths[0] -Leaf), $ageMin, $created, $OobeProfileMaxAgeMinutes)
             }
-        } catch { Write-Log "INFO: profile age check failed; OOBE-relax not applied." }
+        } catch { Write-Log "INFO: profile age check failed; OOBE-relax not applied. $($_.Exception.Message)" }
+    } elseif ($profilePaths.Count -eq 1 -and -not $oobeInProgress) {
+        Write-Log "OOBE-relax NOT applied: single profile present but OutOfBoxExperienceState != InProgress (OOBE already finished / not detectable)."
+    } elseif ($profilePaths.Count -gt 1) {
+        Write-Log ("OOBE-relax NOT applied: {0} real profiles present (relax requires exactly one)." -f $profilePaths.Count)
     }
 
     # Guard 2: No real user profile should exist yet (primary productive-device guard),
     # unless the OOBE-relax signature holds.
     if ($profilePaths.Count -gt 0 -and -not $oobeRelax) {
-        $names = (($profilePaths | ForEach-Object { Split-Path $_ -Leaf }) | Select-Object -First 3) -join ', '
-        Write-Log "SKIP: Real user profile(s) found ($names). Device appears productive."
+        $details = (($profilePaths | ForEach-Object {
+            $leaf = Split-Path $_ -Leaf
+            try {
+                $c = (Get-Item -LiteralPath $_ -Force -ErrorAction Stop).CreationTimeUtc
+                "{0} (created {1:u}, {2:N1}min ago)" -f $leaf, $c, ((Get-Date).ToUniversalTime() - $c).TotalMinutes
+            } catch { "$leaf (age unknown)" }
+        }) | Select-Object -First 3) -join '; '
+        Write-Log "SKIP: Real user profile(s) found ($details). OOBE InProgress=$oobeInProgress. Device appears productive."
         exit 0
     }
 
