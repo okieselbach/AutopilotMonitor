@@ -1,18 +1,21 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTenantList } from "@/hooks/useTenantList";
-import { SessionStatusBadge } from "@/components/SessionStatusBadge";
-import { formatDateTime, formatDurationShort } from "@/utils/sessionFormat";
-import type { Session } from "@/types/session";
+import { SessionTable } from "@/app/dashboard/components/SessionTable";
+import { useDashboardFilters } from "@/app/dashboard/hooks/useDashboardFilters";
 import { useFleetSummaries } from "../hooks/useFleetSummaries";
 import { useTenantSessions } from "./hooks/useTenantSessions";
 import type { FleetSummary } from "../lib/fleetRollup";
 
 const DAYS = 30;
+const FLEET_FULL_WIDTH_KEY = "fleet_fullWidth";
+// Stable empty refs so the read-only SessionTable / filter memos don't churn on every render.
+const EMPTY_SET: ReadonlySet<string> = new Set();
+const NOOP = () => {};
 
 function ArrowLeftIcon({ className = "h-4 w-4" }: { className?: string }) {
   return (
@@ -23,17 +26,18 @@ function ArrowLeftIcon({ className = "h-4 w-4" }: { className?: string }) {
 }
 
 /**
- * Fleet drill-in — one managed tenant's read-only overview for a delegated ("MSP") admin.
+ * Fleet drill-in — one managed tenant's read-only session browser for a delegated ("MSP") admin.
  *
- * The tenant is an explicit route param, so every read is a single-tenant `/global/*?tenantId=` call
- * (Phase 2a) the backend bounds to the caller's delegated scope (GlobalReadOrDelegatedSubset). There is no
- * all-tenants path here. As client-side defense in depth we also refuse a tenantId the caller doesn't
- * manage (unless they hold full platform scope) BEFORE issuing any fetch.
+ * The tenant is an explicit route param, so every read is a single-tenant `/global/*?tenantId=` call the
+ * backend bounds to the caller's delegated scope (GlobalReadOrDelegatedSubset). No all-tenants path here; as
+ * defense in depth we also refuse a tenantId the caller doesn't manage (unless full platform scope) BEFORE
+ * issuing any fetch.
  *
- * Stats + session list, and each row opens the full session-detail page for the managed tenant via
- * `/sessions/{id}?tenantId=`. No new backend endpoint is needed: the detail reads are MemberRead + QueryParam,
- * which the delegated scope already rescues; the detail page renders read-only for a delegated viewer
- * (mutations hidden). Inspector stays Global-Admin-only.
+ * Reuses the dashboard's session browser (useDashboardFilters + SessionTable) for full parity — search, sort,
+ * status filter, column selection, page-size, full-width, Next/Prev pagination (which pulls more pages from
+ * the server as you advance). Rendered READ-ONLY: adminMode/globalAdminMode=false and user=null hide the
+ * delete/block actions and the cross-tenant filter box; rows open `/sessions/{id}?tenantId=` so the detail
+ * page loads the managed tenant's session (also read-only). Inspector stays Global-Admin-only.
  */
 export default function FleetTenantPage() {
   const params = useParams<{ tenantId: string }>();
@@ -62,8 +66,43 @@ export default function FleetTenantPage() {
 
   const { sessions, loading, loadingMore, hasMore, error, loadMore } = useTenantSessions(effectiveTenantId, DAYS);
 
+  // Full-width toggle (own localStorage key; read post-mount to avoid an SSR hydration mismatch).
+  const [fullWidth, setFullWidth] = useState(false);
+  useEffect(() => {
+    try { setFullWidth(localStorage.getItem(FLEET_FULL_WIDTH_KEY) === "1"); } catch { /* ignore */ }
+  }, []);
+  const toggleFullWidth = useCallback(() => {
+    setFullWidth((prev) => {
+      const next = !prev;
+      try { localStorage.setItem(FLEET_FULL_WIDTH_KEY, next ? "1" : "0"); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
+  // Reuse the dashboard's filter/sort/pagination engine. tenantId=null + globalAdminMode=false ⇒ no per-tenant
+  // re-filter (the data is already single-tenant) and the global-only columns / tenant-filter box stay hidden.
+  const filters = useDashboardFilters({
+    sessions,
+    blockedDevicesSet: EMPTY_SET as Set<string>,
+    tenantId: null,
+    globalAdminMode: false,
+    tenantIdFilter: "",
+    hasMore,
+    loadingMore,
+    loadMore,
+  });
+
+  const linkTarget = useCallback(
+    (sessionId: string) => `/sessions/${sessionId}?tenantId=${encodeURIComponent(tenantId)}`,
+    [tenantId]
+  );
+
+  const containerClass = fullWidth
+    ? "w-full px-4 sm:px-6 lg:px-8 py-4"
+    : "mx-auto max-w-7xl p-4 sm:p-6 lg:p-8";
+
   return (
-    <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
+    <div className={containerClass}>
       <Link
         href="/fleet"
         className="mb-4 inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -88,10 +127,7 @@ export default function FleetTenantPage() {
           {/* Stat tiles — terminal-only success rate, matching the fleet cards. */}
           <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatTile label="Active sessions" value={summary ? String(summary.activeCount) : "—"} />
-            <StatTile
-              label={`Sessions · ${DAYS}d`}
-              value={summary ? String(summary.totalLastNDays) : "—"}
-            />
+            <StatTile label={`Sessions · ${DAYS}d`} value={summary ? String(summary.totalLastNDays) : "—"} />
             <StatTile
               label="Failed"
               value={summary ? String(summary.failedLastNDays) : "—"}
@@ -102,41 +138,69 @@ export default function FleetTenantPage() {
               value={summary ? `${summary.successRatePct}%` : "—"}
               tone={
                 !!summary &&
-                successTone(summary.successRatePct, summary.succeededLastNDays + summary.failedLastNDays) ===
-                  "danger"
+                successTone(summary.successRatePct, summary.succeededLastNDays + summary.failedLastNDays) === "danger"
                   ? "danger"
                   : "default"
               }
             />
           </div>
 
-          {/* Recent sessions */}
-          <div className="rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
-            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3 dark:border-gray-700">
-              <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
-                Recent sessions · last {DAYS} days
-              </h2>
-              {loading && <span className="text-xs text-gray-400">Loading…</span>}
+          {/* Session browser — same component the dashboard uses, read-only. */}
+          {error ? (
+            <div className="rounded-lg border border-gray-200 bg-white p-10 text-center text-sm text-red-600 shadow-sm dark:border-gray-700 dark:bg-gray-800 dark:text-red-400">
+              Couldn&apos;t load sessions for this tenant.
             </div>
-
-            {error ? (
-              <div className="px-5 py-10 text-center text-sm text-red-600 dark:text-red-400">
-                Couldn&apos;t load sessions for this tenant.
-              </div>
-            ) : !loading && sessions.length === 0 ? (
-              <div className="px-5 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
-                No sessions in the last {DAYS} days.
-              </div>
-            ) : (
-              <SessionList
-                sessions={sessions}
-                hasMore={hasMore}
-                loadingMore={loadingMore}
-                onLoadMore={loadMore}
-                tenantId={tenantId}
-              />
-            )}
-          </div>
+          ) : loading && sessions.length === 0 ? (
+            <div className="flex items-center justify-center rounded-lg border border-gray-200 bg-white p-12 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+              <div className="h-6 w-6 animate-spin rounded-full border-b-2 border-blue-600" />
+              <span className="ml-3 text-sm text-gray-500 dark:text-gray-400">Loading sessions…</span>
+            </div>
+          ) : sessions.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-gray-300 p-10 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+              No sessions in the last {DAYS} days.
+            </div>
+          ) : (
+            <SessionTable
+              sessions={filters.effectiveSessions}
+              filteredSessions={filters.filteredSessions}
+              sortedSessions={filters.sortedSessions}
+              paginatedSessions={filters.paginatedSessions}
+              searchQuery={filters.searchQuery}
+              onSearchQueryChange={filters.setSearchQuery}
+              statusFilter={filters.statusFilter}
+              onStatusFilterChange={filters.setStatusFilter}
+              sortColumn={filters.sortColumn}
+              sortDirection={filters.sortDirection}
+              onSort={filters.handleSort}
+              currentPage={filters.currentPage}
+              totalPages={filters.totalPages}
+              onPreviousPage={filters.handlePreviousPage}
+              onNextPage={filters.handleNextPage}
+              sessionsPerPage={filters.sessionsPerPage}
+              onSessionsPerPageChange={filters.handleSessionsPerPageChange}
+              hasMore={hasMore}
+              loadingMore={loadingMore}
+              onLoadAll={loadMore}
+              adminMode={false}
+              globalAdminMode={false}
+              tenantIdFilter=""
+              onTenantIdFilterChange={NOOP}
+              onTenantIdFilterSubmit={NOOP}
+              onTenantIdFilterClear={NOOP}
+              tenantList={[]}
+              blockedDevicesSet={EMPTY_SET as Set<string>}
+              isPreviewBlocked={false}
+              user={null}
+              columnFilters={filters.columnFilters}
+              onColumnFiltersChange={filters.setColumnFilters}
+              onDeleteSession={NOOP}
+              pendingDeletions={EMPTY_SET}
+              onBlockDevice={NOOP}
+              fullWidth={fullWidth}
+              onToggleFullWidth={toggleFullWidth}
+              sessionLinkTarget={linkTarget}
+            />
+          )}
         </>
       )}
     </div>
@@ -164,105 +228,6 @@ function StatTile({ label, value, tone = "default" }: { label: string; value: st
       >
         {value}
       </div>
-    </div>
-  );
-}
-
-const PHASE_LABELS: Record<number, string> = {
-  0: "Setup start",
-  1: "Device prep",
-  2: "Device setup",
-  3: "Apps (device)",
-  4: "Account setup",
-  5: "Apps (user)",
-  6: "Finalizing",
-  7: "Complete",
-};
-
-function phaseLabel(phase: number): string {
-  return PHASE_LABELS[phase] ?? "—";
-}
-
-/** Read-only session table for the drill-in. Rows open the full session-detail page for the managed tenant
- * via `?tenantId=` — the backend serves the reads (MemberRead + delegated scope) and the detail page renders
- * read-only for a delegated viewer (write actions hidden). */
-function SessionList({
-  sessions,
-  hasMore,
-  loadingMore,
-  onLoadMore,
-  tenantId,
-}: {
-  sessions: Session[];
-  hasMore: boolean;
-  loadingMore: boolean;
-  onLoadMore: () => void;
-  tenantId: string;
-}) {
-  const router = useRouter();
-  const open = (sessionId: string) =>
-    router.push(`/sessions/${sessionId}?tenantId=${encodeURIComponent(tenantId)}`);
-  return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-        <thead>
-          <tr className="text-left text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">
-            <th className="px-5 py-2.5">Device</th>
-            <th className="px-5 py-2.5">Model</th>
-            <th className="px-5 py-2.5">Status</th>
-            <th className="px-5 py-2.5">Phase</th>
-            <th className="px-5 py-2.5 text-right">Events</th>
-            <th className="px-5 py-2.5 text-right">Duration</th>
-            <th className="px-5 py-2.5">Started</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100 dark:divide-gray-700/60">
-          {sessions.map((s) => (
-            <tr
-              key={s.sessionId}
-              onClick={() => open(s.sessionId)}
-              className="cursor-pointer text-sm hover:bg-gray-50 dark:hover:bg-gray-700/40"
-            >
-              <td className="px-5 py-3">
-                <div className="font-medium text-gray-900 dark:text-white">
-                  {s.deviceName || s.serialNumber || "—"}
-                </div>
-                {s.deviceName && s.serialNumber && (
-                  <div className="font-mono text-xs text-gray-400 dark:text-gray-500">{s.serialNumber}</div>
-                )}
-              </td>
-              <td className="px-5 py-3 text-gray-600 dark:text-gray-300">
-                {[s.manufacturer, s.model].filter(Boolean).join(" ") || "—"}
-              </td>
-              <td className="px-5 py-3">
-                <SessionStatusBadge status={s.status} failureReason={s.failureReason} />
-              </td>
-              <td className="px-5 py-3 text-gray-600 dark:text-gray-300">{phaseLabel(s.currentPhase)}</td>
-              <td className="px-5 py-3 text-right tabular-nums text-gray-600 dark:text-gray-300">
-                {s.eventCount}
-              </td>
-              <td className="px-5 py-3 text-right tabular-nums text-gray-600 dark:text-gray-300">
-                {formatDurationShort(s.durationSeconds)}
-              </td>
-              <td className="px-5 py-3 whitespace-nowrap text-gray-600 dark:text-gray-300">
-                {formatDateTime(s.startedAt)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {hasMore && (
-        <div className="border-t border-gray-100 px-5 py-3 text-center dark:border-gray-700">
-          <button
-            onClick={onLoadMore}
-            disabled={loadingMore}
-            className="rounded-md border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
-          >
-            {loadingMore ? "Loading…" : "Load more"}
-          </button>
-        </div>
-      )}
     </div>
   );
 }

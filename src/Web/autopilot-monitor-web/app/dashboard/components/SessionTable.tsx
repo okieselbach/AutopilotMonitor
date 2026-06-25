@@ -96,6 +96,9 @@ interface SessionTableProps {
   onBlockDevice: (serialNumber: string, tenantId: string, deviceName?: string) => void;
   fullWidth: boolean;
   onToggleFullWidth: () => void;
+  /** Builds the row's navigation target. Defaults to `/sessions/{id}`; the Fleet drill-in overrides it to
+   * append `?tenantId=` so a delegated viewer opens the session in the managed tenant's (read-only) context. */
+  sessionLinkTarget?: (sessionId: string) => string;
 }
 
 export function SessionTable({
@@ -136,8 +139,11 @@ export function SessionTable({
   onBlockDevice,
   fullWidth,
   onToggleFullWidth,
+  sessionLinkTarget,
 }: SessionTableProps) {
   const router = useRouter();
+  const linkFor = (sessionId: string) =>
+    sessionLinkTarget ? sessionLinkTarget(sessionId) : `/sessions/${sessionId}`;
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(getInitialVisibleColumns);
   const [showColumnSelector, setShowColumnSelector] = useState(false);
   const [openFilterColumn, setOpenFilterColumn] = useState<string | null>(null);
@@ -545,7 +551,7 @@ export function SessionTable({
                 const selected = searchSuggestions[searchSelectedIndex];
                 setShowSearchSuggestions(false);
                 setSearchSelectedIndex(-1);
-                router.push(`/sessions/${selected.session.sessionId}`);
+                router.push(linkFor(selected.session.sessionId));
                 return;
               }
               if (e.key === "Escape") {
@@ -780,7 +786,7 @@ export function SessionTable({
               paginatedSessions.map((session) => (
               <tr
                 key={session.sessionId}
-                onClick={() => { trackEvent("session_opened", { sessionId: session.sessionId, status: session.status ?? "" }); router.push(`/sessions/${session.sessionId}`); }}
+                onClick={() => { trackEvent("session_opened", { sessionId: session.sessionId, status: session.status ?? "" }); router.push(linkFor(session.sessionId)); }}
                 className="hover:bg-gray-50 cursor-pointer transition-colors"
               >
                 {activeColumns.map((col) => (
