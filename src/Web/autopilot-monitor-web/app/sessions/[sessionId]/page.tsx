@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSignalR } from "../../../contexts/SignalRContext";
 import { useTenant } from "../../../contexts/TenantContext";
 import { useAuth } from "../../../contexts/AuthContext";
@@ -43,7 +43,11 @@ import { useAdminMode } from "@/hooks/useAdminMode";
 export default function SessionDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const sessionId = params?.sessionId as string;
+  // Explicit target tenant from the fleet drill-in (`?tenantId=`). Drives the cross-tenant reads for a
+  // delegated ("MSP") admin viewing a managed tenant's session, and flips the page into read-only mode.
+  const tenantIdOverride = searchParams?.get("tenantId") || undefined;
 
   // UI-only state (modals, expand/collapse, severity filters)
   const [severityFilters, setSeverityFilters] = useState<Set<string>>(new Set(["Info", "Warning", "Error", "Critical"]));
@@ -69,7 +73,7 @@ export default function SessionDetailPage() {
   const { latestAgentVersion, latestBootstrapVersion } = useLatestVersions(getAccessToken);
 
   // Session-scoped hooks (data/SignalR/derivations)
-  const detail = useSessionDetail({ sessionId, tenantId, globalAdminMode, user, getAccessToken, addNotification });
+  const detail = useSessionDetail({ sessionId, tenantId, globalAdminMode, tenantIdOverride, user, getAccessToken, addNotification });
   const analysis = useSessionAnalysis(sessionId, detail.sessionTenantId, getAccessToken);
   const tenantConfig = useSessionTenantConfig(detail.sessionTenantId, getAccessToken);
   const eventsApi = useSessionEvents({
@@ -106,6 +110,15 @@ export default function SessionDetailPage() {
   // Convenience local aliases (keeps the JSX below readable, matches previous names)
   const { session, setSession, sessionTenantId, loading } = detail;
   const events = eventsApi.events;
+
+  // Cross-tenant read-only view: a delegated ("MSP") admin viewing a MANAGED tenant's session. The backend
+  // permits the reads (MemberRead + ?tenantId=, rescued by the delegated scope) but rejects the mutations
+  // (mark-failed/succeeded/report are TenantAdminOrGA). A Global Admin keeps write rights cross-tenant, and
+  // own-tenant viewers are unaffected. `tenantIdOverride` seeds this before the session object has loaded so
+  // the write controls never flash in. Inspector is already gated to Global Admins separately.
+  const viewedTenantId = (session?.tenantId ?? sessionTenantId ?? tenantIdOverride ?? "").toLowerCase();
+  const isCrossTenantView = !!viewedTenantId && !!tenantId && viewedTenantId !== tenantId.toLowerCase();
+  const isReadOnlyView = isCrossTenantView && !user?.isGlobalAdmin;
 
   // Resolves Intune script display names via the optional Graph add-on permission.
   // Returns an empty map when the tenant hasn't granted DeviceManagementScripts.Read.All.
@@ -410,7 +423,7 @@ export default function SessionDetailPage() {
                 Download Diagnostics
               </button>
             )}
-            {session?.status === 'Failed' && (
+            {session?.status === 'Failed' && !isReadOnlyView && (
               <button
                 onClick={() => router.push(`/diagnosis/${sessionId}`)}
                 className="px-4 py-2 bg-amber-500 text-white rounded-md hover:bg-amber-600 transition-colors flex items-center gap-2 text-sm"
@@ -421,7 +434,7 @@ export default function SessionDetailPage() {
                 Diagnosis
               </button>
             )}
-            {adminMode && (session?.status === 'InProgress' || session?.status === 'Pending' || session?.status === 'Stalled') && (
+            {adminMode && !isReadOnlyView && (session?.status === 'InProgress' || session?.status === 'Pending' || session?.status === 'Stalled') && (
               <>
                 <button
                   onClick={markAsSucceeded}
@@ -443,15 +456,17 @@ export default function SessionDetailPage() {
                 </button>
               </>
             )}
-            <button
-              onClick={() => setShowReportModal(true)}
-              className="px-4 py-2 bg-white border border-blue-300 text-blue-700 rounded-md hover:bg-blue-50 transition-colors flex items-center gap-2 text-sm"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-              </svg>
-              Report Session
-            </button>
+            {!isReadOnlyView && (
+              <button
+                onClick={() => setShowReportModal(true)}
+                className="px-4 py-2 bg-white border border-blue-300 text-blue-700 rounded-md hover:bg-blue-50 transition-colors flex items-center gap-2 text-sm"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                </svg>
+                Report Session
+              </button>
+            )}
             {user?.isGlobalAdmin && sessionId && (
               <a
                 href={`/sessions/${sessionId}/inspector`}
@@ -523,6 +538,7 @@ export default function SessionDetailPage() {
               analysisExpanded={analysisExpanded}
               setAnalysisExpanded={setAnalysisExpanded}
               onReanalyze={() => { trackEvent("analyze_now_clicked", { sessionId: sessionId ?? "" }); fetchAnalysisResults(true); }}
+              canReanalyze={!isReadOnlyView}
               persistFailureRuleIds={persistFailureRuleIds}
             />
             </div>
@@ -536,7 +552,7 @@ export default function SessionDetailPage() {
                 vulnerabilityReport={vulnerabilityReport}
                 expanded={vulnerabilityReportExpanded}
                 setExpanded={setVulnerabilityReportExpanded}
-                onRescan={() => fetchVulnerabilityReport(true)}
+                onRescan={isReadOnlyView ? undefined : () => fetchVulnerabilityReport(true)}
               />
             </div>
           )}

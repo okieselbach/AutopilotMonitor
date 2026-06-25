@@ -16,6 +16,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         private readonly TableClient _globalAdminsTableClient;
         private readonly TableClient _tenantAdminsTableClient;
         private readonly TableClient _mcpUsersTableClient;
+        private readonly TableClient _delegatedAdminsTableClient;
         private readonly ILogger<TableAdminRepository> _logger;
 
         public TableAdminRepository(
@@ -26,6 +27,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             _globalAdminsTableClient = storage.GetTableClient(Constants.TableNames.GlobalAdmins);
             _tenantAdminsTableClient = storage.GetTableClient(Constants.TableNames.TenantAdmins);
             _mcpUsersTableClient = storage.GetTableClient(Constants.TableNames.McpUsers);
+            _delegatedAdminsTableClient = storage.GetTableClient(Constants.TableNames.DelegatedAdmins);
         }
 
         // --- Global Admins ---
@@ -282,6 +284,145 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
         }
 
+        // --- Delegated Admins (scoped-global / "MSP mode") ---
+
+        public async Task<List<DelegatedAdminEntry>> GetAllDelegatedAdminsAsync()
+        {
+            // Full-table scan: the management UI lists every grant. The DelegatedAdmins table holds only
+            // admin assignment rows (one per admin×managed-tenant), so this is small and off the hot path.
+            var entries = new List<DelegatedAdminEntry>();
+            await foreach (var entity in _delegatedAdminsTableClient.QueryAsync<DelegatedAdminEntity>())
+            {
+                entries.Add(MapToDelegatedEntry(entity));
+            }
+            return entries;
+        }
+
+        public async Task<List<DelegatedAdminEntry>> GetDelegatedTenantsAsync(string upn)
+        {
+            var entries = new List<DelegatedAdminEntry>();
+            if (string.IsNullOrWhiteSpace(upn))
+                return entries;
+
+            var normalizedUpn = upn.ToLowerInvariant();
+            // Typed predicate overload builds the OData filter safely (escapes quotes) — no string interpolation.
+            await foreach (var entity in _delegatedAdminsTableClient.QueryAsync<DelegatedAdminEntity>(
+                e => e.PartitionKey == normalizedUpn))
+            {
+                entries.Add(MapToDelegatedEntry(entity));
+            }
+            return entries;
+        }
+
+        public async Task<List<DelegatedAdminEntry>> GetDelegatedAssigneesAsync(string tenantId)
+        {
+            var entries = new List<DelegatedAdminEntry>();
+            if (string.IsNullOrWhiteSpace(tenantId))
+                return entries;
+
+            // Cross-partition scan on RowKey — admin-UI path, not the hot auth path.
+            // Typed predicate overload builds the OData filter safely (escapes quotes) — no string interpolation.
+            var normalizedTenantId = tenantId.ToLowerInvariant();
+            await foreach (var entity in _delegatedAdminsTableClient.QueryAsync<DelegatedAdminEntity>(
+                e => e.RowKey == normalizedTenantId))
+            {
+                entries.Add(MapToDelegatedEntry(entity));
+            }
+            return entries;
+        }
+
+        public async Task<DelegatedAdminEntry?> GetDelegatedAdminAsync(string upn, string tenantId)
+        {
+            if (string.IsNullOrWhiteSpace(upn) || string.IsNullOrWhiteSpace(tenantId))
+                return null;
+
+            try
+            {
+                var result = await _delegatedAdminsTableClient.GetEntityAsync<DelegatedAdminEntity>(
+                    upn.ToLowerInvariant(), tenantId.ToLowerInvariant());
+                return result.Value == null ? null : MapToDelegatedEntry(result.Value);
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                return null;
+            }
+        }
+
+        public async Task<bool> UpsertDelegatedAdminAsync(
+            string upn, string tenantId, string role, string status, string source, string grantedBy)
+        {
+            upn = upn.ToLowerInvariant();
+            tenantId = tenantId.ToLowerInvariant();
+            grantedBy = grantedBy.ToLowerInvariant();
+
+            var entity = new DelegatedAdminEntity
+            {
+                PartitionKey = upn,
+                RowKey = tenantId,
+                Upn = upn,
+                TenantId = tenantId,
+                Role = role,
+                IsEnabled = true,
+                Status = status,
+                Source = source,
+                GrantedDate = DateTime.UtcNow,
+                GrantedBy = grantedBy
+            };
+
+            await _delegatedAdminsTableClient.UpsertEntityAsync(entity);
+            return true;
+        }
+
+        public async Task<bool> SetDelegatedAdminStatusAsync(string upn, string tenantId, string status)
+        {
+            upn = upn.ToLowerInvariant();
+            tenantId = tenantId.ToLowerInvariant();
+
+            try
+            {
+                var result = await _delegatedAdminsTableClient.GetEntityAsync<DelegatedAdminEntity>(upn, tenantId);
+                var entity = result.Value;
+                if (entity == null) return false;
+
+                entity.Status = status;
+                await _delegatedAdminsTableClient.UpdateEntityAsync(entity, ETag.All);
+                return true;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                return false;
+            }
+        }
+
+        public async Task<bool> SetDelegatedAdminEnabledAsync(string upn, string tenantId, bool isEnabled)
+        {
+            upn = upn.ToLowerInvariant();
+            tenantId = tenantId.ToLowerInvariant();
+
+            try
+            {
+                var result = await _delegatedAdminsTableClient.GetEntityAsync<DelegatedAdminEntity>(upn, tenantId);
+                var entity = result.Value;
+                if (entity == null) return false;
+
+                entity.IsEnabled = isEnabled;
+                await _delegatedAdminsTableClient.UpdateEntityAsync(entity, ETag.All);
+                return true;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                return false;
+            }
+        }
+
+        public async Task<bool> RemoveDelegatedAdminAsync(string upn, string tenantId)
+        {
+            upn = upn.ToLowerInvariant();
+            tenantId = tenantId.ToLowerInvariant();
+            await _delegatedAdminsTableClient.DeleteEntityAsync(upn, tenantId);
+            return true;
+        }
+
         // --- Tenant Members ---
 
         public async Task<List<TenantMember>> GetTenantMembersAsync(string tenantId)
@@ -411,6 +552,21 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         }
 
         // --- Helpers ---
+
+        private static DelegatedAdminEntry MapToDelegatedEntry(DelegatedAdminEntity entity)
+        {
+            return new DelegatedAdminEntry
+            {
+                Upn = entity.Upn,
+                TenantId = entity.TenantId,
+                Role = entity.Role,
+                IsEnabled = entity.IsEnabled,
+                Status = entity.Status,
+                Source = entity.Source,
+                GrantedAt = entity.GrantedDate,
+                GrantedBy = entity.GrantedBy
+            };
+        }
 
         private static TenantMember MapToTenantMember(TenantAdminEntity entity)
         {

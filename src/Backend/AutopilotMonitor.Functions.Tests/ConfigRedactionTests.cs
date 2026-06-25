@@ -1,4 +1,6 @@
 using System.Reflection;
+using AutopilotMonitor.Functions.Functions.Config;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 
@@ -137,4 +139,48 @@ public class ConfigRedactionTests
         var tenant = new TenantConfiguration { WebhookUrl = "" }.RedactedCopyForReader();
         Assert.Equal("", tenant.WebhookUrl);
     }
+
+    // ── Config GET secret-clearance decision (GetTenantConfigurationFunction.CanViewSecrets) ──
+    // Redact-by-default: only GA (any tenant) or the tenant's OWN admin sees unredacted secrets.
+
+    private const string TenantA = "11111111-1111-1111-1111-111111111111";
+    private const string TenantB = "22222222-2222-2222-2222-222222222222";
+
+    [Fact]
+    public void CanViewSecrets_GlobalAdmin_True()
+        => Assert.True(GetTenantConfigurationFunction.CanViewSecrets(
+            new RequestContext { IsGlobalAdmin = true, TenantId = TenantA, TargetTenantId = TenantB }));
+
+    [Fact]
+    public void CanViewSecrets_OwnTenantAdmin_True()
+        => Assert.True(GetTenantConfigurationFunction.CanViewSecrets(
+            new RequestContext { IsTenantAdmin = true, TenantId = TenantA, TargetTenantId = TenantA }));
+
+    [Fact]
+    public void CanViewSecrets_GlobalReaderCrossTenant_False()
+        => Assert.False(GetTenantConfigurationFunction.CanViewSecrets(
+            new RequestContext { IsGlobalReader = true, TenantId = TenantA, TargetTenantId = TenantB }));
+
+    [Fact]
+    public void CanViewSecrets_TenantAdminViewingForeignTenant_False()
+        // Admin of A, but target is B (e.g. reached via delegation or global scope) ⇒ redacted.
+        => Assert.False(GetTenantConfigurationFunction.CanViewSecrets(
+            new RequestContext { IsTenantAdmin = true, TenantId = TenantA, TargetTenantId = TenantB }));
+
+    [Fact]
+    public void CanViewSecrets_DelegatedReaderCrossTenant_False()
+        // Delegated reader of B who is ALSO admin of their own home tenant A, viewing B ⇒ redacted.
+        => Assert.False(GetTenantConfigurationFunction.CanViewSecrets(
+            new RequestContext
+            {
+                IsDelegatedReader = true,
+                IsTenantAdmin = true,        // admin of their OWN tenant A…
+                TenantId = TenantA,
+                TargetTenantId = TenantB,    // …but viewing B
+            }));
+
+    [Fact]
+    public void CanViewSecrets_PureDelegatedReader_False()
+        => Assert.False(GetTenantConfigurationFunction.CanViewSecrets(
+            new RequestContext { IsDelegatedReader = true, TenantId = TenantA, TargetTenantId = TenantB }));
 }

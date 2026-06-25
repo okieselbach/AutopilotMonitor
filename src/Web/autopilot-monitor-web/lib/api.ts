@@ -498,6 +498,18 @@ export const api = {
       `${API_BASE_URL}/api/vulnerability/software-inventory${qs({ tenantId })}`,
   },
 
+  // ── Delegated Admins (MSP mode — GlobalAdmin-managed cross-tenant read grants) ──
+  delegatedAdmins: {
+    list: () => `${API_BASE_URL}/api/global/delegated-admins`,
+    grant: () => `${API_BASE_URL}/api/global/delegated-admins`,
+    revoke: (upn: string, tenantId: string) =>
+      `${API_BASE_URL}/api/global/delegated-admins/${encodeURIComponent(upn)}/${encodeURIComponent(tenantId)}`,
+    enable: (upn: string, tenantId: string) =>
+      `${API_BASE_URL}/api/global/delegated-admins/${encodeURIComponent(upn)}/${encodeURIComponent(tenantId)}/enable`,
+    disable: (upn: string, tenantId: string) =>
+      `${API_BASE_URL}/api/global/delegated-admins/${encodeURIComponent(upn)}/${encodeURIComponent(tenantId)}/disable`,
+  },
+
   // ── MCP Users ─────────────────────────────────────────────────────────────
   mcpUsers: {
     list: () => `${API_BASE_URL}/api/global/mcp-users`,

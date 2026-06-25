@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
@@ -6,6 +7,7 @@ using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Pagination;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -42,6 +44,40 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     var bad = req.CreateResponse(HttpStatusCode.BadRequest);
                     await bad.WriteAsJsonAsync(new { error = parsed.Error });
                     return bad;
+                }
+
+                // Delegated ("MSP") caller: the middleware (GlobalReadOrDelegatedSubset tier) admitted them
+                // and published their managed tenant set on AllowedTenantIds. BIND the response to that
+                // subset — a delegated admin must never see a tenant they do not manage. Secrets are always
+                // redacted for them (they are never a Global Admin). The subset is small, so we return it in
+                // one shot (no server pagination) in whichever shape the caller requested.
+                var requestCtx = req.GetRequestContext();
+                if (requestCtx.AllowedTenantIds != null)
+                {
+                    // READ-bounded, not just response-bounded: point-read ONLY the caller's managed tenants
+                    // instead of scanning every tenant config and filtering in memory. A delegated MSP scoped
+                    // to k tenants triggers k point reads (cached, non-creating — TryGetConfigurationAsync
+                    // never writes a default row). exists==false drops any id with no config row.
+                    var reads = await Task.WhenAll(requestCtx.AllowedTenantIds.Select(async tid =>
+                        await _configService.TryGetConfigurationAsync(tid)));
+                    var subset = ExistingManagedConfigs(reads);
+                    _logger.LogInformation("GetAllTenantConfigurations (delegated subset, {Count} tenants) by {User}",
+                        subset.Count, userIdentifier);
+
+                    if (parsed.PageSize == null)
+                    {
+                        var resp = req.CreateResponse(HttpStatusCode.OK);
+                        await resp.WriteAsJsonAsync(DelegatedBareArrayView(subset));
+                        return resp;
+                    }
+
+                    var projected = TenantConfigProjection.ProjectAll(subset, parsed.Fields);
+                    return await req.OkAsync(new
+                    {
+                        count = projected.Count,
+                        tenants = projected,
+                        nextLink = (string?)null,
+                    });
                 }
 
                 // Legacy/default mode: no pageSize → unpaginated bare full-config array.
@@ -114,5 +150,24 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 return response;
             }
         }
+
+        /// <summary>
+        /// From the per-tenant point-read results, keep only the managed tenants that actually HAVE a config
+        /// row (exists). A delegated caller's AllowedTenantIds is the authoritative bound; an id with no row
+        /// (offboarded / never onboarded) is silently dropped rather than surfaced as an empty default.
+        /// Pure + testable seam (handler HTTP entry is not unit-tested — see GetAllBlockedDevicesFunctionTests).
+        /// </summary>
+        internal static List<TenantConfiguration> ExistingManagedConfigs(
+            IEnumerable<(TenantConfiguration config, bool exists)> reads)
+            => reads.Where(r => r.exists).Select(r => r.config).ToList();
+
+        /// <summary>
+        /// The delegated bare-array view of config/all: every managed-tenant config with its secrets
+        /// (SAS / webhook URLs / custom headers) redacted. A delegated admin is never a Global Admin, so it
+        /// must NEVER receive unredacted secrets for a tenant it merely manages. Pure + testable.
+        /// </summary>
+        internal static List<TenantConfiguration> DelegatedBareArrayView(
+            IEnumerable<TenantConfiguration> existingManaged)
+            => existingManaged.Select(c => c.RedactedCopyForReader()).ToList();
     }
 }

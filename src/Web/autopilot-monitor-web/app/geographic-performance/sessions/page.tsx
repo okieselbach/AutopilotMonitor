@@ -8,6 +8,7 @@ import { useAuth } from "../../../contexts/AuthContext";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { useAdminMode } from "@/hooks/useAdminMode";
+import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 
 interface SessionSummary {
   sessionId: string;
@@ -48,29 +49,6 @@ interface LocationSessionsResponse {
   success: boolean;
   sessions: SessionSummary[];
   totalCount: number;
-}
-
-const statusConfig: Record<string, { color: string; text: string }> = {
-  InProgress: { color: "bg-blue-100 text-blue-800", text: "In Progress" },
-  Pending: { color: "bg-amber-100 text-amber-800", text: "Pending" },
-  Succeeded: { color: "bg-green-100 text-green-800", text: "Succeeded" },
-  Failed: { color: "bg-red-100 text-red-800", text: "Failed" },
-  Unknown: { color: "bg-gray-100 text-gray-800", text: "Unknown" },
-};
-
-function StatusBadge({ status, failureReason }: { status: string; failureReason?: string | null }) {
-  const config = statusConfig[status] || statusConfig.Unknown;
-  const isTimeout = status === "Failed" && failureReason?.toLowerCase().includes("timed out");
-
-  return (
-    <span
-      className={`px-2 inline-flex items-center gap-1 text-xs leading-5 font-semibold rounded-full ${config.color}`}
-      title={failureReason || undefined}
-    >
-      {config.text}
-      {isTimeout && <span title={failureReason!}>&#9201;&#65039;</span>}
-    </span>
-  );
 }
 
 function formatDuration(seconds: number | null): string {
@@ -320,7 +298,7 @@ function LocationSessionsContent() {
                           {session.model || "—"}
                         </td>
                         <td className="px-4 py-3 text-sm">
-                          <StatusBadge status={session.status} failureReason={session.failureReason} />
+                          <SessionStatusBadge status={session.status} failureReason={session.failureReason} />
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600">
                           {formatDuration(session.durationSeconds)}

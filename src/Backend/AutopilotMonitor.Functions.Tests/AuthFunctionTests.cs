@@ -253,6 +253,79 @@ public class AuthFunctionTests
         Assert.True(result.IsSuccess);
     }
 
+    [Fact]
+    public void PreviewGate_DelegatedAdminBypasses_AndSurfacesManagedTenants()
+    {
+        // An MSP admin whose own home tenant is NOT preview-approved still logs in (explicitly authorized
+        // to manage OTHER tenants), and the response carries the managed tenant set + isDelegated flag.
+        const string managed = "22222222-2222-2222-2222-222222222222";
+        var result = AuthFunction.BuildAuthResult(
+            DefaultConfig(), isGlobalAdmin: false, isGlobalReader: false, isPreviewApproved: false,
+            memberRole: null, mcpCheck: McpDenied(),
+            hasTenantAdmins: true,
+            TenantId, Upn, DisplayName, ObjectId,
+            delegatedTenantIds: new[] { managed });
+
+        Assert.True(result.IsSuccess);
+        var body = ToDynamic(result.Body);
+        Assert.True((bool)body.isDelegated);
+        Assert.Contains(managed, (IReadOnlyCollection<string>)body.delegatedTenantIds);
+    }
+
+    [Fact]
+    public void NonDelegatedUser_HasEmptyDelegatedTenantIds()
+    {
+        var result = AuthFunction.BuildAuthResult(
+            DefaultConfig(), isGlobalAdmin: false, isGlobalReader: false, isPreviewApproved: true,
+            memberRole: AdminRole(), mcpCheck: McpAllowed(),
+            hasTenantAdmins: true,
+            TenantId, Upn, DisplayName, ObjectId);
+
+        var body = ToDynamic(result.Body);
+        Assert.False((bool)body.isDelegated);
+        Assert.Empty((IReadOnlyCollection<string>)body.delegatedTenantIds);
+    }
+
+    [Fact]
+    public void GatePriority_SuspendedTakesPrecedenceOverDelegatedBypass()
+    {
+        // Gate 1 (suspended home tenant) still wins over the delegated preview-gate bypass.
+        var config = DefaultConfig();
+        config.Disabled = true;
+
+        var result = AuthFunction.BuildAuthResult(
+            config, isGlobalAdmin: false, isGlobalReader: false, isPreviewApproved: false,
+            memberRole: null, mcpCheck: McpDenied(),
+            hasTenantAdmins: true,
+            TenantId, Upn, DisplayName, ObjectId,
+            delegatedTenantIds: new[] { "22222222-2222-2222-2222-222222222222" });
+
+        Assert.False(result.IsSuccess);
+        var body = ToDynamic(result.Body);
+        Assert.Equal("TenantSuspended", (string)body.error);
+    }
+
+    [Fact]
+    public void AutoAdmin_DelegatedFirstUser_DoesNotAutoAdminHomeTenant()
+    {
+        // A delegated ("MSP") admin logging into a home tenant with NO existing admins must NOT be silently
+        // made its Tenant Admin — that would convert a read-only delegated assignment (for OTHER tenants)
+        // into write authority over the home tenant. Regression for the preview-gate bypass opening the
+        // auto-admin path to delegated callers.
+        var result = AuthFunction.BuildAuthResult(
+            DefaultConfig(), isGlobalAdmin: false, isGlobalReader: false, isPreviewApproved: false,
+            memberRole: null, mcpCheck: McpDenied(),
+            hasTenantAdmins: false,
+            TenantId, Upn, DisplayName, ObjectId,
+            delegatedTenantIds: new[] { "22222222-2222-2222-2222-222222222222" });
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.NeedsAutoAdmin);
+        var body = ToDynamic(result.Body);
+        Assert.False((bool)body.isTenantAdmin);
+        Assert.Null((string?)body.role);
+    }
+
     // -------------------------------------------------------------------------
     // Auto-Admin Logic
     // -------------------------------------------------------------------------

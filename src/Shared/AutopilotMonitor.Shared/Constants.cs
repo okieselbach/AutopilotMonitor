@@ -673,6 +673,43 @@ namespace AutopilotMonitor.Shared
         }
 
         /// <summary>
+        /// Per-tenant roles stored in the DelegatedAdmins table (Role column). A delegated admin is scoped
+        /// to a SUBSET of tenants (its assignment rows) rather than the whole platform — the "scoped global"
+        /// tier between a single-tenant member and a GlobalAdmin. Mirrors <see cref="GlobalRoles"/>:
+        /// DelegatedReader = cross-tenant READ over the assigned tenants only (no mutation, secrets redacted);
+        /// DelegatedAdmin = read + (later) scoped write over the assigned tenants. Externally surfaced as
+        /// "MSP mode". An unrecognized Role string is treated as no role (fail-closed).
+        /// </summary>
+        public static class DelegatedRoles
+        {
+            public const string DelegatedReader = "DelegatedReader";
+            public const string DelegatedAdmin = "DelegatedAdmin";
+        }
+
+        /// <summary>
+        /// Lifecycle status of a DelegatedAdmins assignment row. Only <see cref="Active"/> rows confer scope;
+        /// <see cref="PendingApproval"/> (customer-delegation awaiting tenant-admin approval) and
+        /// <see cref="Revoked"/> rows are retained for audit but grant nothing.
+        /// </summary>
+        public static class DelegatedStatus
+        {
+            public const string Active = "Active";
+            public const string PendingApproval = "PendingApproval";
+            public const string Revoked = "Revoked";
+        }
+
+        /// <summary>
+        /// How a DelegatedAdmins assignment was created: <see cref="OperatorGranted"/> (a platform
+        /// GlobalAdmin assigned it centrally) or <see cref="CustomerDelegated"/> (the customer's own
+        /// tenant admin delegated access to an external party — self-service).
+        /// </summary>
+        public static class DelegatedSource
+        {
+            public const string OperatorGranted = "OperatorGranted";
+            public const string CustomerDelegated = "CustomerDelegated";
+        }
+
+        /// <summary>
         /// Placeholder substituted for secret-bearing string fields (SAS URLs, webhook URLs, API keys,
         /// custom webhook headers) when a config object is served to a read-only GlobalReader. Non-empty
         /// secrets become this sentinel so the UI shows "configured but hidden"; empty stays empty.
@@ -734,6 +771,10 @@ namespace AutopilotMonitor.Shared
             public const string GlobalAdmins = "GlobalAdmins";
             public const string TenantAdmins   = "TenantAdmins";
             public const string McpUsers       = "McpUsers";
+
+            // Delegated (scoped-global) admin assignments — "MSP mode". PK=delegated-admin UPN (lowercase),
+            // RK=TenantId (lowercase). One row per (admin, managed-tenant) pair.
+            public const string DelegatedAdmins = "DelegatedAdmins";
 
             // Preview gating (temporary — remove after GA)
             public const string PreviewWhitelist = "PreviewWhitelist";
@@ -888,6 +929,7 @@ namespace AutopilotMonitor.Shared
                 GlobalAdmins,
                 TenantAdmins,
                 McpUsers,
+                DelegatedAdmins,
                 PreviewWhitelist,
                 PreviewConfig,
                 Feedback,
@@ -1069,9 +1111,9 @@ namespace AutopilotMonitor.Shared
         /// Critical tables that the daily backup feature snapshots. Order matters only for
         /// deterministic test output; the per-table loop is independent so a failure in
         /// one table does NOT block the others (Outcome=Partial covers that case).
-        /// Three of these (<c>GlobalAdmins</c>, <c>TenantAdmins</c>, <c>McpUsers</c>)
-        /// are gated to single-row restore in the API layer — full-table restore would
-        /// reactivate disabled or re-create removed identities.
+        /// Four of these (<c>GlobalAdmins</c>, <c>TenantAdmins</c>, <c>McpUsers</c>,
+        /// <c>DelegatedAdmins</c>) are gated to single-row restore in the API layer — full-table
+        /// restore would reactivate disabled or re-create removed identities.
         /// <c>OffboardingAudit</c> additionally blocks replace-all (append-only audit).
         /// </summary>
         public static class CriticalBackupTables
@@ -1080,6 +1122,7 @@ namespace AutopilotMonitor.Shared
             {
                 TableNames.AdminConfiguration,
                 TableNames.AnalyzeRules,
+                TableNames.DelegatedAdmins,
                 TableNames.Feedback,
                 TableNames.GatherRules,
                 TableNames.GlobalAdmins,
@@ -1105,6 +1148,7 @@ namespace AutopilotMonitor.Shared
                 TableNames.GlobalAdmins,
                 TableNames.TenantAdmins,
                 TableNames.McpUsers,
+                TableNames.DelegatedAdmins,
             };
 
             /// <summary>

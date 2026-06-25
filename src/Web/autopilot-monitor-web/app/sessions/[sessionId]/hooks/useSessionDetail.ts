@@ -25,6 +25,13 @@ interface UseSessionDetailParams {
   sessionId: string;
   tenantId: string;
   globalAdminMode: boolean;
+  /**
+   * Explicit target tenant from the URL (`?tenantId=`). Set when a delegated ("MSP") admin drills into a
+   * managed tenant's session from the fleet: that caller has no global scope, so the backend cannot resolve
+   * the session cross-tenant from a null tenantId — it needs the named tenant on every read. Takes priority
+   * over the JWT home tenant for the initial fetch; ignored once the session's own tenantId is known.
+   */
+  tenantIdOverride?: string;
   user: User | null | undefined;
   getAccessToken: (forceRefresh?: boolean) => Promise<string | null>;
   addNotification: AddNotification;
@@ -54,6 +61,7 @@ export function useSessionDetail({
   sessionId,
   tenantId,
   globalAdminMode,
+  tenantIdOverride,
   user,
   getAccessToken,
   addNotification,
@@ -67,6 +75,7 @@ export function useSessionDetail({
   const tenantIdRef = useRef(tenantId);
   const sessionTenantIdRef = useRef<string | null>(sessionTenantId);
   const globalAdminModeRef = useRef(globalAdminMode);
+  const tenantIdOverrideRef = useRef<string | undefined>(tenantIdOverride);
   const hasInitialFetch = useRef(false);
   const lastFetchedSessionId = useRef<string | null>(null);
 
@@ -75,10 +84,14 @@ export function useSessionDetail({
   useEffect(() => { tenantIdRef.current = tenantId; }, [tenantId]);
   useEffect(() => { sessionTenantIdRef.current = sessionTenantId; }, [sessionTenantId]);
   useEffect(() => { globalAdminModeRef.current = globalAdminMode; }, [globalAdminMode]);
+  useEffect(() => { tenantIdOverrideRef.current = tenantIdOverride; }, [tenantIdOverride]);
 
   const resolveEffectiveTenantId = useCallback((): string | null => {
     const knownSessionTenant = sessionTenantIdRef.current || sessionRef.current?.tenantId || null;
     if (knownSessionTenant) return knownSessionTenant;
+    // Explicit URL target (delegated cross-tenant drill-in) wins over the JWT home tenant — the caller is
+    // viewing someone else's tenant and has no global scope, so a null tenantId can't resolve it server-side.
+    if (tenantIdOverrideRef.current) return tenantIdOverrideRef.current;
     if (globalAdminModeRef.current) return null;
     return tenantIdRef.current || null;
   }, []);
@@ -120,7 +133,7 @@ export function useSessionDetail({
   // `user` is included so that a retry fires once MSAL settles (token becomes available).
   useEffect(() => {
     if (!sessionId) return;
-    if (!globalAdminMode && !tenantId) return; // wait for real tenant ID
+    if (!globalAdminMode && !tenantId && !tenantIdOverride) return; // wait for a real target tenant
 
     // Reset fetch flag only if navigating to a different session
     if (lastFetchedSessionId.current !== sessionId) {
@@ -144,7 +157,7 @@ export function useSessionDetail({
 
     fetchSessionDetails();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, tenantId, globalAdminMode, user]);
+  }, [sessionId, tenantId, globalAdminMode, tenantIdOverride, user]);
 
   return {
     session,

@@ -38,6 +38,38 @@ public sealed record RequestContext
     /// </summary>
     public bool HasGlobalScope => IsGlobalAdmin || IsGlobalReader;
 
+    /// <summary>
+    /// True if the caller accessed THIS request's target tenant via a delegated-admin assignment at the
+    /// read tier (the "scoped global" / MSP tier — read of a SUBSET of tenants). Set only when the target
+    /// tenant is in the caller's delegated scope and the route is a tenant-scoped read. Mutually exclusive
+    /// with <see cref="IsDelegatedAdmin"/> for this request. Phase 1: delegation only ever grants READ.
+    /// </summary>
+    public bool IsDelegatedReader { get; init; }
+
+    /// <summary>
+    /// True if the caller holds the DelegatedAdmin role for this request's target tenant. Reserved for the
+    /// later scoped-write phase; in the read-only phase this still confers only read (no write tier admits
+    /// a delegated caller), so treat it as read for now and gate writes explicitly when wiring Phase 5.
+    /// </summary>
+    public bool IsDelegatedAdmin { get; init; }
+
+    /// <summary>True when the caller reached the target via any delegated assignment (reader or admin).</summary>
+    public bool IsDelegated => IsDelegatedReader || IsDelegatedAdmin;
+
+    /// <summary>
+    /// True when the caller can see a fleet of tenants — full platform scope (GA/Reader) OR a delegated
+    /// subset. Visibility/nav helper; does NOT itself authorize a specific tenant (the middleware gates that).
+    /// </summary>
+    public bool HasFleetScope => HasGlobalScope || IsDelegated;
+
+    /// <summary>
+    /// The set of tenant IDs (lowercase) the caller is authorized for via delegated assignments, or null
+    /// when the caller is not a delegated admin (or full platform scope, which is unbounded = "all tenants").
+    /// Populated on cross-tenant delegated reads; consumed by cross-tenant aggregation to bound the fan-out
+    /// to the delegated subset (Phase 2). Null ⇒ no delegated bound applies.
+    /// </summary>
+    public IReadOnlyCollection<string>? AllowedTenantIds { get; init; }
+
     /// <summary>True if the user is a Tenant Admin of their own tenant.</summary>
     public bool IsTenantAdmin { get; init; }
 

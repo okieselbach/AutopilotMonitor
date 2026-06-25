@@ -98,6 +98,14 @@ interface UserInfo {
    */
   isGlobalReader: boolean;
   isTenantAdmin: boolean;
+  /**
+   * Delegated ("MSP") admin: the caller manages a SUBSET of OTHER tenants (read-only this phase) — the
+   * "scoped global" tier between a single-tenant member and a platform Global Admin. True iff
+   * {@link delegatedTenantIds} is non-empty. Use {@link AuthContextType.hasFleetScope} for fleet/switcher gating.
+   */
+  isDelegated: boolean;
+  /** The tenant IDs this caller manages as a delegated admin (lowercase). Empty for non-delegated users. */
+  delegatedTenantIds: string[];
   role: 'Admin' | 'Operator' | 'Viewer' | null;
   canManageBootstrapTokens: boolean;
   hasMcpAccess: boolean;
@@ -110,6 +118,12 @@ interface AuthContextType {
   user: UserInfo | null;
   /** Platform-wide read scope: Global Admin OR read-only Global Reader. Use for cross-tenant VISIBILITY. */
   hasGlobalScope: boolean;
+  /**
+   * Fleet scope: the caller can see MORE than one tenant — full platform scope (GA/Reader) OR a delegated
+   * ("MSP") subset. Use to gate fleet/switcher UI. Does NOT itself authorize a specific tenant (the backend
+   * gates that); a delegated user is bounded to {@link UserInfo.delegatedTenantIds}.
+   */
+  hasFleetScope: boolean;
   isLoading: boolean;
   isPreviewBlocked: boolean;
   previewMessage: string;
@@ -163,6 +177,8 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
           isGlobalAdmin: (data.isGlobalAdmin as boolean) || false,
           isGlobalReader: (data.isGlobalReader as boolean) || false,
           isTenantAdmin: (data.isTenantAdmin as boolean) || false,
+          isDelegated: (data.isDelegated as boolean) || false,
+          delegatedTenantIds: (data.delegatedTenantIds as string[]) || [],
           role: (data.role as 'Admin' | 'Operator' | 'Viewer' | null) || null,
           canManageBootstrapTokens: (data.canManageBootstrapTokens as boolean) || false,
           hasMcpAccess: (data.hasMcpAccess as boolean) || false,
@@ -217,6 +233,8 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
               isGlobalAdmin: false,
               isGlobalReader: false,
               isTenantAdmin: false,
+              isDelegated: false,
+              delegatedTenantIds: [],
               role: null,
               canManageBootstrapTokens: false,
               hasMcpAccess: false,
@@ -238,6 +256,8 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
         isGlobalAdmin: data.isGlobalAdmin || false,
         isGlobalReader: data.isGlobalReader || false,
         isTenantAdmin: data.isTenantAdmin || false,
+        isDelegated: data.isDelegated || false,
+        delegatedTenantIds: data.delegatedTenantIds || [],
         role: data.role || null,
         canManageBootstrapTokens: data.canManageBootstrapTokens || false,
         hasMcpAccess: data.hasMcpAccess || false,
@@ -271,6 +291,8 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
         isGlobalAdmin: false,
         isGlobalReader: false,
         isTenantAdmin: false,
+        isDelegated: false,
+        delegatedTenantIds: [],
         role: null,
         canManageBootstrapTokens: false,
         hasMcpAccess: false,
@@ -407,6 +429,7 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
     isAuthenticated,
     user,
     hasGlobalScope: (user?.isGlobalAdmin || user?.isGlobalReader) ?? false,
+    hasFleetScope: (user?.isGlobalAdmin || user?.isGlobalReader || user?.isDelegated) ?? false,
     isLoading,
     isPreviewBlocked,
     previewMessage,

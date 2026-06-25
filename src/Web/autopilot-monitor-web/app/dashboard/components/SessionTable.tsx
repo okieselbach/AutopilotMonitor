@@ -6,6 +6,7 @@ import { Session } from "../types";
 import { trackEvent } from "@/lib/appInsights";
 import { fuzzyContains } from "@/utils/fuzzy";
 import { buildUniqueValuesByField } from "./uniqueValuesByField";
+import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 
 // Column definition for the session table
 interface ColumnDef {
@@ -95,6 +96,9 @@ interface SessionTableProps {
   onBlockDevice: (serialNumber: string, tenantId: string, deviceName?: string) => void;
   fullWidth: boolean;
   onToggleFullWidth: () => void;
+  /** Builds the row's navigation target. Defaults to `/sessions/{id}`; the Fleet drill-in overrides it to
+   * append `?tenantId=` so a delegated viewer opens the session in the managed tenant's (read-only) context. */
+  sessionLinkTarget?: (sessionId: string) => string;
 }
 
 export function SessionTable({
@@ -135,8 +139,11 @@ export function SessionTable({
   onBlockDevice,
   fullWidth,
   onToggleFullWidth,
+  sessionLinkTarget,
 }: SessionTableProps) {
   const router = useRouter();
+  const linkFor = (sessionId: string) =>
+    sessionLinkTarget ? sessionLinkTarget(sessionId) : `/sessions/${sessionId}`;
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(getInitialVisibleColumns);
   const [showColumnSelector, setShowColumnSelector] = useState(false);
   const [openFilterColumn, setOpenFilterColumn] = useState<string | null>(null);
@@ -544,7 +551,7 @@ export function SessionTable({
                 const selected = searchSuggestions[searchSelectedIndex];
                 setShowSearchSuggestions(false);
                 setSearchSelectedIndex(-1);
-                router.push(`/sessions/${selected.session.sessionId}`);
+                router.push(linkFor(selected.session.sessionId));
                 return;
               }
               if (e.key === "Escape") {
@@ -586,7 +593,7 @@ export function SessionTable({
                   onClick={() => {
                     setShowSearchSuggestions(false);
                     setSearchSelectedIndex(-1);
-                    router.push(`/sessions/${s.session.sessionId}`);
+                    router.push(linkFor(s.session.sessionId));
                   }}
                   className={`w-full text-left px-4 py-2.5 flex items-center gap-3 transition-colors ${
                     idx === searchSelectedIndex ? "bg-blue-50" : "hover:bg-gray-50"
@@ -779,7 +786,7 @@ export function SessionTable({
               paginatedSessions.map((session) => (
               <tr
                 key={session.sessionId}
-                onClick={() => { trackEvent("session_opened", { sessionId: session.sessionId, status: session.status ?? "" }); router.push(`/sessions/${session.sessionId}`); }}
+                onClick={() => { trackEvent("session_opened", { sessionId: session.sessionId, status: session.status ?? "" }); router.push(linkFor(session.sessionId)); }}
                 className="hover:bg-gray-50 cursor-pointer transition-colors"
               >
                 {activeColumns.map((col) => (
@@ -923,7 +930,7 @@ function SessionCell({
       return (
         <td className="px-6 py-4 whitespace-nowrap">
           <div className="flex items-center gap-1.5">
-            <StatusBadge status={session.status} failureReason={session.failureReason} adminMarkedAction={session.adminMarkedAction} />
+            <SessionStatusBadge status={session.status} failureReason={session.failureReason} adminMarkedAction={session.adminMarkedAction} />
             {session.isHybridJoin && (
               <span
                 className="px-2 inline-flex items-center gap-1 text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800"
@@ -1218,41 +1225,3 @@ function SortableHeader({
   );
 }
 
-function StatusBadge({ status, failureReason, adminMarkedAction }: { status: string; failureReason?: string; adminMarkedAction?: string }) {
-  const statusConfig = {
-    InProgress: { color: "bg-blue-100 text-blue-800", text: "In Progress" },
-    Pending: { color: "bg-amber-100 text-amber-800", text: "Pending" },
-    Stalled: { color: "bg-orange-100 text-orange-800", text: "Stalled" },
-    Succeeded: { color: "bg-green-100 text-green-800", text: "Succeeded" },
-    Failed: { color: "bg-red-100 text-red-800", text: "Failed" },
-    Unknown: { color: "bg-gray-100 text-gray-800", text: "Unknown" },
-  };
-
-  const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.Unknown;
-
-  const isTimeout = status === "Failed" && failureReason && failureReason.toLowerCase().includes("timed out");
-
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <span
-        className={`px-2 inline-flex items-center gap-1 text-xs leading-5 font-semibold rounded-full ${config.color}`}
-        title={failureReason || undefined}
-      >
-        {config.text}
-        {isTimeout && (
-          <span title={failureReason} className="inline-flex items-center">
-            ⏱️
-          </span>
-        )}
-      </span>
-      {adminMarkedAction && (
-        <span
-          className="px-1.5 py-0.5 text-[10px] leading-4 font-semibold rounded border border-gray-300 bg-gray-50 text-gray-600"
-          title={`Manually marked as ${adminMarkedAction} by administrator`}
-        >
-          manual
-        </span>
-      )}
-    </span>
-  );
-}

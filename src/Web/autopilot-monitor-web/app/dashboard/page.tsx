@@ -144,11 +144,12 @@ function HomeContent() {
     disabled: isRegularUser,
   });
 
-  // Redirect regular users (non-admin, non-operator, no platform scope) to the progress portal — they
-  // must never see the session list. A read-only Global Reader has cross-tenant read scope → stays.
+  // Redirect users without own-tenant/platform scope away from the session list. A delegated ("MSP") admin
+  // manages OTHER tenants and belongs on the fleet overview, not the end-user progress portal; everyone else
+  // without scope goes to /progress. A read-only Global Reader has cross-tenant read scope → stays.
   useEffect(() => {
     if (user && !user.isTenantAdmin && !user.isGlobalAdmin && !user.isGlobalReader && user.role !== 'Operator') {
-      router.replace("/progress");
+      router.replace(user.isDelegated ? "/fleet" : "/progress");
     }
   }, [user, router]);
 

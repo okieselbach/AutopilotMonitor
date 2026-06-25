@@ -78,6 +78,16 @@ public enum EndpointPolicy
     /// </summary>
     GlobalReadOrAdmin,
 
+    /// <summary>
+    /// Cross-tenant READ that can be BOUNDED to a tenant subset. Global Admin / Global Reader see ALL
+    /// tenants (unbounded). A delegated ("MSP") admin is also admitted, but the middleware populates
+    /// <see cref="Helpers.RequestContext.AllowedTenantIds"/> with its managed subset and the HANDLER MUST
+    /// restrict its output to that set (the middleware cannot filter an aggregate response body). Use only
+    /// for aggregate endpoints whose response is filterable per-tenant — e.g. config/all (the tenant list).
+    /// Aggregates that cannot be bounded stay GlobalReadOrAdmin + TenantScoping.None (delegated-unreachable).
+    /// </summary>
+    GlobalReadOrDelegatedSubset,
+
     /// <summary>Global Admin only. Platform-wide access (all writes + global settings).</summary>
     GlobalAdminOnly,
 }
@@ -281,6 +291,15 @@ public static class EndpointAccessPolicyCatalog
         // reads but stay GlobalAdminOnly — they can dump secret-bearing tables and would bypass the
         // GlobalReader config-secret redaction.
         //
+        // SECURITY — delegated ("MSP") accessibility (Phase 2a): a GlobalReadOrAdmin route carries
+        // TenantScoping.QueryParam (or RouteParam) IFF its handler strictly restricts the response to the
+        // single tenant named by ?tenantId= (or {tenantId}). That scoping is what lets a delegated admin
+        // reach the route — bounded by the middleware to a tenant in its allowed set (single-tenant path
+        // only; the no-tenantId AGGREGATE path stays GA/Reader-only). Routes that cannot restrict to one
+        // tenant (they fan out over ALL tenants) MUST stay TenantScoping.None so delegated callers can
+        // never reach them. Before adding QueryParam scoping to a global route, verify the handler honors
+        // the filter — a wrong scoping here is a cross-tenant data leak.
+        //
         // Inspector v1 endpoints (Plan §M6 — lift to MemberRead+QueryParam scoping at the v2 adminMode
         // lift). Cross-tenant resolution for global-scope callers happens inside the functions via
         // SessionsIndex, so TenantScoping.None on the catalog is fine.
@@ -297,22 +316,22 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/sessions/{sessionId}/deletion-manifest", EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/tenants/{tenantId}/deletion-manifests",  EndpointPolicy.GlobalReadOrAdmin, TenantScoping.RouteParam),
         new("GET",    "global/session-deletions",                    EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/raw/sessions",                  EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/raw/events",                    EndpointPolicy.GlobalReadOrAdmin),
+        new("GET",    "global/raw/sessions",                  EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/raw/events",                    EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         // Raw table/log access stays GlobalAdminOnly: query_table can dump arbitrary tables
         // (incl. TenantConfiguration secrets), which would bypass the GlobalReader config-secret
         // redaction. A read-only GlobalReader uses the curated read endpoints instead.
         new("GET",    "global/raw/tables",                    EndpointPolicy.GlobalAdminOnly),
         new("GET",    "global/raw/tables/{tableName}",        EndpointPolicy.GlobalAdminOnly),
         new("POST",   "global/raw/logs",                      EndpointPolicy.GlobalAdminOnly),
-        new("GET",    "global/search/sessions",              EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/search/sessions-by-event",   EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/search/sessions-by-cve",     EndpointPolicy.GlobalReadOrAdmin),
+        new("GET",    "global/search/sessions",              EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/search/sessions-by-event",   EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/search/sessions-by-cve",     EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/summary",           EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/config",             EndpointPolicy.GlobalReadOrAdmin),
         new("PUT",    "global/config",             EndpointPolicy.GlobalAdminOnly),
         new("POST",   "global/config",             EndpointPolicy.GlobalAdminOnly),
-        new("GET",    "config/all",                EndpointPolicy.GlobalReadOrAdmin),
+        new("GET",    "config/all",                EndpointPolicy.GlobalReadOrDelegatedSubset),
         new("GET",    "auth/global-admins",        EndpointPolicy.GlobalReadOrAdmin),
         new("POST",   "auth/global-admins",        EndpointPolicy.GlobalAdminOnly),
         new("DELETE", "auth/global-admins/{upn}",  EndpointPolicy.GlobalAdminOnly),
@@ -321,31 +340,31 @@ public static class EndpointAccessPolicyCatalog
         new("DELETE", "preview/whitelist/{tenantId}", EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
         new("GET",    "preview/notification-email/{tenantId}", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.RouteParam),
         new("POST",   "preview/send-welcome-email/{tenantId}", EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
-        new("GET",    "global/sessions",            EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/stats/sessions",      EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/audit/logs",          EndpointPolicy.GlobalReadOrAdmin),
+        new("GET",    "global/sessions",            EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/stats/sessions",      EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/audit/logs",          EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/presence",            EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/tenants-with-deletion-manifests", EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/metrics/platform",    EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/metrics/app",         EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/metrics/fleet-health", EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/apps/list",           EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/apps/{appName}/analytics", EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/apps/{appName}/sessions",  EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/metrics/geographic",  EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/metrics/geographic/sessions", EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/metrics/usage",       EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/metrics/sla",         EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/metrics/rule-stats",  EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/metrics/vulnerability", EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/metrics/mcp-usage",       EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/metrics/mcp-usage/daily", EndpointPolicy.GlobalReadOrAdmin),
+        new("GET",    "global/metrics/app",         EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/metrics/fleet-health", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/apps/list",           EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/apps/{appName}/analytics", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/apps/{appName}/sessions",  EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/metrics/geographic",  EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/metrics/geographic/sessions", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/metrics/usage",       EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/metrics/sla",         EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/metrics/rule-stats",  EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/metrics/vulnerability", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/metrics/mcp-usage",       EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/metrics/mcp-usage/daily", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/distress-reports",    EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/session-reports",     EndpointPolicy.GlobalReadOrAdmin),
+        new("GET",    "global/session-reports",     EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/session-reports/download-url", EndpointPolicy.GlobalReadOrAdmin),
         new("PATCH",  "global/session-reports/{reportId}/note", EndpointPolicy.GlobalAdminOnly),
-        new("GET",    "global/rules/gather",        EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "global/rules/analyze",       EndpointPolicy.GlobalReadOrAdmin),
+        new("GET",    "global/rules/gather",        EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/rules/analyze",       EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/devices/blocked",     EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "devices/blocked",            EndpointPolicy.GlobalReadOrAdmin),
         new("POST",   "devices/block",              EndpointPolicy.GlobalAdminOnly),
@@ -370,7 +389,7 @@ public static class EndpointAccessPolicyCatalog
         // The {tenantId} route param is the OFFBOARDED tenant whose data was archived;
         // the operator (GA) does not belong to that tenant. RouteParam scoping declares
         // that the route's tenantId is supplied from the URL, not from the caller's JWT.
-        new("GET",    "global/customs-archive",                                                  EndpointPolicy.GlobalReadOrAdmin),
+        new("GET",    "global/customs-archive",                                                  EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/customs-archive/{tenantId}/{historyRowKey}",                       EndpointPolicy.GlobalReadOrAdmin, TenantScoping.RouteParam),
         new("GET",    "global/customs-archive/{tenantId}/{historyRowKey}/{archiveRowKey}",       EndpointPolicy.GlobalReadOrAdmin, TenantScoping.RouteParam),
         new("DELETE", "global/customs-archive/{tenantId}/{historyRowKey}/{archiveRowKey}",       EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
@@ -379,7 +398,7 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "health/mcp",                 EndpointPolicy.AuthenticatedUser),
         new("POST",   "rules/reseed-from-github",   EndpointPolicy.GlobalAdminOnly),
         new("GET",    "vulnerability/unmatched-software", EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "vulnerability/software-inventory", EndpointPolicy.GlobalReadOrAdmin),
+        new("GET",    "vulnerability/software-inventory", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("POST",   "vulnerability/sync",              EndpointPolicy.GlobalAdminOnly),
         new("POST",   "vulnerability/sync-msrc",         EndpointPolicy.GlobalAdminOnly),
         new("GET",    "vulnerability/sync-status",       EndpointPolicy.GlobalReadOrAdmin),
@@ -397,6 +416,17 @@ public static class EndpointAccessPolicyCatalog
         new("PATCH",  "global/mcp-users/{upn}/enable",        EndpointPolicy.GlobalAdminOnly),
         new("PATCH",  "global/mcp-users/{upn}/disable",       EndpointPolicy.GlobalAdminOnly),
         new("PATCH",  "global/mcp-users/{upn}/usage-plan",    EndpointPolicy.GlobalAdminOnly),
+        // Delegated-admin ("MSP mode") management — list is GlobalReadOrAdmin (a read-only Global Reader may
+        // audit who is delegated); all mutations are GlobalAdminOnly. Global routes (TenantScoping.None): the
+        // target tenant is in the body/route and the handler stamps it, not derived from the caller's JWT tid.
+        new("GET",    "global/delegated-admins",                          EndpointPolicy.GlobalReadOrAdmin),
+        new("POST",   "global/delegated-admins",                          EndpointPolicy.GlobalAdminOnly),
+        // The {tenantId} route segment is the TARGET managed tenant — TenantScoping.RouteParam per the
+        // fail-closed convention (sets RequestContext.TargetTenantId). The policy stays GlobalAdminOnly, so
+        // only a platform admin may mutate; a delegated caller is denied (GlobalAdminOnly is not a read tier).
+        new("DELETE", "global/delegated-admins/{upn}/{tenantId}",         EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
+        new("PATCH",  "global/delegated-admins/{upn}/{tenantId}/enable",  EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
+        new("PATCH",  "global/delegated-admins/{upn}/{tenantId}/disable", EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
         new("PATCH",  "config/{tenantId}/plan",                            EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
         new("GET",    "global/config/plan-tiers",                           EndpointPolicy.GlobalReadOrAdmin),
         new("PUT",    "global/config/plan-tiers",                           EndpointPolicy.GlobalAdminOnly),
@@ -413,7 +443,7 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "notifications",                                   EndpointPolicy.MemberRead, TenantScoping.Jwt),
         new("POST",   "notifications/dismiss-all",                       EndpointPolicy.TenantAdminOrGA, TenantScoping.Jwt),
         new("POST",   "notifications/{notificationId}/dismiss",          EndpointPolicy.TenantAdminOrGA, TenantScoping.Jwt),
-        new("GET",    "global/ops-events",                              EndpointPolicy.GlobalReadOrAdmin),
+        new("GET",    "global/ops-events",                              EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
     };
 
     /// <summary>

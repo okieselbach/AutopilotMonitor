@@ -225,10 +225,11 @@ public class EndpointPolicyCatalogCompletenessTests
 
     /// <summary>
     /// The three global/apps/* routes must be cross-tenant READS — GlobalReadOrAdmin (GA + read-only
-    /// GlobalReader) — with TenantScoping.None (the optional ?tenantId= query param is intentional
-    /// cross-tenant scoping, enforced inside the function — not by the middleware). A future accidental
-    /// downgrade below the global-scope tier (e.g. to MemberRead, exposing them to tenant members)
-    /// would be caught here, whereas the generic completeness test only guarantees *some* entry exists.
+    /// GlobalReader). As of Phase 2a they carry TenantScoping.QueryParam: their handlers strictly restrict
+    /// to the ?tenantId= named tenant, which is exactly what makes them reachable by a delegated ("MSP")
+    /// admin bounded to its allowed tenant set (single-tenant path only; the no-tenantId aggregate path
+    /// stays GA/Reader-only). A future accidental downgrade below the global-scope tier (e.g. to MemberRead,
+    /// exposing them to tenant members) would be caught here.
     /// </summary>
     [Theory]
     [InlineData("GET", "/api/global/apps/list",                       "global/apps/list")]
@@ -241,7 +242,7 @@ public class EndpointPolicyCatalogCompletenessTests
         Assert.NotNull(entry);
         Assert.Equal(expectedTemplate, entry!.RouteTemplate);
         Assert.Equal(EndpointPolicy.GlobalReadOrAdmin, entry.Policy);
-        Assert.Equal(TenantScoping.None, entry.TenantScoping);
+        Assert.Equal(TenantScoping.QueryParam, entry.TenantScoping);
     }
 
     /// <summary>

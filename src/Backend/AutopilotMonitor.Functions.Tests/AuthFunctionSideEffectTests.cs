@@ -42,6 +42,12 @@ public class AuthFunctionSideEffectTests
             adminRepo, cache, Mock.Of<ILogger<GlobalAdminService>>())
         { CallBase = false };
 
+        var delegatedAdminMock = new Mock<DelegatedAdminService>(
+            adminRepo, cache, Mock.Of<ILogger<DelegatedAdminService>>())
+        { CallBase = false };
+        delegatedAdminMock.Setup(x => x.GetScopeAsync(It.IsAny<string>()))
+            .ReturnsAsync(DelegatedScope.Empty);
+
         _tenantAdminsMock = new Mock<TenantAdminsService>(
             adminRepo, cache, Mock.Of<ILogger<TenantAdminsService>>())
         { CallBase = false };
@@ -72,6 +78,7 @@ public class AuthFunctionSideEffectTests
         _sut = new AuthFunction(
             Mock.Of<ILogger<AuthFunction>>(),
             globalAdminMock.Object,
+            delegatedAdminMock.Object,
             _tenantConfigMock.Object,
             _tenantAdminsMock.Object,
             _metricsRepoMock.Object,

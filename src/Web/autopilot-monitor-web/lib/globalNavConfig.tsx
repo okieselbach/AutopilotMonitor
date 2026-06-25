@@ -113,7 +113,7 @@ export interface NavGroup {
   id: string;
   label: string;
   items: NavItem[];
-  visibility: "all" | "adminOrOperator" | "globalAdmin";
+  visibility: "all" | "adminOrOperator" | "globalAdmin" | "fleet";
   style?: "global";
 }
 
@@ -138,6 +138,17 @@ export const DASHBOARD_ITEM: NavItem = {
 // --- Global navigation groups (flat items) ---
 
 export const NAV_GROUPS: NavGroup[] = [
+  {
+    // Delegated ("MSP") admins manage a subset of tenants. This is their primary entry point; full
+    // platform admins (GA/Reader) use the richer Global Admin section instead, so it is hidden for them
+    // (see GlobalSidebar "fleet" visibility = delegated && !platform scope).
+    id: "fleet",
+    label: "Fleet",
+    visibility: "fleet",
+    items: [
+      { id: "fleet-tenants", label: "Managed Tenants", href: "/fleet", icon: <GlobeAltIcon /> },
+    ],
+  },
   {
     id: "monitoring",
     label: "Monitoring",
@@ -264,6 +275,7 @@ export const EXPANDABLE_NAV_GROUPS: ExpandableNavGroup[] = [
           { id: "ga-global", label: "Global Settings", href: "/admin/settings/global" },
           { id: "ga-diag-paths", label: "Diagnostics Log Paths", href: "/admin/settings/diagnostics-log-paths" },
           { id: "ga-mcp-users", label: "MCP Users", href: "/admin/settings/mcp-users" },
+          { id: "ga-delegated-admins", label: "Delegated Admins", href: "/admin/settings/delegated-admins" },
           { id: "ga-config-reseed", label: "Config Reseed", href: "/admin/settings/config-reseed" },
           { id: "ga-usage-plans", label: "Usage Plans", href: "/admin/settings/usage-plans" },
         ],
