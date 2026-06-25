@@ -44,6 +44,38 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     return bad;
                 }
 
+                // Delegated ("MSP") caller: the middleware (GlobalReadOrDelegatedSubset tier) admitted them
+                // and published their managed tenant set on AllowedTenantIds. BIND the response to that
+                // subset — a delegated admin must never see a tenant they do not manage. Secrets are always
+                // redacted for them (they are never a Global Admin). The subset is small, so we return it in
+                // one shot (no server pagination) in whichever shape the caller requested.
+                var requestCtx = req.GetRequestContext();
+                if (requestCtx.AllowedTenantIds != null)
+                {
+                    var allowed = new System.Collections.Generic.HashSet<string>(
+                        requestCtx.AllowedTenantIds, StringComparer.OrdinalIgnoreCase);
+                    var all = await _configService.GetAllConfigurationsAsync();
+                    var subset = all.Where(c => allowed.Contains(c.TenantId)).ToList();
+                    _logger.LogInformation("GetAllTenantConfigurations (delegated subset, {Count} tenants) by {User}",
+                        subset.Count, userIdentifier);
+
+                    if (parsed.PageSize == null)
+                    {
+                        var redacted = subset.Select(c => c.RedactedCopyForReader()).ToList();
+                        var resp = req.CreateResponse(HttpStatusCode.OK);
+                        await resp.WriteAsJsonAsync(redacted);
+                        return resp;
+                    }
+
+                    var projected = TenantConfigProjection.ProjectAll(subset, parsed.Fields);
+                    return await req.OkAsync(new
+                    {
+                        count = projected.Count,
+                        tenants = projected,
+                        nextLink = (string?)null,
+                    });
+                }
+
                 // Legacy/default mode: no pageSize → unpaginated bare full-config array.
                 // Web consumers (tenant selectors + admin config editor) depend on this shape.
                 if (parsed.PageSize == null)

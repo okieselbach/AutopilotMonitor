@@ -190,6 +190,14 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
                 decision.UserIdentifier, decision.UserRole, "CrossTenant");
         }
 
+        // Merge delegated state from the two delegated admission paths:
+        //  • scoped-route (RouteParam/QueryParam): a single-tenant cross-tenant read — delegatedRole +
+        //    allowedTenantIds were set above.
+        //  • GlobalReadOrDelegatedSubset tier (aggregate, no single target): the evaluator carried the
+        //    managed tenant set on the decision instead. Either way the caller is a delegated reader here.
+        var admittedViaDelegatedSubset = decision.AllowedTenantIds != null;
+        var effectiveAllowedTenantIds = allowedTenantIds ?? decision.AllowedTenantIds;
+
         var requestContext = new RequestContext
         {
             TenantId = jwtTenantId,
@@ -197,11 +205,12 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
             UserPrincipalName = decision.UserIdentifier,
             IsGlobalAdmin = isGlobalAdmin,
             IsGlobalReader = isGlobalReader,
-            // Delegated flags reflect the caller's role for THIS request's target (null unless a delegated
-            // grant applied). Phase 1: both confer read only — no write tier admits a delegated caller.
-            IsDelegatedReader = delegatedRole == Constants.DelegatedRoles.DelegatedReader,
+            // Delegated flags reflect the caller's role for THIS request (null unless a delegated grant
+            // applied — either a single-tenant scoped read or the bounded-subset aggregate tier). Read only:
+            // no write tier admits a delegated caller.
+            IsDelegatedReader = delegatedRole == Constants.DelegatedRoles.DelegatedReader || admittedViaDelegatedSubset,
             IsDelegatedAdmin = delegatedRole == Constants.DelegatedRoles.DelegatedAdmin,
-            AllowedTenantIds = allowedTenantIds,
+            AllowedTenantIds = effectiveAllowedTenantIds,
             // Additive: a caller's tenant-admin status is its OWN-TENANT role, independent of any
             // platform role. Evaluators that admit via a platform-role branch still surface the
             // resolved tenant role on decision.TenantRole; pure-tenant branches leave it null and
@@ -295,6 +304,9 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
 
             case EndpointPolicy.GlobalReadOrAdmin:
                 return await EvaluateGlobalReadOrAdminAsync(upn, userIdentifier);
+
+            case EndpointPolicy.GlobalReadOrDelegatedSubset:
+                return await EvaluateGlobalReadOrDelegatedSubsetAsync(upn, userIdentifier);
 
             case EndpointPolicy.GlobalAdminOnly:
                 return await EvaluateGlobalAdminOnlyAsync(upn, userIdentifier);
@@ -484,6 +496,33 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         return CatalogDecisionResult.Deny(userIdentifier, "NonGlobal", "NotGlobalScope");
     }
 
+    /// <summary>
+    /// Cross-tenant READ that is BOUNDABLE to a subset. A Global Admin / Global Reader is admitted unbounded
+    /// (no AllowedTenantIds — the handler sees all tenants). A delegated ("MSP") admin with a non-empty scope
+    /// is admitted too, but carries its managed tenant set on the result so the middleware can publish it as
+    /// RequestContext.AllowedTenantIds; the HANDLER is then responsible for restricting the aggregate
+    /// response to that set. A pure delegated reader of nothing, or any non-global non-delegated caller, is
+    /// denied. Used by aggregate endpoints whose body can be filtered per tenant (e.g. config/all).
+    /// </summary>
+    private async Task<CatalogDecisionResult> EvaluateGlobalReadOrDelegatedSubsetAsync(
+        string? upn, string userIdentifier)
+    {
+        if (string.IsNullOrEmpty(upn))
+            return CatalogDecisionResult.Deny(userIdentifier, "N/A", "MissingClaims");
+
+        var globalRole = await _globalAdminService.GetGlobalRoleAsync(upn);
+        if (globalRole != null)
+            return CatalogDecisionResult.Allow(userIdentifier, globalRole, "GlobalScope");
+
+        var scope = await _delegatedAdminService.GetScopeAsync(upn);
+        if (!scope.IsEmpty)
+            return CatalogDecisionResult.Allow(
+                userIdentifier, Constants.DelegatedRoles.DelegatedReader, "DelegatedSubset",
+                allowedTenantIds: scope.TenantIds);
+
+        return CatalogDecisionResult.Deny(userIdentifier, "NonGlobal", "NotGlobalOrDelegated");
+    }
+
     private async Task<CatalogDecisionResult> EvaluateGlobalAdminOnlyAsync(
         string? upn, string userIdentifier)
     {
@@ -548,8 +587,16 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         /// </summary>
         public string? TenantRole { get; private init; }
 
-        public static CatalogDecisionResult Allow(string user, string role, string reason, string? tenantRole = null)
-            => new() { IsAllowed = true, UserIdentifier = user, UserRole = role, Reason = reason, TenantRole = tenantRole };
+        /// <summary>
+        /// For the GlobalReadOrDelegatedSubset tier: a delegated caller's managed tenant set, which the
+        /// middleware publishes as RequestContext.AllowedTenantIds so the handler can bound its aggregate
+        /// response. Null for unbounded (Global Admin / Reader) admits and all other tiers.
+        /// </summary>
+        public IReadOnlyCollection<string>? AllowedTenantIds { get; private init; }
+
+        public static CatalogDecisionResult Allow(string user, string role, string reason, string? tenantRole = null,
+            IReadOnlyCollection<string>? allowedTenantIds = null)
+            => new() { IsAllowed = true, UserIdentifier = user, UserRole = role, Reason = reason, TenantRole = tenantRole, AllowedTenantIds = allowedTenantIds };
 
         public static CatalogDecisionResult Deny(string user, string role, string reason)
             => new() { IsAllowed = false, UserIdentifier = user, UserRole = role, Reason = reason };

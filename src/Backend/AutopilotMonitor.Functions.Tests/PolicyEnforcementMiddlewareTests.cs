@@ -507,12 +507,69 @@ public class PolicyEnforcementMiddlewareTests
     [InlineData("GET", "/api/global/presence", TenantScoping.None)]
     [InlineData("GET", "/api/global/metrics/platform", TenantScoping.None)]
     [InlineData("GET", "/api/global/distress-reports", TenantScoping.None)]
-    [InlineData("GET", "/api/config/all", TenantScoping.None)]
     public void GlobalRoute_DelegatedAccessibility_MatchesContract(string method, string path, TenantScoping expected)
     {
         var entry = EndpointAccessPolicyCatalog.FindPolicy(method, path);
         Assert.NotNull(entry);
         Assert.Equal(EndpointPolicy.GlobalReadOrAdmin, entry!.Policy);
         Assert.Equal(expected, entry.TenantScoping);
+    }
+
+    // ── Phase 2b: config/all is a bounded-subset aggregate (GlobalReadOrDelegatedSubset) ──
+
+    [Fact]
+    public void ConfigAll_IsGlobalReadOrDelegatedSubsetTier()
+    {
+        var entry = EndpointAccessPolicyCatalog.FindPolicy("GET", "/api/config/all");
+        Assert.NotNull(entry);
+        Assert.Equal(EndpointPolicy.GlobalReadOrDelegatedSubset, entry!.Policy);
+    }
+
+    [Fact]
+    public async Task Delegated_ConfigAll_IsAdmitted_WithBoundedSubset()
+    {
+        // A delegated admin may list ITS tenants via config/all — the middleware publishes the managed set
+        // on AllowedTenantIds and the handler binds the response to it.
+        const string upn = "msp@partner.example";
+        var h = BuildHarness();
+        h.AsDelegated(TenantB);
+
+        var result = await h.Middleware.DecideAsync("GET", "/api/config/all", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed);
+        var rc = result.Context!;
+        Assert.True(rc.IsDelegatedReader);
+        Assert.False(rc.IsGlobalReader);
+        Assert.NotNull(rc.AllowedTenantIds);
+        Assert.Contains(TenantB.ToLowerInvariant(), rc.AllowedTenantIds!);
+    }
+
+    [Fact]
+    public async Task GlobalAdmin_ConfigAll_IsUnbounded()
+    {
+        // A Global Admin sees ALL tenants: no AllowedTenantIds bound is published (handler does not filter).
+        const string upn = "ga@contoso.com";
+        var h = BuildHarness();
+        h.AsGlobalRole(Constants.GlobalRoles.GlobalAdmin);
+
+        var result = await h.Middleware.DecideAsync("GET", "/api/config/all", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed);
+        Assert.True(result.Context!.IsGlobalAdmin);
+        Assert.Null(result.Context!.AllowedTenantIds);
+    }
+
+    [Fact]
+    public async Task NonDelegatedNonGlobal_ConfigAll_IsForbidden()
+    {
+        // A plain tenant admin (no delegated assignment, no platform role) cannot list tenants.
+        const string upn = "admin@contoso.com";
+        var h = BuildHarness();
+        h.AsTenantAdmin(TenantA, upn);
+
+        var result = await h.Middleware.DecideAsync("GET", "/api/config/all", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.False(result.Allowed);
+        Assert.Equal(403, result.StatusCode);
     }
 }

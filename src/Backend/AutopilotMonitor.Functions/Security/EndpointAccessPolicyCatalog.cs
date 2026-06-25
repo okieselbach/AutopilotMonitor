@@ -78,6 +78,16 @@ public enum EndpointPolicy
     /// </summary>
     GlobalReadOrAdmin,
 
+    /// <summary>
+    /// Cross-tenant READ that can be BOUNDED to a tenant subset. Global Admin / Global Reader see ALL
+    /// tenants (unbounded). A delegated ("MSP") admin is also admitted, but the middleware populates
+    /// <see cref="Helpers.RequestContext.AllowedTenantIds"/> with its managed subset and the HANDLER MUST
+    /// restrict its output to that set (the middleware cannot filter an aggregate response body). Use only
+    /// for aggregate endpoints whose response is filterable per-tenant — e.g. config/all (the tenant list).
+    /// Aggregates that cannot be bounded stay GlobalReadOrAdmin + TenantScoping.None (delegated-unreachable).
+    /// </summary>
+    GlobalReadOrDelegatedSubset,
+
     /// <summary>Global Admin only. Platform-wide access (all writes + global settings).</summary>
     GlobalAdminOnly,
 }
@@ -321,7 +331,7 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/config",             EndpointPolicy.GlobalReadOrAdmin),
         new("PUT",    "global/config",             EndpointPolicy.GlobalAdminOnly),
         new("POST",   "global/config",             EndpointPolicy.GlobalAdminOnly),
-        new("GET",    "config/all",                EndpointPolicy.GlobalReadOrAdmin),
+        new("GET",    "config/all",                EndpointPolicy.GlobalReadOrDelegatedSubset),
         new("GET",    "auth/global-admins",        EndpointPolicy.GlobalReadOrAdmin),
         new("POST",   "auth/global-admins",        EndpointPolicy.GlobalAdminOnly),
         new("DELETE", "auth/global-admins/{upn}",  EndpointPolicy.GlobalAdminOnly),
