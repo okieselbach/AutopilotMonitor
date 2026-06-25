@@ -286,6 +286,18 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         // --- Delegated Admins (scoped-global / "MSP mode") ---
 
+        public async Task<List<DelegatedAdminEntry>> GetAllDelegatedAdminsAsync()
+        {
+            // Full-table scan: the management UI lists every grant. The DelegatedAdmins table holds only
+            // admin assignment rows (one per admin×managed-tenant), so this is small and off the hot path.
+            var entries = new List<DelegatedAdminEntry>();
+            await foreach (var entity in _delegatedAdminsTableClient.QueryAsync<DelegatedAdminEntity>())
+            {
+                entries.Add(MapToDelegatedEntry(entity));
+            }
+            return entries;
+        }
+
         public async Task<List<DelegatedAdminEntry>> GetDelegatedTenantsAsync(string upn)
         {
             var entries = new List<DelegatedAdminEntry>();

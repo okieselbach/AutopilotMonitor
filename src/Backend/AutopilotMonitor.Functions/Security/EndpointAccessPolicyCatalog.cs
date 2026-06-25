@@ -416,6 +416,17 @@ public static class EndpointAccessPolicyCatalog
         new("PATCH",  "global/mcp-users/{upn}/enable",        EndpointPolicy.GlobalAdminOnly),
         new("PATCH",  "global/mcp-users/{upn}/disable",       EndpointPolicy.GlobalAdminOnly),
         new("PATCH",  "global/mcp-users/{upn}/usage-plan",    EndpointPolicy.GlobalAdminOnly),
+        // Delegated-admin ("MSP mode") management — list is GlobalReadOrAdmin (a read-only Global Reader may
+        // audit who is delegated); all mutations are GlobalAdminOnly. Global routes (TenantScoping.None): the
+        // target tenant is in the body/route and the handler stamps it, not derived from the caller's JWT tid.
+        new("GET",    "global/delegated-admins",                          EndpointPolicy.GlobalReadOrAdmin),
+        new("POST",   "global/delegated-admins",                          EndpointPolicy.GlobalAdminOnly),
+        // The {tenantId} route segment is the TARGET managed tenant — TenantScoping.RouteParam per the
+        // fail-closed convention (sets RequestContext.TargetTenantId). The policy stays GlobalAdminOnly, so
+        // only a platform admin may mutate; a delegated caller is denied (GlobalAdminOnly is not a read tier).
+        new("DELETE", "global/delegated-admins/{upn}/{tenantId}",         EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
+        new("PATCH",  "global/delegated-admins/{upn}/{tenantId}/enable",  EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
+        new("PATCH",  "global/delegated-admins/{upn}/{tenantId}/disable", EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
         new("PATCH",  "config/{tenantId}/plan",                            EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
         new("GET",    "global/config/plan-tiers",                           EndpointPolicy.GlobalReadOrAdmin),
         new("PUT",    "global/config/plan-tiers",                           EndpointPolicy.GlobalAdminOnly),

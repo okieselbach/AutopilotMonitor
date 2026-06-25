@@ -32,6 +32,9 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<bool> SetMcpUserUsagePlanAsync(string upn, string? usagePlan);
 
         // --- Delegated Admins (scoped-global / "MSP mode") ---
+        /// <summary>Every assignment row across all delegated admins (full-table scan — the management UI lists
+        /// all grants; the table holds only admin assignments, so this stays small). Not a hot path.</summary>
+        Task<List<DelegatedAdminEntry>> GetAllDelegatedAdminsAsync();
         /// <summary>All assignment rows for one delegated-admin UPN (PK scan), regardless of status/enabled.
         /// Callers that need only effective scope filter on Status==Active &amp;&amp; IsEnabled.</summary>
         Task<List<DelegatedAdminEntry>> GetDelegatedTenantsAsync(string upn);

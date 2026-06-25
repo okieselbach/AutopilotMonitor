@@ -124,6 +124,10 @@ public class DelegatedAdminService
         return ok;
     }
 
+    /// <summary>Every assignment row across all delegated admins — for the operator/GA management UI.</summary>
+    public Task<List<DelegatedAdminEntry>> GetAllAsync()
+        => _adminRepo.GetAllDelegatedAdminsAsync();
+
     /// <summary>All assignment rows for a UPN (any status) — for the operator/admin management UI.</summary>
     public Task<List<DelegatedAdminEntry>> GetAssignmentsForUpnAsync(string upn)
         => _adminRepo.GetDelegatedTenantsAsync(upn.ToLowerInvariant());
