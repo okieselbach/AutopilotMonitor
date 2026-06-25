@@ -222,6 +222,7 @@ builder.Services.AddSingleton<PlatformMetricsService>();
 builder.Services.AddSingleton<SlaMetricsService>();
 builder.Services.AddSingleton<SlaBreachEvaluationService>();
 builder.Services.AddSingleton<GlobalAdminService>();
+builder.Services.AddSingleton<DelegatedAdminService>();
 builder.Services.AddSingleton<McpUserService>();
 builder.Services.AddSingleton<PreviewWhitelistService>();
 builder.Services.AddSingleton<TenantAdminsService>();
