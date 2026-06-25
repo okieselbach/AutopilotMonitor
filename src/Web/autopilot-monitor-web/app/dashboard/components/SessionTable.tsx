@@ -6,6 +6,7 @@ import { Session } from "../types";
 import { trackEvent } from "@/lib/appInsights";
 import { fuzzyContains } from "@/utils/fuzzy";
 import { buildUniqueValuesByField } from "./uniqueValuesByField";
+import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 
 // Column definition for the session table
 interface ColumnDef {
@@ -923,7 +924,7 @@ function SessionCell({
       return (
         <td className="px-6 py-4 whitespace-nowrap">
           <div className="flex items-center gap-1.5">
-            <StatusBadge status={session.status} failureReason={session.failureReason} adminMarkedAction={session.adminMarkedAction} />
+            <SessionStatusBadge status={session.status} failureReason={session.failureReason} adminMarkedAction={session.adminMarkedAction} />
             {session.isHybridJoin && (
               <span
                 className="px-2 inline-flex items-center gap-1 text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800"
@@ -1218,41 +1219,3 @@ function SortableHeader({
   );
 }
 
-function StatusBadge({ status, failureReason, adminMarkedAction }: { status: string; failureReason?: string; adminMarkedAction?: string }) {
-  const statusConfig = {
-    InProgress: { color: "bg-blue-100 text-blue-800", text: "In Progress" },
-    Pending: { color: "bg-amber-100 text-amber-800", text: "Pending" },
-    Stalled: { color: "bg-orange-100 text-orange-800", text: "Stalled" },
-    Succeeded: { color: "bg-green-100 text-green-800", text: "Succeeded" },
-    Failed: { color: "bg-red-100 text-red-800", text: "Failed" },
-    Unknown: { color: "bg-gray-100 text-gray-800", text: "Unknown" },
-  };
-
-  const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.Unknown;
-
-  const isTimeout = status === "Failed" && failureReason && failureReason.toLowerCase().includes("timed out");
-
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <span
-        className={`px-2 inline-flex items-center gap-1 text-xs leading-5 font-semibold rounded-full ${config.color}`}
-        title={failureReason || undefined}
-      >
-        {config.text}
-        {isTimeout && (
-          <span title={failureReason} className="inline-flex items-center">
-            ⏱️
-          </span>
-        )}
-      </span>
-      {adminMarkedAction && (
-        <span
-          className="px-1.5 py-0.5 text-[10px] leading-4 font-semibold rounded border border-gray-300 bg-gray-50 text-gray-600"
-          title={`Manually marked as ${adminMarkedAction} by administrator`}
-        >
-          manual
-        </span>
-      )}
-    </span>
-  );
-}

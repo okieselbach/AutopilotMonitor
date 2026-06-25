@@ -60,7 +60,7 @@ export default function FleetTenantPage() {
   const { summaries } = useFleetSummaries(effectiveTenantId ? [effectiveTenantId] : [], DAYS);
   const summary: FleetSummary | undefined = summaries[effectiveTenantId];
 
-  const { sessions, loading, hasMore, error } = useTenantSessions(effectiveTenantId, DAYS);
+  const { sessions, loading, loadingMore, hasMore, error, loadMore } = useTenantSessions(effectiveTenantId, DAYS);
 
   return (
     <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
@@ -128,7 +128,13 @@ export default function FleetTenantPage() {
                 No sessions in the last {DAYS} days.
               </div>
             ) : (
-              <SessionList sessions={sessions} hasMore={hasMore} tenantId={tenantId} />
+              <SessionList
+                sessions={sessions}
+                hasMore={hasMore}
+                loadingMore={loadingMore}
+                onLoadMore={loadMore}
+                tenantId={tenantId}
+              />
             )}
           </div>
         </>
@@ -180,7 +186,19 @@ function phaseLabel(phase: number): string {
 /** Read-only session table for the drill-in. Rows open the full session-detail page for the managed tenant
  * via `?tenantId=` — the backend serves the reads (MemberRead + delegated scope) and the detail page renders
  * read-only for a delegated viewer (write actions hidden). */
-function SessionList({ sessions, hasMore, tenantId }: { sessions: Session[]; hasMore: boolean; tenantId: string }) {
+function SessionList({
+  sessions,
+  hasMore,
+  loadingMore,
+  onLoadMore,
+  tenantId,
+}: {
+  sessions: Session[];
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
+  tenantId: string;
+}) {
   const router = useRouter();
   const open = (sessionId: string) =>
     router.push(`/sessions/${sessionId}?tenantId=${encodeURIComponent(tenantId)}`);
@@ -235,8 +253,14 @@ function SessionList({ sessions, hasMore, tenantId }: { sessions: Session[]; has
       </table>
 
       {hasMore && (
-        <div className="border-t border-gray-100 px-5 py-3 text-center text-xs text-gray-400 dark:border-gray-700 dark:text-gray-500">
-          Showing the {sessions.length} most recent sessions. Older sessions are not shown.
+        <div className="border-t border-gray-100 px-5 py-3 text-center dark:border-gray-700">
+          <button
+            onClick={onLoadMore}
+            disabled={loadingMore}
+            className="rounded-md border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+          >
+            {loadingMore ? "Loading…" : "Load more"}
+          </button>
         </div>
       )}
     </div>

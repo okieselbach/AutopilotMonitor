@@ -1,8 +1,9 @@
 /**
- * Read-only session status pill. Extracted from the inline copies in the dashboard SessionTable and the
- * geographic-performance sessions page so new read-only views (Fleet drill-in) share one definition.
- * Pure presentational — colors mirror the backend SessionStatus enum (Succeeded/Failed/InProgress/
- * Pending/Stalled; anything else → Unknown). A "timed out" failure gets a small ⏱️ affordance.
+ * Read-only session status pill. The single source for the inline copies that used to live in the dashboard
+ * SessionTable and the geographic-performance sessions page. Pure presentational — colors mirror the backend
+ * SessionStatus enum (Succeeded/Failed/InProgress/Pending/Stalled; anything else → Unknown). A "timed out"
+ * failure gets a small ⏱️ affordance. When {@link adminMarkedAction} is set (an administrator manually flipped
+ * the terminal state), a small "manual" badge is appended — otherwise the bare pill is returned unchanged.
  */
 
 const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
@@ -17,20 +18,37 @@ const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
 export function SessionStatusBadge({
   status,
   failureReason,
+  adminMarkedAction,
 }: {
   status: string;
   failureReason?: string | null;
+  /** Set when an admin manually marked the session ("Succeeded" | "Failed") — appends a "manual" badge. */
+  adminMarkedAction?: string | null;
 }) {
   const config = STATUS_CONFIG[status] || STATUS_CONFIG.Unknown;
   const isTimeout = status === "Failed" && !!failureReason?.toLowerCase().includes("timed out");
 
-  return (
+  const pill = (
     <span
       className={`px-2 inline-flex items-center gap-1 text-xs leading-5 font-semibold rounded-full ${config.color}`}
       title={failureReason || undefined}
     >
       {config.text}
-      {isTimeout && <span title={failureReason || undefined}>&#9201;&#65039;</span>}
+      {isTimeout && <span title={failureReason || undefined} className="inline-flex items-center">&#9201;&#65039;</span>}
+    </span>
+  );
+
+  if (!adminMarkedAction) return pill;
+
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {pill}
+      <span
+        className="px-1.5 py-0.5 text-[10px] leading-4 font-semibold rounded border border-gray-300 bg-gray-50 text-gray-600 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
+        title={`Manually marked as ${adminMarkedAction} by administrator`}
+      >
+        manual
+      </span>
     </span>
   );
 }
