@@ -143,16 +143,21 @@ try {
     # Collect real (non-special) user profiles as full paths (WMI Special flag + filesystem).
     $excludePattern = '^(defaultuser\d*|Public|Default( User)?|All Users|WDAGUtilityAccount)$'
 
+    # NOTE: the outer @() is required. Without it the trailing Where/Select pipeline
+    # unwraps a single result back to a scalar string, so $profilePaths[0] would index
+    # into the string and return its first char ('C') instead of the full path.
     $profilePaths = @(
-        try {
-            Get-CimInstance Win32_UserProfile -ErrorAction Stop |
-                Where-Object { -not $_.Special -and $_.LocalPath -like 'C:\Users\*' } |
-                ForEach-Object { $_.LocalPath }
-        } catch { Write-Log "INFO: WMI profile query failed, continuing with filesystem check." }
+        @(
+            try {
+                Get-CimInstance Win32_UserProfile -ErrorAction Stop |
+                    Where-Object { -not $_.Special -and $_.LocalPath -like 'C:\Users\*' } |
+                    ForEach-Object { $_.LocalPath }
+            } catch { Write-Log "INFO: WMI profile query failed, continuing with filesystem check." }
 
-        (Get-ChildItem 'C:\Users' -Directory -ErrorAction SilentlyContinue).FullName
-    ) | Where-Object { $_ -and (Split-Path $_ -Leaf) -notmatch $excludePattern } |
-        Select-Object -Unique
+            (Get-ChildItem 'C:\Users' -Directory -ErrorAction SilentlyContinue).FullName
+        ) | Where-Object { $_ -and (Split-Path $_ -Leaf) -notmatch $excludePattern } |
+            Select-Object -Unique
+    )
 
     # OOBE-relax: the ONLY exemption to guards 2+3. Matches exactly the Windows Backup for
     # Organizations restore (one user signs in + restores DURING OOBE). All three must hold:

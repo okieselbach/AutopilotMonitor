@@ -78,20 +78,25 @@ if ($deployed) {
 $excludePattern = '^(defaultuser\d*|Public|Default( User)?|All Users|WDAGUtilityAccount)$'
 $wmiProfileQueryFailed = $false
 
+# NOTE: the outer @() is required. Without it the trailing Where/Select pipeline
+# unwraps a single result back to a scalar string, so $profilePaths[0] would index
+# into the string and return its first char ('C') instead of the full path.
 $profilePaths = @(
-    try {
-        Get-CimInstance Win32_UserProfile -ErrorAction Stop |
-            Where-Object { -not $_.Special -and $_.LocalPath -like 'C:\Users\*' } |
-            ForEach-Object { $_.LocalPath }
-    }
-    catch {
-        $wmiProfileQueryFailed = $true
-    }
+    @(
+        try {
+            Get-CimInstance Win32_UserProfile -ErrorAction Stop |
+                Where-Object { -not $_.Special -and $_.LocalPath -like 'C:\Users\*' } |
+                ForEach-Object { $_.LocalPath }
+        }
+        catch {
+            $wmiProfileQueryFailed = $true
+        }
 
-    (Get-ChildItem 'C:\Users' -Directory -ErrorAction SilentlyContinue).FullName
-) |
-Where-Object { $_ -and (Split-Path $_ -Leaf) -notmatch $excludePattern } |
-Select-Object -Unique
+        (Get-ChildItem 'C:\Users' -Directory -ErrorAction SilentlyContinue).FullName
+    ) |
+    Where-Object { $_ -and (Split-Path $_ -Leaf) -notmatch $excludePattern } |
+    Select-Object -Unique
+)
 
 if ($wmiProfileQueryFailed) {
     Write-Step -Status 'WARN' -Message 'Profiles: WMI query failed, filesystem check still applied.'
