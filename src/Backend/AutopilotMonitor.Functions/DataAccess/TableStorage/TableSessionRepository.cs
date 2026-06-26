@@ -39,20 +39,20 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<List<SessionSummary>> GetSessionsAsync(string tenantId, int? days = null)
             => _storage.GetSessionsAsync(tenantId, days);
 
-        public Task<List<SessionSummary>> GetAllSessionsAsync(string? tenantIdFilter = null, int? days = null)
-            => _storage.GetAllSessionsAsync(tenantIdFilter, days);
+        public Task<List<SessionSummary>> GetAllSessionsAsync(string? tenantIdFilter = null, int? days = null, IReadOnlyCollection<string>? allowedTenantIds = null)
+            => _storage.GetAllSessionsAsync(tenantIdFilter, days, allowedTenantIds);
 
         public Task<RawPage<SessionSummary>> GetSessionsPageAsync(string tenantId, int? days, int pageSize, string? continuation)
             => _storage.GetSessionsPageAsync(tenantId, days, pageSize, continuation);
 
-        public Task<RawPage<SessionSummary>> GetAllSessionsPageAsync(string? tenantIdFilter, int? days, int pageSize, string? continuation)
-            => _storage.GetAllSessionsPageAsync(tenantIdFilter, days, pageSize, continuation);
+        public Task<RawPage<SessionSummary>> GetAllSessionsPageAsync(string? tenantIdFilter, int? days, int pageSize, string? continuation, IReadOnlyCollection<string>? allowedTenantIds = null)
+            => _storage.GetAllSessionsPageAsync(tenantIdFilter, days, pageSize, continuation, allowedTenantIds);
 
         public Task<SessionStats> GetSessionStatsAsync(string tenantId, int days)
             => _storage.GetSessionStatsAsync(tenantId, days);
 
-        public Task<SessionStats> GetAllSessionStatsAsync(string? tenantIdFilter, int days)
-            => _storage.GetAllSessionStatsAsync(tenantIdFilter, days);
+        public Task<SessionStats> GetAllSessionStatsAsync(string? tenantIdFilter, int days, IReadOnlyCollection<string>? allowedTenantIds = null)
+            => _storage.GetAllSessionStatsAsync(tenantIdFilter, days, allowedTenantIds);
 
         public async Task<bool> UpdateSessionStatusAsync(
             string tenantId, string sessionId, SessionStatus status,

@@ -56,11 +56,16 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     tenantIdFilter = tenantIdFilterRaw;
                 }
 
-                _logger.LogInformation(
-                    "Computing cross-tenant session stats (caller={Caller}, filter={Filter}, days={Days})",
-                    callerTenantId, tenantIdFilter ?? "none", days);
+                // Delegated ("MSP") callers carry AllowedTenantIds (subset tier) → the no-filter aggregate is
+                // bounded to their managed tenants. Null for GA/Reader = all tenants; ignored when a single
+                // ?tenantId= is named (middleware already validated it is in the caller's scope).
+                var allowedTenantIds = req.GetRequestContext().AllowedTenantIds;
 
-                var stats = await _sessionRepo.GetAllSessionStatsAsync(tenantIdFilter, days);
+                _logger.LogInformation(
+                    "Computing cross-tenant session stats (caller={Caller}, filter={Filter}, days={Days}, bounded={Bounded})",
+                    callerTenantId, tenantIdFilter ?? "none", days, allowedTenantIds != null);
+
+                var stats = await _sessionRepo.GetAllSessionStatsAsync(tenantIdFilter, days, allowedTenantIds);
                 return await req.OkAsync(new { success = true, stats });
             }
             catch (Exception ex)

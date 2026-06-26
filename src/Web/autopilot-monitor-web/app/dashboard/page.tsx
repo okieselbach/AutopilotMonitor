@@ -1,9 +1,10 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
+import { GlobalAdminBanner } from "@/components/GlobalAdminBanner";
 import { useSignalR } from "../../contexts/SignalRContext";
 import { useTenant } from "../../contexts/TenantContext";
 import { useAuth } from "../../contexts/AuthContext";
@@ -79,29 +80,40 @@ function HomeContent() {
   const mainClassName = fullWidth
     ? "w-full px-4 sm:px-6 lg:px-8 py-4"
     : "max-w-7xl mx-auto py-4 sm:px-6 lg:px-8";
-  const { user, logout, getAccessToken, isPreviewBlocked } = useAuth();
+  const { user, logout, getAccessToken, isPreviewBlocked, hasGlobalScope } = useAuth();
   const { addNotification } = useNotifications();
   const [apiStatus, setApiStatus] = useState<"unchecked" | "checking" | "healthy" | "error">("unchecked");
-  const [tenantIdFilter, setTenantIdFilter] = useState("");
+  // `?tenant=<id>` deep-links a cross-tenant view onto one tenant — used by the /fleet card grid to drill
+  // a managed tenant into this dashboard. Ignored for non-cross-tenant users (the filter is unused there).
+  const initialTenantFilter = searchParams?.get("tenant") ?? "";
+  const [tenantIdFilter, setTenantIdFilter] = useState(initialTenantFilter);
   // Mirrors the last filter value the user actually submitted (Submit / Clear).
   // Drives the stats refetch — server-side stats follow the submitted scope so
   // typing into the filter input doesn't trigger a backend round-trip per keystroke.
-  const [submittedTenantIdFilter, setSubmittedTenantIdFilter] = useState("");
+  const [submittedTenantIdFilter, setSubmittedTenantIdFilter] = useState(initialTenantFilter);
   const { adminMode, setAdminMode, globalAdminMode, setGlobalAdminMode } = useAdminMode();
 
   const signalR = useSignalR();
   const { tenantId } = useTenant();
 
+  // A delegated ("MSP") admin browses cross-tenant bounded to their managed subset. Cross-tenant mode drives
+  // the /global endpoints + tenant filter UI for a real GA in GA mode OR a delegated admin; an empty filter
+  // is the bounded aggregate (backend restricts it to the managed tenants). The global-admins SignalR
+  // broadcast group stays real-GA-only — a delegated caller has no platform scope and would be rejected.
+  const isDelegated = user?.isDelegated ?? false;
+  const crossTenant = (globalAdminMode && hasGlobalScope) || isDelegated;
+  const joinGlobalAdmins = globalAdminMode && hasGlobalScope;
+
   const {
     showBlockConfirm, sessionToBlock, blockingDevice, blockedDevicesSet, setBlockedDevicesSet,
     blockDevice, confirmBlock, cancelBlock,
-  } = useBlockDevice(getAccessToken, addNotification, adminMode, globalAdminMode);
+  } = useBlockDevice(getAccessToken, addNotification, adminMode, crossTenant);
 
   const {
     sessions, loading, hasMore, loadingMore,
     refetch, refetchWith, loadMore, loadAll, removeSession,
   } = useDashboardSessions({
-    user, tenantId, globalAdminMode, tenantIdFilter, adminMode,
+    user, tenantId, globalAdminMode: crossTenant, joinGlobalAdmins, tenantIdFilter, adminMode,
     getAccessToken, addNotification, setBlockedDevicesSet, signalR,
   });
 
@@ -123,7 +135,7 @@ function HomeContent() {
     sessions,
     blockedDevicesSet,
     tenantId,
-    globalAdminMode,
+    globalAdminMode: crossTenant,
     tenantIdFilter,
     hasMore,
     loadingMore,
@@ -133,10 +145,10 @@ function HomeContent() {
   // Stats cards: server-side aggregation so the numbers don't drift with whatever
   // the client has paginated into view. Refreshes on SignalR newSession/newevents
   // (debounced) and on SignalR reconnect to recover from any missed messages.
-  const isRegularUser = !!user && !user.isTenantAdmin && !user.isGlobalAdmin && !user.isGlobalReader && user.role !== "Operator";
+  const isRegularUser = !!user && !user.isTenantAdmin && !user.isGlobalAdmin && !user.isGlobalReader && !user.isDelegated && user.role !== "Operator";
   const { stats: dashboardStats } = useDashboardStats({
     tenantId,
-    globalAdminMode,
+    globalAdminMode: crossTenant,
     submittedTenantIdFilter,
     getAccessToken,
     addNotification,
@@ -144,17 +156,24 @@ function HomeContent() {
     disabled: isRegularUser,
   });
 
-  // Redirect users without own-tenant/platform scope away from the session list. A delegated ("MSP") admin
-  // manages OTHER tenants and belongs on the fleet overview, not the end-user progress portal; everyone else
-  // without scope goes to /progress. A read-only Global Reader has cross-tenant read scope → stays.
+  // Redirect users without own-tenant/platform/delegated scope away from the session list to /progress. A
+  // delegated ("MSP") admin now STAYS on the dashboard (cross-tenant bounded session browser); their /fleet
+  // card grid is the landing overview but they may browse sessions here. A read-only Global Reader stays too.
   useEffect(() => {
-    if (user && !user.isTenantAdmin && !user.isGlobalAdmin && !user.isGlobalReader && user.role !== 'Operator') {
-      router.replace(user.isDelegated ? "/fleet" : "/progress");
+    if (user && !user.isTenantAdmin && !user.isGlobalAdmin && !user.isGlobalReader && !user.isDelegated && user.role !== 'Operator') {
+      router.replace("/progress");
     }
   }, [user, router]);
 
   const serialValidationEnabled = useTenantSecurityConfig(tenantId, user, getAccessToken, addNotification);
-  const tenantList = useTenantList(globalAdminMode, getAccessToken);
+  const rawTenantList = useTenantList(crossTenant, getAccessToken);
+  // Delegated: bound the tenant filter's autocomplete to the managed subset (defense in depth on top of the
+  // backend-bounded config/all). GA/Reader: the full list.
+  const tenantList = useMemo(() => {
+    if (!isDelegated) return rawTenantList;
+    const allow = new Set((user?.delegatedTenantIds ?? []).map((t) => t.toLowerCase()));
+    return rawTenantList.filter((t) => allow.has(t.tenantId.toLowerCase()));
+  }, [rawTenantList, isDelegated, user?.delegatedTenantIds]);
 
   // Disable global-scope mode for users without platform scope. A read-only Global Reader keeps it
   // (their cross-tenant view is read-only-safe; writes are gated separately + backend-enforced).
@@ -165,13 +184,15 @@ function HomeContent() {
     }
   }, [user, globalAdminMode]);
 
-  // Clear tenant filter when leaving Global Admin mode (refetch is owned by useDashboardSessions)
+  // Clear the tenant filter when cross-tenant mode turns off (refetch is owned by useDashboardSessions).
+  // Keyed on crossTenant (not raw globalAdminMode) so a delegated ("MSP") admin — whose crossTenant is
+  // always on — keeps any `?tenant=` deep-link / typed filter instead of having it wiped on mount.
   useEffect(() => {
-    if (!globalAdminMode) {
+    if (!crossTenant) {
       setTenantIdFilter("");
       setSubmittedTenantIdFilter("");
     }
-  }, [globalAdminMode]);
+  }, [crossTenant]);
 
   // Auto-load more when the user needs more sessions than currently loaded
   // (e.g. increased sessionsPerPage, paginated forward, or applied a sort/column filter
@@ -222,6 +243,13 @@ function HomeContent() {
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gray-50">
+      {/* Delegated ("MSP") admin: blue cross-tenant banner. Empty filter = bounded aggregate over the
+          managed tenants; a selected tenant = drill-in. (GA gets no banner here, as before.) */}
+      <GlobalAdminBanner
+        show={isDelegated}
+        delegated
+        subtitle={submittedTenantIdFilter ? "viewing one managed tenant" : "aggregating across your managed tenants"}
+      />
       {/* Main content */}
       <main className={mainClassName}>
         <div className="px-4 sm:px-0">
@@ -417,7 +445,7 @@ function HomeContent() {
               loadingMore={loadingMore}
               onLoadAll={loadAll}
               adminMode={adminMode}
-              globalAdminMode={globalAdminMode}
+              globalAdminMode={crossTenant}
               tenantIdFilter={tenantIdFilter}
               onTenantIdFilterChange={applyTenantIdFilter}
               onTenantIdFilterSubmit={submitTenantIdFilter}

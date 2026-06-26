@@ -207,6 +207,7 @@ export default function GeographicPerformancePage() {
       <div className="min-h-screen bg-gray-50">
         <GlobalAdminBanner
           show={scope.isGlobalAdmin}
+          delegated={scope.isDelegatedScope}
           subtitle={globalAdminSubtitle(scope, "aggregating data across all tenants")}
         />
         <header className="bg-white shadow">

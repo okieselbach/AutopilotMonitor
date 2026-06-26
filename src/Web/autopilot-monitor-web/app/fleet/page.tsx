@@ -15,8 +15,8 @@ const DAYS = 30;
  * The tenant list comes from config/all (backend-bounded to the caller's subset, Phase 2b) and is
  * intersected with the JWT delegatedTenantIds as client-side defense in depth. Per-tenant health is fanned
  * out (bounded) over the Phase-2a single-tenant `/global/stats/sessions?tenantId=` endpoint — no all-tenants
- * code path. Cards are triage-ordered (most failures first). Drill-in into a managed tenant's dashboards is
- * Phase 3d.
+ * code path. Cards are triage-ordered (most failures first). This is a pure stats overview; a card drills the
+ * tenant into the dashboard (`/dashboard?tenant=<id>`), the cross-tenant bounded session browser.
  */
 export default function FleetPage() {
   const { user } = useAuth();
@@ -113,7 +113,7 @@ function RollupTile({ label, value, tone = "default" }: { label: string; value: 
 function FleetCard({ tenant, summary }: { tenant: TenantInfo; summary?: FleetSummary }) {
   return (
     <Link
-      href={`/fleet/${encodeURIComponent(tenant.tenantId)}`}
+      href={`/dashboard?tenant=${encodeURIComponent(tenant.tenantId)}`}
       className="block rounded-lg border border-gray-200 bg-white p-5 shadow-sm transition-colors hover:border-blue-400 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-blue-500"
     >
       <div className="truncate text-base font-semibold text-gray-900 dark:text-white">

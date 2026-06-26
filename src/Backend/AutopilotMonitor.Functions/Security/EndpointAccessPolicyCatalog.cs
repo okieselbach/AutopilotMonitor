@@ -343,8 +343,12 @@ public static class EndpointAccessPolicyCatalog
         new("DELETE", "preview/whitelist/{tenantId}", EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
         new("GET",    "preview/notification-email/{tenantId}", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.RouteParam),
         new("POST",   "preview/send-welcome-email/{tenantId}", EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
-        new("GET",    "global/sessions",            EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
-        new("GET",    "global/stats/sessions",      EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        // Subset tier (like config/all): a delegated ("MSP") caller is admitted WITHOUT a named tenantId and
+        // the handler bounds the aggregate to RequestContext.AllowedTenantIds (its managed subset). With a
+        // named ?tenantId= the QueryParam path drills into that single tenant (middleware validates it is in
+        // the caller's scope). GA/Reader keep full cross-tenant access (unbounded aggregate + any drill).
+        new("GET",    "global/sessions",            EndpointPolicy.GlobalReadOrDelegatedSubset, TenantScoping.QueryParam),
+        new("GET",    "global/stats/sessions",      EndpointPolicy.GlobalReadOrDelegatedSubset, TenantScoping.QueryParam),
         new("GET",    "global/audit/logs",          EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/presence",            EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/tenants-with-deletion-manifests", EndpointPolicy.GlobalReadOrAdmin),

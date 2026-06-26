@@ -897,7 +897,8 @@ namespace AutopilotMonitor.Functions.Services
         /// <paramref name="tenantIdFilter"/> optionally restricts to one tenant.
         /// </summary>
         public async Task<RawPage<SessionSummary>> GetAllSessionsPageAsync(
-            string? tenantIdFilter, int? days, int pageSize, string? continuation)
+            string? tenantIdFilter, int? days, int pageSize, string? continuation,
+            IReadOnlyCollection<string>? allowedTenantIds = null)
         {
             if (pageSize < 1) throw new ArgumentOutOfRangeException(nameof(pageSize));
 
@@ -908,7 +909,7 @@ namespace AutopilotMonitor.Functions.Services
                 return await GetSessionsPageAsync(tenantIdFilter!, days, pageSize, continuation);
             }
 
-            var page = await FetchAllSessionsPageInternalAsync(maxResults: pageSize, cursor: continuation, days: days);
+            var page = await FetchAllSessionsPageInternalAsync(maxResults: pageSize, cursor: continuation, days: days, allowedTenantIds: allowedTenantIds);
             return new RawPage<SessionSummary>(page.Sessions, page.HasMore ? page.NextCursor : null);
         }
 
@@ -917,7 +918,7 @@ namespace AutopilotMonitor.Functions.Services
         /// <paramref name="tenantIdFilter"/> optionally restricts to a single tenant
         /// (routed through the per-tenant index for efficiency).
         /// </summary>
-        public async Task<List<SessionSummary>> GetAllSessionsAsync(string? tenantIdFilter = null, int? days = null)
+        public async Task<List<SessionSummary>> GetAllSessionsAsync(string? tenantIdFilter = null, int? days = null, IReadOnlyCollection<string>? allowedTenantIds = null)
         {
             if (!string.IsNullOrEmpty(tenantIdFilter))
             {
@@ -928,7 +929,7 @@ namespace AutopilotMonitor.Functions.Services
             string? token = null;
             do
             {
-                var page = await GetAllSessionsPageAsync(tenantIdFilter: null, days, pageSize: 1000, continuation: token);
+                var page = await GetAllSessionsPageAsync(tenantIdFilter: null, days, pageSize: 1000, continuation: token, allowedTenantIds: allowedTenantIds);
                 all.AddRange(page.Items);
                 token = page.NextRawToken;
             } while (!string.IsNullOrEmpty(token));
@@ -953,11 +954,11 @@ namespace AutopilotMonitor.Functions.Services
         /// Cross-tenant variant. Routes through the per-tenant index when
         /// <paramref name="tenantIdFilter"/> is set (cheaper scan).
         /// </summary>
-        public async Task<SessionStats> GetAllSessionStatsAsync(string? tenantIdFilter, int days)
+        public async Task<SessionStats> GetAllSessionStatsAsync(string? tenantIdFilter, int days, IReadOnlyCollection<string>? allowedTenantIds = null)
         {
             if (days < 1) throw new ArgumentOutOfRangeException(nameof(days));
 
-            var sessions = await GetAllSessionsAsync(tenantIdFilter, days);
+            var sessions = await GetAllSessionsAsync(tenantIdFilter, days, allowedTenantIds);
             return AggregateSessionStats(sessions, days);
         }
 
@@ -1073,7 +1074,7 @@ namespace AutopilotMonitor.Functions.Services
         /// <see cref="GetAllSessionsPageAsync"/> (single page).
         /// </summary>
         private async Task<(List<SessionSummary> Sessions, bool HasMore, string? NextCursor)> FetchAllSessionsPageInternalAsync(
-            int maxResults, string? cursor, int? days)
+            int maxResults, string? cursor, int? days, IReadOnlyCollection<string>? allowedTenantIds = null)
         {
             try
             {
@@ -1086,6 +1087,16 @@ namespace AutopilotMonitor.Functions.Services
                     select: new[] { "PartitionKey" }, maxPerPage: 1000))
                 {
                     tenantIds.Add(entity.PartitionKey);
+                }
+
+                // Delegated ("MSP") bound: restrict the cross-tenant fan-out to the caller's managed subset.
+                // This is the SAME per-tenant loop the Global Admin aggregate uses — only the tenant set
+                // shrinks, so the merge/cursor/pagination below stay identical. Comparison is case-insensitive
+                // because AllowedTenantIds is lowercased while the config PartitionKey casing is not guaranteed.
+                if (allowedTenantIds != null)
+                {
+                    var allowed = new HashSet<string>(allowedTenantIds, StringComparer.OrdinalIgnoreCase);
+                    tenantIds = tenantIds.Where(t => allowed.Contains(t)).ToList();
                 }
 
                 if (tenantIds.Count == 0 && string.IsNullOrEmpty(cursor))

@@ -29,8 +29,11 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <summary>
         /// Cross-tenant variant of <see cref="GetSessionsAsync"/> (Global Admin).
         /// <paramref name="tenantIdFilter"/> optionally restricts to a single tenant.
+        /// <paramref name="allowedTenantIds"/> (when non-null) bounds the cross-tenant fan-out to that
+        /// subset — used by delegated ("MSP") callers so the aggregate covers only their managed tenants.
         /// </summary>
-        Task<List<SessionSummary>> GetAllSessionsAsync(string? tenantIdFilter = null, int? days = null);
+        Task<List<SessionSummary>> GetAllSessionsAsync(
+            string? tenantIdFilter = null, int? days = null, IReadOnlyCollection<string>? allowedTenantIds = null);
 
         /// <summary>
         /// Reads a single page of sessions for <paramref name="tenantId"/>, newest-first
@@ -45,9 +48,12 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <summary>
         /// Cross-tenant variant of <see cref="GetSessionsPageAsync"/> (Global Admin).
         /// <paramref name="tenantIdFilter"/> optionally restricts to a single tenant.
+        /// <paramref name="allowedTenantIds"/> (when non-null) bounds the cross-tenant fan-out to that
+        /// subset — used by delegated ("MSP") callers so the aggregate covers only their managed tenants.
         /// </summary>
         Task<RawPage<SessionSummary>> GetAllSessionsPageAsync(
-            string? tenantIdFilter, int? days, int pageSize, string? continuation);
+            string? tenantIdFilter, int? days, int pageSize, string? continuation,
+            IReadOnlyCollection<string>? allowedTenantIds = null);
 
         /// <summary>
         /// Server-side aggregation for the dashboard stats cards (per-tenant scope).
@@ -60,8 +66,11 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// Cross-tenant variant of <see cref="GetSessionStatsAsync"/> (Global Admin).
         /// <paramref name="tenantIdFilter"/> optionally restricts to a single tenant
         /// (routes through the per-tenant index for cheaper scan).
+        /// <paramref name="allowedTenantIds"/> (when non-null) bounds the aggregate to that subset
+        /// — used by delegated ("MSP") callers so the cards cover only their managed tenants.
         /// </summary>
-        Task<SessionStats> GetAllSessionStatsAsync(string? tenantIdFilter, int days);
+        Task<SessionStats> GetAllSessionStatsAsync(
+            string? tenantIdFilter, int days, IReadOnlyCollection<string>? allowedTenantIds = null);
 
         // --- Session Updates ---
         Task<bool> UpdateSessionStatusAsync(

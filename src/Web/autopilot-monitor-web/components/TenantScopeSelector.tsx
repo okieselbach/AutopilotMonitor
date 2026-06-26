@@ -8,6 +8,8 @@ export interface TenantSelectorScope {
   tenants: TenantInfo[];
   selectedTenantId: string;
   setSelectedTenantId: (id: string) => void;
+  /** True for a delegated ("MSP") caller — suppresses the "All tenants" aggregate option (never served to delegated). */
+  isDelegatedScope?: boolean;
 }
 
 /**
@@ -49,7 +51,7 @@ export function TenantScopeSelector({
         onChange={(e) => scope.setSelectedTenantId(e.target.value)}
         className={selectClass}
       >
-        {allowAggregated && <option value="">All tenants (aggregated)</option>}
+        {allowAggregated && !scope.isDelegatedScope && <option value="">All tenants (aggregated)</option>}
         {scope.tenants.map((t) => (
           <option key={t.tenantId} value={t.tenantId}>
             {t.domainName

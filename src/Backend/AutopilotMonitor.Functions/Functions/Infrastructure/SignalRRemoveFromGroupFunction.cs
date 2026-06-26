@@ -1,5 +1,6 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Functions.Services;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Azure.Functions.Worker.Extensions.SignalRService;
@@ -11,11 +12,14 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
     public class SignalRRemoveFromGroupFunction
     {
         private readonly ILogger<SignalRRemoveFromGroupFunction> _logger;
+        private readonly DelegatedAdminService _delegatedAdminService;
 
         public SignalRRemoveFromGroupFunction(
-            ILogger<SignalRRemoveFromGroupFunction> logger)
+            ILogger<SignalRRemoveFromGroupFunction> logger,
+            DelegatedAdminService delegatedAdminService)
         {
             _logger = logger;
+            _delegatedAdminService = delegatedAdminService;
         }
 
         [Function("RemoveFromGroup")]
@@ -79,10 +83,18 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                     }
 
                     // Check if user is allowed to leave this tenant's group — platform scope (GA or
-                    // read-only Global Reader) may leave any tenant's group, symmetric with AddToGroup.
+                    // read-only Global Reader) may leave any tenant's group, symmetric with AddToGroup; a
+                    // delegated ("MSP") admin may leave a managed tenant's group (symmetric with the join).
                     if (requestedTenantId != userTenantId)
                     {
-                        if (!requestCtx.HasGlobalScope)
+                        var allowedCrossTenant = requestCtx.HasGlobalScope;
+                        if (!allowedCrossTenant && !string.IsNullOrEmpty(userEmail))
+                        {
+                            var scope = await _delegatedAdminService.GetScopeAsync(userEmail);
+                            allowedCrossTenant = scope.RoleFor(requestedTenantId) != null;
+                        }
+
+                        if (!allowedCrossTenant)
                         {
                             _logger.LogWarning($"User {userEmail} (tenant {userTenantId}) attempted to leave group for tenant {requestedTenantId}");
                             var forbiddenResponse = req.CreateResponse(HttpStatusCode.Forbidden);
@@ -91,7 +103,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                         }
                         else
                         {
-                            _logger.LogInformation($"Platform-scope user {userEmail} (role={requestCtx.UserRole}) leaving cross-tenant group: {request.GroupName}");
+                            _logger.LogInformation($"User {userEmail} (role={requestCtx.UserRole}) leaving cross-tenant group: {request.GroupName}");
                         }
                     }
 

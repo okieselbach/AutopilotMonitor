@@ -182,7 +182,7 @@ export default function SlaPage() {
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-        <GlobalAdminBanner show={scope.isGlobalAdmin} />
+        <GlobalAdminBanner show={scope.isGlobalAdmin} delegated={scope.isDelegatedScope} />
         {/* Header */}
         <header className="bg-white dark:bg-gray-800 shadow">
           <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">

@@ -263,7 +263,12 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
     private static bool IsDelegatedReadTier(EndpointPolicy policy)
         => policy is EndpointPolicy.MemberRead
             or EndpointPolicy.TenantAdminOrGlobalReader
-            or EndpointPolicy.GlobalReadOrAdmin;
+            or EndpointPolicy.GlobalReadOrAdmin
+            // Subset-tier routes (global/sessions, global/stats/sessions) admit a delegated caller for the
+            // bounded AGGREGATE (no tenantId, handler bounds to AllowedTenantIds); the single-tenant ?tenantId=
+            // DRILL still flows through the scoped-route cross-tenant guard, which requires this tier to count
+            // as a delegated read tier so RoleFor(target) can rescue the cross-tenant block.
+            or EndpointPolicy.GlobalReadOrDelegatedSubset;
 
     private async Task<CatalogDecisionResult> EvaluateCatalogPolicyAsync(
         ClaimsPrincipal? principal, EndpointPolicyEntry entry)

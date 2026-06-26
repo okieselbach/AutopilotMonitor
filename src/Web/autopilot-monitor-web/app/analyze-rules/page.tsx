@@ -407,7 +407,7 @@ export default function AnalyzeRulesPage() {
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gray-50">
-        <GlobalAdminBanner show={scope.isGlobalAdmin} />
+        <GlobalAdminBanner show={scope.isGlobalAdmin} delegated={scope.isDelegatedScope} />
         {/* Header */}
         <header className="bg-white shadow">
           <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">

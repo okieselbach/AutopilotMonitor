@@ -427,19 +427,38 @@ public class PolicyEnforcementMiddlewareTests
     }
 
     [Fact]
-    public async Task Delegated_AggregateGlobalEndpoint_NoTenantId_IsForbidden()
+    public void GlobalSessions_IsBoundedSubsetTier()
     {
-        // The no-tenantId AGGREGATE path of a global endpoint fans out over ALL tenants. Even though
-        // global/sessions is QueryParam-scoped (Phase 2a), a delegated caller WITHOUT ?tenantId= resolves no
-        // target ⇒ no delegated grant ⇒ denied. Only the single-tenant (?tenantId=X) path is open to them.
+        // global/sessions + global/stats/sessions are GlobalReadOrDelegatedSubset (bounded aggregate for
+        // delegated) yet keep QueryParam scoping (single-tenant drill). config/all is the same tier sans drill.
+        foreach (var path in new[] { "/api/global/sessions", "/api/global/stats/sessions" })
+        {
+            var entry = EndpointAccessPolicyCatalog.FindPolicy("GET", path);
+            Assert.NotNull(entry);
+            Assert.Equal(EndpointPolicy.GlobalReadOrDelegatedSubset, entry!.Policy);
+            Assert.Equal(TenantScoping.QueryParam, entry.TenantScoping);
+        }
+    }
+
+    [Fact]
+    public async Task Delegated_GlobalSessions_NoTenantId_IsBoundedAggregate()
+    {
+        // global/sessions WITHOUT ?tenantId= is the BOUNDED aggregate for a delegated ("MSP") caller: the
+        // subset tier admits them and publishes the managed set on AllowedTenantIds, which the handler uses
+        // to restrict the cross-tenant fan-out to those tenants. (global/metrics/summary, still on the plain
+        // GlobalReadOrAdmin tier, stays forbidden without a tenantId — see Delegated_MetricsSummary_* below.)
         const string upn = "msp@partner.example";
         var h = BuildHarness();
         h.AsDelegated(TenantB);
 
         var result = await h.Middleware.DecideAsync("GET", "/api/global/sessions", null, AuthedPrincipal(TenantA, upn));
 
-        Assert.False(result.Allowed);
-        Assert.Equal(403, result.StatusCode);
+        Assert.True(result.Allowed);
+        var rc = result.Context!;
+        Assert.True(rc.IsDelegatedReader);
+        Assert.False(rc.IsGlobalReader);
+        Assert.NotNull(rc.AllowedTenantIds);
+        Assert.Contains(TenantB.ToLowerInvariant(), rc.AllowedTenantIds!);
     }
 
     [Fact]
@@ -560,8 +579,8 @@ public class PolicyEnforcementMiddlewareTests
     // reachable by a delegated admin. None == aggregate-only == GA/Reader-only. Pins the leak-critical split.
 
     [Theory]
-    // SAFE — opened to delegated single-tenant access:
-    [InlineData("GET", "/api/global/sessions", TenantScoping.QueryParam)]
+    // SAFE — opened to delegated single-tenant access. (global/sessions + global/stats/sessions moved to
+    // the GlobalReadOrDelegatedSubset tier — see GlobalSessions_IsBoundedSubsetTier below.)
     [InlineData("GET", "/api/global/audit/logs", TenantScoping.QueryParam)]
     [InlineData("GET", "/api/global/metrics/app", TenantScoping.QueryParam)]
     [InlineData("GET", "/api/global/metrics/fleet-health", TenantScoping.QueryParam)]
