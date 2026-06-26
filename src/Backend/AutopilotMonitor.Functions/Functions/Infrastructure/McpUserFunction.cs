@@ -185,6 +185,18 @@ public class McpUserFunction
         {
             payload["globalRole"] = result.GlobalRole; // "GlobalAdmin" | "GlobalReader"
         }
+        // Delegated (scoped-global / MSP) scope, when present. The MCP access-guard reads
+        // delegatedTenantIds to route the caller cross-tenant (/api/global/*?tenantId=<managed>) bounded to
+        // exactly these tenants, and to reject any tool call that does not name one of them. Only emitted
+        // for a caller that actually holds a delegated assignment — ordinary tenant users get neither field.
+        if (result.DelegatedTenantIds is { Count: > 0 })
+        {
+            payload["delegatedTenantIds"] = result.DelegatedTenantIds; // string[] (lowercase)
+        }
+        if (!string.IsNullOrEmpty(result.DelegatedRole))
+        {
+            payload["delegatedRole"] = result.DelegatedRole; // "DelegatedAdmin" | "DelegatedReader"
+        }
         await response.WriteAsJsonAsync(payload);
         return response;
     }

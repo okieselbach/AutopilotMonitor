@@ -15,7 +15,7 @@ import { validatePrecomputedIndex } from './precomputed-index.js';
 import { buildEventTypeSearchDocs } from './resource-catalog.js';
 import { createOAuthRouter } from './oauth.js';
 import { accessGuard } from './access-guard.js';
-import { hasGlobalScope, isGlobalAdmin } from './client.js';
+import { hasGlobalScope, isGlobalAdmin, isDelegated, getDelegatedTenantIds } from './client.js';
 import { API_BASE_URL } from './config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -137,7 +137,16 @@ console.error(`Event-type index ready: ${eventTypeIndex.name} — ${eventTypeInd
 // Reader) sees the cross-tenant scope hint. A normal tenant user gets
 // instructions with no mention of cross-tenant capability at all — the surface
 // is scoped to what they can actually do.
-function buildInstructions(ga: boolean): string {
+function buildInstructions(ga: boolean, delegated: boolean, managedTenants: string[]): string {
+  // Delegated (MSP) callers get a tenant-bounded surface: cross-tenant ROUTING, but every query MUST name
+  // one of their managed tenants — no platform aggregate. Spell that out once here (the host surfaces it
+  // per connection) so the model passes tenantId up front instead of discovering it via a tool error.
+  const scopeLine = ga
+    ? 'Scope: omit tenantId for cross-tenant queries (platform scope); pass tenantId to scope to one tenant.'
+    : delegated
+      ? 'Scope: you are a delegated (MSP) administrator. Every query MUST name one of your managed tenants via ' +
+        `tenantId — there is no cross-tenant aggregate. Your managed tenants: ${managedTenants.join(', ')}.`
+      : 'Scope: all queries are automatically limited to your tenant.';
   return [
     'Autopilot-Monitor is a READ-ONLY telemetry server for Windows Autopilot enrollment sessions.',
     '',
@@ -146,9 +155,7 @@ function buildInstructions(ga: boolean): string {
     'Counting / aggregating: pass a lean `fields=` projection and use `agentVersionPrefix=`/`imeAgentVersionPrefix=` sweeps to stay under the per-response size cap.',
     'Pagination: when a response carries `nextLink`, pass that whole string back as `continuation`; stop when it is absent. Results are never silently truncated.',
     'Catalogs: call get_resource(name="event_types"|"device_properties") to discover valid eventType strings and deviceProperties keys before filtering.',
-    ga
-      ? 'Scope: omit tenantId for cross-tenant queries (platform scope); pass tenantId to scope to one tenant.'
-      : 'Scope: all queries are automatically limited to your tenant.',
+    scopeLine,
   ].join('\n');
 }
 
@@ -158,13 +165,15 @@ function buildInstructions(ga: boolean): string {
  * role: a non-Global-Admin never sees GA-only tools or any cross-tenant / GA
  * wording — reducing both confusion and attack surface.
  */
-function createMcpServer(ga: boolean, strictGa: boolean): McpServer {
+function createMcpServer(ga: boolean, strictGa: boolean, delegated: boolean, managedTenants: string[]): McpServer {
   const s = new McpServer(
     { name: 'Autopilot-Monitor', version: SERVER_VERSION },
-    { instructions: buildInstructions(ga) },
+    { instructions: buildInstructions(ga, delegated, managedTenants) },
   );
-  registerTools(s, knowledgeBase, eventTypeIndex, ga, strictGa);
+  registerTools(s, knowledgeBase, eventTypeIndex, ga, strictGa, delegated);
   registerResources(s);
+  // A delegated caller has no platform scope, so prompts get the tenant-user surface (ga=false) —
+  // the cross-tenant prompt wording would be misleading for a tenant-bounded MSP user.
   registerPrompts(s, ga);
   return s;
 }
@@ -234,12 +243,17 @@ app.all('/mcp', async (req, res) => {
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined, // stateless: no session tracking
   });
-  // accessGuard ran runWithCaller({ platform role }) around next(), so the
-  // caller's resolved scope is available here (and stays active through
-  // transport.handleRequest, where tools/list and tool calls execute). Tool
-  // catalog + routing key off platform SCOPE (GA or read-only Global Reader),
-  // since the server is read-only and both have identical cross-tenant reach.
-  const server = createMcpServer(hasGlobalScope(), isGlobalAdmin());
+  // accessGuard ran runWithCaller({ platform role + delegated scope }) around next(), so the
+  // caller's resolved scope is available here (and stays active through transport.handleRequest, where
+  // tools/list and tool calls execute). Tool catalog + routing key off platform SCOPE (GA or read-only
+  // Global Reader, identical cross-tenant reach on this read-only server). A caller with NO platform
+  // scope but a delegated (MSP) assignment gets a tenant-bounded variant: cross-tenant routing limited
+  // to its managed tenants, the platform-only tools hidden, and a required tenantId per tool. A caller
+  // who is BOTH platform and delegated is treated as platform (ga wins ⇒ delegated=false here).
+  const ga = hasGlobalScope();
+  const delegated = !ga && isDelegated();
+  const managedTenants = delegated ? (getDelegatedTenantIds() ?? []) : [];
+  const server = createMcpServer(ga, isGlobalAdmin(), delegated, managedTenants);
 
   // Guarantee cleanup once the response is done, even on client disconnect.
   res.on('close', () => {

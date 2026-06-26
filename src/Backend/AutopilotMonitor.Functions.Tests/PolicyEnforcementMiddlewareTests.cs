@@ -481,6 +481,36 @@ public class PolicyEnforcementMiddlewareTests
     }
 
     [Fact]
+    public async Task Delegated_MetricsSummary_SingleTenant_InScope_IsAllowed()
+    {
+        // global/metrics/summary?tenantId=B — Phase 6 recatalog to QueryParam: the handler filters the
+        // summary to the named tenant, so a delegated reader (get_metrics over MCP) reaches it for B.
+        const string upn = "msp@partner.example";
+        var h = BuildHarness();
+        h.AsDelegated(TenantB);
+
+        var result = await h.Middleware.DecideAsync("GET", "/api/global/metrics/summary", TenantB, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed);
+        Assert.True(result.Context!.IsDelegatedReader);
+        Assert.Equal(TenantB, result.Context!.TargetTenantId);
+    }
+
+    [Fact]
+    public async Task Delegated_MetricsSummary_Aggregate_NoTenantId_IsForbidden()
+    {
+        // Without ?tenantId= the delegated rescue resolves no target ⇒ the aggregate summary stays blocked.
+        const string upn = "msp@partner.example";
+        var h = BuildHarness();
+        h.AsDelegated(TenantB);
+
+        var result = await h.Middleware.DecideAsync("GET", "/api/global/metrics/summary", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.False(result.Allowed);
+        Assert.Equal(403, result.StatusCode);
+    }
+
+    [Fact]
     public async Task Delegated_GlobalEndpoint_SingleTenant_OutOfScope_IsForbidden()
     {
         // global/sessions?tenantId=C — C is not in the delegated set ⇒ blocked.
@@ -535,6 +565,7 @@ public class PolicyEnforcementMiddlewareTests
     [InlineData("GET", "/api/global/audit/logs", TenantScoping.QueryParam)]
     [InlineData("GET", "/api/global/metrics/app", TenantScoping.QueryParam)]
     [InlineData("GET", "/api/global/metrics/fleet-health", TenantScoping.QueryParam)]
+    [InlineData("GET", "/api/global/metrics/summary", TenantScoping.QueryParam)]
     [InlineData("GET", "/api/global/search/sessions", TenantScoping.QueryParam)]
     // AGGREGATE-ONLY — MUST stay None (unreachable by delegated):
     [InlineData("GET", "/api/global/presence", TenantScoping.None)]

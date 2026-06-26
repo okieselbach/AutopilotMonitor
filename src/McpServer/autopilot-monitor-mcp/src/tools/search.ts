@@ -1,9 +1,9 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { apiFetch, buildQuery, followNextLink, pickGlobalOrTenantPath } from '../client.js';
+import { apiFetch, buildQuery, enforceDelegatedTenant, followNextLink, pickGlobalOrTenantPath } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
 import type { SearchProvider } from '../search-provider.js';
-import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport } from './shared.js';
+import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 import { ALL_EVENT_TYPES } from '../resource-catalog.js';
 
@@ -938,6 +938,7 @@ export function registerSearchTools(
   knowledgeBase: SearchProvider | undefined,
   eventTypeIndex: SearchProvider | undefined,
   ga: boolean,
+  delegated: boolean = false,
 ): void {
   // Tool 9: search_events — hybrid keyword + semantic event search (depth: fast | deep)
   server.registerTool(
@@ -965,7 +966,7 @@ export function registerSearchTools(
       inputSchema: {
         query: z.string().describe('Natural language description of what to find (e.g. "machine restarted unexpectedly", "app download stuck", "certificate error")'),
         sessionId: SessionIdSchema.optional().describe('Search within a specific session. If omitted, searches across recent failed sessions.'),
-        tenantId: z.string().optional().describe(ga ? 'Tenant ID. Required for non-Global Admin users; Global Admin can omit to search across tenants.' : 'Optional tenant ID. Defaults to your tenant.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Required for non-Global Admin users; Global Admin can omit to search across tenants.', 'Optional tenant ID. Defaults to your tenant.')),
         depth: z.enum(['fast', 'deep']).optional().default('fast')
           .describe('"fast" (default): a few pages per type, quick. "deep": broad multi-page scan per type with a lower threshold, for exhaustive recall when accuracy is critical.'),
         topK: z.coerce.number().min(1).max(50).optional()
@@ -981,7 +982,9 @@ export function registerSearchTools(
     },
     async (args) => withToolTelemetry('search_events', async () => {
       try {
-        const { query, sessionId, tenantId, depth, keywords, guaranteedTopRanked } = args;
+        const { query, sessionId, tenantId: rawTenantId, depth, keywords, guaranteedTopRanked } = args;
+        // Delegated (MSP): require a managed tenantId (no cross-tenant aggregate); no-op for others.
+        const tenantId = enforceDelegatedTenant(rawTenantId);
         const preset = DEPTH_PRESETS[depth];
         const topK = args.topK ?? preset.defaultTopK;
         const minScore = args.minScore ?? preset.defaultMinScore;

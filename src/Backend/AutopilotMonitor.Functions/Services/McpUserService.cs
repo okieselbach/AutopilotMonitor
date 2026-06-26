@@ -20,6 +20,7 @@ public class McpUserService
     private readonly IMemoryCache _cache;
     private readonly ILogger<McpUserService> _logger;
     private readonly GlobalAdminService _globalAdminService;
+    private readonly DelegatedAdminService _delegatedAdminService;
     private readonly AdminConfigurationService _adminConfigService;
     private readonly TimeSpan _cacheDuration = TimeSpan.FromMinutes(5);
 
@@ -28,12 +29,14 @@ public class McpUserService
         IMemoryCache cache,
         ILogger<McpUserService> logger,
         GlobalAdminService globalAdminService,
+        DelegatedAdminService delegatedAdminService,
         AdminConfigurationService adminConfigService)
     {
         _adminRepo = adminRepo;
         _cache = cache;
         _logger = logger;
         _globalAdminService = globalAdminService;
+        _delegatedAdminService = delegatedAdminService;
         _adminConfigService = adminConfigService;
     }
 
@@ -55,6 +58,15 @@ public class McpUserService
         var globalRole = await _globalAdminService.GetGlobalRoleAsync(upn);
         var isGlobalAdmin = globalRole == Constants.GlobalRoles.GlobalAdmin;
 
+        // Resolve the delegated (scoped-global / MSP) scope unconditionally — independent of which policy
+        // branch grants access — so it is always surfaced when present. A user may hold a platform role AND
+        // a delegated assignment; both are reported. The MCP server uses delegatedTenantIds to route a
+        // delegated caller to /api/global/*?tenantId=<managed> (the path the auth middleware authorizes)
+        // and to reject any tool call that does not name one of the managed tenants.
+        var delegatedScope = await _delegatedAdminService.GetScopeAsync(upn);
+        var delegatedTenantIds = delegatedScope.IsEmpty ? null : delegatedScope.TenantIds;
+        var delegatedRole = delegatedScope.IsEmpty ? null : StrongestDelegatedRole(delegatedScope);
+
         var config = await _adminConfigService.GetConfigurationAsync();
         if (!Enum.TryParse<McpAccessPolicy>(config.McpAccessPolicy, out var policy))
             policy = McpAccessPolicy.WhitelistOnly;
@@ -62,16 +74,28 @@ public class McpUserService
         switch (policy)
         {
             case McpAccessPolicy.Disabled:
+                // Disabled blocks everyone — platform roles and delegated admins alike.
                 return McpAccessCheckResult.Denied("MCP access is disabled");
 
             case McpAccessPolicy.AllMembers:
-                return McpAccessCheckResult.Allowed(upn, "AllMembers", isGlobalAdmin, globalRole);
+                return McpAccessCheckResult.Allowed(
+                    upn, "AllMembers", isGlobalAdmin, globalRole, delegatedTenantIds, delegatedRole);
 
             case McpAccessPolicy.WhitelistOnly:
             default:
                 // Any platform role (GlobalAdmin or read-only GlobalReader) always has MCP access.
                 if (globalRole != null)
-                    return McpAccessCheckResult.Allowed(upn, globalRole, isGlobalAdmin, globalRole);
+                    return McpAccessCheckResult.Allowed(
+                        upn, globalRole, isGlobalAdmin, globalRole, delegatedTenantIds, delegatedRole);
+
+                // A delegated (MSP) admin with an active scope is granted MCP access automatically under
+                // WhitelistOnly — "delegated = scoped global", and they are already curated via the
+                // Delegated Admins UI, so a separate McpUsers row would be redundant friction. Their reach
+                // is bounded client- and server-side to the managed tenant set; no platform/aggregate path.
+                if (!delegatedScope.IsEmpty)
+                    return McpAccessCheckResult.Allowed(
+                        upn, "DelegatedAdmin", isGlobalAdmin: false, globalRole: null,
+                        delegatedTenantIds: delegatedTenantIds, delegatedRole: delegatedRole);
 
                 // Check McpUsers whitelist (cached)
                 var cacheKey = $"mcp-user:{upn}";
@@ -82,7 +106,7 @@ public class McpUserService
                 }
 
                 return isMcpUser
-                    ? McpAccessCheckResult.Allowed(upn, "McpUser", false)
+                    ? McpAccessCheckResult.Allowed(upn, "McpUser", false, null, delegatedTenantIds, delegatedRole)
                     // Surfaced to the end user by the MCP server's access guard. Keep it
                     // self-explanatory so a denied colleague understands they simply need
                     // to be whitelisted, rather than reading it as an auth failure.
@@ -157,6 +181,16 @@ public class McpUserService
             ? policy
             : McpAccessPolicy.WhitelistOnly;
     }
+
+    /// <summary>
+    /// The strongest delegated role held across the scope's tenants: DelegatedAdmin if the caller can write
+    /// on any managed tenant, otherwise DelegatedReader. Surfaced for forward-compat (a future write tier
+    /// over MCP) — the read-only MCP server gates nothing on it today.
+    /// </summary>
+    private static string StrongestDelegatedRole(DelegatedScope scope)
+        => scope.TenantIds.Any(scope.CanWrite)
+            ? Constants.DelegatedRoles.DelegatedAdmin
+            : Constants.DelegatedRoles.DelegatedReader;
 }
 
 public class McpAccessCheckResult
@@ -173,13 +207,36 @@ public class McpAccessCheckResult
     /// </summary>
     public string? GlobalRole { get; init; }
 
-    public static McpAccessCheckResult Allowed(string upn, string accessGrant, bool isGlobalAdmin = false, string? globalRole = null) => new()
+    /// <summary>
+    /// Managed tenant IDs (lowercase) when the caller is a delegated (scoped-global / MSP) admin, else null.
+    /// The MCP server routes a delegated caller to /api/global/*?tenantId=&lt;managed&gt; and rejects any tool
+    /// call whose effective tenantId is not in this set. Distinct from <see cref="GlobalRole"/>: a delegated
+    /// admin has NO platform role yet still gets bounded cross-tenant read access to exactly these tenants.
+    /// </summary>
+    public IReadOnlyCollection<string>? DelegatedTenantIds { get; init; }
+
+    /// <summary>
+    /// Strongest delegated role across the managed tenants ("DelegatedAdmin" | "DelegatedReader"), or null
+    /// when the caller has no delegated scope. Surfaced for forward-compat; the read-only MCP gates nothing
+    /// on it today.
+    /// </summary>
+    public string? DelegatedRole { get; init; }
+
+    public static McpAccessCheckResult Allowed(
+        string upn,
+        string accessGrant,
+        bool isGlobalAdmin = false,
+        string? globalRole = null,
+        IReadOnlyCollection<string>? delegatedTenantIds = null,
+        string? delegatedRole = null) => new()
     {
         IsAllowed = true,
         Upn = upn,
         AccessGrant = accessGrant,
         IsGlobalAdmin = isGlobalAdmin,
-        GlobalRole = globalRole
+        GlobalRole = globalRole,
+        DelegatedTenantIds = delegatedTenantIds,
+        DelegatedRole = delegatedRole
     };
 
     public static McpAccessCheckResult Denied(string reason) => new()

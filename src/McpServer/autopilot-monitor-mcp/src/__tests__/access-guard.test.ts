@@ -22,7 +22,8 @@ process.env.MCP_RATE_LIMIT_PER_MINUTE = '2';
 const { accessGuard } = await import('../access-guard.js');
 // Same ESM singleton the guard uses internally — so the context set by
 // runWithCaller inside next() is observable here.
-const { isGlobalAdmin, hasGlobalScope, getCurrentToken } = await import('../client.js');
+const { isGlobalAdmin, hasGlobalScope, getCurrentToken, isDelegated, getDelegatedTenantIds } =
+  await import('../client.js');
 
 /** Build an unsigned JWT-shaped token carrying the given claims. */
 function makeToken(claims: Record<string, unknown>): string {
@@ -75,7 +76,7 @@ function mockRes(): CapturedRes {
 interface GuardOutcome {
   nextCalled: boolean;
   /** caller context captured INSIDE next() (only meaningful when nextCalled) */
-  ctx?: { token: string | undefined; ga: boolean };
+  ctx?: { token: string | undefined; ga: boolean; scope?: boolean; delegated?: boolean; managed?: string[] };
   status: number | null;
   body: unknown;
   headers: Record<string, string>;
@@ -106,7 +107,13 @@ function runGuard(req: Request): Promise<GuardOutcome> {
       // Read the per-request caller context from inside the async scope.
       done({
         nextCalled: true,
-        ctx: { token: getCurrentToken(), ga: isGlobalAdmin(), scope: hasGlobalScope() },
+        ctx: {
+          token: getCurrentToken(),
+          ga: isGlobalAdmin(),
+          scope: hasGlobalScope(),
+          delegated: isDelegated(),
+          managed: getDelegatedTenantIds(),
+        },
         status: cap.statusCode,
         body: cap.body,
         headers: cap.headers,
@@ -247,7 +254,7 @@ describe('accessGuard — allow path', () => {
 
     expect(out.nextCalled).toBe(true);
     expect(out.status).toBeNull(); // no response sent on the allow path
-    expect(out.ctx).toEqual({ token, ga: true, scope: true });
+    expect(out.ctx).toEqual({ token, ga: true, scope: true, delegated: false, managed: undefined });
   });
 
   it('propagates isGlobalAdmin:false through the caller context', async () => {
@@ -272,6 +279,48 @@ describe('accessGuard — allow path', () => {
     expect(out.nextCalled).toBe(true);
     expect(out.ctx?.ga).toBe(true);
     expect(out.ctx?.scope).toBe(true);
+  });
+});
+
+describe('accessGuard — delegated (MSP) scope', () => {
+  it('threads delegatedTenantIds (lowercased) into the caller context, without platform scope', async () => {
+    stubBackend({
+      body: {
+        allowed: true,
+        accessGrant: 'DelegatedAdmin',
+        delegatedTenantIds: ['AAAA-1111', 'bbbb-2222'],
+        delegatedRole: 'DelegatedReader',
+      },
+    });
+    const out = await runGuard(mockReq(`Bearer ${validToken(uniqueUpn())}`));
+
+    expect(out.nextCalled).toBe(true);
+    expect(out.ctx?.ga).toBe(false);
+    expect(out.ctx?.scope).toBe(false);    // delegated is NOT platform scope
+    expect(out.ctx?.delegated).toBe(true);
+    expect(out.ctx?.managed).toEqual(['aaaa-1111', 'bbbb-2222']);
+  });
+
+  it('keeps the delegated scope on the cached (second) request — one backend call', async () => {
+    const token = validToken(uniqueUpn());
+    const fetchFn = stubBackend({
+      body: { allowed: true, accessGrant: 'DelegatedAdmin', delegatedTenantIds: ['cccc-3333'] },
+    });
+
+    const first = await runGuard(mockReq(`Bearer ${token}`));
+    const second = await runGuard(mockReq(`Bearer ${token}`));
+
+    expect(fetchFn).toHaveBeenCalledTimes(1);          // served from cache
+    expect(first.ctx?.managed).toEqual(['cccc-3333']);
+    expect(second.ctx?.managed).toEqual(['cccc-3333']); // scope survived caching
+    expect(second.ctx?.delegated).toBe(true);
+  });
+
+  it('treats an empty delegatedTenantIds array as non-delegated', async () => {
+    stubBackend({ body: { allowed: true, delegatedTenantIds: [] } });
+    const out = await runGuard(mockReq(`Bearer ${validToken(uniqueUpn())}`));
+    expect(out.ctx?.delegated).toBe(false);
+    expect(out.ctx?.managed).toBeUndefined();
   });
 });
 

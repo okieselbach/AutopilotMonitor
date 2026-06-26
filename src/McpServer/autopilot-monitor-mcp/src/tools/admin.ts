@@ -1,9 +1,9 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { apiFetch, buildQuery, followNextLink, pickGlobalOrTenantPath, scanUntilMatch } from '../client.js';
+import { apiFetch, buildQuery, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, pickGlobalOrTenantPath, scanUntilMatch } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
 import { getResourceContent, assertKnownEventType } from '../resource-catalog.js';
-import { READ_ONLY, READ_ONLY_OPEN, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema } from './shared.js';
+import { READ_ONLY, READ_ONLY_OPEN, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 
 /**
@@ -166,7 +166,7 @@ export function paginateInventory(
   };
 }
 
-export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boolean = ga): void {
+export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boolean = ga, delegated: boolean = false): void {
   // Tool 11: get_api_usage — Global Admin only; not registered for normal users
   // (the `if (ga)` guards the whole single server.registerTool(...) statement).
   if (ga) server.registerTool(
@@ -228,7 +228,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'Use get_geographic_sessions to drill into a specific location. ' +
         'days accepts any value 1-365 (e.g. 5, 7, 12, 30, 90).',
       inputSchema: {
-        tenantId: z.string().optional().describe(ga ? 'Tenant ID. Omit for cross-tenant view (Global Admin only).' : 'Optional tenant ID. Defaults to your tenant.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Omit for cross-tenant view (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
         days: z.coerce.number().int().min(1).max(365).optional().default(30)
           .describe('Time range in days (1-365). Defaults to 30.'),
         groupBy: z.enum(['country', 'region', 'city']).optional().default('city')
@@ -238,7 +238,9 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('get_geographic_metrics', async () => {
       try {
-        const { tenantId, ...rest } = args;
+        const { tenantId: rawTenantId, ...rest } = args;
+        // Delegated (MSP): require a managed tenantId (no aggregate); no-op for GA/Reader/tenant users.
+        const tenantId = enforceDelegatedTenant(rawTenantId);
         const params: Record<string, string | number | undefined> = { ...rest };
         if (tenantId) params.tenantId = tenantId;
         const prefix = pickGlobalOrTenantPath('/api/global/metrics', '/api/metrics');
@@ -270,7 +272,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         country: z.string().optional().describe('Country filter, matched against the session GeoCountry exactly as shown by get_geographic_metrics (typically a 2-letter code, e.g. "DE", "US", "CH"). Used when locationKey is not provided; lists the whole country on its own.'),
         region: z.string().optional().describe('Region/state filter (e.g. "Saxony", "North Carolina"). Optional; used with country to narrow.'),
         city: z.string().optional().describe('City filter (e.g. "Falkenstein"). Optional; used with country to narrow.'),
-        tenantId: z.string().optional().describe(ga ? 'Tenant ID. Omit for cross-tenant view (Global Admin only).' : 'Optional tenant ID. Defaults to your tenant.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Omit for cross-tenant view (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
         days: z.coerce.number().int().min(1).max(365).optional().default(30)
           .describe('Time range in days (1-365). Defaults to 30.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional().default(50)
@@ -282,7 +284,10 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('get_geographic_sessions', async () => {
       try {
-        const { tenantId, locationKey, country, region, city, pageSize, continuation, ...rest } = args;
+        const { tenantId: rawTenantId, locationKey, country, region, city, pageSize, continuation, ...rest } = args;
+        // Offset-based client-side pager (geo-offset:N carries no tenantId), so the explicit tenantId is
+        // re-sent every page; the Page variant falls back to it. Uniform with the nextLink pagers.
+        const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         const params: Record<string, string | number | undefined> = {
           ...rest,
           ...buildGeoLocationParams({ locationKey, country, region, city }),
@@ -429,7 +434,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           : 'Get usage statistics for your tenant: session volumes, feature adoption, success rate, active users. ') +
         'days accepts any value 1-365 (e.g. 5, 7, 12, 30, 90).',
       inputSchema: {
-        tenantId: z.string().optional().describe(ga ? 'Filter the platform-wide view to a single tenant (Global Admin only). Omit for the whole platform.' : 'Optional; ignored — usage is scoped to your tenant.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Filter the platform-wide view to a single tenant (Global Admin only). Omit for the whole platform.', 'Optional; ignored — usage is scoped to your tenant.')),
         days: z.coerce.number().int().min(1).max(365).optional().default(30)
           .describe('Time window in days (1-365). Defaults to 30. Sessions.Total / Tenants.Total reflect this window.'),
       },
@@ -437,7 +442,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('get_usage_metrics', async () => {
       try {
-        const { tenantId, days } = args;
+        const { tenantId: rawTenantId, days } = args;
+        const tenantId = enforceDelegatedTenant(rawTenantId);
         // GA → /api/global/metrics/usage (tenantId is a filter); Tenant-Admin → /api/metrics/usage
         // (JWT-scoped; tenantId ignored). Routing by role unlocks the MemberRead tenant endpoint
         // for non-GA callers instead of a blanket 403.
@@ -515,7 +521,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         '"continuation". The tool follows it verbatim so the backend-defaulted date window AND any field filters round-trip ' +
         'correctly (otherwise a follow-up call would compute a fresh "now" and the token fingerprint would mismatch). Stop when nextLink is absent.',
       inputSchema: {
-        tenantId: z.string().optional().describe(ga ? 'Tenant ID for tenant-scoped audit log. Omit for cross-tenant view (Global Admin only).' : 'Optional tenant ID. Defaults to your tenant.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID for tenant-scoped audit log. Omit for cross-tenant view (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
         dateFrom: z.string().optional().describe('ISO 8601 UTC timestamp — inclusive lower bound of the audit window.'),
         dateTo: z.string().optional().describe('ISO 8601 UTC timestamp — inclusive upper bound of the audit window.'),
         action: z.string().optional().describe('Exact-match filter on the action (e.g. "config_updated", "device_blocked", "deletion_started").'),
@@ -531,7 +537,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('get_audit_logs', async () => {
       try {
-        const { tenantId, dateFrom, dateTo, action, performedBy, entityType, entityId, pageSize, continuation } = args;
+        const { tenantId: rawTenantId, dateFrom, dateTo, action, performedBy, entityType, entityId, pageSize, continuation } = args;
+        const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         const basePath = pickGlobalOrTenantPath('/api/global/audit/logs', '/api/audit/logs');
         const path = followNextLink(
           basePath,
@@ -657,7 +664,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'kept. ' +
         (ga ? 'When querying by sessionId you may omit tenantId — it is auto-resolved from the session (Global Admin).' : ''),
       inputSchema: {
-        tenantId: z.string().optional().describe(ga ? 'Tenant ID. Omit for cross-tenant search, or to auto-resolve from a sessionId query (Global Admin only).' : 'Optional tenant ID. Defaults to your tenant.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Omit for cross-tenant search, or to auto-resolve from a sessionId query (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
         sessionId: SessionIdSchema.optional().describe('Filter to a specific session'),
         eventType: z.string().optional().describe('Event type filter (e.g. "app_install_failed", "error_detected")'),
         severity: z.enum(['Info', 'Warning', 'Error', 'Critical']).optional(),
@@ -675,7 +682,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('query_raw_events', async () => {
       try {
-        const { tenantId, sessionId, eventType, severity, source, startedAfter, startedBefore, fields, pageSize, continuation } = args;
+        const { tenantId: rawTenantId, sessionId, eventType, severity, source, startedAfter, startedBefore, fields, pageSize, continuation } = args;
+        const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         if (eventType) assertKnownEventType(eventType);
         const basePath = pickGlobalOrTenantPath('/api/global/raw/events', '/api/raw/events');
         const path = followNextLink(
@@ -712,7 +720,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'This endpoint is fully paginated — there is no truncation. Default pageSize=200; raise it (up to 1000) for bulk pulls. ' +
         'Pass the whole nextLink string as "continuation" so all backend-echoed query params round-trip correctly.',
       inputSchema: {
-        tenantId: z.string().optional().describe(ga ? 'Tenant ID to query. Omit for cross-tenant access (Global Admin only).' : 'Optional tenant ID. Defaults to your tenant.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID to query. Omit for cross-tenant access (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
         status: z.enum(['InProgress', 'Pending', 'Stalled', 'Succeeded', 'Failed']).optional(),
         startedAfter: z.string().optional().describe('ISO 8601 datetime'),
         startedBefore: z.string().optional().describe('ISO 8601 datetime'),
@@ -741,9 +749,10 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('query_raw_sessions', async () => {
       try {
-        const { tenantId, status, startedAfter, startedBefore, serialNumber, agentVersion, agentVersionPrefix,
+        const { tenantId: rawTenantId, status, startedAfter, startedBefore, serialNumber, agentVersion, agentVersionPrefix,
           imeAgentVersion, imeAgentVersionPrefix, manufacturer, model, enrollmentType, deviceName, osBuild,
           geoCountry, isPreProvisioned, isHybridJoin, fields, pageSize, continuation } = args;
+        const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         const basePath = pickGlobalOrTenantPath('/api/global/raw/sessions', '/api/raw/sessions');
         const path = followNextLink(
           basePath,
@@ -890,7 +899,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'easily exceeds 70 KB and can trip the response cap. Pass a tighter `startDate`/`endDate` window ' +
         '(7 days is usually plenty) and/or `ruleType` filter to keep responses lean.',
       inputSchema: {
-        tenantId: z.string().optional().describe(ga ? 'Filter by tenant ID. Omit for global (cross-tenant) stats.' : 'Optional tenant ID. Defaults to your tenant.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Filter by tenant ID. Omit for global (cross-tenant) stats.', 'Optional tenant ID. Defaults to your tenant.')),
         ruleType: z.enum(['analyze', 'gather']).optional().describe('Filter by rule type'),
         startDate: z.string().optional().describe('Start date (YYYY-MM-DD). Defaults to 30 days ago.'),
         endDate: z.string().optional().describe('End date (YYYY-MM-DD). Defaults to today.'),
@@ -899,12 +908,13 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('get_rule_stats', async () => {
       try {
+        const tenantId = enforceDelegatedTenant(args.tenantId);
         const params: Record<string, string | undefined> = {
           startDate: args.startDate,
           endDate: args.endDate,
           ruleType: args.ruleType,
         };
-        if (args.tenantId) params.tenantId = args.tenantId;
+        if (tenantId) params.tenantId = tenantId;
         const prefix = pickGlobalOrTenantPath('/api/global/metrics', '/api/metrics');
         const data = await apiFetch(`${prefix}/rule-stats${buildQuery(params)}`);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
@@ -929,7 +939,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'If "truncated" is true, the underlying index scan hit its cap and counts are a lower bound (narrow with tenantId). ' +
         'Requires vulnerability scanning to be enabled (an empty summary means no findings, not necessarily "not affected").',
       inputSchema: {
-        tenantId: z.string().optional().describe(ga ? 'Tenant ID. Omit for cross-tenant overview (Global Admin only).' : 'Optional tenant ID. Defaults to your tenant.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Omit for cross-tenant overview (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
         days: z.coerce.number().int().min(1).max(365).optional().default(30)
           .describe('Time window in days (1-365, default 30). Filters CVEs by when they were detected.'),
         topN: z.coerce.number().int().min(1).max(100).optional().default(20)
@@ -939,7 +949,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('get_vulnerability_summary', async () => {
       try {
-        const { tenantId, days, topN } = args;
+        const { tenantId: rawTenantId, days, topN } = args;
+        const tenantId = enforceDelegatedTenant(rawTenantId);
         const prefix = pickGlobalOrTenantPath('/api/global/metrics/vulnerability', '/api/metrics/vulnerability');
         const data = await apiFetch(`${prefix}${buildQuery({ tenantId, days, topN })}`);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
@@ -968,9 +979,9 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           : '') +
         'days accepts any value 1-365 (default 30).',
       inputSchema: {
-        tenantId: z.string().optional().describe(ga
-          ? 'Filter to a single tenant (Global Admin only). Omit for the cross-tenant fleet aggregate.'
-          : 'Optional; ignored — metrics are scoped to your tenant.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated,
+          'Filter to a single tenant (Global Admin only). Omit for the cross-tenant fleet aggregate.',
+          'Optional; ignored — metrics are scoped to your tenant.')),
         days: z.coerce.number().int().min(1).max(365).optional().default(30)
           .describe('Time window in days (1-365). Defaults to 30. Filters apps by install StartedAt.'),
       },
@@ -978,7 +989,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('get_app_install_metrics', async () => {
       try {
-        const { tenantId, days } = args;
+        const { tenantId: rawTenantId, days } = args;
+        const tenantId = enforceDelegatedTenant(rawTenantId);
         // GA → /api/global/metrics/app (tenantId is a filter); Tenant-Admin → /api/metrics/app
         // (JWT-scoped; tenantId ignored).
         const path = pickGlobalOrTenantPath('/api/global/metrics/app', '/api/metrics/app');
@@ -994,8 +1006,27 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
   // Registered for ALL callers, but role-aware: a non-GA caller only ever sees their own tenant's
   // inventory (no tenantId / no cross-tenant scope in the schema — nothing to leak or tempt with).
   // A Global Admin additionally gets a tenantId selector and a cross-tenant "unmatched" (CPE-gap)
-  // scope. Both inventory endpoints return everything at once, so the per-tenant inventory is paged
+  // scope. A delegated (MSP) caller gets a required managed-tenant selector (no "unmatched" scope).
+  // Both inventory endpoints return everything at once, so the per-tenant inventory is paged
   // client-side (paginateInventory); the unmatched scope uses the backend's own skip/take cursor.
+  //
+  // Extracted to a typed const (not an inline nested ternary in inputSchema) so the tool handler's
+  // arg type still infers cleanly — a 3-way ternary inside the schema literal collapses it to `any`.
+  const inventoryScopeShape: z.ZodRawShape = ga
+    ? {
+        tenantId: z.string().optional()
+          .describe('Tenant whose inventory to read (required for scope="inventory" as Global Admin; ignored for scope="unmatched").'),
+        scope: z.enum(['inventory', 'unmatched']).optional().default('inventory')
+          .describe('"inventory" = one tenant\'s full software catalog (needs tenantId). "unmatched" = cross-tenant software with no CPE mapping yet.'),
+      }
+    : delegated
+      ? {
+          // Delegated (MSP) callers get the per-tenant inventory only (no cross-tenant "unmatched" scope),
+          // but DO need a tenantId selector to name one of their managed tenants (required; enforced below).
+          tenantId: z.string().optional()
+            .describe('Required: a tenantId from YOUR managed tenants (delegated/MSP). There is no cross-tenant view.'),
+        }
+      : {};
   server.registerTool(
     'get_software_inventory',
     {
@@ -1007,17 +1038,17 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           'scope="unmatched" returns the cross-tenant list of software with no CPE mapping yet (the CPE-mapping gaps), ' +
           'ranked by how many sessions reference them. ' +
           'Results are paged: when "nextLink" is present, pass that whole string back as "continuation"; stop when it is absent.'
-        : 'List the installed software discovered on your tenant\'s enrolled devices, deduplicated (normalized ' +
-          'vendor/name/version, publisher, registry source, how many sessions reference it, last seen). ' +
-          'Use this to see your device software portfolio. ' +
-          'Results are paged: when "nextLink" is present, pass that whole string back as "continuation"; stop when it is absent.',
+        : delegated
+          ? 'List installed software discovered on enrolled devices, deduplicated per tenant (normalized vendor/name/' +
+            'version, publisher, registry source, session count, last seen). As a delegated (MSP) user pass a tenantId ' +
+            'from YOUR managed tenants (required) — there is no cross-tenant view. ' +
+            'Results are paged: when "nextLink" is present, pass that whole string back as "continuation"; stop when it is absent.'
+          : 'List the installed software discovered on your tenant\'s enrolled devices, deduplicated (normalized ' +
+            'vendor/name/version, publisher, registry source, how many sessions reference it, last seen). ' +
+            'Use this to see your device software portfolio. ' +
+            'Results are paged: when "nextLink" is present, pass that whole string back as "continuation"; stop when it is absent.',
       inputSchema: {
-        ...(ga ? {
-          tenantId: z.string().optional()
-            .describe('Tenant whose inventory to read (required for scope="inventory" as Global Admin; ignored for scope="unmatched").'),
-          scope: z.enum(['inventory', 'unmatched']).optional().default('inventory')
-            .describe('"inventory" = one tenant\'s full software catalog (needs tenantId). "unmatched" = cross-tenant software with no CPE mapping yet.'),
-        } : {}),
+        ...inventoryScopeShape,
         pageSize: z.coerce.number().int().min(1).max(500).optional().default(100)
           .describe('Page size (1-500, default 100). Follow nextLink to fetch more.'),
         continuation: z.string().optional()
@@ -1027,9 +1058,14 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('get_software_inventory', async () => {
       try {
-        const { tenantId, scope, pageSize, continuation } = args as {
+        const { tenantId: rawTenantId, scope, pageSize, continuation } = args as {
           tenantId?: string; scope?: 'inventory' | 'unmatched'; pageSize: number; continuation?: string;
         };
+        // Delegated (MSP): require a managed tenantId; the per-tenant inventory is the only scope they get
+        // (scope="unmatched" is GA-only and not in their schema). Offset-based client-side pager
+        // (inv-offset:N carries no tenantId), so the explicit tenantId is re-sent every page; the Page
+        // variant falls back to it. No-op for GA/Reader/tenant users.
+        const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         // GA-only cross-tenant CPE-gap view. The backend paginates server-side (skip/take), so we
         // map our integer continuation onto skip and synthesize the nextLink from total.
         if (ga && scope === 'unmatched') {

@@ -15,6 +15,11 @@ import {
   pickGlobalOrTenantPath,
   isGlobalAdmin,
   hasGlobalScope,
+  hasCrossTenantRouting,
+  isDelegated,
+  getDelegatedTenantIds,
+  enforceDelegatedTenant,
+  enforceDelegatedTenantForPage,
   getCurrentToken,
   runWithCaller,
 } from '../client.js';
@@ -60,6 +65,90 @@ describe('pickGlobalOrTenantPath — GA gating', () => {
     // Context must not leak past the run() boundary.
     expect(isGlobalAdmin()).toBe(false);
     expect(getCurrentToken()).toBeUndefined();
+  });
+});
+
+describe('delegated (MSP) routing + tenant enforcement', () => {
+  const A = 'aaaa-1111';
+  const B = 'bbbb-2222';
+
+  it('routes a delegated caller to /api/global/* (cross-tenant routing) without platform scope', () => {
+    runWithCaller({ token: 'msp', isGlobalAdmin: false, delegatedTenantIds: [A] }, () => {
+      expect(isGlobalAdmin()).toBe(false);
+      expect(hasGlobalScope()).toBe(false);          // NOT platform scope (catalog gating stays closed)
+      expect(isDelegated()).toBe(true);
+      expect(hasCrossTenantRouting()).toBe(true);    // but DOES route cross-tenant
+      expect(getDelegatedTenantIds()).toEqual([A]);
+      expect(pickGlobalOrTenantPath(GLOBAL, TENANT)).toBe(GLOBAL);
+    });
+  });
+
+  it('enforceDelegatedTenant returns the managed tenant (lowercased) for an in-scope id', () => {
+    runWithCaller({ token: 'msp', isGlobalAdmin: false, delegatedTenantIds: [A, B] }, () => {
+      expect(enforceDelegatedTenant(A)).toBe(A);
+      expect(enforceDelegatedTenant('AAAA-1111')).toBe(A); // case-insensitive
+    });
+  });
+
+  it('enforceDelegatedTenant throws for an out-of-scope tenant', () => {
+    runWithCaller({ token: 'msp', isGlobalAdmin: false, delegatedTenantIds: [A] }, () => {
+      expect(() => enforceDelegatedTenant(B)).toThrow(/Not authorized for tenant/);
+    });
+  });
+
+  it('enforceDelegatedTenant throws when a delegated caller omits tenantId (no aggregate)', () => {
+    runWithCaller({ token: 'msp', isGlobalAdmin: false, delegatedTenantIds: [A] }, () => {
+      expect(() => enforceDelegatedTenant(undefined)).toThrow(/tenantId is required/);
+      expect(() => enforceDelegatedTenant('')).toThrow(/tenantId is required/);
+    });
+  });
+
+  it('enforceDelegatedTenantForPage accepts a page-2 call carrying the tenant in the continuation only', () => {
+    runWithCaller({ token: 'msp', isGlobalAdmin: false, delegatedTenantIds: [A] }, () => {
+      // Documented page-2 form: only a full backend nextLink, no explicit tenantId arg.
+      const nextLink = `/api/global/raw/sessions?pageSize=200&continuation=abc&tenantId=${A}`;
+      expect(enforceDelegatedTenantForPage(undefined, nextLink)).toBe(A);
+      // Uppercased tenant in the link still resolves.
+      expect(enforceDelegatedTenantForPage(undefined, `/api/x?tenantId=AAAA-1111`)).toBe(A);
+    });
+  });
+
+  it('enforceDelegatedTenantForPage rejects a continuation pointing at an unmanaged tenant (defense in depth)', () => {
+    runWithCaller({ token: 'msp', isGlobalAdmin: false, delegatedTenantIds: [A] }, () => {
+      expect(() => enforceDelegatedTenantForPage(undefined, `/api/x?tenantId=${B}`)).toThrow(/Not authorized/);
+    });
+  });
+
+  it('enforceDelegatedTenantForPage still throws when neither arg nor continuation names a tenant', () => {
+    runWithCaller({ token: 'msp', isGlobalAdmin: false, delegatedTenantIds: [A] }, () => {
+      // Offset-only continuation carries no tenantId → falls back to the (missing) explicit arg.
+      expect(() => enforceDelegatedTenantForPage(undefined, 'inv-offset:100')).toThrow(/tenantId is required/);
+      expect(() => enforceDelegatedTenantForPage(undefined, undefined)).toThrow(/tenantId is required/);
+    });
+  });
+
+  it('enforceDelegatedTenantForPage is a no-op for a non-delegated caller', () => {
+    runWithCaller({ token: 'ga', isGlobalAdmin: true }, () => {
+      expect(enforceDelegatedTenantForPage(undefined, '/api/x?tenantId=anything')).toBeUndefined();
+      expect(enforceDelegatedTenantForPage('explicit', undefined)).toBe('explicit');
+    });
+  });
+
+  it('enforceDelegatedTenant is a no-op for a non-delegated caller (GA tenantId stays optional)', () => {
+    runWithCaller({ token: 'ga', isGlobalAdmin: true }, () => {
+      expect(isDelegated()).toBe(false);
+      expect(enforceDelegatedTenant(undefined)).toBeUndefined();
+      expect(enforceDelegatedTenant('any-tenant')).toBe('any-tenant');
+      expect(pickGlobalOrTenantPath(GLOBAL, TENANT)).toBe(GLOBAL); // routing unchanged for GA
+    });
+  });
+
+  it('a plain tenant user neither routes cross-tenant nor is treated as delegated', () => {
+    runWithCaller({ token: 'tn', isGlobalAdmin: false }, () => {
+      expect(isDelegated()).toBe(false);
+      expect(hasCrossTenantRouting()).toBe(false);
+      expect(pickGlobalOrTenantPath(GLOBAL, TENANT)).toBe(TENANT);
+    });
   });
 });
 

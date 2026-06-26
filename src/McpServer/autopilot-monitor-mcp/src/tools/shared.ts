@@ -44,6 +44,26 @@ export function isBenignHealthDetectionReport(
   return true;
 }
 
+/**
+ * Builds the role-aware description for a tenant-boundable tool's `tenantId` argument. MCP clients weigh
+ * the per-arg schema heavily, so a delegated (MSP) caller — for whom omitting tenantId is REJECTED, not
+ * defaulted — must see "required, name a managed tenant" here, not the optional/home-tenant wording that
+ * applies to GA (optional cross-tenant filter) or a plain tenant user (defaults to own tenant). Pass the
+ * existing GA / tenant-user texts; the delegated text is shared so the contract reads identically
+ * everywhere.
+ */
+export function tenantIdDescription(ga: boolean, delegated: boolean, gaText: string, tenantText: string): string {
+  if (delegated) {
+    // Deliberately says nothing about pagination: this string is shared across tools whose follow-up
+    // pages behave differently — backend-nextLink pagers re-send tenantId inside the continuation, but
+    // offset-based client-side pagers (geo-offset:/inv-offset:) still need it re-passed every page. The
+    // per-tool `continuation` arg description owns those mechanics; here we only state the invariant.
+    return 'REQUIRED: name one of YOUR managed tenants (delegated/MSP). There is no cross-tenant aggregate ' +
+      'and no home-tenant default — every query must target a managed tenant.';
+  }
+  return ga ? gaText : tenantText;
+}
+
 /** Read-only query tool — no side effects, idempotent, closed-world (our backend only). */
 export const READ_ONLY: ToolAnnotations = {
   readOnlyHint: true,

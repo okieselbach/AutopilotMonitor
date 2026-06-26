@@ -327,7 +327,10 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/search/sessions",              EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/search/sessions-by-event",   EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/search/sessions-by-cve",     EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
-        new("GET",    "global/metrics/summary",           EndpointPolicy.GlobalReadOrAdmin),
+        // QueryParam-scoped: the handler (MetricsSummaryFunction.RunGlobal) honors ?tenantId= and restricts
+        // the summary to that single tenant, so a delegated (MSP) reader reaches it ONLY on its managed
+        // ?tenantId= path — never the no-tenantId aggregate (which the delegated-rescue cannot satisfy).
+        new("GET",    "global/metrics/summary",           EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/config",             EndpointPolicy.GlobalReadOrAdmin),
         new("PUT",    "global/config",             EndpointPolicy.GlobalAdminOnly),
         new("POST",   "global/config",             EndpointPolicy.GlobalAdminOnly),

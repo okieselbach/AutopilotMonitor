@@ -34,6 +34,11 @@ interface AccessCacheEntry {
   reason: string;
   isGlobalAdmin: boolean;
   isGlobalReader: boolean;
+  // Delegated (scoped-global / MSP) scope. Cached alongside the platform flags so the 5-min-cached
+  // second request keeps the managed tenant set — without this the follow-up would silently drop the
+  // scope and downgrade the caller to home-tenant-only routing.
+  delegatedTenantIds?: string[];
+  delegatedRole?: string;
   expiresAt: number;
 }
 
@@ -50,6 +55,10 @@ interface AccessCheckResult {
   reason: string;
   isGlobalAdmin: boolean;
   isGlobalReader: boolean;
+  // Managed tenant IDs (lowercase) for a delegated (MSP) caller, else undefined. Drives cross-tenant
+  // routing bounded to this set; every delegated tool call must name one of these tenants.
+  delegatedTenantIds?: string[];
+  delegatedRole?: string;
   // Distinguishes a genuine authorization denial (the backend reached a verdict
   // and said "no" — e.g. user not on the MCP whitelist) from an infrastructure
   // failure (backend unreachable / malformed response). Both fail closed, but
@@ -72,6 +81,8 @@ async function checkAccess(upn: string, token: string): Promise<AccessCheckResul
       reason: cached.reason,
       isGlobalAdmin: cached.isGlobalAdmin,
       isGlobalReader: cached.isGlobalReader,
+      delegatedTenantIds: cached.delegatedTenantIds,
+      delegatedRole: cached.delegatedRole,
       // Only genuine backend verdicts are ever cached (infra errors return early
       // below without caching), so a cache hit is never an infra error.
       infraError: false,
@@ -97,24 +108,38 @@ async function checkAccess(upn: string, token: string): Promise<AccessCheckResul
       // Platform role: "GlobalAdmin" | "GlobalReader" (absent → no platform role). The read-only
       // GlobalReader gets the same cross-tenant routing as GA because this server is read-only.
       globalRole?: string;
+      // Delegated (scoped-global / MSP) scope: the managed tenant IDs (lowercase) and strongest role.
+      // Present only for a caller that holds a delegated assignment.
+      delegatedTenantIds?: unknown;
+      delegatedRole?: string;
     };
+    // Normalize defensively: accept only a non-empty array of strings, lowercased. Anything else
+    // (missing, wrong type, empty) collapses to undefined → the caller is treated as non-delegated.
+    const delegatedTenantIds = Array.isArray(data.delegatedTenantIds)
+      ? data.delegatedTenantIds.filter((t): t is string => typeof t === 'string').map((t) => t.toLowerCase())
+      : undefined;
     const result: AccessCheckResult = {
       allowed: data.allowed === true,
       reason: data.allowed ? (data.accessGrant ?? 'allowed') : (data.reason ?? 'denied'),
       isGlobalAdmin: data.isGlobalAdmin === true || data.globalRole === 'GlobalAdmin',
       isGlobalReader: data.globalRole === 'GlobalReader',
+      delegatedTenantIds: delegatedTenantIds && delegatedTenantIds.length > 0 ? delegatedTenantIds : undefined,
+      delegatedRole: data.delegatedRole,
       // The backend reached a verdict — a deny here is a genuine authorization
       // decision (e.g. not whitelisted), not an infrastructure problem.
       infraError: false,
     };
 
     // Cache only the persisted fields (infraError is request-derived, always
-    // false for a cached verdict — see the cache-hit path above).
+    // false for a cached verdict — see the cache-hit path above). The delegated
+    // scope MUST be cached too, or the 5-min-cached follow-up loses it.
     accessCache.set(cacheKey, {
       allowed: result.allowed,
       reason: result.reason,
       isGlobalAdmin: result.isGlobalAdmin,
       isGlobalReader: result.isGlobalReader,
+      delegatedTenantIds: result.delegatedTenantIds,
+      delegatedRole: result.delegatedRole,
       expiresAt: Date.now() + ACCESS_CACHE_TTL_MS,
     });
     return result;
@@ -247,7 +272,13 @@ export function accessGuard(req: Request, res: Response, next: NextFunction): vo
       // so concurrent sessions cannot overwrite each other on the event loop,
       // and so tools can route based on role without re-checking the JWT.
       runWithCaller(
-        { token, isGlobalAdmin: result.isGlobalAdmin, isGlobalReader: result.isGlobalReader },
+        {
+          token,
+          isGlobalAdmin: result.isGlobalAdmin,
+          isGlobalReader: result.isGlobalReader,
+          delegatedTenantIds: result.delegatedTenantIds,
+          delegatedRole: result.delegatedRole,
+        },
         () => next(),
       );
     })

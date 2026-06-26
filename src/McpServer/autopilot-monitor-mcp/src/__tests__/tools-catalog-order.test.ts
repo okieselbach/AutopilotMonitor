@@ -11,11 +11,11 @@ import { describe, it, expect } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerTools } from '../tools.js';
 
-function registeredToolNames(ga: boolean, strictGa: boolean = ga): string[] {
+function registeredToolNames(ga: boolean, strictGa: boolean = ga, delegated: boolean = false): string[] {
   const server = new McpServer({ name: 'test', version: '0.0.0' });
   // knowledgeBase / eventTypeIndex are optional — pass undefined so this stays a
   // pure unit test with no search-provider or backend dependency.
-  registerTools(server, undefined, undefined, ga, strictGa);
+  registerTools(server, undefined, undefined, ga, strictGa, delegated);
   const internal = server as unknown as { _registeredTools: Record<string, unknown> };
   return Object.keys(internal._registeredTools);
 }
@@ -53,6 +53,48 @@ describe('tool catalog ordering', () => {
     // list_tenants is GA-only — it must not leak into the tenant catalog.
     expect(gaNames).toContain('list_tenants');
     expect(tenantNames).not.toContain('list_tenants');
+  });
+
+  it('gives a delegated (MSP) caller the tenant-boundable subset only — no platform-only tools', () => {
+    // A delegated caller has NO platform scope (ga=false) but a managed tenant set (delegated=true).
+    const delegatedNames = registeredToolNames(false, false, true);
+
+    // Every platform-only tool MUST be hidden (no aggregate / cross-fleet surface).
+    const platformOnly = [
+      'list_tenants', 'get_api_usage', 'get_platform_metrics', 'get_ops_events',
+      'list_session_reports', 'list_tables', 'query_table', 'query_backend_logs',
+      'list_blocked_devices', 'get_ime_version_history',
+    ];
+    for (const t of platformOnly) {
+      expect(delegatedNames).not.toContain(t);
+    }
+
+    // The tenant-boundable cross-tenant tools (routed to /api/global/*?tenantId=) ARE present…
+    for (const t of ['search_sessions', 'get_session_summary', 'get_metrics', 'get_audit_logs',
+                     'query_raw_sessions', 'get_vulnerability_summary', 'get_software_inventory']) {
+      expect(delegatedNames).toContain(t);
+    }
+    // …and so are the platform-agnostic in-memory tools.
+    expect(delegatedNames).toContain('search_knowledge');
+    expect(delegatedNames).toContain('get_resource');
+  });
+
+  it('delegated catalog is the tenant-user catalog MINUS the global IME archive', () => {
+    // The only catalog difference between a plain tenant user and a delegated caller is that the
+    // global (non-tenant) get_ime_version_history archive is hidden for delegated — everything else a
+    // tenant user sees is tenant-boundable and stays. Pins the exact delta so a future tool lands on
+    // the right side of the split deliberately.
+    const tenantNames = registeredToolNames(false, false, false);
+    const delegatedNames = registeredToolNames(false, false, true);
+    expect(tenantNames).toContain('get_ime_version_history');
+    expect(delegatedNames).not.toContain('get_ime_version_history');
+    expect(delegatedNames).toEqual(tenantNames.filter((n) => n !== 'get_ime_version_history'));
+  });
+
+  it('a delegated catalog stays alphabetically sorted', () => {
+    const names = registeredToolNames(false, false, true);
+    expect(names.length).toBeGreaterThan(0);
+    expect(names).toEqual([...names].sort());
   });
 
   it('gives a Global Reader the platform read tools but NOT the secret-bearing raw tools', () => {

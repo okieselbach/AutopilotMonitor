@@ -49,6 +49,15 @@ interface CallerContext {
   isGlobalAdmin: boolean;
   /** True for the read-only Global Reader platform tier. */
   isGlobalReader?: boolean;
+  /**
+   * Managed tenant IDs (lowercase) when the caller is a delegated (scoped-global / MSP) admin. A
+   * delegated caller has NO platform role (isGlobalAdmin/isGlobalReader both false) yet still gets
+   * cross-tenant ROUTING bounded to exactly these tenants — see `hasCrossTenantRouting` /
+   * `enforceDelegatedTenant`. Absent/empty ⇒ not delegated.
+   */
+  delegatedTenantIds?: string[];
+  /** Strongest delegated role ("DelegatedAdmin" | "DelegatedReader"); informational (read-only server). */
+  delegatedRole?: string;
 }
 
 const callerStore = new AsyncLocalStorage<CallerContext>();
@@ -88,14 +97,95 @@ export function hasGlobalScope(): boolean {
 }
 
 /**
- * Picks the route prefix for the current caller. A platform-scope caller (GA or
- * read-only Global Reader) uses `/api/global/*`; tenant users use the
- * tenant-scoped variant. The same `tenantId` query param is meaningful in both
- * worlds — on `/api/global/*` it filters; on `/api/*` it's informational
- * (backend resolves from JWT).
+ * Managed tenant IDs (lowercase) for the current delegated (MSP) caller, or undefined when the caller is
+ * not delegated / no context is active.
+ */
+export function getDelegatedTenantIds(): string[] | undefined {
+  const ids = callerStore.getStore()?.delegatedTenantIds;
+  return ids && ids.length > 0 ? ids : undefined;
+}
+
+/**
+ * True when the current caller is a delegated (scoped-global / MSP) admin — i.e. carries a non-empty
+ * managed tenant set. Distinct from `hasGlobalScope()`: a delegated caller has NO platform role, so it
+ * must NOT see platform-only tools, but DOES route cross-tenant (bounded to its managed set).
+ */
+export function isDelegated(): boolean {
+  return (callerStore.getStore()?.delegatedTenantIds?.length ?? 0) > 0;
+}
+
+/**
+ * True when the caller may address the cross-tenant `/api/global/*` paths. That is the union of platform
+ * scope (GA / read-only Global Reader, who may omit tenantId for an aggregate) and delegated scope (MSP,
+ * who MUST name a managed tenant via ?tenantId=). Used ONLY for path SELECTION — NOT for catalog/secret
+ * gating, which stays on `hasGlobalScope()` so a delegated caller never gains a platform-only tool.
+ */
+export function hasCrossTenantRouting(): boolean {
+  return hasGlobalScope() || isDelegated();
+}
+
+/**
+ * Picks the route prefix for the current caller. A cross-tenant-routing caller (platform GA / Global
+ * Reader, OR a delegated MSP admin) uses `/api/global/*`; plain tenant users use the tenant-scoped
+ * variant. The same `tenantId` query param is meaningful in both worlds — on `/api/global/*` it filters
+ * (and for a delegated caller the backend rescue bounds it to the managed set); on `/api/*` it's
+ * informational (backend resolves from JWT).
  */
 export function pickGlobalOrTenantPath(globalPath: string, tenantPath: string): string {
-  return hasGlobalScope() ? globalPath : tenantPath;
+  return hasCrossTenantRouting() ? globalPath : tenantPath;
+}
+
+/**
+ * Defense-in-depth tenant bound for a delegated (MSP) caller. For a delegated caller it REQUIRES a
+ * tenantId that is in the managed set and returns it lowercased; missing or out-of-scope throws with an
+ * actionable message. For a non-delegated caller it is a no-op (returns the input unchanged), so
+ * platform GA/Reader behavior — where tenantId is optional — is untouched.
+ *
+ * This makes the "delegated must name a managed tenant; no aggregate" invariant explicit at the tool
+ * boundary, on top of the backend middleware bound (which authorizes but cannot guess a tenantId).
+ */
+export function enforceDelegatedTenant(tenantId?: string): string | undefined {
+  if (!isDelegated()) return tenantId;
+  const allowed = getDelegatedTenantIds()!; // non-empty when isDelegated()
+  const t = (tenantId ?? '').toLowerCase();
+  if (!t) {
+    throw new Error(
+      'tenantId is required: as a delegated (MSP) user you must name one of your managed tenants. ' +
+      `Managed tenants: ${allowed.join(', ')}`,
+    );
+  }
+  if (!allowed.includes(t)) {
+    throw new Error(
+      `Not authorized for tenant ${tenantId}. Your managed tenants: ${allowed.join(', ')}`,
+    );
+  }
+  return t;
+}
+
+/** Reads the `tenantId` query param off a full backend nextLink (`/api/...?...`), else undefined. */
+function tenantIdFromNextLink(continuation?: string): string | undefined {
+  if (!continuation || !continuation.startsWith('/api/')) return undefined;
+  const qIndex = continuation.indexOf('?');
+  if (qIndex === -1) return undefined;
+  return new URLSearchParams(continuation.slice(qIndex + 1)).get('tenantId') ?? undefined;
+}
+
+/**
+ * Pagination-aware variant of enforceDelegatedTenant for tools that accept a `continuation`.
+ *
+ * A delegated follow-up page is issued — exactly as the tool descriptions instruct — with ONLY a
+ * `continuation`: a full backend nextLink that followNextLink sends VERBATIM, already carrying
+ * `?tenantId=<managed>`. Validating the (now-omitted) explicit `tenantId` arg alone would wrongly reject
+ * that documented page-2 call with "tenantId is required". So derive the effective tenant from the
+ * nextLink's embedded tenantId when present (it is what actually gets sent), else the explicit arg, and
+ * validate THAT against the managed set — which also blocks a hand-crafted continuation pointing at an
+ * unmanaged tenant (defense in depth on top of the backend bound). No-op for non-delegated callers and
+ * for offset-only continuations (geo-offset:/inv-offset:/usage-offset:), which re-send the explicit
+ * tenantId every page anyway.
+ */
+export function enforceDelegatedTenantForPage(tenantId?: string, continuation?: string): string | undefined {
+  if (!isDelegated()) return tenantId;
+  return enforceDelegatedTenant(tenantIdFromNextLink(continuation) ?? tenantId);
 }
 
 /**

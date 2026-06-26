@@ -13,6 +13,14 @@ import { registerAdminTools } from './tools/admin.js';
  * because they can dump secret-bearing tables that the GlobalReader config redaction would otherwise
  * hide. When `ga` is false (normal tenant user) no platform tool is registered at all — they never
  * appear in tools/list — and the remaining tools' descriptions carry no cross-tenant wording.
+ *
+ * `delegated` marks a delegated (scoped-global / MSP) caller — one with NO platform role (so `ga` is
+ * false) but a non-empty managed tenant set. Such a caller routes cross-tenant (to /api/global/*) but is
+ * bounded to its managed tenants and must name one via `tenantId` on every tool (enforced per-handler by
+ * enforceDelegatedTenant). It is used here only for the few catalog decisions that the `ga` gate cannot
+ * express on its own: hiding the one ungated platform-only tool (get_ime_version_history) and exposing a
+ * required `tenantId` selector on get_software_inventory. A caller that is BOTH platform AND delegated is
+ * treated as platform (ga=true ⇒ delegated=false at the call site), so this never strips a GA's tools.
  */
 export function registerTools(
   server: McpServer,
@@ -20,10 +28,11 @@ export function registerTools(
   eventTypeIndex: SearchProvider | undefined,
   ga: boolean,
   strictGa: boolean = ga,
+  delegated: boolean = false,
 ): void {
-  registerSessionTools(server, ga);
-  registerSearchTools(server, knowledgeBase, eventTypeIndex, ga);
-  registerAdminTools(server, ga, strictGa);
+  registerSessionTools(server, ga, delegated);
+  registerSearchTools(server, knowledgeBase, eventTypeIndex, ga, delegated);
+  registerAdminTools(server, ga, strictGa, delegated);
   sortToolCatalog(server);
 }
 

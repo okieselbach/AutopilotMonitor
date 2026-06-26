@@ -70,7 +70,7 @@ public class AuthFunctionSideEffectTests
 
         var mcpUserMock = new Mock<McpUserService>(
             adminRepo, cache, Mock.Of<ILogger<McpUserService>>(),
-            globalAdminMock.Object, adminConfigService.Object)
+            globalAdminMock.Object, delegatedAdminMock.Object, adminConfigService.Object)
         { CallBase = false };
 
         _metricsRepoMock = new Mock<IMetricsRepository>();

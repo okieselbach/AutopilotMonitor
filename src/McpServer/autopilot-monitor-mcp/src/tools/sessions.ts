@@ -1,8 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { apiFetch, ApiError, buildQuery, followNextLink, pickGlobalOrTenantPath, scanUntilMatch } from '../client.js';
+import { apiFetch, ApiError, buildQuery, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, pickGlobalOrTenantPath, scanUntilMatch } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
-import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport } from './shared.js';
+import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 import { assertKnownEventType, assertKnownDevicePropertyKeys } from '../resource-catalog.js';
 import { interpolateAnalysisResults } from '../interpolate-rule-template.js';
@@ -61,7 +61,7 @@ const phaseName = (phase: unknown, enrollmentType: unknown): string => {
 
 // ── Registration ────────────────────────────────────────────────────────
 
-export function registerSessionTools(server: McpServer, ga: boolean): void {
+export function registerSessionTools(server: McpServer, ga: boolean, delegated: boolean = false): void {
   // Tool 1: search_sessions
   server.registerTool(
     'search_sessions',
@@ -89,7 +89,7 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
         'raise it (up to 1000) for full sweeps. Pass the whole nextLink string as "continuation" so all backend-echoed ' +
         'query params round-trip correctly.',
       inputSchema: {
-        tenantId: z.string().optional().describe(ga ? 'Tenant ID. Omit for cross-tenant search (Global Admin only).' : 'Optional tenant ID. Defaults to your tenant.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Omit for cross-tenant search (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
         status: z.enum(['InProgress', 'Pending', 'Stalled', 'Succeeded', 'Failed']).optional()
           .describe('Enrollment status filter. Pending = White Glove pre-provisioning done, awaiting user enrollment; ' +
                     'Stalled = no progress for a while (non-terminal, can heal back to InProgress).'),
@@ -137,7 +137,10 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
     },
     async (args) => withToolTelemetry('search_sessions', async () => {
       try {
-        const { deviceProperties, tenantId, pageSize, continuation, ...rest } = args;
+        const { deviceProperties, tenantId: rawTenantId, pageSize, continuation, ...rest } = args;
+        // Delegated (MSP): require a managed tenantId (no aggregate); a page-2 call carries it inside the
+        // continuation nextLink. No-op for GA/Reader/tenant users.
+        const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         // GA → /api/global/search/sessions (tenantId is filter); Tenant-Admin → /api/search/sessions (JWT-bound).
         const basePath = pickGlobalOrTenantPath('/api/global/search/sessions', '/api/search/sessions');
         // followNextLink handles full nextLink paths verbatim. For first-page calls
@@ -181,7 +184,7 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
         'params round-trip correctly.',
       inputSchema: {
         eventType: z.string().describe('Event type string — see event_types catalog (call get_resource(name="event_types")) for valid values (e.g. "app_install_failed", "enrollment_failed")'),
-        tenantId: z.string().optional().describe(ga ? 'Tenant ID. Omit for cross-tenant search (Global Admin only).' : 'Optional tenant ID. Defaults to your tenant.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Omit for cross-tenant search (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
         pageSize: z.coerce.number().int().min(1).max(1000).optional().default(200)
           .describe('Page size (1-1000, default 200). Returns this many sessions per call; follow nextLink to fetch more.'),
         continuation: z.string().optional()
@@ -191,7 +194,8 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
     },
     async (args) => withToolTelemetry('search_sessions_by_event', async () => {
       try {
-        const { eventType, tenantId, pageSize, continuation } = args;
+        const { eventType, tenantId: rawTenantId, pageSize, continuation } = args;
+        const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         // eventType is the sole filter and is applied server-side (EventTypeIndex OData),
         // so an empty page never carries a nextLink — no auto-exhaust needed. But validate
         // the type so a typo is a clear error rather than a silent empty result.
@@ -218,14 +222,17 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
       description: 'Get full details of a single enrollment session including all device metadata. Set includeAnalysis=true to also get AI rule analysis results explaining why the session failed and remediation suggestions.',
       inputSchema: {
         sessionId: SessionIdSchema.describe('Session UUID'),
-        tenantId: z.string().optional().describe(ga ? 'Tenant ID. If omitted, auto-resolved from the session (Global Admin can access any tenant).' : 'Tenant ID. If omitted, auto-resolved from the session.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. If omitted, auto-resolved from the session (Global Admin can access any tenant).', 'Tenant ID. If omitted, auto-resolved from the session.')),
         includeAnalysis: z.boolean().optional().default(false).describe('Include rule analysis results (failure explanations and remediation steps)'),
       },
       annotations: READ_ONLY,
     },
     async (args) => withToolTelemetry('get_session', async () => {
       try {
-        const { sessionId, tenantId, includeAnalysis } = args;
+        const { sessionId, tenantId: rawTenantId, includeAnalysis } = args;
+        // Delegated (MSP): the session lives in a managed tenant — require + validate it (the backend
+        // rescue authorizes /api/sessions/{id}?tenantId=<managed>). No-op for GA/Reader/tenant users.
+        const tenantId = enforceDelegatedTenant(rawTenantId);
         const q = buildQuery({ tenantId } as Record<string, string | undefined>);
         const sessionPromise = apiFetch(`/api/sessions/${sessionId}${q}`);
         if (!includeAnalysis) {
@@ -274,13 +281,14 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
         (ga ? 'Global Admins can pass tenantId to target any tenant.' : 'tenantId is optional and defaults to your tenant.'),
       inputSchema: {
         sessionId: SessionIdSchema.describe('Session UUID'),
-        tenantId: z.string().optional().describe(ga ? 'Tenant ID. If omitted, auto-resolved from the session (Global Admin can access any tenant).' : 'Tenant ID. If omitted, auto-resolved from the session.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. If omitted, auto-resolved from the session (Global Admin can access any tenant).', 'Tenant ID. If omitted, auto-resolved from the session.')),
       },
       annotations: READ_ONLY,
     },
     async (args) => withToolTelemetry('get_session_diagnostics', async () => {
       try {
-        const { sessionId, tenantId } = args;
+        const { sessionId, tenantId: rawTenantId } = args;
+        const tenantId = enforceDelegatedTenant(rawTenantId);
         const q = buildQuery({ tenantId } as Record<string, string | undefined>);
         // The backend wraps the session in a { success, session } envelope (GetSessionFunction);
         // fall back to the raw object so both shapes work (mirrors get_session_summary).
@@ -364,7 +372,7 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
         'thousands of events are fully reachable across multiple calls.',
       inputSchema: {
         sessionId: SessionIdSchema.describe('Session UUID'),
-        tenantId: z.string().optional().describe('Tenant ID. If omitted, auto-resolved from the session.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. If omitted, auto-resolved from the session.', 'Tenant ID. If omitted, auto-resolved from the session.')),
         eventType: z.string().optional().describe('Filter to only events of this type'),
         severity: z.enum(['Info', 'Warning', 'Error', 'Critical']).optional(),
         source: z.string().optional().describe('Filter by event source/app name (e.g. "MicrosoftTeams")'),
@@ -379,7 +387,8 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
     },
     async (args) => withToolTelemetry('get_session_events', async () => {
       try {
-        const { sessionId, tenantId, pageSize, continuation, eventType, severity, source, fields } = args;
+        const { sessionId, tenantId: rawTenantId, pageSize, continuation, eventType, severity, source, fields } = args;
+        const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         if (eventType) assertKnownEventType(eventType);
         const basePath = `/api/sessions/${sessionId}/events`;
         const path = followNextLink(
@@ -414,13 +423,14 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
         'For raw unfiltered events use get_session_events. For full metadata use get_session.',
       inputSchema: {
         sessionId: SessionIdSchema.describe('Session UUID'),
-        tenantId: z.string().optional().describe(ga ? 'Tenant ID. If omitted, auto-resolved from the session (Global Admin can access any tenant).' : 'Tenant ID. If omitted, auto-resolved from the session.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. If omitted, auto-resolved from the session (Global Admin can access any tenant).', 'Tenant ID. If omitted, auto-resolved from the session.')),
       },
       annotations: READ_ONLY,
     },
     async (args) => withToolTelemetry('get_session_summary', async () => {
       try {
-        const { sessionId, tenantId } = args;
+        const { sessionId, tenantId: rawTenantId } = args;
+        const tenantId = enforceDelegatedTenant(rawTenantId);
         const q = buildQuery({ tenantId } as Record<string, string | undefined>);
         const fetchOpts = { signal: AbortSignal.timeout(90_000) };
 
@@ -594,7 +604,7 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
         (ga ? 'Omit tenantId for cross-tenant platform overview (Global Admin). Specify tenantId for single-tenant metrics. ' : '') +
         'days accepts any value 1-365 (e.g. 5, 7, 12, 30, 90).',
       inputSchema: {
-        tenantId: z.string().optional().describe(ga ? 'Tenant ID. Omit for cross-tenant overview (Global Admin only).' : 'Optional tenant ID. Defaults to your tenant.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Omit for cross-tenant overview (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
         days: z.coerce.number().int().min(1).max(365).optional().default(30)
           .describe('Time window in days (1-365). Defaults to 30. Applied to both summary and app metrics.'),
       },
@@ -602,7 +612,8 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
     },
     async (args) => withToolTelemetry('get_metrics', async () => {
       try {
-        const { tenantId, ...rest } = args;
+        const { tenantId: rawTenantId, ...rest } = args;
+        const tenantId = enforceDelegatedTenant(rawTenantId);
         const params: Record<string, string | number | undefined> = { ...rest };
         if (tenantId) params.tenantId = tenantId;
         const q = buildQuery(params);
@@ -654,7 +665,7 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
         cveId: z.string()
           .regex(/^CVE-\d{4}-\d{4,}$/i, 'Must be a CVE identifier like "CVE-2024-21447" (CVE-YYYY-NNNN+).')
           .describe('CVE identifier (e.g. "CVE-2024-21447"). Validated — a non-CVE string is rejected, not silently empty.'),
-        tenantId: z.string().optional().describe(ga ? 'Tenant ID. Omit for cross-tenant search (Global Admin only).' : 'Optional tenant ID. Defaults to your tenant.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Omit for cross-tenant search (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
         minCvssScore: z.coerce.number().min(0).max(10).optional().describe('Minimum CVSS score filter (e.g. 7.0 for high+critical)'),
         overallRisk: z.enum(['low', 'medium', 'high', 'critical']).optional(),
         pageSize: z.coerce.number().int().min(1).max(1000).optional().default(200)
@@ -666,7 +677,8 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
     },
     async (args) => withToolTelemetry('search_sessions_by_cve', async () => {
       try {
-        const { cveId, tenantId, minCvssScore, overallRisk, pageSize, continuation } = args;
+        const { cveId, tenantId: rawTenantId, minCvssScore, overallRisk, pageSize, continuation } = args;
+        const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         // Normalize to canonical upper-case form (schema accepts case-insensitive).
         const normalizedCve = cveId.toUpperCase();
         const basePath = pickGlobalOrTenantPath('/api/global/search/sessions-by-cve', '/api/search/sessions-by-cve');
@@ -715,8 +727,11 @@ export function registerSessionTools(server: McpServer, ga: boolean): void {
   );
   } // end if (ga) — list_blocked_devices
 
-  // Tool: get_ime_version_history
-  server.registerTool(
+  // Tool: get_ime_version_history — a global (non-tenant) archive available to all tenant members.
+  // Hidden for a delegated (MSP) caller: their surface is the tenant-boundable managed-tenant subset,
+  // and a platform-wide archive with no tenantId to bound is outside that contract (§2.2). A platform
+  // GA/Reader (delegated=false here) and ordinary tenant users still see it.
+  if (!delegated) server.registerTool(
     'get_ime_version_history',
     {
       title: 'IME Version History',
