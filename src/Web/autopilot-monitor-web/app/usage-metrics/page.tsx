@@ -8,7 +8,7 @@ import { ProtectedRoute } from '../../components/ProtectedRoute';
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { useGlobalAdminScope } from "@/hooks";
-import { GlobalAdminBanner } from "@/components/GlobalAdminBanner";
+import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 
 interface SessionMetrics {
@@ -171,7 +171,7 @@ export default function UsageMetricsPage() {
   return (
 <ProtectedRoute>
     <div className="min-h-screen bg-gray-50">
-      <GlobalAdminBanner show={scope.isGlobalAdmin} delegated={scope.isDelegatedScope} />
+      <GlobalAdminBanner show={scope.isGlobalAdmin} delegated={scope.isDelegatedScope} subtitle={globalAdminSubtitle(scope)} />
       <header className="bg-white shadow">
         <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between">

@@ -1101,6 +1101,13 @@ namespace AutopilotMonitor.Functions.Services
 
                 if (tenantIds.Count == 0 && string.IsNullOrEmpty(cursor))
                 {
+                    // A BOUNDED (delegated/MSP) request must NEVER fall back to the unbounded primary-table
+                    // scan: an empty allowed set (managed tenant has no config row, config momentarily empty,
+                    // or a casing mismatch) means "none of YOUR tenants" → empty page, not ALL tenants. The
+                    // primary-table fallback is only the GA all-tenants safety net for a fresh/empty config.
+                    if (allowedTenantIds != null)
+                        return (new List<SessionSummary>(), false, null);
+
                     var fallback = await FetchAllSessionsFromPrimaryTableInternalAsync(maxResults, days);
                     return (fallback.Sessions, fallback.HasMore, NextCursor: null);
                 }

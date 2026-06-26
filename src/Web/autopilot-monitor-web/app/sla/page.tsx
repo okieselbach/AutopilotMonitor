@@ -23,7 +23,7 @@ const AppLineChart = dynamic(() => import("@/components/charts/AppLineChart"), {
 });
 import { trackEvent } from "@/lib/appInsights";
 import { useGlobalAdminScope } from "@/hooks";
-import { GlobalAdminBanner } from "@/components/GlobalAdminBanner";
+import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import Link from "next/link";
 
@@ -182,7 +182,7 @@ export default function SlaPage() {
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-        <GlobalAdminBanner show={scope.isGlobalAdmin} delegated={scope.isDelegatedScope} />
+        <GlobalAdminBanner show={scope.isGlobalAdmin} delegated={scope.isDelegatedScope} subtitle={globalAdminSubtitle(scope)} />
         {/* Header */}
         <header className="bg-white dark:bg-gray-800 shadow">
           <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">

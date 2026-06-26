@@ -14,7 +14,7 @@ import { RuleFilterBar } from "@/components/rules/RuleFilterBar";
 import { EmptyState } from "@/components/rules/EmptyState";
 import { FormJsonToggle, JsonModeToggleButtons } from "@/components/rules/FormJsonToggle";
 import { useAuthenticatedFetch, useNotificationMessages, useGlobalAdminScope } from "@/hooks";
-import { GlobalAdminBanner } from "@/components/GlobalAdminBanner";
+import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import { GatherRule, NewRuleForm, EMPTY_FORM, CATEGORY_COLORS } from "./types";
 import { GatherRuleFormFields } from "./components/GatherRuleFormFields";
@@ -362,7 +362,7 @@ export default function GatherRulesPage() {
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gray-50">
-        <GlobalAdminBanner show={scope.isGlobalAdmin} delegated={scope.isDelegatedScope} />
+        <GlobalAdminBanner show={scope.isGlobalAdmin} delegated={scope.isDelegatedScope} subtitle={globalAdminSubtitle(scope)} />
         {/* Header */}
         <header className="bg-white shadow">
           <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
