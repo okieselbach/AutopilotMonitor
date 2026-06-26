@@ -22,7 +22,7 @@ export const metadata: Metadata = {
   title: {
     absolute: "Autopilot Monitor – Real-Time Windows Enrollment Monitoring",
     default: "Autopilot Monitor",
-    template: "%s | Autopilot Monitor",
+    template: "%s – Autopilot Monitor",
   },
   description:
     "Real-time monitoring and troubleshooting for Windows deployments. Track every enrollment phase, detect issues automatically with Analyze Rules, and resolve failures faster.",

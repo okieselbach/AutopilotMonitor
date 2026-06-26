@@ -120,6 +120,17 @@ export default function SessionDetailPage() {
   const isCrossTenantView = !!viewedTenantId && !!tenantId && viewedTenantId !== tenantId.toLowerCase();
   const isReadOnlyView = isCrossTenantView && !user?.isGlobalAdmin;
 
+  // Browser-tab title: lead with the device identifier so multiple session tabs stay distinguishable when
+  // compared side by side (tabs truncate to the first chars). En-dash separator matches the root layout
+  // title. Falls back to the serial number, then to the bare app name while the session is still loading.
+  useEffect(() => {
+    const label = session?.deviceName || session?.serialNumber;
+    document.title = label ? `${label} – Autopilot Monitor` : "Autopilot Monitor";
+    return () => {
+      document.title = "Autopilot Monitor";
+    };
+  }, [session?.deviceName, session?.serialNumber]);
+
   // Resolves Intune script display names via the optional Graph add-on permission.
   // Returns an empty map when the tenant hasn't granted DeviceManagementScripts.Read.All.
   // Map keys are "{Kind}:{Id}" -- the renderer uses lookupScriptDisplayName to read them.
