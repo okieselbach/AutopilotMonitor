@@ -11,14 +11,14 @@
  * would call Entra ID (the /oauth/authorize success case yields a 302 we read
  * with redirect:'manual'; the token error case returns before fetch).
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 // createOAuthRouter() throws at import unless the Entra client id is present.
 process.env.AUTOPILOT_ENTRA_CLIENT_ID ??= '00000000-0000-0000-0000-000000000000';
-const { createOAuthRouter, signClientId, verifyClientId, MAX_REDIRECT_URIS_PER_CLIENT, MAX_REDIRECT_URI_LENGTH, MAX_CLIENT_NAME_LENGTH } =
+const { createOAuthRouter, signClientId, verifyClientId, signState, MAX_REDIRECT_URIS_PER_CLIENT, MAX_REDIRECT_URI_LENGTH, MAX_CLIENT_NAME_LENGTH } =
   await import('../oauth.js');
 
 let server: Server;
@@ -218,6 +218,92 @@ describe('/oauth/authorize — PKCE S256 enforcement', () => {
     expect(location).toContain('code_challenge_method=S256');
     // The client's challenge is forwarded unchanged.
     expect(location).toContain('E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM');
+  });
+
+  it('rejects a request with no client_id (client_id is mandatory)', async () => {
+    const res = await authorize({
+      redirect_uri: 'http://127.0.0.1:33418/',
+      code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
+      code_challenge_method: 'S256',
+    });
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.error).toBe('invalid_request');
+    expect(String(json.error_description)).toMatch(/client_id is required/);
+  });
+});
+
+describe('/oauth/callback — signed state + client enforcement', () => {
+  const REDIRECT = 'http://127.0.0.1:33418/';
+  async function callback(query: Record<string, string>) {
+    const qs = new URLSearchParams(query).toString();
+    return fetch(`${baseUrl}/oauth/callback?${qs}`, { redirect: 'manual' });
+  }
+
+  it('forwards the code to the registered redirect_uri for a valid signed state + client', async () => {
+    const clientId = signClientId([REDIRECT], 'vscode');
+    const state = signState({ originalState: 'client-state', redirectUri: REDIRECT, clientId });
+    const res = await callback({ code: 'ENTRA_CODE', state });
+    expect(res.status).toBe(302);
+    const location = res.headers.get('location') ?? '';
+    expect(location.startsWith(`${REDIRECT}?`)).toBe(true);
+    expect(location).toContain('code=ENTRA_CODE');
+    expect(location).toContain('state=client-state');
+  });
+
+  it('rejects a forged client_id carried in the state', async () => {
+    const state = signState({ redirectUri: REDIRECT, clientId: 'forged.token' });
+    const res = await callback({ code: 'ENTRA_CODE', state });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as Record<string, unknown>).error).toBe('invalid_request');
+  });
+
+  it('rejects when the state redirect_uri is not registered to the signed client', async () => {
+    const clientId = signClientId(['http://127.0.0.1:1/cb'], 'vscode');
+    const state = signState({ redirectUri: 'http://127.0.0.1:2/cb', clientId });
+    const res = await callback({ code: 'ENTRA_CODE', state });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as Record<string, unknown>).error).toBe('invalid_request');
+  });
+
+  it('rejects a tampered state (HMAC mismatch)', async () => {
+    const clientId = signClientId([REDIRECT], 'vscode');
+    const state = signState({ redirectUri: REDIRECT, clientId });
+    const res = await callback({ code: 'ENTRA_CODE', state: `x${state}` });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as Record<string, unknown>).error).toBe('invalid_state');
+  });
+
+  it('rejects a missing state', async () => {
+    const res = await callback({ code: 'ENTRA_CODE' });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as Record<string, unknown>).error).toBe('invalid_state');
+  });
+
+  it('rejects an expired state (replay after the 10-min window)', async () => {
+    // Fake only Date so the express server / fetch keep using real timers.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2020-01-01T00:00:00Z'));
+      const clientId = signClientId([REDIRECT], 'vscode');
+      const state = signState({ redirectUri: REDIRECT, clientId });
+      vi.setSystemTime(new Date('2020-01-01T00:11:00Z')); // +11 min > 10-min max age
+      const res = await callback({ code: 'ENTRA_CODE', state });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as Record<string, unknown>).error).toBe('invalid_state');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects a callback with neither error nor code', async () => {
+    const clientId = signClientId([REDIRECT], 'vscode');
+    const state = signState({ redirectUri: REDIRECT, clientId });
+    const res = await callback({ state });
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.error).toBe('invalid_request');
+    expect(String(json.error_description)).toMatch(/Missing authorization code/);
   });
 });
 

@@ -469,35 +469,41 @@ export function createOAuthRouter(): Router {
       });
       return;
     }
-    if (client_id) {
-      // The client_id is a self-describing signed token (see signClientId), so
-      // this verifies statelessly — no registry lookup, correct across cold
-      // starts and replicas. A forged/malformed token fails closed with
-      // invalid_client; a valid one must still carry the exact redirect_uri.
-      const registered = verifyClientId(client_id);
-      if (!registered) {
-        console.error('[oauth/authorize] client_id failed signature verification');
-        res.status(400).json({
-          error: 'invalid_client',
-          error_description: 'client_id is invalid — register via /oauth/register first',
-        });
-        return;
-      }
-      if (!registered.redirectUris.includes(redirect_uri)) {
-        console.error(
-          `[oauth/authorize] redirect_uri not registered for this client_id: ${redirect_uri}`,
-        );
-        res.status(400).json({
-          error: 'invalid_request',
-          error_description: 'redirect_uri does not match any URI registered for this client_id',
-        });
-        return;
-      }
-    } else {
-      // If client_id is missing we still allow the flow (the host allowlist
-      // already gates which destinations are reachable), but emit a warning so
-      // misbehaving clients are noticed.
-      console.warn('[oauth/authorize] No client_id supplied — proceeding on host-allowlist gate only');
+    // client_id is REQUIRED. Now that it is a stateless, replica-portable
+    // signed token, there is no cold-start reason to tolerate its absence —
+    // and tolerating it would let a caller bypass the per-client redirect_uri
+    // binding entirely, leaving only the (port-agnostic, loopback-permissive)
+    // host allowlist as the gate. Every conforming MCP client registers via
+    // /oauth/register first, so demanding client_id costs nothing.
+    if (!client_id) {
+      res.status(400).json({
+        error: 'invalid_request',
+        error_description: 'client_id is required — register via /oauth/register first',
+      });
+      return;
+    }
+    // The client_id is a self-describing signed token (see signClientId), so
+    // this verifies statelessly — no registry lookup, correct across cold
+    // starts and replicas. A forged/malformed token fails closed with
+    // invalid_client; a valid one must still carry the exact redirect_uri.
+    const registered = verifyClientId(client_id);
+    if (!registered) {
+      console.error('[oauth/authorize] client_id failed signature verification');
+      res.status(400).json({
+        error: 'invalid_client',
+        error_description: 'client_id is invalid — register via /oauth/register first',
+      });
+      return;
+    }
+    if (!registered.redirectUris.includes(redirect_uri)) {
+      console.error(
+        `[oauth/authorize] redirect_uri not registered for this client_id: ${redirect_uri}`,
+      );
+      res.status(400).json({
+        error: 'invalid_request',
+        error_description: 'redirect_uri does not match any URI registered for this client_id',
+      });
+      return;
     }
 
     // HMAC-signed state: tampering or replay (>10 min) fails verification at
@@ -532,6 +538,16 @@ export function createOAuthRouter(): Router {
 
     if (error) {
       res.status(400).json({ error, error_description });
+      return;
+    }
+
+    // No error and no code is a malformed callback — refuse rather than
+    // redirect the client a `code=undefined` query (clean OAuth boundary).
+    if (!code) {
+      res.status(400).json({
+        error: 'invalid_request',
+        error_description: 'Missing authorization code',
+      });
       return;
     }
 
