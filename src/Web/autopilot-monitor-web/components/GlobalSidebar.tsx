@@ -9,7 +9,6 @@ import { CollapseState } from "../hooks/useSidebarState";
 import { DefaultSectionIcon, BookOpenIcon, RocketLaunchIcon, InformationCircleIcon, DocumentTextIcon, ShieldCheckIcon } from "../lib/sidebarIcons";
 import { DASHBOARD_ITEM, NAV_GROUPS, EXPANDABLE_NAV_GROUPS, REGULAR_USER_ITEMS, NavItem, NavGroup, ExpandableNavGroup, ExpandableNavItem } from "../lib/globalNavConfig";
 import { PublicSiteNavbar } from "./PublicSiteNavbar";
-import { useAdminMode } from "../hooks/useAdminMode";
 
 // Sidebar pixel widths
 export const SIDEBAR_PX: Record<CollapseState, number> = {
@@ -45,9 +44,6 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
     mql.addEventListener("change", handler);
     return () => mql.removeEventListener("change", handler);
   }, []);
-
-  // Global admin mode from hook
-  const { globalAdminMode } = useAdminMode();
 
   // --- Scroll-spy for page sections ---
   const [activeSectionId, setActiveSectionId] = useState("");
@@ -184,8 +180,11 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
       case "all": return true;
       case "adminOrOperator": return isAdminOrOperator;
       // Cross-tenant nav is a VISIBILITY surface → any platform scope (GA or read-only GlobalReader).
-      // Mutating controls inside these views are gated separately on isGlobalAdmin.
-      case "globalAdmin": return hasGlobalScope && globalAdminMode;
+      // Deliberately NOT gated on globalAdminMode: a pure GlobalReader (or a GA with no own-tenant role)
+      // would otherwise see only "Dashboard" until they discovered the hidden "Global View" toggle. The
+      // toggle now governs only the DATA scope (own-tenant vs cross-tenant) of the pages, not whether the
+      // platform nav is reachable. Mutating controls inside these views stay gated separately on isGlobalAdmin.
+      case "globalAdmin": return hasGlobalScope;
       // Fleet (MSP) nav: shown to a delegated admin who does NOT have full platform scope. A GA/Reader
       // manages tenants through the richer Global Admin section instead, so it stays hidden for them.
       case "fleet": return isDelegated && !hasGlobalScope;
@@ -230,7 +229,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
         return { ...group, items: filteredItems };
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAdminOrOperator, isGlobalAdmin, globalAdminMode, hasMcpAccess, isAdminLike, canManageBootstrapTokens, bootstrapTokenEnabled, unrestrictedModeEnabled]);
+  }, [isAdminOrOperator, isGlobalAdmin, hasMcpAccess, isAdminLike, canManageBootstrapTokens, bootstrapTokenEnabled, unrestrictedModeEnabled]);
 
   // Auto-expand the group containing the current pathname
   useEffect(() => {
