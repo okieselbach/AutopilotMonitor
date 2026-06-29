@@ -359,17 +359,30 @@ export function createOAuthRouter(): Router {
   const router = Router();
 
   // --- Protected Resource Metadata (RFC 9728) ---
-  // This is the FIRST endpoint Claude Code fetches after receiving a 401.
-  // It tells the client where the authorization server lives.
-  router.get('/.well-known/oauth-protected-resource', (req, res) => {
+  // The protected resource is the MCP endpoint itself (<base>/mcp), so the
+  // metadata `resource` MUST equal "<base>/mcp" — NOT the bare base URL — and
+  // the document MUST be reachable at the resource-path-specific well-known
+  // location (/.well-known/oauth-protected-resource/mcp). Strict clients
+  // (VS Code / GitHub Copilot) fetch the path-specific URL first and, per
+  // RFC 9728 §3.3, reject the document unless `resource` matches the URL they
+  // are connecting to. Returning the bare base URL made VS Code reject the
+  // metadata and never start the auth flow — it just looped `initialize`
+  // forever (confirmed via its own log: "'resource' ... does not match
+  // expected value .../mcp ... these MUST match").
+  const protectedResource = (req: import('express').Request, res: import('express').Response) => {
     const baseUrl = getPublicBaseUrl(req);
     res.json({
-      resource: baseUrl,
+      resource: `${baseUrl}/mcp`,
       authorization_servers: [baseUrl],
       bearer_methods_supported: ['header'],
       scopes_supported: ['openid', 'profile', 'offline_access', `api://${CLIENT_ID}/access_as_user`],
     });
-  });
+  };
+  // Resource-path-specific location (RFC 9728 §3.1) — what strict clients try
+  // first; the bare location is kept for lenient clients and serves the same
+  // `resource` value so a strict client that falls back to it still validates.
+  router.get('/.well-known/oauth-protected-resource/mcp', protectedResource);
+  router.get('/.well-known/oauth-protected-resource', protectedResource);
 
   // --- OAuth Authorization Server Metadata (RFC 8414) ---
   router.get('/.well-known/oauth-authorization-server', (req, res) => {

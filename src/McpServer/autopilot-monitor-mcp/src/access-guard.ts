@@ -200,7 +200,11 @@ function isRateLimited(upn: string): boolean {
 
 export function accessGuard(req: Request, res: Response, next: NextFunction): void {
   const baseUrl = getPublicBaseUrl(req);
-  const resourceMetadataUrl = `${baseUrl}/.well-known/oauth-protected-resource`;
+  // Point at the resource-path-specific metadata (RFC 9728 §3.1). The protected
+  // resource is <base>/mcp, so its metadata lives at the /mcp-suffixed
+  // well-known URL; strict clients (VS Code) validate the document's `resource`
+  // against the URL they connect to and reject a base-URL mismatch.
+  const resourceMetadataUrl = `${baseUrl}/.well-known/oauth-protected-resource/mcp`;
 
   // Lightweight auth-flow trace. The success path stays quiet (runWithCaller →
   // next), but every 401/403 logs one line so a stuck client (e.g. VS Code

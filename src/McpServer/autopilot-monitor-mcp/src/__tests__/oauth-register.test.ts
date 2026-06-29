@@ -50,6 +50,24 @@ async function register(body: unknown) {
   return { status: res.status, json: json as Record<string, unknown> };
 }
 
+describe('/.well-known/oauth-protected-resource — RFC 9728 resource identifier', () => {
+  it('serves the path-specific location with resource = <base>/mcp', async () => {
+    const res = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as Record<string, unknown>;
+    // resource MUST equal the MCP endpoint URL the client connects to, or strict
+    // clients (VS Code) reject the metadata and never start the auth flow.
+    expect(json.resource).toBe(`${baseUrl}/mcp`);
+    expect(json.authorization_servers).toEqual([baseUrl]);
+  });
+
+  it('serves the bare location with the same resource value (lenient-client fallback)', async () => {
+    const res = await fetch(`${baseUrl}/.well-known/oauth-protected-resource`);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as Record<string, unknown>).resource).toBe(`${baseUrl}/mcp`);
+  });
+});
+
 describe('/oauth/register — dynamic client registration (RFC 7591)', () => {
   it('registers a client with a loopback redirect_uri and returns a client_id', async () => {
     const { status, json } = await register({
