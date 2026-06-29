@@ -18,7 +18,7 @@ import type { AddressInfo } from 'node:net';
 
 // createOAuthRouter() throws at import unless the Entra client id is present.
 process.env.AUTOPILOT_ENTRA_CLIENT_ID ??= '00000000-0000-0000-0000-000000000000';
-const { createOAuthRouter, signClientId, verifyClientId, signState, MAX_REDIRECT_URIS_PER_CLIENT, MAX_REDIRECT_URI_LENGTH, MAX_CLIENT_NAME_LENGTH } =
+const { createOAuthRouter, signClientId, verifyClientId, signState, redirectUriMatches, MAX_REDIRECT_URIS_PER_CLIENT, MAX_REDIRECT_URI_LENGTH, MAX_CLIENT_NAME_LENGTH } =
   await import('../oauth.js');
 
 let server: Server;
@@ -148,6 +148,31 @@ describe('signClientId / verifyClientId — stateless client registry', () => {
   });
 });
 
+describe('redirectUriMatches — RFC 8252 redirect binding', () => {
+  it('matches across a trailing-slash difference', () => {
+    expect(redirectUriMatches(['http://127.0.0.1:33418'], 'http://127.0.0.1:33418/')).toBe(true);
+    expect(redirectUriMatches(['http://127.0.0.1:33418/'], 'http://127.0.0.1:33418')).toBe(true);
+  });
+
+  it('matches any loopback port (localhost and 127.0.0.1)', () => {
+    expect(redirectUriMatches(['http://127.0.0.1:33418/'], 'http://127.0.0.1:51999/')).toBe(true);
+    expect(redirectUriMatches(['http://localhost:1/cb'], 'http://localhost:65000/cb')).toBe(true);
+  });
+
+  it('still requires the path to match for loopback', () => {
+    expect(redirectUriMatches(['http://127.0.0.1:1/cb'], 'http://127.0.0.1:2/other')).toBe(false);
+  });
+
+  it('does NOT ignore the port for non-loopback hosts', () => {
+    expect(redirectUriMatches(['https://vscode.dev/redirect'], 'https://vscode.dev/redirect')).toBe(true);
+    expect(redirectUriMatches(['https://vscode.dev:443/redirect'], 'https://vscode.dev:8443/redirect')).toBe(false);
+  });
+
+  it('returns false for an unparseable requested uri', () => {
+    expect(redirectUriMatches(['http://127.0.0.1:1/cb'], 'not a url')).toBe(false);
+  });
+});
+
 describe('/oauth/authorize — PKCE S256 enforcement', () => {
   async function authorize(query: Record<string, string>) {
     const qs = new URLSearchParams(query).toString();
@@ -191,11 +216,13 @@ describe('/oauth/authorize — PKCE S256 enforcement', () => {
     expect(((await res.json()) as Record<string, unknown>).error).toBe('invalid_client');
   });
 
-  it('rejects a valid client_id whose registered list omits the redirect_uri', async () => {
-    const clientId = signClientId(['http://127.0.0.1:33418/'], 'vscode');
+  it('rejects a valid client_id whose registered list omits the redirect_uri (path differs)', async () => {
+    // Port is loopback-agnostic, but the PATH must still match — a different
+    // path is a genuine mismatch and must be refused.
+    const clientId = signClientId(['http://127.0.0.1:33418/cb'], 'vscode');
     const res = await authorize({
       client_id: clientId,
-      redirect_uri: 'http://127.0.0.1:9999/', // loopback (allowlisted) but not registered to this client
+      redirect_uri: 'http://127.0.0.1:9999/evil',
       code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
       code_challenge_method: 'S256',
     });
@@ -218,6 +245,32 @@ describe('/oauth/authorize — PKCE S256 enforcement', () => {
     expect(location).toContain('code_challenge_method=S256');
     // The client's challenge is forwarded unchanged.
     expect(location).toContain('E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM');
+  });
+
+  it('accepts a trailing-slash variant of the registered loopback redirect (VS Code repro)', async () => {
+    // VS Code registers the loopback URI without a trailing slash but authorizes
+    // with the normalized form — must match, or the flow stalls at "Waiting for
+    // initialize". (Reproduced live against the deployed server.)
+    const clientId = signClientId(['http://127.0.0.1:33418', 'https://vscode.dev/redirect'], 'Visual Studio Code');
+    const res = await authorize({
+      client_id: clientId,
+      redirect_uri: 'http://127.0.0.1:33418/',
+      code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
+      code_challenge_method: 'S256',
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location') ?? '').toContain('login.microsoftonline.com');
+  });
+
+  it('accepts a different ephemeral loopback port (RFC 8252 §7.3)', async () => {
+    const clientId = signClientId(['http://127.0.0.1:33418/'], 'cli');
+    const res = await authorize({
+      client_id: clientId,
+      redirect_uri: 'http://127.0.0.1:51999/', // fresh port, not the registered one
+      code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
+      code_challenge_method: 'S256',
+    });
+    expect(res.status).toBe(302);
   });
 
   it('rejects a request with no client_id (client_id is mandatory)', async () => {
@@ -258,9 +311,9 @@ describe('/oauth/callback — signed state + client enforcement', () => {
     expect(((await res.json()) as Record<string, unknown>).error).toBe('invalid_request');
   });
 
-  it('rejects when the state redirect_uri is not registered to the signed client', async () => {
+  it('rejects when the state redirect_uri is not registered to the signed client (path differs)', async () => {
     const clientId = signClientId(['http://127.0.0.1:1/cb'], 'vscode');
-    const state = signState({ redirectUri: 'http://127.0.0.1:2/cb', clientId });
+    const state = signState({ redirectUri: 'http://127.0.0.1:2/other', clientId });
     const res = await callback({ code: 'ENTRA_CODE', state });
     expect(res.status).toBe(400);
     expect(((await res.json()) as Record<string, unknown>).error).toBe('invalid_request');

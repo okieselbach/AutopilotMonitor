@@ -301,6 +301,48 @@ export function isAllowedRedirectUri(uri: string | undefined | null): boolean {
 }
 
 /**
+ * Canonical form of a redirect_uri for the per-client binding check. A naive
+ * exact-string compare rejects two legitimate native-client behaviours:
+ *
+ *   1. Trailing-slash / serialization differences. A client registers
+ *      `http://127.0.0.1:33418` but sends `http://127.0.0.1:33418/` at
+ *      /authorize (URL parsing normalizes the empty path to "/"). Same endpoint.
+ *      This is exactly what stalls VS Code / GitHub Copilot: it registers the
+ *      loopback URI without a slash, then authorizes with the normalized form,
+ *      so a string `includes()` returns false and the flow dies at /authorize.
+ *   2. Ephemeral loopback ports. A native app binds a fresh loopback port per
+ *      run, so the registered port rarely equals the port used later. RFC 8252
+ *      §7.3 requires the AS to allow ANY port for loopback redirect URIs.
+ *
+ * So: parse + re-serialize (fixes #1), and drop the port for loopback hosts
+ * (fixes #2). The host allowlist already permits any loopback port, so dropping
+ * it here grants no reach beyond that existing gate. Returns null for an
+ * unparseable URI so it can never accidentally compare-equal.
+ */
+function canonicalizeRedirectUri(uri: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(uri);
+  } catch {
+    return null;
+  }
+  const host = u.hostname.toLowerCase();
+  const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+  const portPart = isLoopback || !u.port ? '' : `:${u.port}`;
+  return `${u.protocol}//${host}${portPart}${u.pathname}${u.search}`;
+}
+
+/**
+ * True when `requested` matches one of the client's `registered` redirect_uris
+ * under canonicalization (trailing-slash tolerant, loopback-port agnostic).
+ */
+export function redirectUriMatches(registered: string[], requested: string): boolean {
+  const target = canonicalizeRedirectUri(requested);
+  if (target === null) return false;
+  return registered.some((r) => canonicalizeRedirectUri(r) === target);
+}
+
+/**
  * Derives the public base URL of this MCP server.
  * In production: from X-Forwarded-Host / X-Forwarded-Proto (set by Container Apps ingress).
  * Fallback: MCP_PUBLIC_URL env var or localhost.
@@ -495,7 +537,7 @@ export function createOAuthRouter(): Router {
       });
       return;
     }
-    if (!registered.redirectUris.includes(redirect_uri)) {
+    if (!redirectUriMatches(registered.redirectUris, redirect_uri)) {
       console.error(
         `[oauth/authorize] redirect_uri not registered for this client_id: ${redirect_uri}`,
       );
@@ -581,7 +623,7 @@ export function createOAuthRouter(): Router {
       // this only adds defense-in-depth: a valid client_id must still list the
       // redirectUri. A forged client_id fails closed.
       const registered = verifyClientId(clientId);
-      if (!registered || !registered.redirectUris.includes(redirectUri)) {
+      if (!registered || !redirectUriMatches(registered.redirectUris, redirectUri)) {
         console.error(`[oauth/callback] client_id invalid or redirectUri not registered: ${redirectUri}`);
         res.status(400).json({
           error: 'invalid_request',
