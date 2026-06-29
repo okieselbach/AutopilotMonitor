@@ -177,6 +177,13 @@ const DEFAULT_ALLOWED_HOSTS: readonly string[] = [
   '*.openai.com',
   // Google / Gemini
   'gemini.google.com',
+  // Microsoft / VS Code (GitHub Copilot, Continue, etc.)
+  // Stable uses https://vscode.dev/redirect; Insiders uses
+  // https://insiders.vscode.dev/redirect. The loopback URI VS Code also
+  // registers (http://127.0.0.1:<port>) is already accepted by the
+  // RFC 8252 loopback rule below.
+  'vscode.dev',
+  '*.vscode.dev',
 ];
 
 export function parseAllowedHosts(envValue: string | undefined): { exact: Set<string>; suffixes: string[] } {

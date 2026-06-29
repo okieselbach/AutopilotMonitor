@@ -68,6 +68,23 @@ describe('/oauth/register — dynamic client registration (RFC 7591)', () => {
     expect(json.token_endpoint_auth_method).toBe('none');
   });
 
+  it('registers a VS Code client (loopback + vscode.dev redirect) — GitHub Copilot DCR', async () => {
+    const { status, json } = await register({
+      client_name: 'Visual Studio Code',
+      redirect_uris: ['http://127.0.0.1:33418', 'https://vscode.dev/redirect'],
+    });
+    expect(status).toBe(201);
+    expect(json.redirect_uris).toEqual(['http://127.0.0.1:33418', 'https://vscode.dev/redirect']);
+  });
+
+  it('registers a VS Code Insiders client (insiders.vscode.dev redirect)', async () => {
+    const { status } = await register({
+      client_name: 'Visual Studio Code - Insiders',
+      redirect_uris: ['http://127.0.0.1:33418', 'https://insiders.vscode.dev/redirect'],
+    });
+    expect(status).toBe(201);
+  });
+
   it('rejects a hostile redirect_uri host (allowlist defense-in-depth)', async () => {
     const { status, json } = await register({
       client_name: 'evil',
