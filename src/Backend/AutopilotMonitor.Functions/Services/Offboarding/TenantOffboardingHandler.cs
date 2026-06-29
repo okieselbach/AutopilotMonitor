@@ -114,11 +114,11 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             // admin's grant to the offboarded tenant. Previously NOT wiped → orphaned cross-tenant grants
             // survived offboarding and could silently re-grant access on re-onboarding.
             Constants.TableNames.DelegatedAdmins,
-            // Tenant Template membership rows for this tenant (PK=templateId, RK=tenantId, TenantId property
-            // set). Meta rows (RowKey="meta", empty TenantId) never match the tenant GUID, so the template
+            // Tenant Group membership rows for this tenant (PK=groupId, RK=tenantId, TenantId property
+            // set). Meta rows (RowKey="meta", empty TenantId) never match the tenant GUID, so the group
             // itself and its other tenants survive. The assignments table is per-UPN (no TenantId) and is
             // intentionally NOT wiped here.
-            Constants.TableNames.TenantTemplates,
+            Constants.TableNames.TenantGroups,
         };
 
         // PR3.B plan §3 — Customs rules tables: archive each row to

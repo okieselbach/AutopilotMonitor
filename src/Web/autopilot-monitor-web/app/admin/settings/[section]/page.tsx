@@ -7,7 +7,7 @@ import { SectionGlobalSettings } from "../sections/SectionGlobalSettings";
 import { SectionDiagnosticsLogPaths } from "../sections/SectionDiagnosticsLogPaths";
 import { SectionMcpUsers } from "../sections/SectionMcpUsers";
 import { SectionDelegatedAdmins } from "../sections/SectionDelegatedAdmins";
-import { SectionTenantTemplates } from "../sections/SectionTenantTemplates";
+import { SectionTenantGroups } from "../sections/SectionTenantGroups";
 import { SectionConfigReseed } from "../sections/SectionConfigReseed";
 import { SectionUsagePlans } from "../sections/SectionUsagePlans";
 import { SectionAlerts } from "../sections/SectionAlerts";
@@ -17,7 +17,7 @@ const SECTION_COMPONENTS: Record<SettingsSectionId, React.ComponentType> = {
   "diagnostics-log-paths": SectionDiagnosticsLogPaths,
   "mcp-users": SectionMcpUsers,
   "delegated-admins": SectionDelegatedAdmins,
-  "tenant-groups": SectionTenantTemplates,
+  "tenant-groups": SectionTenantGroups,
   "config-reseed": SectionConfigReseed,
   "usage-plans": SectionUsagePlans,
   "alerts": SectionAlerts,

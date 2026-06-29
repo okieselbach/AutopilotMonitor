@@ -265,10 +265,10 @@ public class TenantOffboardingHandlerOrderingTests
     // ── Offboarding wipe coverage (hygiene: no orphaned cross-tenant grants) ────
 
     [Fact]
-    public async Task PostDrain_PropertyOnlyWipe_PurgesDelegatedAdminsAndTenantTemplates()
+    public async Task PostDrain_PropertyOnlyWipe_PurgesDelegatedAdminsAndTenantGroups()
     {
-        // A delegated admin's grant rows (DelegatedAdmins, RK=tenantId) and a tenant's Tenant Template
-        // membership rows (TenantTemplates, RK=tenantId) both carry a TenantId property, so they must be
+        // A delegated admin's grant rows (DelegatedAdmins, RK=tenantId) and a tenant's Tenant Group
+        // membership rows (TenantGroups, RK=tenantId) both carry a TenantId property, so they must be
         // purged via the property-only wipe. Otherwise they orphan and can silently re-grant access on
         // re-onboarding.
         var harness = Harness.New();
@@ -276,7 +276,7 @@ public class TenantOffboardingHandlerOrderingTests
         await harness.Sut.HandleAsync(harness.Envelope());
 
         Assert.Contains(Constants.TableNames.DelegatedAdmins, harness.SafeWipeProbe.PropertyOnlyWipes);
-        Assert.Contains(Constants.TableNames.TenantTemplates, harness.SafeWipeProbe.PropertyOnlyWipes);
+        Assert.Contains(Constants.TableNames.TenantGroups, harness.SafeWipeProbe.PropertyOnlyWipes);
     }
 
     // ── Harness (copied minimal — only what these tests need) ───────────────────

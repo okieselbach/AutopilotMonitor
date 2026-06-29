@@ -7,22 +7,22 @@ import { useTenantList } from "@/hooks/useTenantList";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { api } from "@/lib/api";
 
-/** One UPN assigned to a template (camelCase JSON from the backend). */
-interface TemplateAssignee {
+/** One UPN assigned to a group (camelCase JSON from the backend). */
+interface GroupAssignee {
   upn: string;
   role: string; // "DelegatedReader" | "DelegatedAdmin"
   isEnabled: boolean;
 }
 
-/** A tenant template as returned by /api/global/tenant-templates. */
-interface TenantTemplate {
-  templateId: string;
+/** A tenant group as returned by /api/global/tenant-groups. */
+interface TenantGroup {
+  groupId: string;
   name: string;
   createdBy: string;
   createdAt: string;
   tenantIds: string[];
   assigneeCount: number;
-  assignees: TemplateAssignee[];
+  assignees: GroupAssignee[];
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -31,17 +31,17 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 /**
- * GlobalAdmin-only management of Tenant Templates — app-internal named bundles of tenants for the
- * delegated-admin ("MSP mode") tier. Assign a person to a template instead of to each tenant; adding a tenant
- * to the template grants it to every assignee at once. Writes go through /api/global/tenant-templates
+ * GlobalAdmin-only management of Tenant Groups — app-internal named bundles of tenants for the
+ * delegated-admin ("MSP mode") tier. Assign a person to a group instead of to each tenant; adding a tenant
+ * to the group grants it to every assignee at once. Writes go through /api/global/tenant-groups
  * (GlobalAdminOnly); the backend invalidates affected scopes so changes take effect on the next request.
  */
-export function SectionTenantTemplates() {
+export function SectionTenantGroups() {
   const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
   const tenants = useTenantList(true);
 
-  const [templates, setTemplates] = useState<TenantTemplate[]>([]);
+  const [groups, setGroups] = useState<TenantGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -50,7 +50,7 @@ export function SectionTenantTemplates() {
   const [creating, setCreating] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
-  // Per-template input state (keyed by templateId).
+  // Per-group input state (keyed by groupId).
   const [tenantToAdd, setTenantToAdd] = useState<Record<string, string>>({});
   const [assignUpn, setAssignUpn] = useState<Record<string, string>>({});
   const [assignRole, setAssignRole] = useState<Record<string, string>>({});
@@ -73,13 +73,13 @@ export function SectionTenantTemplates() {
     }
   };
 
-  const fetchTemplates = useCallback(async () => {
+  const fetchGroups = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await authenticatedFetch(api.tenantTemplates.list(), getAccessToken);
+      const response = await authenticatedFetch(api.tenantGroups.list(), getAccessToken);
       if (!response.ok) throw new Error(`Failed to load groups: ${response.statusText}`);
       const data = await response.json();
-      setTemplates(data.templates ?? []);
+      setGroups(data.groups ?? []);
     } catch (err) {
       handleError(err, "Failed to load groups");
     } finally {
@@ -89,8 +89,8 @@ export function SectionTenantTemplates() {
   }, [getAccessToken]);
 
   useEffect(() => {
-    fetchTemplates();
-  }, [fetchTemplates]);
+    fetchGroups();
+  }, [fetchGroups]);
 
   /** Runs a mutation with shared busy/error/refetch handling. `body` undefined ⇒ no JSON body. */
   const mutate = useCallback(
@@ -109,7 +109,7 @@ export function SectionTenantTemplates() {
           throw new Error(data.error || `Request failed: ${response.statusText}`);
         }
         flash(ok);
-        await fetchTemplates();
+        await fetchGroups();
         return true;
       } catch (err) {
         handleError(err, "Request failed");
@@ -119,59 +119,59 @@ export function SectionTenantTemplates() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [getAccessToken, fetchTemplates],
+    [getAccessToken, fetchGroups],
   );
 
   const handleCreate = useCallback(async () => {
     const name = newName.trim();
     if (!name) return;
     setCreating(true);
-    const ok = await mutate("create", api.tenantTemplates.create(), "POST", { name }, `Created group "${name}".`);
+    const ok = await mutate("create", api.tenantGroups.create(), "POST", { name }, `Created group "${name}".`);
     setCreating(false);
     if (ok) setNewName("");
   }, [newName, mutate]);
 
   const handleRename = useCallback(
-    async (t: TenantTemplate) => {
+    async (t: TenantGroup) => {
       const name = prompt("Rename group:", t.name)?.trim();
       if (!name || name === t.name) return;
-      await mutate(`rename:${t.templateId}`, api.tenantTemplates.rename(t.templateId), "PATCH", { name }, `Renamed to "${name}".`);
+      await mutate(`rename:${t.groupId}`, api.tenantGroups.rename(t.groupId), "PATCH", { name }, `Renamed to "${name}".`);
     },
     [mutate],
   );
 
-  const handleDeleteTemplate = useCallback(
-    async (t: TenantTemplate) => {
+  const handleDeleteGroup = useCallback(
+    async (t: TenantGroup) => {
       const extra = t.assigneeCount > 0 ? ` ${t.assigneeCount} assignee(s) will lose this access.` : "";
       if (!confirm(`Delete group "${t.name}"?${extra}`)) return;
-      await mutate(`delete:${t.templateId}`, api.tenantTemplates.remove(t.templateId), "DELETE", undefined, `Deleted "${t.name}".`);
+      await mutate(`delete:${t.groupId}`, api.tenantGroups.remove(t.groupId), "DELETE", undefined, `Deleted "${t.name}".`);
     },
     [mutate],
   );
 
   const handleAddTenant = useCallback(
-    async (t: TenantTemplate) => {
-      const tenantId = tenantToAdd[t.templateId];
+    async (t: TenantGroup) => {
+      const tenantId = tenantToAdd[t.groupId];
       if (!tenantId) return;
       const ok = await mutate(
-        `addtenant:${t.templateId}`,
-        api.tenantTemplates.addTenant(t.templateId),
+        `addtenant:${t.groupId}`,
+        api.tenantGroups.addTenant(t.groupId),
         "POST",
         { tenantId },
         `Added ${domainOf(tenantId) || tenantId} to "${t.name}".`,
       );
-      if (ok) setTenantToAdd((prev) => ({ ...prev, [t.templateId]: "" }));
+      if (ok) setTenantToAdd((prev) => ({ ...prev, [t.groupId]: "" }));
     },
     [tenantToAdd, mutate, domainOf],
   );
 
   const handleRemoveTenant = useCallback(
-    async (t: TenantTemplate, tenantId: string) => {
+    async (t: TenantGroup, tenantId: string) => {
       const dom = domainOf(tenantId) || tenantId;
       if (!confirm(`Remove ${dom} from "${t.name}"? Assignees lose access to this tenant.`)) return;
       await mutate(
-        `rmtenant:${t.templateId}:${tenantId}`,
-        api.tenantTemplates.removeTenant(t.templateId, tenantId),
+        `rmtenant:${t.groupId}:${tenantId}`,
+        api.tenantGroups.removeTenant(t.groupId, tenantId),
         "DELETE",
         undefined,
         `Removed ${dom} from "${t.name}".`,
@@ -181,28 +181,28 @@ export function SectionTenantTemplates() {
   );
 
   const handleAssign = useCallback(
-    async (t: TenantTemplate) => {
-      const upn = (assignUpn[t.templateId] || "").trim();
+    async (t: TenantGroup) => {
+      const upn = (assignUpn[t.groupId] || "").trim();
       if (!upn) return;
-      const role = assignRole[t.templateId] || "DelegatedReader";
+      const role = assignRole[t.groupId] || "DelegatedReader";
       const ok = await mutate(
-        `assign:${t.templateId}`,
-        api.tenantTemplates.assign(t.templateId),
+        `assign:${t.groupId}`,
+        api.tenantGroups.assign(t.groupId),
         "POST",
         { upn, role },
         `Assigned ${upn} to "${t.name}".`,
       );
-      if (ok) setAssignUpn((prev) => ({ ...prev, [t.templateId]: "" }));
+      if (ok) setAssignUpn((prev) => ({ ...prev, [t.groupId]: "" }));
     },
     [assignUpn, assignRole, mutate],
   );
 
   const handleUnassign = useCallback(
-    async (t: TenantTemplate, upn: string) => {
+    async (t: TenantGroup, upn: string) => {
       if (!confirm(`Remove ${upn} from "${t.name}"? They lose access to all tenants in this group.`)) return;
       await mutate(
-        `unassign:${t.templateId}:${upn}`,
-        api.tenantTemplates.unassign(t.templateId, upn),
+        `unassign:${t.groupId}:${upn}`,
+        api.tenantGroups.unassign(t.groupId, upn),
         "DELETE",
         undefined,
         `Removed ${upn} from "${t.name}".`,
@@ -212,8 +212,8 @@ export function SectionTenantTemplates() {
   );
 
   const sorted = useMemo(
-    () => [...templates].sort((a, b) => a.name.localeCompare(b.name)),
-    [templates],
+    () => [...groups].sort((a, b) => a.name.localeCompare(b.name)),
+    [groups],
   );
 
   return (
@@ -302,7 +302,7 @@ export function SectionTenantTemplates() {
           </p>
         )}
 
-        {/* Templates */}
+        {/* Groups */}
         {!loading && sorted.length > 0 && (
           <div className="space-y-4">
             {sorted.map((t) => {
@@ -310,8 +310,8 @@ export function SectionTenantTemplates() {
                 (x) => !t.tenantIds.some((id) => id.toLowerCase() === x.tenantId.toLowerCase()),
               );
               return (
-                <div key={t.templateId} className="border border-gray-200 rounded-lg">
-                  {/* Template header */}
+                <div key={t.groupId} className="border border-gray-200 rounded-lg">
+                  {/* Group header */}
                   <div className="px-4 py-2 border-b border-gray-100 bg-gray-50 rounded-t-lg flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <span className="font-medium text-gray-900 truncate">{t.name}</span>
@@ -328,7 +328,7 @@ export function SectionTenantTemplates() {
                         Rename
                       </button>
                       <button
-                        onClick={() => handleDeleteTemplate(t)}
+                        onClick={() => handleDeleteGroup(t)}
                         className="px-3 py-1 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
                       >
                         Delete
@@ -349,7 +349,7 @@ export function SectionTenantTemplates() {
                               <span className="truncate text-gray-900">{domainOf(id) || id}</span>
                               <button
                                 onClick={() => handleRemoveTenant(t, id)}
-                                disabled={busyKey === `rmtenant:${t.templateId}:${id}`}
+                                disabled={busyKey === `rmtenant:${t.groupId}:${id}`}
                                 className="text-red-600 hover:text-red-800 disabled:opacity-50 text-xs"
                                 aria-label={`Remove ${domainOf(id) || id}`}
                               >
@@ -361,8 +361,8 @@ export function SectionTenantTemplates() {
                       )}
                       <div className="flex gap-2 pt-1">
                         <select
-                          value={tenantToAdd[t.templateId] || ""}
-                          onChange={(e) => setTenantToAdd((p) => ({ ...p, [t.templateId]: e.target.value }))}
+                          value={tenantToAdd[t.groupId] || ""}
+                          onChange={(e) => setTenantToAdd((p) => ({ ...p, [t.groupId]: e.target.value }))}
                           className="flex-1 min-w-0 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-sky-500 transition-colors"
                         >
                           <option value="">Add tenant…</option>
@@ -374,7 +374,7 @@ export function SectionTenantTemplates() {
                         </select>
                         <button
                           onClick={() => handleAddTenant(t)}
-                          disabled={!tenantToAdd[t.templateId] || busyKey === `addtenant:${t.templateId}`}
+                          disabled={!tenantToAdd[t.groupId] || busyKey === `addtenant:${t.groupId}`}
                           className="px-3 py-1.5 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50 transition-colors"
                         >
                           Add
@@ -399,7 +399,7 @@ export function SectionTenantTemplates() {
                               </span>
                               <button
                                 onClick={() => handleUnassign(t, a.upn)}
-                                disabled={busyKey === `unassign:${t.templateId}:${a.upn}`}
+                                disabled={busyKey === `unassign:${t.groupId}:${a.upn}`}
                                 className="text-red-600 hover:text-red-800 disabled:opacity-50 text-xs shrink-0"
                                 aria-label={`Remove ${a.upn}`}
                               >
@@ -412,8 +412,8 @@ export function SectionTenantTemplates() {
                       <div className="flex gap-2 pt-1">
                         <input
                           type="email"
-                          value={assignUpn[t.templateId] || ""}
-                          onChange={(e) => setAssignUpn((p) => ({ ...p, [t.templateId]: e.target.value }))}
+                          value={assignUpn[t.groupId] || ""}
+                          onChange={(e) => setAssignUpn((p) => ({ ...p, [t.groupId]: e.target.value }))}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
                               e.preventDefault();
@@ -425,8 +425,8 @@ export function SectionTenantTemplates() {
                           className="flex-1 min-w-0 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-sky-500 transition-colors"
                         />
                         <select
-                          value={assignRole[t.templateId] || "DelegatedReader"}
-                          onChange={(e) => setAssignRole((p) => ({ ...p, [t.templateId]: e.target.value }))}
+                          value={assignRole[t.groupId] || "DelegatedReader"}
+                          onChange={(e) => setAssignRole((p) => ({ ...p, [t.groupId]: e.target.value }))}
                           className="px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-sky-500 transition-colors"
                         >
                           <option value="DelegatedReader">Reader</option>
@@ -434,7 +434,7 @@ export function SectionTenantTemplates() {
                         </select>
                         <button
                           onClick={() => handleAssign(t)}
-                          disabled={!(assignUpn[t.templateId] || "").trim() || busyKey === `assign:${t.templateId}`}
+                          disabled={!(assignUpn[t.groupId] || "").trim() || busyKey === `assign:${t.groupId}`}
                           className="px-3 py-1.5 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50 transition-colors"
                         >
                           Assign

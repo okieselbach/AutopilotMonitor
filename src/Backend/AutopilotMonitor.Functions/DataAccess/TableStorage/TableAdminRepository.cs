@@ -17,8 +17,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         private readonly TableClient _tenantAdminsTableClient;
         private readonly TableClient _mcpUsersTableClient;
         private readonly TableClient _delegatedAdminsTableClient;
-        private readonly TableClient _tenantTemplatesTableClient;
-        private readonly TableClient _tenantTemplateAssignmentsTableClient;
+        private readonly TableClient _tenantGroupsTableClient;
+        private readonly TableClient _tenantGroupAssignmentsTableClient;
         private readonly ILogger<TableAdminRepository> _logger;
 
         public TableAdminRepository(
@@ -30,8 +30,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             _tenantAdminsTableClient = storage.GetTableClient(Constants.TableNames.TenantAdmins);
             _mcpUsersTableClient = storage.GetTableClient(Constants.TableNames.McpUsers);
             _delegatedAdminsTableClient = storage.GetTableClient(Constants.TableNames.DelegatedAdmins);
-            _tenantTemplatesTableClient = storage.GetTableClient(Constants.TableNames.TenantTemplates);
-            _tenantTemplateAssignmentsTableClient = storage.GetTableClient(Constants.TableNames.TenantTemplateAssignments);
+            _tenantGroupsTableClient = storage.GetTableClient(Constants.TableNames.TenantGroups);
+            _tenantGroupAssignmentsTableClient = storage.GetTableClient(Constants.TableNames.TenantGroupAssignments);
         }
 
         // --- Global Admins ---
@@ -427,38 +427,38 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return true;
         }
 
-        // --- Tenant Templates (app-internal tenant bundles for delegated admins / "MSP mode") ---
+        // --- Tenant Groups (app-internal tenant bundles for delegated admins / "MSP mode") ---
 
-        public async Task<string> CreateTenantTemplateAsync(string name, string createdBy)
+        public async Task<string> CreateTenantGroupAsync(string name, string createdBy)
         {
-            var templateId = Guid.NewGuid().ToString("N");
-            var entity = new TenantTemplateEntity
+            var groupId = Guid.NewGuid().ToString("N");
+            var entity = new TenantGroupEntity
             {
-                PartitionKey = templateId,
-                RowKey = TenantTemplateEntity.MetaRowKey,
+                PartitionKey = groupId,
+                RowKey = TenantGroupEntity.MetaRowKey,
                 Name = name?.Trim() ?? string.Empty,
                 CreatedBy = createdBy?.ToLowerInvariant() ?? string.Empty,
                 CreatedDate = DateTime.UtcNow
             };
             // Fresh GUID partition — AddEntity (not Upsert) so a (vanishingly unlikely) collision fails loud.
-            await _tenantTemplatesTableClient.AddEntityAsync(entity);
-            return templateId;
+            await _tenantGroupsTableClient.AddEntityAsync(entity);
+            return groupId;
         }
 
-        public async Task<bool> RenameTenantTemplateAsync(string templateId, string name)
+        public async Task<bool> RenameTenantGroupAsync(string groupId, string name)
         {
-            if (string.IsNullOrWhiteSpace(templateId))
+            if (string.IsNullOrWhiteSpace(groupId))
                 return false;
 
             try
             {
-                var result = await _tenantTemplatesTableClient.GetEntityAsync<TenantTemplateEntity>(
-                    templateId, TenantTemplateEntity.MetaRowKey);
+                var result = await _tenantGroupsTableClient.GetEntityAsync<TenantGroupEntity>(
+                    groupId, TenantGroupEntity.MetaRowKey);
                 var entity = result.Value;
                 if (entity == null) return false;
 
                 entity.Name = name?.Trim() ?? string.Empty;
-                await _tenantTemplatesTableClient.UpdateEntityAsync(entity, ETag.All);
+                await _tenantGroupsTableClient.UpdateEntityAsync(entity, ETag.All);
                 return true;
             }
             catch (RequestFailedException ex) when (ex.Status == 404)
@@ -467,135 +467,135 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
         }
 
-        public async Task<bool> DeleteTenantTemplateAsync(string templateId)
+        public async Task<bool> DeleteTenantGroupAsync(string groupId)
         {
-            if (string.IsNullOrWhiteSpace(templateId))
+            if (string.IsNullOrWhiteSpace(groupId))
                 return false;
 
-            // Delete every row in the template's partition (meta + membership rows).
+            // Delete every row in the group's partition (meta + membership rows).
             // Typed predicate overload builds the OData filter safely (escapes quotes) — no string interpolation.
-            await foreach (var entity in _tenantTemplatesTableClient.QueryAsync<TenantTemplateEntity>(
-                e => e.PartitionKey == templateId))
+            await foreach (var entity in _tenantGroupsTableClient.QueryAsync<TenantGroupEntity>(
+                e => e.PartitionKey == groupId))
             {
-                await DeleteIfPresentAsync(_tenantTemplatesTableClient, entity.PartitionKey, entity.RowKey);
+                await DeleteIfPresentAsync(_tenantGroupsTableClient, entity.PartitionKey, entity.RowKey);
             }
 
-            // Cascade: remove every UPN assignment to this template (cross-partition RowKey scan).
-            await foreach (var assignment in _tenantTemplateAssignmentsTableClient.QueryAsync<TenantTemplateAssignmentEntity>(
-                e => e.RowKey == templateId))
+            // Cascade: remove every UPN assignment to this group (cross-partition RowKey scan).
+            await foreach (var assignment in _tenantGroupAssignmentsTableClient.QueryAsync<TenantGroupAssignmentEntity>(
+                e => e.RowKey == groupId))
             {
-                await DeleteIfPresentAsync(_tenantTemplateAssignmentsTableClient, assignment.PartitionKey, assignment.RowKey);
+                await DeleteIfPresentAsync(_tenantGroupAssignmentsTableClient, assignment.PartitionKey, assignment.RowKey);
             }
 
             return true;
         }
 
-        public async Task<List<TenantTemplate>> GetAllTenantTemplatesAsync()
+        public async Task<List<TenantGroup>> GetAllTenantGroupsAsync()
         {
-            // Full-table scan: the management UI lists every template. Both tables hold only admin-scale
-            // rows (a handful of templates × their tenants/assignees), so this is small and off the hot path.
-            var byId = new Dictionary<string, TenantTemplate>(StringComparer.Ordinal);
-            // A template EXISTS only if its meta row is present. A partition with only membership rows is an
-            // anomaly (e.g. a partial write), NOT a template — never surface it as a blank/name-less template.
+            // Full-table scan: the management UI lists every group. Both tables hold only admin-scale
+            // rows (a handful of groups × their tenants/assignees), so this is small and off the hot path.
+            var byId = new Dictionary<string, TenantGroup>(StringComparer.Ordinal);
+            // A group EXISTS only if its meta row is present. A partition with only membership rows is an
+            // anomaly (e.g. a partial write), NOT a group — never surface it as a blank/name-less group.
             var metaBacked = new HashSet<string>(StringComparer.Ordinal);
-            await foreach (var entity in _tenantTemplatesTableClient.QueryAsync<TenantTemplateEntity>())
+            await foreach (var entity in _tenantGroupsTableClient.QueryAsync<TenantGroupEntity>())
             {
-                if (ApplyRowToTemplate(byId, entity))
+                if (ApplyRowToGroup(byId, entity))
                     metaBacked.Add(entity.PartitionKey);
             }
 
             // Assignees (separate table; management path only).
-            await foreach (var assignment in _tenantTemplateAssignmentsTableClient.QueryAsync<TenantTemplateAssignmentEntity>())
+            await foreach (var assignment in _tenantGroupAssignmentsTableClient.QueryAsync<TenantGroupAssignmentEntity>())
             {
-                if (byId.TryGetValue(assignment.RowKey, out var template))
+                if (byId.TryGetValue(assignment.RowKey, out var group))
                 {
-                    template.Assignees.Add(MapToTemplateAssignment(assignment));
-                    template.AssigneeCount++;
+                    group.Assignees.Add(MapToGroupAssignment(assignment));
+                    group.AssigneeCount++;
                 }
             }
 
-            var result = new List<TenantTemplate>();
-            foreach (var template in byId.Values)
+            var result = new List<TenantGroup>();
+            foreach (var group in byId.Values)
             {
-                if (metaBacked.Contains(template.TemplateId))
-                    result.Add(template);
+                if (metaBacked.Contains(group.GroupId))
+                    result.Add(group);
             }
             return result;
         }
 
-        public async Task<TenantTemplate?> GetTenantTemplateAsync(string templateId)
+        public async Task<TenantGroup?> GetTenantGroupAsync(string groupId)
         {
-            if (string.IsNullOrWhiteSpace(templateId))
+            if (string.IsNullOrWhiteSpace(groupId))
                 return null;
 
-            var byId = new Dictionary<string, TenantTemplate>(StringComparer.Ordinal);
+            var byId = new Dictionary<string, TenantGroup>(StringComparer.Ordinal);
             var metaBacked = false;
-            await foreach (var entity in _tenantTemplatesTableClient.QueryAsync<TenantTemplateEntity>(
-                e => e.PartitionKey == templateId))
+            await foreach (var entity in _tenantGroupsTableClient.QueryAsync<TenantGroupEntity>(
+                e => e.PartitionKey == groupId))
             {
-                if (ApplyRowToTemplate(byId, entity))
+                if (ApplyRowToGroup(byId, entity))
                     metaBacked = true;
             }
 
-            // No meta row ⇒ the template does not exist (a stray membership row is not a template).
-            if (!metaBacked || !byId.TryGetValue(templateId, out var template))
+            // No meta row ⇒ the group does not exist (a stray membership row is not a group).
+            if (!metaBacked || !byId.TryGetValue(groupId, out var group))
                 return null;
 
-            await foreach (var assignment in _tenantTemplateAssignmentsTableClient.QueryAsync<TenantTemplateAssignmentEntity>(
-                e => e.RowKey == templateId))
+            await foreach (var assignment in _tenantGroupAssignmentsTableClient.QueryAsync<TenantGroupAssignmentEntity>(
+                e => e.RowKey == groupId))
             {
-                template.Assignees.Add(MapToTemplateAssignment(assignment));
-                template.AssigneeCount++;
+                group.Assignees.Add(MapToGroupAssignment(assignment));
+                group.AssigneeCount++;
             }
 
-            return template;
+            return group;
         }
 
-        public async Task<bool> AddTenantToTemplateAsync(string templateId, string tenantId)
+        public async Task<bool> AddTenantToGroupAsync(string groupId, string tenantId)
         {
-            if (string.IsNullOrWhiteSpace(templateId) || string.IsNullOrWhiteSpace(tenantId))
+            if (string.IsNullOrWhiteSpace(groupId) || string.IsNullOrWhiteSpace(tenantId))
                 return false;
 
             tenantId = tenantId.ToLowerInvariant();
             // Defensive: a tenantId must never collide with the reserved meta RowKey (tenant IDs are GUIDs).
-            if (tenantId == TenantTemplateEntity.MetaRowKey)
+            if (tenantId == TenantGroupEntity.MetaRowKey)
                 return false;
 
-            var entity = new TenantTemplateEntity
+            var entity = new TenantGroupEntity
             {
-                PartitionKey = templateId,
+                PartitionKey = groupId,
                 RowKey = tenantId,
                 TenantId = tenantId
             };
-            await _tenantTemplatesTableClient.UpsertEntityAsync(entity);
+            await _tenantGroupsTableClient.UpsertEntityAsync(entity);
             return true;
         }
 
-        public async Task<bool> RemoveTenantFromTemplateAsync(string templateId, string tenantId)
+        public async Task<bool> RemoveTenantFromGroupAsync(string groupId, string tenantId)
         {
-            if (string.IsNullOrWhiteSpace(templateId) || string.IsNullOrWhiteSpace(tenantId))
+            if (string.IsNullOrWhiteSpace(groupId) || string.IsNullOrWhiteSpace(tenantId))
                 return false;
 
             tenantId = tenantId.ToLowerInvariant();
-            await DeleteIfPresentAsync(_tenantTemplatesTableClient, templateId, tenantId);
+            await DeleteIfPresentAsync(_tenantGroupsTableClient, groupId, tenantId);
             return true;
         }
 
-        public async Task<List<string>> GetTemplateTenantsAsync(string templateId)
+        public async Task<List<string>> GetGroupTenantsAsync(string groupId)
         {
             var tenants = new List<string>();
-            if (string.IsNullOrWhiteSpace(templateId))
+            if (string.IsNullOrWhiteSpace(groupId))
                 return tenants;
 
-            // HOT PATH (scope resolution): PartitionKey scan, skip the meta row. A template only "exists" if
+            // HOT PATH (scope resolution): PartitionKey scan, skip the meta row. A group only "exists" if
             // its meta row is present — a partition with only membership rows (partial delete / bad data) must
-            // NOT grant scope. Mirrors the meta-backed invariant in GetTenantTemplateAsync so auth and the
-            // management reads agree on what a template is.
+            // NOT grant scope. Mirrors the meta-backed invariant in GetTenantGroupAsync so auth and the
+            // management reads agree on what a group is.
             var metaBacked = false;
-            await foreach (var entity in _tenantTemplatesTableClient.QueryAsync<TenantTemplateEntity>(
-                e => e.PartitionKey == templateId))
+            await foreach (var entity in _tenantGroupsTableClient.QueryAsync<TenantGroupEntity>(
+                e => e.PartitionKey == groupId))
             {
-                if (entity.RowKey == TenantTemplateEntity.MetaRowKey)
+                if (entity.RowKey == TenantGroupEntity.MetaRowKey)
                     metaBacked = true;
                 else
                     tenants.Add(entity.RowKey);
@@ -603,66 +603,66 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return metaBacked ? tenants : new List<string>();
         }
 
-        public async Task<bool> AssignTemplateAsync(string upn, string templateId, string role, bool isEnabled, string assignedBy)
+        public async Task<bool> AssignGroupAsync(string upn, string groupId, string role, bool isEnabled, string assignedBy)
         {
-            if (string.IsNullOrWhiteSpace(upn) || string.IsNullOrWhiteSpace(templateId))
+            if (string.IsNullOrWhiteSpace(upn) || string.IsNullOrWhiteSpace(groupId))
                 return false;
 
             upn = upn.ToLowerInvariant();
             assignedBy = assignedBy?.ToLowerInvariant() ?? string.Empty;
 
-            var entity = new TenantTemplateAssignmentEntity
+            var entity = new TenantGroupAssignmentEntity
             {
                 PartitionKey = upn,
-                RowKey = templateId,
+                RowKey = groupId,
                 Upn = upn,
-                TemplateId = templateId,
+                GroupId = groupId,
                 Role = role,
                 IsEnabled = isEnabled,
                 AssignedBy = assignedBy,
                 AssignedDate = DateTime.UtcNow
             };
-            await _tenantTemplateAssignmentsTableClient.UpsertEntityAsync(entity);
+            await _tenantGroupAssignmentsTableClient.UpsertEntityAsync(entity);
             return true;
         }
 
-        public async Task<bool> UnassignTemplateAsync(string upn, string templateId)
+        public async Task<bool> UnassignGroupAsync(string upn, string groupId)
         {
-            if (string.IsNullOrWhiteSpace(upn) || string.IsNullOrWhiteSpace(templateId))
+            if (string.IsNullOrWhiteSpace(upn) || string.IsNullOrWhiteSpace(groupId))
                 return false;
 
             upn = upn.ToLowerInvariant();
-            await DeleteIfPresentAsync(_tenantTemplateAssignmentsTableClient, upn, templateId);
+            await DeleteIfPresentAsync(_tenantGroupAssignmentsTableClient, upn, groupId);
             return true;
         }
 
-        public async Task<List<TenantTemplateAssignment>> GetTemplateAssignmentsForUpnAsync(string upn)
+        public async Task<List<TenantGroupAssignment>> GetGroupAssignmentsForUpnAsync(string upn)
         {
-            var entries = new List<TenantTemplateAssignment>();
+            var entries = new List<TenantGroupAssignment>();
             if (string.IsNullOrWhiteSpace(upn))
                 return entries;
 
             var normalizedUpn = upn.ToLowerInvariant();
             // HOT PATH (scope resolution): PartitionKey point-scan.
-            await foreach (var entity in _tenantTemplateAssignmentsTableClient.QueryAsync<TenantTemplateAssignmentEntity>(
+            await foreach (var entity in _tenantGroupAssignmentsTableClient.QueryAsync<TenantGroupAssignmentEntity>(
                 e => e.PartitionKey == normalizedUpn))
             {
-                entries.Add(MapToTemplateAssignment(entity));
+                entries.Add(MapToGroupAssignment(entity));
             }
             return entries;
         }
 
-        public async Task<List<TenantTemplateAssignment>> GetTemplateAssigneesAsync(string templateId)
+        public async Task<List<TenantGroupAssignment>> GetGroupAssigneesAsync(string groupId)
         {
-            var entries = new List<TenantTemplateAssignment>();
-            if (string.IsNullOrWhiteSpace(templateId))
+            var entries = new List<TenantGroupAssignment>();
+            if (string.IsNullOrWhiteSpace(groupId))
                 return entries;
 
             // Cross-partition scan on RowKey — admin-UI path, not the hot auth path.
-            await foreach (var entity in _tenantTemplateAssignmentsTableClient.QueryAsync<TenantTemplateAssignmentEntity>(
-                e => e.RowKey == templateId))
+            await foreach (var entity in _tenantGroupAssignmentsTableClient.QueryAsync<TenantGroupAssignmentEntity>(
+                e => e.RowKey == groupId))
             {
-                entries.Add(MapToTemplateAssignment(entity));
+                entries.Add(MapToGroupAssignment(entity));
             }
             return entries;
         }
@@ -813,35 +813,35 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         }
 
         /// <summary>
-        /// Folds a TenantTemplates row (meta or membership) into the accumulating DTO for its partition.
-        /// Returns true if the row was the meta row (proof the template exists).
+        /// Folds a TenantGroups row (meta or membership) into the accumulating DTO for its partition.
+        /// Returns true if the row was the meta row (proof the group exists).
         /// </summary>
-        private static bool ApplyRowToTemplate(Dictionary<string, TenantTemplate> byId, TenantTemplateEntity entity)
+        private static bool ApplyRowToGroup(Dictionary<string, TenantGroup> byId, TenantGroupEntity entity)
         {
-            if (!byId.TryGetValue(entity.PartitionKey, out var template))
+            if (!byId.TryGetValue(entity.PartitionKey, out var group))
             {
-                template = new TenantTemplate { TemplateId = entity.PartitionKey };
-                byId[entity.PartitionKey] = template;
+                group = new TenantGroup { GroupId = entity.PartitionKey };
+                byId[entity.PartitionKey] = group;
             }
 
-            if (entity.RowKey == TenantTemplateEntity.MetaRowKey)
+            if (entity.RowKey == TenantGroupEntity.MetaRowKey)
             {
-                template.Name = entity.Name;
-                template.CreatedBy = entity.CreatedBy;
-                template.CreatedAt = entity.CreatedDate ?? default;
+                group.Name = entity.Name;
+                group.CreatedBy = entity.CreatedBy;
+                group.CreatedAt = entity.CreatedDate ?? default;
                 return true;
             }
 
-            template.TenantIds.Add(entity.RowKey);
+            group.TenantIds.Add(entity.RowKey);
             return false;
         }
 
-        private static TenantTemplateAssignment MapToTemplateAssignment(TenantTemplateAssignmentEntity entity)
+        private static TenantGroupAssignment MapToGroupAssignment(TenantGroupAssignmentEntity entity)
         {
-            return new TenantTemplateAssignment
+            return new TenantGroupAssignment
             {
                 Upn = entity.Upn,
-                TemplateId = entity.TemplateId,
+                GroupId = entity.GroupId,
                 Role = entity.Role,
                 IsEnabled = entity.IsEnabled,
                 AssignedBy = entity.AssignedBy,

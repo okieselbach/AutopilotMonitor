@@ -511,22 +511,22 @@ export const api = {
       `${API_BASE_URL}/api/global/delegated-admins/${encodeURIComponent(upn)}/${encodeURIComponent(tenantId)}/disable`,
   },
 
-  // ── Tenant Templates (MSP mode — named bundles of tenants for delegated admins) ──
-  tenantTemplates: {
-    list: () => `${API_BASE_URL}/api/global/tenant-templates`,
-    create: () => `${API_BASE_URL}/api/global/tenant-templates`,
-    rename: (templateId: string) =>
-      `${API_BASE_URL}/api/global/tenant-templates/${encodeURIComponent(templateId)}`,
-    remove: (templateId: string) =>
-      `${API_BASE_URL}/api/global/tenant-templates/${encodeURIComponent(templateId)}`,
-    addTenant: (templateId: string) =>
-      `${API_BASE_URL}/api/global/tenant-templates/${encodeURIComponent(templateId)}/tenants`,
-    removeTenant: (templateId: string, tenantId: string) =>
-      `${API_BASE_URL}/api/global/tenant-templates/${encodeURIComponent(templateId)}/tenants/${encodeURIComponent(tenantId)}`,
-    assign: (templateId: string) =>
-      `${API_BASE_URL}/api/global/tenant-templates/${encodeURIComponent(templateId)}/assignees`,
-    unassign: (templateId: string, upn: string) =>
-      `${API_BASE_URL}/api/global/tenant-templates/${encodeURIComponent(templateId)}/assignees/${encodeURIComponent(upn)}`,
+  // ── Tenant Groups (MSP mode — named bundles of tenants for delegated admins) ──
+  tenantGroups: {
+    list: () => `${API_BASE_URL}/api/global/tenant-groups`,
+    create: () => `${API_BASE_URL}/api/global/tenant-groups`,
+    rename: (groupId: string) =>
+      `${API_BASE_URL}/api/global/tenant-groups/${encodeURIComponent(groupId)}`,
+    remove: (groupId: string) =>
+      `${API_BASE_URL}/api/global/tenant-groups/${encodeURIComponent(groupId)}`,
+    addTenant: (groupId: string) =>
+      `${API_BASE_URL}/api/global/tenant-groups/${encodeURIComponent(groupId)}/tenants`,
+    removeTenant: (groupId: string, tenantId: string) =>
+      `${API_BASE_URL}/api/global/tenant-groups/${encodeURIComponent(groupId)}/tenants/${encodeURIComponent(tenantId)}`,
+    assign: (groupId: string) =>
+      `${API_BASE_URL}/api/global/tenant-groups/${encodeURIComponent(groupId)}/assignees`,
+    unassign: (groupId: string, upn: string) =>
+      `${API_BASE_URL}/api/global/tenant-groups/${encodeURIComponent(groupId)}/assignees/${encodeURIComponent(upn)}`,
   },
 
   // ── MCP Users ─────────────────────────────────────────────────────────────

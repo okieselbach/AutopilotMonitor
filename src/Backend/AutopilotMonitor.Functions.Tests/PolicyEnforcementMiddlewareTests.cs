@@ -72,9 +72,9 @@ public class PolicyEnforcementMiddlewareTests
             .ReturnsAsync((TenantMember?)null);
         repo.Setup(r => r.GetDelegatedTenantsAsync(It.IsAny<string>()))
             .ReturnsAsync(new List<DelegatedAdminEntry>());
-        // No template assignments by default (delegated scope resolves direct grants + template tenants).
-        repo.Setup(r => r.GetTemplateAssignmentsForUpnAsync(It.IsAny<string>()))
-            .ReturnsAsync(new List<TenantTemplateAssignment>());
+        // No group assignments by default (delegated scope resolves direct grants + group tenants).
+        repo.Setup(r => r.GetGroupAssignmentsForUpnAsync(It.IsAny<string>()))
+            .ReturnsAsync(new List<TenantGroupAssignment>());
 
         // Captured config repo: GetTenantConfigurationAsync returns null (tenant has no config row) so we can
         // assert that authorization role resolution never PERSISTS a default row as a side effect.
@@ -413,26 +413,26 @@ public class PolicyEnforcementMiddlewareTests
         Assert.Equal(403, result.StatusCode);
     }
 
-    // ── Tenant Templates management — GlobalAdminOnly mutations, GlobalReadOrAdmin list ──
+    // ── Tenant Groups management — GlobalAdminOnly mutations, GlobalReadOrAdmin list ──
 
     [Fact]
-    public async Task TenantTemplates_Mutation_PureDelegated_IsForbidden()
+    public async Task TenantGroups_Mutation_PureDelegated_IsForbidden()
     {
-        // A delegated ("MSP") admin must never manage templates — every mutation is GlobalAdminOnly,
+        // A delegated ("MSP") admin must never manage groups — every mutation is GlobalAdminOnly,
         // which is not a read tier, so the delegated rescue cannot admit it.
         const string upn = "msp@partner.example";
         var h = BuildHarness();
         h.AsDelegated(TenantB, Constants.DelegatedRoles.DelegatedAdmin);
 
         var result = await h.Middleware.DecideAsync(
-            "POST", "/api/global/tenant-templates/tpl-1/assignees", null, AuthedPrincipal(TenantA, upn));
+            "POST", "/api/global/tenant-groups/tpl-1/assignees", null, AuthedPrincipal(TenantA, upn));
 
         Assert.False(result.Allowed);
         Assert.Equal(403, result.StatusCode);
     }
 
     [Fact]
-    public async Task TenantTemplates_RemoveTenant_PureGlobalReader_IsForbidden()
+    public async Task TenantGroups_RemoveTenant_PureGlobalReader_IsForbidden()
     {
         // The one {tenantId} route (RouteParam) is still GlobalAdminOnly — a read-only Global Reader is denied.
         const string upn = "reader@vendor.example";
@@ -440,35 +440,35 @@ public class PolicyEnforcementMiddlewareTests
         h.AsGlobalRole(Constants.GlobalRoles.GlobalReader);
 
         var result = await h.Middleware.DecideAsync(
-            "DELETE", $"/api/global/tenant-templates/tpl-1/tenants/{TenantB}", null, AuthedPrincipal(TenantA, upn));
+            "DELETE", $"/api/global/tenant-groups/tpl-1/tenants/{TenantB}", null, AuthedPrincipal(TenantA, upn));
 
         Assert.False(result.Allowed);
         Assert.Equal(403, result.StatusCode);
     }
 
     [Fact]
-    public async Task TenantTemplates_List_GlobalReader_IsAllowed()
+    public async Task TenantGroups_List_GlobalReader_IsAllowed()
     {
-        // Listing templates is GlobalReadOrAdmin — a read-only Global Reader may audit them.
+        // Listing groups is GlobalReadOrAdmin — a read-only Global Reader may audit them.
         const string upn = "reader@vendor.example";
         var h = BuildHarness();
         h.AsGlobalRole(Constants.GlobalRoles.GlobalReader);
 
         var result = await h.Middleware.DecideAsync(
-            "GET", "/api/global/tenant-templates", null, AuthedPrincipal(TenantA, upn));
+            "GET", "/api/global/tenant-groups", null, AuthedPrincipal(TenantA, upn));
 
         Assert.True(result.Allowed);
     }
 
     [Fact]
-    public async Task TenantTemplates_Create_GlobalAdmin_IsAllowed()
+    public async Task TenantGroups_Create_GlobalAdmin_IsAllowed()
     {
         const string upn = "ga@vendor.example";
         var h = BuildHarness();
         h.AsGlobalRole(Constants.GlobalRoles.GlobalAdmin);
 
         var result = await h.Middleware.DecideAsync(
-            "POST", "/api/global/tenant-templates", null, AuthedPrincipal(TenantA, upn));
+            "POST", "/api/global/tenant-groups", null, AuthedPrincipal(TenantA, upn));
 
         Assert.True(result.Allowed);
     }
