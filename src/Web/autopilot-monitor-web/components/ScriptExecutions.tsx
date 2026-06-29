@@ -191,6 +191,11 @@ function ScriptCardView({ card, showScriptOutput, latestBootstrapVersion, displa
   const remediationStatusLabel = mapRemediationStatus(remediationStatus);
   const cardDisplayName = lookupScriptDisplayName(displayNamesByRefKey, card.scriptType, card.policyId);
 
+  // Whole-cycle run duration (HS-SCRIPT-START → HS-NEW-RESULT). Shown once on the header so the
+  // user sees how long the remediation ran without the same number repeated on every phase row.
+  const cardDurationLabel = formatScriptDuration(card.durationSeconds);
+  const isCardSlow = card.durationSeconds != null && card.durationSeconds >= STALE_RUNNING_THRESHOLD_SECONDS;
+
   return (
     <div className={`rounded-lg ${containerClass}`}>
       <button
@@ -219,6 +224,14 @@ function ScriptCardView({ card, showScriptOutput, latestBootstrapVersion, displa
           )}
         </div>
         <div className="flex items-center space-x-3 text-xs flex-shrink-0 ml-2">
+          {cardDurationLabel && (
+            <span
+              className={`font-mono ${isCardSlow ? "text-amber-600 font-medium" : "text-gray-500"}`}
+              title={isCardSlow ? "Long run — a remediation near the IME timeout can block the enrollment pipeline" : "Total remediation run duration"}
+            >
+              {cardDurationLabel}
+            </span>
+          )}
           <span className={`font-medium ${statusColor}`}>{card.headerLabel}</span>
           <svg className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${phasesOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -324,8 +337,10 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
 
   // Run duration (from the agent's start→completion timing). Surfaced for every completed
   // script so slow / inefficient scripts stand out; styled amber past the stale threshold
-  // (10 min) since at that range a script is a plausible enrollment-pipeline blocker.
-  const durationLabel = item.state !== "Running" ? formatScriptDuration(item.durationSeconds) : null;
+  // (10 min) since at that range a script is a plausible enrollment-pipeline blocker. Suppressed
+  // on nested phase rows: a remediation cycle's phases all carry the same whole-cycle duration,
+  // which is shown once on the parent card header instead of repeated on each phase.
+  const durationLabel = item.state !== "Running" && !nested ? formatScriptDuration(item.durationSeconds) : null;
   const isSlowDuration = item.durationSeconds != null && item.durationSeconds >= STALE_RUNNING_THRESHOLD_SECONDS;
 
   const hasStdout = item.state !== "Running" && showScriptOutput !== false && item.stdout && item.stdout.trim().length > 0;

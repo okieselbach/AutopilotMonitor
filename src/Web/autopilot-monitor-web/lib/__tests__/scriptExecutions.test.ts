@@ -730,6 +730,31 @@ describe("groupScriptItems", () => {
     ]);
     expect(cards).toHaveLength(2);
   });
+
+  it("lifts the whole-cycle durationSeconds onto a multi-phase card (every phase carries the same value)", () => {
+    const cards = groupScriptItems([
+      item({ scriptPart: "detection", complianceResult: "False", exitCode: 1, remediationStatus: 2, durationSeconds: 134, timestamp: ts(0) }),
+      item({ scriptPart: "remediation", exitCode: 0, remediationStatus: 2, durationSeconds: 134, timestamp: ts(1) }),
+      item({ scriptPart: "post-detection", complianceResult: "True", exitCode: 0, remediationStatus: 2, durationSeconds: 134, timestamp: ts(2) }),
+    ]);
+    expect(cards[0].isCycle).toBe(true);
+    expect(cards[0].durationSeconds).toBe(134);
+  });
+
+  it("single-phase card inherits its lone phase's durationSeconds", () => {
+    const cards = groupScriptItems([
+      item({ scriptPart: "detection", complianceResult: "True", exitCode: 0, remediationStatus: 4, durationSeconds: 12 }),
+    ]);
+    expect(cards[0].isCycle).toBe(false);
+    expect(cards[0].durationSeconds).toBe(12);
+  });
+
+  it("card durationSeconds is undefined when no phase reported one", () => {
+    const cards = groupScriptItems([
+      item({ scriptPart: "detection", complianceResult: "True", exitCode: 0, remediationStatus: 4 }),
+    ]);
+    expect(cards[0].durationSeconds).toBeUndefined();
+  });
 });
 
 describe("formatScriptDuration", () => {

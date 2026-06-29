@@ -124,6 +124,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // phase's data) arrives later via HS-NEW-RESULT and replaces this entry through the
         // UI dedupe (dataCompleteness scoring).
         private ScriptExecutionState _pendingHealthScript;
+
+        // Cycle start timestamps for health (remediation) scripts, keyed by policyId. Captured
+        // from the HS-SCRIPT-START line ([HS] ProcessScript) so the consolidated HS-NEW-RESULT
+        // emit can surface the cycle's total run duration (start → result) on its phase events —
+        // the remediation-script analog of the platform-script StartedAtUtc timing. Kept in a
+        // dedicated map (not on _pendingHealthScript) because the early-signal HS-COMPLIANCE
+        // handler clears that slot before HS-NEW-RESULT arrives. Consumed + removed on result emit.
+        private readonly Dictionary<string, DateTime> _healthScriptStartTimes =
+            new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+
         private const int MaxScriptOutputLength = 2048;
         private const int MaxMultiLineBufferLines = 100;
 

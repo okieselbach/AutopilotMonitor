@@ -197,6 +197,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     PolicyId = id,
                     ScriptType = "remediation",
                 };
+                // Stamp the cycle start so HandleHealthScriptResultJson can compute the run
+                // duration when the consolidated [HS] new result line arrives (the slot above is
+                // cleared by the early-signal HS-COMPLIANCE handler, so timing lives in its own
+                // map). Prefer the source CMTrace timestamp; latest start wins on a policy re-run.
+                _healthScriptStartTimes[id] = LastMatchedLogTimestamp ?? DateTime.UtcNow;
                 _logger.Info($"ImeLogTracker: health script started: {id}");
                 try { OnScriptStarted?.Invoke(new ScriptStartedInfo { PolicyId = id, ScriptType = "remediation", PolicyType = policyType }); }
                 catch (Exception ex) { _logger.Warning($"ImeLogTracker: OnScriptStarted handler threw: {ex.Message}"); }
@@ -632,6 +637,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             HandleHealthScriptDetectionResult(match, new Dictionary<string, string>());
         }
 
+        /// <summary>Test seam: seed the per-policy health-script cycle start timestamp as if an
+        /// HS-SCRIPT-START line had been observed, so a subsequent
+        /// <see cref="HandleHealthScriptResultJson"/> surfaces a run duration without driving the
+        /// full regex pipeline.</summary>
+        internal void SeedHealthScriptStartForTesting(string policyId, DateTime startedAtUtc)
+        {
+            if (string.IsNullOrEmpty(policyId)) return;
+            _healthScriptStartTimes[policyId] = startedAtUtc;
+        }
+
         private void HandleHealthScriptResult(Match match, Dictionary<string, string> parameters)
         {
             var json = match.Groups["json"]?.Value;
@@ -679,6 +694,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 return;
             }
 
+            // Cycle run-duration: start captured from HS-SCRIPT-START, end = this result line
+            // (the adapter resolves the completion timestamp). Surfaced as durationSeconds on the
+            // emitted phase events — the remediation analog of platform-script timing. Consumed +
+            // removed so a later re-run of the same policy re-times from its own start. Null when
+            // the start line was never seen in the agent's window (e.g. a replayed result).
+            DateTime? cycleStartedAtUtc = _healthScriptStartTimes.TryGetValue(policyId, out var hsStart)
+                ? hsStart
+                : (DateTime?)null;
+            _healthScriptStartTimes.Remove(policyId);
+
             // Common metadata — applied to every emitted phase event.
             var remediationStatus = TryGetInt(root, "RemediationStatus");
             var targetType = TryGetInt(root, "TargetType");
@@ -716,7 +741,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 remediationStatus: remediationStatus,
                 targetType: targetType,
                 errorCode: errorCode,
-                errorDetails: errorDetails);
+                errorDetails: errorDetails,
+                startedAtUtc: cycleStartedAtUtc);
             // complianceResult mirrors the legacy HS-COMPLIANCE event semantics: True when the
             // pre-detection script reported compliant (exit 0), False otherwise.
             detection.ComplianceResult = firstDetectExit == 0 ? "True" : (firstDetectExit.HasValue ? "False" : null);
@@ -739,7 +765,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     remediationStatus: remediationStatus,
                     targetType: targetType,
                     errorCode: errorCode,
-                    errorDetails: errorDetails);
+                    errorDetails: errorDetails,
+                    startedAtUtc: cycleStartedAtUtc);
                 // No complianceResult on the remediation phase — there is nothing to be compliant about.
                 EmitScriptEvent(remediation);
             }
@@ -760,7 +787,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     remediationStatus: remediationStatus,
                     targetType: targetType,
                     errorCode: errorCode,
-                    errorDetails: errorDetails);
+                    errorDetails: errorDetails,
+                    startedAtUtc: cycleStartedAtUtc);
                 postDetection.ComplianceResult = lastDetectExit == 0 ? "True" : (lastDetectExit.HasValue ? "False" : null);
                 EmitScriptEvent(postDetection);
             }
@@ -782,7 +810,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             int? remediationStatus,
             int? targetType,
             int? errorCode,
-            string errorDetails) =>
+            string errorDetails,
+            DateTime? startedAtUtc) =>
             new ScriptExecutionState
             {
                 PolicyId = policyId,
@@ -795,7 +824,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 RemediationStatus = remediationStatus,
                 TargetType = targetType,
                 ErrorCode = errorCode,
-                ErrorDetails = errorDetails
+                ErrorDetails = errorDetails,
+                // Cycle start (HS-SCRIPT-START). Every phase carries the same cycle start so the
+                // adapter computes the total run duration; the Web surfaces it once at card level.
+                StartedAtUtc = startedAtUtc
             };
 
         private static string TryGetString(JsonElement parent, string name)

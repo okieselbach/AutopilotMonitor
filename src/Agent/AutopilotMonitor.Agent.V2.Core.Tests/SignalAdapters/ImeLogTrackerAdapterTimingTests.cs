@@ -136,6 +136,50 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             Assert.NotNull(adapter.AppTimings["a"].CompletedAtUtc);
         }
 
+        // Remediation (health) scripts: the cycle start is captured from HS-SCRIPT-START and the
+        // whole-cycle run duration surfaces on the HS-NEW-RESULT phase events — the analog of the
+        // platform-script start→completion timing.
+        private const string DetectOnlyResultJson = @"{
+          ""PolicyId"": ""75d14a95-d49f-473d-9d65-d4b006bc7468"",
+          ""PreRemediationDetectScriptOutput"": ""LocalAdminIsEnabled=False"",
+          ""RemediationStatus"": 4,
+          ""ErrorCode"": 0,
+          ""Info"": { ""FirstDetectExitCode"": 0, ""ErrorDetails"": null },
+          ""RunAsAccount"": 1,
+          ""TargetType"": 2
+        }";
+
+        [Fact]
+        public void HealthScriptResult_with_observed_start_emits_cycle_durationSeconds()
+        {
+            using var f = new ImeLogTrackerAdapterFixture(T0);
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            // Cycle started 65s before the consolidated result line is parsed (clock stays at T0
+            // because no regex match drives LastMatchedLogTimestamp in this seam).
+            f.Tracker.SeedHealthScriptStartForTesting(
+                "75d14a95-d49f-473d-9d65-d4b006bc7468", T0.AddSeconds(-65));
+
+            f.Tracker.HandleHealthScriptResultJson(DetectOnlyResultJson);
+
+            var info = Assert.Single(f.InfoEvents(SharedEventTypes.ScriptCompleted));
+            Assert.Equal("65.00", info.Payload!["durationSeconds"]);
+        }
+
+        [Fact]
+        public void HealthScriptResult_without_observed_start_omits_durationSeconds()
+        {
+            // Replay scenario: the result line is seen but its HS-SCRIPT-START scrolled past
+            // before the agent booted, so no start timestamp is available → no duration.
+            using var f = new ImeLogTrackerAdapterFixture(T0);
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            f.Tracker.HandleHealthScriptResultJson(DetectOnlyResultJson);
+
+            var info = Assert.Single(f.InfoEvents(SharedEventTypes.ScriptCompleted));
+            Assert.False(info.Payload!.ContainsKey("durationSeconds"));
+        }
+
         [Fact]
         public void DownloadProgress_tick_does_not_regress_StartedAt()
         {

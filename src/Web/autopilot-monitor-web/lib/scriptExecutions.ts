@@ -90,6 +90,13 @@ export interface ScriptCard {
   isCycle: boolean;
   /** First-phase timestamp; used for sorting cards chronologically in the UI. */
   timestamp: string;
+  /**
+   * Cycle-level run duration in seconds. For platform / single-phase cards this is the lone
+   * phase's duration; for multi-phase remediation cycles every phase event carries the same
+   * whole-cycle duration (HS-SCRIPT-START → HS-NEW-RESULT), so we lift it once onto the card
+   * header rather than repeating it on each nested phase row. Absent when no phase reported one.
+   */
+  durationSeconds?: number;
 }
 
 /** Stable React key for a ScriptCard. */
@@ -481,6 +488,11 @@ export function groupScriptItems(items: ScriptItem[]): ScriptCard[] {
         : (first.result ?? (first.state === "Failed" ? "Failed" : "Success"));
     }
 
+    // Cycle-level duration: phases of a remediation cycle all carry the same whole-cycle
+    // duration, so the first defined value is representative. Platform / single-phase cards
+    // inherit their lone phase's duration (rendered on the row itself, not the header).
+    const cardDuration = phases.map(p => p.durationSeconds).find(d => d != null);
+
     cards.push({
       policyId: first.policyId,
       scriptType: first.scriptType,
@@ -489,6 +501,7 @@ export function groupScriptItems(items: ScriptItem[]): ScriptCard[] {
       headerState,
       isCycle,
       timestamp: first.timestamp,
+      durationSeconds: cardDuration,
     });
   }
 
