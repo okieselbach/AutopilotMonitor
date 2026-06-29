@@ -443,13 +443,20 @@ export function createOAuthRouter(): Router {
     if (client_id) {
       const registered = registeredClients.get(client_id);
       if (!registered) {
-        res.status(400).json({
-          error: 'invalid_client',
-          error_description: 'Unknown client_id — register via /oauth/register first',
-        });
-        return;
-      }
-      if (!registered.redirectUris.includes(redirect_uri)) {
+        // Stateless scale-to-zero / multi-replica: the in-memory registry may
+        // have been wiped (cold start) or live on a different replica since
+        // /oauth/register ran, so a client_id that was just issued can read as
+        // "unknown" here. The redirect_uri host allowlist (checked above) plus
+        // mandatory PKCE are the real gate, so fall back to them rather than
+        // dead-ending the user's flow — same cold-start tolerance the
+        // /oauth/callback handler already applies. Hard-failing here is what
+        // produced "invalid_client — register via /oauth/register first" for
+        // browser-opened authorize URLs after the container had slept.
+        console.warn(
+          `[oauth/authorize] Unknown client_id ${client_id} (registry cold-start / other replica?) — ` +
+          'proceeding on host-allowlist gate only',
+        );
+      } else if (!registered.redirectUris.includes(redirect_uri)) {
         console.error(
           `[oauth/authorize] redirect_uri not registered for client ${client_id}: ${redirect_uri}`,
         );
@@ -459,11 +466,10 @@ export function createOAuthRouter(): Router {
         });
         return;
       }
-    }
-    // If client_id is missing we still allow the flow (the host allowlist
-    // already gates which destinations are reachable), but emit a warning so
-    // misbehaving clients are noticed.
-    if (!client_id) {
+    } else {
+      // If client_id is missing we still allow the flow (the host allowlist
+      // already gates which destinations are reachable), but emit a warning so
+      // misbehaving clients are noticed.
       console.warn('[oauth/authorize] No client_id supplied — proceeding on host-allowlist gate only');
     }
 

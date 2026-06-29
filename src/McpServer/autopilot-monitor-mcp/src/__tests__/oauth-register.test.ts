@@ -159,6 +159,21 @@ describe('/oauth/authorize — PKCE S256 enforcement', () => {
     expect(res.status).toBe(400);
   });
 
+  it('tolerates an unknown client_id (registry cold-start) and still redirects to Entra', async () => {
+    // Stateless scale-to-zero / multi-replica wipes the in-memory registry, so
+    // a client_id minted by /oauth/register can read as unknown at /authorize.
+    // The host allowlist + PKCE are the real gate; the flow must proceed, not
+    // dead-end with invalid_client.
+    const res = await authorize({
+      client_id: '00000000-dead-beef-0000-000000000000',
+      redirect_uri: 'http://127.0.0.1:33418/',
+      code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
+      code_challenge_method: 'S256',
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location') ?? '').toContain('login.microsoftonline.com');
+  });
+
   it('redirects a valid S256 request to the Entra authorize endpoint', async () => {
     const res = await authorize({
       redirect_uri: 'http://localhost:54321/cb',
