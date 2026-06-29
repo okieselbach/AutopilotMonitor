@@ -202,8 +202,15 @@ export function accessGuard(req: Request, res: Response, next: NextFunction): vo
   const baseUrl = getPublicBaseUrl(req);
   const resourceMetadataUrl = `${baseUrl}/.well-known/oauth-protected-resource`;
 
+  // Lightweight auth-flow trace. The success path stays quiet (runWithCaller →
+  // next), but every 401/403 logs one line so a stuck client (e.g. VS Code
+  // looping unauthenticated `initialize`) is visible in container logs — the
+  // happy paths otherwise emit nothing and the flow is a black box.
+  const rpcMethod = (req.body as { method?: string } | undefined)?.method ?? '?';
+
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
+    console.error(`[mcp-auth] 401 no-bearer (method=${rpcMethod}) — client has not attached a token yet`);
     res.setHeader('WWW-Authenticate', `Bearer resource_metadata="${resourceMetadataUrl}"`);
     res.status(401).json({ error: 'Missing or invalid Authorization header' });
     return;
@@ -212,12 +219,14 @@ export function accessGuard(req: Request, res: Response, next: NextFunction): vo
   const token = authHeader.slice(7);
   const claims = extractTokenClaims(token);
   if (!claims || !claims.upn) {
+    console.error(`[mcp-auth] 401 invalid-token-claims (method=${rpcMethod})`);
     res.setHeader('WWW-Authenticate', `Bearer resource_metadata="${resourceMetadataUrl}", error="invalid_token"`);
     res.status(401).json({ error: 'Invalid token: missing required claims' });
     return;
   }
 
   if (isTokenExpired(claims)) {
+    console.error(`[mcp-auth] 401 token-expired (method=${rpcMethod}, upn=${claims.upn})`);
     res.setHeader('WWW-Authenticate', `Bearer resource_metadata="${resourceMetadataUrl}", error="invalid_token"`);
     res.status(401).json({ error: 'Token expired' });
     return;
@@ -242,9 +251,11 @@ export function accessGuard(req: Request, res: Response, next: NextFunction): vo
           // Backend could not reach a verdict (unreachable / malformed). Fail
           // closed, but do NOT tell the user they are "not whitelisted" — it is
           // not their fault and would send them chasing the wrong fix.
+          console.error(`[mcp-auth] 403 access-check-unavailable (method=${rpcMethod}, upn=${upn})`);
           res.status(403).json({ error: 'MCP access check unavailable', reason: result.reason });
           return;
         }
+        console.error(`[mcp-auth] 403 not-whitelisted (method=${rpcMethod}, upn=${upn})`);
         // Genuine authorization denial — most commonly the user's account is not
         // on the MCP whitelist. Spell that out and tell them what to do, so they
         // can ask the MCP server owner to enable their account instead of being
