@@ -17,7 +17,7 @@ const SECTION_COMPONENTS: Record<SettingsSectionId, React.ComponentType> = {
   "diagnostics-log-paths": SectionDiagnosticsLogPaths,
   "mcp-users": SectionMcpUsers,
   "delegated-admins": SectionDelegatedAdmins,
-  "tenant-templates": SectionTenantTemplates,
+  "tenant-groups": SectionTenantTemplates,
   "config-reseed": SectionConfigReseed,
   "usage-plans": SectionUsagePlans,
   "alerts": SectionAlerts,

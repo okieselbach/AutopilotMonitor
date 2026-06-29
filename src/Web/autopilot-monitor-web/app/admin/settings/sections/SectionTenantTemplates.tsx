@@ -77,11 +77,11 @@ export function SectionTenantTemplates() {
     try {
       setLoading(true);
       const response = await authenticatedFetch(api.tenantTemplates.list(), getAccessToken);
-      if (!response.ok) throw new Error(`Failed to load templates: ${response.statusText}`);
+      if (!response.ok) throw new Error(`Failed to load groups: ${response.statusText}`);
       const data = await response.json();
       setTemplates(data.templates ?? []);
     } catch (err) {
-      handleError(err, "Failed to load templates");
+      handleError(err, "Failed to load groups");
     } finally {
       setLoading(false);
     }
@@ -126,14 +126,14 @@ export function SectionTenantTemplates() {
     const name = newName.trim();
     if (!name) return;
     setCreating(true);
-    const ok = await mutate("create", api.tenantTemplates.create(), "POST", { name }, `Created template "${name}".`);
+    const ok = await mutate("create", api.tenantTemplates.create(), "POST", { name }, `Created group "${name}".`);
     setCreating(false);
     if (ok) setNewName("");
   }, [newName, mutate]);
 
   const handleRename = useCallback(
     async (t: TenantTemplate) => {
-      const name = prompt("Rename template:", t.name)?.trim();
+      const name = prompt("Rename group:", t.name)?.trim();
       if (!name || name === t.name) return;
       await mutate(`rename:${t.templateId}`, api.tenantTemplates.rename(t.templateId), "PATCH", { name }, `Renamed to "${name}".`);
     },
@@ -143,7 +143,7 @@ export function SectionTenantTemplates() {
   const handleDeleteTemplate = useCallback(
     async (t: TenantTemplate) => {
       const extra = t.assigneeCount > 0 ? ` ${t.assigneeCount} assignee(s) will lose this access.` : "";
-      if (!confirm(`Delete template "${t.name}"?${extra}`)) return;
+      if (!confirm(`Delete group "${t.name}"?${extra}`)) return;
       await mutate(`delete:${t.templateId}`, api.tenantTemplates.remove(t.templateId), "DELETE", undefined, `Deleted "${t.name}".`);
     },
     [mutate],
@@ -199,7 +199,7 @@ export function SectionTenantTemplates() {
 
   const handleUnassign = useCallback(
     async (t: TenantTemplate, upn: string) => {
-      if (!confirm(`Remove ${upn} from "${t.name}"? They lose access to all tenants in this template.`)) return;
+      if (!confirm(`Remove ${upn} from "${t.name}"? They lose access to all tenants in this group.`)) return;
       await mutate(
         `unassign:${t.templateId}:${upn}`,
         api.tenantTemplates.unassign(t.templateId, upn),
@@ -225,10 +225,10 @@ export function SectionTenantTemplates() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
               d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
           </svg>
-          <h2 className="text-lg font-semibold text-gray-900">Tenant Templates (MSP Mode)</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Tenant Groups (MSP Mode)</h2>
         </div>
         <p className="mt-1 text-sm text-gray-600">
-          Bundle tenants into a named template, then assign people to the template instead of to each tenant.
+          Bundle tenants into a named group, then assign people to the group instead of to each tenant.
           Add a tenant once and every assignee gets it; manage your managed-service team by who is assigned here.
         </p>
       </div>
@@ -254,7 +254,7 @@ export function SectionTenantTemplates() {
 
         {/* Create form */}
         <div className="bg-sky-50 border border-sky-200 rounded-lg p-4 space-y-3">
-          <p className="text-sm font-medium text-sky-800">New template</p>
+          <p className="text-sm font-medium text-sky-800">New group</p>
           <div className="flex flex-col gap-2 sm:flex-row">
             <input
               type="text"
@@ -291,14 +291,14 @@ export function SectionTenantTemplates() {
         {loading && (
           <div className="flex items-center justify-center py-8">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-sky-600" />
-            <span className="ml-3 text-sm text-gray-500">Loading templates…</span>
+            <span className="ml-3 text-sm text-gray-500">Loading groups…</span>
           </div>
         )}
 
         {/* Empty */}
         {!loading && sorted.length === 0 && (
           <p className="text-sm text-gray-500 py-4 text-center">
-            No templates yet. Create one above, add tenants to it, then assign your team.
+            No groups yet. Create one above, add tenants to it, then assign your team.
           </p>
         )}
 
