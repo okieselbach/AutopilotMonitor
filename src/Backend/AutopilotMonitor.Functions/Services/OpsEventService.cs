@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using AutopilotMonitor.Shared.DataAccess;
@@ -76,10 +78,38 @@ namespace AutopilotMonitor.Functions.Services
                 $"Cleaned up {deletedCount} ops events older than {retentionDays} days",
                 null, "System.Maintenance", new { deletedCount, retentionDays });
 
-        public Task RecordOrphanEventsCleanedAsync(int orphanSessions, int totalEventsDeleted)
-            => WriteAsync(OpsEventCategory.Maintenance, "OrphanEventsCleaned", OpsEventSeverity.Warning,
+        /// <summary>
+        /// Records the orphan-cleanup result. <paramref name="cleanedOrphans"/> carries the
+        /// per-session breakdown (which tenant + session lost lingering events and how many),
+        /// so the ops dashboard shows *what* was cleaned, not just a count. The list is capped
+        /// to keep the OpsEvents Table row under the per-property (32 KB) / entity (~1 MB) limits;
+        /// the full count always survives in <c>orphanSessions</c> and a <c>detailsTruncated</c>
+        /// flag flags any clipping. Note: an "orphan" is a session row that no longer exists while
+        /// its events lingered past the 24h grace — the tenant itself usually still exists.
+        /// </summary>
+        public Task RecordOrphanEventsCleanedAsync(int orphanSessions, int totalEventsDeleted,
+            IReadOnlyList<OrphanedEventSession>? cleanedOrphans = null)
+        {
+            const int maxDetailRows = 50;
+
+            var orphanList = cleanedOrphans ?? Array.Empty<OrphanedEventSession>();
+            var detail = orphanList
+                .OrderByDescending(o => o.EventCount)
+                .Take(maxDetailRows)
+                .Select(o => new { tenantId = o.TenantId, sessionId = o.SessionId, eventCount = o.EventCount })
+                .ToList();
+
+            return WriteAsync(OpsEventCategory.Maintenance, "OrphanEventsCleaned", OpsEventSeverity.Warning,
                 $"Cleaned {totalEventsDeleted} orphaned events across {orphanSessions} sessions",
-                null, "System.Maintenance", new { orphanSessions, totalEventsDeleted });
+                null, "System.Maintenance",
+                new
+                {
+                    orphanSessions,
+                    totalEventsDeleted,
+                    orphans = detail,
+                    detailsTruncated = orphanList.Count > maxDetailRows
+                });
+        }
 
         // ── Cascade-Delete Maintenance (Plan §5 PR6 / §16 R14) ─────────────────
         // Four event types dispatched by SessionDeletionMaintenanceFunction. Each is also

@@ -709,6 +709,9 @@ namespace AutopilotMonitor.Functions.Services
 
                 int totalEventsDeleted = 0;
                 int sessionsCleanedUp = 0;
+                // Per-orphan breakdown for the OpsEvent so the dashboard shows which tenant/session
+                // was cleaned (the worker LogInformation below does not reach App Insights).
+                var cleanedOrphans = new List<OrphanedEventSession>();
 
                 foreach (var orphan in orphans)
                 {
@@ -719,6 +722,14 @@ namespace AutopilotMonitor.Functions.Services
 
                         totalEventsDeleted += deletedEvents;
                         sessionsCleanedUp++;
+                        // Report the actual rows deleted (may differ from the index's recorded count).
+                        cleanedOrphans.Add(new OrphanedEventSession
+                        {
+                            TenantId = orphan.TenantId,
+                            SessionId = orphan.SessionId,
+                            LastIngestAt = orphan.LastIngestAt,
+                            EventCount = deletedEvents
+                        });
 
                         _logger.LogInformation(
                             "Cleaned orphan: TenantId={TenantId}, SessionId={SessionId}, Events={Events}",
@@ -736,7 +747,7 @@ namespace AutopilotMonitor.Functions.Services
                     "Orphaned events cleanup completed in {Ms}ms: {Sessions} sessions, {Events} events deleted",
                     sw.ElapsedMilliseconds, sessionsCleanedUp, totalEventsDeleted);
 
-                await _opsEventService.RecordOrphanEventsCleanedAsync(sessionsCleanedUp, totalEventsDeleted);
+                await _opsEventService.RecordOrphanEventsCleanedAsync(sessionsCleanedUp, totalEventsDeleted, cleanedOrphans);
             }
             catch (Exception ex)
             {
