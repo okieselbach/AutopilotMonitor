@@ -217,7 +217,11 @@ namespace AutopilotMonitor.Functions.Services
             };
 
             // App & Script Metrics
-            var allAppSummaries = await _metricsRepo.GetAllAppInstallSummariesAsync();
+            // Bound the AppInstall scan to the same window as the sessions above — relevantApps is
+            // filtered to sessionIdSet anyway, and an app installs during its session so its StartedAt
+            // is >= the session's. Without sinceUtc this dematerialized the entire AppInstallSummaries
+            // table on every cache miss just to discard everything outside the window.
+            var allAppSummaries = await _metricsRepo.GetAllAppInstallSummariesAsync(DateTime.UtcNow.AddDays(-days));
             var sessionIdSet = new HashSet<string>(allSessions.Select(s => s.SessionId));
             var relevantApps = allAppSummaries.Where(a => sessionIdSet.Contains(a.SessionId)).ToList();
             var appsPerSessionList = relevantApps.GroupBy(a => a.SessionId).Select(g => g.Count()).ToList();
@@ -366,7 +370,8 @@ namespace AutopilotMonitor.Functions.Services
             };
 
             // App & Script Metrics
-            var tenantAppSummaries = await _metricsRepo.GetAppInstallSummariesByTenantAsync(tenantId);
+            // Bound to the window (see ComputeUsageMetricsInternalAsync) — joined to tenantSessionIdSet below.
+            var tenantAppSummaries = await _metricsRepo.GetAppInstallSummariesByTenantAsync(tenantId, DateTime.UtcNow.AddDays(-days));
             var tenantSessionIdSet = new HashSet<string>(tenantSessions.Select(s => s.SessionId));
             var relevantTenantApps = tenantAppSummaries.Where(a => tenantSessionIdSet.Contains(a.SessionId)).ToList();
             var tenantAppsPerSession = relevantTenantApps.GroupBy(a => a.SessionId).Select(g => g.Count()).ToList();

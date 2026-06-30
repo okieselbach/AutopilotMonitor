@@ -139,10 +139,13 @@ namespace AutopilotMonitor.Functions.Services
             // App metrics: count apps per session from AppInstallSummaries table
             var sessionIdSet = new HashSet<string>(sessions.Select(s => s.SessionId));
             List<AppInstallSummary> appSummaries;
+            // Bound the AppInstall scan to this snapshot's day. The session set is already
+            // [targetDate, targetDate+1) and apps install during their session (StartedAt >= targetDate),
+            // so relevantApps is unchanged; without sinceUtc this scanned the whole table per aggregated day.
             if (tenantId == "global")
-                appSummaries = await _metricsRepo.GetAllAppInstallSummariesAsync();
+                appSummaries = await _metricsRepo.GetAllAppInstallSummariesAsync(targetDate);
             else
-                appSummaries = await _metricsRepo.GetAppInstallSummariesByTenantAsync(tenantId);
+                appSummaries = await _metricsRepo.GetAppInstallSummariesByTenantAsync(tenantId, targetDate);
 
             var relevantApps = appSummaries.Where(a => sessionIdSet.Contains(a.SessionId)).ToList();
             var appsPerSession = relevantApps.GroupBy(a => a.SessionId).Select(g => g.Count()).ToList();

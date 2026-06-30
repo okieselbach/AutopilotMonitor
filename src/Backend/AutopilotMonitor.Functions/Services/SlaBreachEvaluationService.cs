@@ -186,7 +186,10 @@ namespace AutopilotMonitor.Functions.Services
             if (config.SlaNotifyOnAppInstallBreach && config.SlaTargetAppInstallSuccessRate.HasValue)
             {
                 var currentWeekKey = SlaMetricsService.GetIsoWeekKey(now);
-                var raw = await _metricsRepo.GetAppInstallSummariesByTenantAsync(config.TenantId);
+                // Bound to a safe margin before the current ISO week (an ISO week spans <=7 days, so
+                // now-8d never excludes a current-week row). The exact week match happens in-memory
+                // below; this just stops the query from scanning the tenant's entire history every 2h.
+                var raw = await _metricsRepo.GetAppInstallSummariesByTenantAsync(config.TenantId, now.AddDays(-8));
                 appInstalls = raw
                     .Where(a => (a.Status == "Succeeded" || a.Status == "Failed")
                                 && SlaMetricsService.GetIsoWeekKey(a.StartedAt) == currentWeekKey)

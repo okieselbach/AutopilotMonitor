@@ -125,7 +125,9 @@ namespace AutopilotMonitor.Functions.Services
             List<AppInstallSummary>? appInstalls = null;
             if (config?.SlaTargetAppInstallSuccessRate != null)
             {
-                appInstalls = await _metricsRepo.GetAppInstallSummariesByTenantAsync(tenantId);
+                // Push the window's lower bound server-side (startDate); the in-memory filter below
+                // still applies the upper bound. Without sinceUtc this read the tenant's full history.
+                appInstalls = await _metricsRepo.GetAppInstallSummariesByTenantAsync(tenantId, startDate);
                 // Filter to the time window
                 appInstalls = appInstalls
                     .Where(a => a.StartedAt >= startDate && a.StartedAt <= endDate)

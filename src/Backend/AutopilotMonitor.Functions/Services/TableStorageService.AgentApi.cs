@@ -338,7 +338,11 @@ namespace AutopilotMonitor.Functions.Services
                 : windowBound;
 
             var scannedRows = 0;
-            await foreach (var entity in indexTableClient.QueryAsync<TableEntity>(filter: filter))
+            // Project to only the typeahead-matched fields (+ RowKey for the SessionId fallback at
+            // ExtractSessionIdFromIndexRowKey). Avoids pulling the full ~40-column SessionsIndex
+            // mirror for up to QuickSearchMaxScannedRows rows on every keystroke-driven request.
+            await foreach (var entity in indexTableClient.QueryAsync<TableEntity>(
+                filter: filter, select: new[] { "RowKey", "SessionId", "SerialNumber", "DeviceName", "Status", "StartedAt" }))
             {
                 if (++scannedRows > QuickSearchMaxScannedRows)
                     break;
@@ -1261,7 +1265,11 @@ namespace AutopilotMonitor.Functions.Services
             // longer vanish from the summary). See SessionStatusBuckets in MetricsMath.cs.
             var groups = new Dictionary<string, SessionStatusBuckets>(StringComparer.OrdinalIgnoreCase);
 
-            await foreach (var entity in indexTableClient.QueryAsync<TableEntity>(filter: oDataFilter))
+            // Project to the two columns the tally consumes. The SessionsIndex row is a full
+            // ~40-column mirror (incl. the large FailureSnapshotJson), so reading it whole for a
+            // status count multiplied transfer ~10-20x for nothing on this cross-partition scan.
+            await foreach (var entity in indexTableClient.QueryAsync<TableEntity>(
+                filter: oDataFilter, select: new[] { "PartitionKey", "Status" }))
             {
                 var pk = entity.PartitionKey;
                 var statusStr = entity.GetString("Status") ?? "InProgress";

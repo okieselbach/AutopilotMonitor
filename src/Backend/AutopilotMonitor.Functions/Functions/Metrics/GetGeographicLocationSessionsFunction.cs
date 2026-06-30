@@ -69,7 +69,8 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     ? FilterSessionsByLocation(sessions, locationKey, groupBy)
                     : FilterSessionsByFields(sessions, country!, query["region"], query["city"]);
 
-                var appSummaries = await _metricsRepo.GetAppInstallSummariesByTenantAsync(tenantId);
+                // Same window as the sessions above (cutoff); BuildRows joins apps to those sessions.
+                var appSummaries = await _metricsRepo.GetAppInstallSummariesByTenantAsync(tenantId, cutoff);
                 var rows = BuildRows(filtered, appSummaries);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
