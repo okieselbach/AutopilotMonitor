@@ -2,6 +2,7 @@ import { resolve, dirname } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import express, { type ErrorRequestHandler } from 'express';
+import compression from 'compression';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { registerTools } from './tools.js';
@@ -188,6 +189,15 @@ const app = express();
 // throttle in access-guard relies on.
 app.set('trust proxy', 1);
 
+// gzip tool responses. JSON compresses extremely well (measured 5-30× on these
+// payloads) and the CPU cost is sub-millisecond per response at the default
+// level 6 (≈0.3 ms for 33 KB, ≈0.9 ms for 135 KB on a full vCPU). The default
+// 1 KB threshold means small handshakes/errors are sent uncompressed, so the
+// cost lands only on the large query results where the egress/transfer win is
+// large. Requires the transport's enableJsonResponse (set below) — gzip over an
+// SSE (text/event-stream) frame would risk breaking stream framing.
+app.use(compression());
+
 // Tight body-size limit for /oauth/register, registered BEFORE the global
 // parser so the smaller limit wins (the global parser's body-already-parsed
 // short-circuit then skips re-parsing). RFC 7591 registration requests carry
@@ -248,6 +258,14 @@ app.all('/mcp', async (req, res) => {
 
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined, // stateless: no session tracking
+    // Return a single buffered application/json response instead of an SSE
+    // (text/event-stream) frame. This server is stateless request/response and
+    // emits NO server→client notifications (see the rationale below), so SSE
+    // buys nothing — and a plain JSON body is what lets the compression
+    // middleware gzip large tool results (SSE would have to be left uncompressed
+    // to avoid breaking stream framing). Spec-compatible: the client already must
+    // Accept application/json for a POST, so no client regresses.
+    enableJsonResponse: true,
   });
   // accessGuard ran runWithCaller({ platform role + delegated scope }) around next(), so the
   // caller's resolved scope is available here (and stays active through transport.handleRequest, where

@@ -54,17 +54,20 @@ export async function embed(text: string): Promise<number[]> {
 
 // ── Helpers ──────────────────────────────────────────────────
 
+/**
+ * Cosine similarity for L2-normalized vectors == their dot product.
+ *
+ * Every embedding here is unit-normalized at creation: embed() and index() both
+ * pass `normalize: true`, and the precomputed index is built via the same index()
+ * path. So ‖a‖ = ‖b‖ = 1 and the cosine denominator is 1 — computing the two norms
+ * + two sqrts + a divide per document is wasted work, and this runs over every
+ * indexed document on every query. A plain dot product is ~3× less arithmetic per
+ * document with identical results for normalized inputs.
+ */
 function cosineSimilarity(a: number[], b: number[]): number {
   let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-  const denom = Math.sqrt(normA) * Math.sqrt(normB);
-  return denom === 0 ? 0 : dot / denom;
+  for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
+  return dot;
 }
 
 // ── Provider implementation ──────────────────────────────────

@@ -30,8 +30,8 @@ const KNOWN_EVENT_TYPES = ALL_EVENT_TYPES;
  * catalog never starves the index walk into the weak legacy fallback.
  */
 export function extractEventTypeCandidates(keywords: string[]): string[] {
-  return KNOWN_EVENT_TYPES
-    .map((et) => ({ et, hits: keywords.reduce((n, kw) => n + (prefixAwareMatch(et, kw) ? 1 : 0), 0) }))
+  return KNOWN_EVENT_TYPES_SPLIT
+    .map(({ et, words }) => ({ et, hits: keywords.reduce((n, kw) => n + (prefixAwareMatchPreSplit(et, words, kw) ? 1 : 0), 0) }))
     .filter((c) => c.hits > 0)
     .sort((a, b) => b.hits - a.hits)
     .map((c) => c.et);
@@ -581,18 +581,42 @@ export function queryHasProblemIntent(keywords: string[]): boolean {
 
 const MIN_PREFIX_LEN = 4;
 
-/** Check if keyword matches text via substring or shared prefix (min 4 chars). */
-function prefixAwareMatch(text: string, keyword: string): boolean {
-  if (text.includes(keyword)) return true;
-  // Split text into words and check shared prefix
-  const words = text.split(/[\s_\-.:,/]+/);
+/** Split text into word tokens for prefix matching (same delimiters everywhere). */
+function splitWords(text: string): string[] {
+  return text.split(/[\s_\-.:,/]+/);
+}
+
+/** True when any word shares a >= MIN_PREFIX_LEN prefix with the keyword. */
+function sharesWordPrefix(words: string[], keyword: string): boolean {
+  if (keyword.length < MIN_PREFIX_LEN) return false;
   for (const word of words) {
-    if (word.length < MIN_PREFIX_LEN || keyword.length < MIN_PREFIX_LEN) continue;
+    if (word.length < MIN_PREFIX_LEN) continue;
     const prefixLen = Math.min(word.length, keyword.length, MIN_PREFIX_LEN + 2);
     if (word.slice(0, prefixLen) === keyword.slice(0, prefixLen)) return true;
   }
   return false;
 }
+
+/** Check if keyword matches text via substring or shared word-prefix (min 4 chars). */
+function prefixAwareMatch(text: string, keyword: string): boolean {
+  if (text.includes(keyword)) return true;
+  return sharesWordPrefix(splitWords(text), keyword);
+}
+
+/**
+ * prefixAwareMatch over a corpus whose word splits are precomputed — used for the
+ * fixed ~130-type catalog, which is scanned in full twice per query (candidate
+ * selection + specificity). Reusing the precomputed words avoids re-splitting
+ * every type string on every keyword on every request.
+ */
+function prefixAwareMatchPreSplit(text: string, words: string[], keyword: string): boolean {
+  if (text.includes(keyword)) return true;
+  return sharesWordPrefix(words, keyword);
+}
+
+/** The known event-type catalog with each type's word split precomputed once at module load. */
+const KNOWN_EVENT_TYPES_SPLIT: ReadonlyArray<{ et: string; words: string[] }> =
+  KNOWN_EVENT_TYPES.map((et) => ({ et, words: splitWords(et) }));
 
 /**
  * A keyword that selects FEW event types is far more discriminating than one that selects many:
@@ -607,7 +631,7 @@ export function computeKeywordSpecificity(keywords: string[]): Map<string, numbe
   const m = new Map<string, number>();
   for (const kw of keywords) {
     if (m.has(kw)) continue;
-    m.set(kw, KNOWN_EVENT_TYPES.reduce((n, et) => n + (prefixAwareMatch(et, kw) ? 1 : 0), 0));
+    m.set(kw, KNOWN_EVENT_TYPES_SPLIT.reduce((n, { et, words }) => n + (prefixAwareMatchPreSplit(et, words, kw) ? 1 : 0), 0));
   }
   return m;
 }
@@ -806,6 +830,7 @@ export function scoreEvent(
   boostFailures = false,
   semanticTypeScores?: Map<string, number>,
   keywordSpecificity?: Map<string, number>,
+  precomputedConcepts?: string[],
 ): ScoredEvent | null {
   const fields: Array<{ name: string; text: string; weight: number }> = [
     { name: 'eventType', text: (e.eventType ?? '').toLowerCase(), weight: FIELD_WEIGHTS.eventType },
@@ -818,7 +843,10 @@ export function scoreEvent(
   // Collapse query keywords that share a synonym group to a single concept so two query words
   // expressing ONE idea (e.g. "stuck" + "timeout") don't double-count coverage/score against an
   // off-topic type (hello_wait_timeout) and outrank the actually-named entity (app_download_started).
-  const concepts = dedupeSynonymConcepts(queryKeywords);
+  // This is query-invariant, so the cross-session loop computes it once and passes it in to avoid
+  // recomputing the dedupe (and its Set/Map allocations) for every one of potentially thousands of
+  // fetched events; standalone callers (unit tests) omit it and get the same value computed here.
+  const concepts = precomputedConcepts ?? dedupeSynonymConcepts(queryKeywords);
 
   let totalScore = 0;
   const matched: string[] = [];
@@ -1005,9 +1033,12 @@ export function registerSearchTools(
           await fetchSessionEvents(sessionId, tenantId, queryKeywords, preset.budget, query, eventTypeIndex, keywordSpecificity);
 
         const boostFailures = queryHasProblemIntent(queryKeywords);
+        // Synonym-collapse the query keywords ONCE — scoreEvent runs per fetched event (potentially
+        // thousands), and the concept set is identical across all of them.
+        const concepts = dedupeSynonymConcepts(queryKeywords);
         const scored: Array<ScoredEvent & { event: EventEntry }> = [];
         for (let i = 0; i < events.length; i++) {
-          const result = scoreEvent(events[i], queryKeywords, boostFailures, semanticTypeScores, keywordSpecificity);
+          const result = scoreEvent(events[i], queryKeywords, boostFailures, semanticTypeScores, keywordSpecificity, concepts);
           if (result && result.score >= minScore) {
             scored.push({ ...result, index: i, event: events[i] });
           }

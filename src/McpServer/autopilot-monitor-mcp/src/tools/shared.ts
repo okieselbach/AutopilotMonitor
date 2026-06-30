@@ -119,6 +119,9 @@ export function toolResultText(
   maxResultSizeChars: number,
 ): { content: Array<{ type: 'text'; text: string }>; _meta: Record<string, unknown> } {
   return {
+    // Pretty-printed: the output is frequently eyeballed during interactive MCP use, and
+    // the indentation whitespace gzips away to almost nothing on the wire (compression
+    // middleware), so readability is kept essentially for free.
     content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
     _meta: { 'anthropic/maxResultSizeChars': maxResultSizeChars },
   };
