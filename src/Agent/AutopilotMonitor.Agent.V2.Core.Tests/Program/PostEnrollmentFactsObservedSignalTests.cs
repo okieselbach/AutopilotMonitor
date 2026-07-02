@@ -56,11 +56,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
             // The contract under test is the payload SHAPE, not the detected values.
             Assert.Contains("enrollmentType", (IDictionary<string, string>)payload!);
             Assert.Contains("isHybridJoin", (IDictionary<string, string>)payload);
+            Assert.Contains("isSelfDeployingProfile", (IDictionary<string, string>)payload);
             // Value sanity — defaults must be parseable booleans / known type literals.
             var hybrid = payload["isHybridJoin"];
             Assert.True(hybrid == "true" || hybrid == "false");
             var type = payload["enrollmentType"];
             Assert.True(type == "v1" || type == "v2");
+            // Session 320b3bf7 kiosk fix — the OobeConfig self-deploying marker rides the
+            // same facts signal (safe default "false" off-device).
+            var selfDeploying = payload["isSelfDeployingProfile"];
+            Assert.True(selfDeploying == "true" || selfDeploying == "false");
         }
 
         [Fact]

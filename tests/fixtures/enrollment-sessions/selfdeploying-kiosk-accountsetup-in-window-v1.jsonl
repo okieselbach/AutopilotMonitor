@@ -1,0 +1,14 @@
+# Scenario: SelfDeploying kiosk — IME AccountSetup false positive lands INSIDE the 5-min window.
+# Reverse ordering of selfdeploying-kiosk-ime-accountsetup-v1: DeviceSetupProvisioningComplete
+# arms the DeviceOnlyEspDetection deadline FIRST, then the false-positive AccountSetup arrives.
+# Pre-fix, HandleEspPhaseChangedV1 cancelled the armed deadline here (the losing side of the
+# race). With the kiosk waiver the cancel is skipped for a registry-confirmed self-deploying
+# profile and the deadline still fires to terminal.
+# Expected: Stage=Completed, Outcome=EnrollmentComplete, Mode=SelfDeploying@High,
+#           DeviceOnlyDeployment=Confirmed(device_only) (no desktop/user facts).
+{"SessionSignalOrdinal":0,"SessionTraceOrdinal":0,"Kind":"SessionStarted","KindSchemaVersion":1,"OccurredAtUtc":"2026-07-02T09:00:00Z","SourceOrigin":"orchestrator","Evidence":{"Kind":"Synthetic","Identifier":"session:kiosk-in-window:started","Summary":"Session start anchor"}}
+{"SessionSignalOrdinal":1,"SessionTraceOrdinal":1,"Kind":"EnrollmentFactsObserved","KindSchemaVersion":1,"OccurredAtUtc":"2026-07-02T09:00:01Z","SourceOrigin":"Program.RunAgent","Evidence":{"Kind":"Synthetic","Identifier":"enrollment_registry_facts_read","Summary":"OobeConfig self-deploying marker present"},"Payload":{"enrollmentType":"v1","isHybridJoin":"false","isSelfDeployingProfile":"true"}}
+{"SessionSignalOrdinal":2,"SessionTraceOrdinal":2,"Kind":"EspPhaseChanged","KindSchemaVersion":1,"OccurredAtUtc":"2026-07-02T09:01:00Z","SourceOrigin":"ImeLogTracker","Evidence":{"Kind":"Derived","Identifier":"ime-log-tracker-v1","Summary":"IME log phase transition \u2192 DeviceSetup","DerivationInputs":{"source":"fixture"}},"Payload":{"phase":"DeviceSetup"}}
+{"SessionSignalOrdinal":3,"SessionTraceOrdinal":3,"Kind":"DeviceSetupProvisioningComplete","KindSchemaVersion":1,"OccurredAtUtc":"2026-07-02T09:03:00Z","SourceOrigin":"ProvisioningStatusTracker","Evidence":{"Kind":"Derived","Identifier":"provisioning-status-tracker-v1","Summary":"Device setup provisioning complete \u2014 arms deadline at 09:08","DerivationInputs":{"source":"fixture"}}}
+{"SessionSignalOrdinal":4,"SessionTraceOrdinal":4,"Kind":"EspPhaseChanged","KindSchemaVersion":1,"OccurredAtUtc":"2026-07-02T09:04:00Z","SourceOrigin":"ImeLogTracker","Evidence":{"Kind":"Derived","Identifier":"ime-log-tracker-v1","Summary":"IME log phase transition \u2192 AccountSetup (kioskUser0 FALSE POSITIVE inside the armed window)","DerivationInputs":{"source":"fixture"}},"Payload":{"phase":"AccountSetup"}}
+{"SessionSignalOrdinal":5,"SessionTraceOrdinal":5,"Kind":"DeadlineFired","KindSchemaVersion":1,"OccurredAtUtc":"2026-07-02T09:08:00Z","SourceOrigin":"DeadlineScheduler","Evidence":{"Kind":"Synthetic","Identifier":"deadline:device_only_esp_detection:fired","Summary":"Deadline survived the AccountSetup false positive (kiosk waiver) and fires to terminal."},"Payload":{"deadline":"device_only_esp_detection"}}

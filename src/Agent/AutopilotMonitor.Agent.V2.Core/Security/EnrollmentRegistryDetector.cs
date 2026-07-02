@@ -19,6 +19,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         private const string AutopilotSettingsKey = @"SOFTWARE\Microsoft\Provisioning\AutopilotSettings";
 
         /// <summary>
+        /// <c>CloudAssignedOobeConfig</c> bits 0x20 (TPM attestation) + 0x40 (AAD device-ticket
+        /// auth) — set together exclusively on self-deploying Autopilot profiles. Validated
+        /// across the full platform (2026-07-02 sweep, 8983 sessions / 63 tenants): all 1197
+        /// sessions carrying both bits belong to self-deploying/kiosk/shared-device profiles,
+        /// zero of 6785 user-driven sessions carry them, and the two bits never occur
+        /// individually. Session 320b3bf7 is the reference kiosk case this detection unblocks.
+        /// </summary>
+        internal const int SelfDeployingOobeConfigMask = 0x60;
+
+        /// <summary>
         /// Reads <c>CloudAssignedDomainJoinMethod</c> from the Autopilot policy cache. Returns
         /// <c>true</c> when the profile was deployed with Hybrid Azure AD Join
         /// (<c>CloudAssignedDomainJoinMethod == 1</c>), <c>false</c> otherwise or on any error.
@@ -87,6 +97,75 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             }
             return false;
         }
+
+        /// <summary>
+        /// Reads <c>CloudAssignedOobeConfig</c> from the Autopilot policy cache and returns
+        /// <c>true</c> when both self-deploying marker bits (<see cref="SelfDeployingOobeConfigMask"/>)
+        /// are set. Mirrors the <see cref="DetectHybridJoin"/> top-level-value-then-
+        /// <c>PolicyJsonCache</c>-JSON fallback, because the same Windows builds that omit the
+        /// flat <c>CloudAssignedDomainJoinMethod</c> value also omit <c>CloudAssignedOobeConfig</c>.
+        /// Returns <c>false</c> on any error — a missing/unreadable profile must degrade to
+        /// today's classic behaviour, never to a false self-deploying classification.
+        /// </summary>
+        public static bool DetectSelfDeployingProfile()
+        {
+            try
+            {
+                using (var key = Registry.LocalMachine.OpenSubKey(AutopilotPolicyCacheKey))
+                {
+                    if (key == null) return false;
+                    return ResolveSelfDeployingFromValues(key.GetValue);
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Pure decision logic for <see cref="DetectSelfDeployingProfile"/>. Exposed internally
+        /// so the fallback can be exercised without a real registry (same seam contract as
+        /// <see cref="ResolveHybridJoinFromValues"/>).
+        /// </summary>
+        internal static bool ResolveSelfDeployingFromValues(Func<string, object> getValue)
+        {
+            if (getValue == null) return false;
+
+            // Top-level value is authoritative when present.
+            var topLevel = getValue("CloudAssignedOobeConfig")?.ToString();
+            if (topLevel != null)
+            {
+                return TryParseOobeConfig(topLevel, out var cfg) && HasSelfDeployingBits(cfg);
+            }
+
+            // Fallback: embedded JSON blob (mirrors the hybrid-join fallback).
+            var policyJson = getValue("PolicyJsonCache")?.ToString();
+            if (string.IsNullOrWhiteSpace(policyJson)) return false;
+
+            try
+            {
+                using (var doc = System.Text.Json.JsonDocument.Parse(policyJson))
+                {
+                    if (doc.RootElement.TryGetProperty("CloudAssignedOobeConfig", out var prop))
+                    {
+                        return TryParseOobeConfig(prop.ToString(), out var cfg) && HasSelfDeployingBits(cfg);
+                    }
+                }
+            }
+            catch
+            {
+                // Malformed PolicyJsonCache → conservative non-self-deploying default.
+            }
+            return false;
+        }
+
+        private static bool TryParseOobeConfig(string raw, out int cfg) =>
+            int.TryParse(raw, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out cfg);
+
+        private static bool HasSelfDeployingBits(int cfg) =>
+            (cfg & SelfDeployingOobeConfigMask) == SelfDeployingOobeConfigMask;
 
         /// <summary>
         /// Classifies the Autopilot flow based on the <c>AutopilotSettings</c> registry:

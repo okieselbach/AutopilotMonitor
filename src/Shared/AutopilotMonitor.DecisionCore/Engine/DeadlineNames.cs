@@ -118,6 +118,14 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// <summary>On <c>SessionStarted</c>: "true" / "false" from <c>EnrollmentRegistryDetector.DetectHybridJoin()</c>.</summary>
         public const string IsHybridJoin = "isHybridJoin";
 
+        /// <summary>
+        /// On <c>EnrollmentFactsObserved</c>: "true" / "false" from
+        /// <c>EnrollmentRegistryDetector.DetectSelfDeployingProfile()</c> —
+        /// <c>CloudAssignedOobeConfig</c> bits 0x20|0x40, the registry-deterministic
+        /// self-deploying profile marker (session 320b3bf7 kiosk completion fix).
+        /// </summary>
+        public const string IsSelfDeployingProfile = "isSelfDeployingProfile";
+
         // --- InformationalEvent payload (plan §1.3, single-rail refactor) ------------
         // Mirrors the EnrollmentEvent fields the reducer must reconstruct for the
         // EmitEventTimelineEntry effect. EventType / Source are mandatory; the rest are

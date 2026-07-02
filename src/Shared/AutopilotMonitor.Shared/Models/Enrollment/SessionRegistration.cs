@@ -93,6 +93,15 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public bool IsHybridJoin { get; set; }
 
+        /// <summary>
+        /// Whether the Autopilot profile carries the self-deploying/kiosk OOBE marker
+        /// (CloudAssignedOobeConfig bits 0x20|0x40; validated platform-wide 2026-07-02 as
+        /// exclusive to self-deploying profiles). Display/filter metadata only — the
+        /// DecisionCore behavioural gate consumes the EnrollmentFactsObserved signal, not
+        /// this flag.
+        /// </summary>
+        public bool IsSelfDeployingProfile { get; set; }
+
         public SessionRegistration()
         {
             SessionId = Guid.NewGuid().ToString();

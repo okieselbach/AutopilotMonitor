@@ -303,11 +303,13 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             {
                 var enrollmentType = EnrollmentRegistryDetector.DetectEnrollmentType();
                 var isHybridJoin = EnrollmentRegistryDetector.DetectHybridJoin();
+                var isSelfDeploying = EnrollmentRegistryDetector.DetectSelfDeployingProfile();
 
                 var payload = new Dictionary<string, string>(StringComparer.Ordinal)
                 {
                     ["enrollmentType"] = enrollmentType,
                     ["isHybridJoin"] = isHybridJoin ? "true" : "false",
+                    ["isSelfDeployingProfile"] = isSelfDeploying ? "true" : "false",
                 };
 
                 var evidence = new Evidence(
@@ -322,7 +324,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     evidence: evidence,
                     payload: payload);
 
-                logger.Debug($"EnrollmentFactsObserved signal posted (enrollmentType={enrollmentType}, isHybridJoin={isHybridJoin}).");
+                logger.Debug($"EnrollmentFactsObserved signal posted (enrollmentType={enrollmentType}, isHybridJoin={isHybridJoin}, isSelfDeployingProfile={isSelfDeploying}).");
             }
             catch (Exception ex)
             {

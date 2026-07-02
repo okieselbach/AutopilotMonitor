@@ -378,7 +378,12 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     state.ScenarioProfile.Confidence == ProfileConfidence.High
                     && state.ScenarioProfile.Mode != EnrollmentMode.Unknown
                     && state.ScenarioProfile.Mode != EnrollmentMode.SelfDeploying;
-                var accountSetupEntered = state.AccountSetupEnteredUtc != null;
+                // Kiosk waiver (session 320b3bf7): on a registry-confirmed self-deploying
+                // profile the AccountSetup entry is the IME false positive and must not
+                // abort the deferred terminal — otherwise a hybrid+self-deploying session
+                // would clear the deferred flag here and park forever. Same waiver as the
+                // DeviceOnlyEspDetection sites (AccountSetupEntryVetoesSelfDeploying).
+                var accountSetupEntered = AccountSetupEntryVetoesSelfDeploying(state);
 
                 if (accountSetupEntered || monotonicModeConflict)
                 {

@@ -127,5 +127,100 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
             var actual = EnrollmentRegistryDetector.DetectHybridJoin();
             Assert.IsType<bool>(actual);
         }
+
+        // ============================================== self-deploying profile (OobeConfig)
+        // Session 320b3bf7 kiosk fix: CloudAssignedOobeConfig bits 0x20|0x40 mark a
+        // self-deploying profile (platform sweep 2026-07-02: exclusive to SD/kiosk/shared
+        // profiles, both bits always co-occur, zero user-driven false positives).
+
+        [Theory]
+        [InlineData(0x60, true)]    // exactly the mask
+        [InlineData(1534, true)]    // 0x5FE — Opsys Kiosk (session 320b3bf7)
+        [InlineData(510, true)]     // 0x1FE — second observed SD value
+        [InlineData(0x20, false)]   // TPM-attestation bit alone
+        [InlineData(0x40, false)]   // device-auth bit alone
+        [InlineData(1310, false)]   // 0x51E — dominant user-driven value
+        [InlineData(286, false)]    // 0x11E — user-driven
+        [InlineData(0, false)]
+        public void TopLevel_OobeConfig_requires_both_selfdeploying_bits(int oobeConfig, bool expected)
+        {
+            var values = new Dictionary<string, object>
+            {
+                ["CloudAssignedOobeConfig"] = oobeConfig,
+            };
+            Assert.Equal(expected, EnrollmentRegistryDetector.ResolveSelfDeployingFromValues(Lookup(values)));
+        }
+
+        [Fact]
+        public void TopLevel_OobeConfig_nonnumeric_returns_false_without_fallback()
+        {
+            // Top-level value is authoritative when present — an unparseable top-level does
+            // NOT fall through to a contradicting JSON blob (mirrors the hybrid-join contract).
+            var values = new Dictionary<string, object>
+            {
+                ["CloudAssignedOobeConfig"] = "not-a-number",
+                ["PolicyJsonCache"] = "{\"CloudAssignedOobeConfig\":1534}",
+            };
+            Assert.False(EnrollmentRegistryDetector.ResolveSelfDeployingFromValues(Lookup(values)));
+        }
+
+        [Fact]
+        public void Missing_TopLevel_OobeConfig_falls_back_to_PolicyJsonCache()
+        {
+            // Real-world shape from session 320b3bf7 (Opsys Kiosk): OobeConfig only inside
+            // the embedded JSON blob, DeploymentProfileName "Opsys Kiosk".
+            const string policyJson =
+                "{\r\n  \"CloudAssignedTenantDomain\": \"contoso.onmicrosoft.com\",\r\n" +
+                "  \"CloudAssignedOobeConfig\": 1534,\r\n" +
+                "  \"DeploymentProfileName\": \"Contoso Kiosk\"\r\n}";
+            var values = new Dictionary<string, object>
+            {
+                ["PolicyJsonCache"] = policyJson,
+            };
+            Assert.True(EnrollmentRegistryDetector.ResolveSelfDeployingFromValues(Lookup(values)));
+        }
+
+        [Fact]
+        public void Missing_TopLevel_OobeConfig_PolicyJsonCache_userdriven_returns_false()
+        {
+            var values = new Dictionary<string, object>
+            {
+                ["PolicyJsonCache"] = "{\"CloudAssignedOobeConfig\":1310}",
+            };
+            Assert.False(EnrollmentRegistryDetector.ResolveSelfDeployingFromValues(Lookup(values)));
+        }
+
+        [Fact]
+        public void OobeConfig_absent_everywhere_returns_false()
+        {
+            var values = new Dictionary<string, object>
+            {
+                ["PolicyJsonCache"] = "{\"CloudAssignedTenantDomain\":\"contoso.onmicrosoft.com\"}",
+            };
+            Assert.False(EnrollmentRegistryDetector.ResolveSelfDeployingFromValues(Lookup(values)));
+        }
+
+        [Fact]
+        public void OobeConfig_malformed_PolicyJsonCache_returns_false_without_throw()
+        {
+            var values = new Dictionary<string, object>
+            {
+                ["PolicyJsonCache"] = "{not valid json",
+            };
+            Assert.False(EnrollmentRegistryDetector.ResolveSelfDeployingFromValues(Lookup(values)));
+        }
+
+        [Fact]
+        public void OobeConfig_null_lookup_returns_false()
+        {
+            Assert.False(EnrollmentRegistryDetector.ResolveSelfDeployingFromValues(null));
+        }
+
+        [Fact]
+        public void DetectSelfDeployingProfile_returns_false_when_registry_key_is_unreadable()
+        {
+            var actual = EnrollmentRegistryDetector.DetectSelfDeployingProfile();
+            Assert.IsType<bool>(actual);
+        }
     }
 }

@@ -161,6 +161,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                 AgentVersion = agentVersion ?? string.Empty,
                 EnrollmentType = EnrollmentRegistryDetector.DetectEnrollmentType(),
                 IsHybridJoin = EnrollmentRegistryDetector.DetectHybridJoin(),
+                IsSelfDeployingProfile = EnrollmentRegistryDetector.DetectSelfDeployingProfile(),
+                // Deliberately stays true even for self-deploying profiles: the WhiteGlove
+                // Part1/Part2 merge paths and existing dashboards key on IsUserDriven;
+                // IsSelfDeployingProfile is the additive classification signal.
                 IsUserDriven = true,
             };
         }

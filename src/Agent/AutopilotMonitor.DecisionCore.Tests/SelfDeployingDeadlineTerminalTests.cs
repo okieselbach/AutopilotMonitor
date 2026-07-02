@@ -154,6 +154,124 @@ namespace AutopilotMonitor.DecisionCore.Tests
             Assert.DoesNotContain(step.NewState.Deadlines, d => d.Name == DeadlineNames.DeviceOnlyEspDetection);
         }
 
+        // ============================================================== #3b Kiosk waiver (session 320b3bf7)
+
+        private static DecisionState SeedSelfDeployingProfile(DecisionEngine engine, DecisionState state, long ordinal)
+            => engine.Reduce(state, MakeSignal(ordinal, DecisionSignalKind.EnrollmentFactsObserved, T0.AddSeconds(1),
+                new Dictionary<string, string>
+                {
+                    [SignalPayloadKeys.EnrollmentType] = "v1",
+                    [SignalPayloadKeys.IsHybridJoin] = "false",
+                    [SignalPayloadKeys.IsSelfDeployingProfile] = "true",
+                })).NewState;
+
+        [Fact]
+        public void KioskWaiver_dspcArmsDeadline_despiteAccountSetupEntered()
+        {
+            // Session 320b3bf7 ordering: the IME AccountSetup false positive lands BEFORE
+            // DeviceSetupProvisioningComplete. With the OobeConfig seed the step-3
+            // short-circuit is waived and the deadline still arms.
+            var engine = new DecisionEngine();
+            var state = PrimeDeviceSetup(engine, DecisionState.CreateInitial("sd-kiosk-1", "t", T0));
+            state = SeedSelfDeployingProfile(engine, state, 2);
+            state = engine.Reduce(state, MakeSignal(3, DecisionSignalKind.EspPhaseChanged, T0.AddMinutes(2),
+                new Dictionary<string, string> { [SignalPayloadKeys.EspPhase] = "AccountSetup" })).NewState;
+            Assert.NotNull(state.AccountSetupEnteredUtc);
+
+            var step = engine.Reduce(state, MakeSignal(4, DecisionSignalKind.DeviceSetupProvisioningComplete, T0.AddMinutes(3)));
+
+            Assert.EndsWith(":DeadlineArmed", step.Transition.Trigger);
+            var deadline = Assert.Single(step.NewState.Deadlines, d => d.Name == DeadlineNames.DeviceOnlyEspDetection);
+            Assert.Equal(T0.AddMinutes(8), deadline.DueAtUtc);
+
+            // And the fire completes terminal — race guard B is waived for the seeded profile.
+            var terminal = engine.Reduce(step.NewState, MakeSignal(5, DecisionSignalKind.DeadlineFired, T0.AddMinutes(8),
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.DeviceOnlyEspDetection }));
+            Assert.Equal(SessionStage.Completed, terminal.NewState.Stage);
+            Assert.Equal(SessionOutcome.EnrollmentComplete, terminal.NewState.Outcome);
+        }
+
+        [Fact]
+        public void KioskWaiver_accountSetupInsideWindow_doesNotCancelDeadline()
+        {
+            // Reverse ordering: deadline armed, false positive lands inside the 5-min window.
+            // HandleEspPhaseChangedV1 must NOT cancel the deadline for the seeded profile.
+            var engine = new DecisionEngine();
+            var state = PrimeDeviceSetup(engine, DecisionState.CreateInitial("sd-kiosk-2", "t", T0));
+            state = SeedSelfDeployingProfile(engine, state, 2);
+            state = engine.Reduce(state, MakeSignal(3, DecisionSignalKind.DeviceSetupProvisioningComplete, T0.AddMinutes(3))).NewState;
+            Assert.Contains(state.Deadlines, d => d.Name == DeadlineNames.DeviceOnlyEspDetection);
+
+            var accountSetupStep = engine.Reduce(state, MakeSignal(4, DecisionSignalKind.EspPhaseChanged, T0.AddMinutes(4),
+                new Dictionary<string, string> { [SignalPayloadKeys.EspPhase] = "AccountSetup" }));
+
+            Assert.Contains(accountSetupStep.NewState.Deadlines, d => d.Name == DeadlineNames.DeviceOnlyEspDetection);
+            Assert.DoesNotContain(accountSetupStep.Effects, e => e.Kind == DecisionEffectKind.CancelDeadline);
+
+            var terminal = engine.Reduce(accountSetupStep.NewState, MakeSignal(5, DecisionSignalKind.DeadlineFired, T0.AddMinutes(8),
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.DeviceOnlyEspDetection }));
+            Assert.Equal(SessionStage.Completed, terminal.NewState.Stage);
+        }
+
+        [Fact]
+        public void KioskWaiver_notAppliedWithoutSeed_hotpathUnchanged()
+        {
+            // Byte-identical hotpath proof at the unit level: WITHOUT the OobeConfig seed the
+            // AccountSetup entry cancels the deadline exactly as before (existing behaviour,
+            // duplicated here as an explicit invariant next to the waiver tests).
+            var engine = new DecisionEngine();
+            var state = PrimeDeviceSetup(engine, DecisionState.CreateInitial("sd-kiosk-3", "t", T0));
+            state = engine.Reduce(state, MakeSignal(2, DecisionSignalKind.DeviceSetupProvisioningComplete, T0.AddMinutes(3))).NewState;
+
+            var accountSetupStep = engine.Reduce(state, MakeSignal(3, DecisionSignalKind.EspPhaseChanged, T0.AddMinutes(4),
+                new Dictionary<string, string> { [SignalPayloadKeys.EspPhase] = "AccountSetup" }));
+
+            Assert.DoesNotContain(accountSetupStep.NewState.Deadlines, d => d.Name == DeadlineNames.DeviceOnlyEspDetection);
+            Assert.Contains(accountSetupStep.Effects, e =>
+                e.Kind == DecisionEffectKind.CancelDeadline
+                && e.CancelDeadlineName == DeadlineNames.DeviceOnlyEspDetection);
+        }
+
+        [Fact]
+        public void KioskWaiver_userEspProgress_reenablesVeto_shortCircuitsArm()
+        {
+            // A genuine AccountSetupProvisioningComplete on a seeded profile switches the
+            // waiver OFF — DSPC takes the Classic short-circuit and never arms the deadline.
+            var engine = new DecisionEngine();
+            var state = PrimeDeviceSetup(engine, DecisionState.CreateInitial("sd-kiosk-4", "t", T0));
+            state = SeedSelfDeployingProfile(engine, state, 2);
+            state = engine.Reduce(state, MakeSignal(3, DecisionSignalKind.EspPhaseChanged, T0.AddMinutes(2),
+                new Dictionary<string, string> { [SignalPayloadKeys.EspPhase] = "AccountSetup" })).NewState;
+            state = engine.Reduce(state, MakeSignal(4, DecisionSignalKind.AccountSetupProvisioningComplete, T0.AddMinutes(3))).NewState;
+
+            var step = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.DeviceSetupProvisioningComplete, T0.AddMinutes(4)));
+
+            Assert.EndsWith(":AccountSetupAlreadyEntered", step.Transition.Trigger);
+            Assert.DoesNotContain(step.NewState.Deadlines, d => d.Name == DeadlineNames.DeviceOnlyEspDetection);
+        }
+
+        [Fact]
+        public void KioskWaiver_guardB_notWaivedWhenUserEspProgressedAfterArm()
+        {
+            // Deadline armed first, then genuine user-ESP progress before the fire — guard B
+            // must veto the terminal (unwaived) and cancel the past-due deadline state-side.
+            var engine = new DecisionEngine();
+            var state = PrimeDeviceSetup(engine, DecisionState.CreateInitial("sd-kiosk-5", "t", T0));
+            state = SeedSelfDeployingProfile(engine, state, 2);
+            state = engine.Reduce(state, MakeSignal(3, DecisionSignalKind.DeviceSetupProvisioningComplete, T0.AddMinutes(3))).NewState;
+            state = engine.Reduce(state, MakeSignal(4, DecisionSignalKind.EspPhaseChanged, T0.AddMinutes(4),
+                new Dictionary<string, string> { [SignalPayloadKeys.EspPhase] = "AccountSetup" })).NewState;
+            state = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.AccountSetupProvisioningComplete, T0.AddMinutes(5))).NewState;
+            var deadline = state.Deadlines.Single(d => d.Name == DeadlineNames.DeviceOnlyEspDetection);
+
+            var step = engine.Reduce(state, MakeSignal(6, DecisionSignalKind.DeadlineFired, deadline.DueAtUtc,
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.DeviceOnlyEspDetection }));
+
+            Assert.False(step.Transition.Taken);
+            Assert.Equal("device_only_esp_detection_account_setup_entered", step.Transition.DeadEndReason);
+            Assert.DoesNotContain(step.NewState.Deadlines, d => d.Name == DeadlineNames.DeviceOnlyEspDetection);
+        }
+
         // ============================================================== #5 RJ closed at signal, resolved before deadline
 
         [Fact]

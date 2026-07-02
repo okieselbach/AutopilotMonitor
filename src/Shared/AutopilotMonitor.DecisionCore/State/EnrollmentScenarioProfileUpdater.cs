@@ -26,7 +26,10 @@ namespace AutopilotMonitor.DecisionCore.State
         /// signal. Payload keys: <see cref="SignalPayloadKeys.EnrollmentType"/> (literal
         /// "v1" / "v2" from <c>EnrollmentRegistryDetector.DetectEnrollmentType</c>),
         /// <see cref="SignalPayloadKeys.IsHybridJoin"/> (boolean from
-        /// <c>EnrollmentRegistryDetector.DetectHybridJoin</c>).
+        /// <c>EnrollmentRegistryDetector.DetectHybridJoin</c>),
+        /// <see cref="SignalPayloadKeys.IsSelfDeployingProfile"/> (boolean from
+        /// <c>EnrollmentRegistryDetector.DetectSelfDeployingProfile</c> — seeds
+        /// Mode=SelfDeploying at High confidence, session 320b3bf7 kiosk fix).
         /// <para>
         /// V2 race-fix (10c8e0bf debrief, 2026-04-26) — replaces the profile-seeding side
         /// of <see cref="ApplySessionStarted"/>, which lived inside the Stage-anchored
@@ -90,6 +93,30 @@ namespace AutopilotMonitor.DecisionCore.State
                         reason = newReason;
                         changed = true;
                     }
+                }
+
+                // Self-deploying profile marker (session 320b3bf7 kiosk fix): the agent read
+                // CloudAssignedOobeConfig bits 0x20|0x40 from the Autopilot policy cache —
+                // validated platform-wide as exclusive to self-deploying/kiosk profiles
+                // (2026-07-02 sweep: 1197/8556 sessions, zero user-driven false positives).
+                // High confidence because the marker is registry-deterministic, unlike the
+                // behavioural SelfDeploying inference (5-min DeviceOnlyEspDetection deadline).
+                //
+                // Gate on the LOCAL mode, not current.Mode: a "v2" enrollmentType in the SAME
+                // payload already promoted the local variable to DevicePreparation above and
+                // must win (WDP has its own completion path). An existing non-Unknown Mode on
+                // `current` is covered too (local mode is initialized from it), preserving the
+                // documented set-once/monotonic contract — including idempotency on repeat
+                // posts (Mode is already SelfDeploying → block skipped → no change).
+                if (signal.Payload.TryGetValue(SignalPayloadKeys.IsSelfDeployingProfile, out var rawSelfDeploying)
+                    && bool.TryParse(rawSelfDeploying, out var isSelfDeploying)
+                    && isSelfDeploying
+                    && mode == EnrollmentMode.Unknown)
+                {
+                    mode = EnrollmentMode.SelfDeploying;
+                    confidence = Max(confidence, ProfileConfidence.High);
+                    reason = "oobe_config_self_deploying";
+                    changed = true;
                 }
 
                 if (signal.Payload.TryGetValue(SignalPayloadKeys.IsHybridJoin, out var rawHybrid)

@@ -111,6 +111,118 @@ namespace AutopilotMonitor.DecisionCore.Tests.State
             Assert.Equal(0, p2.EvidenceOrdinal);
         }
 
+        // ------------------------------------------------ isSelfDeployingProfile seed
+        // Session 320b3bf7 kiosk fix: CloudAssignedOobeConfig 0x20|0x40 marker seeds
+        // Mode=SelfDeploying at High confidence so the IME AccountSetup false positive
+        // can no longer flip the session to Classic and suppress the DeviceOnly path.
+
+        [Fact]
+        public void EnrollmentFactsObserved_selfDeployingProfile_setsSelfDeploying_highConfidence()
+        {
+            var signal = MakeSignal(
+                DecisionSignalKind.EnrollmentFactsObserved,
+                ordinal: 0,
+                payload: new Dictionary<string, string>
+                {
+                    [SignalPayloadKeys.EnrollmentType] = "v1",
+                    [SignalPayloadKeys.IsHybridJoin] = "false",
+                    [SignalPayloadKeys.IsSelfDeployingProfile] = "true",
+                });
+
+            var profile = EnrollmentScenarioProfileUpdater.ApplyEnrollmentFactsObserved(
+                EnrollmentScenarioProfile.Empty, signal);
+
+            Assert.Equal(EnrollmentMode.SelfDeploying, profile.Mode);
+            Assert.Equal(ProfileConfidence.High, profile.Confidence);
+            Assert.Equal("oobe_config_self_deploying", profile.Reason);
+            Assert.Equal(EnrollmentJoinMode.AzureAdJoin, profile.JoinMode);
+        }
+
+        [Theory]
+        [InlineData("false")]
+        [InlineData("not-a-bool")]
+        public void EnrollmentFactsObserved_selfDeployingProfile_falseOrUnparseable_leavesModeUnknown(string raw)
+        {
+            var signal = MakeSignal(
+                DecisionSignalKind.EnrollmentFactsObserved,
+                ordinal: 0,
+                payload: new Dictionary<string, string>
+                {
+                    [SignalPayloadKeys.EnrollmentType] = "v1",
+                    [SignalPayloadKeys.IsSelfDeployingProfile] = raw,
+                });
+
+            var profile = EnrollmentScenarioProfileUpdater.ApplyEnrollmentFactsObserved(
+                EnrollmentScenarioProfile.Empty, signal);
+
+            Assert.Equal(EnrollmentMode.Unknown, profile.Mode);
+            Assert.Equal("enrollment_facts_observed:v1", profile.Reason);
+        }
+
+        [Fact]
+        public void EnrollmentFactsObserved_selfDeployingProfile_repeatPost_isIdempotent()
+        {
+            Dictionary<string, string> Payload() => new Dictionary<string, string>
+            {
+                [SignalPayloadKeys.EnrollmentType] = "v1",
+                [SignalPayloadKeys.IsHybridJoin] = "false",
+                [SignalPayloadKeys.IsSelfDeployingProfile] = "true",
+            };
+
+            var p1 = EnrollmentScenarioProfileUpdater.ApplyEnrollmentFactsObserved(
+                EnrollmentScenarioProfile.Empty,
+                MakeSignal(DecisionSignalKind.EnrollmentFactsObserved, ordinal: 0, payload: Payload()));
+            var p2 = EnrollmentScenarioProfileUpdater.ApplyEnrollmentFactsObserved(
+                p1,
+                MakeSignal(DecisionSignalKind.EnrollmentFactsObserved, ordinal: 9, payload: Payload()));
+
+            // Every dimension already set → set-once guards short-circuit, same instance back.
+            Assert.Same(p1, p2);
+            Assert.Equal(0, p2.EvidenceOrdinal);
+        }
+
+        [Fact]
+        public void EnrollmentFactsObserved_v2_beatsSelfDeployingProfile_inSamePayload()
+        {
+            // WDP (Windows Device Preparation) has its own completion path — an enrollmentType
+            // "v2" in the same payload wins over the OobeConfig marker.
+            var signal = MakeSignal(
+                DecisionSignalKind.EnrollmentFactsObserved,
+                ordinal: 0,
+                payload: new Dictionary<string, string>
+                {
+                    [SignalPayloadKeys.EnrollmentType] = "v2",
+                    [SignalPayloadKeys.IsSelfDeployingProfile] = "true",
+                });
+
+            var profile = EnrollmentScenarioProfileUpdater.ApplyEnrollmentFactsObserved(
+                EnrollmentScenarioProfile.Empty, signal);
+
+            Assert.Equal(EnrollmentMode.DevicePreparation, profile.Mode);
+        }
+
+        [Theory]
+        [InlineData(EnrollmentMode.Classic)]
+        [InlineData(EnrollmentMode.WhiteGlove)]
+        [InlineData(EnrollmentMode.DevicePreparation)]
+        public void EnrollmentFactsObserved_selfDeployingProfile_doesNotOverrideExistingMode(EnrollmentMode existing)
+        {
+            var current = EnrollmentScenarioProfile.Empty.With(
+                mode: existing, confidence: ProfileConfidence.Medium,
+                reason: "preexisting", evidenceOrdinal: 3);
+            var signal = MakeSignal(
+                DecisionSignalKind.EnrollmentFactsObserved,
+                ordinal: 5,
+                payload: new Dictionary<string, string>
+                {
+                    [SignalPayloadKeys.IsSelfDeployingProfile] = "true",
+                });
+
+            var profile = EnrollmentScenarioProfileUpdater.ApplyEnrollmentFactsObserved(current, signal);
+
+            Assert.Equal(existing, profile.Mode);
+        }
+
         [Fact]
         public void EnrollmentFactsObserved_laterSignalCannotRegressJoinMode()
         {

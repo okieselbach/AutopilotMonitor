@@ -32,6 +32,45 @@ namespace AutopilotMonitor.DecisionCore.Engine
         }
 
         /// <summary>
+        /// True when the scenario profile carries the registry-deterministic self-deploying
+        /// classification: the <c>CloudAssignedOobeConfig</c> 0x20|0x40 seed applied via
+        /// <see cref="DecisionSignalKind.EnrollmentFactsObserved"/> (reason
+        /// <c>oobe_config_self_deploying</c>). Pre-terminal, SelfDeploying@High can ONLY come
+        /// from that seed — <see cref="EnrollmentScenarioProfileUpdater.ApplySelfDeployingDeadlineConfirmed"/>
+        /// sets it exclusively inside the terminal commit of
+        /// <see cref="HandleDeviceOnlyEspDetectionDeadlineFired"/>.
+        /// <para>
+        /// Session 320b3bf7 (kiosk): the IME log tracker emits a false-positive
+        /// <c>EspPhaseChanged(AccountSetup)</c> for the kioskUser0 autologon session even
+        /// though user ESP never runs (AccountSetup ESP registry stays all-notStarted). When
+        /// this predicate holds, that signal must not suppress the DeviceOnlyEspDetection
+        /// completion path — platform sweep 2026-07-02: 436 of 487 failed self-deploying
+        /// sessions (90%) died at the 5h backend timeout through exactly this suppression.
+        /// Deliberately Mode/Confidence-based rather than reason-string-based:
+        /// <see cref="EnrollmentScenarioProfileUpdater.ApplyEspConfigDetected"/> overwrites
+        /// <c>Reason</c> while leaving Mode/Confidence intact.
+        /// </para>
+        /// </summary>
+        internal static bool HasHighConfidenceSelfDeployingProfile(DecisionState state) =>
+            state.ScenarioProfile.Mode == EnrollmentMode.SelfDeploying
+            && state.ScenarioProfile.Confidence == ProfileConfidence.High;
+
+        /// <summary>
+        /// The AccountSetup-entered fact blocks the SelfDeploying path (short-circuits the
+        /// deadline arm, trips race guard B) — EXCEPT when the profile is registry-confirmed
+        /// self-deploying and user ESP never made real progress. In that combination the
+        /// AccountSetup entry is the known IME false positive (see
+        /// <see cref="HasHighConfidenceSelfDeployingProfile"/>) and must not veto completion.
+        /// A genuine <see cref="DecisionState.AccountSetupProvisioningSucceededUtc"/> re-enables
+        /// the veto: if a real user ESP succeeded on a self-deploying-bits session (anomaly),
+        /// the engine falls back to the Classic completion path.
+        /// </summary>
+        private static bool AccountSetupEntryVetoesSelfDeploying(DecisionState state) =>
+            state.AccountSetupEnteredUtc != null
+            && !(HasHighConfidenceSelfDeployingProfile(state)
+                 && state.AccountSetupProvisioningSucceededUtc == null);
+
+        /// <summary>
         /// Handle <see cref="DecisionSignalKind.DeviceSetupProvisioningComplete"/>.
         /// <para>
         /// <b>88a53223 defang (Plan v9)</b>: this handler NO LONGER terminates. It only records
@@ -83,7 +122,12 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // Step 3 — Classic-path short-circuit: AccountSetup already started. The DeviceOnly
             // deadline is moot (already cancelled by HandleEspPhaseChangedV1's AccountSetup branch,
             // or never armed under the new code). No deadline arm here.
-            if (state.AccountSetupEnteredUtc != null)
+            //
+            // Kiosk waiver (session 320b3bf7): on a registry-confirmed self-deploying profile
+            // the AccountSetup entry is the IME false positive — fall through to step 4 and
+            // arm the deadline anyway, unless user ESP genuinely progressed
+            // (AccountSetupEntryVetoesSelfDeploying).
+            if (AccountSetupEntryVetoesSelfDeploying(state))
             {
                 var classicState = builder.Build();
                 var classicTransition = BuildTakenTransition(
@@ -231,7 +275,12 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // --- Race guard B: AccountSetup entered between deadline-arm and -fire ---
             // Defensive: the AccountSetup-cancel-deadline path normally prevents this; if it
             // didn't, we still must not classify as SelfDeploying.
-            if (state.AccountSetupEnteredUtc != null)
+            //
+            // Kiosk waiver (session 320b3bf7): on a registry-confirmed self-deploying profile
+            // the AccountSetup entry is the IME false positive and does not veto the terminal
+            // classification — unless user ESP genuinely progressed
+            // (AccountSetupEntryVetoesSelfDeploying).
+            if (AccountSetupEntryVetoesSelfDeploying(state))
             {
                 var raceBState = state.ToBuilder()
                     .WithStepIndex(state.StepIndex + 1)

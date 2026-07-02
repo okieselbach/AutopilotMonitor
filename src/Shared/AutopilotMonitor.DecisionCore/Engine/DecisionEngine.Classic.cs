@@ -95,10 +95,22 @@ namespace AutopilotMonitor.DecisionCore.Engine
             var effectsList = new List<DecisionEffect>();
             if (enrollmentPhase == EnrollmentPhase.AccountSetup)
             {
-                builder.CancelDeadline(DeadlineNames.DeviceOnlyEspDetection);
-                effectsList.Add(new DecisionEffect(
-                    DecisionEffectKind.CancelDeadline,
-                    cancelDeadlineName: DeadlineNames.DeviceOnlyEspDetection));
+                // Kiosk waiver (session 320b3bf7): on a registry-confirmed self-deploying
+                // profile (CloudAssignedOobeConfig 0x20|0x40 seed) this AccountSetup signal is
+                // the known IME false positive — the IME logs an AccountSetup phase line for
+                // the kioskUser0 autologon session although user ESP never runs. Cancelling
+                // DeviceOnlyEspDetection here was exactly what suppressed the SelfDeploying
+                // terminal path (436 five-hour-timeout failures platform-wide). The fact
+                // setting and ApplyAccountSetupObserved above stay unconditional: the entry
+                // remains visible in the enrollment_complete audit census, and the profile
+                // updater is a no-op because Mode is already SelfDeploying (non-Unknown).
+                if (!HasHighConfidenceSelfDeployingProfile(state))
+                {
+                    builder.CancelDeadline(DeadlineNames.DeviceOnlyEspDetection);
+                    effectsList.Add(new DecisionEffect(
+                        DecisionEffectKind.CancelDeadline,
+                        cancelDeadlineName: DeadlineNames.DeviceOnlyEspDetection));
+                }
 
                 // Plan §6 Fix 10 — defensive belt-and-suspenders for the premature-AwaitingHello
                 // bounce-back case. If Fix 7's tracker guard or Fix 8's reducer guards ever fail
