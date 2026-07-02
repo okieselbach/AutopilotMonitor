@@ -24,6 +24,8 @@ export interface Session {
   isPreProvisioned?: boolean;
   isHybridJoin?: boolean;
   isUserDriven?: boolean;
+  /** Self-deploying/kiosk Autopilot profile (CloudAssignedOobeConfig 0x20|0x40, agent-detected at registration). */
+  isSelfDeployingProfile?: boolean;
   agentVersion?: string;
   // OS details
   osName?: string;

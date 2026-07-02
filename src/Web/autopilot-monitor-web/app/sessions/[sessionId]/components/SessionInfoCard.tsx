@@ -101,7 +101,12 @@ export default function SessionInfoCard({ session, enrollmentDuration, displaySt
  */
 function enrollmentTypeLabel(session: Session, isGatherRulesSession: boolean): string {
   if (isGatherRulesSession) return "Gather Rules";
-  const base = session.enrollmentType === "v2" ? "Device Preparation" : "Autopilot";
+  const base =
+    session.enrollmentType === "v2"
+      ? "Device Preparation"
+      : session.isSelfDeployingProfile
+        ? "Autopilot (Self-Deploying)"
+        : "Autopilot";
   return session.isPreProvisioned ? `${base} (PreProvisioned)` : base;
 }
 

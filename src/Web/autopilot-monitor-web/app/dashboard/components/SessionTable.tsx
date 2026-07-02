@@ -940,6 +940,14 @@ function SessionCell({
                 Hybrid
               </span>
             )}
+            {session.isSelfDeployingProfile && (
+              <span
+                className="px-2 inline-flex items-center gap-1 text-xs leading-5 font-semibold rounded-full bg-teal-100 text-teal-800"
+                title="Self-deploying Autopilot profile (kiosk/shared device)"
+              >
+                Self-Deploying
+              </span>
+            )}
             {blockedDevicesSet.has(`${session.tenantId}:${session.serialNumber}`) && (
               <span
                 className="px-2 inline-flex items-center gap-1 text-xs leading-5 font-semibold rounded-full bg-orange-100 text-orange-800"
