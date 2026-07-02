@@ -541,14 +541,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 { "OpsAlertSlackEnabled", config.OpsAlertSlackEnabled },
                 { "OpsAlertSlackWebhookUrl", config.OpsAlertSlackWebhookUrl ?? string.Empty },
                 // Per-line agent binary integrity (written by build scripts via Merge).
-                // Symmetric V1/V2 schema; future V3 = add field set here.
-                // Old "LatestAgent*" columns (no V1 suffix) are read in ConvertFrom for migration —
-                // never written here so the next Save evicts them implicitly on overwrite.
+                // V2 is the only wired line; future V3 = add field set here. Retired columns
+                // (V1-suffix and the even older unsuffixed "LatestAgent*") are never written,
+                // so the next Save evicts them implicitly on overwrite.
                 { "AllowAgentDowngrade", config.AllowAgentDowngrade },
-                { "LatestAgentV1Version", config.LatestAgentV1Version ?? string.Empty },
-                { "LatestAgentV1Sha256", config.LatestAgentV1Sha256 ?? string.Empty },
-                { "LatestAgentV1ExeSha256", config.LatestAgentV1ExeSha256 ?? string.Empty },
-                { "LatestBootstrapV1ScriptVersion", config.LatestBootstrapV1ScriptVersion ?? string.Empty },
                 { "LatestAgentV2Version", config.LatestAgentV2Version ?? string.Empty },
                 { "LatestAgentV2Sha256", config.LatestAgentV2Sha256 ?? string.Empty },
                 { "LatestAgentV2ExeSha256", config.LatestAgentV2ExeSha256 ?? string.Empty },
@@ -608,18 +604,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 OpsAlertTeamsWebhookUrl = entity.GetString("OpsAlertTeamsWebhookUrl"),
                 OpsAlertSlackEnabled = entity.GetBoolean("OpsAlertSlackEnabled") ?? false,
                 OpsAlertSlackWebhookUrl = entity.GetString("OpsAlertSlackWebhookUrl"),
-                // Per-line agent binary integrity. Read V1-suffix column first; fall back to the
-                // legacy unsuffixed column ("LatestAgentVersion") so existing rows migrate
-                // transparently on the next Save.
+                // Per-line agent binary integrity. V2 is the only wired line (V1 retired).
                 AllowAgentDowngrade = entity.GetBoolean("AllowAgentDowngrade") ?? false,
-                LatestAgentV1Version = entity.GetString("LatestAgentV1Version")
-                    ?? entity.GetString("LatestAgentVersion") ?? string.Empty,
-                LatestAgentV1Sha256 = entity.GetString("LatestAgentV1Sha256")
-                    ?? entity.GetString("LatestAgentSha256") ?? string.Empty,
-                LatestAgentV1ExeSha256 = entity.GetString("LatestAgentV1ExeSha256")
-                    ?? entity.GetString("LatestAgentExeSha256") ?? string.Empty,
-                LatestBootstrapV1ScriptVersion = entity.GetString("LatestBootstrapV1ScriptVersion")
-                    ?? entity.GetString("LatestBootstrapScriptVersion") ?? string.Empty,
                 LatestAgentV2Version = entity.GetString("LatestAgentV2Version") ?? string.Empty,
                 LatestAgentV2Sha256 = entity.GetString("LatestAgentV2Sha256") ?? string.Empty,
                 LatestAgentV2ExeSha256 = entity.GetString("LatestAgentV2ExeSha256") ?? string.Empty,

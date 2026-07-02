@@ -27,10 +27,8 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
     private static readonly HashSet<string> TenantHeaderTrustedPaths = new(StringComparer.OrdinalIgnoreCase)
     {
         "/api/agent/telemetry",
-        "/api/agent/ingest",
         "/api/agent/error",
         "/api/agent/distress",
-        "/api/bootstrap/ingest",
         "/api/bootstrap/error",
     };
 

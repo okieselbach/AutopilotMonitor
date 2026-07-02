@@ -4,7 +4,7 @@ namespace AutopilotMonitor.Functions.Services
 {
     /// <summary>
     /// Programmatic SignalR message sender. Extracted as an interface so that consumers
-    /// (TenantNotificationService, GlobalNotificationService, IngestEventsFunction, etc.)
+    /// (TenantNotificationService, GlobalNotificationService, EventIngestProcessor, etc.)
     /// can be unit-tested without instantiating the real Azure SignalR ServiceManager,
     /// whose constructor validates the connection string.
     /// </summary>

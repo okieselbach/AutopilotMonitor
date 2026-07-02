@@ -1,13 +1,10 @@
-using AutopilotMonitor.Functions.Functions.Ingest;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Logging;
 
 namespace AutopilotMonitor.Functions.Services
 {
     /// <summary>
-    /// Event classification + session-status transitions. Verbatim copy of the legacy
-    /// <c>IngestEventsFunction</c> helpers (see the class-level comment on
-    /// <see cref="EventIngestProcessor"/> for the copy-duplication rationale).
+    /// Event classification + session-status transitions.
     /// </summary>
     public sealed partial class EventIngestProcessor
     {
@@ -66,7 +63,7 @@ namespace AutopilotMonitor.Functions.Services
                         classification.SessionStalledEvent = evt;
                         break;
                     case "agent_shutting_down":
-                        if (IngestEventsFunction.IsMaxLifetimeAgentShutdown(evt))
+                        if (IsMaxLifetimeAgentShutdown(evt))
                             classification.AgentMaxLifetimeShutdownEvent = evt;
                         break;
                     case "system_reboot_detected":
@@ -93,6 +90,25 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             return classification;
+        }
+
+        /// <summary>
+        /// True for an <c>agent_shutting_down</c> event whose <c>Data.reason</c> is
+        /// <c>max_lifetime</c> — the V2 watchdog shutdown (session 8bc1180f). By design that
+        /// path is a "notbremse, not a session verdict": the agent stops permanently WITHOUT
+        /// emitting <c>enrollment_failed</c>, so this is the last event the session ever
+        /// sends and the backend must map it to a terminal status itself. Other shutdown
+        /// reasons (decision_terminal, ctrl_c, process_exit, unhandled_exception, ...) either
+        /// follow a real terminal event or imply nothing terminal.
+        /// </summary>
+        internal static bool IsMaxLifetimeAgentShutdown(EnrollmentEvent? evt)
+        {
+            if (evt == null || !string.Equals(evt.EventType, "agent_shutting_down", StringComparison.Ordinal))
+                return false;
+            var reason = evt.Data != null && evt.Data.ContainsKey("reason")
+                ? evt.Data["reason"]?.ToString()
+                : null;
+            return string.Equals(reason, "max_lifetime", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsPeriodicOrStallEvent(string? eventType) => eventType switch
@@ -271,5 +287,44 @@ namespace AutopilotMonitor.Functions.Services
 
             return (statusTransitioned, whiteGloveStatusTransitioned, failureReason);
         }
+    }
+
+    /// <summary>
+    /// Holds classified events from an ingest batch for downstream processing.
+    /// </summary>
+    internal class EventClassification
+    {
+        public EnrollmentEvent? LastPhaseChangeEvent { get; set; }
+        public EnrollmentEvent? CompletionEvent { get; set; }
+        public EnrollmentEvent? FailureEvent { get; set; }
+        public EnrollmentEvent? GatherCompletionEvent { get; set; }
+        public EnrollmentEvent? DiagnosticsUploadedEvent { get; set; }
+        public EnrollmentEvent? WhiteGloveEvent { get; set; }
+        public EnrollmentEvent? WhiteGloveStartedEvent { get; set; }
+        public EnrollmentEvent? WhiteGloveResumedEvent { get; set; }
+        public EnrollmentEvent? EspFailureEvent { get; set; }
+        public EnrollmentEvent? SessionStalledEvent { get; set; }
+
+        /// <summary>
+        /// <c>agent_shutting_down</c> with <c>Data.reason == "max_lifetime"</c> — the V2
+        /// watchdog shutdown that deliberately carries no enrollment verdict. Mapped to a
+        /// terminal Failed status as the lowest-priority status writer so the session does
+        /// not stay InProgress forever (session 8bc1180f).
+        /// </summary>
+        public EnrollmentEvent? AgentMaxLifetimeShutdownEvent { get; set; }
+        public bool HasNonPeriodicRealEvent { get; set; }
+        public EnrollmentEvent? DeviceLocationEvent { get; set; }
+        public DateTime? EarliestEventTimestamp { get; set; }
+        public DateTime? LatestEventTimestamp { get; set; }
+        public Dictionary<string, AppInstallAggregationState> AppInstallUpdates { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public int PlatformScriptCount { get; set; }
+        public int RemediationScriptCount { get; set; }
+
+        /// <summary>
+        /// Number of <c>system_reboot_detected</c> events seen in this ingest batch (V2 only).
+        /// Drives the per-batch incremental RebootCount; the stored value is later overwritten
+        /// with an authoritative distinct count at the terminal transition.
+        /// </summary>
+        public int RebootCount { get; set; }
     }
 }

@@ -277,22 +277,10 @@ namespace AutopilotMonitor.Shared.Models
         public string OpsAlertSlackWebhookUrl { get; set; } = default!;
 
         // ===== PER-LINE AGENT HASH ORACLE =====
-        // Symmetric per-major-line schema. Each line (V1, V2, future V3...) has its
-        // own field set. GetAgentConfigFunction parses X-Agent-Version-Major and
-        // dispatches via GetAgentLine(int major). Future V3 = add new field set + 1
-        // switch arm in GetAgentLine. See .claude/plans/v2-cutover.md.
-
-        /// <summary>Version string of the latest published V1 agent (e.g. "1.0.706").</summary>
-        public string LatestAgentV1Version { get; set; } = default!;
-
-        /// <summary>SHA-256 (lowercase hex) of the latest published V1 agent ZIP.</summary>
-        public string LatestAgentV1Sha256 { get; set; } = default!;
-
-        /// <summary>SHA-256 (lowercase hex) of the latest published V1 agent EXE.</summary>
-        public string LatestAgentV1ExeSha256 { get; set; } = default!;
-
-        /// <summary>Version string of the latest published V1 bootstrap script.</summary>
-        public string LatestBootstrapV1ScriptVersion { get; set; } = default!;
+        // Per-major-line schema. GetAgentConfigFunction parses X-Agent-Version-Major and
+        // dispatches via GetAgentLine(int major). V2 is the only wired line (the V1 line
+        // was retired with the legacy agent); future V3 = add new field set + 1 switch
+        // arm in GetAgentLine. See .claude/plans/v2-cutover.md.
 
         /// <summary>Version string of the latest published V2 agent (e.g. "2.0.647").</summary>
         public string LatestAgentV2Version { get; set; } = default!;
@@ -323,12 +311,6 @@ namespace AutopilotMonitor.Shared.Models
         {
             switch (major)
             {
-                case 1:
-                    return new AgentLineHashes(
-                        LatestAgentV1Version ?? string.Empty,
-                        LatestAgentV1Sha256 ?? string.Empty,
-                        LatestAgentV1ExeSha256 ?? string.Empty,
-                        LatestBootstrapV1ScriptVersion ?? string.Empty);
                 case 2:
                     return new AgentLineHashes(
                         LatestAgentV2Version ?? string.Empty,
@@ -336,8 +318,8 @@ namespace AutopilotMonitor.Shared.Models
                         LatestAgentV2ExeSha256 ?? string.Empty,
                         LatestBootstrapV2ScriptVersion ?? string.Empty);
                 default:
-                    // Unknown major (very old agent, or a future line not yet wired).
-                    // Return empty so callers degrade gracefully (skip integrity check).
+                    // Unknown major (retired V1 line, very old agent, or a future line not
+                    // yet wired). Return empty so callers degrade gracefully (skip integrity check).
                     return new AgentLineHashes(string.Empty, string.Empty, string.Empty, string.Empty);
             }
         }

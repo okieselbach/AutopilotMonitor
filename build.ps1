@@ -144,7 +144,7 @@ Write-Host " Build Completed Successfully!" -ForegroundColor Green
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Output locations:" -ForegroundColor White
-Write-Host "  Agent:     src\Agent\AutopilotMonitor.Agent\bin\$Configuration\net48\" -ForegroundColor Gray
+Write-Host "  Agent:     src\Agent\AutopilotMonitor.Agent.V2\bin\$Configuration\net48\" -ForegroundColor Gray
 Write-Host "  Functions: src\Backend\AutopilotMonitor.Functions\bin\$Configuration\net8.0\" -ForegroundColor Gray
 
 if ($IncludeWeb) {
@@ -158,9 +158,9 @@ Write-Host "  2. Start Functions: cd src\Backend\AutopilotMonitor.Functions && f
 
 if ($IncludeWeb) {
     Write-Host "  3. Start Web UI: cd src\Web\autopilot-monitor-web && npm run dev" -ForegroundColor Gray
-    Write-Host "  4. Test Agent: cd src\Agent\AutopilotMonitor.Agent\bin\$Configuration\net48 && .\AutopilotMonitor.Agent.exe --console" -ForegroundColor Gray
+    Write-Host "  4. Test Agent: cd src\Agent\AutopilotMonitor.Agent.V2\bin\$Configuration\net48 && .\AutopilotMonitor.Agent.exe --console" -ForegroundColor Gray
 }
 else {
-    Write-Host "  3. Test Agent: cd src\Agent\AutopilotMonitor.Agent\bin\$Configuration\net48 && .\AutopilotMonitor.Agent.exe --console" -ForegroundColor Gray
+    Write-Host "  3. Test Agent: cd src\Agent\AutopilotMonitor.Agent.V2\bin\$Configuration\net48 && .\AutopilotMonitor.Agent.exe --console" -ForegroundColor Gray
 }
 

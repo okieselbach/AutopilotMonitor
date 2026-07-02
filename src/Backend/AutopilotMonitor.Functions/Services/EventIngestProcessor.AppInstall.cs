@@ -1,4 +1,3 @@
-using AutopilotMonitor.Functions.Functions.Ingest;
 using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Functions.Services
@@ -6,8 +5,7 @@ namespace AutopilotMonitor.Functions.Services
     /// <summary>
     /// Per-app install summary aggregation — folds a batch of <c>app_install_*</c> +
     /// <c>download_progress</c> + <c>do_telemetry</c> events into an
-    /// <see cref="AppInstallSummary"/> keyed by app name. Verbatim copy of the legacy helper;
-    /// see <see cref="EventIngestProcessor"/> for the duplication rationale.
+    /// <see cref="AppInstallSummary"/> keyed by app name.
     /// </summary>
     public sealed partial class EventIngestProcessor
     {
@@ -188,7 +186,54 @@ namespace AutopilotMonitor.Functions.Services
                     break;
             }
 
-            IngestEventsFunction.RecalculateAppDurations(state);
+            RecalculateAppDurations(state);
         }
+
+        internal static void RecalculateAppDurations(AppInstallAggregationState state)
+        {
+            var summary = state.Summary;
+
+            // Effective start for full app duration: earliest known install/download start.
+            var effectiveStart = summary.StartedAt;
+            if (state.DownloadStartedAt.HasValue &&
+                (effectiveStart == DateTime.MinValue || state.DownloadStartedAt.Value < effectiveStart))
+            {
+                effectiveStart = state.DownloadStartedAt.Value;
+            }
+
+            if (state.InstallStartedAt.HasValue &&
+                (effectiveStart == DateTime.MinValue || state.InstallStartedAt.Value < effectiveStart))
+            {
+                effectiveStart = state.InstallStartedAt.Value;
+            }
+
+            if (effectiveStart != DateTime.MinValue)
+            {
+                summary.StartedAt = effectiveStart;
+            }
+
+            // Download duration: from first download start to first install start.
+            if (state.DownloadStartedAt.HasValue && state.InstallStartedAt.HasValue &&
+                state.InstallStartedAt.Value >= state.DownloadStartedAt.Value)
+            {
+                summary.DownloadDurationSeconds = EventTimestampValidator.SafeDurationSeconds(
+                    state.DownloadStartedAt.Value, state.InstallStartedAt.Value);
+            }
+
+            // Full duration: from effective start to completion/failure.
+            if (summary.CompletedAt.HasValue && summary.StartedAt != DateTime.MinValue &&
+                summary.CompletedAt.Value >= summary.StartedAt)
+            {
+                summary.DurationSeconds = EventTimestampValidator.SafeDurationSeconds(
+                    summary.StartedAt, summary.CompletedAt.Value);
+            }
+        }
+    }
+
+    internal class AppInstallAggregationState
+    {
+        public AppInstallSummary Summary { get; set; } = new();
+        public DateTime? DownloadStartedAt { get; set; }
+        public DateTime? InstallStartedAt { get; set; }
     }
 }

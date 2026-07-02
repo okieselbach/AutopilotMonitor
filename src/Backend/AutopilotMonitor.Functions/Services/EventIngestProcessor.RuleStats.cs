@@ -5,9 +5,8 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Services
 {
     /// <summary>
-    /// Daily rule-fire/evaluation telemetry (per-tenant + global aggregate rows). Verbatim
-    /// copy of the legacy helpers; see <see cref="EventIngestProcessor"/> for the duplication
-    /// rationale. Both methods are fire-and-forget — failures are logged, never thrown.
+    /// Daily rule-fire/evaluation telemetry (per-tenant + global aggregate rows).
+    /// Both methods are fire-and-forget — failures are logged, never thrown.
     /// </summary>
     public sealed partial class EventIngestProcessor
     {

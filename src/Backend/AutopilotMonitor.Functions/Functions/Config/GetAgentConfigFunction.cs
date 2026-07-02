@@ -105,7 +105,11 @@ namespace AutopilotMonitor.Functions.Functions.Config
         /// <summary>
         /// Parses the major-version from an X-Agent-Version header value.
         /// Accepts SemVer-ish strings like "2.0.114" or "2.0.114+abc123".
-        /// Missing/unparsable → returns 1 (backward-compat: very old agents may omit the header).
+        /// Missing/unparsable → returns 1 (backward-compat: very old agents may omit the
+        /// header). The V1 line is retired, so major 1 resolves to empty hashes via
+        /// GetAgentLine's default arm — legacy stragglers just skip their integrity check.
+        /// Deliberately NOT defaulting to 2: that would hand V2 hashes to V1 binaries and
+        /// could trigger the runtime_hash_mismatch force-update path against the wrong line.
         /// </summary>
         internal static int ParseAgentMajor(string? agentVersion)
         {

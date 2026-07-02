@@ -79,7 +79,7 @@ public class IngestTelemetryFunctionTests
     [Fact]
     public async Task ReadBodyWithSizeCapAsync_accepts_body_exactly_at_cap()
     {
-        // Strict greater-than semantics (matches legacy NdjsonParser): equal-to is OK. Pad a valid
+        // Strict greater-than semantics: equal-to is OK. Pad a valid
         // batch with trailing whitespace (ignored by the parser) to land exactly on the cap.
         var json = "[{\"Kind\":\"Signal\",\"PayloadJson\":\"{}\"}]".PadRight(100);
         var payload = Encoding.UTF8.GetBytes(json);

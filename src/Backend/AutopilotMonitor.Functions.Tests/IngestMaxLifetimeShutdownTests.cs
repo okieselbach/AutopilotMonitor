@@ -1,4 +1,4 @@
-using AutopilotMonitor.Functions.Functions.Ingest;
+using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
 using Xunit;
 
@@ -9,9 +9,9 @@ namespace AutopilotMonitor.Functions.Tests;
 /// WITHOUT emitting <c>enrollment_failed</c> ("notbremse, not a session verdict"), so the
 /// <c>agent_shutting_down(reason=max_lifetime)</c> event is the last one the session ever
 /// sends — without a backend mapping the session stays InProgress forever. These tests pin
-/// the shared detection predicate used by both classification copies (legacy ingest +
-/// EventIngestProcessor); the status write itself rides the existing
-/// <c>UpdateSessionStatusAsync(Failed)</c> path as the lowest-priority status writer.
+/// the detection predicate used by the EventIngestProcessor classification; the status write
+/// itself rides the existing <c>UpdateSessionStatusAsync(Failed)</c> path as the
+/// lowest-priority status writer.
 /// </summary>
 public class IngestMaxLifetimeShutdownTests
 {
@@ -37,13 +37,13 @@ public class IngestMaxLifetimeShutdownTests
     [Fact]
     public void MaxLifetimeReason_IsDetected()
     {
-        Assert.True(IngestEventsFunction.IsMaxLifetimeAgentShutdown(Shutdown("max_lifetime")));
+        Assert.True(EventIngestProcessor.IsMaxLifetimeAgentShutdown(Shutdown("max_lifetime")));
     }
 
     [Fact]
     public void MaxLifetimeReason_IsDetected_CaseInsensitively()
     {
-        Assert.True(IngestEventsFunction.IsMaxLifetimeAgentShutdown(Shutdown("Max_Lifetime")));
+        Assert.True(EventIngestProcessor.IsMaxLifetimeAgentShutdown(Shutdown("Max_Lifetime")));
     }
 
     [Theory]
@@ -57,25 +57,25 @@ public class IngestMaxLifetimeShutdownTests
     [InlineData("runtime_host_exit")]
     public void OtherShutdownReasons_AreNotDetected(string reason)
     {
-        Assert.False(IngestEventsFunction.IsMaxLifetimeAgentShutdown(Shutdown(reason)));
+        Assert.False(EventIngestProcessor.IsMaxLifetimeAgentShutdown(Shutdown(reason)));
     }
 
     [Fact]
     public void MissingReasonData_IsNotDetected()
     {
-        Assert.False(IngestEventsFunction.IsMaxLifetimeAgentShutdown(Shutdown(reason: null)));
+        Assert.False(EventIngestProcessor.IsMaxLifetimeAgentShutdown(Shutdown(reason: null)));
     }
 
     [Fact]
     public void OtherEventTypes_AreNotDetected_EvenWithMaxLifetimeReason()
     {
-        Assert.False(IngestEventsFunction.IsMaxLifetimeAgentShutdown(
+        Assert.False(EventIngestProcessor.IsMaxLifetimeAgentShutdown(
             Shutdown("max_lifetime", eventType: "agent_shutdown")));
     }
 
     [Fact]
     public void NullEvent_IsNotDetected()
     {
-        Assert.False(IngestEventsFunction.IsMaxLifetimeAgentShutdown(null));
+        Assert.False(EventIngestProcessor.IsMaxLifetimeAgentShutdown(null));
     }
 }

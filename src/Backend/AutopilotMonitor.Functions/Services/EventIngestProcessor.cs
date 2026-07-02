@@ -1,5 +1,4 @@
 using System.Linq;
-using AutopilotMonitor.Functions.Functions.Ingest;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Functions.Services.Vulnerability;
@@ -12,26 +11,11 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Services
 {
     /// <summary>
-    /// M5.b.2 — Post-parse event-processing pipeline for the V2 <c>/api/agent/telemetry</c>
-    /// endpoint. Deliberate <b>copy</b> of <see cref="IngestEventsFunction"/>'s post-body-parse
-    /// tail, extracted into a standalone service so the new endpoint has identical event
-    /// behaviour (rule engine, app-install aggregation, SignalR, vulnerability correlation,
-    /// webhooks, SLA breach evaluation, AdminAction detection, ServerAction delivery) without
-    /// touching the production-hot legacy path.
-    /// <para>
-    /// <b>Why a copy, not an extraction?</b> /api/agent/ingest serves live traffic from every
-    /// deployed V1 agent. Refactoring it is a production risk we chose not to take. The
-    /// duplicate disappears when the legacy endpoint is decommissioned post-v11 GA (see
-    /// tasks/todo.md → Follow-Ups → Legacy-Agent-Ausmusterung). Until then: bugs fixed in
-    /// legacy must be ported here manually.
-    /// </para>
-    /// <para>
-    /// Pure static helpers (<see cref="IngestEventsFunction.StampServerFields"/>,
-    /// <see cref="IngestEventsFunction.SanitizeEventTimestamps"/>) and the internal DTOs
-    /// <c>EventClassification</c> / <c>AppInstallAggregationState</c> are <b>shared</b>
-    /// (state-less, stable, no behaviour) — the duplication is scoped to the logic that
-    /// actually runs.
-    /// </para>
+    /// Event-processing pipeline for the <c>/api/agent/telemetry</c> endpoint — since the
+    /// removal of the legacy V1 NDJSON endpoint (<c>/api/agent/ingest</c>) the <b>single</b>
+    /// pipeline behind agent event ingest: rule engine, app-install aggregation, SignalR,
+    /// vulnerability correlation, webhooks, SLA breach evaluation, AdminAction detection,
+    /// ServerAction delivery.
     /// <para>
     /// Split across partials for readability — this file owns the orchestrator (ctor + DI +
     /// <see cref="ProcessEventsAsync"/>); thematic helpers live in siblings:
@@ -90,11 +74,10 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Runs the full event-processing pipeline on an already-parsed batch. Mirror of
-        /// <see cref="IngestEventsFunction"/>'s <c>ProcessIngestAsync</c> tail starting at
-        /// timestamp sanitation (security checks, device/version kill-switches, NDJSON body
-        /// parse and tenant-mismatch check are the caller's responsibility — the V2 function
-        /// does them before it even knows the item is an Event).
+        /// Runs the full event-processing pipeline on an already-parsed batch, starting at
+        /// timestamp sanitation (security checks, device/version kill-switches, body parse
+        /// and tenant-mismatch check are the caller's responsibility — the function does
+        /// them before it even knows the item is an Event).
         /// </summary>
         /// <param name="request">Parsed event batch (single session).</param>
         /// <param name="validation">Security validation result of the carrying HTTP request.</param>
@@ -117,8 +100,8 @@ namespace AutopilotMonitor.Functions.Services
                 validation.RateLimitResult?.MaxRequests);
 
             var receivedAt = DateTime.UtcNow;
-            IngestEventsFunction.StampServerFields(request.Events, request.TenantId, request.SessionId, receivedAt);
-            IngestEventsFunction.SanitizeEventTimestamps(request.Events, receivedAt, _logger);
+            StampServerFields(request.Events, request.TenantId, request.SessionId, receivedAt);
+            SanitizeEventTimestamps(request.Events, receivedAt, _logger);
 
             var storedEvents = await _sessionRepo.StoreEventsBatchAsync(request.Events);
             int processedCount = storedEvents.Count;
@@ -404,6 +387,94 @@ namespace AutopilotMonitor.Functions.Services
                 PendingActions  = pendingActions,
                 SignalRMessages = signalRMessages,
             };
+        }
+
+        /// <summary>
+        /// Stamps authoritative server-side fields onto all events before storage.
+        /// TenantId and SessionId always come from the validated request metadata,
+        /// overriding any values the agent may have sent per-event.
+        /// Exposed as internal for unit testing.
+        /// </summary>
+        internal static void StampServerFields(
+            List<EnrollmentEvent> events, string tenantId, string sessionId, DateTime receivedAt)
+        {
+            foreach (var evt in events)
+            {
+                evt.ReceivedAt = receivedAt;
+                evt.TenantId = tenantId;
+                evt.SessionId = sessionId;
+            }
+        }
+
+        /// <summary>
+        /// Sanitizes agent-side timestamps on all events by clamping out-of-range values.
+        /// When a timestamp is clamped, the original value is preserved in OriginalTimestamp
+        /// and TimestampClamped is set to true — keeping the raw data available for
+        /// troubleshooting and root-cause analysis of clock issues on devices.
+        ///
+        /// Emits structured logs for observability:
+        /// - Debug level per clamped event (TenantId/SessionId/EventType/drift) — opt-in via log level
+        /// - One Warning per ingest batch that had any clamping, with aggregate counts and max drifts.
+        ///   This is what to query in App Insights to find bad-clock devices:
+        ///     traces | where message startswith "Agent clock skew"
+        ///
+        /// Exposed as internal for unit testing.
+        /// </summary>
+        internal static void SanitizeEventTimestamps(List<EnrollmentEvent> events, DateTime utcNow, ILogger? logger = null)
+        {
+            int clampedPast = 0;
+            int clampedFuture = 0;
+            double maxPastDriftHours = 0;
+            double maxFutureDriftHours = 0;
+
+            foreach (var evt in events)
+            {
+                var original = evt.Timestamp;
+                var sanitized = EventTimestampValidator.SanitizeTimestamp(original, utcNow);
+                if (sanitized == original)
+                    continue;
+
+                evt.OriginalTimestamp = original;
+                evt.TimestampClamped = true;
+                evt.Timestamp = sanitized;
+
+                // Classify the clamping direction (for aggregate stats) and track max drift.
+                // Compare in UTC so Local/Unspecified Kinds don't skew the direction check.
+                // Note: catastrophic values like DateTime.MinValue fall into the "past" bucket
+                // with a very large drift — this is intentional and makes them easy to spot in logs.
+                var originalUtc = EventTimestampValidator.EnsureUtc(original);
+                if (originalUtc > utcNow)
+                {
+                    clampedFuture++;
+                    var drift = (originalUtc - utcNow).TotalHours;
+                    if (drift > maxFutureDriftHours) maxFutureDriftHours = drift;
+                }
+                else
+                {
+                    clampedPast++;
+                    var drift = (utcNow - originalUtc).TotalHours;
+                    if (drift > maxPastDriftHours) maxPastDriftHours = drift;
+                }
+
+                logger?.LogDebug(
+                    "Event timestamp clamped: TenantId={TenantId}, SessionId={SessionId}, EventType={EventType}, Original={Original:O}, Sanitized={Sanitized:O}",
+                    evt.TenantId, evt.SessionId, evt.EventType, original, sanitized);
+            }
+
+            if (clampedPast + clampedFuture > 0 && logger != null)
+            {
+                // Pull tenant/session from the first clamped event (all events in a batch share the same context).
+                var firstClamped = events.Find(e => e.TimestampClamped);
+                logger.LogWarning(
+                    "Agent clock skew detected: TenantId={TenantId}, SessionId={SessionId}, TotalEvents={TotalEvents}, ClampedPast={ClampedPast}, ClampedFuture={ClampedFuture}, MaxPastDriftHours={MaxPastDriftHours:F1}, MaxFutureDriftHours={MaxFutureDriftHours:F1}",
+                    firstClamped?.TenantId,
+                    firstClamped?.SessionId,
+                    events.Count,
+                    clampedPast,
+                    clampedFuture,
+                    maxPastDriftHours,
+                    maxFutureDriftHours);
+            }
         }
 
     }

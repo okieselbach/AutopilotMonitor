@@ -1,4 +1,3 @@
-using AutopilotMonitor.Functions.Functions.Ingest;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Logging;
@@ -279,7 +278,7 @@ public class EventTimestampValidationTests
             new() { Timestamp = new DateTime(2026, 3, 25, 10, 0, 0, DateTimeKind.Utc) }
         };
 
-        IngestEventsFunction.SanitizeEventTimestamps(events, FixedUtcNow);
+        EventIngestProcessor.SanitizeEventTimestamps(events, FixedUtcNow);
 
         Assert.Null(events[0].OriginalTimestamp);
         Assert.False(events[0].TimestampClamped);
@@ -294,7 +293,7 @@ public class EventTimestampValidationTests
             new() { Timestamp = badTimestamp }
         };
 
-        IngestEventsFunction.SanitizeEventTimestamps(events, FixedUtcNow);
+        EventIngestProcessor.SanitizeEventTimestamps(events, FixedUtcNow);
 
         Assert.True(events[0].TimestampClamped);
         Assert.Equal(badTimestamp, events[0].OriginalTimestamp);
@@ -312,7 +311,7 @@ public class EventTimestampValidationTests
             new() { Timestamp = new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc), EventType = "bad_future_event" },
         };
 
-        IngestEventsFunction.SanitizeEventTimestamps(events, FixedUtcNow);
+        EventIngestProcessor.SanitizeEventTimestamps(events, FixedUtcNow);
 
         // Valid event: unchanged
         Assert.False(events[0].TimestampClamped);
@@ -340,7 +339,7 @@ public class EventTimestampValidationTests
             new() { Timestamp = new DateTime(2026, 3, 25, 10, 0, 0, DateTimeKind.Utc) },
         };
 
-        IngestEventsFunction.SanitizeEventTimestamps(events, FixedUtcNow);
+        EventIngestProcessor.SanitizeEventTimestamps(events, FixedUtcNow);
 
         Assert.Equal(3, events.Count); // All events preserved
     }
@@ -349,7 +348,7 @@ public class EventTimestampValidationTests
     public void SanitizeEventTimestamps_EmptyList_DoesNotThrow()
     {
         var ex = Record.Exception(() =>
-            IngestEventsFunction.SanitizeEventTimestamps(new List<EnrollmentEvent>(), FixedUtcNow));
+            EventIngestProcessor.SanitizeEventTimestamps(new List<EnrollmentEvent>(), FixedUtcNow));
         Assert.Null(ex);
     }
 
@@ -374,7 +373,7 @@ public class EventTimestampValidationTests
             }
         };
 
-        IngestEventsFunction.RecalculateAppDurations(state);
+        EventIngestProcessor.RecalculateAppDurations(state);
 
         Assert.Equal(60, state.Summary.DurationSeconds);
     }
@@ -399,7 +398,7 @@ public class EventTimestampValidationTests
             }
         };
 
-        IngestEventsFunction.RecalculateAppDurations(state);
+        EventIngestProcessor.RecalculateAppDurations(state);
 
         Assert.Equal(30, state.Summary.DownloadDurationSeconds); // download→install gap
         Assert.Equal(75, state.Summary.DurationSeconds);         // full duration
@@ -423,58 +422,15 @@ public class EventTimestampValidationTests
             }
         };
 
-        IngestEventsFunction.RecalculateAppDurations(state);
+        EventIngestProcessor.RecalculateAppDurations(state);
 
         // Should be clamped to max 7 days (604800 seconds), not ~220 million seconds
         Assert.Equal(EventTimestampValidator.DefaultMaxDurationSeconds, state.Summary.DurationSeconds);
     }
 
     // =========================================================================
-    // End-to-End Pipeline: NDJSON parse → stamp → sanitize → safe for storage
+    // End-to-End Pipeline: stamp → sanitize → safe for storage
     // =========================================================================
-
-    [Fact]
-    public void FullPipeline_ParseStampSanitize_TimestampsAreSafe()
-    {
-        // Simulate NDJSON payload with events containing bad timestamps
-        var ndjsonLines = new[]
-        {
-            Newtonsoft.Json.JsonConvert.SerializeObject(
-                new { SessionId = ValidSessionId, TenantId = ValidTenantId }),
-            Newtonsoft.Json.JsonConvert.SerializeObject(
-                new EnrollmentEvent
-                {
-                    EventType = "phase_changed",
-                    Timestamp = new DateTime(2026, 3, 25, 10, 0, 0, DateTimeKind.Utc) // valid
-                }),
-            Newtonsoft.Json.JsonConvert.SerializeObject(
-                new EnrollmentEvent
-                {
-                    EventType = "bad_clock_event",
-                    Timestamp = DateTime.MinValue // invalid
-                }),
-        };
-        var ndjson = string.Join('\n', ndjsonLines);
-
-        // Step 1: Parse
-        var (sessionId, tenantId, events) = NdjsonParser.ParseNdjson(ndjson);
-
-        // Step 2: Stamp server fields
-        IngestEventsFunction.StampServerFields(events, tenantId, sessionId, FixedUtcNow);
-
-        // Step 3: Sanitize timestamps
-        IngestEventsFunction.SanitizeEventTimestamps(events, FixedUtcNow);
-
-        // Verify: all timestamps are within valid range
-        foreach (var evt in events)
-        {
-            Assert.True(EventTimestampValidator.IsReasonableTimestamp(evt.Timestamp, FixedUtcNow),
-                $"Event {evt.EventType} has unreasonable timestamp: {evt.Timestamp}");
-        }
-
-        // Verify: no events were dropped
-        Assert.Equal(2, events.Count);
-    }
 
     [Fact]
     public void FullPipeline_MinValueTimestamp_ClampedWithOriginalPreserved()
@@ -490,8 +446,8 @@ public class EventTimestampValidationTests
             }
         };
 
-        IngestEventsFunction.StampServerFields(events, ValidTenantId, ValidSessionId, FixedUtcNow);
-        IngestEventsFunction.SanitizeEventTimestamps(events, FixedUtcNow);
+        EventIngestProcessor.StampServerFields(events, ValidTenantId, ValidSessionId, FixedUtcNow);
+        EventIngestProcessor.SanitizeEventTimestamps(events, FixedUtcNow);
 
         var evt = events[0];
 
@@ -517,8 +473,8 @@ public class EventTimestampValidationTests
             new() { EventType = "also_valid", Timestamp = FixedUtcNow.AddHours(1) },
         };
 
-        IngestEventsFunction.StampServerFields(events, ValidTenantId, ValidSessionId, FixedUtcNow);
-        IngestEventsFunction.SanitizeEventTimestamps(events, FixedUtcNow);
+        EventIngestProcessor.StampServerFields(events, ValidTenantId, ValidSessionId, FixedUtcNow);
+        EventIngestProcessor.SanitizeEventTimestamps(events, FixedUtcNow);
 
         // All 4 events preserved
         Assert.Equal(4, events.Count);
@@ -623,7 +579,7 @@ public class EventTimestampValidationTests
             new() { Timestamp = badTs, EventType = "bad_clock_event" }
         };
 
-        IngestEventsFunction.SanitizeEventTimestamps(events, FixedUtcNow);
+        EventIngestProcessor.SanitizeEventTimestamps(events, FixedUtcNow);
 
         Assert.True(events[0].TimestampClamped);
         Assert.Equal(badTs, events[0].OriginalTimestamp);
@@ -642,7 +598,7 @@ public class EventTimestampValidationTests
             new() { Timestamp = FixedUtcNow.AddDays(-2), EventType = "valid_past" },           // valid
         };
 
-        IngestEventsFunction.SanitizeEventTimestamps(events, FixedUtcNow);
+        EventIngestProcessor.SanitizeEventTimestamps(events, FixedUtcNow);
 
         // Catastrophic: clamped to utcNow (falls into past-drift category)
         Assert.True(events[0].TimestampClamped);
@@ -679,7 +635,7 @@ public class EventTimestampValidationTests
             new() { Timestamp = FixedUtcNow.AddMinutes(-30), EventType = "valid" },
         };
 
-        IngestEventsFunction.SanitizeEventTimestamps(events, FixedUtcNow, logger);
+        EventIngestProcessor.SanitizeEventTimestamps(events, FixedUtcNow, logger);
 
         Assert.Empty(logger.WarningMessages);
     }
@@ -695,7 +651,7 @@ public class EventTimestampValidationTests
             new() { Timestamp = FixedUtcNow.AddHours(-2), EventType = "valid",  TenantId = ValidTenantId, SessionId = ValidSessionId },
         };
 
-        IngestEventsFunction.SanitizeEventTimestamps(events, FixedUtcNow, logger);
+        EventIngestProcessor.SanitizeEventTimestamps(events, FixedUtcNow, logger);
 
         // Exactly one aggregate warning per batch (not one per event)
         Assert.Single(logger.WarningMessages);
@@ -714,7 +670,7 @@ public class EventTimestampValidationTests
             new() { Timestamp = FixedUtcNow.AddHours(30),          EventType = "future", TenantId = ValidTenantId, SessionId = ValidSessionId },
         };
 
-        IngestEventsFunction.SanitizeEventTimestamps(events, FixedUtcNow, logger);
+        EventIngestProcessor.SanitizeEventTimestamps(events, FixedUtcNow, logger);
 
         Assert.Single(logger.WarningMessages);
         var props = logger.WarningProperties[0];
@@ -747,7 +703,7 @@ public class EventTimestampValidationTests
             new() { Timestamp = DateTime.MinValue, EventType = "catastrophic", TenantId = ValidTenantId, SessionId = ValidSessionId },
         };
 
-        IngestEventsFunction.SanitizeEventTimestamps(events, FixedUtcNow, logger);
+        EventIngestProcessor.SanitizeEventTimestamps(events, FixedUtcNow, logger);
 
         Assert.Single(logger.WarningMessages);
         var props = logger.WarningProperties[0];
@@ -768,7 +724,7 @@ public class EventTimestampValidationTests
             new() { Timestamp = FixedUtcNow.AddDays(-18), EventType = "bad_clock" }
         };
 
-        var ex = Record.Exception(() => IngestEventsFunction.SanitizeEventTimestamps(events, FixedUtcNow));
+        var ex = Record.Exception(() => EventIngestProcessor.SanitizeEventTimestamps(events, FixedUtcNow));
 
         Assert.Null(ex);
         Assert.True(events[0].TimestampClamped);

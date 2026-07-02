@@ -59,7 +59,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         {
             try
             {
-                // Security checks FIRST — same pattern as /api/agent/ingest.
+                // Security checks FIRST — same pattern as /api/agent/telemetry.
                 // TenantId from X-Tenant-Id header allows validation before parsing the body.
                 var tenantId = req.Headers.Contains("X-Tenant-Id")
                     ? req.Headers.GetValues("X-Tenant-Id").FirstOrDefault()

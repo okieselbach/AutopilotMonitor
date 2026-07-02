@@ -53,7 +53,6 @@ public class NoStoreCacheMiddlewareTests
     [Theory]
     [InlineData("/api/health")]
     [InlineData("/api/stats/platform")]
-    [InlineData("/api/agent/ingest")]              // ingest is write-only, no body returned
     [InlineData("/api/agent/telemetry")]
     [InlineData("/api/agent/register-session")]
     [InlineData("/api/auth/global-admins")]        // returns admin list, but no Bearer/SAS

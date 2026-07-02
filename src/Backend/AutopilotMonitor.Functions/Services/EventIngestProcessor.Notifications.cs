@@ -1,5 +1,4 @@
 using System.Linq;
-using AutopilotMonitor.Functions.Functions.Ingest;
 using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Notifications;
@@ -10,8 +9,7 @@ namespace AutopilotMonitor.Functions.Services
 {
     /// <summary>
     /// External + real-time notification plumbing: outgoing webhook alerts (Teams/Slack-style)
-    /// and SignalR messages for the live UI push. Verbatim copy of the legacy helpers; see
-    /// <see cref="EventIngestProcessor"/> for the duplication rationale.
+    /// and SignalR messages for the live UI push.
     /// </summary>
     public sealed partial class EventIngestProcessor
     {

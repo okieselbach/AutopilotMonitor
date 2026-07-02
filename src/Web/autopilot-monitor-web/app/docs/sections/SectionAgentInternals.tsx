@@ -688,7 +688,7 @@ export function SectionAgentInternals() {
               <p className="font-semibold text-sm text-rose-900">Batching & Compression</p>
             </div>
             <div className="px-4 py-3 text-sm text-gray-700 space-y-1">
-              <p>NDJSON + gzip compression (70&ndash;80% reduction)</p>
+              <p>JSON telemetry batch + gzip compression (70&ndash;80% reduction)</p>
               <p>MaxBatchSize: 100 events per batch, upload interval: 30s (configurable)</p>
               <p>Debounce timer for rapid event bursts</p>
               <p>Sequence numbering for ordering + deduplication</p>
@@ -709,7 +709,7 @@ export function SectionAgentInternals() {
           <DataTable
             headers={["Channel", "Auth", "Endpoint", "Anti-Flood", "Use Case"]}
             rows={[
-              ["Normal Upload", "mTLS / Bootstrap", "/api/agent/ingest", "Retry + backoff", "Regular events"],
+              ["Normal Upload", "mTLS / Bootstrap", "/api/agent/telemetry", "Retry + backoff", "Regular events"],
               ["Emergency Reporter", "mTLS / Bootstrap", "/api/agent/error", "5/session, 10min min", "Config-fetch / upload failures"],
               ["Distress Reporter", "None (plain HTTP)", "/api/agent/distress", "3/session, 30min min", "Cert missing, auth failures"],
             ]}
@@ -1059,7 +1059,7 @@ export function SectionAgentInternals() {
             rows={[
               ["/api/agent/config", "GET", "Fetch agent configuration"],
               ["/api/agent/register-session", "POST", "Register new enrollment session"],
-              ["/api/agent/ingest", "POST", "Upload batched events (NDJSON + gzip)"],
+              ["/api/agent/telemetry", "POST", "Upload telemetry batch (Events + Signals + Transitions, JSON + gzip)"],
               ["/api/agent/error", "POST", "Emergency error report"],
               ["/api/agent/distress", "POST", "Pre-auth distress signal (no cert needed)"],
               ["/api/diagnostics/upload-url", "POST", "Get short-lived SAS URL for diagnostics"],
@@ -1074,7 +1074,7 @@ export function SectionAgentInternals() {
             rows={[
               ["/api/bootstrap/validate/{code}", "GET", "Validate bootstrap code, get token"],
               ["/api/bootstrap/register-session", "POST", "Register session with bootstrap token"],
-              ["/api/bootstrap/ingest", "POST", "Upload events with bootstrap token"],
+              ["/api/agent/telemetry", "POST", "Upload telemetry with X-Bootstrap-Token header"],
               ["/api/bootstrap/config", "GET", "Get config with bootstrap token"],
               ["/api/bootstrap/error", "POST", "Report errors with bootstrap token"],
             ]}

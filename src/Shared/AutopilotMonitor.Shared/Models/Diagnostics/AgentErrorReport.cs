@@ -8,7 +8,7 @@ namespace AutopilotMonitor.Shared.Models
     public enum AgentErrorType
     {
         /// <summary>
-        /// POST /api/agent/ingest returned a non-auth error (5xx / network failure).
+        /// POST /api/agent/telemetry returned a non-auth error (5xx / network failure).
         /// Events remain in the spool but are not reaching the backend.
         /// </summary>
         IngestFailed = 0,

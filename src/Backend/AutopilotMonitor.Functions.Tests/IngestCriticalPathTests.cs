@@ -1,5 +1,5 @@
-using AutopilotMonitor.Functions.Functions.Ingest;
 using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Functions.Tests;
@@ -10,7 +10,7 @@ namespace AutopilotMonitor.Functions.Tests;
 /// REGRESSION GUARD: On 2026-03-19 the ingest endpoint returned 500 for all devices because
 /// individual events did not have TenantId/SessionId set before being passed to
 /// StoreEventsBatchAsync, which validates them as GUIDs.
-/// StampServerFields (extracted from ProcessIngestAsync) is the fix — these tests ensure
+/// StampServerFields (now on EventIngestProcessor) is the fix — these tests ensure
 /// it can never be accidentally removed or bypassed.
 /// </summary>
 public class IngestCriticalPathTests
@@ -28,7 +28,7 @@ public class IngestCriticalPathTests
         var receivedAt = DateTime.UtcNow;
         var events = MakeEvents(3);
 
-        IngestEventsFunction.StampServerFields(events, ValidTenantId, ValidSessionId, receivedAt);
+        EventIngestProcessor.StampServerFields(events, ValidTenantId, ValidSessionId, receivedAt);
 
         Assert.All(events, evt => Assert.Equal(receivedAt, evt.ReceivedAt));
     }
@@ -38,7 +38,7 @@ public class IngestCriticalPathTests
     {
         var events = MakeEvents(3);
 
-        IngestEventsFunction.StampServerFields(events, ValidTenantId, ValidSessionId, DateTime.UtcNow);
+        EventIngestProcessor.StampServerFields(events, ValidTenantId, ValidSessionId, DateTime.UtcNow);
 
         Assert.All(events, evt => Assert.Equal(ValidTenantId, evt.TenantId));
     }
@@ -48,7 +48,7 @@ public class IngestCriticalPathTests
     {
         var events = MakeEvents(3);
 
-        IngestEventsFunction.StampServerFields(events, ValidTenantId, ValidSessionId, DateTime.UtcNow);
+        EventIngestProcessor.StampServerFields(events, ValidTenantId, ValidSessionId, DateTime.UtcNow);
 
         Assert.All(events, evt => Assert.Equal(ValidSessionId, evt.SessionId));
     }
@@ -62,7 +62,7 @@ public class IngestCriticalPathTests
             new() { TenantId = null, SessionId = null },
         };
 
-        IngestEventsFunction.StampServerFields(events, ValidTenantId, ValidSessionId, DateTime.UtcNow);
+        EventIngestProcessor.StampServerFields(events, ValidTenantId, ValidSessionId, DateTime.UtcNow);
 
         Assert.Equal(ValidTenantId, events[0].TenantId);
         Assert.Equal(ValidSessionId, events[0].SessionId);
@@ -77,7 +77,7 @@ public class IngestCriticalPathTests
             new() { TenantId = "wrong-tenant-value", SessionId = "wrong-session" },
         };
 
-        IngestEventsFunction.StampServerFields(events, ValidTenantId, ValidSessionId, DateTime.UtcNow);
+        EventIngestProcessor.StampServerFields(events, ValidTenantId, ValidSessionId, DateTime.UtcNow);
 
         Assert.Equal(ValidTenantId, events[0].TenantId);
         Assert.Equal(ValidSessionId, events[0].SessionId);
@@ -95,7 +95,7 @@ public class IngestCriticalPathTests
             new() { TenantId = ValidTenantId },  // already correct
         };
 
-        IngestEventsFunction.StampServerFields(events, ValidTenantId, ValidSessionId, DateTime.UtcNow);
+        EventIngestProcessor.StampServerFields(events, ValidTenantId, ValidSessionId, DateTime.UtcNow);
 
         Assert.All(events, evt => Assert.Equal(ValidTenantId, evt.TenantId));
     }
@@ -104,23 +104,23 @@ public class IngestCriticalPathTests
     public void StampServerFields_EmptyList_DoesNotThrow()
     {
         var ex = Record.Exception(() =>
-            IngestEventsFunction.StampServerFields([], ValidTenantId, ValidSessionId, DateTime.UtcNow));
+            EventIngestProcessor.StampServerFields([], ValidTenantId, ValidSessionId, DateTime.UtcNow));
         Assert.Null(ex);
     }
 
     // -------------------------------------------------------------------------
     // Guard: after StampServerFields, EnsureValidGuid must pass for all events
-    // (simulates the contract between ProcessIngestAsync and StoreEventsBatchAsync)
+    // (simulates the contract between ProcessEventsAsync and StoreEventsBatchAsync)
     // -------------------------------------------------------------------------
 
     [Fact]
     public void StampServerFields_ThenEnsureValidGuid_DoesNotThrow()
     {
-        // This is the exact sequence in ProcessIngestAsync → StoreEventsBatchAsync.
+        // This is the exact sequence in ProcessEventsAsync → StoreEventsBatchAsync.
         // If StampServerFields is removed or broken, this test fails with ArgumentException.
         var events = MakeEvents(5, tenantId: null, sessionId: null);
 
-        IngestEventsFunction.StampServerFields(events, ValidTenantId, ValidSessionId, DateTime.UtcNow);
+        EventIngestProcessor.StampServerFields(events, ValidTenantId, ValidSessionId, DateTime.UtcNow);
 
         // Simulate what StoreEventsBatchAsync does:
         foreach (var evt in events)
@@ -139,43 +139,6 @@ public class IngestCriticalPathTests
 
         Assert.Throws<ArgumentException>(() =>
             SecurityValidator.EnsureValidGuid(events[0].TenantId, "TenantId"));
-    }
-
-    // -------------------------------------------------------------------------
-    // NDJSON → Stamp → Validate: full pipeline test (no I/O, pure logic)
-    // -------------------------------------------------------------------------
-
-    [Fact]
-    public void FullPipeline_ParseNdjsonThenStamp_AllEventsHaveValidGuids()
-    {
-        // Simulates what ProcessIngestAsync does from parse to storage:
-        // 1. Parse NDJSON (events may have null/wrong TenantId from agent)
-        // 2. StampServerFields (backend overrides with validated tenantId)
-        // 3. EnsureValidGuid passes → no 500
-
-        var ndjsonLines = new[]
-        {
-            Newtonsoft.Json.JsonConvert.SerializeObject(
-                new { SessionId = ValidSessionId, TenantId = ValidTenantId }),
-            Newtonsoft.Json.JsonConvert.SerializeObject(
-                new EnrollmentEvent { EventType = "phase_changed" }),               // no TenantId
-            Newtonsoft.Json.JsonConvert.SerializeObject(
-                new EnrollmentEvent { EventType = "hardware_spec", TenantId = "" }), // empty TenantId
-        };
-        var ndjson = string.Join('\n', ndjsonLines);
-
-        var (sessionId, tenantId, events) = NdjsonParser.ParseNdjson(ndjson);
-
-        // Stamp (as ProcessIngestAsync does)
-        IngestEventsFunction.StampServerFields(events, tenantId, sessionId, DateTime.UtcNow);
-
-        // Validate (as StoreEventsBatchAsync does)
-        foreach (var evt in events)
-        {
-            SecurityValidator.EnsureValidGuid(evt.TenantId, "TenantId");
-            SecurityValidator.EnsureValidGuid(evt.SessionId, "SessionId");
-        }
-        // No exception = the regression is fixed
     }
 
     // -------------------------------------------------------------------------

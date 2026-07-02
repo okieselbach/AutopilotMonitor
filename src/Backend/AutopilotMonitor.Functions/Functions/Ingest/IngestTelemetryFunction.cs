@@ -15,17 +15,16 @@ using Newtonsoft.Json;
 namespace AutopilotMonitor.Functions.Functions.Ingest
 {
     /// <summary>
-    /// V2 ingest endpoint. Consumes a heterogeneous batch of <see cref="TelemetryItemDto"/>s
+    /// Agent ingest endpoint. Consumes a heterogeneous batch of <see cref="TelemetryItemDto"/>s
     /// (Events + Signals + DecisionTransitions in a single JSON array, gzip-compressed on
     /// the wire — the <c>UseRequestDecompression</c> middleware decompresses before we
     /// parse). Plan §2.7a / §M5 / M4.6.ε.
     /// <para>
     /// <b>Routing by <see cref="TelemetryItemDto.Kind"/>:</b>
     /// <list type="bullet">
-    ///   <item><c>Event</c> → <see cref="EventIngestProcessor"/> (full pipeline parity with
-    ///   /api/agent/ingest: rule engine, app-install aggregation, SignalR, vulnerability
-    ///   correlation, webhooks, SLA breach, AdminAction detection, ServerAction delivery).
-    ///   The processor is a deliberate copy of the legacy pipeline — see M5.b.2 rationale.</item>
+    ///   <item><c>Event</c> → <see cref="EventIngestProcessor"/> (rule engine, app-install
+    ///   aggregation, SignalR, vulnerability correlation, webhooks, SLA breach, AdminAction
+    ///   detection, ServerAction delivery)</item>
     ///   <item><c>Signal</c> → <see cref="ISignalRepository.StoreBatchAsync"/></item>
     ///   <item><c>DecisionTransition</c> → <see cref="IDecisionTransitionRepository.StoreBatchAsync"/></item>
     /// </list>
@@ -33,8 +32,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
     /// <para>
     /// <b>Response (M4.6.ε):</b> the agent parses <c>DeviceBlocked</c>/<c>UnblockAt</c>/
     /// <c>DeviceKillSignal</c>/<c>AdminAction</c>/<c>Actions</c> from the 2xx body and routes
-    /// kill-switches through its <c>ServerActionDispatcher</c>. Populated from the same
-    /// services the legacy /api/agent/ingest endpoint uses so behaviour is at parity.
+    /// kill-switches through its <c>ServerActionDispatcher</c>.
     /// </para>
     /// </summary>
     public sealed class IngestTelemetryFunction
@@ -129,10 +127,10 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 if (killResponse != null) return AsOutput(killResponse);
 
                 // Defense in depth: cap decompressed body size before buffering it all into
-                // memory + deserialising. Mirrors the legacy /api/agent/ingest NDJSON guard
-                // using the same tenant-config knob. Request body here is already gzip-
-                // decompressed by UseRequestDecompression — so the cap is on the actual JSON
-                // bytes we'll feed to the parser.
+                // memory + deserialising (same tenant-config knob the removed V1 NDJSON path
+                // used). Request body here is already gzip-decompressed by
+                // UseRequestDecompression — so the cap is on the actual JSON bytes we'll feed
+                // to the parser.
                 var tenantConfig = await _configService.GetConfigurationAsync(tenantIdHeader);
                 var maxPayloadBytes = (tenantConfig?.MaxNdjsonPayloadSizeMB ?? 5) * 1024 * 1024;
 
@@ -364,9 +362,9 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         /// <summary>
         /// Partitions the incoming batch by <see cref="TelemetryItemDto.Kind"/> and persists each
         /// kind through its destination path. Events go through <see cref="EventIngestProcessor"/>
-        /// for full pipeline parity with legacy /api/agent/ingest; Signals + Transitions land
-        /// directly in their new primary tables. The returned <see cref="IngestOutcome"/> carries
-        /// both the per-kind counts and the control-signal / SignalR payload for the response.
+        /// (the full event pipeline); Signals + Transitions land directly in their primary tables.
+        /// The returned <see cref="IngestOutcome"/> carries both the per-kind counts and the
+        /// control-signal / SignalR payload for the response.
         /// </summary>
         private async Task<IngestOutcome> PersistItemsAsync(
             IReadOnlyList<TelemetryItemDto> items,
@@ -424,9 +422,9 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
 
             if (events.Count > 0)
             {
-                // Full legacy-parity pipeline (rule engine, app-install aggregation, SignalR,
+                // Full event pipeline (rule engine, app-install aggregation, SignalR,
                 // vulnerability correlation, webhooks, SLA breach, AdminAction detection,
-                // ServerAction delivery). See EventIngestProcessor for the M5.b.2 copy-rationale.
+                // ServerAction delivery).
                 var eventRequest = new IngestEventsRequest
                 {
                     SessionId = sessionId,
@@ -467,7 +465,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         /// <summary>
         /// Fetches <c>AdminAction</c> (session marked terminal out-of-band) and pending
         /// <c>ServerAction</c>s for Signal/Transition-only batches (no <see cref="EventIngestProcessor"/>
-        /// invocation). Mirror of the legacy inline logic.
+        /// invocation).
         /// </summary>
         private async Task<(string? adminAction, List<ServerAction>? pendingActions)>
             ReadControlSignalsAsync(string tenantId, string sessionId)
@@ -505,8 +503,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         /// Buffers the request body under a strict byte cap, then deserialises the telemetry batch
         /// directly off the buffered bytes. Returns <c>(true, null)</c> as soon as the cap would be
         /// exceeded — the stream isn't fully drained, which bounds memory use even for a malicious
-        /// sender (strict greater-than, so a payload equal to the cap is accepted; matches the
-        /// legacy NDJSON parser's guard semantics).
+        /// sender (strict greater-than, so a payload equal to the cap is accepted).
         /// <para>
         /// Hot-path note: this deserialises through a <see cref="JsonTextReader"/> over the buffered
         /// <see cref="MemoryStream"/> rather than materialising a full UTF-16 <c>string</c> + a
@@ -602,5 +599,18 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             });
             return response;
         }
+    }
+
+    /// <summary>
+    /// Multi-binding output shape of the agent ingest endpoint: the HTTP response plus the
+    /// SignalR messages for the live UI push.
+    /// </summary>
+    public class IngestEventsOutput
+    {
+        [HttpResult]
+        public HttpResponseData? HttpResponse { get; set; }
+
+        [SignalROutput(HubName = "autopilotmonitor")]
+        public SignalRMessageAction[]? SignalRMessages { get; set; }
     }
 }

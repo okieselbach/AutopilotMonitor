@@ -21,16 +21,6 @@ This test suite protects the Azure Functions backend against regressions in secu
 
 **Production bug prevented:** Timestamp overflow (DateTime.MaxValue) crashed Azure Table Storage writes. Tests enforce clamping before storage.
 
-### NdjsonParserTests (14 tests)
-
-**Protects against:** Malformed NDJSON payloads crashing event ingestion, gzip decompression failures, TenantId inheritance contract violations.
-
-| Area | What it tests |
-|------|--------------|
-| `ParseNdjson` | Metadata extraction, TenantId inheritance, trailing newlines, nested objects |
-| `ParseGzipAsync` | Valid payload parsing, size limit enforcement |
-| `BuildGzipPayload` | Round-trip serialization symmetry |
-
 ### DistressRateLimitServiceTests (21 tests)
 
 **Protects against:** DDoS on the unauthenticated distress endpoint, per-IP abuse, tenant-level flooding.

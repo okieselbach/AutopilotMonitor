@@ -335,7 +335,7 @@ public class EndpointPolicyCatalogCompletenessTests
     [InlineData("GET",  "/api/diagnostics/download-url",  false)]  // MemberRead (JWT)
     [InlineData("POST", "/api/diagnostics/download-ticket", false)]// MemberRead (JWT) — mints the ticket
     [InlineData("GET",  "/api/health",                   true)]   // PublicAnonymous
-    [InlineData("POST", "/api/agent/ingest",             true)]   // DeviceOrBootstrapAuth
+    [InlineData("POST", "/api/agent/telemetry",          true)]   // DeviceOrBootstrapAuth
     [InlineData("GET",  "/api/bootstrap/validate/ABC123", true)]  // PublicAnonymous (param route)
     [InlineData("GET",  "/api/sessions",                 false)]  // MemberRead
     [InlineData("GET",  "/api/config/00000000-0000-0000-0000-000000000001", false)] // TenantAdminOrGlobalReader

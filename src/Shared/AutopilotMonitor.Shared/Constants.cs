@@ -189,7 +189,6 @@ namespace AutopilotMonitor.Shared
         public static class ApiEndpoints
         {
             public const string RegisterSession          = "/api/agent/register-session";
-            public const string IngestEvents             = "/api/agent/ingest";
             public const string GetAgentConfig           = "/api/agent/config";
             public const string GatherRules              = "/api/rules/gather";
             public const string AnalyzeRules             = "/api/rules/analyze";
@@ -203,11 +202,10 @@ namespace AutopilotMonitor.Shared
             public const string ReseedFromGitHub         = "/api/rules/reseed-from-github";
             public const string ValidateBootstrapCode    = "/api/bootstrap/validate/{code}";
 
-            // V2 Agent generic telemetry transport (Plan §2.7a).
-            // Sibling of IngestEvents under /api/agent/* — same Agent-writes namespace, heterogeneous
-            // TelemetryItem[] payload (Event + Signal + DecisionTransition). Backend routes per
-            // TelemetryItem.Kind to Events / Signals / DecisionTransitions tables. Replaces the
-            // per-type IngestEvents path once the Legacy Agent is decommissioned (v11.1+).
+            // Agent generic telemetry transport (Plan §2.7a) — THE agent ingest path since the
+            // legacy V1 NDJSON endpoint (/api/agent/ingest) was decommissioned. Heterogeneous
+            // TelemetryItem[] payload (Event + Signal + DecisionTransition); backend routes per
+            // TelemetryItem.Kind to Events / Signals / DecisionTransitions tables.
             public const string IngestTelemetry          = "/api/agent/telemetry";
 
             // MCP/Agent API search endpoints
@@ -217,7 +215,6 @@ namespace AutopilotMonitor.Shared
             public const string MetricsSummary          = "/api/metrics/summary";
             // Bootstrap agent endpoints (cert-free, token-auth for pre-enrollment agents)
             public const string BootstrapRegisterSession = "/api/bootstrap/register-session";
-            public const string BootstrapIngestEvents    = "/api/bootstrap/ingest";
             public const string BootstrapGetAgentConfig  = "/api/bootstrap/config";
             public const string BootstrapReportError     = "/api/bootstrap/error";
 

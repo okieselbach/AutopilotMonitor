@@ -50,7 +50,7 @@
 
 **Core Data Flow:**
 ```
-Device (Agent) ──NDJSON+gzip──► Azure Functions ──► Azure Table Storage
+Device (Agent) ──JSON telemetry+gzip──► Azure Functions ──► Azure Table Storage
                                       │                     │
                                       ├── SignalR ─────────►│
                                       │                     │
@@ -97,9 +97,10 @@ AutopilotMonitor.sln
 ├── src/
 │   ├── Shared/AutopilotMonitor.Shared/          (netstandard2.0)
 │   ├── Agent/
-│   │   ├── AutopilotMonitor.Agent/              (net48, Exe – entry point)
-│   │   ├── AutopilotMonitor.Agent.Core/         (net48, Lib – core logic)
-│   │   ├── AutopilotMonitor.Agent.Core.Tests/   (net48, xUnit – agent unit tests)
+│   │   ├── AutopilotMonitor.Agent.V2/           (net48, Exe – entry point; output named AutopilotMonitor.Agent.exe)
+│   │   ├── AutopilotMonitor.Agent.V2.Core/      (net48, Lib – core logic)
+│   │   ├── AutopilotMonitor.Agent.V2.Core.Tests/ (net48, xUnit – agent unit tests)
+│   │   ├── AutopilotMonitor.DecisionCore.Tests/ (net48, xUnit – decision engine tests)
 │   │   └── AutopilotMonitor.SummaryDialog/      (net48, WPF – enrollment summary UI)
 │   ├── Backend/
 │   │   ├── AutopilotMonitor.Functions/          (net8.0, Azure Functions v4)
@@ -122,9 +123,10 @@ AutopilotMonitor.sln
 
 **Project References:**
 ```
-Shared ◄── Agent.Core ◄── Agent
-                         ◄── Agent.Core.Tests
-                         ◄── SummaryDialog
+Shared + DecisionCore ◄── Agent.V2.Core ◄── Agent.V2
+                                          ◄── Agent.V2.Core.Tests
+Shared + DecisionCore ◄── DecisionCore.Tests
+SummaryDialog (standalone; compiled alongside the agent build)
 Shared ◄── Functions ◄── Functions.Tests
 Web (independent – communicates via REST + SignalR)
 ```
@@ -135,7 +137,7 @@ Web (independent – communicates via REST + SignalR)
 
 ### Entry Point & Modes
 
-**File:** `src/Agent/AutopilotMonitor.Agent/Program.cs`
+**File:** `src/Agent/AutopilotMonitor.Agent.V2/Program.cs`
 
 Four execution modes:
 1. **Normal mode** (default) – Main enrollment monitoring loop
@@ -214,29 +216,30 @@ Each implements `IGatherRuleCollector`:
 
 Security enforced by `GatherRuleGuards` (allowed targets) and `DiagnosticsPathGuards` (path validation, respects `UnrestrictedMode`).
 
-### Directory Layout (Agent.Core)
+### Directory Layout (Agent.V2.Core)
 
 ```
 Configuration/       Config loading, remote config service
+Diagnostics/         Diagnostics package creation + upload
 Logging/             AgentLogger (file + optional console)
-Monitoring/
-├── Analyzers/       Security checks (LocalAdminAnalyzer, SoftwareInventoryAnalyzer)
-├── Collectors/      Data collectors (ESP, Hello, Performance, GatherRules, Diagnostics, Desktop)
-│   └── GatherCollectors/  Per-type gather rule collectors
-├── Core/            Orchestration (MonitoringService, EventSpool, SessionPersistence, CleanupService)
-├── Interop/         P/Invoke declarations (process creation, registry change notifications)
-├── Network/         API client, distress/emergency reporters, geo-location, NTP, network metrics
-├── Replay/          Log replay for testing/simulation
-└── Tracking/        Enrollment state machine, IME parser, script/app tracking, state persistence
+Monitoring/          Collectors, trackers, analyzers, gather rule executors
+Orchestration/       Decision engine wiring (kernel)
+Persistence/         Session/state persistence
+Runtime/             Self-updater, lifecycle, watchdog
 Security/            Certificate helper, enrollment awaiter, hardware info
+SignalAdapters/      Raw observations → typed decision signals
+Telemetry/           Telemetry item batching + spool
+Termination/         Terminal-outcome classification
+Transport/           Backend API client (mTLS cert + hardware headers + bootstrap token)
 ```
+(See `src/Agent/AutopilotMonitor.Agent.V2.Core/README.md` for the authoritative kernel/peripheral map.)
 
 ### Event Collection & Upload
 
 1. Collector emits `EnrollmentEvent` → sequence number auto-assigned (thread-safe Interlocked)
 2. Event saved to spool as JSON file: `event_{timestamp}_{sequence}.json`
 3. FileSystemWatcher triggers debounce timer (configurable `UploadIntervalSeconds`, default 30s)
-4. Batch upload: NDJSON + gzip compression, max 100 events per batch
+4. Batch upload: JSON `TelemetryItem[]` (Events + Signals + DecisionTransitions) + gzip compression, max 100 events per batch
 5. Response handling: `DeviceKillSignal` → self-destruct; `DeviceBlocked` → stop uploads
 
 ### Idle Timeout & Lifetime
@@ -289,7 +292,7 @@ Registered in this order:
 | Route | Method | Purpose |
 |-------|--------|---------|
 | `/agent/register-session` | POST | Register new enrollment session |
-| `/agent/ingest` | POST | Upload events (NDJSON+gzip) |
+| `/agent/telemetry` | POST | Upload telemetry batch (Events + Signals + DecisionTransitions, JSON+gzip) |
 | `/agent/config` | GET | Fetch agent configuration |
 | `/agent/upload-url` | POST | Get short-lived SAS URL for diagnostics |
 | `/agent/error` | POST | Report agent errors |
@@ -303,7 +306,6 @@ Registered in this order:
 | `/bootstrap/sessions/{code}` | DELETE | Revoke bootstrap session |
 | `/bootstrap/validate/{code}` | GET | Validate bootstrap code (public) |
 | `/bootstrap/register-session` | POST | Register via bootstrap token |
-| `/bootstrap/ingest` | POST | Ingest via bootstrap token |
 | `/bootstrap/config` | POST | Config via bootstrap token |
 | `/bootstrap/error` | POST | Error report via bootstrap token |
 
@@ -397,7 +399,7 @@ Repository pattern via interfaces in `AutopilotMonitor.Shared/DataAccess/`:
 ### Event Processing Pipeline
 
 ```
-Agent POST /api/agent/ingest (NDJSON+gzip)
+Agent POST /api/agent/telemetry (JSON TelemetryItem[] + gzip)
     │
     ├─ SecurityValidator.ValidateRequestAsync()
     │   ├─ Tenant existence & suspension
@@ -409,32 +411,29 @@ Agent POST /api/agent/ingest (NDJSON+gzip)
     │
     ├─ BlockedDeviceService.IsBlockedAsync() → kill/block signal
     │
-    ├─ ParseNdjsonGzipRequest() → decompress + parse events
+    ├─ Body size cap → TelemetryPayloadParser (route per TelemetryItem.Kind)
+    │   ├─ Signal → Signals table (+ optional index-reconcile queue)
+    │   ├─ DecisionTransition → DecisionTransitions table (+ queue)
+    │   └─ Event → EventIngestProcessor (below)
     │
-    ├─ StampServerFields() → ReceivedAt, TenantId, SessionId
+    ├─ SessionDeletionGuard → 410 Gone while a cascade owns the session
     │
-    ├─ EventTimestampValidator → clamp/validate timestamps
-    │
-    ├─ TableStorageService.StoreEventsBatchAsync()
-    │
-    ├─ ClassifyEvents()
-    │   ├─ Extract geo-location
-    │   ├─ Track app installs → AppInstallSummaries table
-    │   └─ Detect enrollment completion/failure
-    │
-    ├─ UpdateSessionStatusAsync() → merge session row
-    │
-    ├─ RuleEngine.AnalyzeSessionAsync() (on enrollment end)
-    │   └─ StoreRuleResultAsync() → RuleResults table
-    │
-    ├─ VulnerabilityCorrelation (on software inventory events)
-    │
-    ├─ WebhookNotificationService (Teams/Slack on enrollment complete/fail)
-    │
-    └─ SignalR broadcasts:
-        ├─ "eventReceived" → tenant-{tenantId}
-        ├─ "sessionStatusChanged" → tenant-{tenantId}
-        └─ "ruleResultReceived" → tenant-{tenantId}
+    └─ EventIngestProcessor.ProcessEventsAsync()
+        ├─ StampServerFields() → ReceivedAt, TenantId, SessionId
+        ├─ EventTimestampValidator → clamp/validate timestamps
+        ├─ TableStorageService.StoreEventsBatchAsync()
+        ├─ ClassifyEvents()
+        │   ├─ Extract geo-location
+        │   ├─ Track app installs → AppInstallSummaries table
+        │   └─ Detect enrollment completion/failure
+        ├─ UpdateSessionStatusAsync() → merge session row
+        ├─ Analyze-on-enrollment-end queue → RuleEngine → RuleResults table
+        ├─ Vulnerability-correlate queue (on software inventory events)
+        ├─ WebhookNotificationService (Teams/Slack on enrollment complete/fail)
+        └─ SignalR broadcasts:
+            ├─ "eventReceived" → tenant-{tenantId}
+            ├─ "sessionStatusChanged" → tenant-{tenantId}
+            └─ "ruleResultReceived" → tenant-{tenantId}
 ```
 
 ---
@@ -1060,7 +1059,6 @@ Configuration per tenant via `TenantConfiguration.WebhookUrl` + `WebhookProvider
 | `DistressValidationTests` | Distress report validation |
 | `DistressRateLimitServiceTests` | Distress rate limiting |
 | `EventTimestampValidationTests` | Timestamp clamping and validation |
-| `NdjsonParserTests` | NDJSON parsing |
 | `BuiltInRulesTests` | Built-in rule logic |
 | `EndpointPolicyCatalogCompletenessTests` | Ensures every HTTP route has a catalog entry |
 | `CrossTenantAccessTests` | Validates tenant-scoped endpoints reject cross-tenant access |
@@ -1069,20 +1067,9 @@ Configuration per tenant via `TenantConfiguration.WebhookUrl` + `WebhookProvider
 | `AuthFunctionTests` | Auth decision logic (roles, MCP access, bootstrap, auto-admin, preview gates) |
 | `GetHardwareRejectedFunctionTests` | Hardware rejection aggregation logic |
 
-### Agent Tests (`src/Agent/AutopilotMonitor.Agent.Core.Tests/`)
+### Agent Tests (`src/Agent/AutopilotMonitor.Agent.V2.Core.Tests/`, `src/Agent/AutopilotMonitor.DecisionCore.Tests/`)
 
-**Target:** .NET Framework 4.8, xUnit
-
-| Test File | Coverage |
-|-----------|---------|
-| `DesktopArrivalDetectorTests` | Desktop arrival detection |
-| `DiagnosticsPathGuardsTests` | Path guard validation |
-| `GatherRuleGuardsTests` | Gather rule path/target guards |
-| `AppPackageStateListTests` | App package state tracking |
-| `AppPackageStateTests` | Individual package state machine |
-| `CmTraceLogParserTests` | CMTrace log format parsing |
-| `EnrollmentStatePersistenceTests` | State file persistence |
-| `LogFilePositionTrackerTests` | Log file tail position bookmarking |
+**Target:** .NET Framework 4.8, xUnit — cover the V2 agent kernel (decision engine, signal adapters, monitoring, transport) and the shared DecisionCore.
 
 ---
 
@@ -1181,7 +1168,8 @@ dotnet build AutopilotMonitor.sln --nologo -v quiet
 dotnet test src/Backend/AutopilotMonitor.Functions.Tests/
 
 # Agent tests
-dotnet test src/Agent/AutopilotMonitor.Agent.Core.Tests/
+dotnet test src/Agent/AutopilotMonitor.Agent.V2.Core.Tests/
+dotnet test src/Agent/AutopilotMonitor.DecisionCore.Tests/
 
 # Web frontend
 cd src/Web/autopilot-monitor-web

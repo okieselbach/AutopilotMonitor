@@ -7,8 +7,7 @@ namespace AutopilotMonitor.DecisionCore.Classifiers
     /// <summary>
     /// Scoring-based WhiteGlove Part 1 classifier. Plan §2.4 / §M3.3.
     /// <para>
-    /// Scoring rules ported 1:1 from the Legacy <c>WhiteGloveClassifier</c>
-    /// (<c>src/Agent/AutopilotMonitor.Agent.Core/Monitoring/Enrollment/Completion/WhiteGloveClassifier.cs</c>)
+    /// Scoring rules ported 1:1 from the retired V1 agent's <c>WhiteGloveClassifier</c>
     /// — same weights, same thresholds, same asymmetric-conservative decision rule. The
     /// refactor change is the <see cref="IClassifier"/> contract, the snapshot input type,
     /// and the deterministic <see cref="WhiteGloveSealingSnapshot.ComputeInputHash"/> anti-loop.

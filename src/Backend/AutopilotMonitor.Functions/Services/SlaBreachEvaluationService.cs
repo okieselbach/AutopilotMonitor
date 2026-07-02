@@ -25,7 +25,7 @@ namespace AutopilotMonitor.Functions.Services
     ///
     /// Entry points:
     ///   <see cref="EvaluateAllTenantsAsync"/>       — timer trigger (every 2 hours)
-    ///   <see cref="EvaluateSessionCompletionAsync"/> — inline from IngestEventsFunction (fire-and-forget)
+    ///   <see cref="EvaluateSessionCompletionAsync"/> — inline from EventIngestProcessor (fire-and-forget)
     /// </summary>
     public class SlaBreachEvaluationService
     {
@@ -615,7 +615,7 @@ namespace AutopilotMonitor.Functions.Services
             });
         }
 
-        // ── Inline entry point (from IngestEventsFunction) ────────────────────
+        // ── Inline entry point (from EventIngestProcessor) ────────────────────
 
         /// <summary>
         /// Checks for consecutive enrollment failures after a session completes with failure.

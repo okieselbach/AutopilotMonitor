@@ -1327,7 +1327,7 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Updates the session status and current phase.
         /// Uses Merge mode to write only changed fields, reducing ETag conflicts under concurrency.
-        /// The caller (IngestEventsFunction) provides earliestEventTimestamp from the current batch;
+        /// The caller (EventIngestProcessor) provides earliestEventTimestamp from the current batch;
         /// no redundant Events-table scan is performed here.
         /// Event count is maintained atomically by IncrementSessionEventCountAsync and is not
         /// recounted here — avoiding an expensive full-partition scan on every status change.
@@ -1371,7 +1371,7 @@ namespace AutopilotMonitor.Functions.Services
                     // Build a Merge update with only the fields that actually change
                     var update = new TableEntity(tenantId, sessionId);
 
-                    // Status transitions from IngestEventsFunction: Succeeded, Failed, Pending, Stalled,
+                    // Status transitions from EventIngestProcessor: Succeeded, Failed, Pending, Stalled,
                     // and InProgress (the last one only for healing a Stalled session back to active).
                     // Guard: never regress a Pending (WhiteGlove) session to Stalled via the ingest
                     // path — WhiteGlove sessions are deliberately long-lived and handled via re-registration.
