@@ -988,16 +988,12 @@ namespace AutopilotMonitor.Functions.Services
                             });
                         }
                     }
-                    catch (RequestFailedException)
+                    catch (RequestFailedException ex)
                     {
-                        // 404 = session doesn't exist → orphan
-                        orphans.Add(new OrphanedEventSession
-                        {
-                            TenantId = tenantId,
-                            SessionId = sessionId,
-                            LastIngestAt = lastIngestAt,
-                            EventCount = eventCount
-                        });
+                        // GetEntityIfExistsAsync does NOT throw on 404 (handled via HasValue above),
+                        // so this only fires on transient errors (429/500/503). Treating those as
+                        // "orphan" would delete events of live sessions — skip the entry instead.
+                        _logger.LogWarning(ex, "Transient error checking session existence for {TenantId}/{SessionId} (status {Status}); skipping orphan classification this run", tenantId, sessionId, ex.Status);
                     }
                 }
             }
