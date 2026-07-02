@@ -197,12 +197,14 @@ namespace AutopilotMonitor.Functions.Services
                     rebootIncrement: isTerminalBatch ? 0 : classification.RebootCount);
             }
 
-            // Authoritative reboot reconcile: the LAST reboot write on terminal batches. Overwrites
-            // the live incremental value (self-correcting any at-least-once double-count) and runs
-            // even on already-terminal batch replays where UpdateSessionStatusAsync no-ops.
+            // Authoritative counter reconcile (EventCount + RebootCount): the LAST counter write
+            // on terminal batches. Overwrites the live incremental values (self-correcting any
+            // at-least-once double-count — event rows dedupe on deterministic RowKeys, the
+            // read-modify-write increments above do not) and runs even on already-terminal batch
+            // replays where UpdateSessionStatusAsync no-ops.
             // Idempotent (no-ops when already correct) and fail-soft.
             if (isTerminalBatch)
-                await _sessionRepo.ReconcileSessionRebootCountAsync(request.TenantId, request.SessionId);
+                await _sessionRepo.ReconcileSessionCountersAsync(request.TenantId, request.SessionId);
 
             // Auto-analyze fan-out: enqueue a queue message instead of running fire-and-forget
             // Task.Run inside the function. The previous in-function approach could be killed
@@ -307,7 +309,7 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             // Re-read only when a write AFTER the increment made the snapshot stale: terminal
-            // batches (ReconcileSessionRebootCountAsync) and diagnostics uploads (blob fields) —
+            // batches (ReconcileSessionCountersAsync) and diagnostics uploads (blob fields) —
             // or when no increment ran / it returned null (missing row, exhausted ETag retries).
             if (isTerminalBatch || classification.DiagnosticsUploadedEvent != null)
                 updatedSession = null;

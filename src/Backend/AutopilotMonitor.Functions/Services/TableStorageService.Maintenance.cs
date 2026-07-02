@@ -442,8 +442,17 @@ namespace AutopilotMonitor.Functions.Services
         /// Gets sessions older than a specific date for a tenant, capped at <paramref name="maxResults"/>.
         /// The retention fanout only advances a fixed number of sessions per run, so the read is
         /// server-bounded to that cap instead of materializing the whole backlog every run.
+        /// <para>
+        /// <paramref name="excludeInFlightDeletions"/>: skip rows whose <c>DeletionState</c> is a
+        /// lock state (Preparing/Queued/Running/Poisoned) WITHOUT counting them toward the cap.
+        /// Azure Tables returns rows in RowKey order, so without this a head of ≥cap permanently
+        /// stuck sessions (Poisoned / stranded Queued are never auto-cleared) would fill every
+        /// capped read and starve the tail forever. Cannot be a server-side filter: rows written
+        /// before the deletion feature have no <c>DeletionState</c> column and a property
+        /// comparison would silently drop them.
+        /// </para>
         /// </summary>
-        public async Task<List<SessionSummary>> GetSessionsOlderThanAsync(string tenantId, DateTime cutoffDate, int maxResults = int.MaxValue)
+        public async Task<List<SessionSummary>> GetSessionsOlderThanAsync(string tenantId, DateTime cutoffDate, int maxResults = int.MaxValue, bool excludeInFlightDeletions = false)
         {
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
             if (maxResults <= 0) return new List<SessionSummary>();
@@ -459,18 +468,40 @@ namespace AutopilotMonitor.Functions.Services
                 // have that many. Azure Tables has no server-side OrderBy, so this returns the first
                 // maxResults rows in RowKey order — the same ordering as the previous full scan, it
                 // just stops reading once the cap is reached. Unbounded callers pass int.MaxValue.
+                // With excludeInFlightDeletions the scan continues past locked rows, so it may read
+                // more pages than maxResults — bounded by the tenant's eligible backlog.
                 int? maxPerPage = maxResults == int.MaxValue ? (int?)null : maxResults;
                 var query = tableClient.QueryAsync<TableEntity>(filter: filter, maxPerPage: maxPerPage);
 
                 var sessions = new List<SessionSummary>();
+                int skippedInFlight = 0;
                 await foreach (var entity in query)
                 {
+                    if (excludeInFlightDeletions &&
+                        AutopilotMonitor.Shared.Models.Deletion.SessionDeletionState.IsLocked(entity.GetString("DeletionState")))
+                    {
+                        skippedInFlight++;
+                        continue;
+                    }
+
                     sessions.Add(MapToSessionSummary(entity));
                     if (sessions.Count >= maxResults)
                         break;
                 }
 
-                _logger.LogInformation($"Found {sessions.Count} sessions older than {cutoffDate:yyyy-MM-dd} for tenant {tenantId} (cap={maxResults})");
+                if (sessions.Count == 0 && skippedInFlight > 0)
+                {
+                    // Warning (not Information) so it reaches App Insights: the entire eligible
+                    // backlog is locked in deletion states — likely Poisoned/stranded rows that
+                    // need operator attention (POST /restore), not healthy throughput.
+                    _logger.LogWarning(
+                        "Tenant {TenantId}: all {Skipped} sessions older than {Cutoff} are locked in deletion states — retention cannot progress until they are restored/cleared",
+                        tenantId, skippedInFlight, cutoffDate.ToString("yyyy-MM-dd"));
+                }
+                else
+                {
+                    _logger.LogInformation($"Found {sessions.Count} sessions older than {cutoffDate:yyyy-MM-dd} for tenant {tenantId} (cap={maxResults}, skippedInFlight={skippedInFlight})");
+                }
                 return sessions;
             }
             catch (Exception ex)
@@ -740,6 +771,8 @@ namespace AutopilotMonitor.Functions.Services
         /// Uses projected query (PK/RK only) to minimize payload, and submits 100-entity
         /// batch transactions in parallel (up to 4 in flight) for faster bulk delete.
         /// REQUIRES all matched rows to share the same PartitionKey (Table Storage batch constraint).
+        /// Fail-loud: throws on query/submit errors (already-submitted batches stay deleted —
+        /// deletes are idempotent, callers retry). Returns the number of CONFIRMED deletes.
         /// </summary>
         private async Task<int> DeleteByFilterInBatchesAsync(TableClient tableClient, string filter, string contextForLogs)
         {
@@ -751,6 +784,8 @@ namespace AutopilotMonitor.Functions.Services
                 // Project to PK/RK only — drastically reduces query bytes for large sessions.
                 var query = tableClient.QueryAsync<TableEntity>(filter: filter, select: new[] { "PartitionKey", "RowKey" });
 
+                // Counts CONFIRMED deletes only (incremented after a successful batch submit),
+                // so the return value never over-reports on partial failure.
                 int deletedCount = 0;
                 var batch = new List<TableTransactionAction>(batchSize);
                 var gate = new SemaphoreSlim(maxParallelBatches);
@@ -759,7 +794,11 @@ namespace AutopilotMonitor.Functions.Services
                 async Task SubmitAsync(List<TableTransactionAction> snapshot)
                 {
                     await gate.WaitAsync().ConfigureAwait(false);
-                    try { await tableClient.SubmitTransactionAsync(snapshot).ConfigureAwait(false); }
+                    try
+                    {
+                        await tableClient.SubmitTransactionAsync(snapshot).ConfigureAwait(false);
+                        Interlocked.Add(ref deletedCount, snapshot.Count);
+                    }
                     finally { gate.Release(); }
                 }
 
@@ -768,7 +807,6 @@ namespace AutopilotMonitor.Functions.Services
                     // ETag.All → unconditional delete (safe for maintenance cleanup; no optimistic concurrency needed).
                     var stub = new TableEntity(entity.PartitionKey, entity.RowKey) { ETag = ETag.All };
                     batch.Add(new TableTransactionAction(TableTransactionActionType.Delete, stub));
-                    deletedCount++;
                     if (batch.Count >= batchSize)
                     {
                         var snapshot = batch;
@@ -788,8 +826,11 @@ namespace AutopilotMonitor.Functions.Services
             }
             catch (Exception ex)
             {
+                // Fail-loud: callers must be able to distinguish "0 rows matched" from "delete
+                // failed". Orphan cleanup keeps the EventSessionIndex entry (retries next run)
+                // and the reanalyze path surfaces the error instead of merging stale results.
                 _logger.LogError(ex, $"Failed to delete {contextForLogs}");
-                return 0;
+                throw;
             }
         }
 

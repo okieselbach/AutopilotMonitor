@@ -95,10 +95,11 @@ namespace AutopilotMonitor.Shared.DataAccess
             int platformScriptIncrement = 0, int remediationScriptIncrement = 0,
             int rebootIncrement = 0);
         /// <summary>
-        /// Reconciles the stored RebootCount with the authoritative distinct count of
-        /// system_reboot_detected events. Call as the last reboot write on terminal ingest batches.
+        /// Reconciles the stored EventCount and RebootCount with the authoritative row counts
+        /// from the Events table (rows dedupe on deterministic RowKeys; the read-modify-write
+        /// increments do not). Call as the last counter write on terminal ingest batches.
         /// </summary>
-        Task ReconcileSessionRebootCountAsync(string tenantId, string sessionId);
+        Task ReconcileSessionCountersAsync(string tenantId, string sessionId);
         Task UpdateSessionDiagnosticsBlobAsync(
             string tenantId, string sessionId, string blobName, string? destination = null);
         Task SetSessionPreProvisionedAsync(string tenantId, string sessionId, bool isPreProvisioned,

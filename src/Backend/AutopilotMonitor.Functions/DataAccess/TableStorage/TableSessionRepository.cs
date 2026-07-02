@@ -70,15 +70,16 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 stalledAt, clearStalledAt, clearFailureReason, failureSource, adminMarkedAction,
                 failureSnapshotJson);
 
-            // Reconcile the authoritative RebootCount whenever a session actually transitions to a
-            // terminal state through ANY caller — ingest, admin mark (Mark{Succeeded,Failed}Function),
-            // maintenance timeout, or rule-engine fail. This is the single seam they all funnel
-            // through, so the stored count stays correct even on the non-ingest terminal paths that
-            // never run a terminal ingest batch. The ingest path additionally reconciles after its
-            // event-count increment (covering already-terminal batch replays, where this call's
-            // transitioned=false short-circuits). Idempotent + fail-soft, so the redundancy is cheap.
+            // Reconcile the authoritative EventCount + RebootCount whenever a session actually
+            // transitions to a terminal state through ANY caller — ingest, admin mark
+            // (Mark{Succeeded,Failed}Function), maintenance timeout, or rule-engine fail. This is
+            // the single seam they all funnel through, so the stored counts stay correct even on
+            // the non-ingest terminal paths that never run a terminal ingest batch. The ingest
+            // path additionally reconciles after its event-count increment (covering
+            // already-terminal batch replays, where this call's transitioned=false
+            // short-circuits). Idempotent + fail-soft, so the redundancy is cheap.
             if (transitioned && (status == SessionStatus.Succeeded || status == SessionStatus.Failed))
-                await _storage.ReconcileSessionRebootCountAsync(tenantId, sessionId);
+                await _storage.ReconcileSessionCountersAsync(tenantId, sessionId);
 
             return transitioned;
         }
@@ -99,8 +100,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 earliestEventTimestamp, latestEventTimestamp, currentPhase,
                 platformScriptIncrement, remediationScriptIncrement, rebootIncrement);
 
-        public Task ReconcileSessionRebootCountAsync(string tenantId, string sessionId)
-            => _storage.ReconcileSessionRebootCountAsync(tenantId, sessionId);
+        public Task ReconcileSessionCountersAsync(string tenantId, string sessionId)
+            => _storage.ReconcileSessionCountersAsync(tenantId, sessionId);
 
         public Task UpdateSessionDiagnosticsBlobAsync(
             string tenantId, string sessionId, string blobName, string? destination = null)

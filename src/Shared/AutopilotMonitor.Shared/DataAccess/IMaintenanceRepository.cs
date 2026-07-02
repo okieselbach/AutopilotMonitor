@@ -61,8 +61,11 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// Sessions older than <paramref name="cutoffDate"/> for a tenant, capped at
         /// <paramref name="maxResults"/> (server-bounded read). The retention fanout passes its
         /// per-run dispatch cap so it never materializes a backlog it cannot process in one run.
+        /// <paramref name="excludeInFlightDeletions"/> skips sessions whose DeletionState is a
+        /// lock state (Preparing/Queued/Running/Poisoned) without counting them toward the cap —
+        /// otherwise ≥cap permanently stuck sessions at the RowKey head starve the tail forever.
         /// </summary>
-        Task<List<SessionSummary>> GetSessionsOlderThanAsync(string tenantId, DateTime cutoffDate, int maxResults = int.MaxValue);
+        Task<List<SessionSummary>> GetSessionsOlderThanAsync(string tenantId, DateTime cutoffDate, int maxResults = int.MaxValue, bool excludeInFlightDeletions = false);
         Task<List<SessionSummary>> GetSessionsByDateRangeAsync(DateTime startDate, DateTime endDate, string? tenantId = null);
         Task<List<SessionSummary>> GetStalledSessionsAsync(string tenantId, DateTime cutoffTime);
         Task<List<SessionSummary>> GetAgentSilentSessionsAsync(string tenantId, DateTime silenceCutoff, DateTime hardCutoff);

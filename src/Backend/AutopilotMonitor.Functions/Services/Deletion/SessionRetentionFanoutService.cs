@@ -151,8 +151,12 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             // every run is wasted I/O that grows with the backlog. The "+1" is a cheap probe that
             // lets us tell "exactly cap eligible, done" from "cap+ eligible, more deferred" without
             // scanning the rest — it is observability only and is never dispatched.
+            // excludeInFlightDeletions: sessions already locked in a deletion state (Poisoned /
+            // stranded Queued are never auto-cleared) must not occupy slots in the capped head —
+            // ≥cap of them at the RowKey front would otherwise starve the tail on every run.
             const int fetchLimit = MaxEnqueuesPerTenantPerRun + 1;
-            var oldSessions = await _maintenanceRepo.GetSessionsOlderThanAsync(tenantId, cutoffUtc, fetchLimit).ConfigureAwait(false);
+            var oldSessions = await _maintenanceRepo.GetSessionsOlderThanAsync(
+                tenantId, cutoffUtc, fetchLimit, excludeInFlightDeletions: true).ConfigureAwait(false);
             bool moreRemaining = oldSessions.Count > MaxEnqueuesPerTenantPerRun;
 
             if (oldSessions.Count == 0)
@@ -219,6 +223,18 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                 // can exercise the loop without waiting real time.
                 if (processed < oldSessions.Count && processed < MaxEnqueuesPerTenantPerRun)
                     await _throttle(EnqueueThrottleDelay, cancellationToken).ConfigureAwait(false);
+            }
+
+            // In-flight deletions are already excluded from the read, so a full batch with zero
+            // enqueues means every dispatchable session failed at the producer (CAS exhausted,
+            // races, …) — this run made no retention progress and the next run will fetch the
+            // same head. Warning so it reaches App Insights (kill-switch aborts are intentional
+            // and excluded).
+            if (enqueued == 0 && moreRemaining && !result.AbortedByKillSwitch)
+            {
+                _logger.LogWarning(
+                    "Tenant {TenantId}: retention fanout enqueued 0 of {Processed} dispatchable sessions with more remaining — no progress this run (skipped={Skipped})",
+                    tenantId, processed, skipped);
             }
 
             result.SessionsEnqueued += enqueued;

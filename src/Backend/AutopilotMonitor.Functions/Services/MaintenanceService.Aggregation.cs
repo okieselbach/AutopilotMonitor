@@ -717,6 +717,10 @@ namespace AutopilotMonitor.Functions.Services
                 {
                     try
                     {
+                        // Ordering invariant: the index entry is removed ONLY after the event
+                        // delete completed cleanly (DeleteSessionEventsAsync throws on failure).
+                        // Orphan detection scans only the index — deleting it first would make
+                        // surviving event rows permanently undiscoverable.
                         var deletedEvents = await _maintenanceRepo.DeleteSessionEventsAsync(orphan.TenantId, orphan.SessionId);
                         await _maintenanceRepo.DeleteEventSessionIndexEntryAsync(orphan.TenantId, orphan.SessionId);
 

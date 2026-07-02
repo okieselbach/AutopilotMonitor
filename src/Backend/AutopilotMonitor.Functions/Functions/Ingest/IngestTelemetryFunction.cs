@@ -378,6 +378,19 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             var transitions = new List<DecisionTransitionRecord>();
             var unknown     = 0;
 
+            // Parse-null tracking: the per-line skip is deliberate (one poisonous item must not
+            // reject the batch), but the response stays Success=true and the agent deletes its
+            // spool — so a dropped item is gone forever. Without these counters an agent-side
+            // serialization regression would be fleet-wide silent data loss.
+            int eventParseFailed = 0, signalParseFailed = 0, transitionParseFailed = 0;
+            long? firstParseFailedItemId = null;
+
+            void TrackParseFailure(ref int counter, TelemetryItemDto item)
+            {
+                counter++;
+                firstParseFailedItemId ??= item.TelemetryItemId;
+            }
+
             foreach (var item in items)
             {
                 switch (item.Kind)
@@ -385,20 +398,34 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     case "Event":
                         var evt = TelemetryPayloadParser.ParseEvent(item, tenantId, sessionId);
                         if (evt != null) events.Add(evt);
+                        else TrackParseFailure(ref eventParseFailed, item);
                         break;
                     case "Signal":
                         var sig = TelemetryPayloadParser.ParseSignal(item, tenantId, sessionId);
                         if (sig != null) signals.Add(sig);
+                        else TrackParseFailure(ref signalParseFailed, item);
                         break;
                     case "DecisionTransition":
                         var tr = TelemetryPayloadParser.ParseTransition(item, tenantId, sessionId);
                         if (tr != null) transitions.Add(tr);
+                        else TrackParseFailure(ref transitionParseFailed, item);
                         break;
                     default:
                         unknown++;
                         _logger.LogWarning("IngestTelemetry: unknown Kind '{Kind}' (TelemetryItemId={Id})", item.Kind, item.TelemetryItemId);
                         break;
                 }
+            }
+
+            var parseFailed = eventParseFailed + signalParseFailed + transitionParseFailed;
+            if (parseFailed > 0)
+            {
+                _logger.LogWarning(
+                    "IngestTelemetry: dropped {Total} unparseable item(s) of {BatchSize} for session {SessionId} " +
+                    "(events={Events}, signals={Signals}, transitions={Transitions}, firstItemId={FirstItemId}) — " +
+                    "items are lost (agent clears its spool on success)",
+                    parseFailed, items.Count, sessionId,
+                    eventParseFailed, signalParseFailed, transitionParseFailed, firstParseFailedItemId);
             }
 
             // Signals + Transitions write directly; they don't feed into the event pipeline.

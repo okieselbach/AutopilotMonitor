@@ -51,8 +51,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<int> DeleteAuditLogsOlderThanAsync(DateTime cutoffUtc)
             => _storage.DeleteAuditLogsOlderThanAsync(cutoffUtc);
 
-        public Task<List<SessionSummary>> GetSessionsOlderThanAsync(string tenantId, DateTime cutoffDate, int maxResults = int.MaxValue)
-            => _storage.GetSessionsOlderThanAsync(tenantId, cutoffDate, maxResults);
+        public Task<List<SessionSummary>> GetSessionsOlderThanAsync(string tenantId, DateTime cutoffDate, int maxResults = int.MaxValue, bool excludeInFlightDeletions = false)
+            => _storage.GetSessionsOlderThanAsync(tenantId, cutoffDate, maxResults, excludeInFlightDeletions);
 
         public Task<List<SessionSummary>> GetSessionsByDateRangeAsync(DateTime startDate, DateTime endDate, string? tenantId = null)
             => _storage.GetSessionsByDateRangeAsync(startDate, endDate, tenantId);
