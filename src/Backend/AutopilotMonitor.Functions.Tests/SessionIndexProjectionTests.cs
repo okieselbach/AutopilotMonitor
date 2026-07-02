@@ -41,6 +41,8 @@ public class SessionIndexProjectionTests
             ["RebootCount"] = 4,
             ["ExcessiveEventsAlerted"] = true,
             ["ExcessiveEventsAutoActioned"] = true,
+            // Self-deploying/kiosk profile marker (session 320b3bf7) — search-filterable.
+            ["IsSelfDeployingProfile"] = true,
         };
 
         var idx = TableStorageService.BuildSessionIndexEntity(session, IndexRowKey, StartedAt);
@@ -61,6 +63,7 @@ public class SessionIndexProjectionTests
         Assert.Equal(4, idx.GetInt32("RebootCount"));
         Assert.True(idx.GetBoolean("ExcessiveEventsAlerted"));
         Assert.True(idx.GetBoolean("ExcessiveEventsAutoActioned"));
+        Assert.True(idx.GetBoolean("IsSelfDeployingProfile"));
     }
 
     [Fact]
@@ -84,6 +87,7 @@ public class SessionIndexProjectionTests
         Assert.Equal(0, idx.GetInt32("RemediationScriptCount"));
         Assert.Equal(0, idx.GetInt32("RebootCount"));
         Assert.False(idx.GetBoolean("ExcessiveEventsAlerted"));
+        Assert.False(idx.GetBoolean("IsSelfDeployingProfile"));
         Assert.Equal(string.Empty, idx.GetString("ImeAgentVersion"));
     }
 }

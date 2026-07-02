@@ -25,6 +25,7 @@ namespace AutopilotMonitor.Shared.Models
         public string? EnrollmentType { get; set; }
         public bool? IsPreProvisioned { get; set; }
         public bool? IsHybridJoin { get; set; }
+        public bool? IsSelfDeployingProfile { get; set; }
         public string? GeoCountry { get; set; }
         public DateTime? StartedAfter { get; set; }
         public DateTime? StartedBefore { get; set; }

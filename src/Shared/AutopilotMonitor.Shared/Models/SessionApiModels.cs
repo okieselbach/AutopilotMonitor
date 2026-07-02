@@ -308,6 +308,13 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public bool IsHybridJoin { get; set; }
 
+        /// <summary>
+        /// Whether the Autopilot profile carries the self-deploying/kiosk OOBE marker
+        /// (CloudAssignedOobeConfig bits 0x20|0x40). Sent by the agent at registration;
+        /// sticky-true across re-registrations.
+        /// </summary>
+        public bool IsSelfDeployingProfile { get; set; }
+
         // Device detail fields — stored in the Sessions table but omitted from earlier versions
         public string OsName { get; set; } = default!;
         public string OsBuild { get; set; } = default!;

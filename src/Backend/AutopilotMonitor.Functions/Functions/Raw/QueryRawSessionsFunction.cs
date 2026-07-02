@@ -91,6 +91,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
             var geoCountry = query["geoCountry"];
             var isPreProvisioned = query["isPreProvisioned"];
             var isHybridJoin = query["isHybridJoin"];
+            var isSelfDeployingProfile = query["isSelfDeployingProfile"];
             var fieldsParam = query["fields"];
 
             var pagination = SearchSessionsPagination.ParsePagination(query);
@@ -125,6 +126,8 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 filter.IsPreProvisioned = pp;
             if (!string.IsNullOrEmpty(isHybridJoin) && bool.TryParse(isHybridJoin, out var hj))
                 filter.IsHybridJoin = hj;
+            if (!string.IsNullOrEmpty(isSelfDeployingProfile) && bool.TryParse(isSelfDeployingProfile, out var sdp))
+                filter.IsSelfDeployingProfile = sdp;
             if (int.TryParse(query["rebootCountMin"], out var rcMin)) filter.RebootCountMin = rcMin;
             if (int.TryParse(query["rebootCountMax"], out var rcMax)) filter.RebootCountMax = rcMax;
 

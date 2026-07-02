@@ -131,6 +131,7 @@ namespace AutopilotMonitor.Functions.Services
                 ["IsPreProvisioned"] = sessionEntity.GetBoolean("IsPreProvisioned") ?? false,
                 ["IsHybridJoin"] = sessionEntity.GetBoolean("IsHybridJoin") ?? false,
                 ["IsUserDriven"] = sessionEntity.GetBoolean("IsUserDriven") ?? false,
+                ["IsSelfDeployingProfile"] = sessionEntity.GetBoolean("IsSelfDeployingProfile") ?? false,
                 ["AgentVersion"] = sessionEntity.GetString("AgentVersion") ?? string.Empty,
                 // Search-filterable column: search/MCP push an OData filter on ImeAgentVersion against
                 // the index, so it MUST be projected (was previously absent → filter matched nothing).
@@ -362,6 +363,7 @@ namespace AutopilotMonitor.Functions.Services
                 string failureReason = string.Empty;
                 bool isPreProvisioned = registration.IsPreProvisioned;
                 bool isHybridJoin = registration.IsHybridJoin;
+                bool isSelfDeployingProfile = registration.IsSelfDeployingProfile;
                 DateTime? lastEventAt = null;
                 int? durationSeconds = null;
                 string? diagnosticsBlobName = null;
@@ -402,6 +404,10 @@ namespace AutopilotMonitor.Functions.Services
                     // otherwise be lost by the UpsertEntity (Replace) below.
                     isPreProvisioned = existingEntity.GetBoolean("IsPreProvisioned") ?? isPreProvisioned;
                     isHybridJoin = existingEntity.GetBoolean("IsHybridJoin") ?? isHybridJoin;
+                    // Sticky-true OR (not plain preserve): a re-registration after a boot where
+                    // the Autopilot policy cache was momentarily unreadable must not pin the
+                    // self-deploying marker to false forever — once observed true, it stays true.
+                    isSelfDeployingProfile = (existingEntity.GetBoolean("IsSelfDeployingProfile") ?? false) || isSelfDeployingProfile;
                     lastEventAt = existingEntity.GetDateTimeOffset("LastEventAt")?.UtcDateTime;
                     durationSeconds = existingEntity.GetInt32("DurationSeconds");
                     diagnosticsBlobName = existingEntity.GetString("DiagnosticsBlobName");
@@ -464,6 +470,7 @@ namespace AutopilotMonitor.Functions.Services
                     ["IsUserDriven"] = registration.IsUserDriven,
                     ["IsPreProvisioned"] = isPreProvisioned,
                     ["IsHybridJoin"] = isHybridJoin,
+                    ["IsSelfDeployingProfile"] = isSelfDeployingProfile,
                     ["StartedAt"] = EnsureUtc(startedAt),
                     ["AgentVersion"] = registration.AgentVersion ?? string.Empty,
                     ["EnrollmentType"] = registration.EnrollmentType ?? "v1",
@@ -2468,6 +2475,7 @@ namespace AutopilotMonitor.Functions.Services
                 LastEventAt = SafeGetDateTime(entity, "LastEventAt"),
                 IsPreProvisioned = entity.GetBoolean("IsPreProvisioned") ?? false,
                 IsHybridJoin = entity.GetBoolean("IsHybridJoin") ?? false,
+                IsSelfDeployingProfile = entity.GetBoolean("IsSelfDeployingProfile") ?? false,
                 ResumedAt = SafeGetDateTime(entity, "ResumedAt"),
                 StalledAt = SafeGetDateTime(entity, "StalledAt"),
                 OsName = entity.GetString("OsName") ?? string.Empty,

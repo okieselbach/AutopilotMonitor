@@ -101,6 +101,8 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         enrollmentType: z.enum(['v1', 'v2']).optional().describe('Autopilot enrollment type'),
         isPreProvisioned: z.boolean().optional().describe('Filter by White Glove / pre-provisioned enrollment'),
         isHybridJoin: z.boolean().optional().describe('Filter by Hybrid Azure AD Join'),
+        isSelfDeployingProfile: z.boolean().optional().describe(
+          'Filter by self-deploying/kiosk Autopilot profile (CloudAssignedOobeConfig bits 0x20|0x40, agent-detected at registration)'),
         geoCountry: z.string().optional().describe('Country of enrollment (2-letter ISO code, e.g. "DE", "US")'),
         startedAfter: IsoDateString.optional().describe('ISO 8601 datetime — only sessions started after this'),
         startedBefore: IsoDateString.optional().describe('ISO 8601 datetime — only sessions started before this'),
@@ -120,7 +122,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
                     'Use for counting / aggregation to avoid the response cap. Available: sessionId, tenantId, status, ' +
                     'serialNumber, manufacturer, model, deviceName, osBuild, osName, startedAt, completedAt, ' +
                     'durationSeconds, currentPhase, failureReason, eventCount, enrollmentType, isPreProvisioned, ' +
-                    'isUserDriven, isHybridJoin, agentVersion, imeAgentVersion, geoCountry, rebootCount.'),
+                    'isUserDriven, isHybridJoin, isSelfDeployingProfile, agentVersion, imeAgentVersion, geoCountry, rebootCount.'),
         deviceProperties: z.record(z.string(), z.string()).optional().describe(
           'Dynamic device property filters. Keys use "eventType.propertyName" dot notation. ' +
           'See the device_properties catalog (call get_resource(name="device_properties")) for all available keys and types. ' +
@@ -455,6 +457,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           isPreProvisioned: s.isPreProvisioned ?? false,
           isHybridJoin: s.isHybridJoin ?? false,
           isUserDriven: s.isUserDriven ?? false,
+          isSelfDeployingProfile: s.isSelfDeployingProfile ?? false,
           device: {
             name: s.deviceName,
             serialNumber: s.serialNumber,

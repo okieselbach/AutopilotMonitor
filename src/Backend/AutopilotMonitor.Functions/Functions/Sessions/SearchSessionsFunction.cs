@@ -145,6 +145,7 @@ public class SearchSessionsFunction
 
         if (bool.TryParse(query["isPreProvisioned"], out var ipp)) filter.IsPreProvisioned = ipp;
         if (bool.TryParse(query["isHybridJoin"], out var ihj)) filter.IsHybridJoin = ihj;
+        if (bool.TryParse(query["isSelfDeployingProfile"], out var isdp)) filter.IsSelfDeployingProfile = isdp;
         if (DateTime.TryParse(query["startedAfter"], out var sa)) filter.StartedAfter = sa;
         if (DateTime.TryParse(query["startedBefore"], out var sb)) filter.StartedBefore = sb;
         if (int.TryParse(query["rebootCountMin"], out var rcMin)) filter.RebootCountMin = rcMin;
@@ -204,6 +205,7 @@ public class SearchSessionsFunction
             if (fields.Contains("isPreProvisioned")) dict["isPreProvisioned"] = s.IsPreProvisioned;
             if (fields.Contains("isUserDriven")) dict["isUserDriven"] = s.IsUserDriven;
             if (fields.Contains("isHybridJoin")) dict["isHybridJoin"] = s.IsHybridJoin;
+            if (fields.Contains("isSelfDeployingProfile")) dict["isSelfDeployingProfile"] = s.IsSelfDeployingProfile;
             if (fields.Contains("agentVersion")) dict["agentVersion"] = s.AgentVersion;
             if (fields.Contains("imeAgentVersion")) dict["imeAgentVersion"] = s.ImeAgentVersion;
             if (fields.Contains("geoCountry")) dict["geoCountry"] = s.GeoCountry;

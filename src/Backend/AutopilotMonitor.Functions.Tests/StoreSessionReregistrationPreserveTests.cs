@@ -99,6 +99,71 @@ public class StoreSessionReregistrationPreserveTests
         Assert.Equal(0, harness.Written.GetInt32("RebootCount"));
     }
 
+    [Fact]
+    public async Task StoreSessionAsync_selfDeployingProfile_isStickyTrue_acrossReregistration()
+    {
+        // Session 320b3bf7 kiosk marker: once observed true, a re-registration whose fresh
+        // registry read failed (registration.IsSelfDeployingProfile=false) must NOT pin the
+        // flag back to false — sticky-true OR, not plain preserve.
+        var existing = new TableEntity(TenantId, SessionId)
+        {
+            ["StartedAt"] = new DateTimeOffset(new DateTime(2026, 1, 1, 8, 0, 0, DateTimeKind.Utc)),
+            ["Status"] = "InProgress",
+            ["IsSelfDeployingProfile"] = true,
+        };
+        existing.ETag = new ETag("0xEXISTING");
+        var harness = new Harness(existing);
+
+        var registration = new SessionRegistration
+        {
+            TenantId = TenantId,
+            SessionId = SessionId,
+            StartedAt = new DateTime(2026, 1, 1, 9, 0, 0, DateTimeKind.Utc),
+            SerialNumber = "SN-1",
+            Manufacturer = "Contoso",
+            Model = "Model-X",
+            DeviceName = "PC-1",
+            IsSelfDeployingProfile = false, // fresh read failed / degraded
+        };
+
+        var ok = await harness.Sut.StoreSessionAsync(registration);
+
+        Assert.True(ok);
+        Assert.True(harness.Written!.GetBoolean("IsSelfDeployingProfile"));
+    }
+
+    [Fact]
+    public async Task StoreSessionAsync_selfDeployingProfile_upgradesFalseToTrue_onReregistration()
+    {
+        // Inverse direction: first boot read false (policy cache not yet populated), a later
+        // re-registration reads true — the OR upgrades the stored flag.
+        var existing = new TableEntity(TenantId, SessionId)
+        {
+            ["StartedAt"] = new DateTimeOffset(new DateTime(2026, 1, 1, 8, 0, 0, DateTimeKind.Utc)),
+            ["Status"] = "InProgress",
+            ["IsSelfDeployingProfile"] = false,
+        };
+        existing.ETag = new ETag("0xEXISTING");
+        var harness = new Harness(existing);
+
+        var registration = new SessionRegistration
+        {
+            TenantId = TenantId,
+            SessionId = SessionId,
+            StartedAt = new DateTime(2026, 1, 1, 9, 0, 0, DateTimeKind.Utc),
+            SerialNumber = "SN-1",
+            Manufacturer = "Contoso",
+            Model = "Model-X",
+            DeviceName = "PC-1",
+            IsSelfDeployingProfile = true,
+        };
+
+        var ok = await harness.Sut.StoreSessionAsync(registration);
+
+        Assert.True(ok);
+        Assert.True(harness.Written!.GetBoolean("IsSelfDeployingProfile"));
+    }
+
     // ============================================================ Harness ====
 
     /// <summary>
