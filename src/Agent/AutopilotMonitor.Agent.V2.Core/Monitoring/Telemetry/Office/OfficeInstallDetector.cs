@@ -350,6 +350,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
             // still report. So we emit the informational fact ONCE (idempotent guard) and stay Idle —
             // a later fresh install (enterprise product set, or a real download with no binaries on
             // disk yet) opens a normal started→completed lifecycle from here.
+            //
+            // Accepted risk (L18, delta review 2026-07-02): while inbox binaries are on disk AND
+            // ProductReleaseIds still lists only consumer SKUs, every start trigger short-circuits
+            // here. An enterprise install that fails BEFORE C2R rewrites ProductReleaseIds to a
+            // managed SKU (or before the inbox binaries are removed) therefore never opens a
+            // lifecycle and its INSTALL-scenario error is silently missed. This is silence, never
+            // a false office_install_failed — the trade-off was chosen deliberately over risking
+            // false failure verdicts on routine inbox-Office CLIENTUPDATE churn (session fa526757).
             if (ProbeCoreBinaries(snap.InstallationPath)
                 && OfficeProductClassifier.IsConsumerInboxProductSet(snap.Products))
             {

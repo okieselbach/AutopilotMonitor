@@ -974,6 +974,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             try { _transport?.Dispose(); } catch { /* best-effort */ }
             try { _ingress?.Dispose(); } catch { /* best-effort */ }
             try { _drainCts?.Dispose(); } catch { /* best-effort */ }
+            try { _processor?.Dispose(); } catch { /* best-effort — parked-dwell timer */ }
 
             _logger.Info("EnrollmentOrchestrator: stopped.");
         }

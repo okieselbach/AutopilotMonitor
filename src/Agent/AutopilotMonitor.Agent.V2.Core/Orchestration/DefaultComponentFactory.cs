@@ -106,6 +106,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
             // ----- Kernel hosts (always-on; they produce decision signals) --------------------
 
+            // Single-rail refactor (plan §5.8) — DeviceInfoCollector existed in V2.Core but had
+            // no host so the Device-Details UI block was empty in V2 sessions (V1-Parity Issue #2).
+            // Kernel host: always on, not remote-config-gated; fires CollectAll on Start on a
+            // background thread so the agent's critical path is not blocked by WMI queries.
+            //
+            // L9 (delta review 2026-07-02): ORDER MATTERS — this host must start (and subscribe
+            // to SignalPosted) BEFORE the EspAndHelloHost, whose Start can immediately post
+            // EspPhaseChanged(DeviceSetup) from the registry backfill. Created later, the host
+            // missed that trigger and the enrollment-start re-collect never ran on sessions that
+            // failed before the FinalizingSetup/desktop end trigger caught up.
+            hosts.Add(new DeviceInfoHost(
+                sessionId: sessionId,
+                tenantId: tenantId,
+                ingress: ingress,
+                clock: clock,
+                logger: logger,
+                startupGate: _startupEventGate));
+
             // Session caa6cf50 gate-starvation fix: the EspAndHelloTracker's user-ESP-apps-settled
             // probe reads the IME log host, which is constructed further down. Same closure-over-
             // local pattern as realmJoinHost below — null until assigned, and the probe only fires
@@ -228,18 +246,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 hosts.Add(consoleBypassHost);
             }
 
-            // Single-rail refactor (plan §5.8) — DeviceInfoCollector existed in V2.Core but had
-            // no host so the Device-Details UI block was empty in V2 sessions (V1-Parity Issue #2).
-            // Kernel host: always on, not remote-config-gated; fires CollectAll on Start on a
-            // background thread so the agent's critical path is not blocked by WMI queries.
-            hosts.Add(new DeviceInfoHost(
-                sessionId: sessionId,
-                tenantId: tenantId,
-                ingress: ingress,
-                clock: clock,
-                logger: logger,
-                startupGate: _startupEventGate));
-
             // Provisioning-package (PPKG) scan — kernel host, NOT scan-at-Start. Arms a one-shot
             // scan that fires when the ESP DeviceSetup phase begins (or desktop arrival as the
             // no-ESP / WDP v2 fallback): the agent may run a long time via bootstrap before any
@@ -313,7 +319,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     idleTimeoutMinutes: collectors.CollectorIdleTimeoutMinutes,
                     networkMetrics: _networkMetrics,
                     agentVersion: _agentVersion,
-                    telemetrySpool: telemetrySpool));
+                    telemetrySpool: telemetrySpool,
+                    startupGate: _startupEventGate)); // M3 — disk_space_low latch survives restarts
             }
 
             // V1 parity (CollectorCoordinator.StartOptionalCollectors:375-382) — wire the

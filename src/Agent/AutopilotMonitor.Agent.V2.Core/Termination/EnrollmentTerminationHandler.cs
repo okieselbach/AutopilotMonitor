@@ -84,6 +84,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         private readonly AgentAnalyzerManager _analyzerManager;
         private readonly InformationalEventPost _post;
         private readonly TimeSpan _lateEventGracePeriod;
+
+        // L4 (delta review 2026-07-02): epoch anchor for boot-time derivation. Captured as a
+        // (monotonic tick, wall clock) pair at construction so the boot timestamp used by the
+        // observation-coverage gate lives in the same clock epoch as AgentStartTimeUtc — an NTP
+        // correction between agent start and termination no longer skews bootToStartSeconds.
+        private readonly ulong _bootAnchorTickMs;
+        private readonly DateTime _bootAnchorUtc;
         private int _handled;
 
         public EnrollmentTerminationHandler(
@@ -117,6 +124,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             _agentVersion = session.AgentVersion;
             _sessionPersistence = session.SessionPersistence;
             _dialogExePathOverride = session.DialogExePathOverride;
+
+            _bootAnchorTickMs = ObservationCoverage.CurrentTickMs();
+            _bootAnchorUtc = DateTime.UtcNow;
         }
 
         /// <summary>
@@ -339,7 +349,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 var packages = TryGetPackageStates();
                 var timings = TryGetAppTimings();
                 var status = FinalStatusBuilder.Build(state, args, packages, _agentStartTimeUtc, timings,
-                    deviceBootUtc: ObservationCoverage.DeviceBootUtc());
+                    deviceBootUtc: ObservationCoverage.DeviceBootUtc(_bootAnchorTickMs, _bootAnchorUtc));
                 SummaryDialogLauncher.WriteAndLaunch(status, _configuration, _stateDirectory, _logger, _dialogExePathOverride);
 
                 if (_configuration.ShowEnrollmentSummary)
@@ -439,13 +449,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 var starved = _appTracking.GetStarvedUserEspApps();
                 if (starved == null || starved.Count == 0) return;
 
-                var alreadyReported = _appTracking.StarvedUserEspAppsAlreadyReported
-                    ?? (IReadOnlyCollection<string>)Array.Empty<string>();
-                var reported = new HashSet<string>(alreadyReported, StringComparer.OrdinalIgnoreCase);
-
                 foreach (var app in starved)
                 {
-                    if (app?.Id == null || !reported.Add(app.Id)) continue;
+                    // L6: atomic claim against the live path's dedupe set — the former
+                    // snapshot-then-emit could race a concurrent live app_install_starved
+                    // between copy and emit and double-report the app.
+                    if (app?.Id == null || !_appTracking.TryClaimStarvedUserEspAppReport(app.Id)) continue;
 
                     var name = string.IsNullOrEmpty(app.Name) ? app.Id : app.Name;
                     _logger.Warning(
@@ -590,9 +599,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         /// </summary>
         private void MaybeEmitAgentLateStart(EnrollmentTerminatedEventArgs args)
         {
+            if (_post == null) return; // L3 — same guard as the sibling emitters
+
             try
             {
-                var deviceBootUtc = ObservationCoverage.DeviceBootUtc();
+                var deviceBootUtc = ObservationCoverage.DeviceBootUtc(_bootAnchorTickMs, _bootAnchorUtc);
                 if (!ObservationCoverage.IsLowObservationCoverage(
                         _agentStartTimeUtc, args.TerminatedAtUtc, deviceBootUtc,
                         out var bootToStartSeconds, out var uptimeSeconds))

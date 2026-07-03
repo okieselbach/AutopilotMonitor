@@ -125,6 +125,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // added — LoadState handles that as "no snapshots" and the in-memory dict stays empty
         // (degrades gracefully back to the live _packageStates view).
         public Dictionary<string, List<PackageStateData>> PhasePackageSnapshots { get; set; }
+
+        // H1 (delta review 2026-07-02): platform-script completion dedup must survive agent
+        // restarts. The shutdown pass force-flushes fallback completions from AgentExecutor exit
+        // codes; IME's authoritative PS-SCRIPT-RESULT line is often written AFTER that flush and
+        // lies beyond the persisted file position, so the restarted tracker parses it fresh —
+        // without the persisted marker set it would emit a duplicate script_completed. The
+        // pending buffer rides along so a script whose exit code was seen but not yet flushed
+        // continues its grace window after the restart instead of being silently dropped.
+        // ScriptExecutionState is a plain DTO, serialized directly (no mapping layer needed).
+        // All three are null on state files from before this fix — LoadState treats null as empty.
+        public List<string> PlatformScriptResultEmitted { get; set; }
+        public List<ScriptExecutionState> PendingPlatformScripts { get; set; }
+        public List<string> ScriptTimeoutSuspectedPosted { get; set; }
     }
 
     public class PackageStateData

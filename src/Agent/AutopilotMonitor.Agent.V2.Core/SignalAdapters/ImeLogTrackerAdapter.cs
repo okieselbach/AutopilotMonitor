@@ -91,9 +91,6 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         // bootstrap marker line. Lets MCP report "which device runs which bootstrap version".
         private bool _bootstrapDetectedPosted;
 
-        // Platform scripts already flagged with script_timeout_suspected (dedup per policyId).
-        private readonly HashSet<string> _scriptTimeoutSuspectedPosted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
         // A platform script whose observed run duration reaches this is treated as having hit the
         // IME script-execution timeout (default ~30 min). 25 min leaves headroom below 30 so clock
         // jitter / the agent's late replay window can't miss it, while staying well above any
@@ -850,11 +847,22 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             // script completion so the UI can flag slow / inefficient scripts, not just timed-out
             // ones. Omitted when the start line was never observed (StartedAtUtc null); clamped at 0
             // against clock skew between the (possibly clock-derived) completion stamp and start.
+            //
+            // L19 (delta review 2026-07-02): the same field name carries two different semantics —
+            // platform scripts measure start→result (≈ script runtime), remediation scripts measure
+            // HS-SCRIPT-START→HS-NEW-RESULT (the whole cycle INCLUDING IME's 30 s–3 min batched
+            // reporting latency, i.e. systematically longer than the script ran). `durationBasis`
+            // names which one applies so downstream consumers never compare the two as equals.
             if (script.StartedAtUtc.HasValue)
             {
                 var durationSeconds = (now - script.StartedAtUtc.Value).TotalSeconds;
                 if (durationSeconds >= 0)
+                {
                     data["durationSeconds"] = durationSeconds.ToString("F2", culture);
+                    data["durationBasis"] = IsRemediation(script.ScriptType)
+                        ? "cycle_including_reporting_latency"
+                        : "script_runtime";
+                }
             }
 
             var label = IsRemediation(script.ScriptType) ? "Remediation script" : "Platform script";
@@ -911,7 +919,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             var duration = completionUtc - script.StartedAtUtc.Value;
             if (duration < ScriptTimeoutSuspectedThreshold) return;
 
-            if (!_scriptTimeoutSuspectedPosted.Add(script.PolicyId)) return; // dedup per policyId
+            if (!_tracker.TryClaimScriptTimeoutSuspected(script.PolicyId)) return; // restart-safe dedup per policyId (persisted tracker state)
 
             var culture = System.Globalization.CultureInfo.InvariantCulture;
             var shortId = script.PolicyId.Length >= 8 ? script.PolicyId.Substring(0, 8) : script.PolicyId;

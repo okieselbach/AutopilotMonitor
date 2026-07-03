@@ -26,9 +26,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         // had no actionable signal. Emit a single disk_space_low Warning on the transition below the
         // threshold; re-arm only after free space recovers past a higher mark (hysteresis) so the
         // event stays state-change-only and never turns into a heartbeat.
+        //
+        // M3 (delta review 2026-07-02): the latch is seeded from + persisted via the
+        // StartupEventGate — a memory-only flag re-warned (ImmediateUpload) after every agent
+        // restart on a persistently disk-starved device (stall restarts: up to ~88×/session).
         private const double DiskLowThresholdGb = 2.0;
         private const double DiskRecoveryThresholdGb = 3.0;
+        private const string DiskLowFingerprint = "low";
+        private const string DiskRearmedFingerprint = "rearmed";
         private bool _diskLowWarned;
+        private readonly Core.Persistence.StartupEventGate _startupGate;
 
         // Network throughput tracking
         private string _activeNicId;
@@ -39,9 +46,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         private bool _networkInitialized;
 
         public PerformanceCollector(string sessionId, string tenantId, InformationalEventPost post,
-            AgentLogger logger, int intervalSeconds = 60)
+            AgentLogger logger, int intervalSeconds = 60,
+            Core.Persistence.StartupEventGate startupGate = null)
             : base(sessionId, tenantId, post, logger, intervalSeconds)
         {
+            _startupGate = startupGate;
+            // Seed the hysteresis latch from persisted state so a restart on a still-starved
+            // disk does not re-warn (read-only peek — no gate claim).
+            _diskLowWarned = _startupGate?.HasFingerprint(Constants.EventTypes.DiskSpaceLow, DiskLowFingerprint) ?? false;
         }
 
         /// <summary>Use a 5-second warm-up delay so counters are primed before first read.</summary>
@@ -157,9 +169,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
 
                 // MON-B10 — surface a dedicated Warning the moment the drive crosses below the
                 // threshold, instead of leaving the only signal buried in this Debug snapshot.
-                if (EvaluateDiskLowTransition(freeGb, ref _diskLowWarned))
+                if (EvaluateDiskLowTransition(freeGb, ref _diskLowWarned, out var rearmed))
                 {
                     EmitDiskLowWarning(freeGb, totalGb, systemDrive);
+                    PersistDiskLowState(DiskLowFingerprint);
+                }
+                else if (rearmed)
+                {
+                    PersistDiskLowState(DiskRearmedFingerprint);
                 }
             }
             catch (Exception ex)
@@ -289,8 +306,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         /// <param name="freeGb">Current free space on the system drive, in GB.</param>
         /// <param name="alreadyWarned">Per-collector latch: <c>true</c> while a low-disk warning is in
         /// effect. Updated in place to reflect the new armed state.</param>
-        internal static bool EvaluateDiskLowTransition(double freeGb, ref bool alreadyWarned)
+        internal static bool EvaluateDiskLowTransition(double freeGb, ref bool alreadyWarned, out bool rearmed)
         {
+            rearmed = false;
             if (freeGb < DiskLowThresholdGb)
             {
                 if (alreadyWarned) return false; // still low, already warned → stay quiet
@@ -298,12 +316,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                 return true;
             }
 
-            if (freeGb >= DiskRecoveryThresholdGb)
+            if (freeGb >= DiskRecoveryThresholdGb && alreadyWarned)
             {
                 alreadyWarned = false; // recovered with margin → re-arm for a future drop
+                rearmed = true;        // caller persists the re-arm so it survives restarts (M3)
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// M3: records the disk-low latch state in the StartupEventGate so it survives agent
+        /// restarts. Uses the gate's claim+commit pair as a persisted state cell — there is no
+        /// separate event emission here (the Warning already went out for the "low" transition;
+        /// the re-arm transition is state-only by design).
+        /// </summary>
+        private void PersistDiskLowState(string fingerprint)
+        {
+            if (_startupGate == null) return;
+            if (_startupGate.ShouldEmit(Constants.EventTypes.DiskSpaceLow, fingerprint))
+                _startupGate.MarkEmitted(Constants.EventTypes.DiskSpaceLow);
         }
 
         private void EmitDiskLowWarning(double freeGb, double totalGb, string drive)

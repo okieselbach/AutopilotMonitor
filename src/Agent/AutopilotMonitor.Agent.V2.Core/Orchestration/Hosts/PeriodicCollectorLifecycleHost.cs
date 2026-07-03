@@ -54,6 +54,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private readonly NetworkMetrics? _networkMetrics;
         private readonly string _agentVersion;
         private readonly ITelemetrySpool? _telemetrySpool;
+        private readonly Persistence.StartupEventGate? _startupGate;
 
         // Codex Finding 4 — reference to the concrete SignalIngress (when available) so we
         // can subscribe to its SignalPosted event. This lets us observe activity from
@@ -86,7 +87,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             int idleTimeoutMinutes,
             NetworkMetrics? networkMetrics,
             string agentVersion,
-            ITelemetrySpool? telemetrySpool = null)
+            ITelemetrySpool? telemetrySpool = null,
+            Persistence.StartupEventGate? startupGate = null)
         {
             if (ingress == null) throw new ArgumentNullException(nameof(ingress));
             if (clock == null) throw new ArgumentNullException(nameof(clock));
@@ -101,6 +103,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _networkMetrics = networkMetrics;
             _agentVersion = agentVersion;
             _telemetrySpool = telemetrySpool;
+            _startupGate = startupGate;
             _lastRealEventTimeUtc = DateTime.UtcNow;
 
             // Post goes to the raw ingress — no per-host wrapping. Activity observation
@@ -184,7 +187,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             if (_perfEnabled && _performanceCollector == null)
             {
                 _performanceCollector = new PerformanceCollector(
-                    _sessionId, _tenantId, _post, _logger, _perfIntervalSeconds);
+                    _sessionId, _tenantId, _post, _logger, _perfIntervalSeconds,
+                    startupGate: _startupGate); // M3 — disk_space_low latch survives restarts
                 _performanceCollector.Start();
             }
             if (_selfMetricsEnabled && _selfMetricsCollector == null && _networkMetrics != null)

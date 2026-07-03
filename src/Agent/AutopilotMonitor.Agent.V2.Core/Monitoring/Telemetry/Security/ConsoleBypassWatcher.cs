@@ -42,15 +42,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
     {
         /// <summary>
         /// Console executables watched. v1 watches only <c>cmd.exe</c> (the exact Shift+F10 spawn); the
-        /// list is the single seam to broaden later (e.g. <c>powershell.exe</c>).
+        /// list is the single seam to broaden later (e.g. <c>powershell.exe</c>) — both the WQL trace
+        /// filter and the startup probe are built from it (L20).
         /// </summary>
         internal static readonly string[] WatchedProcessNames = { "cmd.exe" };
 
-        // cmd switches that turn the shell into a one-shot scripted invocation (install/script), as
-        // opposed to a bare interactive console. Matched as a /c or /k token anywhere in the ARGUMENTS
-        // (the executable path is stripped first) so combined switches like /d/q/c are caught too.
-        private static readonly Regex ScriptSwitchRegex =
-            new Regex(@"/[ck]\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        // /c turns the shell into a one-shot scripted invocation (install/script) — ignored. Matched
+        // as a token anywhere in the ARGUMENTS (the executable path is stripped first) so combined
+        // switches like /d/q/c are caught too.
+        private static readonly Regex RunAndExitSwitchRegex =
+            new Regex(@"/c\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // /k runs its command and then STAYS interactive (L12) — unlike /c this leaves a shell a
+        // human can type into (e.g. a technician-planted `cmd /k whoami`), so it is surfaced as a
+        // low-confidence interactive console instead of being silently ignored.
+        private static readonly Regex RunAndStaySwitchRegex =
+            new Regex(@"/k\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private readonly AgentLogger _logger;
         private readonly Func<int, ProcessProbe?> _processProbe;
@@ -92,24 +99,51 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
                 _started = true;
             }
 
+            // L13: both the trace arm and the startup probe are synchronous WMI operations, and
+            // WinMgmt can hang during OOBE (documented failure mode for GetOwner in this repo).
+            // Running them inline stalled the orchestrator's sequential host-start loop and
+            // delayed every host after this one — so they run on a background thread. Exceptions
+            // are contained in StartCore; a disposal racing the background start is handled by
+            // the _disposed re-checks inside.
+            System.Threading.Tasks.Task.Run(() => StartCore());
+        }
+
+        private void StartCore()
+        {
             // 1) ETW-backed push on console creation — armed FIRST so a console spawned during the
             //    startup snapshot below is still caught by the live trace. The _seen set dedups the
             //    overlap (a console that starts mid-arming is seen by both). Arming after the snapshot
             //    would leave a blind gap for a fast cmd that starts between snapshot and arm.
             try
             {
+                var nameFilter = string.Join(" OR ",
+                    Array.ConvertAll(WatchedProcessNames, n => $"ProcessName = '{n}'"));
                 var query = new WqlEventQuery(
-                    "SELECT * FROM Win32_ProcessStartTrace WHERE ProcessName = 'cmd.exe'");
-                _startWatcher = new ManagementEventWatcher(query);
-                _startWatcher.EventArrived += OnProcessStartTrace;
-                _startWatcher.Start();
-                _logger.Info("[ConsoleBypassWatcher] watching Win32_ProcessStartTrace for cmd.exe (interactive-session + bare command line)");
+                    $"SELECT * FROM Win32_ProcessStartTrace WHERE {nameFilter}");
+                var watcher = new ManagementEventWatcher(query);
+                watcher.EventArrived += OnProcessStartTrace;
+
+                lock (_lock)
+                {
+                    if (_disposed)
+                    {
+                        // Dispose won the race against the background start — don't arm.
+                        try { watcher.EventArrived -= OnProcessStartTrace; } catch { }
+                        try { watcher.Dispose(); } catch { }
+                        return;
+                    }
+                    _startWatcher = watcher;
+                }
+
+                watcher.Start();
+                _logger.Info($"[ConsoleBypassWatcher] watching Win32_ProcessStartTrace for " +
+                    $"{string.Join(", ", WatchedProcessNames)} (interactive-session + bare command line)");
             }
             catch (Exception ex)
             {
                 _logger.Warning($"[ConsoleBypassWatcher] could not start WMI process-start watcher " +
                     $"({ex.GetType().Name}: {ex.Message}); relying on the startup probe only.");
-                _startWatcher = null;
+                lock (_lock) { _startWatcher = null; }
                 // Surface the dead live detector so the backend can distinguish it from a clean run.
                 var handler = WatcherArmFailed;
                 try { handler?.Invoke(this, ex); } catch { /* never throw from Start */ }
@@ -120,8 +154,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
             //    arm so there is no gap; overlap with the live trace is deduped by _seen.
             try
             {
+                var nameFilter = string.Join(" OR ",
+                    Array.ConvertAll(WatchedProcessNames, n => $"Name = '{n}'"));
                 using var searcher = new ManagementObjectSearcher(
-                    "SELECT ProcessId, ParentProcessId, SessionId FROM Win32_Process WHERE Name = 'cmd.exe'");
+                    $"SELECT Name, ProcessId, ParentProcessId, SessionId FROM Win32_Process WHERE {nameFilter}");
                 using var results = searcher.Get();
                 foreach (var mo in results)
                 {
@@ -132,7 +168,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
                             ToInt(mo["ParentProcessId"]),
                             ToInt(mo["SessionId"]),
                             ownerSidHint: null,
-                            detectedVia: "startup_probe");
+                            detectedVia: "startup_probe",
+                            processName: mo["Name"]?.ToString() ?? WatchedProcessNames[0]);
                     }
                 }
             }
@@ -150,7 +187,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
                 var parentPid = ToInt(e.NewEvent?["ParentProcessID"]);
                 var sessionId = ToInt(e.NewEvent?["SessionID"]);
                 var ownerSid = TryReadSid(e.NewEvent?["Sid"]); // race-free owner from the trace
-                HandleStart(pid, parentPid, sessionId, ownerSid, "process_start_trace");
+                var processName = e.NewEvent?["ProcessName"]?.ToString() ?? WatchedProcessNames[0];
+                HandleStart(pid, parentPid, sessionId, ownerSid, "process_start_trace", processName);
             }
             catch (Exception ex)
             {
@@ -165,7 +203,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
         /// unreadable interactive-session console (instant-close → low confidence). Scripted
         /// invocations (<c>cmd /c</c>) and session-0 (service) cmd are ignored.
         /// </summary>
-        internal void HandleStart(int pid, int parentPid, int sessionId, string? ownerSidHint, string detectedVia)
+        internal void HandleStart(int pid, int parentPid, int sessionId, string? ownerSidHint, string detectedVia, string? processName = null)
         {
             if (pid <= 0) return;
             lock (_lock) { if (_disposed) return; }
@@ -187,47 +225,58 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
             }
 
             bool high = verdict == ConsoleVerdict.InteractiveConsole;
+            string classification;
+            switch (verdict)
+            {
+                case ConsoleVerdict.InteractiveConsole: classification = "interactive_console"; break;
+                case ConsoleVerdict.InteractiveWithCommand: classification = "interactive_console_with_command"; break;
+                default: classification = "interactive_session_unclassified"; break;
+            }
             var info = new ConsoleSpawnInfo(
-                processName: "cmd.exe",
+                processName: processName ?? WatchedProcessNames[0],
                 processId: pid,
                 parentProcessId: parentPid,
                 sessionId: sessionId,
                 owner: probe?.Owner ?? ownerSidHint,
                 commandLine: probe?.CommandLine,
                 confidence: high ? "high" : "low",
-                classification: high ? "interactive_console" : "interactive_session_unclassified",
+                classification: classification,
                 detectedVia: detectedVia);
 
-            _logger.Warning($"[ConsoleBypassWatcher] interactive console detected: cmd.exe (PID={pid}) " +
+            _logger.Warning($"[ConsoleBypassWatcher] interactive console detected: {info.ProcessName} (PID={pid}) " +
                 $"session={sessionId}, confidence={info.Confidence}, via={detectedVia} — possible Shift+F10");
 
             try { BypassConsoleDetected?.Invoke(this, info); }
             catch (Exception ex) { _logger.Warning($"[ConsoleBypassWatcher] handler threw: {ex.Message}"); }
         }
 
-        internal enum ConsoleVerdict { Ignore, InteractiveConsole, UnclassifiedInteractive }
+        internal enum ConsoleVerdict { Ignore, InteractiveConsole, UnclassifiedInteractive, InteractiveWithCommand }
 
         /// <summary>
         /// Pure classification (internal for tests): session-0 → Ignore; a scripted <c>cmd /c</c> →
-        /// Ignore; a bare command line → InteractiveConsole (high); an unreadable command line in an
-        /// interactive session → UnclassifiedInteractive (low, the instant-close fallback).
+        /// Ignore; <c>cmd /k</c> (runs its command, then STAYS interactive — L12) →
+        /// InteractiveWithCommand (low); a bare command line → InteractiveConsole (high); an
+        /// unreadable command line in an interactive session → UnclassifiedInteractive (low, the
+        /// instant-close fallback).
         /// </summary>
         internal static ConsoleVerdict Classify(int sessionId, string? commandLine)
         {
             if (sessionId == 0) return ConsoleVerdict.Ignore;
             if (commandLine == null) return ConsoleVerdict.UnclassifiedInteractive;
-            if (HasScriptArgument(commandLine)) return ConsoleVerdict.Ignore;
+            var arguments = StripExecutable(commandLine);
+            if (RunAndExitSwitchRegex.IsMatch(arguments)) return ConsoleVerdict.Ignore;
+            if (RunAndStaySwitchRegex.IsMatch(arguments)) return ConsoleVerdict.InteractiveWithCommand;
             return ConsoleVerdict.InteractiveConsole;
         }
 
-        /// <summary>True when the command line carries a <c>/c</c> or <c>/k</c> run-command switch
-        /// (a scripted invocation), false for a bare interactive shell. The executable token is
-        /// stripped first so a path can never spoof a switch, and switches may be combined
-        /// (e.g. <c>cmd /d/q/c exit 9</c>).</summary>
+        /// <summary>True when the command line carries a <c>/c</c> run-and-exit switch (a scripted
+        /// invocation), false for a bare interactive shell or a <c>/k</c> run-and-stay shell. The
+        /// executable token is stripped first so a path can never spoof a switch, and switches may
+        /// be combined (e.g. <c>cmd /d/q/c exit 9</c>).</summary>
         internal static bool HasScriptArgument(string commandLine)
         {
             if (string.IsNullOrEmpty(commandLine)) return false;
-            return ScriptSwitchRegex.IsMatch(StripExecutable(commandLine));
+            return RunAndExitSwitchRegex.IsMatch(StripExecutable(commandLine));
         }
 
         /// <summary>Returns the command line with the leading executable token (quoted or

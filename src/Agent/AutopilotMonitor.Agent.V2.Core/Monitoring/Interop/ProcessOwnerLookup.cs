@@ -40,19 +40,35 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
         /// process's session. Returns <c>null</c> when the session has no associated user or the
         /// API fails (an empty WTS result is coalesced to <c>null</c>).
         /// </summary>
-        public static string ViaWts(int sessionId)
+        public static string ViaWts(int sessionId) => ViaWts(sessionId, out _);
+
+        /// <summary>
+        /// WTS primary path that also reports whether the API call actually FAILED via
+        /// <paramref name="wtsErrored"/> (L15). A session that simply has no logged-on user yet —
+        /// perfectly normal during OOBE polling — returns <c>null</c> with
+        /// <paramref name="wtsErrored"/> false, so liveness counters no longer inflate the
+        /// "error" rate with routine no-user reads.
+        /// </summary>
+        public static string ViaWts(int sessionId, out bool wtsErrored)
         {
+            wtsErrored = false;
             try
             {
                 var user = WtsNativeMethods.QuerySessionString(sessionId, WtsNativeMethods.WTSUserName);
-                if (string.IsNullOrEmpty(user))
+                if (user == null)
+                {
+                    wtsErrored = true; // API failure (QuerySessionString returns null only then)
                     return null;
+                }
+                if (user.Length == 0)
+                    return null;       // successful query, no user associated yet — not an error
 
                 var domain = WtsNativeMethods.QuerySessionString(sessionId, WtsNativeMethods.WTSDomainName);
                 return string.IsNullOrEmpty(domain) ? user : $"{domain}\\{user}";
             }
             catch
             {
+                wtsErrored = true;
                 return null;
             }
         }

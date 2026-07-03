@@ -122,11 +122,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _imeLogHost?.GetStarvedUserEspApps() ?? Array.Empty<AppPackageState>();
 
         /// <summary>
-        /// Liveness plan PR3 — appIds already reported via <c>app_install_starved</c> on the
-        /// live (esp_exited) path. Consulted by the termination handler so the terminal sweep
-        /// never double-reports an app. Empty when no ESP/Hello host exists.
+        /// Liveness plan PR3 / L6 — atomically claims the <c>app_install_starved</c> report for
+        /// an app against the same dedupe set the live (esp_exited) path uses, so the terminal
+        /// sweep and a racing live emission can never double-report. Returns true when the
+        /// caller owns the report. Without an ESP/Hello host there is no live path to race —
+        /// the claim always succeeds.
         /// </summary>
-        public IReadOnlyCollection<string> StarvedUserEspAppsAlreadyReported =>
-            EspAndHelloHost?.StarvedAppsReported ?? Array.Empty<string>();
+        public bool TryClaimStarvedUserEspAppReport(string appId) =>
+            EspAndHelloHost?.TryClaimStarvedAppReport(appId) ?? true;
     }
 }

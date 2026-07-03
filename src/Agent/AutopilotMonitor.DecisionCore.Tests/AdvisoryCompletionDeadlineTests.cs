@@ -345,10 +345,10 @@ namespace AutopilotMonitor.DecisionCore.Tests
         [Fact]
         public void DeadlineFired_WithoutAnyAnchor_DeadEnds()
         {
-            // No advisory recorded AND the only esp_exiting was the intermediate Device→Account
-            // handoff (before AccountSetup entry) — neither arming anchor exists.
+            // Neither anchor fact exists: no advisory recorded and no esp_exiting ever observed.
             var engine = new DecisionEngine();
-            var state = SetupAdvisoryEligibleSession(engine);
+            var state = DecisionState.CreateInitial("sess-noanchor", "tenant-noanchor", T0);
+            state = engine.Reduce(state, MakeSignal(0, DecisionSignalKind.SessionStarted, T0)).NewState;
 
             var step = engine.Reduce(state, DeadlineFired(70, T0.AddMinutes(57.5), DeadlineNames.AdvisoryCompletion));
 
@@ -356,6 +356,44 @@ namespace AutopilotMonitor.DecisionCore.Tests
             Assert.Equal("advisory_completion_without_anchor", step.Transition.DeadEndReason);
             Assert.Empty(step.Effects);
             Assert.Equal(state.Stage, step.NewState.Stage);
+        }
+
+        [Fact]
+        public void DeadlineFired_IntermediateExitOnly_DeadEndsAsStaleNotArmed()
+        {
+            // L5 (delta review 2026-07-02): the anchor is presence-only now — the intermediate
+            // pre-AccountSetup exit plus AccountSetup entry passes the anchor check, and the
+            // UNARMED window is what dead-ends this stray fire.
+            var engine = new DecisionEngine();
+            var state = SetupAdvisoryEligibleSession(engine);
+
+            var step = engine.Reduce(state, DeadlineFired(70, T0.AddMinutes(57.5), DeadlineNames.AdvisoryCompletion));
+
+            Assert.False(step.Transition.Taken);
+            Assert.Equal("advisory_completion_stale_deadline_not_armed", step.Transition.DeadEndReason);
+            Assert.Empty(step.Effects);
+            Assert.Equal(state.Stage, step.NewState.Stage);
+        }
+
+        [Fact]
+        public void DeadlineFired_EspExitVariant_BackdatedExitTimestamp_StillResolves()
+        {
+            // L5 (delta review 2026-07-02): a guard-blocked post-AccountSetup exit whose SOURCE
+            // timestamp predates AccountSetup entry (replayed CMTrace content / clamped clock)
+            // arms the window; the fire must resolve the session, not dead-end on
+            // advisory_completion_without_anchor (which re-opened the idle-until-max-lifetime
+            // dead-end this deadline exists to close).
+            var engine = new DecisionEngine();
+            var state = SetupAdvisoryEligibleSession(engine); // desktop + post-anchor IME evidence
+
+            var armStep = engine.Reduce(state, MakeSignal(50, DecisionSignalKind.EspExiting, T0.AddMinutes(16)));
+            Assert.NotNull(FindDeadline(armStep.NewState, DeadlineNames.AdvisoryCompletion));
+            Assert.True(armStep.NewState.EspFinalExitUtc!.Value < armStep.NewState.AccountSetupEnteredUtc!.Value);
+
+            var step = engine.Reduce(armStep.NewState, DeadlineFired(70, T0.AddMinutes(46), DeadlineNames.AdvisoryCompletion));
+
+            Assert.True(step.Transition.Taken);
+            Assert.Equal(SessionStage.Finalizing, step.NewState.Stage);
         }
 
         [Fact]
@@ -580,13 +618,58 @@ namespace AutopilotMonitor.DecisionCore.Tests
             Assert.Equal(T0.AddMinutes(5), state.ImeUserSessionCompletedUtc!.Value);
             Assert.Equal(10, state.ImeUserSessionCompletedUtc!.SourceSignalOrdinal);
 
-            // A replayed second observation keeps the original anchor.
+            // A replayed second observation keeps the original anchor (no AccountSetup entry
+            // recorded — the post-anchor upgrade rule cannot apply).
             state = engine.Reduce(state, MakeSignal(
                 20, DecisionSignalKind.ImeUserSessionCompleted, T0.AddMinutes(9),
                 new Dictionary<string, string> { [SignalPayloadKeys.ImePatternId] = "IME-USER-SESSION-COMPLETED" })).NewState;
 
             Assert.Equal(T0.AddMinutes(5), state.ImeUserSessionCompletedUtc!.Value);
             Assert.Equal(10, state.ImeUserSessionCompletedUtc!.SourceSignalOrdinal);
+        }
+
+        [Fact]
+        public void ImeUserSessionCompleted_PreAnchorGhost_UpgradedByFirstPostAnchorObservation()
+        {
+            // M2 (delta review 2026-07-02): a defaultuser0 completion observed BEFORE
+            // AccountSetup entry must not permanently poison the conjunction — the first
+            // at-or-after-anchor observation upgrades the fact, then it freezes.
+            var engine = new DecisionEngine();
+            var state = SetupAdvisoryEligibleSession(engine, imeUserSessionCompletedAt: T0.AddMinutes(10));
+            Assert.Equal(T0.AddMinutes(10), state.ImeUserSessionCompletedUtc!.Value); // ghost recorded
+
+            // Real user's IME session completes post-AccountSetup (+17) → upgrade.
+            state = engine.Reduce(state, MakeSignal(
+                45, DecisionSignalKind.ImeUserSessionCompleted, T0.AddMinutes(27),
+                new Dictionary<string, string> { [SignalPayloadKeys.ImePatternId] = "IME-USER-SESSION-COMPLETED" })).NewState;
+            Assert.Equal(T0.AddMinutes(27), state.ImeUserSessionCompletedUtc!.Value);
+            Assert.Equal(45, state.ImeUserSessionCompletedUtc!.SourceSignalOrdinal);
+
+            // Frozen after the upgrade: a third observation does not re-base the genuine stamp.
+            state = engine.Reduce(state, MakeSignal(
+                48, DecisionSignalKind.ImeUserSessionCompleted, T0.AddMinutes(29),
+                new Dictionary<string, string> { [SignalPayloadKeys.ImePatternId] = "IME-USER-SESSION-COMPLETED" })).NewState;
+            Assert.Equal(T0.AddMinutes(27), state.ImeUserSessionCompletedUtc!.Value);
+            Assert.Equal(45, state.ImeUserSessionCompletedUtc!.SourceSignalOrdinal);
+        }
+
+        [Fact]
+        public void DeadlineFired_GhostThenRealImeCompletion_CompletesThroughFinalizing()
+        {
+            // End-to-end M2: ghost pre-anchor completion, then the real user's post-anchor
+            // completion — the AdvisoryCompletion conjunction must hold and the session must
+            // complete instead of resolving Failed on poisoned evidence.
+            var engine = new DecisionEngine();
+            var state = SetupAdvisoryEligibleSession(engine, imeUserSessionCompletedAt: T0.AddMinutes(10));
+            state = engine.Reduce(state, MakeSignal(
+                45, DecisionSignalKind.ImeUserSessionCompleted, T0.AddMinutes(27),
+                new Dictionary<string, string> { [SignalPayloadKeys.ImePatternId] = "IME-USER-SESSION-COMPLETED" })).NewState;
+            state = ApplyEspTerminalFailure(engine, state, ordinal: 50);
+
+            var step = engine.Reduce(state, DeadlineFired(70, T0.AddMinutes(57.5), DeadlineNames.AdvisoryCompletion));
+
+            Assert.Equal(SessionStage.Finalizing, step.NewState.Stage);
+            Assert.Equal("Skipped", step.NewState.HelloOutcome!.Value);
         }
 
         // ================================================== serialization compat ====

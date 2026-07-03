@@ -174,7 +174,8 @@ namespace AutopilotMonitor.DecisionCore.Tests
         public void EspTerminalFailure_AfterAdvisory_PureDuplicateDeadEnds()
         {
             // Pure duplicate: ShellCoreTracker fires after ProvisioningStatusTracker already did
-            // the rich emission. The ShellCoreTrackerAdapter (line 141) always includes
+            // the rich emission. The Shell-Core path (via EspAndHelloTrackerAdapter; the
+            // test-only ShellCoreTrackerAdapter was removed in ARCH-F7) always includes
             // failureType in its payload but never the registry-specific keys (errorCode /
             // failedSubcategory / category) — those come exclusively from the registry path.
             // This test mirrors that production reality so the dead-end gate is exercised

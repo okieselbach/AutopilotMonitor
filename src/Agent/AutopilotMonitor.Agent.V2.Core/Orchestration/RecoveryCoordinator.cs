@@ -109,6 +109,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         public const string QuarantineRequestedMarkerFile = "quarantine-requested.marker";
 
         /// <summary>
+        /// L7 (delta review 2026-07-02): marker-content prefix written when the quarantine was
+        /// performed but the marker file could not be deleted (AV/ACL hold). A marker carrying
+        /// this sentinel means "already handled — retry the delete, do NOT re-quarantine",
+        /// preventing a stuck marker from wiping the fresh run's state on every restart.
+        /// </summary>
+        internal const string QuarantineProcessedSentinel = "processed:";
+
+        /// <summary>
         /// Runs the full recovery pipeline against <paramref name="stateDirectory"/> and returns
         /// the opened writers, seed state, and recovery flags. The directory is assumed to exist
         /// (the orchestrator calls <c>EnsureDirectories</c> first).
@@ -146,6 +154,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             if (File.Exists(quarantineMarkerPath))
             {
                 var quarantineReason = TryReadMarkerReason(quarantineMarkerPath);
+                if (quarantineReason.StartsWith(QuarantineProcessedSentinel, StringComparison.Ordinal))
+                {
+                    // L7 (delta review 2026-07-02): a prior start already PERFORMED this
+                    // quarantine but could not delete the marker (AV/ACL hold) and neutralized
+                    // it with the processed sentinel instead. Re-running the quarantine here
+                    // would wipe the FRESH run's state on every restart — just retry the delete
+                    // and continue with normal recovery.
+                    logger.Warning(
+                        "EnrollmentOrchestrator: neutralized quarantine marker still present — quarantine " +
+                        "already performed by a prior start; retrying marker delete only.");
+                    try { File.Delete(quarantineMarkerPath); }
+                    catch (Exception ex) { logger.Warning($"EnrollmentOrchestrator: quarantine marker delete retry failed: {ex.Message}"); }
+                }
+                else
+                {
                 logger.Error(
                     "EnrollmentOrchestrator: prior-run quarantine marker found — quarantining all state " +
                     $"segments + snapshot before recovery. Reason: {quarantineReason}");
@@ -161,7 +184,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     // next start retries fail-closed instead of proceeding on possibly-still-corrupt
                     // segments with the retry hint lost.
                     try { File.Delete(quarantineMarkerPath); }
-                    catch (Exception ex) { logger.Warning($"EnrollmentOrchestrator: quarantine marker delete failed: {ex.Message}"); }
+                    catch (Exception deleteEx)
+                    {
+                        logger.Warning($"EnrollmentOrchestrator: quarantine marker delete failed: {deleteEx.Message}");
+                        // L7: the quarantine itself SUCCEEDED — neutralize the stuck marker so the
+                        // next start does not re-wipe fresh state. Best-effort: if the write fails
+                        // too (same ACL hold), behavior degrades to the previous repeated-wipe.
+                        try
+                        {
+                            File.WriteAllText(
+                                quarantineMarkerPath,
+                                QuarantineProcessedSentinel + clock.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
+                                System.Text.Encoding.UTF8);
+                        }
+                        catch (Exception writeEx)
+                        {
+                            logger.Warning($"EnrollmentOrchestrator: quarantine marker neutralization failed: {writeEx.Message}");
+                        }
+                    }
 
                     priorRunQuarantined = true;
                     priorRunQuarantineReason = quarantineReason;
@@ -177,6 +217,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     logger.Error(
                         "EnrollmentOrchestrator: prior-run quarantine cleanup FAILED — marker retained for "
                         + "next-start retry; forcing a clean Initial seed for this run.", ex);
+                }
                 }
             }
 

@@ -114,6 +114,42 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Analyzers
         }
 
         [Fact]
+        public void Artifact_within_clock_skew_tolerance_before_boot_is_still_flagged()
+        {
+            // M5: an NTP correction between the .pf write and the scan can push the derived boot
+            // time past a REAL console's artifact timestamp. Within the tolerance the artifact
+            // must still count as after-boot.
+            using var rig = new Rig();
+            rig.WritePf("CMD.EXE-0BD30981.pf", BootUtc.AddMinutes(-5)); // inside the 10-min tolerance
+
+            rig.NewScanner().AnalyzeAtStartup();
+
+            Assert.NotNull(rig.PrefetchEvent());
+        }
+
+        [Fact]
+        public void Gate_suppresses_even_when_installer_cmd_refreshed_the_artifact()
+        {
+            // M6: ESP `cmd /c` installer wrappers refresh CMD.EXE-*.pf between reboots. The
+            // scanner cannot attribute the newer timestamp to a human console, so the Warning is
+            // once-per-enrollment — a refreshed artifact must NOT re-emit on the next restart.
+            using var rig = new Rig();
+            rig.WritePf("CMD.EXE-0BD30981.pf", BootUtc.AddMinutes(4));
+            var gate = rig.NewGate();
+
+            rig.NewScanner(gate: gate).AnalyzeAtStartup();
+
+            rig.WritePf("CMD.EXE-0BD30981.pf", BootUtc.AddMinutes(45)); // installer churn
+            rig.NewScanner(gate: gate).AnalyzeAtStartup();
+
+            var emitted = rig.Sink.Posted.Count(p =>
+                p.Payload != null
+                && p.Payload.TryGetValue(SignalPayloadKeys.EventType, out var et)
+                && et == "console_prefetch_detected");
+            Assert.Equal(1, emitted);
+        }
+
+        [Fact]
         public void No_cmd_artifact_stays_silent()
         {
             using var rig = new Rig();

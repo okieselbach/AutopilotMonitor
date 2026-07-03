@@ -84,7 +84,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private readonly TimeSpan? _safetyCapOverride;
         private readonly Func<int?> _espTimeoutProvider;
 
-        private enum HoldState { Idle, Engaged, Released }
+        private enum HoldState { Idle, Engaging, Engaged, Released }
 
         private readonly object _gate = new object();
         private Action<DecisionSignalKind, IReadOnlyDictionary<string, string>?>? _signalPostedHandler;
@@ -194,18 +194,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             catch (Exception ex) { _logger.Error("UserEspKeepAwakeHost: release failed.", ex); }
         }
 
-        /// <summary>Engage the hold exactly once (Idle → Engaged). No-op from any other state.</summary>
+        /// <summary>Engage the hold exactly once (Idle → Engaging → Engaged). No-op from any other state.</summary>
         private void Engage()
         {
-            bool osAccepted;
             int capMinutes;
             string capSource;
+            TimeSpan cap;
             lock (_gate)
             {
                 if (_state != HoldState.Idle) return;
+                // L16 (delta review 2026-07-02): claim the transition, but run the controller's
+                // Engage OUTSIDE the lock — it can block up to ~5 s on the keep-awake thread's
+                // ready-wait, and holding _gate across that stalled a concurrent Stop→Release.
+                _state = HoldState.Engaging;
 
                 // Size the cap now (AccountSetup has started, so the ESP policy is in the registry).
-                TimeSpan cap;
                 if (_safetyCapOverride.HasValue)
                 {
                     cap = _safetyCapOverride.Value;
@@ -217,8 +220,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     (capMinutes, capSource) = ResolveSafetyCapMinutes(SafeReadEspTimeoutMinutes(), _fallbackCapMinutes);
                     cap = TimeSpan.FromMinutes(capMinutes);
                 }
+            }
 
-                osAccepted = _controller.Engage();
+            var osAccepted = _controller.Engage(); // blocking — deliberately outside _gate (L16)
+
+            lock (_gate)
+            {
+                if (_state != HoldState.Engaging)
+                {
+                    // A Release (stop / completion) won the race while the controller was
+                    // engaging. The state is final — undo the OS hold we just acquired.
+                    try { _controller.Release(); }
+                    catch (Exception ex) { _logger.Warning($"UserEspKeepAwakeHost: rollback release failed: {ex.Message}"); }
+                    return;
+                }
+
                 _activeCapMinutes = capMinutes;
                 // One-shot backstop (NOT periodic): fire once after the cap, then release.
                 _safetyCapTimer = new Timer(OnSafetyCapElapsed, null, cap, Timeout.InfiniteTimeSpan);
@@ -245,8 +261,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         }
 
         /// <summary>
-        /// Release the hold exactly once (Idle/Engaged → Released). Idempotent — a second call (or
-        /// a competing completion / cap / stop trigger) is a no-op.
+        /// Release the hold exactly once (Idle/Engaging/Engaged → Released). Idempotent — a second
+        /// call (or a competing completion / cap / stop trigger) is a no-op. A release that lands
+        /// while an Engage is mid-flight (Engaging) wins: the engage path detects the final state
+        /// after its blocking controller call and rolls the OS hold back (L16).
         /// </summary>
         private void Release(string reason, EventSeverity severity, bool emit)
         {

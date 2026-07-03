@@ -757,6 +757,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                 Message = message,
                 Data = data
             });
+
+            // M4: commit the gate claim only after the emission went out (no-op for gate-exempt
+            // event types — they never claimed).
+            _startupGate?.MarkEmitted(eventType);
         }
 
         /// <summary>

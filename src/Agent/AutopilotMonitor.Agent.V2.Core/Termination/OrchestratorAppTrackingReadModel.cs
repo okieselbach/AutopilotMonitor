@@ -43,7 +43,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         public IReadOnlyList<AppPackageState>? GetStarvedUserEspApps() =>
             _orchestrator.CollectorSurfaces?.GetStarvedUserEspApps();
 
-        public IReadOnlyCollection<string> StarvedUserEspAppsAlreadyReported =>
-            _orchestrator.CollectorSurfaces?.StarvedUserEspAppsAlreadyReported ?? Array.Empty<string>();
+        public bool TryClaimStarvedUserEspAppReport(string appId) =>
+            _orchestrator.CollectorSurfaces?.TryClaimStarvedUserEspAppReport(appId) ?? true;
     }
 }

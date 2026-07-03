@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
@@ -18,10 +19,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
     /// itself via a one-shot <c>session_parked_without_deadline</c> Warning. The parked states
     /// here are built artificially via the builder — production arming sites now prevent them,
     /// which is exactly why the tripwire exists (it catches the unknown variant 4).
+    /// <para>
+    /// M1 (delta review 2026-07-02): the tripwire is dwell-based — a parked step only ARMS a
+    /// timer; the Warning fires (and consumes the one-shot) only if the session is still parked
+    /// when the dwell elapses. A healthy transient park (HelloResolved → AwaitingDesktop,
+    /// desktop arrives seconds later) must neither fire nor burn the one-shot.
+    /// </para>
     /// </summary>
+    [Collection("SerialThreading")] // timer-driven assertions — serialise against other timing-sensitive suites
     public sealed class DecisionStepProcessorParkedTripwireTests : IDisposable
     {
         private static DateTime At => new DateTime(2026, 6, 12, 10, 0, 0, DateTimeKind.Utc);
+
+        /// <summary>Short dwell so fire-path tests complete quickly; suppression tests wait ≥10× this.</summary>
+        private static readonly TimeSpan TestDwell = TimeSpan.FromMilliseconds(25);
+        private static readonly TimeSpan FireWait = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan SuppressWait = TimeSpan.FromMilliseconds(400);
 
         private readonly TempDirectory _tmp = new TempDirectory();
         private readonly AgentLogger _logger;
@@ -31,23 +44,29 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         private readonly FakeQuarantineSink _quarantine = new FakeQuarantineSink();
         private readonly FakeSignalIngressSink _sink = new FakeSignalIngressSink();
         private readonly DecisionEngine _engine = new DecisionEngine();
+        private DecisionStepProcessor _sut;
 
         public DecisionStepProcessorParkedTripwireTests()
         {
             _logger = new AgentLogger(_tmp.Path, AgentLogLevel.Info);
         }
 
-        public void Dispose() => _tmp.Dispose();
+        public void Dispose()
+        {
+            _sut?.Dispose();
+            _tmp.Dispose();
+        }
 
-        private DecisionStepProcessor Build(DecisionState initialState) =>
-            new DecisionStepProcessor(
+        private DecisionStepProcessor Build(DecisionState initialState, TimeSpan? dwell = null) =>
+            _sut = new DecisionStepProcessor(
                 initialState: initialState,
                 journal: _journal,
                 effectRunner: _effects,
                 snapshot: _snapshot,
                 quarantineSink: _quarantine,
                 logger: _logger,
-                informationalEvents: new InformationalEventPost(_sink, new FixedClock(At), _logger));
+                informationalEvents: new InformationalEventPost(_sink, new FixedClock(At), _logger),
+                parkedTripwireDwell: dwell ?? TestDwell);
 
         /// <summary>
         /// Baseline parked shape: AccountSetup entered, ESP exited finally AFTER that entry,
@@ -88,7 +107,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             return (step, signal);
         }
 
-        private FakeSignalIngressSink.PostedSignal? FindTripwirePost()
+        private FakeSignalIngressSink.PostedSignal FindTripwirePost()
         {
             foreach (var posted in _sink.Posted)
             {
@@ -117,28 +136,67 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             return count;
         }
 
+        /// <summary>Blocks until at least one tripwire post landed (dwell elapsed) or times out.</summary>
+        private bool WaitForTripwire() =>
+            SpinWait.SpinUntil(() => CountTripwirePosts() >= 1, FireWait);
+
+        /// <summary>Proves absence: waits well past the dwell, then asserts no post arrived.</summary>
+        private void AssertNoTripwireAfterDwell()
+        {
+            Thread.Sleep(SuppressWait);
+            Assert.Equal(0, CountTripwirePosts());
+        }
+
         // ===================================================================== Fires
 
         [Fact]
-        public void Parked_state_fires_tripwire_exactly_once()
+        public void Parked_state_fires_tripwire_exactly_once_after_dwell()
         {
             var sut = Build(BuildParkedState());
 
             var (s1, sig1) = ReduceInformational(sut, 10);
             sut.ApplyStep(s1, sig1);
+
+            Assert.True(WaitForTripwire(), "tripwire did not fire within the wait budget");
+
+            // Further parked pass-throughs after the fire must not emit again (one-shot).
             var (s2, sig2) = ReduceInformational(sut, 11);
             sut.ApplyStep(s2, sig2);
-
+            Thread.Sleep(SuppressWait);
             Assert.Equal(1, CountTripwirePosts());
 
-            var post = FindTripwirePost()!;
+            var post = FindTripwirePost();
             Assert.Equal(DecisionSignalKind.InformationalEvent, post.Kind);
-            Assert.Equal(nameof(SessionStage.EspAccountSetup), post.Payload!["stage"]);
+            Assert.Equal(nameof(SessionStage.EspAccountSetup), post.Payload["stage"]);
             Assert.Equal("Warning", post.Payload[SignalPayloadKeys.Severity]);
             Assert.Equal("true", post.Payload[SignalPayloadKeys.ImmediateUpload]);
             Assert.Contains("esp_final_exit", post.Payload["signalsSeen"]);
             Assert.Contains("account_setup_entered", post.Payload["signalsSeen"]);
             Assert.Equal(string.Empty, post.Payload["armedDeadlines"]);
+            Assert.True(post.Payload.ContainsKey("dwellSeconds"));
+        }
+
+        [Fact]
+        public void Parked_passthrough_steps_do_not_rebase_the_dwell()
+        {
+            // A truly parked session still produces telemetry pass-throughs; if each of them
+            // re-based the dwell the tripwire would never fire exactly when it matters most.
+            var sut = Build(BuildParkedState(), dwell: TimeSpan.FromMilliseconds(150));
+
+            var (s1, sig1) = ReduceInformational(sut, 10);
+            sut.ApplyStep(s1, sig1);
+
+            // Keep feeding parked pass-throughs faster than the dwell.
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            long ordinal = 11;
+            while (CountTripwirePosts() == 0 && DateTime.UtcNow < deadline)
+            {
+                var (s, sig) = ReduceInformational(sut, ordinal++);
+                sut.ApplyStep(s, sig);
+                Thread.Sleep(20);
+            }
+
+            Assert.Equal(1, CountTripwirePosts());
         }
 
         [Fact]
@@ -149,6 +207,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             var (step, signal) = ReduceInformational(sut, 10);
             sut.ApplyStep(step, signal);
 
+            Assert.True(WaitForTripwire());
             Assert.Equal(1, CountTripwirePosts());
         }
 
@@ -162,24 +221,67 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             var (step, signal) = ReduceInformational(sut, 10);
             sut.ApplyStep(step, signal);
 
-            Assert.Equal(1, CountTripwirePosts());
-            Assert.Equal(DeadlineNames.ClassifierTick, FindTripwirePost()!.Payload!["armedDeadlines"]);
+            Assert.True(WaitForTripwire());
+            Assert.Equal(DeadlineNames.ClassifierTick, FindTripwirePost().Payload["armedDeadlines"]);
         }
 
         [Fact]
         public void AwaitingDesktop_parked_fires_with_stage_in_data()
         {
             // Deliberate design decision (plan PR1): AwaitingDesktop has no deadline today, so a
-            // parked AwaitingDesktop session IS visible via the tripwire. The stage field keeps
-            // it distinguishable in the field; a dedicated DesktopSafety deadline is a possible
-            // later iteration — NOT part of PR1.
+            // parked AwaitingDesktop session IS visible via the tripwire — but only after the
+            // dwell, so the healthy Hello→Desktop window stays silent (see the dwell tests).
             var sut = Build(BuildParkedState(stage: SessionStage.AwaitingDesktop));
 
             var (step, signal) = ReduceInformational(sut, 10);
             sut.ApplyStep(step, signal);
 
+            Assert.True(WaitForTripwire());
+            Assert.Equal(nameof(SessionStage.AwaitingDesktop), FindTripwirePost().Payload["stage"]);
+        }
+
+        // ===================================================================== Dwell semantics
+
+        [Fact]
+        public void Transient_park_resolved_before_dwell_neither_fires_nor_burns_the_one_shot()
+        {
+            // The healthy Classic window: HelloResolved cancels HelloSafety → AwaitingDesktop
+            // with no deadline; DesktopArrived (here: a resolution deadline appearing) follows
+            // before the dwell elapses.
+            var sut = Build(BuildParkedState(stage: SessionStage.AwaitingDesktop), dwell: TimeSpan.FromMilliseconds(250));
+
+            var (s1, sig1) = ReduceInformational(sut, 10);
+            sut.ApplyStep(s1, sig1);
+
+            // Park resolves quickly: next step carries a resolution-capable deadline.
+            var resolvedState = BuildParkedState(
+                stage: SessionStage.AwaitingDesktop,
+                deadlines: Deadline(DeadlineNames.AdvisoryCompletion));
+            var (s2Template, sig2) = ReduceInformational(sut, 11);
+            sut.ApplyStep(new DecisionStep(resolvedState, s2Template.Transition, Array.Empty<DecisionEffect>()), sig2);
+
+            AssertNoTripwireAfterDwell(); // no false alarm
+
+            // A REAL park later in the same run must still be able to fire — the one-shot was
+            // not consumed by the transient window.
+            var parkedAgain = BuildParkedState(stage: SessionStage.AwaitingDesktop);
+            var (s3Template, sig3) = ReduceInformational(sut, 12);
+            sut.ApplyStep(new DecisionStep(parkedAgain, s3Template.Transition, Array.Empty<DecisionEffect>()), sig3);
+
+            Assert.True(WaitForTripwire(), "genuine park after a transient window must still fire");
             Assert.Equal(1, CountTripwirePosts());
-            Assert.Equal(nameof(SessionStage.AwaitingDesktop), FindTripwirePost()!.Payload!["stage"]);
+        }
+
+        [Fact]
+        public void Dispose_cancels_a_pending_dwell()
+        {
+            var sut = Build(BuildParkedState());
+
+            var (step, signal) = ReduceInformational(sut, 10);
+            sut.ApplyStep(step, signal);
+            sut.Dispose();
+
+            AssertNoTripwireAfterDwell();
         }
 
         // ===================================================================== Suppressed
@@ -192,7 +294,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             var (step, signal) = ReduceInformational(sut, 10);
             sut.ApplyStep(step, signal);
 
-            Assert.Equal(0, CountTripwirePosts());
+            AssertNoTripwireAfterDwell();
         }
 
         [Fact]
@@ -204,7 +306,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             var (step, signal) = ReduceInformational(sut, 10);
             sut.ApplyStep(step, signal);
 
-            Assert.Equal(0, CountTripwirePosts());
+            AssertNoTripwireAfterDwell();
         }
 
         [Fact]
@@ -215,7 +317,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             var (step, signal) = ReduceInformational(sut, 10);
             sut.ApplyStep(step, signal);
 
-            Assert.Equal(0, CountTripwirePosts());
+            AssertNoTripwireAfterDwell();
         }
 
         [Fact]
@@ -226,7 +328,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             var (step, signal) = ReduceInformational(sut, 10);
             sut.ApplyStep(step, signal);
 
-            Assert.Equal(0, CountTripwirePosts());
+            AssertNoTripwireAfterDwell();
         }
 
         [Fact]
@@ -238,7 +340,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             var (step, signal) = ReduceInformational(sut, 10);
             sut.ApplyStep(step, signal);
 
-            Assert.Equal(0, CountTripwirePosts());
+            AssertNoTripwireAfterDwell();
         }
 
         [Fact]
@@ -252,7 +354,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             var (step, signal) = ReduceInformational(sut, 10);
             sut.ApplyStep(step, signal);
 
-            Assert.Equal(0, CountTripwirePosts());
+            AssertNoTripwireAfterDwell();
         }
 
         [Fact]
@@ -269,24 +371,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             var (step, signal) = ReduceInformational(sut, 10);
             sut.ApplyStep(step, signal);
 
-            Assert.Equal(0, CountTripwirePosts());
+            AssertNoTripwireAfterDwell();
         }
 
         [Fact]
         public void Without_informational_post_wired_parked_state_is_tolerated()
         {
             // Legacy ctor shape (no InformationalEventPost) — the tripwire is simply disabled.
-            var sut = new DecisionStepProcessor(
+            var sut = _sut = new DecisionStepProcessor(
                 initialState: BuildParkedState(),
                 journal: _journal,
                 effectRunner: _effects,
                 snapshot: _snapshot,
                 quarantineSink: _quarantine,
-                logger: _logger);
+                logger: _logger,
+                parkedTripwireDwell: TestDwell);
 
             var (step, signal) = ReduceInformational(sut, 10);
             sut.ApplyStep(step, signal);
 
+            Thread.Sleep(SuppressWait);
             Assert.Empty(_sink.Posted);
         }
 

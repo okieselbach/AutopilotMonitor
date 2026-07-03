@@ -54,6 +54,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// </summary>
         public System.Collections.Generic.IReadOnlyCollection<string> StarvedAppsReported => _tracker.StarvedAppsReported;
 
+        /// <summary>L6 — atomic claim for the termination sweep (see EspAndHelloTracker.TryClaimStarvedAppReport).</summary>
+        public bool TryClaimStarvedAppReport(string appId) => _tracker.TryClaimStarvedAppReport(appId);
+
         public EspAndHelloHost(
             string sessionId,
             string tenantId,
