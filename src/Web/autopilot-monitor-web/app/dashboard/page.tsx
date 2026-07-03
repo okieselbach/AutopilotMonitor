@@ -302,59 +302,6 @@ function HomeContent() {
             </p>
           </div>
 
-          {/* Agent V2 rollout banner */}
-          <div className="mb-4 bg-amber-50 border border-amber-300 rounded-lg px-4 py-3 flex items-start gap-3 dark:bg-amber-950/30 dark:border-amber-700/50">
-            <svg className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-            </svg>
-            <div className="text-sm text-amber-900 dark:text-amber-200 space-y-2">
-              <p>
-                <span className="font-semibold">Agent V2 rolling out.</span>{" "}
-                The agent has been rebuilt on a cleaner internal architecture for more reliable session detection,
-                stricter completion logic, and easier diagnostics. Early rollout may still surface a few unexpected
-                behaviors.
-              </p>
-              <ul className="list-disc pl-5 space-y-1">
-                <li>
-                  <span className="font-medium">Action — update the Intune bootstrap script.</span>{" "}
-                  Replace <code className="text-xs bg-amber-100 dark:bg-amber-900/50 px-1 py-0.5 rounded">Install-AutopilotMonitor.ps1</code>{" "}
-                  in your Intune tenant with the latest version from the repository.
-                </li>
-                <li>
-                  <span className="font-medium">Notice anything off?</span>{" "}
-                  Use the{" "}
-                  <span className="italic">Report Session</span>{" "}
-                  button on a session,{" "}
-                  <Link
-                    href="/settings/tenant/support"
-                    className="underline font-medium hover:text-amber-700 dark:hover:text-amber-100"
-                  >
-                    Submit Logs
-                  </Link>{" "}
-                  for session-less diagnostics,{" "}
-                  <a
-                    href="https://github.com/okieselbach/Autopilot-Monitor/issues"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline font-medium hover:text-amber-700 dark:hover:text-amber-100"
-                  >
-                    open a GitHub issue
-                  </a>
-                  , or{" "}
-                  <a
-                    href="https://www.linkedin.com/in/oliver-kieselbach/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline font-medium hover:text-amber-700 dark:hover:text-amber-100"
-                  >
-                    DM me on LinkedIn
-                  </a>
-                  .
-                </li>
-              </ul>
-            </div>
-          </div>
-
           {serialValidationEnabled === false && (
             <div className="mb-6 bg-red-600 border-2 border-red-700 rounded-xl p-5 shadow-lg">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
