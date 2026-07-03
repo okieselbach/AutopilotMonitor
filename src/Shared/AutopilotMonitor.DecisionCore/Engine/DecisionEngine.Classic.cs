@@ -506,7 +506,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// is a strong UserDriven-v1 indicator), and records the matched pattern id.
         /// <para>
         /// Additionally records <see cref="DecisionState.ImeUserSessionCompletedUtc"/>
-        /// (set-once — the first observation wins, replays keep the original anchor). The fact
+        /// (first post-AccountSetup observation wins — a pre-AccountSetup defaultuser0 stamp is
+        /// upgraded once by the first at-or-after-anchor observation, then frozen). The fact
         /// is NOT a completion trigger here: the IME "user session" can run under
         /// <c>defaultuser0</c>, so the raw signal proves nothing about the real user. The
         /// <c>AdvisoryCompletion</c> deadline handler consumes it lazily inside a correlation
@@ -529,7 +530,22 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 builder.ImeMatchedPatternId = new SignalFact<string>(patternId!, signal.SessionSignalOrdinal);
             }
 
-            if (state.ImeUserSessionCompletedUtc == null)
+            // Recording rule: first POST-AccountSetup observation wins (M2, delta review
+            // 2026-07-02). Plain set-once let an early defaultuser0 completion (pre-AccountSetup
+            // frame) permanently poison the AdvisoryCompletion conjunction — the real user's
+            // later completion was skipped, `imeUserSessionGenuine` could never hold, and a
+            // session with genuine evidence resolved Failed. Upgrade exactly once: a pre-anchor
+            // stamp is replaced by the first at-or-after-anchor observation; a genuine stamp is
+            // never downgraded or re-based. Pure function of (state, signal) — replay-safe.
+            var recordImeUserSession = state.ImeUserSessionCompletedUtc == null;
+            if (!recordImeUserSession
+                && state.AccountSetupEnteredUtc != null
+                && state.ImeUserSessionCompletedUtc!.Value < state.AccountSetupEnteredUtc.Value
+                && signal.OccurredAtUtc >= state.AccountSetupEnteredUtc.Value)
+            {
+                recordImeUserSession = true;
+            }
+            if (recordImeUserSession)
             {
                 builder.ImeUserSessionCompletedUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
             }

@@ -356,12 +356,17 @@ namespace AutopilotMonitor.DecisionCore.Engine
             var deadlineStillArmed = HasAdvisoryCompletionDeadline(state);
 
             var hasAdvisoryAnchor = state.EspAdvisoryFailureRecordedUtc != null;
-            // The esp-exit arming site only runs for a final exit observed at-or-after
-            // AccountSetup entry; an intermediate Device→Account exit (recorded earlier than
-            // AccountSetupEnteredUtc) does not count as an anchor.
+            // Presence-only anchor (L5, delta review 2026-07-02). The esp-exit arming site only
+            // runs when AccountSetupEnteredUtc is already set, so both facts being present is
+            // the anchor; `deadlineStillArmed` below is what rejects stray timer fires. The old
+            // additional `EspFinalExitUtc >= AccountSetupEnteredUtc` comparison rejected fires
+            // whose arming exit carried a backfilled/out-of-order source timestamp — returning
+            // the session to the idle-until-max-lifetime dead-end this deadline exists to close.
+            // An intermediate Device→Account exit cannot slip in here: it happens BEFORE
+            // AccountSetup entry, never arms the window, and thus dead-ends on
+            // `advisory_completion_stale_deadline_not_armed`.
             var hasEspExitAnchor = state.EspFinalExitUtc != null
-                && state.AccountSetupEnteredUtc != null
-                && state.EspFinalExitUtc.Value >= state.AccountSetupEnteredUtc.Value;
+                && state.AccountSetupEnteredUtc != null;
 
             string? staleReason = null;
             if (!hasAdvisoryAnchor && !hasEspExitAnchor) staleReason = "advisory_completion_without_anchor";

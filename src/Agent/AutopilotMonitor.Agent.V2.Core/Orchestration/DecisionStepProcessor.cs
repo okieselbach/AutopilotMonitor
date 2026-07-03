@@ -45,10 +45,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
     /// nächsten Reduce, ebenfalls unlockbar sicher.
     /// </para>
     /// </summary>
-    public sealed class DecisionStepProcessor : IDecisionStepProcessor
+    public sealed class DecisionStepProcessor : IDecisionStepProcessor, IDisposable
     {
         /// <summary>Default — 3 Failures hintereinander → Quarantine.</summary>
         public const int DefaultQuarantineThreshold = 3;
+
+        /// <summary>
+        /// M1 (delta review 2026-07-02) — dwell before the parked tripwire fires. The parked
+        /// predicate is true during a HEALTHY transient window: Classic HelloResolved (or the
+        /// HelloSafety timeout) cancels the only armed deadline and moves to AwaitingDesktop
+        /// seconds-to-minutes before DesktopArrived; firing on the step that produces that state
+        /// is a false alarm AND consumes the one-shot, masking a real variant-4 park later in
+        /// the run. 10 min comfortably clears DesktopArrivalDetector's validation latency while
+        /// staying far below the 360-min max-lifetime watchdog.
+        /// </summary>
+        public static readonly TimeSpan DefaultParkedTripwireDwell = TimeSpan.FromMinutes(10);
 
         /// <summary>
         /// H1a (Wave 2) — the snapshot is a recovery CACHE, not the source of truth (SignalLog +
@@ -77,6 +88,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private int _passThroughStepsSinceSnapshot; // H1a — pass-through steps skipped since last snapshot
         private bool _parkedTripwireFired; // liveness PR1 — one-shot per agent run, no state-schema touch
 
+        // M1 — parked-tripwire dwell machinery. The timer thread is also what fixes L8: the
+        // tripwire post no longer runs on the ingress worker, so a full channel cannot
+        // self-deadlock on it. Guarded by _parkedLock because the callback races ApplyStep.
+        private readonly object _parkedLock = new object();
+        private readonly TimeSpan _parkedTripwireDwell;
+        private Timer? _parkedDwellTimer;
+        private DecisionSignal? _parkedCandidateSignal;
+        private bool _disposed;
+
         public DecisionStepProcessor(
             DecisionState initialState,
             IJournalWriter journal,
@@ -87,7 +107,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             int quarantineThreshold = DefaultQuarantineThreshold,
             Action<DecisionState>? onTerminalStageReached = null,
             TelemetryTransitionEmitter? transitionEmitter = null,
-            InformationalEventPost? informationalEvents = null)
+            InformationalEventPost? informationalEvents = null,
+            TimeSpan? parkedTripwireDwell = null)
         {
             if (quarantineThreshold <= 0)
             {
@@ -106,6 +127,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _onTerminalStageReached = onTerminalStageReached;
             _transitionEmitter = transitionEmitter;
             _informationalEvents = informationalEvents;
+            _parkedTripwireDwell = parkedTripwireDwell ?? DefaultParkedTripwireDwell;
 
             // If recovery loaded a state that already sits on a terminal stage (e.g. a crash
             // after a success-path step but before Stop()), treat it as already-notified so we
@@ -278,16 +300,93 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             //    arming sites; this invariant check is the tripwire for variant 4. Expected to
             //    NEVER fire in production — every occurrence is a bug report. Skipped on abort
             //    steps: the caller is about to synthesise a terminal signal anyway.
-            if (!_parkedTripwireFired
-                && _informationalEvents != null
-                && !effectResult.SessionMustAbort
-                && IsParkedWithoutDeadline(_currentState))
+            //
+            //    M1 (delta review 2026-07-02): the predicate is true during a HEALTHY transient
+            //    window (HelloResolved → AwaitingDesktop, no deadline, desktop arrives seconds
+            //    later), so a parked state only ARMS a dwell timer here; the tripwire fires —
+            //    and consumes its one-shot — only if the session is STILL parked when the dwell
+            //    elapses. Any step that leaves the parked condition cancels the pending arm.
+            if (_informationalEvents != null && !_parkedTripwireFired)
             {
-                _parkedTripwireFired = true;
-                EmitParkedTripwire(_currentState, signal);
+                if (!effectResult.SessionMustAbort && IsParkedWithoutDeadline(_currentState))
+                    ArmParkedDwell(signal);
+                else
+                    CancelParkedDwell();
             }
 
             return effectResult;
+        }
+
+        /// <summary>
+        /// Arms the parked dwell timer if not already pending. Deliberately does NOT re-base an
+        /// already-armed timer: a truly parked session still produces InformationalEvent
+        /// pass-through steps (perf snapshots, IME telemetry), and re-basing on each of them
+        /// would push the dwell forever. The first parked step of an episode starts the clock;
+        /// only a step that clears the parked condition resets it.
+        /// </summary>
+        private void ArmParkedDwell(DecisionSignal signal)
+        {
+            lock (_parkedLock)
+            {
+                if (_disposed || _parkedTripwireFired || _parkedDwellTimer != null) return;
+                _parkedCandidateSignal = signal;
+                _parkedDwellTimer = new Timer(OnParkedDwellElapsed, null, _parkedTripwireDwell, Timeout.InfiniteTimeSpan);
+            }
+        }
+
+        private void CancelParkedDwell()
+        {
+            lock (_parkedLock)
+            {
+                if (_parkedDwellTimer == null) return;
+                _parkedDwellTimer.Dispose();
+                _parkedDwellTimer = null;
+                _parkedCandidateSignal = null;
+            }
+        }
+
+        private void OnParkedDwellElapsed(object? _)
+        {
+            try
+            {
+                DecisionState state;
+                DecisionSignal? armingSignal;
+                lock (_parkedLock)
+                {
+                    if (_disposed || _parkedTripwireFired || _parkedDwellTimer == null) return;
+                    _parkedDwellTimer.Dispose();
+                    _parkedDwellTimer = null;
+                    armingSignal = _parkedCandidateSignal;
+                    _parkedCandidateSignal = null;
+
+                    // Re-check against the LIVE state: a step that resolved the park in the last
+                    // instant may not have reached CancelParkedDwell yet. _currentState is an
+                    // immutable object written by the single ingress worker; the reference read
+                    // is atomic.
+                    state = _currentState;
+                    if (armingSignal == null || !IsParkedWithoutDeadline(state)) return;
+                    _parkedTripwireFired = true;
+                }
+
+                EmitParkedTripwire(state, armingSignal);
+            }
+            catch (Exception ex)
+            {
+                // Observability must never break anything — and this runs on a timer thread.
+                _logger.Error("DecisionStepProcessor: parked-dwell evaluation failed.", ex);
+            }
+        }
+
+        public void Dispose()
+        {
+            lock (_parkedLock)
+            {
+                if (_disposed) return;
+                _disposed = true;
+                _parkedDwellTimer?.Dispose();
+                _parkedDwellTimer = null;
+                _parkedCandidateSignal = null;
+            }
         }
 
         /// <summary>
@@ -327,7 +426,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             try
             {
                 var census = DecisionStateSignalCensus.Build(state);
-                var data = new Dictionary<string, string>(capacity: 6, comparer: StringComparer.Ordinal)
+                var data = new Dictionary<string, string>(capacity: 7, comparer: StringComparer.Ordinal)
                 {
                     ["stage"] = state.Stage.ToString(),
                     ["stepIndex"] = state.StepIndex.ToString(CultureInfo.InvariantCulture),
@@ -336,13 +435,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                         .ToString("o", CultureInfo.InvariantCulture),
                     ["signalsSeen"] = string.Join(",", census.SignalsSeen),
                     ["armedDeadlines"] = string.Join(",", state.Deadlines.Select(d => d.Name)),
+                    ["dwellSeconds"] = _parkedTripwireDwell.TotalSeconds.ToString("F0", CultureInfo.InvariantCulture),
                 };
 
                 _informationalEvents!.Emit(
                     eventType: Constants.EventTypes.SessionParkedWithoutDeadline,
                     source: "DecisionStepProcessor",
-                    message: $"Session is parked without a resolution-capable deadline at stage {state.Stage} — " +
-                             "no signal is guaranteed to ever re-ask the completion question.",
+                    message: $"Session has been parked without a resolution-capable deadline at stage {state.Stage} " +
+                             $"for {_parkedTripwireDwell.TotalMinutes:F0} min — no signal is guaranteed to ever " +
+                             "re-ask the completion question.",
                     severity: EventSeverity.Warning,
                     immediateUpload: true,
                     data: data);
