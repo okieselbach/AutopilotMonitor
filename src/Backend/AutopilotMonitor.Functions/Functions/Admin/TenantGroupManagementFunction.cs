@@ -30,17 +30,20 @@ public class TenantGroupManagementFunction
     private readonly ILogger<TenantGroupManagementFunction> _logger;
     private readonly DelegatedAdminService _delegatedAdminService;
     private readonly IMaintenanceRepository _maintenanceRepo;
+    private readonly ISignalRNotificationService _signalRService;
 
     private const string AuditEntity = "DelegatedGroupAccess";
 
     public TenantGroupManagementFunction(
         ILogger<TenantGroupManagementFunction> logger,
         DelegatedAdminService delegatedAdminService,
-        IMaintenanceRepository maintenanceRepo)
+        IMaintenanceRepository maintenanceRepo,
+        ISignalRNotificationService signalRService)
     {
         _logger = logger;
         _delegatedAdminService = delegatedAdminService;
         _maintenanceRepo = maintenanceRepo;
+        _signalRService = signalRService;
     }
 
     /// <summary>GET /api/global/tenant-groups — list every group with tenants + assignee count. GlobalReadOrAdmin.</summary>
@@ -110,10 +113,16 @@ public class TenantGroupManagementFunction
     {
         var currentUpn = context.GetRequestContext().UserPrincipalName;
 
-        // Capture tenants + assignee count BEFORE the cascade delete removes them, so we can audit the
-        // bulk access removal under each affected tenant.
+        // Capture tenants + assignees BEFORE the cascade delete removes them, so we can audit the
+        // bulk access removal under each affected tenant and cut every assignee's live streams.
         var group = await _delegatedAdminService.GetGroupAsync(groupId);
+        var assignees = await _delegatedAdminService.GetGroupAssigneesAsync(groupId);
         await _delegatedAdminService.DeleteGroupAsync(groupId);
+
+        // Enforcement: group authorization is join-time only — without the kick, every (former)
+        // assignee keeps receiving the managed tenants' live telemetry until their connection drops.
+        foreach (var assignee in assignees)
+            await _signalRService.DisconnectUserAsync(assignee.Upn);
 
         if (group != null && group.AssigneeCount > 0)
         {
@@ -192,6 +201,10 @@ public class TenantGroupManagementFunction
             await _maintenanceRepo.LogAuditEntryAsync(
                 normalizedTenantId, "DELETE", AuditEntity, assignee.Upn, currentUpn ?? "",
                 new Dictionary<string, string> { { "GroupId", groupId }, { "Reason", "tenant-removed-from-group" } });
+            // Enforcement: cut already-joined live streams for the tenant that just left the group.
+            // Coarse by design (connection close, see DisconnectUserAsync) — still-authorized
+            // streams recover automatically via the client's reconnect + re-join.
+            await _signalRService.DisconnectUserAsync(assignee.Upn);
         }
 
         _logger.LogInformation("Tenant {TenantId} removed from group {GroupId} by {By}", normalizedTenantId, groupId, currentUpn);
@@ -267,6 +280,9 @@ public class TenantGroupManagementFunction
         var unassigned = await _delegatedAdminService.UnassignGroupAsync(normalizedUpn, groupId);
         if (!unassigned)
             return await NotFound(req);
+
+        // Enforcement: cut the unassigned caller's already-joined live streams (join-time-only authz).
+        await _signalRService.DisconnectUserAsync(normalizedUpn);
 
         if (group != null)
         {

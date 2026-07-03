@@ -91,7 +91,9 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                     // gets the same live session/event pushes a GA gets for that tenant). The admin/member
                     // notification-group checks below still gate by the real tenant role, so a delegated
                     // caller (no tenant role) receives session/event broadcasts but NOT notification pushes.
-                    if (requestedTenantId != userTenantId)
+                    // OrdinalIgnoreCase, matching the middleware's cross-tenant check and the delegated
+                    // scope dictionary — a casing difference must never flip which branch authorizes.
+                    if (!string.Equals(requestedTenantId, userTenantId, StringComparison.OrdinalIgnoreCase))
                     {
                         var allowedCrossTenant = requestCtx.HasGlobalScope;
                         if (!allowedCrossTenant && !string.IsNullOrEmpty(userEmail))

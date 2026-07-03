@@ -85,7 +85,9 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                     // Check if user is allowed to leave this tenant's group — platform scope (GA or
                     // read-only Global Reader) may leave any tenant's group, symmetric with AddToGroup; a
                     // delegated ("MSP") admin may leave a managed tenant's group (symmetric with the join).
-                    if (requestedTenantId != userTenantId)
+                    // OrdinalIgnoreCase, matching the middleware's cross-tenant check and the delegated
+                    // scope dictionary — a casing difference must never flip which branch authorizes.
+                    if (!string.Equals(requestedTenantId, userTenantId, StringComparison.OrdinalIgnoreCase))
                     {
                         var allowedCrossTenant = requestCtx.HasGlobalScope;
                         if (!allowedCrossTenant && !string.IsNullOrEmpty(userEmail))

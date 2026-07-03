@@ -152,6 +152,19 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
+    // Server push after an operator revoked this user's (delegated) access: restart the
+    // connection. onclose clears the joined-group tracking, and every consumer hook re-joins on
+    // the next Connected transition — through the join endpoint, which re-runs authorization
+    // against the fresh scope. Revoked groups 403; still-authorized streams recover automatically.
+    newConnection.on('accessRevoked', async () => {
+      console.warn('[SignalR] accessRevoked received — restarting connection to re-authorize group memberships');
+      trackEvent('signalr_access_revoked');
+      try {
+        await newConnection.stop();
+      } catch { /* proceed to restart regardless */ }
+      startConnection();
+    });
+
     // Start as soon as the user is authenticated. The previous 2s setTimeout
     // was meant to avoid competing with the initial dashboard fetches, but
     // the web origin is HTTP/2 and the API is on a different origin, so

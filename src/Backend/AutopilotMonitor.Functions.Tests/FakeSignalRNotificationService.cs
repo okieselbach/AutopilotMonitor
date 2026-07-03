@@ -75,4 +75,19 @@ public class FakeSignalRNotificationService : ISignalRNotificationService
         GlobalDismissAllCount++;
         return Task.CompletedTask;
     }
+
+    public List<string> NegotiatedUserIds { get; } = new();
+    public List<string> DisconnectedUsers { get; } = new();
+
+    public Task<(string Url, string AccessToken)?> NegotiateClientAsync(string userId)
+    {
+        NegotiatedUserIds.Add(userId);
+        return Task.FromResult<(string Url, string AccessToken)?>(("https://fake.signalr.test/client", "fake-token"));
+    }
+
+    public Task DisconnectUserAsync(string userId)
+    {
+        DisconnectedUsers.Add(userId);
+        return Task.CompletedTask;
+    }
 }

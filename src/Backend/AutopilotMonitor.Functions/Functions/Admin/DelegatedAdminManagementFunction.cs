@@ -25,15 +25,18 @@ public class DelegatedAdminManagementFunction
     private readonly ILogger<DelegatedAdminManagementFunction> _logger;
     private readonly DelegatedAdminService _delegatedAdminService;
     private readonly IMaintenanceRepository _maintenanceRepo;
+    private readonly ISignalRNotificationService _signalRService;
 
     public DelegatedAdminManagementFunction(
         ILogger<DelegatedAdminManagementFunction> logger,
         DelegatedAdminService delegatedAdminService,
-        IMaintenanceRepository maintenanceRepo)
+        IMaintenanceRepository maintenanceRepo,
+        ISignalRNotificationService signalRService)
     {
         _logger = logger;
         _delegatedAdminService = delegatedAdminService;
         _maintenanceRepo = maintenanceRepo;
+        _signalRService = signalRService;
     }
 
     /// <summary>GET /api/global/delegated-admins — list every delegated assignment. GlobalReadOrAdmin.</summary>
@@ -63,6 +66,11 @@ public class DelegatedAdminManagementFunction
         var body = await req.ReadFromJsonAsync<GrantDelegatedAdminRequest>();
         if (body == null || string.IsNullOrWhiteSpace(body.Upn) || string.IsNullOrWhiteSpace(body.TenantId))
             return await Bad(req, "upn and tenantId are required");
+
+        // Mirror the tenant-group path: a mistyped tenantId must not create a garbage scope entry
+        // that pollutes the allow-list and seeds a per-tenant audit trail keyed on the typo.
+        if (!Guid.TryParse(body.TenantId, out _))
+            return await Bad(req, "a valid tenantId (GUID) is required");
 
         // Default to the least-privileged role; reject anything we don't recognize (fail-closed) so a typo
         // can never silently widen access.
@@ -99,10 +107,23 @@ public class DelegatedAdminManagementFunction
         string upn, string tenantId, FunctionContext context)
     {
         var currentUpn = context.GetRequestContext().UserPrincipalName;
-        await _delegatedAdminService.RemoveAsync(upn, tenantId);
+        // The service reports whether a row was actually deleted — a mistyped upn/tenantId must not
+        // 200 and write a false customer-visible "access removed" audit row while the real grant
+        // stays live (mirrors the tenant-group revoke semantics).
+        var removed = await _delegatedAdminService.RemoveAsync(upn, tenantId);
+        if (!removed)
+        {
+            var notFound = req.CreateResponse(HttpStatusCode.NotFound);
+            await notFound.WriteAsJsonAsync(new { error = "Delegated assignment not found" });
+            return notFound;
+        }
 
         await _maintenanceRepo.LogAuditEntryAsync(
             tenantId.ToLowerInvariant(), "DELETE", "DelegatedAdmin", upn.ToLowerInvariant(), currentUpn ?? "");
+
+        // Enforcement: cut the revoked caller's already-joined live streams — group authorization is
+        // join-time only, so without this they keep receiving tenant telemetry until the connection drops.
+        await _signalRService.DisconnectUserAsync(upn.ToLowerInvariant());
 
         _logger.LogInformation("Delegated revoke: {Upn} -> {TenantId} by {By}", upn, tenantId, currentUpn);
 
@@ -142,6 +163,10 @@ public class DelegatedAdminManagementFunction
         await _maintenanceRepo.LogAuditEntryAsync(
             tenantId.ToLowerInvariant(), "UPDATE", "DelegatedAdmin", upn.ToLowerInvariant(), currentUpn ?? "",
             new Dictionary<string, string> { { "IsEnabled", isEnabled.ToString() } });
+
+        // Disable is a revocation too — cut already-joined live streams (see RevokeDelegatedAdmin).
+        if (!isEnabled)
+            await _signalRService.DisconnectUserAsync(upn.ToLowerInvariant());
 
         _logger.LogInformation("Delegated {Action}: {Upn} -> {TenantId} by {By}",
             isEnabled ? "enable" : "disable", upn, tenantId, currentUpn);

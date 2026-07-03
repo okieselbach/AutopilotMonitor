@@ -17,7 +17,7 @@ namespace AutopilotMonitor.Functions.Services
     {
         private readonly ILogger<SignalRNotificationService> _logger;
         private readonly ServiceManager _serviceManager;
-        private IServiceHubContext? _hubContext;
+        private ServiceHubContext? _hubContext;
         private static readonly SemaphoreSlim _initLock = new(1, 1);
 
         private const string HubName = "autopilotmonitor";
@@ -29,6 +29,13 @@ namespace AutopilotMonitor.Functions.Services
         /// full duration. These pushes are observability nudges, never correctness — fail fast.
         /// </summary>
         private static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(5);
+
+        /// <summary>
+        /// Ceiling for client negotiation. More generous than SendTimeout: the first negotiate on a
+        /// cold instance also pays the one-time hub-context initialization, and a negotiate failure
+        /// is user-visible (the client cannot connect at all), so err toward completing it.
+        /// </summary>
+        private static readonly TimeSpan NegotiateTimeout = TimeSpan.FromSeconds(10);
 
         public SignalRNotificationService(IConfiguration configuration, ILogger<SignalRNotificationService> logger)
         {
@@ -262,7 +269,64 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
-        private async Task<IServiceHubContext> GetHubContextAsync(CancellationToken ct = default)
+        /// <summary>
+        /// Negotiates a client connection with the access token bound to <paramref name="userId"/>
+        /// (lowercased UPN) — see <see cref="ISignalRNotificationService.NegotiateClientAsync"/>.
+        /// Token generation is local (no service round-trip beyond hub-context init).
+        /// </summary>
+        public virtual async Task<(string Url, string AccessToken)?> NegotiateClientAsync(string userId)
+        {
+            try
+            {
+                using var cts = new CancellationTokenSource(NegotiateTimeout);
+                var hub = await GetHubContextAsync(cts.Token);
+                var negotiation = await hub.NegotiateAsync(new NegotiationOptions { UserId = userId }, cts.Token);
+                if (string.IsNullOrEmpty(negotiation?.Url) || string.IsNullOrEmpty(negotiation.AccessToken))
+                {
+                    _logger.LogError("SignalR negotiation returned an empty url/token for user {UserId}", userId);
+                    return null;
+                }
+                return (negotiation.Url, negotiation.AccessToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SignalR negotiation failed for user {UserId}", userId);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Cuts the user's live streams after a revoke (see
+        /// <see cref="ISignalRNotificationService.DisconnectUserAsync"/>). Two prongs, because the
+        /// Management SDK (1.33) exposes no user-level connection close: (1) strip the user from all
+        /// groups server-side, and (2) push "accessRevoked" to the user's connections — the web
+        /// client restarts its connection on receipt, and every re-join then re-runs authorization
+        /// against the fresh (≤30s-cached) scope. Residual: a tampered client that ignores (2) and
+        /// whose connection-scoped memberships survive (1) keeps its streams until the connection
+        /// drops. Warning (not Debug) on failure so it reaches App Insights.
+        /// </summary>
+        public virtual async Task DisconnectUserAsync(string userId)
+        {
+            try
+            {
+                using var cts = new CancellationTokenSource(SendTimeout);
+                var hub = await GetHubContextAsync(cts.Token);
+                await hub.UserGroups.RemoveFromAllGroupsAsync(userId, cts.Token);
+                await hub.Clients.User(userId).SendCoreAsync("accessRevoked", new object[]
+                {
+                    new { timestamp = DateTime.UtcNow.ToString("o") }
+                }, cts.Token);
+                _logger.LogInformation("Revoked SignalR streams of user {UserId} (group strip + accessRevoked push)", userId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to cut SignalR streams of user {UserId} after revoke — already-joined connections keep streaming until they drop",
+                    userId);
+            }
+        }
+
+        private async Task<ServiceHubContext> GetHubContextAsync(CancellationToken ct = default)
         {
             if (_hubContext != null) return _hubContext;
 

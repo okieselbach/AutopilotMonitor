@@ -423,8 +423,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         {
             upn = upn.ToLowerInvariant();
             tenantId = tenantId.ToLowerInvariant();
-            await _delegatedAdminsTableClient.DeleteEntityAsync(upn, tenantId);
-            return true;
+            // DeleteEntityAsync is idempotent: a missing row does NOT throw, it returns the 404
+            // response. Report whether a row was actually deleted so the revoke endpoint can 404 a
+            // typo instead of writing a false "access removed" audit entry.
+            var response = await _delegatedAdminsTableClient.DeleteEntityAsync(upn, tenantId);
+            return response.Status != 404;
         }
 
         // --- Tenant Groups (app-internal tenant bundles for delegated admins / "MSP mode") ---
