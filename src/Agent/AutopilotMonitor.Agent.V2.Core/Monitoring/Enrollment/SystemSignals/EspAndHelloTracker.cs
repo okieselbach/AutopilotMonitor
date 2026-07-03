@@ -250,6 +250,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             }
         }
 
+        /// <summary>
+        /// L6 (delta review 2026-07-02): atomic test-and-add against the same dedupe set the
+        /// live (esp_exited) path uses. The termination sweep claims each app through this
+        /// instead of snapshotting <see cref="StarvedAppsReported"/> — a snapshot could race a
+        /// concurrent live emission between copy and emit and double-report the app.
+        /// </summary>
+        public bool TryClaimStarvedAppReport(string appId)
+        {
+            if (string.IsNullOrEmpty(appId)) return false;
+            lock (_starvedLock)
+            {
+                return _starvedAppsReported.Add(appId);
+            }
+        }
+
         // =====================================================================
         // Forwarded state/snapshot methods
         // =====================================================================

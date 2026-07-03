@@ -84,10 +84,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         IReadOnlyList<AppPackageState>? GetStarvedUserEspApps();
 
         /// <summary>
-        /// Liveness plan PR3 — appIds the live (esp_exited) path already reported via
-        /// <c>app_install_starved</c>. The terminal sweep skips these so the two emission
-        /// paths never double-report an app.
+        /// Liveness plan PR3 / L6 — atomically claims the <c>app_install_starved</c> report for
+        /// <paramref name="appId"/> against the same dedupe set the live (esp_exited) path
+        /// uses. Returns false when either path already reported the app. Replaces the former
+        /// snapshot property: snapshot-then-emit raced a concurrent live emission (TOCTOU) and
+        /// could double-report.
         /// </summary>
-        IReadOnlyCollection<string> StarvedUserEspAppsAlreadyReported { get; }
+        bool TryClaimStarvedUserEspAppReport(string appId);
     }
 }

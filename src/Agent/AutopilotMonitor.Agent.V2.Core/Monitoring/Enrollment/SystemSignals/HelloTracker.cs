@@ -1038,7 +1038,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     // Re-arm the existing one-shot wait timer for a single bounded grace window.
                     // The 10s-interval policy check timer keeps running and may flip the policy to
                     // enabled/disabled within this window; otherwise the next fire resolves it.
-                    _helloWaitTimer?.Change(TimeSpan.FromSeconds(_helloWaitTimeoutSeconds), TimeSpan.FromMilliseconds(-1));
+                    // L2 (delta review 2026-07-02): Stop() disposes the timers WITHOUT taking
+                    // _stateLock, so it can race this callback between the null-check and Change —
+                    // an unhandled ObjectDisposedException on a threadpool timer thread kills the
+                    // process on net48. Shutdown is winning anyway; swallow and bail.
+                    try
+                    {
+                        _helloWaitTimer?.Change(TimeSpan.FromSeconds(_helloWaitTimeoutSeconds), TimeSpan.FromMilliseconds(-1));
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        _logger.Debug("HelloTracker: wait-timer re-arm lost the race against Stop() — shutting down, grace window skipped");
+                    }
                     return;
                 }
 

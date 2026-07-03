@@ -230,7 +230,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
 
             public IReadOnlyList<AppPackageState>? GetStarvedUserEspApps() => _rig.StarvedAppsOverride;
 
-            public IReadOnlyCollection<string> StarvedUserEspAppsAlreadyReported => _rig.StarvedAlreadyReportedOverride;
+            // L6 — claim-based dedup: pre-seeded ids model apps the live path already reported.
+            private HashSet<string>? _starvedClaims;
+            public bool TryClaimStarvedUserEspAppReport(string appId)
+            {
+                _starvedClaims ??= new HashSet<string>(_rig.StarvedAlreadyReportedOverride, StringComparer.OrdinalIgnoreCase);
+                return _starvedClaims.Add(appId);
+            }
         }
 
         /// <summary>

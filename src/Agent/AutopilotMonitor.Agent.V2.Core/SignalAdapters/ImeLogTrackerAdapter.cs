@@ -847,11 +847,22 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             // script completion so the UI can flag slow / inefficient scripts, not just timed-out
             // ones. Omitted when the start line was never observed (StartedAtUtc null); clamped at 0
             // against clock skew between the (possibly clock-derived) completion stamp and start.
+            //
+            // L19 (delta review 2026-07-02): the same field name carries two different semantics —
+            // platform scripts measure start→result (≈ script runtime), remediation scripts measure
+            // HS-SCRIPT-START→HS-NEW-RESULT (the whole cycle INCLUDING IME's 30 s–3 min batched
+            // reporting latency, i.e. systematically longer than the script ran). `durationBasis`
+            // names which one applies so downstream consumers never compare the two as equals.
             if (script.StartedAtUtc.HasValue)
             {
                 var durationSeconds = (now - script.StartedAtUtc.Value).TotalSeconds;
                 if (durationSeconds >= 0)
+                {
                     data["durationSeconds"] = durationSeconds.ToString("F2", culture);
+                    data["durationBasis"] = IsRemediation(script.ScriptType)
+                        ? "cycle_including_reporting_latency"
+                        : "script_runtime";
+                }
             }
 
             var label = IsRemediation(script.ScriptType) ? "Remediation script" : "Platform script";
