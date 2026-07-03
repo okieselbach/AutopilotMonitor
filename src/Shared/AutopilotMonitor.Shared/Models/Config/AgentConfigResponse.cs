@@ -208,6 +208,29 @@ namespace AutopilotMonitor.Shared.Models
         /// Default: false
         /// </summary>
         public bool EnableTimezoneAutoSet { get; set; } = false;
+
+        /// <summary>
+        /// Control-channel mirror of the telemetry-response block signal: the calling device
+        /// (serial) or agent version matched an active admin Block/Kill rule. Delivered on the
+        /// config channel because config is fetched at every agent start (boot via Scheduled
+        /// Task) — the telemetry channel alone cannot reach an agent whose upload loop is
+        /// paused, empty or gone. Kill is only honoured from a LIVE fetch; the on-disk config
+        /// cache strips these fields on both write and read.
+        /// </summary>
+        public bool DeviceBlocked { get; set; } = false;
+
+        /// <summary>
+        /// Hard kill by administrator — the agent must terminate and self-destruct
+        /// (overrides SelfDestructOnComplete=false), same semantics as the telemetry
+        /// response's DeviceKillSignal.
+        /// </summary>
+        public bool DeviceKillSignal { get; set; } = false;
+
+        /// <summary>
+        /// When <see cref="DeviceBlocked"/> is a temporary block: UTC time the block auto-expires.
+        /// null = indefinite (or kill).
+        /// </summary>
+        public System.DateTime? UnblockAt { get; set; }
     }
 
     /// <summary>

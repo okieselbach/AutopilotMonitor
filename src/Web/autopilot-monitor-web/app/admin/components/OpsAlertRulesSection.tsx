@@ -54,6 +54,11 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // dedicated Telegram rule independent of the warn-tier ExcessiveSessionEvents.
     "ExcessiveSessionEventsAutoActioned",
     "VersionBlocked",
+    // Delivery confirmation: a Kill signal was actually SERVED to an agent (config or
+    // telemetry channel) — as opposed to DeviceBlocked/VersionBlocked which fire on rule
+    // creation. Emitted by KillSwitchEvaluator, throttled 24h per tenant+serial+pattern.
+    // Dual-register per memory feedback_ops_event_types_dual_register.
+    "KillSignalDelivered",
     "EmbeddedCertExpiringSoon",
     "EmbeddedCertExpiringUrgent",
     "EmbeddedCertExpired",

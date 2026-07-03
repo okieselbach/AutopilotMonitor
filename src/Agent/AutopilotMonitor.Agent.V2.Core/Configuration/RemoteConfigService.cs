@@ -246,16 +246,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
                 //   - AllowAgentDowngrade: gate for installing a lower agent version
                 //   - LatestAgentExeSha256: backend-advertised EXE hash for runtime integrity
                 //     check; a bad cached value would trigger a force-update to attacker bins
+                //   - DeviceBlocked/DeviceKillSignal/UnblockAt: kill is only honoured from a
+                //     live fetch — a planted cached kill would self-destruct every future
+                //     session, a stale cached kill would outlive the admin removing the rule
                 var liveUnrestricted = config.UnrestrictedMode;
                 var liveAllowDowngrade = config.AllowAgentDowngrade;
                 var liveExeHash = config.LatestAgentExeSha256;
+                var liveBlocked = config.DeviceBlocked;
+                var liveKill = config.DeviceKillSignal;
+                var liveUnblockAt = config.UnblockAt;
                 config.UnrestrictedMode = false;
                 config.AllowAgentDowngrade = false;
                 config.LatestAgentExeSha256 = null;
+                config.DeviceBlocked = false;
+                config.DeviceKillSignal = false;
+                config.UnblockAt = null;
                 var json = JsonConvert.SerializeObject(config, Formatting.Indented);
                 config.UnrestrictedMode = liveUnrestricted;
                 config.AllowAgentDowngrade = liveAllowDowngrade;
                 config.LatestAgentExeSha256 = liveExeHash;
+                config.DeviceBlocked = liveBlocked;
+                config.DeviceKillSignal = liveKill;
+                config.UnblockAt = liveUnblockAt;
 
                 File.WriteAllText(_cacheFilePath, json);
                 _logger.Debug("Remote config cached to disk");
@@ -284,6 +296,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
                         config.UnrestrictedMode = false;
                         config.AllowAgentDowngrade = false;
                         config.LatestAgentExeSha256 = null;
+                        config.DeviceBlocked = false;
+                        config.DeviceKillSignal = false;
+                        config.UnblockAt = null;
                     }
                     return config;
                 }

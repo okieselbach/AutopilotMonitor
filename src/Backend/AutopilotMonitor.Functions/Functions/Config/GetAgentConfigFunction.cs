@@ -26,6 +26,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
         private readonly CorporateIdentifierValidator _corporateIdentifierValidator;
         private readonly DeviceAssociationValidator _deviceAssociationValidator;
         private readonly BootstrapSessionService _bootstrapSessionService;
+        private readonly KillSwitchEvaluator _killSwitchEvaluator;
 
         public GetAgentConfigFunction(
             ILogger<GetAgentConfigFunction> logger,
@@ -37,7 +38,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
             AutopilotDeviceValidator autopilotDeviceValidator,
             CorporateIdentifierValidator corporateIdentifierValidator,
             DeviceAssociationValidator deviceAssociationValidator,
-            BootstrapSessionService bootstrapSessionService)
+            BootstrapSessionService bootstrapSessionService,
+            KillSwitchEvaluator killSwitchEvaluator)
         {
             _logger = logger;
             _configService = configService;
@@ -49,6 +51,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             _corporateIdentifierValidator = corporateIdentifierValidator;
             _deviceAssociationValidator = deviceAssociationValidator;
             _bootstrapSessionService = bootstrapSessionService;
+            _killSwitchEvaluator = killSwitchEvaluator;
         }
 
         [Function("GetAgentConfig")]
@@ -161,6 +164,22 @@ namespace AutopilotMonitor.Functions.Functions.Config
         {
             _logger.LogInformation($"GetAgentConfig: Fetching config for tenant {tenantId}");
 
+            // Kill-switch delivery on the control channel: config is fetched at EVERY agent
+            // start (boot via Scheduled Task), so a Block/Kill lands here even when the
+            // telemetry channel cannot deliver it (upload loop paused indefinitely by a prior
+            // block, empty spool, kill-blind old binary). The full config is still returned —
+            // agents that predate the flags keep working unchanged; newer agents terminate on
+            // DeviceKillSignal. Shares KillSwitchEvaluator with ingest (incl. the throttled
+            // KillSignalDelivered ops event).
+            var serialNumberHeader = req.Headers.Contains("X-Device-SerialNumber")
+                ? req.Headers.GetValues("X-Device-SerialNumber").FirstOrDefault()
+                : null;
+            var agentVersionHeader = req.Headers.Contains("X-Agent-Version")
+                ? req.Headers.GetValues("X-Agent-Version").FirstOrDefault()
+                : null;
+            var killVerdict = await _killSwitchEvaluator.EvaluateAsync(
+                tenantId, serialNumberHeader, agentVersionHeader, channel: "config");
+
             // Get tenant configuration
             var tenantConfig = await _configService.GetConfigurationAsync(tenantId);
 
@@ -239,6 +258,9 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 GatherRules = gatherRules,
                 ImeLogPatterns = imeLogPatterns,
                 WhiteGloveSealingPatternIds = adminConfig.GetWhiteGloveSealingPatternIds(),
+                DeviceBlocked = killVerdict.IsBlocked,
+                DeviceKillSignal = killVerdict.IsKill,
+                UnblockAt = killVerdict.UnblockAt,
             });
 
             return response;

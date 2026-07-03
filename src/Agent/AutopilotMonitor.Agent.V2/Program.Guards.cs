@@ -8,6 +8,7 @@ using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime;
 using AutopilotMonitor.Agent.V2.Core.Security;
 using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2
 {
@@ -311,6 +312,59 @@ namespace AutopilotMonitor.Agent.V2
                 logger.Error("Emergency break check failed.", ex);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Kill-switch on the control channel: honours a <c>DeviceKillSignal</c> served on the
+        /// <c>agent/config</c> response. Config is fetched at every process start (boot via
+        /// Scheduled Task), so this reaches agents the telemetry channel cannot — a drain
+        /// paused indefinitely by a prior block, an empty spool, or a binary that never
+        /// uploads again. Kill semantics mirror the telemetry-channel kill
+        /// (<c>forceSelfDestruct=true</c>): cleanup runs regardless of
+        /// <c>SelfDestructOnComplete</c>. Only a LIVE fetch is honoured — cached/default
+        /// configs strip the flag (see <c>RemoteConfigService.CacheConfig</c>), and this guard
+        /// re-checks the outcome as defence-in-depth.
+        /// </summary>
+        internal static bool CheckConfigKillSignal(
+            AgentConfigResponse remoteConfig,
+            RemoteConfigFetchOutcome fetchOutcome,
+            string dataDirectory,
+            string stateDirectory,
+            Func<CleanupService> cleanupServiceFactory,
+            AgentLogger logger,
+            bool consoleMode)
+        {
+            if (remoteConfig == null || !remoteConfig.DeviceKillSignal) return false;
+
+            if (fetchOutcome != RemoteConfigFetchOutcome.Succeeded)
+            {
+                logger.Warning($"Config kill signal ignored — config source is {fetchOutcome}, not a live fetch.");
+                return false;
+            }
+
+            logger.Warning("KILL: backend signalled DeviceKillSignal on the config channel — terminating with forced self-destruct.");
+            if (consoleMode)
+                Console.Out.WriteLine("KILL: administrator issued a remote kill signal. Cleaning up and exiting.");
+
+            // Write enrollment-complete.marker first so the next start exits cleanly even if
+            // the cleanup below fails (Scheduled Task still alive, files locked, …) — same
+            // guarantee-of-termination pattern as the session-age emergency break.
+            try
+            {
+                Directory.CreateDirectory(stateDirectory);
+                var markerPath = Path.Combine(stateDirectory, EnrollmentCompleteMarkerFileName);
+                File.WriteAllText(markerPath, $"Kill signal at {DateTime.UtcNow:O} (config channel)");
+            }
+            catch (Exception ex) { logger.Warning($"Failed to write enrollment-complete.marker: {ex.Message}"); }
+
+            // forceSelfDestruct — no SelfDestructOnComplete gate, matching the telemetry-kill.
+            TryRetryCleanup(cleanupServiceFactory, logger, "kill_signal");
+
+            try { new SessionIdPersistence(dataDirectory).Delete(logger); }
+            catch (Exception ex) { logger.Warning($"Failed to delete persisted session after kill: {ex.Message}"); }
+
+            logger.Info("Kill signal handled — agent exiting.");
+            return true;
         }
 
         private static void TryRetryCleanup(

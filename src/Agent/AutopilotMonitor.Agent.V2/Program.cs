@@ -210,6 +210,19 @@ namespace AutopilotMonitor.Agent.V2
             // See Runtime/AgentRuntimeConfig.cs.
             var runtimeConfig = Runtime.AgentRuntimeConfig.Resolve(bootstrap.AgentConfig, auth, GetAgentVersion(), consoleMode, logger);
 
+            // Control-channel kill-switch: a live-fetch DeviceKillSignal terminates the agent
+            // BEFORE mTLS/registration spin-up. Covers agents the telemetry-channel kill can
+            // never reach (paused drain, empty spool) at their next process start / boot.
+            if (CheckConfigKillSignal(
+                    runtimeConfig.RemoteConfig,
+                    runtimeConfig.RemoteConfigService.LastFetchOutcome,
+                    dataDirectory, stateSubdir,
+                    () => new CleanupService(bootstrap.AgentConfig, logger),
+                    logger, consoleMode))
+            {
+                return 0;
+            }
+
             // Phase 5 (mTLS HttpClient + BackendTelemetryUploader) is encapsulated in
             // BackendClientFactory. Construction failures map to V1-parity exit codes
             // (4 = mTLS, 5 = uploader). See Runtime/BackendClientFactory.cs.

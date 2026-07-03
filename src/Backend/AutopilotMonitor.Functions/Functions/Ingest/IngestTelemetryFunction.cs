@@ -49,8 +49,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         private readonly CorporateIdentifierValidator _corporateIdentifierValidator;
         private readonly DeviceAssociationValidator _deviceAssociationValidator;
         private readonly BootstrapSessionService _bootstrapSessionService;
-        private readonly BlockedDeviceService _blockedDeviceService;
-        private readonly BlockedVersionService _blockedVersionService;
+        private readonly KillSwitchEvaluator _killSwitchEvaluator;
         private readonly SessionDeletionGuard _deletionGuard;
 
         public IngestTelemetryFunction(
@@ -66,8 +65,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             CorporateIdentifierValidator corporateIdentifierValidator,
             DeviceAssociationValidator deviceAssociationValidator,
             BootstrapSessionService bootstrapSessionService,
-            BlockedDeviceService blockedDeviceService,
-            BlockedVersionService blockedVersionService,
+            KillSwitchEvaluator killSwitchEvaluator,
             SessionDeletionGuard deletionGuard)
         {
             _logger = logger;
@@ -82,8 +80,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             _corporateIdentifierValidator = corporateIdentifierValidator;
             _deviceAssociationValidator = deviceAssociationValidator;
             _bootstrapSessionService = bootstrapSessionService;
-            _blockedDeviceService = blockedDeviceService;
-            _blockedVersionService = blockedVersionService;
+            _killSwitchEvaluator = killSwitchEvaluator;
             _deletionGuard = deletionGuard;
         }
 
@@ -257,50 +254,22 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             };
 
         /// <summary>
-        /// Runs device-serial and agent-version kill-switch checks. Returns a 200 response with
-        /// <c>DeviceBlocked=true</c> (and optional <c>DeviceKillSignal=true</c>) if the caller
-        /// should stop — or null if the request may proceed.
+        /// Runs device-serial and agent-version kill-switch checks (session-scoped blocks still
+        /// use the tenant/serial blanket check — tighter scoping lands once the body is parsed,
+        /// M5.b.2 pipeline share). Returns a 200 response with <c>DeviceBlocked=true</c> (and
+        /// optional <c>DeviceKillSignal=true</c>) if the caller should stop — or null if the
+        /// request may proceed. Evaluation + kill ops-event live in <see cref="KillSwitchEvaluator"/>,
+        /// shared with the agent-config channel.
         /// </summary>
         private async Task<HttpResponseData?> CheckKillSwitchesAsync(
             HttpRequestData req, string tenantId, string? serialNumber, string? agentVersion)
         {
-            if (!string.IsNullOrEmpty(serialNumber))
-            {
-                // Session-aware block: without body-parse we can't discriminate on SessionId,
-                // so we use the tenant/serial blanket check. Session-scoped blocks still require
-                // the agent to upload; the response just carries DeviceBlocked=true regardless of
-                // session — tighter scoping lands once the body is parsed (M5.b.2 pipeline share).
-                var (isBlocked, unblockAt, blockAction, _) =
-                    await _blockedDeviceService.IsBlockedAsync(tenantId, serialNumber);
-                if (isBlocked)
-                {
-                    var isKill = string.Equals(blockAction, "Kill", StringComparison.OrdinalIgnoreCase);
-                    _logger.LogWarning(
-                        "IngestTelemetry: {Action} device tenant={Tenant} serial={Serial} unblockAt={UnblockAt}",
-                        isKill ? "KILL" : "Block", tenantId, serialNumber, unblockAt);
-                    return await WriteDeviceBlockedAsync(req, isKill, unblockAt,
-                        isKill ? "Device has been issued a remote kill signal."
-                               : "Device is temporarily blocked by an administrator.");
-                }
-            }
+            var verdict = await _killSwitchEvaluator.EvaluateAsync(
+                tenantId, serialNumber, agentVersion, channel: "telemetry");
 
-            if (!string.IsNullOrEmpty(agentVersion))
-            {
-                var (isVersionBlocked, versionAction, matchedPattern) =
-                    await _blockedVersionService.IsVersionBlockedAsync(agentVersion);
-                if (isVersionBlocked)
-                {
-                    var isKill = string.Equals(versionAction, "Kill", StringComparison.OrdinalIgnoreCase);
-                    _logger.LogWarning(
-                        "IngestTelemetry: version {Action} tenant={Tenant} agentVersion={AgentVersion} pattern={Pattern}",
-                        isKill ? "KILL" : "block", tenantId, agentVersion, matchedPattern);
-                    return await WriteDeviceBlockedAsync(req, isKill, null,
-                        isKill ? $"Agent version {agentVersion} has been issued a remote kill signal (pattern: {matchedPattern})."
-                               : $"Agent version {agentVersion} is blocked by administrator (pattern: {matchedPattern}).");
-                }
-            }
-
-            return null;
+            return verdict.IsBlocked
+                ? await WriteDeviceBlockedAsync(req, verdict.IsKill, verdict.UnblockAt, verdict.Message)
+                : null;
         }
 
         private async Task<HttpResponseData> WriteDeviceBlockedAsync(

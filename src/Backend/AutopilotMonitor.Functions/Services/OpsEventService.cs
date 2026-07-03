@@ -234,6 +234,24 @@ namespace AutopilotMonitor.Functions.Services
                 $"Agent version pattern '{pattern}' blocked",
                 null, blockedBy, new { pattern });
 
+        /// <summary>
+        /// Fired by <see cref="KillSwitchEvaluator"/> when a Kill signal was actually SERVED to
+        /// an agent (as opposed to DeviceBlocked/VersionBlocked, which fire when the admin
+        /// creates the rule). This is the delivery confirmation operators wire Telegram rules
+        /// on — throttled at the evaluator (24h per tenant+serial+pattern) because a kill-blind
+        /// old agent keeps hitting the endpoint every few seconds. Details carry
+        /// <c>serialNumber</c> so the Ops Events detail modal's Block/Kill shortcuts deep-link.
+        /// </summary>
+        public Task RecordKillSignalDeliveredAsync(
+            string tenantId, string? serialNumber, string? agentVersion, string? matchedPattern,
+            string trigger, string channel)
+            => WriteAsync(OpsEventCategory.Security, "KillSignalDelivered", OpsEventSeverity.Warning,
+                trigger == "version"
+                    ? $"Kill signal delivered via {channel} to agent {agentVersion ?? "?"} on device {serialNumber ?? "?"} (pattern: {matchedPattern})"
+                    : $"Kill signal delivered via {channel} to device {serialNumber ?? "?"}",
+                tenantId, "System.KillSwitch",
+                new { serialNumber, agentVersion, matchedPattern, trigger, channel });
+
         public Task RecordEmbeddedCertExpiringSoonAsync(string role, string subject, string thumbprint, DateTime notAfterUtc, int daysUntilExpiry)
             => WriteAsync(OpsEventCategory.Security, "EmbeddedCertExpiringSoon", OpsEventSeverity.Warning,
                 $"Newest embedded Intune {role.ToLowerInvariant()} '{subject}' expires in {daysUntilExpiry}d ({notAfterUtc:u}) - source a successor PEM and embed it before {notAfterUtc:yyyy-MM-dd}",

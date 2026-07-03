@@ -245,6 +245,7 @@ builder.Services.AddSingleton<OpsEventService>();
 builder.Services.AddSingleton<BlockedDeviceService>();
 builder.Services.AddSingleton<HardwareRejectionThrottleService>();
 builder.Services.AddSingleton<BlockedVersionService>();
+builder.Services.AddSingleton<KillSwitchEvaluator>();
 builder.Services.AddSingleton<BlobStorageService>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Diagnostics.HostedDiagnosticsBlobService>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Diagnostics.DiagnosticsBlobStreamer>();
