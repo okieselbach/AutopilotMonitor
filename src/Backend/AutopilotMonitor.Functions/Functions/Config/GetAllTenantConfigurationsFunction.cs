@@ -56,11 +56,26 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 {
                     // READ-bounded, not just response-bounded: point-read ONLY the caller's managed tenants
                     // instead of scanning every tenant config and filtering in memory. A delegated MSP scoped
-                    // to k tenants triggers k point reads (cached, non-creating — TryGetConfigurationAsync
-                    // never writes a default row). exists==false drops any id with no config row.
-                    var reads = await Task.WhenAll(requestCtx.AllowedTenantIds.Select(async tid =>
-                        await _configService.TryGetConfigurationAsync(tid)));
+                    // to k tenants triggers k point reads (cached, non-creating — GetConfigurationIfExistsAsync
+                    // never writes a default row). Only a true "no config row" (404) drops an id; a storage
+                    // READ FAILURE propagates to the outer catch → 500, so a transient error can never
+                    // silently drop a managed tenant from a success response. Ids are deduped case-
+                    // insensitively (the old scan+filter semantics) so a duplicated grant list cannot
+                    // produce duplicate config entries.
+                    var managedIds = requestCtx.AllowedTenantIds
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                    var reads = await Task.WhenAll(managedIds.Select(tid =>
+                        _configService.GetConfigurationIfExistsAsync(tid)));
                     var subset = ExistingManagedConfigs(reads);
+
+                    // AllowedTenantIds is lowercased while the config PartitionKey casing is not guaranteed
+                    // (agent paths auto-create rows with the caller-supplied id verbatim) — the same caveat
+                    // the delegated sessions fan-out handles case-insensitively. A point-read is exact-case,
+                    // so any id it missed gets ONE scan+filter rescue pass (the pre-point-read behavior).
+                    // Only stale grants or case-variant rows pay for it; the common path stays read-bounded.
+                    if (subset.Count < managedIds.Count)
+                        subset = MergeRescuedConfigs(managedIds, subset, await _configService.GetAllConfigurationsAsync());
                     _logger.LogInformation("GetAllTenantConfigurations (delegated subset, {Count} tenants) by {User}",
                         subset.Count, userIdentifier);
 
@@ -153,13 +168,32 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
         /// <summary>
         /// From the per-tenant point-read results, keep only the managed tenants that actually HAVE a config
-        /// row (exists). A delegated caller's AllowedTenantIds is the authoritative bound; an id with no row
+        /// row (non-null). A delegated caller's AllowedTenantIds is the authoritative bound; an id with no row
         /// (offboarded / never onboarded) is silently dropped rather than surfaced as an empty default.
+        /// Storage errors never reach this seam — GetConfigurationIfExistsAsync throws, failing the request.
         /// Pure + testable seam (handler HTTP entry is not unit-tested — see GetAllBlockedDevicesFunctionTests).
         /// </summary>
         internal static List<TenantConfiguration> ExistingManagedConfigs(
-            IEnumerable<(TenantConfiguration config, bool exists)> reads)
-            => reads.Where(r => r.exists).Select(r => r.config).ToList();
+            IEnumerable<TenantConfiguration?> reads)
+            => reads.Where(c => c != null).Select(c => c!).ToList();
+
+        /// <summary>
+        /// Case-variant rescue for managed ids the exact-case point-reads missed: from the full config scan,
+        /// add every config whose TenantId matches a managed id case-insensitively and is not already in the
+        /// point-read hits. The managed-id bound stays authoritative — an unmanaged config is never added, so
+        /// this can only ever RESTORE tenants the pre-point-read scan+filter would have returned. Pure + testable.
+        /// </summary>
+        internal static List<TenantConfiguration> MergeRescuedConfigs(
+            IReadOnlyCollection<string> managedIds,
+            IReadOnlyCollection<TenantConfiguration> pointReadHits,
+            IEnumerable<TenantConfiguration> allConfigs)
+        {
+            var managed = new HashSet<string>(managedIds, StringComparer.OrdinalIgnoreCase);
+            var found = new HashSet<string>(pointReadHits.Select(c => c.TenantId), StringComparer.OrdinalIgnoreCase);
+            var merged = new List<TenantConfiguration>(pointReadHits);
+            merged.AddRange(allConfigs.Where(c => managed.Contains(c.TenantId) && !found.Contains(c.TenantId)));
+            return merged;
+        }
 
         /// <summary>
         /// The delegated bare-array view of config/all: every managed-tenant config with its secrets

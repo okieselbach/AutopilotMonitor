@@ -122,27 +122,44 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Strict point-read: returns the config, or null when no row exists (404) — does NOT
+        /// auto-create. Any other storage failure PROPAGATES to the caller, so "read failed" can
+        /// never be conflated with "tenant not configured". Use where a dropped tenant is worse
+        /// than a failed request (e.g. the delegated config/all subset).
+        /// </summary>
+        public virtual async Task<TenantConfiguration?> GetConfigurationIfExistsAsync(string tenantId)
+        {
+            if (string.IsNullOrEmpty(tenantId))
+                return null;
+
+            var cacheKey = $"tenant-config:{tenantId}";
+
+            if (_cache.TryGetValue(cacheKey, out TenantConfiguration? cachedConfig) && cachedConfig != null)
+                return cachedConfig;
+
+            var config = await _configRepo.GetTenantConfigurationAsync(tenantId);
+            if (config != null)
+                _cache.Set(cacheKey, config, CacheDuration);
+
+            return config;
+        }
+
+        /// <summary>
         /// Returns (config, exists). exists=false when no row was found — does NOT auto-create.
-        /// Use for agent security gates where unknown tenants must be rejected.
+        /// Use for agent security gates where unknown tenants must be rejected: storage errors are
+        /// mapped to exists=false (fail closed). Callers that must instead surface read failures
+        /// use <see cref="GetConfigurationIfExistsAsync"/>.
         /// </summary>
         public virtual async Task<(TenantConfiguration config, bool exists)> TryGetConfigurationAsync(string tenantId)
         {
             if (string.IsNullOrEmpty(tenantId))
                 return (TenantConfiguration.CreateDefault("unknown"), false);
 
-            var cacheKey = $"tenant-config:{tenantId}";
-
-            if (_cache.TryGetValue(cacheKey, out TenantConfiguration? cachedConfig) && cachedConfig != null)
-                return (cachedConfig, true);
-
             try
             {
-                var config = await _configRepo.GetTenantConfigurationAsync(tenantId);
+                var config = await GetConfigurationIfExistsAsync(tenantId);
                 if (config != null)
-                {
-                    _cache.Set(cacheKey, config, CacheDuration);
                     return (config, true);
-                }
 
                 return (TenantConfiguration.CreateDefault(tenantId), false);
             }

@@ -24,10 +24,10 @@ public class GetAllTenantConfigurationsFunctionTests
     [Fact]
     public void ExistingManagedConfigs_DropsTenantsWithoutConfigRow()
     {
-        var reads = new (TenantConfiguration config, bool exists)[]
+        var reads = new TenantConfiguration?[]
         {
-            (new TenantConfiguration { TenantId = TenantB }, true),
-            (new TenantConfiguration { TenantId = TenantC }, false), // no config row → must be dropped
+            new TenantConfiguration { TenantId = TenantB },
+            null, // no config row (404) → must be dropped
         };
 
         var result = GetAllTenantConfigurationsFunction.ExistingManagedConfigs(reads);
@@ -39,10 +39,10 @@ public class GetAllTenantConfigurationsFunctionTests
     [Fact]
     public void ExistingManagedConfigs_AllExist_KeepsAll()
     {
-        var reads = new (TenantConfiguration config, bool exists)[]
+        var reads = new TenantConfiguration?[]
         {
-            (new TenantConfiguration { TenantId = TenantB }, true),
-            (new TenantConfiguration { TenantId = TenantC }, true),
+            new TenantConfiguration { TenantId = TenantB },
+            new TenantConfiguration { TenantId = TenantC },
         };
 
         var result = GetAllTenantConfigurationsFunction.ExistingManagedConfigs(reads);
@@ -52,13 +52,54 @@ public class GetAllTenantConfigurationsFunctionTests
 
     [Fact]
     public void ExistingManagedConfigs_NoneExist_Empty()
+        => Assert.Empty(GetAllTenantConfigurationsFunction.ExistingManagedConfigs(new TenantConfiguration?[] { null }));
+
+    [Fact]
+    public void MergeRescuedConfigs_AddsCaseVariantRow_MissedByExactCasePointRead()
     {
-        var reads = new (TenantConfiguration config, bool exists)[]
+        // AllowedTenantIds is lowercased; the stored config row has an upper-case PartitionKey,
+        // so the exact-case point-read missed it. The scan rescue must restore it.
+        var managedIds = new[] { TenantB, TenantC };
+        var hits = new List<TenantConfiguration> { new() { TenantId = TenantB } };
+        var scanned = new[]
         {
-            (new TenantConfiguration { TenantId = TenantB }, false),
+            new TenantConfiguration { TenantId = TenantB },
+            new TenantConfiguration { TenantId = TenantC.ToUpperInvariant() }, // case-variant row
         };
 
-        Assert.Empty(GetAllTenantConfigurationsFunction.ExistingManagedConfigs(reads));
+        var merged = GetAllTenantConfigurationsFunction.MergeRescuedConfigs(managedIds, hits, scanned);
+
+        Assert.Equal(2, merged.Count);
+        Assert.Contains(merged, c => c.TenantId == TenantC.ToUpperInvariant());
+    }
+
+    [Fact]
+    public void MergeRescuedConfigs_NeverAddsUnmanagedTenant()
+    {
+        var managedIds = new[] { TenantB, TenantC };
+        var hits = new List<TenantConfiguration> { new() { TenantId = TenantB } };
+        var scanned = new[]
+        {
+            new TenantConfiguration { TenantId = TenantB },
+            new TenantConfiguration { TenantId = "44444444-4444-4444-4444-444444444444" }, // NOT managed
+        };
+
+        var merged = GetAllTenantConfigurationsFunction.MergeRescuedConfigs(managedIds, hits, scanned);
+
+        var only = Assert.Single(merged);
+        Assert.Equal(TenantB, only.TenantId);
+    }
+
+    [Fact]
+    public void MergeRescuedConfigs_DoesNotDuplicatePointReadHits()
+    {
+        var managedIds = new[] { TenantB };
+        var hits = new List<TenantConfiguration> { new() { TenantId = TenantB } };
+        var scanned = new[] { new TenantConfiguration { TenantId = TenantB.ToUpperInvariant() } };
+
+        var merged = GetAllTenantConfigurationsFunction.MergeRescuedConfigs(managedIds, hits, scanned);
+
+        Assert.Single(merged); // scan row is the same tenant (case-insensitive) → not added twice
     }
 
     [Fact]
