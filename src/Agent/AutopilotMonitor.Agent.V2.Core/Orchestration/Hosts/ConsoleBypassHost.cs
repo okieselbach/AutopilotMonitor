@@ -35,6 +35,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private readonly InformationalEventPost _post;
         private readonly AgentLogger _logger;
         private readonly ConsoleBypassWatcher _watcher;
+        private readonly SignalIngress? _observableIngress;
+        private Action<AutopilotMonitor.DecisionCore.Signals.DecisionSignalKind, IReadOnlyDictionary<string, string>?>? _signalPostedHandler;
         private int _disposed;
 
         public ConsoleBypassHost(
@@ -54,9 +56,38 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _watcher = watcher ?? new ConsoleBypassWatcher(logger);
             _watcher.BypassConsoleDetected += OnBypassConsoleDetected;
             _watcher.WatcherArmFailed += OnWatcherArmFailed;
+            _observableIngress = ingress as SignalIngress;
         }
 
-        public void Start() => _watcher.Start();
+        public void Start()
+        {
+            // L14 fallback: the primary stop path is the DesktopArrivalDetector's real-user-owner
+            // callback (StopForDesktopArrival). If the DAD misses the owner (no-candidate timeout,
+            // detection miss), the watcher would stay armed for the agent's whole remaining
+            // lifetime and flag ordinary post-desktop user consoles. A DesktopArrived or
+            // HelloResolved signal on the decision rail is equally conclusive evidence that OOBE's
+            // Shift+F10 window is over — stop on those too.
+            if (_observableIngress != null)
+            {
+                _signalPostedHandler = OnSignalPosted;
+                _observableIngress.SignalPosted += _signalPostedHandler;
+            }
+
+            _watcher.Start();
+        }
+
+        private void OnSignalPosted(AutopilotMonitor.DecisionCore.Signals.DecisionSignalKind kind, IReadOnlyDictionary<string, string>? payload)
+        {
+            if (kind != AutopilotMonitor.DecisionCore.Signals.DecisionSignalKind.DesktopArrived
+                && kind != AutopilotMonitor.DecisionCore.Signals.DecisionSignalKind.HelloResolved)
+            {
+                return;
+            }
+
+            if (Interlocked.CompareExchange(ref _disposed, 0, 0) == 1) return;
+            _logger.Info($"[ConsoleBypassHost] {kind} observed on the decision rail — Shift+F10 window over, stopping console watcher (fallback stop path)");
+            Dispose();
+        }
 
         public void Stop() => Dispose();
 
@@ -120,6 +151,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
+            if (_observableIngress != null && _signalPostedHandler != null)
+            {
+                try { _observableIngress.SignalPosted -= _signalPostedHandler; } catch { }
+            }
             try { _watcher.BypassConsoleDetected -= OnBypassConsoleDetected; } catch { }
             try { _watcher.WatcherArmFailed -= OnWatcherArmFailed; } catch { }
             try { _watcher.Dispose(); } catch { }

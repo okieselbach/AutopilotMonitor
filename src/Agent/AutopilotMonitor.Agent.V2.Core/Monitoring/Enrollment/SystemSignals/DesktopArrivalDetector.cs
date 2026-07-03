@@ -401,18 +401,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         internal string ResolveOwner(int processId, int sessionId)
         {
             string owner = null;
+            var wtsErrored = false;
             try
             {
-                owner = (SessionOwnerResolver ?? ProcessOwnerLookup.ViaWts)(sessionId);
+                if (SessionOwnerResolver != null)
+                    owner = SessionOwnerResolver(sessionId);
+                else
+                    owner = ProcessOwnerLookup.ViaWts(sessionId, out wtsErrored);
             }
             catch (Exception ex)
             {
+                wtsErrored = true;
                 _logger.Debug($"DesktopArrivalDetector: WTS owner resolution threw for session {sessionId}: {ex.Message}");
             }
             if (!string.IsNullOrEmpty(owner))
                 return owner;
 
-            _wtsErrorCountSinceStart++;
+            // L15: count only real API failures. A session without a logged-on user yet is the
+            // normal OOBE polling case and must not inflate the liveness payloads' error rate
+            // (the WMI counter next door has failure-only semantics — keep them comparable).
+            if (wtsErrored)
+                _wtsErrorCountSinceStart++;
             return (ProcessOwnerResolver ?? GetProcessOwnerViaWmi)(processId);
         }
 
