@@ -341,7 +341,7 @@ export const api = {
 
   // ── Diag Files Reports (no session context) ───────────────────────────────
   diagFilesReports: {
-    submit: () => `${API_BASE_URL}/api/diag-files-reports`,
+    submit: () => `${API_BASE_URL}/api/diagnostics/files`,
   },
 
   // ── Distress Reports ──────────────────────────────────────────────────────

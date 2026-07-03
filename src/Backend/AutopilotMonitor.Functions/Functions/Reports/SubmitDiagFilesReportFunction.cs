@@ -39,7 +39,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
 
         [Function("SubmitDiagFilesReport")]
         public async Task<HttpResponseData> Run(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "diag-files-reports")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "diagnostics/files")] HttpRequestData req)
         {
             _logger.LogInformation("SubmitDiagFilesReport processing request");
 
