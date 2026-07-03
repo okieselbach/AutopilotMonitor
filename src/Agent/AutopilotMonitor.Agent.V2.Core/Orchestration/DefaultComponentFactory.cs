@@ -313,7 +313,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     idleTimeoutMinutes: collectors.CollectorIdleTimeoutMinutes,
                     networkMetrics: _networkMetrics,
                     agentVersion: _agentVersion,
-                    telemetrySpool: telemetrySpool));
+                    telemetrySpool: telemetrySpool,
+                    startupGate: _startupEventGate)); // M3 — disk_space_low latch survives restarts
             }
 
             // V1 parity (CollectorCoordinator.StartOptionalCollectors:375-382) — wire the

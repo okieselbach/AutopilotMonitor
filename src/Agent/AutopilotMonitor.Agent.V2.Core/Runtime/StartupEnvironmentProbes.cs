@@ -116,24 +116,36 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
                 if (gate == null || !gate.AlreadySucceeded(Constants.EventTypes.DeviceLocation))
                 {
                     SafeEmit(post, logger, BuildGeoEvent(configuration, attempt.Location));
-
-                    // Outbound (public egress) IP — Trace severity so it stays out of the
-                    // timeline by default; persisted/queryable for network correlation.
-                    if (!string.IsNullOrEmpty(attempt.Location.Ip))
-                        SafeEmit(post, logger, BuildOutboundIpEvent(configuration, attempt.Location));
-
                     gate?.MarkSucceeded(Constants.EventTypes.DeviceLocation);
                 }
                 else
                 {
                     logger.Debug("StartupEnvironmentProbes: location re-resolved for the pending timezone retry — device_location already emitted in a previous run.");
                 }
+
+                // Outbound (public egress) IP — Trace severity so it stays out of the timeline by
+                // default; persisted/queryable for network correlation. Own latch (L17): the first
+                // successful provider response can lack the ip field, so it must not ride the
+                // device_location latch — any later lookup (e.g. a timezone retry) that does carry
+                // it still emits the trace once.
+                if (!string.IsNullOrEmpty(attempt.Location.Ip)
+                    && (gate == null || !gate.AlreadySucceeded(Constants.EventTypes.OutboundIp)))
+                {
+                    SafeEmit(post, logger, BuildOutboundIpEvent(configuration, attempt.Location));
+                    gate?.MarkSucceeded(Constants.EventTypes.OutboundIp);
+                }
             }
             else
             {
-                // Failure event each failing start is intentional — it documents the retry trail,
-                // and the unset gate key makes the next agent run try again.
-                SafeEmit(post, logger, BuildGeoFailureEvent(configuration, attempt));
+                // Failure event each failing start is intentional (retry trail) — but only while
+                // the location itself is still outstanding. When a prior run already emitted
+                // device_location and this lookup ran solely to feed the pending timezone retry,
+                // a failure event here would put a device_location failure AFTER its success on
+                // the session timeline (L17) — misleading noise, suppressed.
+                if (gate == null || !gate.AlreadySucceeded(Constants.EventTypes.DeviceLocation))
+                    SafeEmit(post, logger, BuildGeoFailureEvent(configuration, attempt));
+                else
+                    logger.Debug("StartupEnvironmentProbes: geo re-lookup for the pending timezone retry failed — failure event suppressed (location already reported).");
             }
 
             if (configuration.EnableTimezoneAutoSet && !string.IsNullOrEmpty(attempt?.Location?.Timezone))

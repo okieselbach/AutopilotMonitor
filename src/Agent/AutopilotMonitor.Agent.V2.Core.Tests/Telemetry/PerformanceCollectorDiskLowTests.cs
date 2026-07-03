@@ -7,7 +7,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry
     /// MON-B10 — covers the state-change-only transition logic behind the one-shot
     /// <c>disk_space_low</c> warning. The warning must fire exactly once on crossing below 2 GB,
     /// stay silent while the drive remains low (no heartbeat), and only re-arm after free space
-    /// recovers past the 3 GB hysteresis mark.
+    /// recovers past the 3 GB hysteresis mark. The <c>rearmed</c> out-flag (M3) tells the caller
+    /// when to persist the re-arm so the latch survives agent restarts.
     /// </summary>
     public class PerformanceCollectorDiskLowTests
     {
@@ -15,24 +16,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry
         public void AboveThreshold_DoesNotWarn_AndStaysDisarmed()
         {
             bool warned = false;
-            Assert.False(PerformanceCollector.EvaluateDiskLowTransition(50.0, ref warned));
+            Assert.False(PerformanceCollector.EvaluateDiskLowTransition(50.0, ref warned, out var rearmed));
             Assert.False(warned);
+            Assert.False(rearmed); // was never latched → nothing to re-arm/persist
         }
 
         [Fact]
         public void CrossingBelowThreshold_WarnsOnce_AndLatches()
         {
             bool warned = false;
-            Assert.True(PerformanceCollector.EvaluateDiskLowTransition(1.9, ref warned));
+            Assert.True(PerformanceCollector.EvaluateDiskLowTransition(1.9, ref warned, out var rearmed));
             Assert.True(warned);
+            Assert.False(rearmed);
         }
 
         [Fact]
         public void StillLowAfterWarning_DoesNotReWarn()
         {
             bool warned = true; // already warned on a previous low read
-            Assert.False(PerformanceCollector.EvaluateDiskLowTransition(1.5, ref warned));
+            Assert.False(PerformanceCollector.EvaluateDiskLowTransition(1.5, ref warned, out var rearmed));
             Assert.True(warned);
+            Assert.False(rearmed);
         }
 
         [Fact]
@@ -41,16 +45,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry
             // Between 2 GB (threshold) and 3 GB (recovery): not low enough to re-warn,
             // not recovered enough to re-arm. Must remain latched and silent.
             bool warned = true;
-            Assert.False(PerformanceCollector.EvaluateDiskLowTransition(2.5, ref warned));
+            Assert.False(PerformanceCollector.EvaluateDiskLowTransition(2.5, ref warned, out var rearmed));
             Assert.True(warned);
+            Assert.False(rearmed);
         }
 
         [Fact]
         public void RecoveryPastHysteresisMark_ReArms()
         {
             bool warned = true;
-            Assert.False(PerformanceCollector.EvaluateDiskLowTransition(3.0, ref warned));
+            Assert.False(PerformanceCollector.EvaluateDiskLowTransition(3.0, ref warned, out var rearmed));
             Assert.False(warned);
+            Assert.True(rearmed); // caller persists this transition (M3)
         }
 
         [Fact]
@@ -59,15 +65,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry
             bool warned = false;
 
             // First drop → warns and latches.
-            Assert.True(PerformanceCollector.EvaluateDiskLowTransition(1.0, ref warned));
+            Assert.True(PerformanceCollector.EvaluateDiskLowTransition(1.0, ref warned, out _));
             Assert.True(warned);
 
             // Recovers past the hysteresis mark → re-arms.
-            Assert.False(PerformanceCollector.EvaluateDiskLowTransition(4.0, ref warned));
+            Assert.False(PerformanceCollector.EvaluateDiskLowTransition(4.0, ref warned, out var rearmed));
             Assert.False(warned);
+            Assert.True(rearmed);
 
             // Drops again → warns a second time.
-            Assert.True(PerformanceCollector.EvaluateDiskLowTransition(1.8, ref warned));
+            Assert.True(PerformanceCollector.EvaluateDiskLowTransition(1.8, ref warned, out _));
             Assert.True(warned);
         }
 
@@ -76,8 +83,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry
         {
             // 2.0 GB is the boundary; the predicate is strict "below", so it must not warn.
             bool warned = false;
-            Assert.False(PerformanceCollector.EvaluateDiskLowTransition(2.0, ref warned));
+            Assert.False(PerformanceCollector.EvaluateDiskLowTransition(2.0, ref warned, out var rearmed));
             Assert.False(warned);
+            Assert.False(rearmed);
+        }
+
+        [Fact]
+        public void AboveRecovery_WithoutPriorWarning_DoesNotReportRearm()
+        {
+            // A healthy disk must not spam the persisted gate state on every sample.
+            bool warned = false;
+            Assert.False(PerformanceCollector.EvaluateDiskLowTransition(10.0, ref warned, out var rearmed));
+            Assert.False(rearmed);
         }
     }
 }

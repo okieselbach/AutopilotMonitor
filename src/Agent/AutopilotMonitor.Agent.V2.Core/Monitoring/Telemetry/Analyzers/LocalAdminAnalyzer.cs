@@ -234,6 +234,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                     Message   = message,
                     Data      = data
                 });
+
+                // M4: commit the gate claim only after the emission went out — committing first
+                // let a crash in between suppress the findings for the rest of the enrollment.
+                if (trigger == "startup")
+                    _startupGate?.MarkEmitted(Constants.EventTypes.LocalAdminAnalysis);
             }
             catch (Exception ex)
             {

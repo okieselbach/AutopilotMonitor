@@ -111,6 +111,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                 }
 
                 EmitInventoryEvents("startup", EnrollmentPhase.Unknown, _startupInventory, null);
+
+                // M4: commit the gate claim only after the (chunked) emission went out.
+                _startupGate?.MarkEmitted(Constants.EventTypes.SoftwareInventoryAnalysis + ":startup");
             }
             catch (Exception ex)
             {

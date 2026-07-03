@@ -37,6 +37,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
         internal const string CmdPrefetchPattern = "CMD.EXE-*.pf";
         internal const string ConhostPrefetchPattern = "CONHOST.EXE-*.pf";
 
+        /// <summary>
+        /// M5: absorbs the clock-epoch mismatch between the .pf NTFS last-write (stamped under
+        /// the clock at write time) and the boot time derived at scan time as now-minus-uptime
+        /// (shifts with every NTP correction). OOBE clock corrections are typically seconds to a
+        /// few minutes; image/sysprep artifacts predate boot by far more than this.
+        /// </summary>
+        internal static readonly TimeSpan BootClockSkewTolerance = TimeSpan.FromMinutes(10);
+
         private const string Attribution =
             "coarse: a console executed on this device; cannot distinguish a human Shift+F10 from a " +
             "legitimate install-launched cmd once ESP is running (cmd.exe shares one prefetch artifact)";
@@ -107,12 +115,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                 return;
             }
 
-            bool ranAfterBoot = cmdArtifact.Value.lastRunUtc > bootTimeUtc.Value;
+            // M5 (delta review 2026-07-02): the two timestamps come from different clock epochs.
+            // The .pf last-write was stamped under the clock at write time; boot time is derived
+            // at SCAN time as now-minus-uptime, so an NTP correction in between (routine during
+            // OOBE) shifts it by the correction amount. A forward correction made a real
+            // Shift+F10 console look pre-boot ("stale image artifact"). The tolerance absorbs
+            // typical OOBE clock corrections; image/sysprep artifacts are hours-to-months older
+            // than boot and stay firmly below it.
+            bool ranAfterBoot = cmdArtifact.Value.lastRunUtc > bootTimeUtc.Value - BootClockSkewTolerance;
             if (!ranAfterBoot)
             {
                 // Stale artifact from the image build / sysprep — not this boot's console.
                 _logger.Debug($"{Name}: cmd prefetch last-run {cmdArtifact.Value.lastRunUtc:o} predates boot " +
-                    $"{bootTimeUtc.Value:o} — stale image artifact, not flagged");
+                    $"{bootTimeUtc.Value:o} (incl. {BootClockSkewTolerance.TotalMinutes:F0} min skew tolerance) — stale image artifact, not flagged");
                 return;
             }
 
@@ -132,14 +147,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                 { "coverageComplete", false },
             };
 
-            // Restart dedup: the same artifact + last-run was already reported by a previous agent run
-            // in this enrollment. A NEW cmd run (newer last-run) changes the fingerprint and re-emits.
+            // Restart dedup — once per enrollment (M6, delta review 2026-07-02). The fingerprint
+            // used to include prefetchLastRunUtc + corroboratingArtifacts, but every ESP `cmd /c`
+            // installer wrapper refreshes CMD.EXE-*.pf between reboots, so multi-reboot sessions
+            // re-warned per restart. The scanner cannot distinguish a new human console from
+            // routine installer cmd churn via the artifact timestamp — one Warning per enrollment
+            // is the honest signal; the live ConsoleBypassWatcher covers consoles opened later.
             if (_startupGate != null
-                && !_startupGate.ShouldEmit(
-                    Constants.EventTypes.ConsolePrefetchDetected,
-                    Core.Persistence.StartupEventGate.ComputeFingerprint(data, excludedKeys: new[] { "bootTimeUtc" })))
+                && !_startupGate.ShouldEmit(Constants.EventTypes.ConsolePrefetchDetected, "detected"))
             {
-                _logger.Debug($"{Name}: same cmd prefetch artifact already reported — suppressed (restart dedup)");
+                _logger.Debug($"{Name}: console prefetch already reported this enrollment — suppressed (restart dedup)");
                 return;
             }
 
@@ -158,6 +175,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                 ImmediateUpload = true,
                 Data = data,
             });
+
+            // M4: commit the gate claim only after the Warning went out — committing first let a
+            // crash in between suppress this security event for the rest of the enrollment.
+            _startupGate?.MarkEmitted(Constants.EventTypes.ConsolePrefetchDetected);
         }
 
         /// <summary>Newest (max last-write) artifact matching <paramref name="pattern"/>, or null.</summary>

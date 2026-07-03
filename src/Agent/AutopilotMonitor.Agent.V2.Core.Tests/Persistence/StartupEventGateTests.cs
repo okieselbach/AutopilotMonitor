@@ -33,18 +33,81 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Persistence
         }
 
         [Fact]
-        public void ShouldEmit_state_survives_an_agent_restart()
+        public void ShouldEmit_state_survives_an_agent_restart_once_committed()
         {
             using var tmp = new TempDirectory();
             var logger = NewLogger(tmp.Path);
 
             var firstRun = new StartupEventGate(tmp.Path, logger);
             Assert.True(firstRun.ShouldEmit("aad_join_status", "not-joined"));
+            firstRun.MarkEmitted("aad_join_status"); // event went out → commit
 
             // New instance over the same state directory = agent restarted after a reboot.
             var secondRun = new StartupEventGate(tmp.Path, logger);
             Assert.False(secondRun.ShouldEmit("aad_join_status", "not-joined")); // unchanged → suppressed
             Assert.True(secondRun.ShouldEmit("aad_join_status", "joined"));      // late join → emits
+        }
+
+        [Fact]
+        public void Uncommitted_claim_does_not_survive_a_restart()
+        {
+            // M4 (delta review 2026-07-02): a crash between ShouldEmit and the actual emission
+            // must NOT suppress the event for the rest of the enrollment — only MarkEmitted
+            // (called after the emission) persists the claim.
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp.Path);
+
+            var firstRun = new StartupEventGate(tmp.Path, logger);
+            Assert.True(firstRun.ShouldEmit("tpm_info", "fp-static"));
+            // process dies here — no MarkEmitted
+
+            var secondRun = new StartupEventGate(tmp.Path, logger);
+            Assert.True(secondRun.ShouldEmit("tpm_info", "fp-static")); // re-emits after the crash
+        }
+
+        [Fact]
+        public void MarkEmitted_commits_only_its_own_key()
+        {
+            // Two events claim; only A's emission goes out before the crash. B must re-emit.
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp.Path);
+
+            var firstRun = new StartupEventGate(tmp.Path, logger);
+            Assert.True(firstRun.ShouldEmit("event_a", "fp-a"));
+            Assert.True(firstRun.ShouldEmit("event_b", "fp-b"));
+            firstRun.MarkEmitted("event_a"); // only A emitted before the crash
+
+            var secondRun = new StartupEventGate(tmp.Path, logger);
+            Assert.False(secondRun.ShouldEmit("event_a", "fp-a"));
+            Assert.True(secondRun.ShouldEmit("event_b", "fp-b"));
+        }
+
+        [Fact]
+        public void MarkEmitted_without_prior_claim_is_a_noop()
+        {
+            using var tmp = new TempDirectory();
+            var gate = new StartupEventGate(tmp.Path, NewLogger(tmp.Path));
+
+            gate.MarkEmitted("gate_exempt_type"); // never claimed → must not throw or persist
+            Assert.True(gate.ShouldEmit("gate_exempt_type", "fp"));
+        }
+
+        [Fact]
+        public void HasFingerprint_peeks_without_claiming()
+        {
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp.Path);
+
+            var firstRun = new StartupEventGate(tmp.Path, logger);
+            Assert.False(firstRun.HasFingerprint("disk_space_low", "low"));
+            Assert.True(firstRun.ShouldEmit("disk_space_low", "low"));
+            firstRun.MarkEmitted("disk_space_low");
+
+            var secondRun = new StartupEventGate(tmp.Path, logger);
+            Assert.True(secondRun.HasFingerprint("disk_space_low", "low"));
+            Assert.False(secondRun.HasFingerprint("disk_space_low", "rearmed"));
+            // The peek made no claim: an actual state change still goes through normally.
+            Assert.True(secondRun.ShouldEmit("disk_space_low", "rearmed"));
         }
 
         [Fact]

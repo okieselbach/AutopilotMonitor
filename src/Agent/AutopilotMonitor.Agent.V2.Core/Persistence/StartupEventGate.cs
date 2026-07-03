@@ -40,23 +40,36 @@ namespace AutopilotMonitor.Agent.V2.Core.Persistence
         private readonly string _stateFilePath;
         private readonly AgentLogger _logger;
         private readonly object _lock = new object();
+
+        // M4 (delta review 2026-07-02): two views. `_entries` is the in-process truth that
+        // ShouldEmit claims against (immediate, so concurrent/repeated in-process checks stay
+        // deduped). `_persisted` is what actually reaches disk — a key is copied over only by
+        // MarkEmitted/MarkSucceeded, i.e. AFTER the caller's emission went through. Persisting
+        // inside ShouldEmit meant a process death between the fingerprint save and the spool
+        // append suppressed that event for the rest of the enrollment (fail-closed on telemetry,
+        // permanent for static payloads like tpm_info or console_prefetch_detected).
         private readonly Dictionary<string, GateEntry> _entries;
+        private readonly Dictionary<string, GateEntry> _persisted;
 
         public StartupEventGate(string stateDirectory, AgentLogger logger)
         {
             _stateDirectory = Environment.ExpandEnvironmentVariables(stateDirectory);
             _stateFilePath = Path.Combine(_stateDirectory, "startup-event-state.json");
             _logger = logger;
-            _entries = LoadSafe();
+            _persisted = LoadSafe();
+            _entries = new Dictionary<string, GateEntry>(_persisted, StringComparer.Ordinal);
         }
 
         public string StateFilePath => _stateFilePath;
 
         /// <summary>
         /// Emit-on-change: true when no fingerprint is recorded for <paramref name="key"/> or the
-        /// recorded one differs — the new fingerprint is persisted in the same call, so the caller
-        /// emits exactly when this returns true. False means "identical payload already emitted in
-        /// this session" (possibly by a previous agent run).
+        /// recorded one differs. The new fingerprint is claimed IN MEMORY only — the caller must
+        /// invoke <see cref="MarkEmitted"/> after the emission actually went out, which is what
+        /// persists the claim across restarts. A crash (or an emit failure) between the two calls
+        /// therefore re-emits on the next run instead of silently suppressing forever.
+        /// False means "identical payload already emitted in this session" (possibly by a
+        /// previous agent run).
         /// </summary>
         public bool ShouldEmit(string key, string fingerprint)
         {
@@ -75,8 +88,39 @@ namespace AutopilotMonitor.Agent.V2.Core.Persistence
                     Succeeded = existing?.Succeeded ?? false,
                     UpdatedUtc = DateTime.UtcNow,
                 };
-                SaveSafe();
                 return true;
+            }
+        }
+
+        /// <summary>
+        /// Commits the in-memory claim made by the preceding <see cref="ShouldEmit"/> to disk.
+        /// Call after the event emission succeeded. No-op when the key was never claimed
+        /// (e.g. gate-exempt event types).
+        /// </summary>
+        public void MarkEmitted(string key)
+        {
+            if (string.IsNullOrEmpty(key)) return;
+            lock (_lock)
+            {
+                if (!_entries.TryGetValue(key, out var entry)) return;
+                _persisted[key] = entry;
+                SaveSafe();
+            }
+        }
+
+        /// <summary>
+        /// Read-only peek: true when the key's current fingerprint (possibly restored from a
+        /// previous agent run) equals <paramref name="fingerprint"/>. Unlike
+        /// <see cref="ShouldEmit"/> this makes NO claim — use it to seed in-memory latches
+        /// (e.g. the disk_space_low hysteresis) from persisted state at construction time.
+        /// </summary>
+        public bool HasFingerprint(string key, string fingerprint)
+        {
+            if (string.IsNullOrEmpty(key)) return false;
+            lock (_lock)
+            {
+                return _entries.TryGetValue(key, out var entry)
+                    && string.Equals(entry.Fingerprint, fingerprint, StringComparison.Ordinal);
             }
         }
 
@@ -90,19 +134,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Persistence
             }
         }
 
-        /// <summary>Latches a retry-until-success key; subsequent runs skip the probe entirely.</summary>
+        /// <summary>
+        /// Latches a retry-until-success key; subsequent runs skip the probe entirely.
+        /// Persists immediately — success latches happen AFTER the probe's emission by contract
+        /// (see StartupEnvironmentProbes), so there is no suppression window here.
+        /// </summary>
         public void MarkSucceeded(string key)
         {
             if (string.IsNullOrEmpty(key)) return;
             lock (_lock)
             {
                 _entries.TryGetValue(key, out var existing);
-                _entries[key] = new GateEntry
+                var entry = new GateEntry
                 {
                     Fingerprint = existing?.Fingerprint,
                     Succeeded = true,
                     UpdatedUtc = DateTime.UtcNow,
                 };
+                _entries[key] = entry;
+                _persisted[key] = entry;
                 SaveSafe();
             }
         }
@@ -170,7 +220,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Persistence
             {
                 Directory.CreateDirectory(_stateDirectory);
                 var tempPath = _stateFilePath + ".tmp";
-                File.WriteAllText(tempPath, JsonConvert.SerializeObject(_entries));
+                // Persist the committed view only — uncommitted ShouldEmit claims of OTHER keys
+                // must not ride along, or their emissions could be suppressed by a crash too.
+                File.WriteAllText(tempPath, JsonConvert.SerializeObject(_persisted));
                 if (File.Exists(_stateFilePath))
                 {
                     File.Replace(tempPath, _stateFilePath, destinationBackupFileName: null, ignoreMetadataErrors: true);
