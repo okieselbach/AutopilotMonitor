@@ -35,13 +35,25 @@ const RATE_LIMIT = parsePositiveInt(process.env.MCP_RATE_LIMIT_PER_MINUTE, 60);
 // if a very large shared-IP org reports false 429s.
 const PRE_AUTH_RATE_LIMIT = parsePositiveInt(process.env.MCP_PRE_AUTH_RATE_LIMIT_PER_MINUTE, 120);
 
+// Per-source-IP budgets for the UNauthenticated /oauth/* endpoints (sliding 60s
+// window). These routes sit OUTSIDE accessGuard (they exist to obtain the token
+// accessGuard demands), so without their own throttle they are open amplifiers:
+// every anonymous POST /oauth/token triggers an outbound Entra call carrying the
+// app's client_secret — a flood makes Entra throttle the app REGISTRATION,
+// breaking token refresh for every legitimate MCP user (org-wide auth DoS with
+// zero credentials). The other /oauth routes are local-only (HMAC/allowlist
+// work) but remain CPU/log-spam vectors. Budgets are far above a legitimate
+// flow's needs: a full OAuth dance is ~4 requests, token refresh ~1/hour/client.
+const OAUTH_RATE_LIMIT = parsePositiveInt(process.env.MCP_OAUTH_RATE_LIMIT_PER_MINUTE, 60);
+const OAUTH_TOKEN_RATE_LIMIT = parsePositiveInt(process.env.MCP_OAUTH_TOKEN_RATE_LIMIT_PER_MINUTE, 20);
+
 // Hard ceiling on access-cache cardinality. The key is UPN+tokenHash, so a flood
 // of distinct (valid-signature) tokens would otherwise grow the map unbounded
 // between the 5-min reaper passes — a memory-exhaustion vector on the 0.5 GiB
 // container. Oldest entries are evicted on write once the cap is hit.
 const MAX_ACCESS_CACHE_ENTRIES = parsePositiveInt(process.env.MCP_ACCESS_CACHE_MAX_ENTRIES, 10_000);
 
-// Hard ceiling on rate-bucket cardinality (both the per-UPN and per-source-IP maps).
+// Hard ceiling on rate-bucket cardinality (the per-UPN, per-source-IP and /oauth/* maps).
 // A bucket is created per distinct key on first sight and only removed by the 5-min
 // reaper (empty-window prune), so a distinct-key flood — spoof-resistant IPs are hard,
 // but forged UPNs and NAT churn are not — could grow either map unbounded between
@@ -232,6 +244,10 @@ const rateBuckets = new Map<string, RateEntry>();
 // space from rateBuckets so throttling unvalidated floods never affects a
 // validated user's per-UPN budget.
 const preAuthBuckets = new Map<string, RateEntry>();
+// Per-source-IP budgets for the unauthenticated /oauth/* endpoints. Own map
+// (keys are `${kind}:${ip}`) so an OAuth flood never burns an IP's /mcp
+// pre-auth budget and vice versa.
+const oauthBuckets = new Map<string, RateEntry>();
 
 /** Drop timestamps outside the 60s window from a bucket map; delete empty buckets. */
 function pruneBuckets(buckets: Map<string, RateEntry>, cutoff: number): void {
@@ -251,6 +267,7 @@ setInterval(() => {
   const cutoff = now - 60_000;
   pruneBuckets(rateBuckets, cutoff);
   pruneBuckets(preAuthBuckets, cutoff);
+  pruneBuckets(oauthBuckets, cutoff);
   for (const [key, entry] of accessCache) {
     if (entry.expiresAt <= now) accessCache.delete(key);
   }
@@ -287,9 +304,9 @@ export function isPreAuthRateLimited(clientIp: string): boolean {
   return isWindowExceeded(preAuthBuckets, clientIp, PRE_AUTH_RATE_LIMIT);
 }
 
-/** Current cardinality of the two rate-bucket maps. Exported for unit testing the size cap. */
-export function getRateBucketSizes(): { rate: number; preAuth: number } {
-  return { rate: rateBuckets.size, preAuth: preAuthBuckets.size };
+/** Current cardinality of the rate-bucket maps. Exported for unit testing the size cap. */
+export function getRateBucketSizes(): { rate: number; preAuth: number; oauth: number } {
+  return { rate: rateBuckets.size, preAuth: preAuthBuckets.size, oauth: oauthBuckets.size };
 }
 
 /**
@@ -308,26 +325,63 @@ function isRateLimited(upn: string): boolean {
 
 /**
  * Emit a 429 with the conventional Retry-After header, a structured + greppable
- * log line, and an actionable message. `kind` distinguishes the per-source-IP
- * pre-auth throttle from the per-UPN throttle so a Log Analytics alert can break
- * the two out and so an unexpected false-positive surfaces to the user (who is
- * told to contact the administrator).
+ * log line, and an actionable message. `kind` distinguishes the throttles
+ * (per-source-IP pre-auth, per-UPN, per-IP /oauth/*) so a Log Analytics alert
+ * can break them out and so an unexpected false-positive surfaces to the user
+ * (who is told to contact the administrator).
  */
-function respondRateLimited(res: Response, kind: 'pre-auth' | 'upn', key: string, rpcMethod: string): void {
+type RateLimitKind = 'pre-auth' | 'upn' | 'oauth' | 'oauth-token';
+
+function rateLimitMessage(kind: RateLimitKind): string {
+  switch (kind) {
+    case 'upn':
+      return 'You are sending requests faster than the per-user limit. Wait ~60s and retry. If this keeps ' +
+        'happening unexpectedly, contact the MCP server administrator.';
+    case 'oauth':
+    case 'oauth-token':
+      return 'Too many authentication requests from your network in a short window. Wait ~60s and retry. ' +
+        'If this keeps happening unexpectedly, you may be sharing an IP via a corporate proxy/NAT — ' +
+        'contact the MCP server administrator.';
+    default:
+      return 'Too many requests from your network in a short window. Wait ~60s and retry. If this keeps ' +
+        'happening unexpectedly, you may be sharing an IP via a corporate proxy/NAT — contact the MCP ' +
+        'server administrator.';
+  }
+}
+
+function respondRateLimited(res: Response, kind: RateLimitKind, key: string, rpcMethod: string): void {
   console.error(`[mcp-auth] 429 kind=${kind} key=${key} method=${rpcMethod}`);
   res.setHeader('Retry-After', '60');
   res.status(429).json({
     error: 'Rate limit exceeded',
     retryAfterSeconds: 60,
-    message:
-      kind === 'pre-auth'
-        ? 'Too many requests from your network in a short window. Wait ~60s and retry. If this keeps ' +
-          'happening unexpectedly, you may be sharing an IP via a corporate proxy/NAT — contact the MCP ' +
-          'server administrator.'
-        : 'You are sending requests faster than the per-user limit. Wait ~60s and retry. If this keeps ' +
-          'happening unexpectedly, contact the MCP server administrator.',
+    message: rateLimitMessage(kind),
   });
 }
+
+/**
+ * Per-source-IP throttle middleware for the unauthenticated /oauth/* routes.
+ * Same sliding-window machinery as the /mcp pre-auth limiter, separate bucket
+ * map keyed `${kind}:${ip}` so the two surfaces cannot starve each other and
+ * the strict token budget stays independent of the general one. Applied
+ * per-route inside createOAuthRouter so any future /oauth endpoint must opt in
+ * consciously rather than inherit silence.
+ */
+function makeOAuthIpLimiter(kind: 'oauth' | 'oauth-token', limit: number) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const clientIp = getClientIp(req);
+    if (isWindowExceeded(oauthBuckets, `${kind}:${clientIp}`, limit)) {
+      respondRateLimited(res, kind, clientIp, req.path);
+      return;
+    }
+    next();
+  };
+}
+
+/** General /oauth/* budget (register/authorize/callback — local HMAC/allowlist work only). */
+export const oauthRateLimit = makeOAuthIpLimiter('oauth', OAUTH_RATE_LIMIT);
+/** Strict /oauth/token budget — every request triggers an outbound Entra call with the client secret. */
+export const oauthTokenRateLimit = makeOAuthIpLimiter('oauth-token', OAUTH_TOKEN_RATE_LIMIT);
 
 // --- Express middleware ---
 

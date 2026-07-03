@@ -18,6 +18,12 @@ import type { AddressInfo } from 'node:net';
 
 // createOAuthRouter() throws at import unless the Entra client id is present.
 process.env.AUTOPILOT_ENTRA_CLIENT_ID ??= '00000000-0000-0000-0000-000000000000';
+// The /oauth/* routes now carry per-source-IP throttles (read at module init).
+// This suite fires far more than the production budgets from one loopback IP
+// within a minute, so pin them out of the way — the limiter itself is covered
+// by oauth-rate-limit.test.ts with tiny pinned budgets in its own module.
+process.env.MCP_OAUTH_RATE_LIMIT_PER_MINUTE = '100000';
+process.env.MCP_OAUTH_TOKEN_RATE_LIMIT_PER_MINUTE = '100000';
 const { createOAuthRouter, signClientId, verifyClientId, signState, redirectUriMatches, MAX_REDIRECT_URIS_PER_CLIENT, MAX_REDIRECT_URI_LENGTH, MAX_CLIENT_NAME_LENGTH } =
   await import('../oauth.js');
 
@@ -391,5 +397,46 @@ describe('/oauth/token — PKCE finishing move', () => {
     expect(res.status).toBe(400);
     const json = (await res.json()) as Record<string, unknown>;
     expect(String(json.error_description)).toMatch(/code_verifier is required/);
+  });
+});
+
+describe('/oauth/token — grant_type allowlist', () => {
+  // Every request to this endpoint is forwarded to Entra with the app's
+  // client_id + client_secret attached. Unlisted grants (client_credentials,
+  // ROPC, device-code) previously failed only by accident of the pinned scope
+  // and which fields the proxy copies — these tests pin the allowlist as
+  // explicit proxy policy. All rejection paths return before any fetch, so no
+  // network is reached.
+  async function token(params: Record<string, string>) {
+    const res = await fetch(`${baseUrl}/oauth/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(params).toString(),
+    });
+    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    return { status: res.status, json };
+  }
+
+  it('rejects a missing grant_type as invalid_request', async () => {
+    const res = await token({ code: 'abc' });
+    expect(res.status).toBe(400);
+    expect(res.json.error).toBe('invalid_request');
+    expect(String(res.json.error_description)).toMatch(/grant_type is required/);
+  });
+
+  it.each(['client_credentials', 'password', 'urn:ietf:params:oauth:grant-type:device_code'])(
+    'rejects grant_type=%s as unsupported_grant_type',
+    async (grantType) => {
+      const res = await token({ grant_type: grantType });
+      expect(res.status).toBe(400);
+      expect(res.json.error).toBe('unsupported_grant_type');
+    },
+  );
+
+  it('lets an authorization_code grant pass the allowlist (fails later on PKCE, not on grant_type)', async () => {
+    const res = await token({ grant_type: 'authorization_code', code: 'abc' });
+    expect(res.status).toBe(400);
+    // Reached the PKCE gate — i.e. the allowlist did not reject the listed grant.
+    expect(String(res.json.error_description)).toMatch(/code_verifier is required/);
   });
 });

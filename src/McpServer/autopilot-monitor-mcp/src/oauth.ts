@@ -18,6 +18,7 @@
  */
 import { Router } from 'express';
 import crypto from 'node:crypto';
+import { oauthRateLimit, oauthTokenRateLimit } from './access-guard.js';
 import { getPublicBaseUrl } from './config.js';
 
 const CLIENT_ID: string = (() => {
@@ -388,7 +389,13 @@ export function createOAuthRouter(): Router {
   });
 
   // --- Dynamic Client Registration (RFC 7591) ---
-  router.post('/oauth/register', (req, res) => {
+  // All /oauth/* routes below carry a per-source-IP throttle: they are the only
+  // unauthenticated surface (accessGuard covers /mcp only) and /oauth/token in
+  // particular triggers an outbound Entra call with the client secret per
+  // request — unthrottled, a flood would make Entra throttle the app
+  // registration itself, an org-wide auth DoS. The .well-known discovery docs
+  // stay unthrottled (static JSON, no outbound work, no logging).
+  router.post('/oauth/register', oauthRateLimit, (req, res) => {
     const { client_name, redirect_uris, grant_types, response_types, token_endpoint_auth_method } = req.body ?? {};
 
     // Field-level bounds — backstop the route-level body-size limit. The
@@ -460,7 +467,7 @@ export function createOAuthRouter(): Router {
   });
 
   // --- Authorize: redirect to Entra ID ---
-  router.get('/oauth/authorize', (req, res) => {
+  router.get('/oauth/authorize', oauthRateLimit, (req, res) => {
     const baseUrl = getPublicBaseUrl(req);
     const {
       client_id,
@@ -586,7 +593,7 @@ export function createOAuthRouter(): Router {
   });
 
   // --- Callback: receive code from Entra ID, forward to Claude Code ---
-  router.get('/oauth/callback', (req, res) => {
+  router.get('/oauth/callback', oauthRateLimit, (req, res) => {
     const { code, state, error, error_description } = req.query as Record<string, string>;
 
     if (error) {
@@ -654,10 +661,33 @@ export function createOAuthRouter(): Router {
   });
 
   // --- Token: proxy token exchange to Entra ID ---
-  router.post('/oauth/token', async (req, res) => {
+  router.post('/oauth/token', oauthTokenRateLimit, async (req, res) => {
     const baseUrl = getPublicBaseUrl(req);
 
     const params = req.body as Record<string, string>;
+
+    // Allowlist the grant before anything is forwarded. Every request to this
+    // endpoint goes out with the app's client_id + client_secret attached, so
+    // an unlisted grant_type would make the proxy an unauthenticated
+    // confidential-client oracle for whatever grants Entra happens to accept
+    // (client_credentials/ROPC/device-code currently fail only by accident of
+    // the pinned scope and which fields we copy — policy must live here, not
+    // in Entra-side coincidences). The discovery doc advertises exactly these
+    // two grants, so no conforming client loses anything.
+    if (!params.grant_type) {
+      res.status(400).json({
+        error: 'invalid_request',
+        error_description: 'grant_type is required',
+      });
+      return;
+    }
+    if (params.grant_type !== 'authorization_code' && params.grant_type !== 'refresh_token') {
+      res.status(400).json({
+        error: 'unsupported_grant_type',
+        error_description: 'grant_type must be authorization_code or refresh_token',
+      });
+      return;
+    }
 
     // Enforce PKCE finishing move on the authorization_code grant. /oauth/
     // authorize already required code_challenge — accepting a token request
@@ -677,7 +707,7 @@ export function createOAuthRouter(): Router {
     if (CLIENT_SECRET) body.set('client_secret', CLIENT_SECRET);
     body.set('redirect_uri', `${baseUrl}/oauth/callback`);
 
-    if (params.grant_type) body.set('grant_type', params.grant_type);
+    body.set('grant_type', params.grant_type);
     if (params.code) body.set('code', params.code);
     if (params.refresh_token) body.set('refresh_token', params.refresh_token);
     if (params.code_verifier) body.set('code_verifier', params.code_verifier);

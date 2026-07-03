@@ -23,6 +23,17 @@ import { extractTenantList, TENANT_SAFE_FIELDS } from '../tools/admin.js';
 // Importing the OAuth helper requires the env var that gates module load.
 // Set a dummy value before the import resolves so the throw doesn't fire.
 process.env.AUTOPILOT_ENTRA_CLIENT_ID ??= '00000000-0000-0000-0000-000000000000';
+// access-guard reads ALL its env tunables at module init, and oauth.js now
+// imports access-guard (the /oauth/* throttles live there) — so every pin must
+// land BEFORE this first import, not next to the later access-guard import.
+// Pin a small pre-auth budget so the throttle tests are cheap and
+// limit-independent, and a tiny rate-bucket cap so the size-cap test can flood
+// a handful of distinct keys instead of 10_000 (well above the per-UPN
+// throttle tests' key count).
+const PRE_AUTH_TEST_LIMIT = 5;
+process.env.MCP_PRE_AUTH_RATE_LIMIT_PER_MINUTE = String(PRE_AUTH_TEST_LIMIT);
+const RATE_BUCKET_TEST_CAP = 10;
+process.env.MCP_RATE_BUCKET_MAX_ENTRIES = String(RATE_BUCKET_TEST_CAP);
 const {
   isAllowedRedirectUri,
   isAllowedRedirectUriWith,
@@ -294,14 +305,9 @@ describe('L3 — error-handler 5xx body redaction', () => {
 // 2026-05-08 security review fixes
 // ---------------------------------------------------------------------------
 
-// Pin a small pre-auth budget BEFORE access-guard loads (it reads the env at
-// module init) so the throttle tests are cheap and limit-independent.
-const PRE_AUTH_TEST_LIMIT = 5;
-process.env.MCP_PRE_AUTH_RATE_LIMIT_PER_MINUTE = String(PRE_AUTH_TEST_LIMIT);
-// Pin a tiny rate-bucket cap (also read at module init) so the size-cap test can flood a
-// handful of distinct keys instead of 10_000. Well above the per-UPN throttle tests' key count.
-const RATE_BUCKET_TEST_CAP = 10;
-process.env.MCP_RATE_BUCKET_MAX_ENTRIES = String(RATE_BUCKET_TEST_CAP);
+// NOTE: the env pins for these tests (PRE_AUTH_TEST_LIMIT / RATE_BUCKET_TEST_CAP)
+// live at the top of the file — access-guard is already loaded transitively by
+// the oauth.js import there, so pinning here would be too late.
 const { buildCacheKey, boundedSet, isPreAuthRateLimited, getRateBucketSizes } = await import('../access-guard.js');
 const { parsePositiveInt, getPublicBaseUrl } = await import('../config.js');
 
