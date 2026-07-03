@@ -134,6 +134,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private readonly Dictionary<string, DateTime> _healthScriptStartTimes =
             new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
 
+        // Restart-safe dedup for the adapter's one-shot script_timeout_suspected Warning.
+        // Owned by the tracker (not the adapter) solely so it rides the persisted state file —
+        // an in-memory set re-emits the Warning after every stall restart once the position
+        // bookmark is lost and the failing script's log tail is reprocessed.
+        private readonly HashSet<string> _scriptTimeoutSuspectedPosted =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Claims the one-shot <c>script_timeout_suspected</c> emission for a policy. Returns
+        /// false when a prior claim exists — including one restored from persisted state after
+        /// an agent restart, which is the whole point of routing the adapter's dedup through
+        /// the tracker.
+        /// </summary>
+        public bool TryClaimScriptTimeoutSuspected(string policyId)
+        {
+            if (string.IsNullOrEmpty(policyId)) return false;
+            if (!_scriptTimeoutSuspectedPosted.Add(policyId)) return false;
+            _stateDirty = true;
+            return true;
+        }
+
         private const int MaxScriptOutputLength = 2048;
         private const int MaxMultiLineBufferLines = 100;
 
@@ -631,6 +652,36 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 }
             }
 
+            // H1 (delta review 2026-07-02): restore platform-script emission markers + pending
+            // buffer. Without these, the shutdown force-flush emits a fallback completion, the
+            // restarted tracker resumes past the persisted position, and IME's later-written
+            // PS-SCRIPT-RESULT line for the same execution emits a SECOND script_completed
+            // (the in-memory marker set started empty). Old state files have null here —
+            // degrades to the pre-fix behavior, no crash.
+            _platformScriptResultEmitted.Clear();
+            if (state.PlatformScriptResultEmitted != null)
+            {
+                foreach (var id in state.PlatformScriptResultEmitted)
+                    _platformScriptResultEmitted.Add(id);
+            }
+
+            _pendingPlatformScripts.Clear();
+            if (state.PendingPlatformScripts != null)
+            {
+                foreach (var pending in state.PendingPlatformScripts)
+                {
+                    if (!string.IsNullOrEmpty(pending?.PolicyId))
+                        _pendingPlatformScripts[pending.PolicyId] = pending;
+                }
+            }
+
+            _scriptTimeoutSuspectedPosted.Clear();
+            if (state.ScriptTimeoutSuspectedPosted != null)
+            {
+                foreach (var id in state.ScriptTimeoutSuspectedPosted)
+                    _scriptTimeoutSuspectedPosted.Add(id);
+            }
+
             // Re-activate patterns based on restored phase state
             ActivatePatterns(_logPhaseIsCurrentPhase, force: true);
 
@@ -669,6 +720,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     kv => kv.Key,
                     kv => kv.Value.Select(ToPackageStateData).ToList(),
                     StringComparer.Ordinal),
+
+                // H1 (delta review 2026-07-02): platform-script dedup markers + pending buffer
+                // must survive restarts — see the LoadState comment for the duplicate scenario.
+                PlatformScriptResultEmitted = _platformScriptResultEmitted.ToList(),
+                PendingPlatformScripts = _pendingPlatformScripts.Values.ToList(),
+                ScriptTimeoutSuspectedPosted = _scriptTimeoutSuspectedPosted.ToList(),
             };
 
             // Store file positions by filename only (log folder is known)

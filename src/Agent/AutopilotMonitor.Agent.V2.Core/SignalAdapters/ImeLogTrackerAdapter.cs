@@ -91,9 +91,6 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         // bootstrap marker line. Lets MCP report "which device runs which bootstrap version".
         private bool _bootstrapDetectedPosted;
 
-        // Platform scripts already flagged with script_timeout_suspected (dedup per policyId).
-        private readonly HashSet<string> _scriptTimeoutSuspectedPosted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
         // A platform script whose observed run duration reaches this is treated as having hit the
         // IME script-execution timeout (default ~30 min). 25 min leaves headroom below 30 so clock
         // jitter / the agent's late replay window can't miss it, while staying well above any
@@ -911,7 +908,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             var duration = completionUtc - script.StartedAtUtc.Value;
             if (duration < ScriptTimeoutSuspectedThreshold) return;
 
-            if (!_scriptTimeoutSuspectedPosted.Add(script.PolicyId)) return; // dedup per policyId
+            if (!_tracker.TryClaimScriptTimeoutSuspected(script.PolicyId)) return; // restart-safe dedup per policyId (persisted tracker state)
 
             var culture = System.Globalization.CultureInfo.InvariantCulture;
             var shortId = script.PolicyId.Length >= 8 ? script.PolicyId.Substring(0, 8) : script.PolicyId;

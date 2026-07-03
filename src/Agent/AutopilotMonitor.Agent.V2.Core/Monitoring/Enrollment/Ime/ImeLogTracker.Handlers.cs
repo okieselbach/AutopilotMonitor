@@ -370,7 +370,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             }
 
             // Merge with pending AgentExecutor data if available
-            if (!_pendingPlatformScripts.TryGetValue(id, out var script))
+            if (_pendingPlatformScripts.TryGetValue(id, out var script))
+            {
+                // Stale-result guard: on an intra-lifetime re-run of the same policy, run 1's
+                // late PS-SCRIPT-RESULT can arrive after run 2's start line already created a
+                // fresh slot (the start clears the emitted-marker). Merging would pair run 2's
+                // StartedAtUtc/state with run 1's result and then drop run 2's genuine result at
+                // the marker check above. A result line always postdates its own run's start
+                // line in the source log, so a result older than the pending slot's start
+                // belongs to a previous run — drop it and keep the live slot intact.
+                if (script.StartedAtUtc.HasValue
+                    && LastMatchedLogTimestamp.HasValue
+                    && LastMatchedLogTimestamp.Value < script.StartedAtUtc.Value)
+                {
+                    _logger.Debug($"ImeLogTracker: platform script {id} result predates the current run's start — stale result from a previous run, skipping");
+                    return;
+                }
+            }
+            else
             {
                 script = new ScriptExecutionState
                 {
@@ -387,6 +404,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             EmitScriptEvent(script);
             _platformScriptResultEmitted.Add(id);
             _pendingPlatformScripts.Remove(id);
+            _stateDirty = true;
             if (string.Equals(_lastPlatformScriptPolicyId, id, StringComparison.OrdinalIgnoreCase))
                 _lastPlatformScriptPolicyId = null;
         }
@@ -464,6 +482,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
             if (toRemove != null)
             {
+                // The flush can fire on a quiet polling cycle (grace expiry with no new log
+                // lines), where nothing else marks state dirty — the emitted-markers must reach
+                // the state file before a restart or the restarted tracker re-emits (H1).
+                _stateDirty = true;
                 foreach (var key in toRemove)
                 {
                     _pendingPlatformScripts.Remove(key);
@@ -475,7 +497,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
         /// <summary>Test seam: inject a pending platform script as if AgentExecutor.log had reported
         /// its start + exit code, without an IME PS-SCRIPT-RESULT line.</summary>
-        internal void SeedPendingPlatformScriptForTesting(string policyId, int? exitCode, DateTime? exitObservedAtUtc, string stdout = null)
+        internal void SeedPendingPlatformScriptForTesting(string policyId, int? exitCode, DateTime? exitObservedAtUtc, string stdout = null, DateTime? startedAtUtc = null)
         {
             // Mirrors a fresh execution start: a new run clears any prior emitted-marker (see
             // HandleScriptStarted) so re-runs of the same policy within one lifetime emit again.
@@ -487,13 +509,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 ExitCode = exitCode,
                 ExitObservedAtUtc = exitObservedAtUtc,
                 Stdout = stdout,
+                StartedAtUtc = startedAtUtc,
             };
             _lastPlatformScriptPolicyId = policyId;
         }
 
         /// <summary>Test seam: simulate the authoritative IME PS-SCRIPT-RESULT path for a platform
-        /// script (same code as <see cref="HandleScriptCompleted"/> minus regex extraction).</summary>
-        internal void CompletePlatformScriptFromImeResultForTesting(string policyId, string result)
+        /// script (same code as <see cref="HandleScriptCompleted"/> minus regex extraction).
+        /// <paramref name="resultLineTimestampUtc"/> stands in for the CMTrace timestamp of the
+        /// PS-SCRIPT-RESULT line (production reads it via <see cref="LastMatchedLogTimestamp"/>).</summary>
+        internal void CompletePlatformScriptFromImeResultForTesting(string policyId, string result, DateTime? resultLineTimestampUtc = null)
         {
             if (string.IsNullOrEmpty(policyId)) return;
 
@@ -505,8 +530,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 return;
             }
 
-            if (!_pendingPlatformScripts.TryGetValue(policyId, out var script))
+            if (_pendingPlatformScripts.TryGetValue(policyId, out var script))
+            {
+                // Mirror of HandleScriptCompleted's stale-result guard: a result older than the
+                // pending slot's start belongs to a previous run of the same policy.
+                if (script.StartedAtUtc.HasValue
+                    && resultLineTimestampUtc.HasValue
+                    && resultLineTimestampUtc.Value < script.StartedAtUtc.Value)
+                {
+                    return;
+                }
+            }
+            else
+            {
                 script = new ScriptExecutionState { PolicyId = policyId, ScriptType = "platform" };
+            }
 
             script.Result = result;
             script.ResultSource = "ime_policy_result";
@@ -515,6 +553,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             _pendingPlatformScripts.Remove(policyId);
             if (string.Equals(_lastPlatformScriptPolicyId, policyId, StringComparison.OrdinalIgnoreCase))
                 _lastPlatformScriptPolicyId = null;
+            _stateDirty = true;
         }
 
         /// <summary>
