@@ -49,6 +49,38 @@ public static class SignalRGroupHelper
     }
 
     /// <summary>
+    /// True for the plain tenant-wide broadcast group ("tenant-{tid}" with no notify suffix). It carries
+    /// MemberRead-tier live telemetry (new-session pushes, per-session "newevents" deltas incl. rule
+    /// results), so joining it requires member-tier standing — see <see cref="IsTenantBroadcastJoinDenied"/>.
+    /// </summary>
+    public static bool IsTenantBroadcastGroup(string groupName)
+        => groupName.StartsWith("tenant-")
+            && !groupName.EndsWith(TenantNotifyAdminSuffix)
+            && !groupName.EndsWith(TenantNotifyMemberSuffix);
+
+    /// <summary>
+    /// Gates a SAME-TENANT join of the plain tenant broadcast group. The route policy admits ANY
+    /// authenticated user of the tenant (the Progress Portal's roleless end users, who only need their
+    /// own "session-{tid}-{sid}" group), so without this gate such a user could passively stream
+    /// org-wide enrollment activity that is MemberRead-gated at the REST layer (GET sessions et al.).
+    /// Cross-tenant joins are NOT decided here: they must already have passed the cross-tenant
+    /// admission (platform scope, or delegated scope over the group's tenant), both of which may
+    /// receive the broadcast. Pure (no I/O) so it stays unit-testable.
+    /// </summary>
+    public static bool IsTenantBroadcastJoinDenied(string groupName, string? requestedTenantId, RequestContext ctx)
+    {
+        if (!IsTenantBroadcastGroup(groupName))
+            return false;
+
+        var sameTenant = !string.IsNullOrEmpty(requestedTenantId)
+            && string.Equals(requestedTenantId, ctx.TenantId, StringComparison.OrdinalIgnoreCase);
+        if (!sameTenant)
+            return false; // cross-tenant admission (platform/delegated scope) is enforced upstream
+
+        return !ctx.HasGlobalScope && !ctx.IsTenantMemberRole();
+    }
+
+    /// <summary>
     /// True for the Admin-tier tenant notification group. Joining requires Tenant-Admin or Global-Admin.
     /// </summary>
     public static bool IsTenantNotifyAdminGroup(string groupName)

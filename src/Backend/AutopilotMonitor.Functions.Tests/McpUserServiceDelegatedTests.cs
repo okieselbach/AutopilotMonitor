@@ -162,4 +162,46 @@ public class McpUserServiceDelegatedTests
 
         Assert.False(result.IsAllowed);
     }
+
+    [Fact]
+    public async Task AllMembers_WithDisabledMcpUserRow_IsDenied_KillSwitch()
+    {
+        // The kill-switch must not be inert under a permissive policy: an operator who disables a
+        // user's McpUsers row believes access is revoked — under AllMembers that must hold too.
+        SetPolicy(McpAccessPolicy.AllMembers);
+        _adminRepo.Setup(x => x.GetMcpUserAsync(It.IsAny<string>()))
+            .ReturnsAsync(new McpUserEntry { Upn = DelegatedUpn, IsEnabled = false });
+
+        var result = await _sut.IsAllowedAsync(DelegatedUpn);
+
+        Assert.False(result.IsAllowed);
+    }
+
+    [Fact]
+    public async Task AllMembers_WithoutMcpUserRow_IsAllowed()
+    {
+        // Control for the hoisted kill-switch: a MISSING row is the normal AllMembers case and must
+        // still be granted — only an explicit Disabled row denies.
+        SetPolicy(McpAccessPolicy.AllMembers);
+
+        var result = await _sut.IsAllowedAsync(DelegatedUpn);
+
+        Assert.True(result.IsAllowed);
+        Assert.Equal("AllMembers", result.AccessGrant);
+    }
+
+    [Fact]
+    public async Task PlatformRole_WithDisabledMcpUserRow_IsDenied_KillSwitch()
+    {
+        // The Disabled row wins over EVERY grant path, including a platform role — the kill-switch
+        // is absolute, so an operator never has to reason about which grant path a user holds.
+        _globalAdmin.Setup(x => x.GetGlobalRoleAsync(It.IsAny<string>()))
+            .ReturnsAsync(Constants.GlobalRoles.GlobalAdmin);
+        _adminRepo.Setup(x => x.GetMcpUserAsync(It.IsAny<string>()))
+            .ReturnsAsync(new McpUserEntry { Upn = DelegatedUpn, IsEnabled = false });
+
+        var result = await _sut.IsAllowedAsync(DelegatedUpn);
+
+        Assert.False(result.IsAllowed);
+    }
 }

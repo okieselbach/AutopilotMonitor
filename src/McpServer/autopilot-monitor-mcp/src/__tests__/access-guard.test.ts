@@ -348,7 +348,7 @@ describe('accessGuard — 429 (rate limit) and caching', () => {
     await runGuard(mockReq(`Bearer ${token}`));
     await runGuard(mockReq(`Bearer ${token}`));
 
-    // Second request hits the 5-min UPN+tokenHash cache — no second backend call.
+    // Second request hits the 60s UPN+tokenHash cache — no second backend call.
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 

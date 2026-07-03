@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { Session } from "@/types";
 
 interface SignalRApi {
@@ -16,40 +16,27 @@ interface SignalRApi {
 interface UseProgressSignalRParams {
   session: Session | null;
   sessionRef: React.MutableRefObject<Session | null>;
-  tenantId: string;
   signalR: SignalRApi;
   scheduleFetchEvents: (delayMs?: number) => void;
 }
 
 /**
  * Owns the progress page's SignalR integration:
- *  - joins tenant group once per connection
- *  - joins session-specific group when a session is selected
+ *  - joins the session-specific group when a session is selected
+ *    (the tenant-wide broadcast group is member-role gated server-side; roleless
+ *    progress viewers would get a 403, and all signals for the selected session —
+ *    eventStream on ingest, newevents on admin mark-succeeded/failed — arrive on
+ *    the session group anyway)
  *  - listens for newevents / newSession / eventStream → debounced refetch
  *  - cleans up groups + handlers on unmount / session change
  */
 export function useProgressSignalR({
   session,
   sessionRef,
-  tenantId,
   signalR,
   scheduleFetchEvents,
 }: UseProgressSignalRParams): void {
   const { on, off, isConnected, joinGroup, leaveGroup } = signalR;
-  const hasJoinedTenantGroup = useRef(false);
-
-  useEffect(() => {
-    if (isConnected && !hasJoinedTenantGroup.current) {
-      joinGroup(`tenant-${tenantId}`);
-      hasJoinedTenantGroup.current = true;
-    }
-    return () => {
-      if (hasJoinedTenantGroup.current) {
-        leaveGroup(`tenant-${tenantId}`);
-        hasJoinedTenantGroup.current = false;
-      }
-    };
-  }, [isConnected, tenantId, joinGroup, leaveGroup]);
 
   useEffect(() => {
     if (!isConnected || !session) return;

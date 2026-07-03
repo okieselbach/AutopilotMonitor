@@ -95,21 +95,32 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                         updatedSession.DiagnosticsBlobName
                     } : null;
 
+                    object messagePayload = new {
+                        sessionId = sessionId,
+                        tenantId = tenantId,
+                        eventCount = 0,
+                        sessionUpdate = sessionDelta
+                    };
+
                     var tenantMessage = new SignalRMessageAction("newevents")
                     {
                         GroupName = $"tenant-{tenantId}",
-                        Arguments = new object[] { new {
-                            sessionId = sessionId,
-                            tenantId = tenantId,
-                            eventCount = 0,
-                            sessionUpdate = sessionDelta
-                        } }
+                        Arguments = new[] { messagePayload }
+                    };
+
+                    // Also push to the per-session group: the tenant broadcast group is member-role
+                    // gated, so a roleless Progress-Portal watcher of this session would otherwise
+                    // never see the admin-marked failure.
+                    var sessionMessage = new SignalRMessageAction("newevents")
+                    {
+                        GroupName = $"session-{tenantId}-{sessionId}",
+                        Arguments = new[] { messagePayload }
                     };
 
                     return new MarkSessionFailedOutput
                     {
                         HttpResponse = response,
-                        SignalRMessages = new[] { tenantMessage }
+                        SignalRMessages = new[] { tenantMessage, sessionMessage }
                     };
                 }
                 else

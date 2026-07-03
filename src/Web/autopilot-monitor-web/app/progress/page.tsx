@@ -65,7 +65,6 @@ export default function ProgressPortalPage() {
   useProgressSignalR({
     session,
     sessionRef,
-    tenantId,
     signalR,
     scheduleFetchEvents,
   });

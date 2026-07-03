@@ -152,4 +152,53 @@ public class SignalRGroupHelperTests
         Assert.Equal(SignalRGroupHelper.NotifyGroupDenial.None,
             SignalRGroupHelper.CheckNotifyGroupAccess($"tenant-{ManagedTenant}", ManagedTenant, ctx));
     }
+
+    // ── IsTenantBroadcastJoinDenied ──────────────────────────────────────────
+    // The plain "tenant-{tid}" group streams MemberRead-tier telemetry, but the join route admits ANY
+    // authenticated user of the tenant (the Progress Portal's roleless end users). A same-tenant join must
+    // therefore require a member role; session groups stay open so the Progress Portal keeps working.
+
+    [Fact]
+    public void BroadcastJoin_RolelessSameTenantUser_Denied()
+    {
+        // THE FIX: a roleless authenticated employee (Progress Portal user) must NOT join their tenant's
+        // broadcast group and passively stream org-wide enrollment activity they cannot fetch over REST.
+        var ctx = new RequestContext { TenantId = HomeTenant };
+        Assert.True(SignalRGroupHelper.IsTenantBroadcastJoinDenied($"tenant-{HomeTenant}", HomeTenant, ctx));
+    }
+
+    [Fact]
+    public void BroadcastJoin_SameTenantMember_Allowed()
+    {
+        var ctx = new RequestContext { TenantId = HomeTenant, UserRole = Constants.TenantRoles.Viewer };
+        Assert.False(SignalRGroupHelper.IsTenantBroadcastJoinDenied($"tenant-{HomeTenant}", HomeTenant, ctx));
+    }
+
+    [Fact]
+    public void BroadcastJoin_GlobalScope_Allowed()
+    {
+        var ctx = new RequestContext { TenantId = HomeTenant, IsGlobalReader = true };
+        Assert.False(SignalRGroupHelper.IsTenantBroadcastJoinDenied($"tenant-{HomeTenant}", HomeTenant, ctx));
+    }
+
+    [Fact]
+    public void BroadcastJoin_CrossTenant_NotDecidedHere()
+    {
+        // A cross-tenant join only reaches this check after the upstream cross-tenant admission
+        // (platform scope or delegated scope over the group's tenant) — the helper must not re-deny it.
+        var ctx = new RequestContext { TenantId = HomeTenant };
+        Assert.False(SignalRGroupHelper.IsTenantBroadcastJoinDenied($"tenant-{ManagedTenant}", ManagedTenant, ctx));
+    }
+
+    [Fact]
+    public void BroadcastJoin_SessionAndNotifyGroups_NotCovered()
+    {
+        // Session groups stay joinable for roleless users (Progress Portal); notify groups have their own
+        // gate (CheckNotifyGroupAccess).
+        var ctx = new RequestContext { TenantId = HomeTenant };
+        Assert.False(SignalRGroupHelper.IsTenantBroadcastJoinDenied(
+            $"session-{HomeTenant}-{SessionId}", HomeTenant, ctx));
+        Assert.False(SignalRGroupHelper.IsTenantBroadcastJoinDenied(MemberGroup(HomeTenant), HomeTenant, ctx));
+        Assert.False(SignalRGroupHelper.IsTenantBroadcastJoinDenied(AdminGroup(HomeTenant), HomeTenant, ctx));
+    }
 }

@@ -13,6 +13,8 @@ namespace AutopilotMonitor.Functions.Services;
 ///   - Disabled: no one can access MCP
 ///   - WhitelistOnly: Global Admins + explicit McpUsers table entries
 ///   - AllMembers: any authenticated user
+/// An EXPLICITLY DISABLED McpUsers row is an operator kill-switch that denies access under every
+/// policy and every grant path (platform role, delegated auto-grant, AllMembers).
 /// </summary>
 public class McpUserService
 {
@@ -72,6 +74,18 @@ public class McpUserService
         var delegatedTenantIds = delegatedScope.IsEmpty ? null : delegatedScope.TenantIds;
         var delegatedRole = delegatedScope.IsEmpty ? null : StrongestDelegatedRole(delegatedScope);
 
+        // Resolve the caller's McpUsers whitelist state ONCE (cached): NotPresent / Enabled / Disabled.
+        var whitelistState = await ResolveWhitelistStateAsync(upn);
+
+        // SECURITY (operator kill-switch): an EXPLICITLY DISABLED McpUsers row denies MCP access under
+        // EVERY policy and EVERY grant path — platform roles, the delegated (MSP) auto-grant, and
+        // AllMembers alike. Checked BEFORE the policy switch so the one lever an operator reaches for
+        // ("disable this account's MCP access") can never be silently inert under a permissive policy.
+        // A MISSING row is NOT a kill-switch: most callers (delegated admins, AllMembers users) have no
+        // McpUsers row at all and must still be granted by their policy branch below.
+        if (whitelistState == McpWhitelistState.Disabled)
+            return McpAccessCheckResult.Denied("User not enabled for MCP usage (account is disabled on the MCP whitelist)");
+
         var config = await _adminConfigService.GetConfigurationAsync();
         if (!Enum.TryParse<McpAccessPolicy>(config.McpAccessPolicy, out var policy))
             policy = McpAccessPolicy.WhitelistOnly;
@@ -88,21 +102,11 @@ public class McpUserService
 
             case McpAccessPolicy.WhitelistOnly:
             default:
-                // Any platform role (GlobalAdmin or read-only GlobalReader) always has MCP access.
+                // Any platform role (GlobalAdmin or read-only GlobalReader) always has MCP access
+                // (unless explicitly disabled via the kill-switch above).
                 if (globalRole != null)
                     return McpAccessCheckResult.Allowed(
                         upn, globalRole, isGlobalAdmin, globalRole, delegatedTenantIds, delegatedRole);
-
-                // Resolve the caller's McpUsers whitelist state ONCE (cached): NotPresent / Enabled / Disabled.
-                var whitelistState = await ResolveWhitelistStateAsync(upn);
-
-                // SECURITY (operator kill-switch): an EXPLICITLY DISABLED McpUsers row overrides the
-                // delegated (MSP) auto-grant below. An operator can revoke a delegated caller's MCP access
-                // by disabling their McpUsers row WITHOUT unwinding every delegated assignment — one lever.
-                // A MISSING row is NOT a kill-switch: a delegated admin normally has no McpUsers row at all
-                // and must still be auto-granted. (Order matters — this MUST precede the delegated grant.)
-                if (whitelistState == McpWhitelistState.Disabled)
-                    return McpAccessCheckResult.Denied("User not enabled for MCP usage (account is disabled on the MCP whitelist)");
 
                 // A delegated (MSP) admin with an active scope is granted MCP access automatically under
                 // WhitelistOnly — "delegated = scoped global", and they are already curated via the
@@ -206,7 +210,7 @@ public class McpUserService
     /// <summary>
     /// Resolves (and briefly caches) the caller's McpUsers whitelist state: NotPresent (no row),
     /// Enabled (row + IsEnabled), or Disabled (row + !IsEnabled). A Disabled row is an operator
-    /// kill-switch that also revokes a delegated/MSP caller's auto-grant — see <see cref="IsAllowedAsync"/>.
+    /// kill-switch that denies access under EVERY policy and grant path — see <see cref="IsAllowedAsync"/>.
     /// Cached under the same key the mutation methods (Add/Remove/SetEnabled) invalidate, so an
     /// enable/disable self-heals within the TTL (and immediately on the mutating instance).
     /// </summary>

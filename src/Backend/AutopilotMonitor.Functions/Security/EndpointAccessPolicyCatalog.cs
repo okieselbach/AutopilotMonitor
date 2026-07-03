@@ -179,7 +179,9 @@ public static class EndpointAccessPolicyCatalog
         // requires the requested group's tenant to match the caller's JWT tenant (platform-scope
         // callers — GA or read-only Global Reader — excepted), gates the global-admins read-broadcast
         // group on HasGlobalScope (GA ∪ GlobalReader), the admin-tier notification group on
-        // IsTenantAdmin (or GA), and the member-tier notification group on tenant membership (or scope).
+        // IsTenantAdmin (or GA), the member-tier notification group on tenant membership (or scope),
+        // and the plain tenant-{tid} broadcast group on tenant membership (or scope) — roleless
+        // Progress-Portal users may only join their own session-{tid}-{sid} group.
         // The Progress Portal is an END-USER feature: employees tracking their own device are
         // authenticated (JWT tid = their tenant) but are typically NOT tenant members (no
         // TenantAdmins row, no Entra app-role). Gating join at MemberRead let them load the

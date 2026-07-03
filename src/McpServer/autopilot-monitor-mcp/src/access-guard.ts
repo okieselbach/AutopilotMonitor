@@ -3,7 +3,7 @@
  *
  * Flow per request:
  *   1. Extract Bearer token → decode JWT claims (upn, exp)
- *   2. Check access: call backend /api/global/mcp-users/check (cached 5min per UPN)
+ *   2. Check access: call backend /api/global/mcp-users/check (cached 60s per UPN+token)
  *   3. Rate limit: sliding window per UPN (default 60 req/min)
  *   4. Set token for pass-through to backend API
  */
@@ -25,10 +25,10 @@ const RATE_LIMIT = parsePositiveInt(process.env.MCP_RATE_LIMIT_PER_MINUTE, 60);
 // only on the cache-MISS path that would call the backend. Bounds forged- /
 // distinct-token floods at the source without ever touching a victim's per-UPN
 // budget (different key space). It counts ONLY cache misses — a legitimate user
-// misses at most ~once per token per 5-min TTL (~0.2/min), and a NAT'd org of N
-// active users ~N/5 per min — so the default 120 (= 2× the per-UPN rate) clears
-// even a ~600-user shared-IP org while capping flood amplification to ~2 backend
-// calls/sec/IP. NOTE: this is per-replica; with maxReplicas=1 it is effectively
+// misses at most ~once per token per 60s TTL (~1/min), and a NAT'd org of N
+// active users ~N per min — so the default 120 (= 2× the per-UPN rate) clears
+// a ~120-concurrently-active-user shared-IP org while capping flood
+// amplification to ~2 backend calls/sec/IP. NOTE: this is per-replica; with maxReplicas=1 it is effectively
 // global, but if the app is ever scaled out the effective per-IP ceiling becomes
 // 120×replicas (a shared store would be needed for a true global cap). Tune via
 // MCP_PRE_AUTH_RATE_LIMIT_PER_MINUTE; raise it (or allowlist the egress IP) only
@@ -68,7 +68,13 @@ const MAX_RATE_BUCKET_ENTRIES = parsePositiveInt(process.env.MCP_RATE_BUCKET_MAX
 // cannot pile up held requests.
 const ACCESS_CHECK_TIMEOUT_MS = parsePositiveInt(process.env.MCP_ACCESS_CHECK_TIMEOUT_MS, 15_000);
 
-const ACCESS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+// The access verdict carries the operator kill-switch (a Disabled McpUsers row) and the delegated
+// (MSP) tenant set, so this TTL IS the revocation lag of this layer. The backend caches its own
+// verdict for 30s (McpUserService) with the explicit goal that a revoke self-heals in seconds —
+// a long TTL here would quietly stretch that to minutes for MCP callers. Keep it ≤60s: worst-case
+// revocation = this TTL + the backend's 30s. Do NOT raise it back "for performance" — a cache miss
+// is one backend point-read per user per minute.
+const ACCESS_CACHE_TTL_MS = 60 * 1000; // 60 seconds
 
 // --- Access check cache ---
 
@@ -77,7 +83,7 @@ interface AccessCacheEntry {
   reason: string;
   isGlobalAdmin: boolean;
   isGlobalReader: boolean;
-  // Delegated (scoped-global / MSP) scope. Cached alongside the platform flags so the 5-min-cached
+  // Delegated (scoped-global / MSP) scope. Cached alongside the platform flags so a cached
   // second request keeps the managed tenant set — without this the follow-up would silently drop the
   // scope and downgrade the caller to home-tenant-only routing.
   delegatedTenantIds?: string[];
@@ -139,7 +145,7 @@ async function checkAccess(upn: string, token: string, clientIp: string): Promis
   if (cached && Date.now() < cached.expiresAt) {
     // A cached DENY is cheap to serve but still costs request processing — and
     // deny verdicts ARE cached, so without this an attacker could repeat one
-    // forged/denied token and farm unlimited cached 403s for the whole 5-min TTL
+    // forged/denied token and farm unlimited cached 403s for the whole TTL
     // while never tripping the pre-auth limiter (it only ran on the miss path).
     // Count cached denials against the per-source-IP budget too, returning 429
     // once it is exhausted. Cached ALLOWs stay free, so a legitimate user never
@@ -213,7 +219,7 @@ async function checkAccess(upn: string, token: string, clientIp: string): Promis
 
     // Cache only the persisted fields (infraError is request-derived, always
     // false for a cached verdict — see the cache-hit path above). The delegated
-    // scope MUST be cached too, or the 5-min-cached follow-up loses it.
+    // scope MUST be cached too, or the cached follow-up loses it.
     // boundedSet caps the map so a distinct-token flood cannot exhaust memory.
     boundedSet(accessCache, cacheKey, {
       allowed: result.allowed,
@@ -432,7 +438,7 @@ export function accessGuard(req: Request, res: Response, next: NextFunction): vo
   // victim's UPN. If the per-UPN limiter incremented before validation, those
   // forgeries would burn the victim's per-minute budget and 429 their
   // legitimate calls. checkAccess delegates signature verification to the
-  // backend; both allow- and deny-decisions are cached for 5 min keyed on
+  // backend; both allow- and deny-decisions are cached for 60s keyed on
   // UPN+tokenHash, so a forged token cannot piggyback on a legitimate user's
   // cached `allowed: true`. On a cache MISS, checkAccess additionally applies a
   // per-source-IP throttle (keyed on clientIp, not UPN) so a distinct-token

@@ -118,6 +118,20 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                         }
                     }
 
+                    // The plain "tenant-{tid}" broadcast group streams MemberRead-tier telemetry (new-session
+                    // pushes, per-session "newevents" deltas incl. rule results), but this route's policy
+                    // admits ANY authenticated user of the tenant — the Progress Portal's roleless end users,
+                    // who only need their own "session-{tid}-{sid}" group. A same-tenant join skipped the
+                    // cross-tenant gate above, so bind the broadcast group to a member role here; cross-tenant
+                    // callers reaching this point were already admitted as platform-scope or delegated.
+                    if (SignalRGroupHelper.IsTenantBroadcastJoinDenied(request.GroupName, requestedTenantId, requestCtx))
+                    {
+                        _logger.LogWarning($"User {userEmail} (role={requestCtx.UserRole}) attempted to join tenant broadcast group without a member role: {request.GroupName}");
+                        var forbiddenResponse = req.CreateResponse(HttpStatusCode.Forbidden);
+                        await forbiddenResponse.WriteAsJsonAsync(new { success = false, message = "Access denied: Only tenant members can join the tenant broadcast group" });
+                        return new AddToGroupOutput { HttpResponse = forbiddenResponse };
+                    }
+
                     // Notification groups carry the full per-tenant payload (the REST list is Member/Admin-tier
                     // gated), so they are role-gated AGAINST THE GROUP'S TENANT — not the caller's home tenant.
                     // This is leak-critical for a cross-tenant caller admitted above (a delegated "MSP" reader,
