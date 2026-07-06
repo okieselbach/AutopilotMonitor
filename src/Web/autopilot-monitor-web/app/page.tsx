@@ -829,7 +829,6 @@ export default function LandingPage() {
                 <h4 className="text-[11px] font-semibold text-gray-900 uppercase tracking-wider mb-2.5">About</h4>
                 <ul className="space-y-1.5">
                   <li><a href="/about" className="text-xs text-gray-500 hover:text-blue-600 transition-colors">Overview</a></li>
-                  <li><a href="/roadmap" className="text-xs text-gray-500 hover:text-blue-600 transition-colors">Roadmap</a></li>
                 </ul>
               </div>
 

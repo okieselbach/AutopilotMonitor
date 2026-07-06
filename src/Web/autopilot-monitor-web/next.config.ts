@@ -47,6 +47,8 @@ const nextConfig: NextConfig = {
       { source: "/docs/:path*", destination: DOCS, permanent: true },
       // Platform changelog moved into the GitBook docs as well
       { source: "/changelog", destination: `${DOCS}/changelog/platform-changelog`, permanent: true },
+      // Roadmap page retired for now (may return under docs later) — non-permanent on purpose
+      { source: "/roadmap", destination: "/", permanent: false },
     ];
   },
   async headers() {

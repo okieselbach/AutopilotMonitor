@@ -292,9 +292,6 @@ export default function AboutPage() {
             <a href="https://docs.autopilotmonitor.com" target="_blank" rel="noopener noreferrer" className="rounded-lg border border-gray-200 px-4 py-3 hover:border-blue-300 hover:bg-blue-50/50 transition-colors text-gray-700 font-medium">
               Documentation →
             </a>
-            <Link href="/roadmap" className="rounded-lg border border-gray-200 px-4 py-3 hover:border-blue-300 hover:bg-blue-50/50 transition-colors text-gray-700 font-medium">
-              Roadmap →
-            </Link>
             <a href="https://docs.autopilotmonitor.com/changelog/platform-changelog" target="_blank" rel="noopener noreferrer" className="rounded-lg border border-gray-200 px-4 py-3 hover:border-blue-300 hover:bg-blue-50/50 transition-colors text-gray-700 font-medium">
               Changelog →
             </a>

@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "../contexts/AuthContext";
 import { useSidebar, PageSectionItem } from "../contexts/SidebarContext";
 import { CollapseState } from "../hooks/useSidebarState";
-import { DefaultSectionIcon, BookOpenIcon, RocketLaunchIcon, InformationCircleIcon, DocumentTextIcon, ShieldCheckIcon } from "../lib/sidebarIcons";
+import { DefaultSectionIcon, BookOpenIcon, InformationCircleIcon, DocumentTextIcon, ShieldCheckIcon } from "../lib/sidebarIcons";
 import { DASHBOARD_ITEM, NAV_GROUPS, EXPANDABLE_NAV_GROUPS, REGULAR_USER_ITEMS, NavItem, NavGroup, ExpandableNavGroup, ExpandableNavItem } from "../lib/globalNavConfig";
 import { PublicSiteNavbar } from "./PublicSiteNavbar";
 import { useAdminMode } from "../hooks/useAdminMode";
@@ -263,7 +263,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
 
   // All public pages that should show sidebar + navbar
   // (docs + changelog moved to docs.autopilotmonitor.com)
-  const PUBLIC_PATHS = ["/terms", "/privacy", "/roadmap", "/about"];
+  const PUBLIC_PATHS = ["/terms", "/privacy", "/about"];
   const isPublicPage = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
 
   // Landing page: never show sidebar
@@ -597,7 +597,6 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
           <div className={`${collapseState === "full" || isMobile ? "mt-3" : "mt-1"}`}>
             <ul className="space-y-0.5">
               {renderGlobalItem({ id: "docs", label: "Docs", href: "https://docs.autopilotmonitor.com", icon: <BookOpenIcon /> })}
-              {renderGlobalItem({ id: "roadmap", label: "Roadmap", href: "/roadmap", icon: <RocketLaunchIcon /> })}
               {renderGlobalItem({ id: "about", label: "About", href: "/about", icon: <InformationCircleIcon /> })}
               {renderGlobalItem({ id: "terms", label: "Terms", href: "/terms", icon: <DocumentTextIcon /> })}
               {renderGlobalItem({ id: "privacy", label: "Privacy", href: "/privacy", icon: <ShieldCheckIcon /> })}
