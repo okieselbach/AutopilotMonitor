@@ -1,11 +1,6 @@
-# Autopilot-Monitor — Architecture Principles
+# Autopilot-Monitor — Agent Architecture Principles
 
-**Source of truth:** [plans/REFACTOR_AGENT_V2.md](../plans/REFACTOR_AGENT_V2.md) §7.
-This file is a git-versioned extract for persistent Claude-session context. On every
-architecture-relevant plan change, both locations are updated in sync.
-
-The principles outlive this plan — they carry the design substance we do not want to
-re-derive every time. They are **not nice-to-haves**, they are review criteria: any code
+The principles are **not nice-to-haves**, they are review criteria: any code
 change that violates a principle is either (a) a bug, (b) a reason to change the principle
 (with user sign-off), or (c) an explicitly documented exception with rationale.
 
@@ -139,7 +134,3 @@ Every effect failure is logged as a `DecisionTransition`.
   classes by scenario, check in with the user on any uncertainty (placement, naming, scope)
 
 ---
-
-**Maintaining these principles:** On every architecture-relevant plan change, the
-corresponding L.n points are updated here **and** in [plans/REFACTOR_AGENT_V2.md](../plans/REFACTOR_AGENT_V2.md)
-§7 in sync. New principles are discussed in the plan first, then migrated here.
