@@ -169,7 +169,7 @@ export default function Navbar() {
                   </svg>
                 </div>
                 <span className="text-lg font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                  <span className="hidden md:inline">Autopilot Monitor</span>
+                  <span className="hidden md:inline">AutopilotMonitor</span>
                   <span className="md:hidden">AP Monitor</span>
                 </span>
               </Link>
@@ -231,7 +231,7 @@ export default function Navbar() {
                 </svg>
               </div>
               <span className="text-lg font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                <span className="hidden lg:inline">Autopilot Monitor</span>
+                <span className="hidden lg:inline">AutopilotMonitor</span>
                 <span className="hidden md:inline lg:hidden">AP Monitor</span>
                 <span className="md:hidden">AP Mon</span>
               </span>

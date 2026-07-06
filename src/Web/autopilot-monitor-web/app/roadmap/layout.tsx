@@ -12,13 +12,13 @@ export const metadata: Metadata = {
     "Autopilot Monitor future",
   ],
   openGraph: {
-    title: "Roadmap – Autopilot Monitor",
+    title: "Roadmap | AutopilotMonitor",
     description:
       "See what's coming next for Autopilot Monitor. Explore planned features including MSP multi-tenant support and upcoming improvements.",
     url: "https://www.autopilotmonitor.com/roadmap",
   },
   twitter: {
-    title: "Roadmap – Autopilot Monitor",
+    title: "Roadmap | AutopilotMonitor",
     description:
       "See what's coming next for Autopilot Monitor. Explore planned features including MSP multi-tenant support and upcoming improvements.",
   },

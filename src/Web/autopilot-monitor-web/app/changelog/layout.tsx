@@ -5,13 +5,13 @@ export const metadata: Metadata = {
   description:
     "Latest updates, improvements, and fixes for Autopilot Monitor. Stay up to date with new features and enhancements for Windows Autopilot monitoring.",
   openGraph: {
-    title: "Changelog – Autopilot Monitor",
+    title: "Changelog | AutopilotMonitor",
     description:
       "Latest updates, improvements, and fixes for Autopilot Monitor. Stay up to date with new features and enhancements.",
     url: "https://www.autopilotmonitor.com/changelog",
   },
   twitter: {
-    title: "Changelog – Autopilot Monitor",
+    title: "Changelog | AutopilotMonitor",
     description:
       "Latest updates, improvements, and fixes for Autopilot Monitor. Stay up to date with new features and enhancements.",
   },

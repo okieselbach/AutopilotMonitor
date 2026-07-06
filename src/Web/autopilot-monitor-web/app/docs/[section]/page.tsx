@@ -56,12 +56,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title: nav.label,
     description: nav.description,
     openGraph: {
-      title: `${nav.label} – Autopilot Monitor Docs`,
+      title: `${nav.label} | AutopilotMonitor Docs`,
       description: nav.description,
       url: `https://www.autopilotmonitor.com/docs/${section}`,
     },
     twitter: {
-      title: `${nav.label} – Autopilot Monitor Docs`,
+      title: `${nav.label} | AutopilotMonitor Docs`,
       description: nav.description,
     },
     alternates: {

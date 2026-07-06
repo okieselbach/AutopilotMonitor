@@ -121,13 +121,13 @@ export default function SessionDetailPage() {
   const isReadOnlyView = isCrossTenantView && !user?.isGlobalAdmin;
 
   // Browser-tab title: lead with the device identifier so multiple session tabs stay distinguishable when
-  // compared side by side (tabs truncate to the first chars). En-dash separator matches the root layout
+  // compared side by side (tabs truncate to the first chars). Pipe separator matches the root layout
   // title. Falls back to the serial number, then to the bare app name while the session is still loading.
   useEffect(() => {
     const label = session?.deviceName || session?.serialNumber;
-    document.title = label ? `${label} – Autopilot Monitor` : "Autopilot Monitor";
+    document.title = label ? `${label} | AutopilotMonitor` : "AutopilotMonitor";
     return () => {
-      document.title = "Autopilot Monitor";
+      document.title = "AutopilotMonitor";
     };
   }, [session?.deviceName, session?.serialNumber]);
 

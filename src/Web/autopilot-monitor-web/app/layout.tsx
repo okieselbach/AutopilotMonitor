@@ -20,9 +20,9 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.autopilotmonitor.com"),
   title: {
-    absolute: "Autopilot Monitor – Real-Time Windows Enrollment Monitoring",
-    default: "Autopilot Monitor",
-    template: "%s – Autopilot Monitor",
+    absolute: "AutopilotMonitor – Real-Time Windows Enrollment Monitoring",
+    default: "AutopilotMonitor",
+    template: "%s | AutopilotMonitor",
   },
   description:
     "Real-time monitoring and troubleshooting for Windows deployments. Track every enrollment phase, detect issues automatically with Analyze Rules, and resolve failures faster.",
@@ -48,14 +48,14 @@ export const metadata: Metadata = {
     type: "website",
     locale: "en_US",
     url: "https://www.autopilotmonitor.com",
-    siteName: "Autopilot Monitor",
-    title: "Autopilot Monitor – Real-Time Windows Enrollment Monitoring",
+    siteName: "AutopilotMonitor",
+    title: "AutopilotMonitor – Real-Time Windows Enrollment Monitoring",
     description:
       "Real-time monitoring and troubleshooting for Windows Autopilot deployments. Track every enrollment phase, detect issues automatically, and resolve failures faster.",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Autopilot Monitor – Real-Time Windows Enrollment Monitoring",
+    title: "AutopilotMonitor – Real-Time Windows Enrollment Monitoring",
     description:
       "Real-time monitoring and troubleshooting for Windows Autopilot deployments. Track every enrollment phase, detect issues automatically, and resolve failures faster.",
   },
@@ -83,7 +83,7 @@ export const metadata: Metadata = {
 const jsonLd = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
-  name: "Autopilot Monitor",
+  name: "AutopilotMonitor",
   description:
     "Real-time monitoring and troubleshooting platform for Windows deployments. Gives IT teams full visibility into enrollment phases, app progress, errors, and timelines.",
   applicationCategory: "BusinessApplication",
