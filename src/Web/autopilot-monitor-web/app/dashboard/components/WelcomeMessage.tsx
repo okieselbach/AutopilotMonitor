@@ -27,7 +27,7 @@ export function WelcomeMessage() {
             <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">1</span>
             <p className="text-sm text-gray-700">
               Follow the{" "}
-              <a href="/docs/setup" className="text-blue-600 hover:underline font-medium">setup guide</a>
+              <a href="https://docs.autopilotmonitor.com/getting-started/portal-setup" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-medium">setup guide</a>
               {" "}to configure your tenant and grant the required permissions.
             </p>
           </li>
@@ -35,7 +35,7 @@ export function WelcomeMessage() {
             <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">2</span>
             <p className="text-sm text-gray-700">
               Deploy the{" "}
-              <a href="/docs/agent-setup" className="text-blue-600 hover:underline font-medium">Intune bootstrapper</a>
+              <a href="https://docs.autopilotmonitor.com/getting-started/deploy-the-agent" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-medium">Intune bootstrapper</a>
               {" "}to your Autopilot device groups — the agent installs automatically on first boot.
             </p>
           </li>
@@ -48,7 +48,7 @@ export function WelcomeMessage() {
         {/* Quick links */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <a
-            href="/docs"
+            href="https://docs.autopilotmonitor.com" target="_blank" rel="noopener noreferrer"
             className="group flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 hover:border-blue-300 hover:bg-blue-50 transition-colors"
           >
             <span className="shrink-0 w-8 h-8 rounded-lg bg-white border border-gray-200 group-hover:border-blue-200 flex items-center justify-center shadow-sm">

@@ -80,8 +80,10 @@ export function PublicSiteNavbar({ showSectionLinks, fullWidth = false }: { show
             >
               Comparison
             </a>
-            <Link
-              href="/docs"
+            <a
+              href="https://docs.autopilotmonitor.com"
+              target="_blank"
+              rel="noopener noreferrer"
               className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
                 isDark
                   ? "bg-transparent text-gray-300 hover:text-gray-100 hover:bg-white/5"
@@ -89,7 +91,7 @@ export function PublicSiteNavbar({ showSectionLinks, fullWidth = false }: { show
               }`}
             >
               Docs
-            </Link>
+            </a>
           </div>
         ) : (
           <div />
@@ -113,8 +115,10 @@ export function PublicSiteNavbar({ showSectionLinks, fullWidth = false }: { show
               </svg>
             )}
           </button>
-          <Link
-            href="/docs"
+          <a
+            href="https://docs.autopilotmonitor.com"
+            target="_blank"
+            rel="noopener noreferrer"
             className={`sm:hidden p-1.5 rounded-lg transition-colors ${
               isDark ? "text-gray-300 hover:bg-white/10" : "text-gray-500 hover:bg-gray-100"
             }`}
@@ -123,7 +127,7 @@ export function PublicSiteNavbar({ showSectionLinks, fullWidth = false }: { show
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
             </svg>
-          </Link>
+          </a>
           <a
             href="https://github.com/okieselbach/Autopilot-Monitor"
             target="_blank"

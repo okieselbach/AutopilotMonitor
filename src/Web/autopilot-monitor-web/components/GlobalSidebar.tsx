@@ -261,11 +261,9 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
     }
   }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Docs pages are always accessible (public + authenticated)
-  const isDocsPage = pathname.startsWith("/docs");
-
   // All public pages that should show sidebar + navbar
-  const PUBLIC_PATHS = ["/docs", "/terms", "/privacy", "/roadmap", "/about", "/changelog"];
+  // (docs + changelog moved to docs.autopilotmonitor.com)
+  const PUBLIC_PATHS = ["/terms", "/privacy", "/roadmap", "/about"];
   const isPublicPage = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
 
   // Landing page: never show sidebar
@@ -598,7 +596,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
           </ul>
           <div className={`${collapseState === "full" || isMobile ? "mt-3" : "mt-1"}`}>
             <ul className="space-y-0.5">
-              {renderGlobalItem({ id: "docs", label: "Docs", href: "/docs", icon: <BookOpenIcon /> })}
+              {renderGlobalItem({ id: "docs", label: "Docs", href: "https://docs.autopilotmonitor.com", icon: <BookOpenIcon /> })}
               {renderGlobalItem({ id: "roadmap", label: "Roadmap", href: "/roadmap", icon: <RocketLaunchIcon /> })}
               {renderGlobalItem({ id: "about", label: "About", href: "/about", icon: <InformationCircleIcon /> })}
               {renderGlobalItem({ id: "terms", label: "Terms", href: "/terms", icon: <DocumentTextIcon /> })}

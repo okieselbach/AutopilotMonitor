@@ -818,7 +818,7 @@ export default function LandingPage() {
               <div>
                 <h4 className="text-[11px] font-semibold text-gray-900 uppercase tracking-wider mb-2.5">Resources</h4>
                 <ul className="space-y-1.5">
-                  <li><a href="/docs" className="text-xs text-gray-500 hover:text-blue-600 transition-colors">Documentation</a></li>
+                  <li><a href="https://docs.autopilotmonitor.com" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-blue-600 transition-colors">Documentation</a></li>
                   <li><a href="https://github.com/okieselbach/Autopilot-Monitor/issues" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-blue-600 transition-colors">Feedback</a></li>
                   <li><a href="https://github.com/okieselbach/Autopilot-Monitor" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-blue-600 transition-colors">GitHub</a></li>
                 </ul>

@@ -641,7 +641,7 @@ export default function AnalyzeRulesPage() {
                         <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
                         <div>
                           <h2 className="text-xl font-semibold text-gray-900">Create Custom Analyze Rule</h2>
-                          <p className="text-sm text-gray-500 mt-1">Define conditions and confidence scoring for issue detection — <Link href="/docs/analyze-rules" className="text-indigo-600 hover:text-indigo-800 underline">see documentation</Link></p>
+                          <p className="text-sm text-gray-500 mt-1">Define conditions and confidence scoring for issue detection — <a href="https://docs.autopilotmonitor.com/rules/analyze-rules" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">see documentation</a></p>
                         </div>
                       </div>
                       {/* JSON Mode Toggle */}

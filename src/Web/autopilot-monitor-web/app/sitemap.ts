@@ -1,5 +1,4 @@
 import type { MetadataRoute } from "next";
-import { NAV_SECTIONS } from "./docs/docsNavSections";
 import { PAGE_LASTMOD } from "@/utils/page-lastmod.generated";
 
 const BASE_URL = "https://www.autopilotmonitor.com";
@@ -9,14 +8,9 @@ function lastmod(urlPath: string): Date {
   return iso ? new Date(iso) : new Date();
 }
 
+// Documentation lives at docs.autopilotmonitor.com (GitBook) and is indexed
+// there; the old /docs/* URLs permanently redirect (see next.config.ts).
 export default function sitemap(): MetadataRoute.Sitemap {
-  const docsSections: MetadataRoute.Sitemap = NAV_SECTIONS.map((section) => ({
-    url: `${BASE_URL}/docs/${section.id}`,
-    lastModified: lastmod(`/docs/${section.id}`),
-    changeFrequency: "weekly",
-    priority: 0.8,
-  }));
-
   return [
     {
       url: `${BASE_URL}/`,
@@ -24,7 +18,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "monthly",
       priority: 1,
     },
-    ...docsSections,
     {
       url: `${BASE_URL}/about`,
       lastModified: lastmod("/about"),
@@ -36,12 +29,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
       lastModified: lastmod("/roadmap"),
       changeFrequency: "weekly",
       priority: 0.7,
-    },
-    {
-      url: `${BASE_URL}/changelog`,
-      lastModified: lastmod("/changelog"),
-      changeFrequency: "monthly",
-      priority: 0.5,
     },
     {
       url: `${BASE_URL}/privacy`,

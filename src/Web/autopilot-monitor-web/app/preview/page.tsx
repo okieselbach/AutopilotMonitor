@@ -157,7 +157,7 @@ export default function PreviewPage() {
               Please sign out and contact me on LinkedIn or open a GitHub issue to request access to the Private Preview. I check incoming requests regularly and will approve them as quickly as possible if I have enough capacity left.
             </p>
             <p className="text-sm text-amber-800 mt-2">
-              In the meantime, you can already review the setup and configuration in the <a href="/docs" className="underline hover:no-underline">documentation</a>.
+              In the meantime, you can already review the setup and configuration in the <a href="https://docs.autopilotmonitor.com" target="_blank" rel="noopener noreferrer" className="underline hover:no-underline">documentation</a>.
             </p>
             <p className="text-sm text-amber-800 mt-2">
               When you signed-up, sign in again later to view the updated approval status on your dashboard.

@@ -266,19 +266,23 @@ function HomeContent() {
               <span className="font-semibold">Private Preview.</span>{" "}
               The platform is under active development.{" "}
               If something looks off, check the{" "}
-              <Link
-                href="/changelog"
+              <a
+                href="https://docs.autopilotmonitor.com/changelog/platform-changelog"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="underline font-medium hover:text-blue-600 dark:hover:text-blue-200"
               >
                 Private Preview Changelog
-              </Link>{" "}
+              </a>{" "}
               or{" "}
-              <Link
-                href="/docs/known-issues"
+              <a
+                href="https://docs.autopilotmonitor.com/troubleshooting/service-announcements"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="underline font-medium hover:text-blue-600 dark:hover:text-blue-200"
               >
                 Known Issues
-              </Link>
+              </a>
               .{" "}
               Feedback or bug report?{" "}
               <a

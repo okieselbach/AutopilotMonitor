@@ -14,11 +14,39 @@ const nextConfig: NextConfig = {
     ],
   },
   async redirects() {
+    // Documentation moved to GitBook (docs.autopilotmonitor.com). Specific
+    // per-section mappings first (Next.js uses the first matching redirect),
+    // then a catch-all so no old deep link ever 404s.
+    const DOCS = "https://docs.autopilotmonitor.com";
+    const docsMoves: Array<[string, string]> = [
+      ["/docs/private-preview", "/getting-started/requirements-and-access"],
+      ["/docs/overview", "/"],
+      ["/docs/general", "/concepts/roles-and-permissions"],
+      ["/docs/setup", "/getting-started/portal-setup"],
+      ["/docs/agent", "/concepts/agent-lifecycle-and-security"],
+      ["/docs/agent-setup", "/getting-started/deploy-the-agent"],
+      ["/docs/settings", "/reference/settings"],
+      ["/docs/gather-rules", "/rules/gather-rules"],
+      ["/docs/analyze-rules", "/rules/analyze-rules"],
+      ["/docs/ime-log-patterns", "/rules/ime-log-patterns"],
+      ["/docs/faq", "/troubleshooting/faq"],
+      ["/docs/known-issues", "/troubleshooting/service-announcements"],
+      ["/docs/mcp-integration", "/integrations/ai-integration-mcp"],
+      ["/docs/agent-changelog", "/changelog/agent-changelog"],
+    ];
     return [
       // Permanent redirect for old /landing URL — all SEO equity flows to /
       { source: "/landing", destination: "/", permanent: true },
-      // Docs index redirects to default section
-      { source: "/docs", destination: "/docs/overview", permanent: false },
+      ...docsMoves.map(([source, dest]) => ({
+        source,
+        destination: `${DOCS}${dest === "/" ? "" : dest}`,
+        permanent: true,
+      })),
+      // Everything else under /docs (incl. retired sections like agent-internals)
+      { source: "/docs", destination: DOCS, permanent: true },
+      { source: "/docs/:path*", destination: DOCS, permanent: true },
+      // Platform changelog moved into the GitBook docs as well
+      { source: "/changelog", destination: `${DOCS}/changelog/platform-changelog`, permanent: true },
     ];
   },
   async headers() {

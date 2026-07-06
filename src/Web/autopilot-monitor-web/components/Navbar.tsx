@@ -486,8 +486,10 @@ export default function Navbar() {
 
               {showHelp && (
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-50 py-1">
-                  <Link
-                    href="/docs"
+                  <a
+                    href="https://docs.autopilotmonitor.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                     onClick={() => setShowHelp(false)}
                   >
@@ -495,7 +497,7 @@ export default function Navbar() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                     </svg>
                     <span>Documentation</span>
-                  </Link>
+                  </a>
 
                   <Link
                     href="/roadmap"
@@ -508,8 +510,10 @@ export default function Navbar() {
                     <span>Roadmap</span>
                   </Link>
 
-                  <Link
-                    href="/changelog"
+                  <a
+                    href="https://docs.autopilotmonitor.com/changelog/platform-changelog"
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                     onClick={() => setShowHelp(false)}
                   >
@@ -517,10 +521,12 @@ export default function Navbar() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                     </svg>
                     <span>Changelog</span>
-                  </Link>
+                  </a>
 
-                  <Link
-                    href="/docs/known-issues"
+                  <a
+                    href="https://docs.autopilotmonitor.com/troubleshooting/service-announcements"
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                     onClick={() => setShowHelp(false)}
                   >
@@ -528,7 +534,7 @@ export default function Navbar() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
                     </svg>
                     <span>Known Issues</span>
-                  </Link>
+                  </a>
 
                   <div className="border-t border-gray-100 my-1"></div>
 
@@ -696,22 +702,22 @@ export default function Navbar() {
                         Help
                       </button>
                       <div className="border-t border-gray-100 dark:border-gray-700 my-1"></div>
-                      <Link href="/docs" className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" onClick={() => { setShowOverflow(false); setOverflowSubmenu(null); }}>
+                      <a href="https://docs.autopilotmonitor.com" target="_blank" rel="noopener noreferrer" className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" onClick={() => { setShowOverflow(false); setOverflowSubmenu(null); }}>
                         <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
                         <span>Documentation</span>
-                      </Link>
+                      </a>
                       <Link href="/roadmap" className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" onClick={() => { setShowOverflow(false); setOverflowSubmenu(null); }}>
                         <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 01.553-.894L9 2m0 18l6-3m-6 3V2m6 15l5.447-2.724A1 1 0 0021 13.382V2.618a1 1 0 00-.553-.894L15 2m0 15V2" /></svg>
                         <span>Roadmap</span>
                       </Link>
-                      <Link href="/changelog" className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" onClick={() => { setShowOverflow(false); setOverflowSubmenu(null); }}>
+                      <a href="https://docs.autopilotmonitor.com/changelog/platform-changelog" target="_blank" rel="noopener noreferrer" className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" onClick={() => { setShowOverflow(false); setOverflowSubmenu(null); }}>
                         <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
                         <span>Changelog</span>
-                      </Link>
-                      <Link href="/docs/known-issues" className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" onClick={() => { setShowOverflow(false); setOverflowSubmenu(null); }}>
+                      </a>
+                      <a href="https://docs.autopilotmonitor.com/troubleshooting/service-announcements" target="_blank" rel="noopener noreferrer" className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" onClick={() => { setShowOverflow(false); setOverflowSubmenu(null); }}>
                         <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
                         <span>Known Issues</span>
-                      </Link>
+                      </a>
                       <div className="border-t border-gray-100 dark:border-gray-700 my-1"></div>
                       <Link href="/privacy" className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" onClick={() => { setShowOverflow(false); setOverflowSubmenu(null); }}>
                         <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
