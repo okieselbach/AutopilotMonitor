@@ -115,7 +115,7 @@ public class RuleEngineDetectionFailureTests
         // pull appName from app_install_failed (optional condition with dataField=appName)
         // and resolve {{appName}} via the byField path.
         var rule = BuiltInAnalyzeRules.GetAll().First(r => r.RuleId == "ANALYZE-ENRL-001");
-        Assert.Equal("1.1.1", rule.Version);
+        Assert.Equal("1.1.2", rule.Version);
         Assert.True(rule.Enabled);
 
         var events = new List<EnrollmentEvent>

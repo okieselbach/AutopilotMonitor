@@ -2,10 +2,10 @@
   "$schema": "../schema/analyze-rule.schema.json",
   "ruleId": "ANALYZE-SEC-001",
   "title": "Secure Boot UEFI CA 2023 certificate not deployed",
-  "description": "Detects devices where the Windows UEFI CA 2023 certificate has not been deployed to the Secure Boot DB. These devices will lose Secure Boot security update support when the 2011 certificates expire in June 2026.",
+  "description": "Detects devices where the Windows UEFI CA 2023 certificate has not been deployed to the Secure Boot DB. The 2011 certificates expired in June 2026 — affected devices no longer receive Secure Boot security updates until the 2023 certificate is deployed.",
   "severity": "warning",
   "category": "security",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "enabled": true,
   "baseConfidence": 70,
   "preconditions": [
@@ -36,19 +36,38 @@
       "operator": "equals",
       "value": "true",
       "required": true
+    },
+    {
+      "signal": "ca2023_notfound",
+      "source": "event_data",
+      "eventType": "secureboot_status",
+      "dataField": "uefiCA2023Status",
+      "operator": "equals",
+      "value": "notfound",
+      "required": false
+    },
+    {
+      "signal": "ca2023_error",
+      "source": "event_data",
+      "eventType": "secureboot_status",
+      "dataField": "uefiCA2023Error",
+      "operator": "exists",
+      "value": "",
+      "required": false
     }
   ],
   "confidenceFactors": [
-    { "signal": "ca2023_notfound", "condition": "equals:notfound", "weight": 20 },
+    { "signal": "ca2023_notfound", "condition": "exists", "weight": 20 },
     { "signal": "ca2023_error", "condition": "exists", "weight": 10 }
   ],
-  "explanation": "This device has Secure Boot enabled but the **Windows UEFI CA 2023** certificate has not been deployed to the Secure Boot DB yet.\n\nThe original Windows UEFI CA 2011 certificates expire on **June 27, 2026**. After expiration, devices without the 2023 certificate will no longer receive Secure Boot security updates and may fail to boot with updated boot managers.\n\nCurrent UEFI CA 2023 status: `{{uefiCA2023Status}}`",
+  "explanation": "This device has Secure Boot enabled but the **Windows UEFI CA 2023** certificate has not been deployed to the Secure Boot DB.\n\nThe original Windows UEFI CA 2011 certificates **expired on June 27, 2026 — this deadline has passed**. The automatic pre-expiry rollout window is over: this device no longer receives Secure Boot security updates (DB/DBX) and cannot trust 2023-signed boot managers until the 2023 certificate is deployed. Deploying it now requires active remediation (Windows servicing opt-in and, on some models, an OEM firmware update) rather than waiting for an automatic update.\n\nCurrent UEFI CA 2023 status: `{{uefiCA2023Status}}`",
   "remediation": [
     {
-      "title": "Deploy UEFI CA 2023 certificate",
+      "title": "Deploy UEFI CA 2023 certificate now",
       "steps": [
         "Deploy KB5036210 via Windows Update or WSUS",
         "Use Intune policy to enable Secure Boot DB update (Windows UEFI CA 2023)",
+        "Check with the device OEM whether a firmware update is required for the DB update to apply on this model",
         "Alternatively, use the WinCS CLI tool from Microsoft for manual deployment",
         "Verify deployment: check registry HKLM\\SYSTEM\\CurrentControlSet\\Control\\SecureBoot\\Servicing\\UEFICA2023Status = 'Updated'",
         "After DB update: ensure the boot manager is updated to a 2023-signed version via monthly cumulative update"
@@ -57,7 +76,7 @@
   ],
   "relatedDocs": [
     {
-      "title": "Microsoft: Secure Boot certificates expire June 2026",
+      "title": "Microsoft: Secure Boot certificates expired June 2026 — act now",
       "url": "https://techcommunity.microsoft.com/blog/windows-itpro-blog/act-now-secure-boot-certificates-expire-in-june-2026/4426856"
     },
     {

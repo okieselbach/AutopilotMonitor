@@ -5,6 +5,7 @@
   "description": "Detects when Windows Hello for Business provisioning did not start within the expected timeframe after ESP completion.",
   "severity": "warning",
   "category": "device",
+  "version": "1.1.0",
   "enabled": true,
   "baseConfidence": 60,
   "conditions": [
@@ -16,9 +17,6 @@
       "value": "",
       "required": true
     }
-  ],
-  "confidenceFactors": [
-    { "signal": "hello_policy_detected", "condition": "exists", "weight": 30 }
   ],
   "explanation": "Windows Hello for Business provisioning did not start within the expected time after ESP exit. This may indicate that the Hello policy is not configured, the device doesn't meet prerequisites, or there's a connectivity issue with the Key Registration Service.",
   "remediation": [

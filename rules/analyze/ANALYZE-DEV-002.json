@@ -1,28 +1,47 @@
 {
   "$schema": "../schema/analyze-rule.schema.json",
   "ruleId": "ANALYZE-DEV-002",
-  "title": "High Memory Usage During Enrollment",
-  "description": "Detects when memory usage exceeds 90% during enrollment, which can cause app installation failures or system instability.",
+  "title": "Sustained High Memory Usage During Enrollment",
+  "description": "Detects when memory usage stays above 90% across at least 3 performance snapshots during enrollment, indicating sustained memory pressure that can cause app installation failures or system instability.",
   "severity": "warning",
   "category": "device",
+  "version": "2.0.0",
   "enabled": true,
   "baseConfidence": 55,
   "conditions": [
     {
-      "signal": "high_memory",
-      "source": "event_type",
+      "signal": "sustained_high_memory",
+      "source": "event_count",
       "eventType": "performance_snapshot",
-      "dataField": "memory_used_percent",
-      "operator": "gt",
-      "value": "90",
+      "operator": "count_gte",
+      "value": "3",
+      "filterField": "memory_used_percent",
+      "filterOperator": "gt",
+      "filterValue": "90",
       "required": true
+    },
+    {
+      "signal": "app_failed",
+      "source": "event_type",
+      "eventType": "app_install_failed",
+      "operator": "exists",
+      "value": "",
+      "required": false
+    },
+    {
+      "signal": "enrollment_failed",
+      "source": "event_type",
+      "eventType": "enrollment_failed",
+      "operator": "exists",
+      "value": "",
+      "required": false
     }
   ],
   "confidenceFactors": [
     { "signal": "app_failed", "condition": "exists", "weight": 20 },
     { "signal": "enrollment_failed", "condition": "exists", "weight": 15 }
   ],
-  "explanation": "Memory usage exceeded 90% during enrollment. High memory pressure can cause app installation failures, system slowdowns, and ESP timeouts.",
+  "explanation": "Memory usage exceeded 90% in at least 3 performance snapshots during this enrollment — sustained pressure, not a single transient spike. Persistent high memory usage can cause app installation failures, system slowdowns, and ESP timeouts, especially on devices with 8 GB RAM installing several apps concurrently.",
   "remediation": [
     {
       "title": "Reduce memory pressure",

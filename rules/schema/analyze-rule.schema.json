@@ -187,6 +187,19 @@
           "description": "Whether this condition must match for the rule to fire. If false, it only contributes to confidence scoring.",
           "default": false
         },
+        "filterField": {
+          "type": "string",
+          "description": "For event_count only: optional value filter — only events whose filterField satisfies filterOperator/filterValue are counted (e.g. count only performance_snapshot events with memory_used_percent > 90). Applies before counting for both count_gte and count_per_group_gte."
+        },
+        "filterOperator": {
+          "type": "string",
+          "description": "Operator for the event_count value filter.",
+          "enum": ["equals", "not_equals", "contains", "not_contains", "regex", "not_regex", "gt", "lt", "gte", "lte", "exists", "not_exists", "in", "not_in"]
+        },
+        "filterValue": {
+          "type": "string",
+          "description": "Value for the event_count value filter."
+        },
         "correlateEventType": {
           "type": "string",
           "description": "The second event type to correlate with (Event B). Only used when source = \"event_correlation\"."

@@ -1,15 +1,16 @@
 {
   "$schema": "../schema/analyze-rule.schema.json",
   "ruleId": "ANALYZE-APP-006",
-  "title": "Reboot Required Loop",
-  "description": "Detects when the same app installation is attempted 3 or more times, indicating a reboot-required loop.",
+  "title": "App Install Retry Loop",
+  "description": "Detects when the same app installation is attempted 3 or more times during one enrollment — a retry loop caused by unhonored reboot requests, repeated failures, or detection mismatches.",
   "severity": "high",
   "category": "apps",
+  "version": "1.1.0",
   "enabled": true,
   "baseConfidence": 70,
   "conditions": [
     {
-      "signal": "reboot_loop",
+      "signal": "install_retry_loop",
       "source": "event_count",
       "eventType": "app_install_started",
       "dataField": "appId",
@@ -18,16 +19,17 @@
       "required": true
     }
   ],
-  "explanation": "The same app has been installed 3 or more times during this enrollment. This typically indicates the app requires a reboot between install attempts, but the ESP is not honoring the reboot request, causing an install-detect-retry loop.",
+  "explanation": "The same app was started 3 or more times during this enrollment. Repeated install attempts have several possible causes:\n\n- **Reboot-required loop** — the app requests a reboot (exit code 3010/1641) that the ESP does not honor, so the install-detect-retry cycle repeats\n- **Failure retries** — the install keeps failing and the IME retries it\n- **Detection mismatch** — the install succeeds but the detection rule does not match, so the app is retried as 'not installed'\n\nCheck the app's install results in this session to see which pattern applies; enrollments that legitimately span multiple reboots can also produce additional install starts.",
   "remediation": [
     {
-      "title": "Fix reboot handling",
+      "title": "Identify the retry cause",
       "steps": [
-        "Check if the app's return code mapping includes reboot codes (3010, 1641)",
-        "Verify ESP reboot behavior settings",
-        "Consider setting the app to 'Hard reboot' return code in Intune"
+        "Review this app's install started/completed/failed events in the session timeline",
+        "If reboot-related: check the app's return code mapping includes reboot codes (3010, 1641) and verify ESP reboot behavior settings; consider the 'Hard reboot' return code in Intune",
+        "If the install keeps failing: look up the failure error code (see the App Installation Error finding if it fired)",
+        "If the install succeeds but is retried: fix the app's detection rule (see the Win32 App Detection Script Failure finding)"
       ]
     }
   ],
-  "tags": ["apps", "reboot", "loop"]
+  "tags": ["apps", "reboot", "retry", "loop"]
 }

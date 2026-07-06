@@ -5,7 +5,7 @@
   "description": "Detects an ESP terminal failure on a profile that allows 'Continue anyway'. The enrollment is reported as failed, but the user most likely dismissed the error screen and reached the desktop — a soft failure rather than an unusable device.",
   "severity": "warning",
   "category": "esp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "enabled": true,
   "baseConfidence": 80,
   "conditions": [
@@ -55,7 +55,7 @@
     }
   ],
   "confidenceFactors": [
-    { "signal": "app_failed", "condition": "exists", "weight": 10 }
+    { "signal": "appName", "condition": "exists", "weight": 10 }
   ],
   "explanation": "This enrollment was reported as **failed** because the Enrollment Status Page reached its configured terminal timeout (`{{espSyncFailureTimeoutMinutes}} min`) before all blocking items finished. The ESP profile, however, allows **'Continue anyway'** — so the user most likely dismissed the error screen and reached the desktop with a working, though not fully provisioned, device.\n\nThe agent only observes the ESP terminal failure on the device side; it cannot see what the user did after the failure screen. Treat this as a **soft failure**: the device may well be in productive use, while at least one blocking item (`{{failedSubcategory}}` subcategory / app `{{appName}}`) did not complete inside the ESP window.\n\nA cluster of these across a tenant almost always points at one slow blocking app holding the whole fleet at the ESP timeout wall, not at broken devices. Any field still shown as a literal `{{…}}` placeholder was simply not recorded for this session (e.g. a certificate-only failure has no failed app).",
   "remediation": [

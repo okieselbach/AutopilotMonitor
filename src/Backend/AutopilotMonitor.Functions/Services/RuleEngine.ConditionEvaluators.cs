@@ -346,6 +346,15 @@ namespace AutopilotMonitor.Functions.Services
         {
             var matchingEvents = events.Where(e => MatchesEventType(e, condition.EventType)).ToList();
 
+            // Optional value filter: count only events whose FilterField satisfies FilterOperator/FilterValue
+            // (e.g. only performance_snapshot events with memory_used_percent > 90).
+            if (!string.IsNullOrEmpty(condition.FilterField) && !string.IsNullOrEmpty(condition.FilterOperator))
+            {
+                matchingEvents = matchingEvents
+                    .Where(e => MatchesOperator(GetDataFieldValue(e, condition.FilterField) ?? string.Empty, condition.FilterOperator, condition.FilterValue))
+                    .ToList();
+            }
+
             // count_per_group_gte: group by DataField value (e.g. appId), fire if any group >= threshold
             if (condition.Operator == "count_per_group_gte" && !string.IsNullOrEmpty(condition.DataField) && int.TryParse(condition.Value, out var groupThreshold))
             {

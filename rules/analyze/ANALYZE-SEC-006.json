@@ -5,7 +5,7 @@
   "description": "Template version of ANALYZE-SEC-005 with a customizable allow-list. Iterates the provisioning_package_scan artifacts[] array and fires for any PPKG whose identity is not on YOUR allow-list regex. The placeholder ships with the same OS-inbox defaults as ANALYZE-SEC-005 — extend it with your own vendor/recovery packages. This rule is OFF by default: enable it, set your allow-list, then disable ANALYZE-SEC-005 so only packages outside your list alert.",
   "severity": "warning",
   "category": "security",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "enabled": false,
   "baseConfidence": 80,
   "conditions": [
@@ -16,12 +16,12 @@
       "dataField": "artifacts",
       "itemField": "identity",
       "operator": "not_regex",
-      "value": "^(?:Microsoft\\.Windows\\.Cosa|Power\\.EnergyEstimationEngine|Power\\.Settings|SecureStart\\.Settings)\\b",
+      "value": "^(?:Microsoft\\.Windows\\.Cosa\\b|Power\\.EnergyEstimationEngine\\b|Power\\.Settings\\b|SecureStart\\.Settings\\b|PPM[-_]|PPMSettings-|AMD\\.Power\\.|TpPower|DisableBatteryDischargeEstimator\\b|PerfEppForBatterySaver\\b|AHSControl\\b|IRFeatureOptimization\\b|Surface[._]|vzw\\.ppkg\\b)",
       "required": true
     }
   ],
   "confidenceThreshold": 40,
-  "explanation": "A provisioning package (PPKG) was detected whose identity is NOT on your configured allow-list.\n\n- **Unexpected package:** `{{identity}}`\n\nThe `identity` value combines a package's name, .ppkg file name, ownerType and packageId, so your allow-list regex can match an approved package by any of these. The default allow-list already covers the Windows OS-inbox packages (Cosa, Power.EnergyEstimationEngine, Power.Settings, SecureStart) — extend it with your own vendor/recovery packages.\n\nIf this package should be allowed, add it to the allow-list regex (the 'value' of the 'ppkg_not_allowlisted' condition). If it is genuinely unexpected on a pure-Autopilot device, treat it as a potential manipulation and investigate how it was applied.",
+  "explanation": "A provisioning package (PPKG) was detected whose identity is NOT on your configured allow-list.\n\n- **Unexpected package:** `{{identity}}`\n\nThe `identity` value combines a package's name, .ppkg file name, ownerType and packageId, so your allow-list regex can match an approved package by any of these. The default allow-list already covers the Windows OS-inbox packages (Cosa, Power.EnergyEstimationEngine, Power.Settings, SecureStart) and the common OEM factory-preload families (Intel PPM, AMD Power, Lenovo ThinkPad power/battery, Surface defaults and carrier packages) — extend it with your own vendor/recovery packages.\n\nIf this package should be allowed, add it to the allow-list regex (the 'value' of the 'ppkg_not_allowlisted' condition). If it is genuinely unexpected on a pure-Autopilot device, treat it as a potential manipulation and investigate how it was applied.",
   "remediation": [
     {
       "title": "Triage the unexpected package",
@@ -49,7 +49,7 @@
       "description": "Case-insensitive regex matched against each package's identity (name | fileName | ownerType | packageId). Packages matching this pattern are treated as approved and do NOT alert. The default is anchored (^...) so it matches only at the START of the identity — extend it by adding an alternative inside the group, e.g. add '|Acme\\.Recovery' before the closing ')'.",
       "conditionIndex": 0,
       "field": "value",
-      "placeholder": "^(?:Microsoft\\.Windows\\.Cosa|Power\\.EnergyEstimationEngine|Power\\.Settings|SecureStart\\.Settings)\\b"
+      "placeholder": "^(?:Microsoft\\.Windows\\.Cosa\\b|Power\\.EnergyEstimationEngine\\b|Power\\.Settings\\b|SecureStart\\.Settings\\b|PPM[-_]|PPMSettings-|AMD\\.Power\\.|TpPower|DisableBatteryDischargeEstimator\\b|PerfEppForBatterySaver\\b|AHSControl\\b|IRFeatureOptimization\\b|Surface[._]|vzw\\.ppkg\\b)"
     }
   ]
 }

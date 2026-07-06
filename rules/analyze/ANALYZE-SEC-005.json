@@ -2,10 +2,10 @@
   "$schema": "../schema/analyze-rule.schema.json",
   "ruleId": "ANALYZE-SEC-005",
   "title": "Unexpected Provisioning Package",
-  "description": "Detects provisioning packages (PPKG) that are not on the built-in allow-list. The agent emits one or more provisioning_package_scan events whose artifacts[] arrays list every PPKG (registry package, .ppkg file, or Recovery\\Customizations residue; a large set is split across several events). This rule iterates that array across all of them and fires for any artifact whose identity does not match the allow-list regex. The default allow-list covers the Windows OS-inbox packages that ship on every device (Cosa, Power.EnergyEstimationEngine, Power.Settings, SecureStart) so a clean device stays quiet. To allow your own vendor/recovery packages, enable the template rule ANALYZE-SEC-006, extend its allow-list, then disable this rule.",
+  "description": "Detects provisioning packages (PPKG) that are not on the built-in allow-list. The agent emits one or more provisioning_package_scan events whose artifacts[] arrays list every PPKG (registry package, .ppkg file, or Recovery\\Customizations residue; a large set is split across several events). This rule iterates that array across all of them and fires for any artifact whose identity does not match the allow-list regex. The default allow-list covers the Windows OS-inbox packages (Cosa, Power.EnergyEstimationEngine, Power.Settings, SecureStart) plus common OEM factory-preload families (Intel PPM power profiles, AMD Power profiles, Lenovo ThinkPad power/battery packages, Microsoft Surface defaults and carrier packages) so clean factory devices stay quiet. OEM imaging leftovers (e.g. USMT.PPKG, InstallOrder.ini) and generically named packages deliberately still alert — on a pure-Autopilot device they are worth a look. To allow your own vendor/recovery packages, enable the template rule ANALYZE-SEC-006, extend its allow-list, then disable this rule.",
   "severity": "warning",
   "category": "security",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "enabled": true,
   "baseConfidence": 80,
   "conditions": [
@@ -16,12 +16,12 @@
       "dataField": "artifacts",
       "itemField": "identity",
       "operator": "not_regex",
-      "value": "^(?:Microsoft\\.Windows\\.Cosa|Power\\.EnergyEstimationEngine|Power\\.Settings|SecureStart\\.Settings)\\b",
+      "value": "^(?:Microsoft\\.Windows\\.Cosa\\b|Power\\.EnergyEstimationEngine\\b|Power\\.Settings\\b|SecureStart\\.Settings\\b|PPM[-_]|PPMSettings-|AMD\\.Power\\.|TpPower|DisableBatteryDischargeEstimator\\b|PerfEppForBatterySaver\\b|AHSControl\\b|IRFeatureOptimization\\b|Surface[._]|vzw\\.ppkg\\b)",
       "required": true
     }
   ],
   "confidenceThreshold": 40,
-  "explanation": "A provisioning package (PPKG) was detected that is NOT on the allow-list.\n\n- **Unexpected package:** `{{identity}}`\n\nThe agent reports every PPKG it finds in `provisioning_package_scan` event(s) (see their `artifacts` array(s) for the full list, plus file metadata and best-effort content indicators; large sets span several events). This rule ignores the Windows OS-inbox packages that ship on every device (Cosa, Power.EnergyEstimationEngine, Power.Settings, SecureStart) and only surfaces the rest.\n\nProvisioning packages can apply local accounts, certificates, Wi-Fi/VPN profiles, applications (MSI/EXE) and scripts. They are legitimate in bulk-enrollment and OEM-recovery scenarios, but a PPKG appearing on a device that is expected to be \"pure Autopilot\" can indicate tampering.\n\n**To stop alerting on a known-good package:** enable the template rule **ANALYZE-SEC-006**, add the package to its allow-list regex, then disable this rule. ANALYZE-SEC-006 then only fires for packages outside your extended allow-list.",
+  "explanation": "A provisioning package (PPKG) was detected that is NOT on the allow-list.\n\n- **Unexpected package:** `{{identity}}`\n\nThe agent reports every PPKG it finds in `provisioning_package_scan` event(s) (see their `artifacts` array(s) for the full list, plus file metadata and best-effort content indicators; large sets span several events). This rule ignores the Windows OS-inbox packages (Cosa, Power.EnergyEstimationEngine, Power.Settings, SecureStart) and the common OEM factory-preload families (Intel PPM power profiles, AMD Power profiles, Lenovo ThinkPad power/battery packages, Surface defaults and carrier packages) and only surfaces the rest. OEM imaging leftovers such as `USMT.PPKG` or `InstallOrder.ini` are deliberately NOT allow-listed — on a device expected to be freshly provisioned via Autopilot they indicate the image was touched by another deployment workflow.\n\nProvisioning packages can apply local accounts, certificates, Wi-Fi/VPN profiles, applications (MSI/EXE) and scripts. They are legitimate in bulk-enrollment and OEM-recovery scenarios, but a PPKG appearing on a device that is expected to be \"pure Autopilot\" can indicate tampering.\n\n**To stop alerting on a known-good package:** enable the template rule **ANALYZE-SEC-006**, add the package to its allow-list regex, then disable this rule. ANALYZE-SEC-006 then only fires for packages outside your extended allow-list.",
   "remediation": [
     {
       "title": "Verify the provisioning package is expected",

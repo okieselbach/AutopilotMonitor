@@ -7,6 +7,7 @@
       "description": "Detects when a Win32 app detection script fails or returns unexpected results.",
       "severity": "warning",
       "category": "apps",
+      "version": "1.1.0",
       "enabled": true,
       "baseConfidence": 60,
       "conditions": [
@@ -17,17 +18,14 @@
           "dataField": "detectionResult",
           "operator": "equals",
           "value": "NotDetected",
-          "required": true
+          "required": true,
+          "suppressByEvent": {
+            "eventType": "app_install_completed",
+            "joinField": "appId"
+          }
         }
       ],
-      "confidenceFactors": [
-        {
-          "signal": "error_detail_match",
-          "condition": "exists",
-          "weight": 20
-        }
-      ],
-      "explanation": "A Win32 app detection script failed or did not detect the app after installation. This causes the app to appear as 'not installed' despite successful installation.",
+      "explanation": "A Win32 app detection script failed or did not detect the app after installation. This causes the app to appear as 'not installed' despite successful installation. Detection failures that were later resolved by a successful install of the same app are suppressed and do not raise this finding.",
       "remediation": [
         {
           "title": "Fix detection rules",
@@ -50,6 +48,7 @@
       "description": "Detects app installation failures with specific exit codes or HRESULT error codes and suggests fixes.",
       "severity": "high",
       "category": "apps",
+      "version": "1.1.0",
       "enabled": true,
       "baseConfidence": 80,
       "conditions": [
@@ -59,7 +58,7 @@
           "eventType": "app_install_failed",
           "dataField": "message",
           "operator": "regex",
-          "value": "16[0-9]{2}|0x80070[0-9a-fA-F]+|lpExitCode|unmapped.*exit",
+          "value": "\\b(1601|1602|1603|1618|1619|1620|1622|1624|1625|1633|1638|1653)\\b|0x80070[0-9a-fA-F]+|lpExitCode|unmapped.*exit",
           "required": true,
           "suppressByEvent": {
             "eventType": "app_install_completed",
@@ -124,9 +123,10 @@
     {
       "ruleId": "ANALYZE-APP-004",
       "title": "Insufficient Disk Space",
-      "description": "Detects when disk space is critically low during enrollment, which can cause app installation failures.",
+      "description": "Detects when disk space is critically low during enrollment, which can cause app installation failures. Confidence increases when app installations actually failed while disk space was low.",
       "severity": "critical",
       "category": "apps",
+      "version": "1.1.0",
       "enabled": true,
       "baseConfidence": 75,
       "conditions": [
@@ -138,6 +138,22 @@
           "operator": "lt",
           "value": "5",
           "required": true
+        },
+        {
+          "signal": "app_failed",
+          "source": "event_type",
+          "eventType": "app_install_failed",
+          "operator": "exists",
+          "value": "",
+          "required": false
+        },
+        {
+          "signal": "enrollment_failed",
+          "source": "event_type",
+          "eventType": "enrollment_failed",
+          "operator": "exists",
+          "value": "",
+          "required": false
         }
       ],
       "confidenceFactors": [
@@ -152,7 +168,7 @@
           "weight": 10
         }
       ],
-      "explanation": "Performance monitoring shows disk free space dropped below 5 GB during enrollment. This can cause app installation failures, especially for large Win32 apps.",
+      "explanation": "Performance monitoring shows disk free space dropped below 5 GB during enrollment. This can cause app installation failures, especially for large Win32 apps.\n\nIf app installations failed in the same session while free space was low, treat storage exhaustion as the likely contributing cause — the confidence score of this finding is raised accordingly. Verify the individual app failures for their concrete error codes before concluding storage was the only cause.",
       "remediation": [
         {
           "title": "Free disk space",
@@ -160,6 +176,14 @@
             "Check device disk size meets minimum requirements",
             "Clean up temporary files and IME cache (C:\\Windows\\IMECache)",
             "Consider using a larger disk image"
+          ]
+        },
+        {
+          "title": "Reduce disk consumption during enrollment",
+          "steps": [
+            "Review the total download size of all blocking apps",
+            "Stagger large app installations so temporary install files do not accumulate",
+            "Use devices with larger drives for app-heavy deployment profiles"
           ]
         }
       ],
@@ -207,15 +231,16 @@
     },
     {
       "ruleId": "ANALYZE-APP-006",
-      "title": "Reboot Required Loop",
-      "description": "Detects when the same app installation is attempted 3 or more times, indicating a reboot-required loop.",
+      "title": "App Install Retry Loop",
+      "description": "Detects when the same app installation is attempted 3 or more times during one enrollment — a retry loop caused by unhonored reboot requests, repeated failures, or detection mismatches.",
       "severity": "high",
       "category": "apps",
+      "version": "1.1.0",
       "enabled": true,
       "baseConfidence": 70,
       "conditions": [
         {
-          "signal": "reboot_loop",
+          "signal": "install_retry_loop",
           "source": "event_count",
           "eventType": "app_install_started",
           "dataField": "appId",
@@ -224,20 +249,22 @@
           "required": true
         }
       ],
-      "explanation": "The same app has been installed 3 or more times during this enrollment. This typically indicates the app requires a reboot between install attempts, but the ESP is not honoring the reboot request, causing an install-detect-retry loop.",
+      "explanation": "The same app was started 3 or more times during this enrollment. Repeated install attempts have several possible causes:\n\n- **Reboot-required loop** — the app requests a reboot (exit code 3010/1641) that the ESP does not honor, so the install-detect-retry cycle repeats\n- **Failure retries** — the install keeps failing and the IME retries it\n- **Detection mismatch** — the install succeeds but the detection rule does not match, so the app is retried as 'not installed'\n\nCheck the app's install results in this session to see which pattern applies; enrollments that legitimately span multiple reboots can also produce additional install starts.",
       "remediation": [
         {
-          "title": "Fix reboot handling",
+          "title": "Identify the retry cause",
           "steps": [
-            "Check if the app's return code mapping includes reboot codes (3010, 1641)",
-            "Verify ESP reboot behavior settings",
-            "Consider setting the app to 'Hard reboot' return code in Intune"
+            "Review this app's install started/completed/failed events in the session timeline",
+            "If reboot-related: check the app's return code mapping includes reboot codes (3010, 1641) and verify ESP reboot behavior settings; consider the 'Hard reboot' return code in Intune",
+            "If the install keeps failing: look up the failure error code (see the App Installation Error finding if it fired)",
+            "If the install succeeds but is retried: fix the app's detection rule (see the Win32 App Detection Script Failure finding)"
           ]
         }
       ],
       "tags": [
         "apps",
         "reboot",
+        "retry",
         "loop"
       ]
     },
@@ -527,79 +554,12 @@
       ]
     },
     {
-      "ruleId": "ANALYZE-CORR-002",
-      "title": "Disk Space Exhaustion Caused Installation Failure",
-      "description": "Correlates declining disk free space with app installation failure, confirming insufficient storage as root cause.",
-      "severity": "critical",
-      "category": "apps",
-      "enabled": true,
-      "trigger": "correlation",
-      "baseConfidence": 65,
-      "conditions": [
-        {
-          "signal": "low_disk",
-          "source": "event_type",
-          "eventType": "performance_snapshot",
-          "dataField": "disk_free_gb",
-          "operator": "lt",
-          "value": "5",
-          "required": true
-        },
-        {
-          "signal": "app_failed",
-          "source": "event_type",
-          "eventType": "app_install_failed",
-          "operator": "exists",
-          "value": "",
-          "required": true
-        }
-      ],
-      "confidenceFactors": [
-        {
-          "signal": "multiple_failures",
-          "condition": "count >= 2",
-          "weight": 15
-        },
-        {
-          "signal": "enrollment_failed",
-          "condition": "exists",
-          "weight": 10
-        }
-      ],
-      "confidenceThreshold": 50,
-      "explanation": "**Root cause confirmed:** Performance monitoring shows disk free space dropped below 5 GB during enrollment, and apps failed to install. The device likely ran out of storage during app installation.\n\nThis is common when deploying many large Win32 apps to devices with small drives (64 GB or 128 GB).",
-      "remediation": [
-        {
-          "title": "Reduce disk consumption during enrollment",
-          "steps": [
-            "Review total size of all apps deployed during ESP",
-            "Move non-critical apps to post-ESP deployment",
-            "Use MSIX or Store apps instead of Win32 where possible (smaller footprint)",
-            "Clean up IME cache: C:\\Windows\\IMECache"
-          ]
-        },
-        {
-          "title": "Use devices with larger drives",
-          "steps": [
-            "Minimum 128 GB recommended for standard deployments",
-            "256 GB recommended when deploying large app suites (Office, Visual Studio, etc.)"
-          ]
-        }
-      ],
-      "tags": [
-        "correlation",
-        "apps",
-        "disk-space",
-        "performance",
-        "root-cause"
-      ]
-    },
-    {
       "ruleId": "ANALYZE-CORR-003",
       "title": "Proxy Configuration Causing Download Failure",
-      "description": "Correlates an active proxy configuration with app download failures, suggesting the proxy is blocking or throttling Intune content delivery.",
+      "description": "Correlates an active proxy configuration with app content download failures (Delivery Optimization timeout or download error), suggesting the proxy is blocking or throttling Intune content delivery.",
       "severity": "high",
       "category": "apps",
+      "version": "1.1.0",
       "enabled": true,
       "trigger": "correlation",
       "baseConfidence": 60,
@@ -614,33 +574,29 @@
           "required": true
         },
         {
-          "signal": "app_failed",
+          "signal": "download_failure",
           "source": "event_type",
           "eventType": "app_install_failed",
-          "operator": "exists",
-          "value": "",
+          "dataField": "errorPatternId",
+          "operator": "regex",
+          "value": "IME-DO-TIMEOUT|IME-ERROR-DOWNLOAD|IME-ERROR-NO-CONTENT",
           "required": true
         }
       ],
       "confidenceFactors": [
         {
-          "signal": "download_timeout",
-          "condition": "exists",
-          "weight": 20
-        },
-        {
-          "signal": "multiple_failures",
+          "signal": "app_install_failed",
           "condition": "count >= 2",
           "weight": 15
         },
         {
           "signal": "enrollment_failed",
-          "condition": "exists",
+          "condition": "count >= 1",
           "weight": 10
         }
       ],
       "confidenceThreshold": 50,
-      "explanation": "A proxy (explicit or PAC-based) is configured on this device and app installations failed. Proxies can block or throttle downloads from *.delivery.mp.microsoft.com and other Intune CDN endpoints.\n\nThis is a common root cause when apps fail consistently on proxy-connected corporate networks.",
+      "explanation": "A proxy (explicit or PAC-based) is configured on this device and app content downloads failed (Delivery Optimization timeout or download content error). Proxies can block or throttle downloads from *.delivery.mp.microsoft.com and other Intune CDN endpoints.\n\nThis is a common root cause when app downloads fail consistently on proxy-connected corporate networks. Note this rule only fires when the failure is download-related — generic app install errors behind a proxy do not trigger it.",
       "remediation": [
         {
           "title": "Verify proxy bypass for Intune endpoints",
@@ -675,6 +631,7 @@
       "description": "Detects when Windows Hello for Business provisioning did not start within the expected timeframe after ESP completion.",
       "severity": "warning",
       "category": "device",
+      "version": "1.1.0",
       "enabled": true,
       "baseConfidence": 60,
       "conditions": [
@@ -685,13 +642,6 @@
           "operator": "exists",
           "value": "",
           "required": true
-        }
-      ],
-      "confidenceFactors": [
-        {
-          "signal": "hello_policy_detected",
-          "condition": "exists",
-          "weight": 30
         }
       ],
       "explanation": "Windows Hello for Business provisioning did not start within the expected time after ESP exit. This may indicate that the Hello policy is not configured, the device doesn't meet prerequisites, or there's a connectivity issue with the Key Registration Service.",
@@ -714,21 +664,40 @@
     },
     {
       "ruleId": "ANALYZE-DEV-002",
-      "title": "High Memory Usage During Enrollment",
-      "description": "Detects when memory usage exceeds 90% during enrollment, which can cause app installation failures or system instability.",
+      "title": "Sustained High Memory Usage During Enrollment",
+      "description": "Detects when memory usage stays above 90% across at least 3 performance snapshots during enrollment, indicating sustained memory pressure that can cause app installation failures or system instability.",
       "severity": "warning",
       "category": "device",
+      "version": "2.0.0",
       "enabled": true,
       "baseConfidence": 55,
       "conditions": [
         {
-          "signal": "high_memory",
-          "source": "event_type",
+          "signal": "sustained_high_memory",
+          "source": "event_count",
           "eventType": "performance_snapshot",
-          "dataField": "memory_used_percent",
-          "operator": "gt",
-          "value": "90",
+          "operator": "count_gte",
+          "value": "3",
+          "filterField": "memory_used_percent",
+          "filterOperator": "gt",
+          "filterValue": "90",
           "required": true
+        },
+        {
+          "signal": "app_failed",
+          "source": "event_type",
+          "eventType": "app_install_failed",
+          "operator": "exists",
+          "value": "",
+          "required": false
+        },
+        {
+          "signal": "enrollment_failed",
+          "source": "event_type",
+          "eventType": "enrollment_failed",
+          "operator": "exists",
+          "value": "",
+          "required": false
         }
       ],
       "confidenceFactors": [
@@ -743,7 +712,7 @@
           "weight": 15
         }
       ],
-      "explanation": "Memory usage exceeded 90% during enrollment. High memory pressure can cause app installation failures, system slowdowns, and ESP timeouts.",
+      "explanation": "Memory usage exceeded 90% in at least 3 performance snapshots during this enrollment — sustained pressure, not a single transient spike. Persistent high memory usage can cause app installation failures, system slowdowns, and ESP timeouts, especially on devices with 8 GB RAM installing several apps concurrently.",
       "remediation": [
         {
           "title": "Reduce memory pressure",
@@ -763,22 +732,14 @@
     },
     {
       "ruleId": "ANALYZE-DEV-003",
-      "title": "Unsupported Windows 11 Version",
-      "description": "Detects devices running Windows 11 version 22H2 or older, which is no longer supported by Microsoft.",
+      "title": "Unsupported Windows Version",
+      "description": "Detects devices enrolling with an OS build that has reached end of support: Windows 11 22H2 (build 22621) or older, which includes every Windows 10 build. Maintenance note: raise the build cutoff to 22631 after Windows 11 23H2 reaches end of support on 2026-11-10.",
       "severity": "warning",
       "category": "device",
+      "version": "2.0.0",
       "enabled": true,
       "baseConfidence": 90,
       "conditions": [
-        {
-          "signal": "windows_11",
-          "source": "event_type",
-          "eventType": "os_info",
-          "dataField": "osVersion",
-          "operator": "contains",
-          "value": "Windows 11",
-          "required": true
-        },
         {
           "signal": "old_build",
           "source": "event_data",
@@ -787,11 +748,20 @@
           "operator": "lte",
           "value": "22621",
           "required": true
+        },
+        {
+          "signal": "os_version",
+          "source": "event_type",
+          "eventType": "os_info",
+          "dataField": "osVersion",
+          "operator": "exists",
+          "value": "",
+          "required": false
         }
       ],
       "confidenceFactors": [],
       "confidenceThreshold": 40,
-      "explanation": "This device is running Windows 11 version 22H2 (Build 22621) or older, which has reached end of support. Microsoft no longer provides security updates or bug fixes for this version. Devices running unsupported OS versions are exposed to known vulnerabilities and may fail compliance checks.",
+      "explanation": "This device is running an OS build that has reached end of support:\n\n- **OS:** `{{osVersion}}`\n- **Build:** `{{currentBuild}}`\n\nBuilds up to 22621 cover Windows 11 22H2 and older as well as every Windows 10 release — Microsoft no longer provides security updates or bug fixes for these versions (exception: LTSC/IoT LTSC editions follow their own lifecycle; verify the edition if this device is LTSC). Devices running unsupported OS versions are exposed to known vulnerabilities and may fail compliance checks.",
       "remediation": [
         {
           "title": "Update to a supported Windows 11 version",
@@ -809,7 +779,7 @@
           "url": "https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information"
         },
         {
-          "title": "Windows 11 22H2 end of support",
+          "title": "Windows lifecycle (Home and Pro)",
           "url": "https://learn.microsoft.com/en-us/lifecycle/products/windows-11-home-and-pro"
         }
       ],
@@ -817,7 +787,8 @@
         "device",
         "os-version",
         "end-of-support",
-        "windows-11"
+        "windows-11",
+        "windows-10"
       ]
     },
     {
@@ -826,7 +797,7 @@
       "description": "Detects when the Autopilot enrollment has explicitly failed.",
       "severity": "critical",
       "category": "enrollment",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "enabled": true,
       "baseConfidence": 95,
       "conditions": [
@@ -877,7 +848,7 @@
       ],
       "confidenceFactors": [
         {
-          "signal": "app_failed",
+          "signal": "failed_app",
           "condition": "exists",
           "weight": 5
         }
@@ -957,9 +928,10 @@
     {
       "ruleId": "ANALYZE-ESP-001",
       "title": "ESP Blocking App Timeout",
-      "description": "Detects when the DeviceSetup phase of the ESP took longer than 30 minutes, indicating a stuck or very slow blocking app.",
+      "description": "Detects when the DeviceSetup phase of the ESP took longer than 30 minutes, indicating a stuck or very slow blocking app. Confidence increases when the phase exceeds 60 minutes.",
       "severity": "high",
       "category": "esp",
+      "version": "1.1.0",
       "enabled": true,
       "baseConfidence": 50,
       "conditions": [
@@ -978,10 +950,15 @@
           "signal": "long_esp",
           "condition": "phase_duration > 1800",
           "weight": 40
+        },
+        {
+          "signal": "very_long_esp",
+          "condition": "phase_duration > 3600",
+          "weight": 15
         }
       ],
       "confidenceThreshold": 70,
-      "explanation": "The ESP DeviceSetup phase took more than 30 minutes. This indicates a blocking app is stuck installing, downloading very slowly, or has entered a retry loop.",
+      "explanation": "The ESP DeviceSetup phase took more than 30 minutes. This indicates a blocking app is stuck installing, downloading very slowly, or has entered a retry loop. A duration beyond 60 minutes raises the confidence further — at that point the enrollment is almost certainly held by a single stuck blocking item rather than ordinary slowness.",
       "remediation": [
         {
           "title": "Investigate blocking app",
@@ -995,7 +972,8 @@
       "tags": [
         "esp",
         "blocking",
-        "timeout"
+        "timeout",
+        "duration"
       ]
     },
     {
@@ -1061,57 +1039,12 @@
       ]
     },
     {
-      "ruleId": "ANALYZE-ESP-003",
-      "title": "Enrollment Duration Exceeded 60 Minutes",
-      "description": "Detects when the total Autopilot enrollment takes longer than 60 minutes.",
-      "severity": "high",
-      "category": "esp",
-      "enabled": true,
-      "baseConfidence": 50,
-      "conditions": [
-        {
-          "signal": "long_enrollment",
-          "source": "phase_duration",
-          "eventType": "esp_phase_changed",
-          "dataField": "espPhase",
-          "operator": "equals",
-          "value": "DeviceSetup",
-          "required": true
-        }
-      ],
-      "confidenceFactors": [
-        {
-          "signal": "long_esp",
-          "condition": "phase_duration > 3600",
-          "weight": 40
-        }
-      ],
-      "confidenceThreshold": 70,
-      "explanation": "The Autopilot enrollment exceeded 60 minutes. This is unusually long and may indicate stuck apps, slow network, or policy conflicts. The default ESP timeout is 60 minutes, after which the enrollment may be marked as failed.",
-      "remediation": [
-        {
-          "title": "Investigate long enrollment",
-          "steps": [
-            "Check the app installation timeline - identify which app took the longest",
-            "Review download speeds in the performance data",
-            "Consider reducing the number of ESP-blocking apps",
-            "Check if the ESP timeout policy is configured (default: 60 min)"
-          ]
-        }
-      ],
-      "tags": [
-        "esp",
-        "timeout",
-        "duration"
-      ]
-    },
-    {
       "ruleId": "ANALYZE-ESP-004",
       "title": "ESP Timeout with 'Continue Anyway' (Soft Failure)",
       "description": "Detects an ESP terminal failure on a profile that allows 'Continue anyway'. The enrollment is reported as failed, but the user most likely dismissed the error screen and reached the desktop — a soft failure rather than an unusable device.",
       "severity": "warning",
       "category": "esp",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "enabled": true,
       "baseConfidence": 80,
       "conditions": [
@@ -1162,7 +1095,7 @@
       ],
       "confidenceFactors": [
         {
-          "signal": "app_failed",
+          "signal": "appName",
           "condition": "exists",
           "weight": 10
         }
@@ -1189,13 +1122,13 @@
     },
     {
       "ruleId": "ANALYZE-ID-001",
-      "title": "No Machine Certificates Found",
-      "description": "Detects when no certificates are present in the local machine personal store (LocalMachine\\My). Missing certificates may indicate that MDM enrollment certificate provisioning or SCEP certificate deployment failed.",
+      "title": "Expected Machine Certificate Not Found",
+      "description": "Detects when a certificate with the configured subject is missing from the local machine personal store (LocalMachine\\My). Requires the gather rule GATHER-ID-002 (machine cert store inventory) to be enabled — the check runs against its gather_machine_cert_store output. A missing certificate may indicate that MDM enrollment certificate provisioning or SCEP certificate deployment failed.",
       "severity": "warning",
       "category": "identity",
       "isCommunity": true,
       "enabled": false,
-      "version": "1.1.0",
+      "version": "1.2.0",
       "baseConfidence": 75,
       "conditions": [
         {
@@ -1216,20 +1149,8 @@
           "required": true
         }
       ],
-      "confidenceFactors": [
-        {
-          "signal": "no_output_at_all",
-          "condition": "gather_machine_cert_store.output not_exists",
-          "weight": 20
-        },
-        {
-          "signal": "command_error",
-          "condition": "gather_machine_cert_store.error_output exists",
-          "weight": 10
-        }
-      ],
       "confidenceThreshold": 70,
-      "explanation": "The expected certificate with the configured subject was not found in the local machine certificate store (LocalMachine\\My). Customize the 'value' field in the 'cert_subject_missing' condition to match your expected certificate subject (e.g. 'CN=Contoso Root CA'). The check is case-insensitive (substring match). If the certificate should have been provisioned via SCEP or MDM enrollment, this may indicate a deployment failure.",
+      "explanation": "The expected certificate with the configured subject was not found in the local machine certificate store (LocalMachine\\My). Customize the 'value' field in the 'cert_subject_missing' condition to match your expected certificate subject (e.g. 'CN=Contoso Root CA'). The check is case-insensitive (substring match). This rule depends on the gather rule GATHER-ID-002 delivering the machine cert store inventory (gather_machine_cert_store event) — without it the rule never evaluates. If the certificate should have been provisioned via SCEP or MDM enrollment, this may indicate a deployment failure.",
       "remediation": [
         {
           "title": "Verify the expected certificate",
@@ -1362,7 +1283,7 @@
       "description": "Fires when the vulnerability correlation finds critical-severity CVEs or CISA KEV entries in installed software. This indicates the device has software with known, actively exploited vulnerabilities.",
       "severity": "critical",
       "category": "security",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": "Autopilot Monitor",
       "enabled": true,
       "trigger": "single",
@@ -1389,7 +1310,7 @@
       ],
       "confidenceFactors": [
         {
-          "signal": "kev_confirmed",
+          "signal": "kev_matches",
           "condition": "exists",
           "weight": 10
         }
@@ -1439,7 +1360,7 @@
       "description": "Detects when the Microsoft 365 Apps (Office Click-to-Run) background install did not reach completion. The V2 OfficeInstallDetector watches the C2R client directly (registry + process) and emits office_install_failed when the install scenario was abandoned (worker gone and streaming never finished) or a C2R failure code was observed. This catches Office failures that the Intune integrated app type hides, because IME reports the app done within 1-2 minutes while C2R keeps installing in the background.",
       "severity": "warning",
       "category": "apps",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "enabled": true,
       "baseConfidence": 75,
       "conditions": [
@@ -1450,6 +1371,15 @@
           "operator": "exists",
           "value": "",
           "required": true
+        },
+        {
+          "signal": "error_code_present",
+          "source": "event_type",
+          "eventType": "office_install_failed",
+          "dataField": "errorCode",
+          "operator": "exists",
+          "value": "",
+          "required": false
         }
       ],
       "confidenceFactors": [
@@ -1484,10 +1414,10 @@
     {
       "ruleId": "ANALYZE-SEC-001",
       "title": "Secure Boot UEFI CA 2023 certificate not deployed",
-      "description": "Detects devices where the Windows UEFI CA 2023 certificate has not been deployed to the Secure Boot DB. These devices will lose Secure Boot security update support when the 2011 certificates expire in June 2026.",
+      "description": "Detects devices where the Windows UEFI CA 2023 certificate has not been deployed to the Secure Boot DB. The 2011 certificates expired in June 2026 — affected devices no longer receive Secure Boot security updates until the 2023 certificate is deployed.",
       "severity": "warning",
       "category": "security",
-      "version": "1.1.0",
+      "version": "2.0.0",
       "enabled": true,
       "baseConfidence": 70,
       "preconditions": [
@@ -1518,12 +1448,30 @@
           "operator": "equals",
           "value": "true",
           "required": true
+        },
+        {
+          "signal": "ca2023_notfound",
+          "source": "event_data",
+          "eventType": "secureboot_status",
+          "dataField": "uefiCA2023Status",
+          "operator": "equals",
+          "value": "notfound",
+          "required": false
+        },
+        {
+          "signal": "ca2023_error",
+          "source": "event_data",
+          "eventType": "secureboot_status",
+          "dataField": "uefiCA2023Error",
+          "operator": "exists",
+          "value": "",
+          "required": false
         }
       ],
       "confidenceFactors": [
         {
           "signal": "ca2023_notfound",
-          "condition": "equals:notfound",
+          "condition": "exists",
           "weight": 20
         },
         {
@@ -1532,13 +1480,14 @@
           "weight": 10
         }
       ],
-      "explanation": "This device has Secure Boot enabled but the **Windows UEFI CA 2023** certificate has not been deployed to the Secure Boot DB yet.\n\nThe original Windows UEFI CA 2011 certificates expire on **June 27, 2026**. After expiration, devices without the 2023 certificate will no longer receive Secure Boot security updates and may fail to boot with updated boot managers.\n\nCurrent UEFI CA 2023 status: `{{uefiCA2023Status}}`",
+      "explanation": "This device has Secure Boot enabled but the **Windows UEFI CA 2023** certificate has not been deployed to the Secure Boot DB.\n\nThe original Windows UEFI CA 2011 certificates **expired on June 27, 2026 — this deadline has passed**. The automatic pre-expiry rollout window is over: this device no longer receives Secure Boot security updates (DB/DBX) and cannot trust 2023-signed boot managers until the 2023 certificate is deployed. Deploying it now requires active remediation (Windows servicing opt-in and, on some models, an OEM firmware update) rather than waiting for an automatic update.\n\nCurrent UEFI CA 2023 status: `{{uefiCA2023Status}}`",
       "remediation": [
         {
-          "title": "Deploy UEFI CA 2023 certificate",
+          "title": "Deploy UEFI CA 2023 certificate now",
           "steps": [
             "Deploy KB5036210 via Windows Update or WSUS",
             "Use Intune policy to enable Secure Boot DB update (Windows UEFI CA 2023)",
+            "Check with the device OEM whether a firmware update is required for the DB update to apply on this model",
             "Alternatively, use the WinCS CLI tool from Microsoft for manual deployment",
             "Verify deployment: check registry HKLM\\SYSTEM\\CurrentControlSet\\Control\\SecureBoot\\Servicing\\UEFICA2023Status = 'Updated'",
             "After DB update: ensure the boot manager is updated to a 2023-signed version via monthly cumulative update"
@@ -1547,7 +1496,7 @@
       ],
       "relatedDocs": [
         {
-          "title": "Microsoft: Secure Boot certificates expire June 2026",
+          "title": "Microsoft: Secure Boot certificates expired June 2026 — act now",
           "url": "https://techcommunity.microsoft.com/blog/windows-itpro-blog/act-now-secure-boot-certificates-expire-in-june-2026/4426856"
         },
         {
@@ -1694,10 +1643,10 @@
     {
       "ruleId": "ANALYZE-SEC-005",
       "title": "Unexpected Provisioning Package",
-      "description": "Detects provisioning packages (PPKG) that are not on the built-in allow-list. The agent emits one or more provisioning_package_scan events whose artifacts[] arrays list every PPKG (registry package, .ppkg file, or Recovery\\Customizations residue; a large set is split across several events). This rule iterates that array across all of them and fires for any artifact whose identity does not match the allow-list regex. The default allow-list covers the Windows OS-inbox packages that ship on every device (Cosa, Power.EnergyEstimationEngine, Power.Settings, SecureStart) so a clean device stays quiet. To allow your own vendor/recovery packages, enable the template rule ANALYZE-SEC-006, extend its allow-list, then disable this rule.",
+      "description": "Detects provisioning packages (PPKG) that are not on the built-in allow-list. The agent emits one or more provisioning_package_scan events whose artifacts[] arrays list every PPKG (registry package, .ppkg file, or Recovery\\Customizations residue; a large set is split across several events). This rule iterates that array across all of them and fires for any artifact whose identity does not match the allow-list regex. The default allow-list covers the Windows OS-inbox packages (Cosa, Power.EnergyEstimationEngine, Power.Settings, SecureStart) plus common OEM factory-preload families (Intel PPM power profiles, AMD Power profiles, Lenovo ThinkPad power/battery packages, Microsoft Surface defaults and carrier packages) so clean factory devices stay quiet. OEM imaging leftovers (e.g. USMT.PPKG, InstallOrder.ini) and generically named packages deliberately still alert — on a pure-Autopilot device they are worth a look. To allow your own vendor/recovery packages, enable the template rule ANALYZE-SEC-006, extend its allow-list, then disable this rule.",
       "severity": "warning",
       "category": "security",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "enabled": true,
       "baseConfidence": 80,
       "conditions": [
@@ -1708,12 +1657,12 @@
           "dataField": "artifacts",
           "itemField": "identity",
           "operator": "not_regex",
-          "value": "^(?:Microsoft\\.Windows\\.Cosa|Power\\.EnergyEstimationEngine|Power\\.Settings|SecureStart\\.Settings)\\b",
+          "value": "^(?:Microsoft\\.Windows\\.Cosa\\b|Power\\.EnergyEstimationEngine\\b|Power\\.Settings\\b|SecureStart\\.Settings\\b|PPM[-_]|PPMSettings-|AMD\\.Power\\.|TpPower|DisableBatteryDischargeEstimator\\b|PerfEppForBatterySaver\\b|AHSControl\\b|IRFeatureOptimization\\b|Surface[._]|vzw\\.ppkg\\b)",
           "required": true
         }
       ],
       "confidenceThreshold": 40,
-      "explanation": "A provisioning package (PPKG) was detected that is NOT on the allow-list.\n\n- **Unexpected package:** `{{identity}}`\n\nThe agent reports every PPKG it finds in `provisioning_package_scan` event(s) (see their `artifacts` array(s) for the full list, plus file metadata and best-effort content indicators; large sets span several events). This rule ignores the Windows OS-inbox packages that ship on every device (Cosa, Power.EnergyEstimationEngine, Power.Settings, SecureStart) and only surfaces the rest.\n\nProvisioning packages can apply local accounts, certificates, Wi-Fi/VPN profiles, applications (MSI/EXE) and scripts. They are legitimate in bulk-enrollment and OEM-recovery scenarios, but a PPKG appearing on a device that is expected to be \"pure Autopilot\" can indicate tampering.\n\n**To stop alerting on a known-good package:** enable the template rule **ANALYZE-SEC-006**, add the package to its allow-list regex, then disable this rule. ANALYZE-SEC-006 then only fires for packages outside your extended allow-list.",
+      "explanation": "A provisioning package (PPKG) was detected that is NOT on the allow-list.\n\n- **Unexpected package:** `{{identity}}`\n\nThe agent reports every PPKG it finds in `provisioning_package_scan` event(s) (see their `artifacts` array(s) for the full list, plus file metadata and best-effort content indicators; large sets span several events). This rule ignores the Windows OS-inbox packages (Cosa, Power.EnergyEstimationEngine, Power.Settings, SecureStart) and the common OEM factory-preload families (Intel PPM power profiles, AMD Power profiles, Lenovo ThinkPad power/battery packages, Surface defaults and carrier packages) and only surfaces the rest. OEM imaging leftovers such as `USMT.PPKG` or `InstallOrder.ini` are deliberately NOT allow-listed — on a device expected to be freshly provisioned via Autopilot they indicate the image was touched by another deployment workflow.\n\nProvisioning packages can apply local accounts, certificates, Wi-Fi/VPN profiles, applications (MSI/EXE) and scripts. They are legitimate in bulk-enrollment and OEM-recovery scenarios, but a PPKG appearing on a device that is expected to be \"pure Autopilot\" can indicate tampering.\n\n**To stop alerting on a known-good package:** enable the template rule **ANALYZE-SEC-006**, add the package to its allow-list regex, then disable this rule. ANALYZE-SEC-006 then only fires for packages outside your extended allow-list.",
       "remediation": [
         {
           "title": "Verify the provisioning package is expected",
@@ -1740,7 +1689,7 @@
       "description": "Template version of ANALYZE-SEC-005 with a customizable allow-list. Iterates the provisioning_package_scan artifacts[] array and fires for any PPKG whose identity is not on YOUR allow-list regex. The placeholder ships with the same OS-inbox defaults as ANALYZE-SEC-005 — extend it with your own vendor/recovery packages. This rule is OFF by default: enable it, set your allow-list, then disable ANALYZE-SEC-005 so only packages outside your list alert.",
       "severity": "warning",
       "category": "security",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "enabled": false,
       "baseConfidence": 80,
       "conditions": [
@@ -1751,12 +1700,12 @@
           "dataField": "artifacts",
           "itemField": "identity",
           "operator": "not_regex",
-          "value": "^(?:Microsoft\\.Windows\\.Cosa|Power\\.EnergyEstimationEngine|Power\\.Settings|SecureStart\\.Settings)\\b",
+          "value": "^(?:Microsoft\\.Windows\\.Cosa\\b|Power\\.EnergyEstimationEngine\\b|Power\\.Settings\\b|SecureStart\\.Settings\\b|PPM[-_]|PPMSettings-|AMD\\.Power\\.|TpPower|DisableBatteryDischargeEstimator\\b|PerfEppForBatterySaver\\b|AHSControl\\b|IRFeatureOptimization\\b|Surface[._]|vzw\\.ppkg\\b)",
           "required": true
         }
       ],
       "confidenceThreshold": 40,
-      "explanation": "A provisioning package (PPKG) was detected whose identity is NOT on your configured allow-list.\n\n- **Unexpected package:** `{{identity}}`\n\nThe `identity` value combines a package's name, .ppkg file name, ownerType and packageId, so your allow-list regex can match an approved package by any of these. The default allow-list already covers the Windows OS-inbox packages (Cosa, Power.EnergyEstimationEngine, Power.Settings, SecureStart) — extend it with your own vendor/recovery packages.\n\nIf this package should be allowed, add it to the allow-list regex (the 'value' of the 'ppkg_not_allowlisted' condition). If it is genuinely unexpected on a pure-Autopilot device, treat it as a potential manipulation and investigate how it was applied.",
+      "explanation": "A provisioning package (PPKG) was detected whose identity is NOT on your configured allow-list.\n\n- **Unexpected package:** `{{identity}}`\n\nThe `identity` value combines a package's name, .ppkg file name, ownerType and packageId, so your allow-list regex can match an approved package by any of these. The default allow-list already covers the Windows OS-inbox packages (Cosa, Power.EnergyEstimationEngine, Power.Settings, SecureStart) and the common OEM factory-preload families (Intel PPM, AMD Power, Lenovo ThinkPad power/battery, Surface defaults and carrier packages) — extend it with your own vendor/recovery packages.\n\nIf this package should be allowed, add it to the allow-list regex (the 'value' of the 'ppkg_not_allowlisted' condition). If it is genuinely unexpected on a pure-Autopilot device, treat it as a potential manipulation and investigate how it was applied.",
       "remediation": [
         {
           "title": "Triage the unexpected package",
@@ -1790,7 +1739,7 @@
           "description": "Case-insensitive regex matched against each package's identity (name | fileName | ownerType | packageId). Packages matching this pattern are treated as approved and do NOT alert. The default is anchored (^...) so it matches only at the START of the identity — extend it by adding an alternative inside the group, e.g. add '|Acme\\.Recovery' before the closing ')'.",
           "conditionIndex": 0,
           "field": "value",
-          "placeholder": "^(?:Microsoft\\.Windows\\.Cosa|Power\\.EnergyEstimationEngine|Power\\.Settings|SecureStart\\.Settings)\\b"
+          "placeholder": "^(?:Microsoft\\.Windows\\.Cosa\\b|Power\\.EnergyEstimationEngine\\b|Power\\.Settings\\b|SecureStart\\.Settings\\b|PPM[-_]|PPMSettings-|AMD\\.Power\\.|TpPower|DisableBatteryDischargeEstimator\\b|PerfEppForBatterySaver\\b|AHSControl\\b|IRFeatureOptimization\\b|Surface[._]|vzw\\.ppkg\\b)"
         }
       ]
     },

@@ -2,9 +2,10 @@
   "$schema": "../schema/analyze-rule.schema.json",
   "ruleId": "ANALYZE-APP-004",
   "title": "Insufficient Disk Space",
-  "description": "Detects when disk space is critically low during enrollment, which can cause app installation failures.",
+  "description": "Detects when disk space is critically low during enrollment, which can cause app installation failures. Confidence increases when app installations actually failed while disk space was low.",
   "severity": "critical",
   "category": "apps",
+  "version": "1.1.0",
   "enabled": true,
   "baseConfidence": 75,
   "conditions": [
@@ -16,13 +17,29 @@
       "operator": "lt",
       "value": "5",
       "required": true
+    },
+    {
+      "signal": "app_failed",
+      "source": "event_type",
+      "eventType": "app_install_failed",
+      "operator": "exists",
+      "value": "",
+      "required": false
+    },
+    {
+      "signal": "enrollment_failed",
+      "source": "event_type",
+      "eventType": "enrollment_failed",
+      "operator": "exists",
+      "value": "",
+      "required": false
     }
   ],
   "confidenceFactors": [
     { "signal": "app_failed", "condition": "exists", "weight": 15 },
     { "signal": "enrollment_failed", "condition": "exists", "weight": 10 }
   ],
-  "explanation": "Performance monitoring shows disk free space dropped below 5 GB during enrollment. This can cause app installation failures, especially for large Win32 apps.",
+  "explanation": "Performance monitoring shows disk free space dropped below 5 GB during enrollment. This can cause app installation failures, especially for large Win32 apps.\n\nIf app installations failed in the same session while free space was low, treat storage exhaustion as the likely contributing cause — the confidence score of this finding is raised accordingly. Verify the individual app failures for their concrete error codes before concluding storage was the only cause.",
   "remediation": [
     {
       "title": "Free disk space",
@@ -30,6 +47,14 @@
         "Check device disk size meets minimum requirements",
         "Clean up temporary files and IME cache (C:\\Windows\\IMECache)",
         "Consider using a larger disk image"
+      ]
+    },
+    {
+      "title": "Reduce disk consumption during enrollment",
+      "steps": [
+        "Review the total download size of all blocking apps",
+        "Stagger large app installations so temporary install files do not accumulate",
+        "Use devices with larger drives for app-heavy deployment profiles"
       ]
     }
   ],

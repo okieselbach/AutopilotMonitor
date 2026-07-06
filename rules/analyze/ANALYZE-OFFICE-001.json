@@ -5,7 +5,7 @@
   "description": "Detects when the Microsoft 365 Apps (Office Click-to-Run) background install did not reach completion. The V2 OfficeInstallDetector watches the C2R client directly (registry + process) and emits office_install_failed when the install scenario was abandoned (worker gone and streaming never finished) or a C2R failure code was observed. This catches Office failures that the Intune integrated app type hides, because IME reports the app done within 1-2 minutes while C2R keeps installing in the background.",
   "severity": "warning",
   "category": "apps",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "enabled": true,
   "baseConfidence": 75,
   "conditions": [
@@ -16,6 +16,15 @@
       "operator": "exists",
       "value": "",
       "required": true
+    },
+    {
+      "signal": "error_code_present",
+      "source": "event_type",
+      "eventType": "office_install_failed",
+      "dataField": "errorCode",
+      "operator": "exists",
+      "value": "",
+      "required": false
     }
   ],
   "confidenceFactors": [

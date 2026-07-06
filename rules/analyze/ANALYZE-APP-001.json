@@ -5,6 +5,7 @@
   "description": "Detects when a Win32 app detection script fails or returns unexpected results.",
   "severity": "warning",
   "category": "apps",
+  "version": "1.1.0",
   "enabled": true,
   "baseConfidence": 60,
   "conditions": [
@@ -15,13 +16,14 @@
       "dataField": "detectionResult",
       "operator": "equals",
       "value": "NotDetected",
-      "required": true
+      "required": true,
+      "suppressByEvent": {
+        "eventType": "app_install_completed",
+        "joinField": "appId"
+      }
     }
   ],
-  "confidenceFactors": [
-    { "signal": "error_detail_match", "condition": "exists", "weight": 20 }
-  ],
-  "explanation": "A Win32 app detection script failed or did not detect the app after installation. This causes the app to appear as 'not installed' despite successful installation.",
+  "explanation": "A Win32 app detection script failed or did not detect the app after installation. This causes the app to appear as 'not installed' despite successful installation. Detection failures that were later resolved by a successful install of the same app are suppressed and do not raise this finding.",
   "remediation": [
     {
       "title": "Fix detection rules",

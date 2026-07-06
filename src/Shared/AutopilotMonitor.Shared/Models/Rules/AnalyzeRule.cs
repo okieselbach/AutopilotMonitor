@@ -226,6 +226,27 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public bool Required { get; set; } = false;
 
+        // ===== Event Count Filter Properties =====
+        // Used only when Source = "event_count"
+
+        /// <summary>
+        /// Optional value filter for "event_count": only events whose FilterField
+        /// satisfies FilterOperator/FilterValue are counted (e.g. count only
+        /// performance_snapshot events with memory_used_percent > 90).
+        /// Applies before counting for both count_gte and count_per_group_gte.
+        /// </summary>
+        public string FilterField { get; set; } = default!;
+
+        /// <summary>
+        /// Operator for the count filter. Uses same operators as the main Operator field.
+        /// </summary>
+        public string FilterOperator { get; set; } = default!;
+
+        /// <summary>
+        /// Value for the count filter.
+        /// </summary>
+        public string FilterValue { get; set; } = default!;
+
         // ===== Event Correlation Properties =====
         // Used only when Source = "event_correlation"
 

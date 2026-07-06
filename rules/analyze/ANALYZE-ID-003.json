@@ -5,7 +5,7 @@
   "description": "Fires when the vulnerability correlation finds critical-severity CVEs or CISA KEV entries in installed software. This indicates the device has software with known, actively exploited vulnerabilities.",
   "severity": "critical",
   "category": "security",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Autopilot Monitor",
   "enabled": true,
   "trigger": "single",
@@ -31,7 +31,7 @@
     }
   ],
   "confidenceFactors": [
-    { "signal": "kev_confirmed", "condition": "exists", "weight": 10 }
+    { "signal": "kev_matches", "condition": "exists", "weight": 10 }
   ],
   "confidenceThreshold": 80,
   "explanation": "The device has installed software with critical vulnerabilities. Software with CVEs rated CRITICAL (CVSS >= 9.0) or listed in the CISA Known Exploited Vulnerabilities catalog was detected. These vulnerabilities are actively targeted by attackers and should be remediated immediately.",

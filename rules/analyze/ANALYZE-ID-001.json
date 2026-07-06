@@ -1,13 +1,13 @@
 {
   "$schema": "../schema/analyze-rule.schema.json",
   "ruleId": "ANALYZE-ID-001",
-  "title": "No Machine Certificates Found",
-  "description": "Detects when no certificates are present in the local machine personal store (LocalMachine\\My). Missing certificates may indicate that MDM enrollment certificate provisioning or SCEP certificate deployment failed.",
+  "title": "Expected Machine Certificate Not Found",
+  "description": "Detects when a certificate with the configured subject is missing from the local machine personal store (LocalMachine\\My). Requires the gather rule GATHER-ID-002 (machine cert store inventory) to be enabled — the check runs against its gather_machine_cert_store output. A missing certificate may indicate that MDM enrollment certificate provisioning or SCEP certificate deployment failed.",
   "severity": "warning",
   "category": "identity",
   "isCommunity": true,
   "enabled": false,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "baseConfidence": 75,
   "conditions": [
     {
@@ -28,20 +28,8 @@
       "required": true
     }
   ],
-  "confidenceFactors": [
-    {
-      "signal": "no_output_at_all",
-      "condition": "gather_machine_cert_store.output not_exists",
-      "weight": 20
-    },
-    {
-      "signal": "command_error",
-      "condition": "gather_machine_cert_store.error_output exists",
-      "weight": 10
-    }
-  ],
   "confidenceThreshold": 70,
-  "explanation": "The expected certificate with the configured subject was not found in the local machine certificate store (LocalMachine\\My). Customize the 'value' field in the 'cert_subject_missing' condition to match your expected certificate subject (e.g. 'CN=Contoso Root CA'). The check is case-insensitive (substring match). If the certificate should have been provisioned via SCEP or MDM enrollment, this may indicate a deployment failure.",
+  "explanation": "The expected certificate with the configured subject was not found in the local machine certificate store (LocalMachine\\My). Customize the 'value' field in the 'cert_subject_missing' condition to match your expected certificate subject (e.g. 'CN=Contoso Root CA'). The check is case-insensitive (substring match). This rule depends on the gather rule GATHER-ID-002 delivering the machine cert store inventory (gather_machine_cert_store event) — without it the rule never evaluates. If the certificate should have been provisioned via SCEP or MDM enrollment, this may indicate a deployment failure.",
   "remediation": [
     {
       "title": "Verify the expected certificate",

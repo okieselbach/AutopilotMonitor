@@ -5,7 +5,7 @@
   "description": "Detects when the Autopilot enrollment has explicitly failed.",
   "severity": "critical",
   "category": "enrollment",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "enabled": true,
   "baseConfidence": 95,
   "conditions": [
@@ -55,7 +55,7 @@
     }
   ],
   "confidenceFactors": [
-    { "signal": "app_failed", "condition": "exists", "weight": 5 }
+    { "signal": "failed_app", "condition": "exists", "weight": 5 }
   ],
   "explanation": "The Autopilot enrollment has explicitly failed.\n\n**Key facts extracted from this session's events:**\n\n- **Failure reason:** `{{reason}}`\n- **First failed app:** `{{appName}}`\n- **ESP failed subcategory:** `{{failedSubcategory}}`\n- **ESP HRESULT:** `{{errorCode}}`\n\nWhen an ESP Apps-subcategory failure is paired with HRESULT `0x87D1041C`, the device-side install most likely completed but the Intune detection rule did not match afterwards — see the **App Detection Failure During ESP** rule (ANALYZE-APP-013) in this same analysis for the actionable root cause and remediation steps. Any field still shown as a literal `{{…}}` placeholder was simply not recorded for this session — for example, a non-ESP failure path has no ESP failed-subcategory or HRESULT.",
   "remediation": [

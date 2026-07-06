@@ -17,8 +17,9 @@ public class RuleEngineArrayConditionTests
     private const string TenantId  = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
     private const string SessionId = "b2c3d4e5-f6a7-8901-bcde-f12345678901";
 
-    // Mirrors the ANALYZE-SEC-005 default allow-list (OS-inbox families) — ANCHORED at start.
-    private const string AllowList = @"^(?:Microsoft\.Windows\.Cosa|Power\.EnergyEstimationEngine|Power\.Settings|SecureStart\.Settings)\b";
+    // Mirrors the ANALYZE-SEC-005 default allow-list (OS-inbox + OEM factory-preload families) —
+    // ANCHORED at start; word boundaries per alternative because the OEM entries are prefixes.
+    private const string AllowList = @"^(?:Microsoft\.Windows\.Cosa\b|Power\.EnergyEstimationEngine\b|Power\.Settings\b|SecureStart\.Settings\b|PPM[-_]|PPMSettings-|AMD\.Power\.|TpPower|DisableBatteryDischargeEstimator\b|PerfEppForBatterySaver\b|AHSControl\b|IRFeatureOptimization\b|Surface[._]|vzw\.ppkg\b)";
 
     [Fact]
     public async Task AllArtifactsAllowListed_RuleDoesNotFire()
@@ -72,6 +73,53 @@ public class RuleEngineArrayConditionTests
         var result = Assert.Single(outcome.Results);
         var evidence = (IDictionary<string, object>)result.MatchedConditions["ppkg_not_allowlisted"];
         Assert.Equal(2, Convert.ToInt32(evidence["matchCount"]));
+    }
+
+    [Fact]
+    public async Task OemFactoryPreloadFamilies_AreAllowListed()
+    {
+        // Telemetry-driven curation (2026-07): Intel PPM, AMD Power, Lenovo ThinkPad
+        // power/battery, and Surface/carrier packages ship in-box on factory devices and
+        // must not alert — including Windows' " (1)" duplicate-name variants.
+        var events = new List<EnrollmentEvent>
+        {
+            ScanEvent(
+                "PPM-Win11-24H2-ARL-v2025.0603113409.2be47c2.ppkg",
+                "PPM_Better_Battery_Bestpowerefficiency.ppkg",
+                "PPMSettings-8380Profiles.wd.ppkg",
+                "AMD.Power.NVMe (1).ppkg",
+                "TpPowerSlider_Mobile.ppkg",
+                "DisableBatteryDischargeEstimator.ppkg",
+                "PerfEppForBatterySaver.ppkg",
+                "AHSControl.ppkg",
+                "IRFeatureOptimization.ppkg",
+                "Surface.Power.Policy.Defaults.ppkg",
+                "surface_esim.ppkg",
+                "vzw.ppkg")
+        };
+
+        var outcome = await RunAsync(MakeAllowListRule(), events);
+
+        Assert.Empty(outcome.Results);
+    }
+
+    [Fact]
+    public async Task OemImagingLeftovers_StillFire()
+    {
+        // Deliberate decision: USMT.PPKG / InstallOrder.ini (imaging-workflow residue) and
+        // generically named packages stay OUT of the allow-list — on a pure-Autopilot
+        // device they indicate the image was touched by another deployment workflow.
+        var events = new List<EnrollmentEvent>
+        {
+            ScanEvent("AMD.Power.NVMe.ppkg", "USMT.PPKG", "InstallOrder.ini", "Apps.ppkg")
+        };
+
+        var outcome = await RunAsync(MakeAllowListRule(), events);
+
+        var result = Assert.Single(outcome.Results);
+        var evidence = (IDictionary<string, object>)result.MatchedConditions["ppkg_not_allowlisted"];
+        Assert.Equal(3, Convert.ToInt32(evidence["matchCount"]));
+        Assert.Equal("USMT.PPKG", evidence["value"]);
     }
 
     [Fact]

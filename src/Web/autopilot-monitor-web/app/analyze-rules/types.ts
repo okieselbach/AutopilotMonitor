@@ -24,6 +24,12 @@ export interface RuleCondition {
   required: boolean;
   // event_data_array: sub-field tested on each array element (e.g. "identity")
   itemField?: string;
+  // event_count: optional value filter applied before counting
+  filterField?: string;
+  filterOperator?: string;
+  filterValue?: string;
+  // optional suppression by a resolving event (same joinField value)
+  suppressByEvent?: { eventType: string; joinField: string } | null;
   // event_correlation fields
   correlateEventType?: string;
   joinField?: string;

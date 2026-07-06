@@ -5,6 +5,7 @@
   "description": "Detects app installation failures with specific exit codes or HRESULT error codes and suggests fixes.",
   "severity": "high",
   "category": "apps",
+  "version": "1.1.0",
   "enabled": true,
   "baseConfidence": 80,
   "conditions": [
@@ -14,7 +15,7 @@
       "eventType": "app_install_failed",
       "dataField": "message",
       "operator": "regex",
-      "value": "16[0-9]{2}|0x80070[0-9a-fA-F]+|lpExitCode|unmapped.*exit",
+      "value": "\\b(1601|1602|1603|1618|1619|1620|1622|1624|1625|1633|1638|1653)\\b|0x80070[0-9a-fA-F]+|lpExitCode|unmapped.*exit",
       "required": true,
       "suppressByEvent": {
         "eventType": "app_install_completed",

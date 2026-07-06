@@ -2,9 +2,10 @@
   "$schema": "../schema/analyze-rule.schema.json",
   "ruleId": "ANALYZE-CORR-003",
   "title": "Proxy Configuration Causing Download Failure",
-  "description": "Correlates an active proxy configuration with app download failures, suggesting the proxy is blocking or throttling Intune content delivery.",
+  "description": "Correlates an active proxy configuration with app content download failures (Delivery Optimization timeout or download error), suggesting the proxy is blocking or throttling Intune content delivery.",
   "severity": "high",
   "category": "apps",
+  "version": "1.1.0",
   "enabled": true,
   "trigger": "correlation",
   "baseConfidence": 60,
@@ -19,21 +20,21 @@
       "required": true
     },
     {
-      "signal": "app_failed",
+      "signal": "download_failure",
       "source": "event_type",
       "eventType": "app_install_failed",
-      "operator": "exists",
-      "value": "",
+      "dataField": "errorPatternId",
+      "operator": "regex",
+      "value": "IME-DO-TIMEOUT|IME-ERROR-DOWNLOAD|IME-ERROR-NO-CONTENT",
       "required": true
     }
   ],
   "confidenceFactors": [
-    { "signal": "download_timeout", "condition": "exists", "weight": 20 },
-    { "signal": "multiple_failures", "condition": "count >= 2", "weight": 15 },
-    { "signal": "enrollment_failed", "condition": "exists", "weight": 10 }
+    { "signal": "app_install_failed", "condition": "count >= 2", "weight": 15 },
+    { "signal": "enrollment_failed", "condition": "count >= 1", "weight": 10 }
   ],
   "confidenceThreshold": 50,
-  "explanation": "A proxy (explicit or PAC-based) is configured on this device and app installations failed. Proxies can block or throttle downloads from *.delivery.mp.microsoft.com and other Intune CDN endpoints.\n\nThis is a common root cause when apps fail consistently on proxy-connected corporate networks.",
+  "explanation": "A proxy (explicit or PAC-based) is configured on this device and app content downloads failed (Delivery Optimization timeout or download content error). Proxies can block or throttle downloads from *.delivery.mp.microsoft.com and other Intune CDN endpoints.\n\nThis is a common root cause when app downloads fail consistently on proxy-connected corporate networks. Note this rule only fires when the failure is download-related — generic app install errors behind a proxy do not trigger it.",
   "remediation": [
     {
       "title": "Verify proxy bypass for Intune endpoints",

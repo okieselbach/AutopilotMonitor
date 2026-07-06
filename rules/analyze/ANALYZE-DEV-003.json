@@ -1,22 +1,14 @@
 {
   "$schema": "../schema/analyze-rule.schema.json",
   "ruleId": "ANALYZE-DEV-003",
-  "title": "Unsupported Windows 11 Version",
-  "description": "Detects devices running Windows 11 version 22H2 or older, which is no longer supported by Microsoft.",
+  "title": "Unsupported Windows Version",
+  "description": "Detects devices enrolling with an OS build that has reached end of support: Windows 11 22H2 (build 22621) or older, which includes every Windows 10 build. Maintenance note: raise the build cutoff to 22631 after Windows 11 23H2 reaches end of support on 2026-11-10.",
   "severity": "warning",
   "category": "device",
+  "version": "2.0.0",
   "enabled": true,
   "baseConfidence": 90,
   "conditions": [
-    {
-      "signal": "windows_11",
-      "source": "event_type",
-      "eventType": "os_info",
-      "dataField": "osVersion",
-      "operator": "contains",
-      "value": "Windows 11",
-      "required": true
-    },
     {
       "signal": "old_build",
       "source": "event_data",
@@ -25,11 +17,20 @@
       "operator": "lte",
       "value": "22621",
       "required": true
+    },
+    {
+      "signal": "os_version",
+      "source": "event_type",
+      "eventType": "os_info",
+      "dataField": "osVersion",
+      "operator": "exists",
+      "value": "",
+      "required": false
     }
   ],
   "confidenceFactors": [],
   "confidenceThreshold": 40,
-  "explanation": "This device is running Windows 11 version 22H2 (Build 22621) or older, which has reached end of support. Microsoft no longer provides security updates or bug fixes for this version. Devices running unsupported OS versions are exposed to known vulnerabilities and may fail compliance checks.",
+  "explanation": "This device is running an OS build that has reached end of support:\n\n- **OS:** `{{osVersion}}`\n- **Build:** `{{currentBuild}}`\n\nBuilds up to 22621 cover Windows 11 22H2 and older as well as every Windows 10 release — Microsoft no longer provides security updates or bug fixes for these versions (exception: LTSC/IoT LTSC editions follow their own lifecycle; verify the edition if this device is LTSC). Devices running unsupported OS versions are exposed to known vulnerabilities and may fail compliance checks.",
   "remediation": [
     {
       "title": "Update to a supported Windows 11 version",
@@ -47,9 +48,9 @@
       "url": "https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information"
     },
     {
-      "title": "Windows 11 22H2 end of support",
+      "title": "Windows lifecycle (Home and Pro)",
       "url": "https://learn.microsoft.com/en-us/lifecycle/products/windows-11-home-and-pro"
     }
   ],
-  "tags": ["device", "os-version", "end-of-support", "windows-11"]
+  "tags": ["device", "os-version", "end-of-support", "windows-11", "windows-10"]
 }
