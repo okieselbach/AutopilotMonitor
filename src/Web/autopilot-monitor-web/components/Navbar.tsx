@@ -159,16 +159,10 @@ export default function Navbar() {
           <div className="flex justify-between h-14">
             <div className="flex items-center">
               <Link href="/progress" className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
-                  <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none">
-                    <rect x="5.0" y="12.2" width="2.8" height="7.8" rx="0.9" fill="currentColor" />
-                    <rect x="10.6" y="10.9" width="2.8" height="9.1" rx="0.9" fill="currentColor" />
-                    <rect x="16.2" y="8.6" width="2.8" height="11.4" rx="0.9" fill="currentColor" />
-                    <path d="M4.4 8.9L8.6 6.8L12.0 7.4L15.4 5.5L18.8 4.9" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
-                    <path d="M17.8 4.2L19.1 4.9L17.9 5.9" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </div>
-                <span className="text-lg font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                <svg className="w-7 h-7" viewBox="0 0 209 191" fill="none">
+                  <path d="M0 180.201L208.401 190.502L188.157 76.2438L5.48363e-06 0L0 180.201Z" fill="#33B161" />
+                </svg>
+                <span className="text-lg font-bold text-gray-600 dark:text-gray-400">
                   <span className="hidden md:inline">AutopilotMonitor</span>
                   <span className="md:hidden">AP Monitor</span>
                 </span>
@@ -221,16 +215,10 @@ export default function Navbar() {
           {/* Logo and Title */}
           <div className="flex items-center">
             <Link href="/" className="flex items-center space-x-2.5">
-              <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
-                <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none">
-                  <rect x="5.0" y="12.2" width="2.8" height="7.8" rx="0.9" fill="currentColor" />
-                  <rect x="10.6" y="10.9" width="2.8" height="9.1" rx="0.9" fill="currentColor" />
-                  <rect x="16.2" y="8.6" width="2.8" height="11.4" rx="0.9" fill="currentColor" />
-                  <path d="M4.4 8.9L8.6 6.8L12.0 7.4L15.4 5.5L18.8 4.9" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M17.8 4.2L19.1 4.9L17.9 5.9" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </div>
-              <span className="text-lg font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+              <svg className="w-7 h-7" viewBox="0 0 209 191" fill="none">
+                <path d="M0 180.201L208.401 190.502L188.157 76.2438L5.48363e-06 0L0 180.201Z" fill="#33B161" />
+              </svg>
+              <span className="text-lg font-bold text-gray-600 dark:text-gray-400">
                 <span className="hidden lg:inline">AutopilotMonitor</span>
                 <span className="hidden md:inline lg:hidden">AP Monitor</span>
                 <span className="md:hidden">AP Mon</span>
