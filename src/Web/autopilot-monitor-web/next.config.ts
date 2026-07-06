@@ -51,6 +51,17 @@ const nextConfig: NextConfig = {
       { source: "/roadmap", destination: "/", permanent: false },
     ];
   },
+  async rewrites() {
+    // Dev-only reverse proxy: with DEV_API_PROXY_TARGET set in .env.local,
+    // /api/* is forwarded server-side through the Next dev server to the
+    // deployed backend. The browser stays same-origin, so the prod Function
+    // App needs no localhost CORS entry. Inactive in production builds.
+    const target = process.env.DEV_API_PROXY_TARGET;
+    if (process.env.NODE_ENV !== "development" || !target) {
+      return [];
+    }
+    return [{ source: "/api/:path*", destination: `${target}/api/:path*` }];
+  },
   async headers() {
     return [
       {
@@ -64,7 +75,9 @@ const nextConfig: NextConfig = {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline'",
+              // Dev-only: next dev serves HMR/react-refresh chunks through eval();
+              // production stays strict without 'unsafe-eval'.
+              `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""}`,
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https://*.tile.openstreetmap.org",
               "font-src 'self'",

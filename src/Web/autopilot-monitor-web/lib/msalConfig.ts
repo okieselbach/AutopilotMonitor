@@ -79,13 +79,17 @@ export const loginRequest: RedirectRequest = {
  * Scopes for accessing the backend API
  * IMPORTANT: Backend API must be exposed in Azure AD App Registration with this scope
  * Format: api://<backend-client-id>/access_as_user
- * For testing, you can also use User.Read but disable signature validation in backend
+ *
+ * NEXT_PUBLIC_ENTRA_API_CLIENT_ID lets local dev sign in with the dev app
+ * registration while requesting a token whose audience is the prod API app
+ * (the deployed backend only accepts its own audience). Unset in production,
+ * where one app registration serves as both SPA client and API.
  */
+const apiAppId =
+  process.env.NEXT_PUBLIC_ENTRA_API_CLIENT_ID || process.env.NEXT_PUBLIC_ENTRA_CLIENT_ID;
+
 export const apiRequest = {
-  scopes: [
-    // Option 1 (recommended): Use backend API scope after exposing API in Azure AD
-    `api://${process.env.NEXT_PUBLIC_ENTRA_CLIENT_ID}/access_as_user`
-  ],
+  scopes: [`api://${apiAppId}/access_as_user`],
 };
 
 /**
