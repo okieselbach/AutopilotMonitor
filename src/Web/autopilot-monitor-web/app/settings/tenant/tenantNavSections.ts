@@ -1,5 +1,4 @@
 export const TENANT_NAV_SECTIONS = [
-  { id: "plan", label: "Plan", description: "Your current plan and what Enterprise adds" },
   { id: "access-management", label: "Access Management", description: "Manage tenant admins and operators" },
   { id: "autopilot", label: "Autopilot Validation", description: "Autopilot device and corporate identifier validation" },
   { id: "hardware-whitelist", label: "Hardware Whitelist", description: "Manufacturer and model whitelist configuration" },
@@ -7,6 +6,7 @@ export const TENANT_NAV_SECTIONS = [
   { id: "sla-targets", label: "SLA Targets", description: "SLA targets and breach notification settings" },
   { id: "bootstrap-sessions", label: "Bootstrap Sessions", description: "Create and manage bootstrap tokens" },
   { id: "graph-permissions", label: "Optional Graph capabilities", description: "Grant additional Microsoft Graph permissions for optional features" },
+  { id: "plan", label: "Plan", description: "Your current plan and what Enterprise adds" },
   { id: "support", label: "Submit Logs", description: "Send diagnostic files to the Autopilot Monitor team" },
 ] as const;
 
