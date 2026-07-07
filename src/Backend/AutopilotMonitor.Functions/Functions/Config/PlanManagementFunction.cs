@@ -156,7 +156,10 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 if (changes.Count > 0)
                 {
                     config.UpdatedBy = caller;
-                    await SaveInvalidatingOnFailureAsync(config);
+                    // Fail-loud: SaveConfigurationAsync throws when the write did not persist (and
+                    // invalidates the cached — possibly mutated — instance in its finally), so a
+                    // failed save can never be audited or returned as 200.
+                    await _configService.SaveConfigurationAsync(config);
 
                     await _maintenanceRepo.LogAuditEntryAsync(
                         requestCtx.TargetTenantId,
@@ -243,7 +246,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 config.TrialGrantedBy = caller;
                 config.UpdatedBy = caller;
 
-                await SaveInvalidatingOnFailureAsync(config);
+                // Fail-loud: throws when the write did not persist (cache invalidated in finally).
+                await _configService.SaveConfigurationAsync(config);
 
                 await _maintenanceRepo.LogAuditEntryAsync(
                     requestCtx.TargetTenantId,
@@ -343,24 +347,6 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
                 await errorResponse.WriteAsJsonAsync(new { error = "Internal server error" });
                 return errorResponse;
-            }
-        }
-
-        /// <summary>
-        /// Saves via the service (which invalidates the cache on success). Because the mutated
-        /// instance IS the cached instance, a failed save would otherwise leave the cache holding
-        /// unsaved mutations for up to 5 minutes — invalidate before rethrowing.
-        /// </summary>
-        private async Task SaveInvalidatingOnFailureAsync(AutopilotMonitor.Shared.Models.TenantConfiguration config)
-        {
-            try
-            {
-                await _configService.SaveConfigurationAsync(config);
-            }
-            catch
-            {
-                _configService.InvalidateCache(config.TenantId);
-                throw;
             }
         }
 

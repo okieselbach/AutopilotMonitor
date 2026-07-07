@@ -100,4 +100,57 @@ public sealed class TenantConfigurationServiceReadSemanticsTests
         Assert.True(exists);
         Assert.Equal(TenantId, config.TenantId);
     }
+
+    // ── Save semantics (Codex finding 2026-07-07): the repository swallows storage exceptions
+    //    and reports failure via its bool return — the service must THROW on false so callers
+    //    (plan/trial endpoints, config PUT) can never audit + 200 a write that never persisted.
+
+    [Fact]
+    public async Task SaveConfigurationAsync_RepoReportsFalse_Throws()
+    {
+        var (service, repo) = Build();
+        repo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()))
+            .ReturnsAsync(false);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.SaveConfigurationAsync(new TenantConfiguration { TenantId = TenantId, UpdatedBy = "alice@contoso.com" }));
+    }
+
+    [Fact]
+    public async Task SaveConfigurationAsync_FailedSave_InvalidatesCachedInstance()
+    {
+        // The plan/trial endpoints mutate the CACHED instance in place before saving. A failed
+        // save must drop that instance from the cache — otherwise the unsaved mutation is served
+        // as if persisted for up to 5 minutes.
+        var (service, repo) = Build();
+        var stored = new TenantConfiguration { TenantId = TenantId, PlanTier = "free", UpdatedBy = "x" };
+        repo.Setup(r => r.GetTenantConfigurationAsync(TenantId)).ReturnsAsync(stored);
+        repo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()))
+            .ReturnsAsync(false);
+
+        var cached = await service.GetConfigurationIfExistsAsync(TenantId);
+        cached!.PlanTier = "enterprise"; // in-place mutation, as the plan endpoint does
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.SaveConfigurationAsync(cached));
+
+        // Next read must go back to storage (cache dropped), not serve the mutated instance.
+        await service.GetConfigurationIfExistsAsync(TenantId);
+        repo.Verify(r => r.GetTenantConfigurationAsync(TenantId), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task SaveConfigurationAsync_Success_InvalidatesCache()
+    {
+        var (service, repo) = Build();
+        repo.Setup(r => r.GetTenantConfigurationAsync(TenantId))
+            .ReturnsAsync(new TenantConfiguration { TenantId = TenantId, UpdatedBy = "x" });
+        repo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()))
+            .ReturnsAsync(true);
+
+        await service.GetConfigurationIfExistsAsync(TenantId); // prime cache
+        await service.SaveConfigurationAsync(new TenantConfiguration { TenantId = TenantId, UpdatedBy = "x" });
+        await service.GetConfigurationIfExistsAsync(TenantId); // must re-read after save
+
+        repo.Verify(r => r.GetTenantConfigurationAsync(TenantId), Times.Exactly(2));
+    }
 }

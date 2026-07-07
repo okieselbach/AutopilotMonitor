@@ -19,7 +19,7 @@ namespace AutopilotMonitor.Shared.Models.Config
 
             try
             {
-                return JsonSerializer.Deserialize<List<PlanTierDefinition>>(json, Options)
+                return JsonSerializer.Deserialize<List<PlanTierDefinition>>(json!, Options)
                        ?? new List<PlanTierDefinition>();
             }
             catch

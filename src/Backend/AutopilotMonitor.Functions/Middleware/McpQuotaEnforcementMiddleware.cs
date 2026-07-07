@@ -2,6 +2,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Extensions;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.DataAccess;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Middleware;
@@ -13,7 +14,14 @@ namespace AutopilotMonitor.Functions.Middleware;
 /// Enforces the per-user MCP daily/monthly request quota. Runs after
 /// <see cref="UserRateLimitMiddleware"/> (per-minute burst control) — this is the budget layer on
 /// top. Applies ONLY to HTTP requests marked <c>X-Client-Source: mcp</c> with an authenticated
-/// principal (oid); everything else passes through untouched. Global Admins are exempt.
+/// principal (oid); everything else passes through untouched. Global Admins are exempt from the
+/// quota (but their usage is still tracked for the metrics surface).
+///
+/// This middleware also OWNS the usage-counter increment (moved here from AuthenticationMiddleware,
+/// Codex finding 2026-07-07): strictly check-then-increment, and only for requests that are
+/// actually served — the request that hits the limit is deterministic (requests 1..limit pass,
+/// limit+1 blocks) and denied requests (403 upstream, 429 here) no longer inflate the counters.
+/// The increment itself stays fire-and-forget (never blocks the request path).
 ///
 /// Over-quota requests get 429 with a structured body, <c>Retry-After</c>, and
 /// <c>X-MCP-Quota-*</c> headers; allowed MCP requests get the quota headers too so the MCP
@@ -23,13 +31,16 @@ namespace AutopilotMonitor.Functions.Middleware;
 public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
 {
     private readonly McpQuotaService _quotaService;
+    private readonly IUserUsageRepository _userUsageRepo;
     private readonly ILogger<McpQuotaEnforcementMiddleware> _logger;
 
     public McpQuotaEnforcementMiddleware(
         McpQuotaService quotaService,
+        IUserUsageRepository userUsageRepo,
         ILogger<McpQuotaEnforcementMiddleware> logger)
     {
         _quotaService = quotaService;
+        _userUsageRepo = userUsageRepo;
         _logger = logger;
     }
 
@@ -52,17 +63,21 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
 
         var principal = context.GetUser();
         var oid = principal?.GetObjectId();
-        if (string.IsNullOrEmpty(oid))
+        if (principal == null || string.IsNullOrEmpty(oid))
         {
             // Unauthenticated MCP probe — auth middleware / policy enforcement handle rejection.
             await next(context);
             return;
         }
 
-        // GA exempt: platform operators are not customers of the quota.
+        var upn = principal.GetUserPrincipalName();
+        var tenantId = principal.GetTenantId();
+
+        // GA exempt from the QUOTA — but their usage is still tracked (metrics surface).
         var requestContext = context.GetRequestContext();
         if (requestContext.IsGlobalAdmin)
         {
+            TrackUsage(httpContext, oid, upn, tenantId);
             await next(context);
             return;
         }
@@ -70,14 +85,13 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
         McpQuotaDecision decision;
         try
         {
-            var upn = principal!.GetUserPrincipalName();
-            var tenantId = principal.GetTenantId();
             decision = await _quotaService.CheckAsync(oid, upn, tenantId);
         }
         catch (Exception ex)
         {
             // Belt-and-braces fail-open: the quota layer must never take MCP down.
             _logger.LogError(ex, "[McpQuota] Quota check threw for oid={Oid} — allowing request (fail-open)", oid);
+            TrackUsage(httpContext, oid, upn, tenantId);
             await next(context);
             return;
         }
@@ -86,6 +100,8 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
 
         if (decision.Allowed)
         {
+            // Check-then-increment: the decision above reflects previously SERVED requests only.
+            TrackUsage(httpContext, oid, upn, tenantId);
             await next(context);
             return;
         }
@@ -107,6 +123,35 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
             used = decision.Scope == "monthly" ? decision.MonthlyUsed : decision.DailyUsed,
             resetUtc = decision.ResetUtc.ToString("yyyy-MM-ddTHH:mm:ssZ"),
             message = $"MCP {decision.Scope} request quota exceeded for plan '{decision.Plan}'. Resets at {decision.ResetUtc:yyyy-MM-ddTHH:mm:ss}Z."
+        });
+    }
+
+    /// <summary>
+    /// Fire-and-forget usage increment (same posture as the previous AuthenticationMiddleware
+    /// tracking — never blocks or fails the request path). Endpoint is normalized and prefixed
+    /// with the X-MCP-Tool-Name when the MCP server supplies it.
+    /// </summary>
+    private void TrackUsage(HttpContext httpContext, string oid, string? upn, string? tenantId)
+    {
+        var normalizedEndpoint = EndpointNormalizer.Normalize(httpContext.Request.Path.Value ?? string.Empty);
+        var mcpToolName = httpContext.Request.Headers["X-MCP-Tool-Name"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(mcpToolName))
+            normalizedEndpoint = $"{mcpToolName}:{normalizedEndpoint}";
+
+        var repo = _userUsageRepo;
+        var logger = _logger;
+        var upnValue = upn ?? "unknown";
+        var tidValue = tenantId ?? "";
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await repo.IncrementUsageAsync(oid, upnValue, tidValue, normalizedEndpoint);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "[McpQuota] Failed to record usage: user={UserId}, endpoint={Endpoint}", oid, normalizedEndpoint);
+            }
         });
     }
 
