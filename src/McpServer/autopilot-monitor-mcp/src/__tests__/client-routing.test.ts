@@ -18,6 +18,7 @@ import {
   hasCrossTenantRouting,
   isDelegated,
   getDelegatedTenantIds,
+  getHomeTenantId,
   enforceDelegatedTenant,
   enforceDelegatedTenantForPage,
   getCurrentToken,
@@ -148,6 +149,72 @@ describe('delegated (MSP) routing + tenant enforcement', () => {
       expect(isDelegated()).toBe(false);
       expect(hasCrossTenantRouting()).toBe(false);
       expect(pickGlobalOrTenantPath(GLOBAL, TENANT)).toBe(TENANT);
+    });
+  });
+});
+
+describe('delegated (MSP) home-tenant access — member of own tenant + delegated elsewhere', () => {
+  const MANAGED = 'aaaa-1111';
+  const HOME = 'home-9999';
+
+  it('exposes the home tenant via getHomeTenantId (lowercased at the guard)', () => {
+    runWithCaller({ token: 'msp', isGlobalAdmin: false, delegatedTenantIds: [MANAGED], homeTenantId: HOME }, () => {
+      expect(getHomeTenantId()).toBe(HOME);
+      expect(getDelegatedTenantIds()).toEqual([MANAGED]); // home is NOT part of the managed set
+    });
+  });
+
+  it('enforceDelegatedTenant accepts the home tenant in addition to the managed set', () => {
+    runWithCaller({ token: 'msp', isGlobalAdmin: false, delegatedTenantIds: [MANAGED], homeTenantId: HOME }, () => {
+      expect(enforceDelegatedTenant(HOME)).toBe(HOME);
+      expect(enforceDelegatedTenant('HOME-9999')).toBe(HOME); // case-insensitive
+      expect(enforceDelegatedTenant(MANAGED)).toBe(MANAGED);  // managed still works
+    });
+  });
+
+  it('routes a delegated caller reading their HOME tenant to the tenant (member) path', () => {
+    runWithCaller({ token: 'msp', isGlobalAdmin: false, delegatedTenantIds: [MANAGED], homeTenantId: HOME }, () => {
+      // Home tenant → member path (the /api/global/* drill is bounded to the managed set → empty).
+      expect(pickGlobalOrTenantPath(GLOBAL, TENANT, HOME)).toBe(TENANT);
+      // Managed tenant → cross-tenant global path.
+      expect(pickGlobalOrTenantPath(GLOBAL, TENANT, MANAGED)).toBe(GLOBAL);
+      // No effective tenant passed → default cross-tenant routing (unchanged).
+      expect(pickGlobalOrTenantPath(GLOBAL, TENANT)).toBe(GLOBAL);
+    });
+  });
+
+  it('still throws for a tenant that is neither managed nor the home tenant', () => {
+    runWithCaller({ token: 'msp', isGlobalAdmin: false, delegatedTenantIds: [MANAGED], homeTenantId: HOME }, () => {
+      expect(() => enforceDelegatedTenant('cccc-3333')).toThrow(/Not authorized for tenant/);
+    });
+  });
+
+  it('paginates a home-tenant search: a non-global tenant-path nextLink resolves to home (re-selects the tenant path)', () => {
+    runWithCaller({ token: 'msp', isGlobalAdmin: false, delegatedTenantIds: [MANAGED], homeTenantId: HOME }, () => {
+      // Page 2 of a home-tenant search: the backend nextLink is JWT-bound (no tenantId), path is /api/* not /api/global/*.
+      const homeNextLink = '/api/search/sessions?continuation=abc&pageSize=200';
+      const resolved = enforceDelegatedTenantForPage(undefined, homeNextLink);
+      expect(resolved).toBe(HOME);
+      expect(pickGlobalOrTenantPath(GLOBAL, TENANT, resolved)).toBe(TENANT);
+      // A managed-tenant page-2 (global nextLink carrying tenantId) still routes cross-tenant.
+      const managedNextLink = `/api/global/search/sessions?continuation=abc&tenantId=${MANAGED}`;
+      const resolvedManaged = enforceDelegatedTenantForPage(undefined, managedNextLink);
+      expect(resolvedManaged).toBe(MANAGED);
+      expect(pickGlobalOrTenantPath(GLOBAL, TENANT, resolvedManaged)).toBe(GLOBAL);
+    });
+  });
+
+  it('a hand-crafted non-global continuation embedding a foreign tenantId is still rejected (defense in depth)', () => {
+    runWithCaller({ token: 'msp', isGlobalAdmin: false, delegatedTenantIds: [MANAGED], homeTenantId: HOME }, () => {
+      expect(() => enforceDelegatedTenantForPage(undefined, '/api/raw/events?tenantId=cccc-3333')).toThrow(/Not authorized/);
+    });
+  });
+
+  it('without a home tenant in context, the old strict behavior holds (no phantom home access)', () => {
+    runWithCaller({ token: 'msp', isGlobalAdmin: false, delegatedTenantIds: [MANAGED] }, () => {
+      expect(getHomeTenantId()).toBeUndefined();
+      expect(() => enforceDelegatedTenant(HOME)).toThrow(/Not authorized for tenant/);
+      expect(pickGlobalOrTenantPath(GLOBAL, TENANT, HOME)).toBe(GLOBAL); // no home carve-out
     });
   });
 });

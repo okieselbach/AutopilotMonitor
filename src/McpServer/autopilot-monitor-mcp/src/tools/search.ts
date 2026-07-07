@@ -426,7 +426,7 @@ async function fetchSessionEvents(
       // is reserved for the genuine "no keyword maps to any event type" case below.)
       const candidates = ordered.slice(0, MAX_EVENT_TYPE_CANDIDATES);
       const candidatesDropped = ordered.length > candidates.length;
-      const basePath = pickGlobalOrTenantPath('/api/global/raw/events', '/api/raw/events');
+      const basePath = pickGlobalOrTenantPath('/api/global/raw/events', '/api/raw/events', tenantId);
       const { events, truncated, anySucceeded } = await fetchEventsViaIndex(candidates, basePath, tenantId, budget);
       if (anySucceeded) {
         // No event appears in more than one single-type walk, so the only
@@ -444,7 +444,7 @@ async function fetchSessionEvents(
   const searchParams: Record<string, string | number | undefined> = { status: 'Failed', pageSize: LEGACY_FALLBACK_SESSION_CAP };
   if (tenantId) searchParams.tenantId = tenantId;
   const searchQ = buildQuery(searchParams);
-  const searchBase = pickGlobalOrTenantPath('/api/global/search/sessions', '/api/search/sessions');
+  const searchBase = pickGlobalOrTenantPath('/api/global/search/sessions', '/api/search/sessions', tenantId);
   const sessions = await apiFetch(`${searchBase}${searchQ}`) as {
     sessions?: Array<{ sessionId?: string }>;
   };

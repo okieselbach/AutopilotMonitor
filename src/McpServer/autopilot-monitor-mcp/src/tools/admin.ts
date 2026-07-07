@@ -244,7 +244,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         const tenantId = enforceDelegatedTenant(rawTenantId);
         const params: Record<string, string | number | undefined> = { ...rest };
         if (tenantId) params.tenantId = tenantId;
-        const prefix = pickGlobalOrTenantPath('/api/global/metrics', '/api/metrics');
+        const prefix = pickGlobalOrTenantPath('/api/global/metrics', '/api/metrics', tenantId);
         const data = await apiFetch(`${prefix}/geographic${buildQuery(params)}`);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
@@ -294,7 +294,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           ...buildGeoLocationParams({ locationKey, country, region, city }),
         };
         if (tenantId) params.tenantId = tenantId;
-        const prefix = pickGlobalOrTenantPath('/api/global/metrics', '/api/metrics');
+        const prefix = pickGlobalOrTenantPath('/api/global/metrics', '/api/metrics', tenantId);
         const data = await apiFetch(`${prefix}/geographic/sessions${buildQuery(params)}`) as
           { success?: boolean; sessions?: unknown[]; totalCount?: number };
 
@@ -448,7 +448,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         // GA → /api/global/metrics/usage (tenantId is a filter); Tenant-Admin → /api/metrics/usage
         // (JWT-scoped; tenantId ignored). Routing by role unlocks the MemberRead tenant endpoint
         // for non-GA callers instead of a blanket 403.
-        const path = pickGlobalOrTenantPath('/api/global/metrics/usage', '/api/metrics/usage');
+        const path = pickGlobalOrTenantPath('/api/global/metrics/usage', '/api/metrics/usage', tenantId);
         const data = await apiFetch(`${path}${buildQuery({ tenantId, days })}`);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
@@ -540,7 +540,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       try {
         const { tenantId: rawTenantId, dateFrom, dateTo, action, performedBy, entityType, entityId, pageSize, continuation } = args;
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
-        const basePath = pickGlobalOrTenantPath('/api/global/audit/logs', '/api/audit/logs');
+        const basePath = pickGlobalOrTenantPath('/api/global/audit/logs', '/api/audit/logs', tenantId);
         const path = followNextLink(
           basePath,
           { tenantId, dateFrom, dateTo, action, performedBy, entityType, entityId, pageSize },
@@ -686,7 +686,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         const { tenantId: rawTenantId, sessionId, eventType, severity, source, startedAfter, startedBefore, fields, pageSize, continuation } = args;
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         if (eventType) assertKnownEventType(eventType);
-        const basePath = pickGlobalOrTenantPath('/api/global/raw/events', '/api/raw/events');
+        const basePath = pickGlobalOrTenantPath('/api/global/raw/events', '/api/raw/events', tenantId);
         const path = followNextLink(
           basePath,
           { tenantId, sessionId, eventType, severity, source, startedAfter, startedBefore, fields, pageSize },
@@ -755,7 +755,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           imeAgentVersion, imeAgentVersionPrefix, manufacturer, model, enrollmentType, deviceName, osBuild,
           geoCountry, isPreProvisioned, isHybridJoin, isSelfDeployingProfile, fields, pageSize, continuation } = args;
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
-        const basePath = pickGlobalOrTenantPath('/api/global/raw/sessions', '/api/raw/sessions');
+        const basePath = pickGlobalOrTenantPath('/api/global/raw/sessions', '/api/raw/sessions', tenantId);
         const path = followNextLink(
           basePath,
           { tenantId, status, startedAfter, startedBefore, serialNumber, agentVersion, agentVersionPrefix,
@@ -917,7 +917,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           ruleType: args.ruleType,
         };
         if (tenantId) params.tenantId = tenantId;
-        const prefix = pickGlobalOrTenantPath('/api/global/metrics', '/api/metrics');
+        const prefix = pickGlobalOrTenantPath('/api/global/metrics', '/api/metrics', tenantId);
         const data = await apiFetch(`${prefix}/rule-stats${buildQuery(params)}`);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
@@ -953,7 +953,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       try {
         const { tenantId: rawTenantId, days, topN } = args;
         const tenantId = enforceDelegatedTenant(rawTenantId);
-        const prefix = pickGlobalOrTenantPath('/api/global/metrics/vulnerability', '/api/metrics/vulnerability');
+        const prefix = pickGlobalOrTenantPath('/api/global/metrics/vulnerability', '/api/metrics/vulnerability', tenantId);
         const data = await apiFetch(`${prefix}${buildQuery({ tenantId, days, topN })}`);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
@@ -995,7 +995,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         const tenantId = enforceDelegatedTenant(rawTenantId);
         // GA → /api/global/metrics/app (tenantId is a filter); Tenant-Admin → /api/metrics/app
         // (JWT-scoped; tenantId ignored).
-        const path = pickGlobalOrTenantPath('/api/global/metrics/app', '/api/metrics/app');
+        const path = pickGlobalOrTenantPath('/api/global/metrics/app', '/api/metrics/app', tenantId);
         const data = await apiFetch(`${path}${buildQuery({ tenantId, days })}`);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
@@ -1093,7 +1093,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           ));
         }
         // Endpoint returns the whole inventory in one shot, so page it client-side.
-        const path = pickGlobalOrTenantPath('/api/vulnerability/software-inventory', '/api/metrics/software-inventory');
+        const path = pickGlobalOrTenantPath('/api/vulnerability/software-inventory', '/api/metrics/software-inventory', tenantId);
         const data = await apiFetch(`${path}${buildQuery({ tenantId })}`);
         return toolResultText(paginateInventory(data, pageSize, continuation), MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {

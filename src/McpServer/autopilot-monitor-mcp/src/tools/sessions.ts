@@ -144,7 +144,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         // continuation nextLink. No-op for GA/Reader/tenant users.
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         // GA → /api/global/search/sessions (tenantId is filter); Tenant-Admin → /api/search/sessions (JWT-bound).
-        const basePath = pickGlobalOrTenantPath('/api/global/search/sessions', '/api/search/sessions');
+        const basePath = pickGlobalOrTenantPath('/api/global/search/sessions', '/api/search/sessions', tenantId);
         // followNextLink handles full nextLink paths verbatim. For first-page calls
         // we still need to layer in deviceProperties as `prop.<key>` query params,
         // which followNextLink doesn't know about — so build the param record and
@@ -202,7 +202,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         // so an empty page never carries a nextLink — no auto-exhaust needed. But validate
         // the type so a typo is a clear error rather than a silent empty result.
         assertKnownEventType(eventType);
-        const basePath = pickGlobalOrTenantPath('/api/global/search/sessions-by-event', '/api/search/sessions-by-event');
+        const basePath = pickGlobalOrTenantPath('/api/global/search/sessions-by-event', '/api/search/sessions-by-event', tenantId);
         const path = followNextLink(
           basePath,
           { eventType, tenantId, pageSize },
@@ -620,7 +620,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         const params: Record<string, string | number | undefined> = { ...rest };
         if (tenantId) params.tenantId = tenantId;
         const q = buildQuery(params);
-        const prefix = pickGlobalOrTenantPath('/api/global/metrics', '/api/metrics');
+        const prefix = pickGlobalOrTenantPath('/api/global/metrics', '/api/metrics', tenantId);
         const [summaryRes, appsRes] = await Promise.allSettled([
           apiFetch(`${prefix}/summary${q}`),
           apiFetch(`${prefix}/app${q}`),
@@ -684,7 +684,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         // Normalize to canonical upper-case form (schema accepts case-insensitive).
         const normalizedCve = cveId.toUpperCase();
-        const basePath = pickGlobalOrTenantPath('/api/global/search/sessions-by-cve', '/api/search/sessions-by-cve');
+        const basePath = pickGlobalOrTenantPath('/api/global/search/sessions-by-cve', '/api/search/sessions-by-cve', tenantId);
         const path = followNextLink(
           basePath,
           { cveId: normalizedCve, tenantId, minCvssScore, overallRisk, pageSize },

@@ -58,8 +58,9 @@ export function tenantIdDescription(ga: boolean, delegated: boolean, gaText: str
     // pages behave differently — backend-nextLink pagers re-send tenantId inside the continuation, but
     // offset-based client-side pagers (geo-offset:/inv-offset:) still need it re-passed every page. The
     // per-tool `continuation` arg description owns those mechanics; here we only state the invariant.
-    return 'REQUIRED: name one of YOUR managed tenants (delegated/MSP). There is no cross-tenant aggregate ' +
-      'and no home-tenant default — every query must target a managed tenant.';
+    return 'REQUIRED: name the tenant to query — one of YOUR managed tenants (delegated/MSP), or your own ' +
+      'home tenant if you are a member of it. There is no cross-tenant aggregate and no implicit default — ' +
+      'every query must name a specific tenant.';
   }
   return ga ? gaText : tenantText;
 }

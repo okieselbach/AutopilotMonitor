@@ -58,6 +58,17 @@ interface CallerContext {
   delegatedTenantIds?: string[];
   /** Strongest delegated role ("DelegatedAdmin" | "DelegatedReader"); informational (read-only server). */
   delegatedRole?: string;
+  /**
+   * The caller's home tenant (lowercase JWT `tid`). Set for every caller (harmless for GA / plain tenant
+   * users, who never consult it). Its purpose is the delegated (MSP) case: a delegated caller who is ALSO
+   * a member/operator of their OWN home tenant must keep reading it over MCP. That access is member-based
+   * (JWT-bound `/api/*`), NOT a delegated grant — the home tenant is not in `delegatedTenantIds` and the
+   * `/api/global/*` drill is bounded to the managed set (would return empty for it). So the home tenant is
+   * accepted by `enforceDelegatedTenant` and routed to the tenant-scoped member path by
+   * `pickGlobalOrTenantPath`. The backend is authoritative: a delegated caller who is NOT a member of their
+   * home tenant is simply denied there (MemberRead), so accepting the id here never leaks.
+   */
+  homeTenantId?: string;
 }
 
 const callerStore = new AsyncLocalStorage<CallerContext>();
@@ -115,6 +126,15 @@ export function isDelegated(): boolean {
 }
 
 /**
+ * The current caller's home tenant (lowercase JWT `tid`), or undefined when no context is active / the
+ * token carried no tid. Used by the delegated (MSP) routing helpers so a delegated admin who is also a
+ * member of their home tenant can still read it via the tenant-scoped member path.
+ */
+export function getHomeTenantId(): string | undefined {
+  return callerStore.getStore()?.homeTenantId;
+}
+
+/**
  * True when the caller may address the cross-tenant `/api/global/*` paths. That is the union of platform
  * scope (GA / read-only Global Reader, who may omit tenantId for an aggregate) and delegated scope (MSP,
  * who MUST name a managed tenant via ?tenantId=). Used ONLY for path SELECTION — NOT for catalog/secret
@@ -130,8 +150,21 @@ export function hasCrossTenantRouting(): boolean {
  * variant. The same `tenantId` query param is meaningful in both worlds — on `/api/global/*` it filters
  * (and for a delegated caller the backend rescue bounds it to the managed set); on `/api/*` it's
  * informational (backend resolves from JWT).
+ *
+ * `effectiveTenantId` (the already-`enforceDelegatedTenant`-resolved target) carves out ONE exception: a
+ * delegated (MSP) caller reading their OWN home tenant is routed to the tenant-scoped MEMBER path, because
+ * their authorization there is member/operator (JWT-bound `/api/*`), NOT a delegated grant — and the
+ * `/api/global/*` drill is bounded to the managed set, so it would return an EMPTY page for the home
+ * tenant. Omitting the arg preserves the old behavior for every non-home / non-delegated call.
  */
-export function pickGlobalOrTenantPath(globalPath: string, tenantPath: string): string {
+export function pickGlobalOrTenantPath(globalPath: string, tenantPath: string, effectiveTenantId?: string): string {
+  if (
+    isDelegated() &&
+    effectiveTenantId &&
+    effectiveTenantId.toLowerCase() === getHomeTenantId()
+  ) {
+    return tenantPath;
+  }
   return hasCrossTenantRouting() ? globalPath : tenantPath;
 }
 
@@ -147,16 +180,23 @@ export function pickGlobalOrTenantPath(globalPath: string, tenantPath: string): 
 export function enforceDelegatedTenant(tenantId?: string): string | undefined {
   if (!isDelegated()) return tenantId;
   const allowed = getDelegatedTenantIds()!; // non-empty when isDelegated()
+  // The caller's own home tenant is an ADDITIONAL valid target: a delegated admin who is also a member of
+  // their home tenant reads it via the member path (see pickGlobalOrTenantPath). It is deliberately NOT in
+  // the managed set (that is other tenants they administer). Accepting it here is safe even for a delegated
+  // caller who is NOT a member — the backend's MemberRead denies them on the tenant path, so no leak.
+  const home = getHomeTenantId();
   const t = (tenantId ?? '').toLowerCase();
   if (!t) {
     throw new Error(
-      'tenantId is required: as a delegated (MSP) user you must name one of your managed tenants. ' +
-      `Managed tenants: ${allowed.join(', ')}`,
+      'tenantId is required: as a delegated (MSP) user you must name the tenant to query. ' +
+      `Managed tenants: ${allowed.join(', ')}` +
+      (home ? `; or your own home tenant: ${home}.` : '.'),
     );
   }
-  if (!allowed.includes(t)) {
+  if (!allowed.includes(t) && t !== home) {
     throw new Error(
-      `Not authorized for tenant ${tenantId}. Your managed tenants: ${allowed.join(', ')}`,
+      `Not authorized for tenant ${tenantId}. Your managed tenants: ${allowed.join(', ')}` +
+      (home ? ` (or your own home tenant ${home}).` : '.'),
     );
   }
   return t;
@@ -185,7 +225,17 @@ function tenantIdFromNextLink(continuation?: string): string | undefined {
  */
 export function enforceDelegatedTenantForPage(tenantId?: string, continuation?: string): string | undefined {
   if (!isDelegated()) return tenantId;
-  return enforceDelegatedTenant(tenantIdFromNextLink(continuation) ?? tenantId);
+  const linkTenant = tenantIdFromNextLink(continuation);
+  // A follow-up page whose continuation is a full backend nextLink to a TENANT-scoped (non-global) path
+  // with NO embedded tenantId is inherently JWT-bound — it can only ever serve the caller's own home
+  // tenant (page 1 already routed there via pickGlobalOrTenantPath). Resolve it TO the home tenant so the
+  // follow-up page re-selects the same tenant path (matching page 1) without a managed-tenant check. A
+  // hand-crafted continuation that DOES embed a tenantId still flows through enforceDelegatedTenant below,
+  // so the defense-in-depth validation is preserved.
+  if (continuation?.startsWith('/api/') && !continuation.startsWith('/api/global/') && !linkTenant) {
+    return getHomeTenantId() ?? tenantId;
+  }
+  return enforceDelegatedTenant(linkTenant ?? tenantId);
 }
 
 /**

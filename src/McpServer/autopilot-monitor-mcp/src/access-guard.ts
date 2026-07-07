@@ -492,6 +492,10 @@ export function accessGuard(req: Request, res: Response, next: NextFunction): vo
           isGlobalReader: result.isGlobalReader,
           delegatedTenantIds: result.delegatedTenantIds,
           delegatedRole: result.delegatedRole,
+          // Home tenant from the JWT `tid` (lowercased). Lets a delegated (MSP) admin who is also a member
+          // of their own home tenant keep reading it via the tenant-scoped member path — see client.ts
+          // enforceDelegatedTenant / pickGlobalOrTenantPath. Harmless for GA / plain tenant callers.
+          homeTenantId: claims.tid?.toLowerCase(),
         },
         () => next(),
       );

@@ -16,7 +16,7 @@ import { validatePrecomputedIndex } from './precomputed-index.js';
 import { buildEventTypeSearchDocs } from './resource-catalog.js';
 import { createOAuthRouter } from './oauth.js';
 import { accessGuard } from './access-guard.js';
-import { hasGlobalScope, isGlobalAdmin, isDelegated, getDelegatedTenantIds } from './client.js';
+import { hasGlobalScope, isGlobalAdmin, isDelegated, getDelegatedTenantIds, getHomeTenantId } from './client.js';
 import { API_BASE_URL } from './config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -137,15 +137,17 @@ console.error(`Event-type index ready: ${eventTypeIndex.name} — ${eventTypeInd
 // Reader) sees the cross-tenant scope hint. A normal tenant user gets
 // instructions with no mention of cross-tenant capability at all — the surface
 // is scoped to what they can actually do.
-function buildInstructions(ga: boolean, delegated: boolean, managedTenants: string[]): string {
+function buildInstructions(ga: boolean, delegated: boolean, managedTenants: string[], homeTenantId?: string): string {
   // Delegated (MSP) callers get a tenant-bounded surface: cross-tenant ROUTING, but every query MUST name
-  // one of their managed tenants — no platform aggregate. Spell that out once here (the host surfaces it
-  // per connection) so the model passes tenantId up front instead of discovering it via a tool error.
+  // a tenant — no platform aggregate. Spell that out once here (the host surfaces it per connection) so the
+  // model passes tenantId up front instead of discovering it via a tool error. A delegated admin who is
+  // also a member of their own home tenant may name it too (routed to the member path), so surface it.
   const scopeLine = ga
     ? 'Scope: omit tenantId for cross-tenant queries (platform scope); pass tenantId to scope to one tenant.'
     : delegated
-      ? 'Scope: you are a delegated (MSP) administrator. Every query MUST name one of your managed tenants via ' +
-        `tenantId — there is no cross-tenant aggregate. Your managed tenants: ${managedTenants.join(', ')}.`
+      ? 'Scope: you are a delegated (MSP) administrator. Every query MUST name a tenant via tenantId — there ' +
+        `is no cross-tenant aggregate. Your managed tenants: ${managedTenants.join(', ')}.` +
+        (homeTenantId ? ` If you are a member of your own home tenant (${homeTenantId}), you may query it by naming it too.` : '')
       : 'Scope: all queries are automatically limited to your tenant.';
   return [
     'Autopilot-Monitor is a READ-ONLY telemetry server for Windows Autopilot enrollment sessions.',
@@ -165,10 +167,10 @@ function buildInstructions(ga: boolean, delegated: boolean, managedTenants: stri
  * role: a non-Global-Admin never sees GA-only tools or any cross-tenant / GA
  * wording — reducing both confusion and attack surface.
  */
-function createMcpServer(ga: boolean, strictGa: boolean, delegated: boolean, managedTenants: string[]): McpServer {
+function createMcpServer(ga: boolean, strictGa: boolean, delegated: boolean, managedTenants: string[], homeTenantId?: string): McpServer {
   const s = new McpServer(
     { name: 'Autopilot-Monitor', version: SERVER_VERSION },
-    { instructions: buildInstructions(ga, delegated, managedTenants) },
+    { instructions: buildInstructions(ga, delegated, managedTenants, homeTenantId) },
   );
   registerTools(s, knowledgeBase, eventTypeIndex, ga, strictGa, delegated);
   registerResources(s);
@@ -277,7 +279,10 @@ app.all('/mcp', async (req, res) => {
   const ga = hasGlobalScope();
   const delegated = !ga && isDelegated();
   const managedTenants = delegated ? (getDelegatedTenantIds() ?? []) : [];
-  const server = createMcpServer(ga, isGlobalAdmin(), delegated, managedTenants);
+  // Home tenant is only surfaced to a delegated caller (for the "you may also query your home tenant" hint);
+  // GA / plain tenant users don't need it in their instructions.
+  const homeTenantId = delegated ? getHomeTenantId() : undefined;
+  const server = createMcpServer(ga, isGlobalAdmin(), delegated, managedTenants, homeTenantId);
 
   // Guarantee cleanup once the response is done, even on client disconnect.
   res.on('close', () => {
