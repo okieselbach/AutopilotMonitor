@@ -84,7 +84,13 @@ public class PolicyEnforcementMiddlewareTests
 
         var cache = new MemoryCache(new MemoryCacheOptions());
         var globalAdmin = new GlobalAdminService(repo.Object, cache, NullLogger<GlobalAdminService>.Instance);
-        var delegatedAdmin = new DelegatedAdminService(repo.Object, cache, NullLogger<DelegatedAdminService>.Instance);
+        // Entitlements stubbed to Enterprise — the delegated-rescue tests here pin AUTHORIZATION
+        // mechanics; the Enterprise-only edition gate is covered by DelegatedAdminEditionGateTests.
+        var delegatedAdmin = new DelegatedAdminService(
+            repo.Object,
+            new StubTenantEntitlementService(AutopilotMonitor.Functions.Security.TenantEdition.Enterprise),
+            cache,
+            NullLogger<DelegatedAdminService>.Instance);
         var tenantAdmins = new TenantAdminsService(repo.Object, cache, NullLogger<TenantAdminsService>.Instance);
         var tenantConfig = new TenantConfigurationService(
             configRepo.Object, NullLogger<TenantConfigurationService>.Instance, cache);

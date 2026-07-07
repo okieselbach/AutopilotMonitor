@@ -175,6 +175,38 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // MaxNdjsonPayloadSizeMB is table-only — always preserve existing value
                 config.MaxNdjsonPayloadSizeMB = existingConfig.MaxNdjsonPayloadSizeMB;
 
+                // Plan/trial fields are mutable ONLY via the dedicated plan/trial endpoints
+                // (PATCH config/{tenantId}/plan, POST config/{tenantId}/trial). The generic PUT
+                // deserializes the full model, so without this preserve a round-tripped stale
+                // view would silently reset the tenant's edition/trial — for ALL callers, GA included.
+                config.PlanTier = existingConfig.PlanTier;
+                config.TrialExpiresUtc = existingConfig.TrialExpiresUtc;
+                config.TrialStartedUtc = existingConfig.TrialStartedUtc;
+                config.TrialConsumed = existingConfig.TrialConsumed;
+                config.TrialGrantedBy = existingConfig.TrialGrantedBy;
+
+                // Retention cap (edition entitlement): non-GA callers may only set 7..cap days.
+                // Enforced only when the caller actually CHANGED the value, so a tenant whose
+                // stored value predates the cap (e.g. 180 on Community) can still save unrelated
+                // settings. 0 (= infinite) is a GA-only escape hatch. Edition resolves from the
+                // STORED config — the client-sent plan fields were just discarded above.
+                if (!requestCtx.IsGlobalAdmin && config.DataRetentionDays != existingConfig.DataRetentionDays)
+                {
+                    var cap = FeatureEntitlementCatalog
+                        .Get(TenantEntitlementService.ResolveEdition(existingConfig, DateTime.UtcNow))
+                        .RetentionCapDays;
+                    if (config.DataRetentionDays < 7 || config.DataRetentionDays > cap)
+                    {
+                        var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
+                        await badRequest.WriteAsJsonAsync(new
+                        {
+                            success = false,
+                            message = $"Data retention must be between 7 and {cap} days for your plan. Upgrade to Enterprise for up to 365 days."
+                        });
+                        return badRequest;
+                    }
+                }
+
                 // Save configuration
                 await _configService.SaveConfigurationAsync(config);
 

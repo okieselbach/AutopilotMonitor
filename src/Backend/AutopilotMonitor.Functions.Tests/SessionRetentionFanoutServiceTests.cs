@@ -46,8 +46,9 @@ public class SessionRetentionFanoutServiceTests
         var harness = new Harness();
         // Tenant A: 30d retention → eligible at 45d
         harness.WithTenant(TenantA, retentionDays: 30, sessions: new[] { Old("a1", 45) });
-        // Tenant B: 120d retention → 45d-old session is NOT eligible (only 200d-old is)
-        harness.WithTenant(TenantB, retentionDays: 120, sessions: new[] { Old("b1", 45), Old("b2", 200) });
+        // Tenant B: 120d retention — above the Community cap (90), so B must be Enterprise for
+        // the 120d cutoff to remain effective (Community would be clamped to 90).
+        harness.WithTenant(TenantB, retentionDays: 120, sessions: new[] { Old("b1", 45), Old("b2", 200) }, planTier: "enterprise");
 
         // The repo only returns sessions older than each cutoff. Wire each tenant's mock to honor that.
         harness.MaintenanceRepo.Setup(m => m.GetSessionsOlderThanAsync(TenantA, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<bool>()))
@@ -117,6 +118,37 @@ public class SessionRetentionFanoutServiceTests
         Assert.Equal(0, result.SessionsEnqueued);
         // GetSessionsOlderThanAsync must not have been called for that tenant.
         harness.MaintenanceRepo.Verify(m => m.GetSessionsOlderThanAsync(TenantA, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<bool>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RunAsync_clamps_community_retention_to_90_days()
+    {
+        // Edition retention cap (fail-closed backstop): a Community tenant with a stored value
+        // above the cap (e.g. legacy 180d, or a trial that expired) is enforced at 90 — the
+        // cutoff passed to storage must be ~90 days, not the stored 180.
+        var harness = new Harness();
+        harness.WithTenant(TenantA, retentionDays: 180, sessions: new[] { Old("s1", 100) });
+
+        await harness.Sut.RunAsync(CancellationToken.None);
+
+        harness.MaintenanceRepo.Verify(m => m.GetSessionsOlderThanAsync(
+            TenantA,
+            It.Is<DateTime>(d => d > DateTime.UtcNow.AddDays(-91) && d <= DateTime.UtcNow.AddDays(-89)),
+            It.IsAny<int>(), It.IsAny<bool>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RunAsync_does_not_clamp_enterprise_retention_within_365()
+    {
+        var harness = new Harness();
+        harness.WithTenant(TenantA, retentionDays: 180, sessions: new[] { Old("s1", 200) }, planTier: "enterprise");
+
+        await harness.Sut.RunAsync(CancellationToken.None);
+
+        harness.MaintenanceRepo.Verify(m => m.GetSessionsOlderThanAsync(
+            TenantA,
+            It.Is<DateTime>(d => d > DateTime.UtcNow.AddDays(-181) && d <= DateTime.UtcNow.AddDays(-179)),
+            It.IsAny<int>(), It.IsAny<bool>()), Times.Once);
     }
 
     // ────────────────────────────────────────────────────────────────────────── PR6 follow-up F2 ─
@@ -339,11 +371,11 @@ public class SessionRetentionFanoutServiceTests
                 throttle: (_, _) => Task.CompletedTask);
         }
 
-        public void WithTenant(string tenantId, int retentionDays, SessionSummary[] sessions)
+        public void WithTenant(string tenantId, int retentionDays, SessionSummary[] sessions, string planTier = "free")
         {
             _tenantIds.Add(tenantId);
             TenantConfig.Setup(t => t.GetConfigurationAsync(tenantId))
-                .ReturnsAsync(new TenantConfiguration { TenantId = tenantId, DataRetentionDays = retentionDays });
+                .ReturnsAsync(new TenantConfiguration { TenantId = tenantId, DataRetentionDays = retentionDays, PlanTier = planTier });
             MaintenanceRepo.Setup(m => m.GetSessionsOlderThanAsync(tenantId, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<bool>()))
                 .ReturnsAsync(new List<SessionSummary>(WithTenantId(tenantId, sessions)));
         }

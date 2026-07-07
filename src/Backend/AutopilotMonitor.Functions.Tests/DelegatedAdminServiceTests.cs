@@ -32,7 +32,13 @@ public class DelegatedAdminServiceTests
         repo.Setup(r => r.GetGroupAssignmentsForUpnAsync(It.IsAny<string>()))
             .ReturnsAsync(new List<TenantGroupAssignment>());
         var cache = new MemoryCache(new MemoryCacheOptions());
-        var svc = new DelegatedAdminService(repo.Object, cache, NullLogger<DelegatedAdminService>.Instance);
+        // Entitlements stubbed to Enterprise for every tenant — these tests pin ROLE resolution;
+        // the edition filter has its own dedicated tests (DelegatedAdminEditionGateTests).
+        var svc = new DelegatedAdminService(
+            repo.Object,
+            new StubTenantEntitlementService(AutopilotMonitor.Functions.Security.TenantEdition.Enterprise),
+            cache,
+            NullLogger<DelegatedAdminService>.Instance);
         return (svc, repo);
     }
 

@@ -93,10 +93,35 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>
         /// Tenant plan tier. Determines default API rate limits and feature gates.
-        /// Values: "free", "pro", "enterprise". Default: "free".
+        /// Write-side values: "community", "enterprise". Legacy stored values ("free", "pro")
+        /// remain readable and resolve to Community (fail-closed — see FeatureEntitlementCatalog).
         /// Managed by Global Admins.
         /// </summary>
         public string PlanTier { get; set; } = "free";
+
+        /// <summary>
+        /// End of the tenant's Enterprise trial (UTC). While this is in the future the tenant's
+        /// effective edition is Enterprise regardless of <see cref="PlanTier"/>. Null = no trial.
+        /// Expiry degrades the tenant to Community at read time — no timer involved.
+        /// </summary>
+        public DateTime? TrialExpiresUtc { get; set; }
+
+        /// <summary>
+        /// When the tenant's Enterprise trial was started (UTC). Informational/audit only.
+        /// </summary>
+        public DateTime? TrialStartedUtc { get; set; }
+
+        /// <summary>
+        /// Whether the tenant has used its one self-service trial. Once true, further trials can
+        /// only be granted by a Global Admin via the plan management endpoint (which does not
+        /// reset this flag).
+        /// </summary>
+        public bool TrialConsumed { get; set; }
+
+        /// <summary>
+        /// Who granted/started the trial (UPN of the self-service caller or the Global Admin).
+        /// </summary>
+        public string? TrialGrantedBy { get; set; }
 
         /// <summary>
         /// Hardware whitelist: Allowed manufacturers (supports wildcards like "Dell*")

@@ -22,6 +22,8 @@ namespace AutopilotMonitor.Functions.Helpers
             ("tenantId",          c => c.TenantId),
             ("domainName",        c => c.DomainName),
             ("planTier",          c => c.PlanTier),
+            ("trialExpiresUtc",   c => c.TrialExpiresUtc),
+            ("trialConsumed",     c => c.TrialConsumed),
             ("disabled",          c => c.Disabled),
             ("disabledReason",    c => c.DisabledReason),
             ("onboardedAt",       c => c.OnboardedAt),

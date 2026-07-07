@@ -94,10 +94,11 @@ public class AuthFunction
         // gate below). A genuine first-user still gets their config created by HandleNewTenantDomainAsync.
         var tenantConfigTask = _tenantConfigService.TryGetConfigurationAsync(tenantId);
         var globalRoleTask = _globalAdminService.GetGlobalRoleAsync(upn);
-        var delegatedScopeTask = _delegatedAdminService.GetScopeAsync(upn);
+        // tenantId = JWT tid = the caller's home tenant — gates the delegated (MSP) scope (Enterprise-only seat).
+        var delegatedScopeTask = _delegatedAdminService.GetScopeAsync(upn, tenantId);
         var isApprovedTask = _previewWhitelistService.IsApprovedAsync(tenantId);
         var membershipTask = _tenantAdminsService.GetTableMembershipAsync(tenantId, upn);
-        var mcpCheckTask = _mcpUserService.IsAllowedAsync(upn);
+        var mcpCheckTask = _mcpUserService.IsAllowedAsync(upn, tenantId);
         var existingAdminsTask = _tenantAdminsService.GetTenantAdminsAsync(tenantId);
 
         await Task.WhenAll(tenantConfigTask, globalRoleTask, delegatedScopeTask, isApprovedTask,

@@ -25,6 +25,7 @@ const validationEnabledSuffix = (t: ValidationTrigger) =>
     ? " enabled (shadow mode — does not block enrollment)."
     : " enabled. Backend agent endpoints are now unlocked for this tenant.";
 import { parseSasExpiry } from "./components/DiagnosticsSection";
+import { COMMUNITY_DEFAULT, parseEditionInfo, type EditionInfo } from "@/lib/edition";
 import { TenantConfiguration, TenantAdmin, DiagnosticsLogPath } from "./types";
 import { type BootstrapSessionItem } from "./components/BootstrapSessionsSection";
 
@@ -52,6 +53,12 @@ interface TenantConfigContextValue {
   setError: (e: string | null) => void;
   successMessage: string | null;
   setSuccessMessage: (m: string | null) => void;
+
+  // Edition / trial (read-time server resolution via feature-flags; fail-closed Community)
+  editionInfo: EditionInfo;
+  startingTrial: boolean;
+  /** Self-service 30-day Enterprise trial (once per tenant). Returns success. */
+  startTrial: () => Promise<boolean>;
 
   // Validation
   validateAutopilotDevice: boolean;
@@ -375,6 +382,10 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // Unrestricted mode
   const [unrestrictedMode, setUnrestrictedMode] = useState(false);
 
+  // Edition / trial surface (from feature-flags; fail-closed Community until loaded)
+  const [editionInfo, setEditionInfo] = useState<EditionInfo>(COMMUNITY_DEFAULT);
+  const [startingTrial, setStartingTrial] = useState(false);
+
   // -----------------------------------------------------------------------
   // Fetch configuration
   // -----------------------------------------------------------------------
@@ -398,10 +409,22 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
           const flags = await response.json();
           // Create a minimal config object with just the feature flag
           setConfig({ bootstrapTokenEnabled: flags.bootstrapTokenEnabled } as TenantConfiguration);
+          setEditionInfo(parseEditionInfo(flags));
           return;
         }
 
-        const response = await authenticatedFetch(api.config.tenant(tenantId), getAccessToken);
+        // Admin path: full config + feature flags in parallel — the edition surface is
+        // resolved SERVER-side (trial expiry math), so it comes from flags, not the raw config.
+        const [response, flagsResponse] = await Promise.all([
+          authenticatedFetch(api.config.tenant(tenantId), getAccessToken),
+          authenticatedFetch(api.config.featureFlags(tenantId), getAccessToken),
+        ]);
+
+        if (flagsResponse.ok) {
+          try {
+            setEditionInfo(parseEditionInfo(await flagsResponse.json()));
+          } catch { /* fail-closed: keep Community default */ }
+        }
 
         if (!response.ok) {
           throw new Error(`Failed to load configuration: ${response.statusText}`);
@@ -1409,12 +1432,54 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   }, [logout]);
 
   // -----------------------------------------------------------------------
+  // Self-service Enterprise trial (once per tenant — backend enforces via 409)
+  // -----------------------------------------------------------------------
+  const startTrial = useCallback(async (): Promise<boolean> => {
+    if (!tenantId) return false;
+    try {
+      setStartingTrial(true);
+      setError(null);
+
+      const response = await authenticatedFetch(api.config.trial(tenantId), getAccessToken, {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.message || data.error || `Failed to start trial: ${response.statusText}`);
+      }
+
+      // Refetch the authoritative edition surface (server-resolved).
+      const flagsResponse = await authenticatedFetch(api.config.featureFlags(tenantId), getAccessToken);
+      if (flagsResponse.ok) {
+        setEditionInfo(parseEditionInfo(await flagsResponse.json()));
+      }
+      setSuccessMessage("Enterprise trial started — all Enterprise features are now active for 30 days.");
+      setTimeout(() => setSuccessMessage(null), 5000);
+      trackEvent("EnterpriseTrialStarted", { tenantId });
+      return true;
+    } catch (err) {
+      if (err instanceof TokenExpiredError) {
+        addNotification('error', 'Session Expired', err.message, 'session-expired-error');
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to start trial");
+      }
+      return false;
+    } finally {
+      setStartingTrial(false);
+    }
+  }, [tenantId, getAccessToken, addNotification]);
+
+  // -----------------------------------------------------------------------
   // Provider value
   // -----------------------------------------------------------------------
   return (
     <TenantConfigContext.Provider value={{
       config, loading, savingSection,
       error, setError, successMessage, setSuccessMessage,
+
+      // Edition / trial
+      editionInfo, startingTrial, startTrial,
 
       // Validation
       validateAutopilotDevice, setValidateAutopilotDevice,

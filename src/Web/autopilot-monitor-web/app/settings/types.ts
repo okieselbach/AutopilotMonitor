@@ -82,6 +82,10 @@ export interface TenantConfiguration {
   // Unrestricted mode
   unrestrictedModeEnabled?: boolean;
   unrestrictedMode?: boolean;
+  // Plan / edition (read-only here — mutated only via the dedicated plan/trial endpoints)
+  planTier?: string;
+  trialExpiresUtc?: string | null;
+  trialConsumed?: boolean;
 }
 
 export interface TenantAdmin {

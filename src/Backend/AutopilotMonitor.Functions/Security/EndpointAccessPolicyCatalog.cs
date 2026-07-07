@@ -463,6 +463,9 @@ public static class EndpointAccessPolicyCatalog
         new("POST",   "global/tenant-groups/{groupId}/assignees",             EndpointPolicy.GlobalAdminOnly),
         new("DELETE", "global/tenant-groups/{groupId}/assignees/{upn}",       EndpointPolicy.GlobalAdminOnly),
         new("PATCH",  "config/{tenantId}/plan",                            EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
+        // Self-service Enterprise trial — a tenant admin may start their own tenant's one-time
+        // trial; the handler enforces the once-per-tenant + already-Enterprise conflicts (409).
+        new("POST",   "config/{tenantId}/trial",                           EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("GET",    "global/config/plan-tiers",                           EndpointPolicy.GlobalReadOrAdmin),
         new("PUT",    "global/config/plan-tiers",                           EndpointPolicy.GlobalAdminOnly),
         new("GET",    "feedback/all",                                     EndpointPolicy.GlobalReadOrAdmin),

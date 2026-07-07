@@ -324,7 +324,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         // --- Tenant Configuration Entity Mapping ---
 
-        private TableEntity ConvertToTenantTableEntity(TenantConfiguration config)
+        // Internal static (not private): the Store↔Map pair is a serialization CONTRACT — every
+        // model field must appear in BOTH methods (project rule "table-serialization"). The
+        // roundtrip tests (TenantConfigTableSerializationTests) pin that contract, incl. legacy
+        // rows lacking the newer columns.
+        internal static TableEntity ConvertToTenantTableEntity(TenantConfiguration config)
         {
             var entity = new TableEntity(config.TenantId, "config")
             {
@@ -396,6 +400,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 { "EntraAppRolesEnabled", config.EntraAppRolesEnabled },
                 { "OnboardedAt", config.OnboardedAt },
                 { "PlanTier", config.PlanTier },
+                { "TrialExpiresUtc", config.TrialExpiresUtc },
+                { "TrialStartedUtc", config.TrialStartedUtc },
+                { "TrialConsumed", config.TrialConsumed },
+                { "TrialGrantedBy", config.TrialGrantedBy },
                 // SLA targets
                 { "SlaTargetSuccessRate", config.SlaTargetSuccessRate.HasValue ? (double)config.SlaTargetSuccessRate.Value : (double?)null },
                 { "SlaTargetMaxDurationMinutes", config.SlaTargetMaxDurationMinutes },
@@ -412,7 +420,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return entity;
         }
 
-        private TenantConfiguration ConvertFromTenantTableEntity(TableEntity entity)
+        internal static TenantConfiguration ConvertFromTenantTableEntity(TableEntity entity)
         {
             return new TenantConfiguration
             {
@@ -487,6 +495,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 EntraAppRolesEnabled = entity.GetBoolean("EntraAppRolesEnabled") ?? false,
                 OnboardedAt = entity.GetDateTime("OnboardedAt"),
                 PlanTier = entity.GetString("PlanTier") ?? "free",
+                TrialExpiresUtc = entity.GetDateTime("TrialExpiresUtc"),
+                TrialStartedUtc = entity.GetDateTime("TrialStartedUtc"),
+                TrialConsumed = entity.GetBoolean("TrialConsumed") ?? false,
+                TrialGrantedBy = entity.GetString("TrialGrantedBy"),
                 // SLA targets
                 SlaTargetSuccessRate = entity.GetDouble("SlaTargetSuccessRate") != null ? (decimal)entity.GetDouble("SlaTargetSuccessRate")! : null,
                 SlaTargetMaxDurationMinutes = entity.GetInt32("SlaTargetMaxDurationMinutes"),

@@ -77,7 +77,17 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
   // OffboardingFeedbackReceived fires when a departing admin submits free-form feedback
   // in the drain-barrier banner. Information-tier — wire Telegram to get pinged when
   // someone leaves a comment so you can read it promptly.
-  Tenant: ["TenantOffboarded", "TenantOffboardingFailed", "OffboardingFeedbackReceived"],
+  // TenantTrialExpiring/Expired — dual-register per memory feedback_ops_event_types_dual_register.
+  // Dispatched by TrialExpirySweepFunction (daily 03:30 UTC, informational — enforcement is
+  // read-time). Expired is Warning (conversion moment: tenant degraded to Community); Expiring
+  // is Info (≤3-day heads-up, re-emitted daily until expiry).
+  Tenant: [
+    "TenantOffboarded",
+    "TenantOffboardingFailed",
+    "OffboardingFeedbackReceived",
+    "TenantTrialExpiring",
+    "TenantTrialExpired",
+  ],
   Agent: ["BlobStorageMissing", "BlobStorageUnreachable", "NewImeVersionDetected", "ExcessiveSessionEvents"],
 };
 

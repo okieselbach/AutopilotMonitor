@@ -28,6 +28,10 @@ export interface TenantConfiguration {
   dataRetentionDays: number;
   sessionTimeoutHours: number;
   planTier?: string;
+  /** Enterprise-trial end (ISO, UTC). Null/undefined = no trial. Managed via PATCH plan. */
+  trialExpiresUtc?: string | null;
+  /** Whether the tenant has used its one self-service trial. */
+  trialConsumed?: boolean;
 }
 
 export interface TenantManagementSectionProps {
@@ -61,6 +65,7 @@ export function TenantManagementSection({
   const [tenantSectionExpanded, setTenantSectionExpanded] = useState(false);
   const [editingTenant, setEditingTenant] = useState<TenantConfiguration | null>(null);
   const [savingTenant, setSavingTenant] = useState(false);
+  const [savingPlan, setSavingPlan] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
   const tenantsPerPage = tenantSectionExpanded ? 7 : 3;
 
@@ -130,6 +135,52 @@ export function TenantManagementSection({
       setError(err instanceof Error ? err.message : "Failed to save tenant configuration");
     } finally {
       setSavingTenant(false);
+    }
+  };
+
+  // Plan & trial have their OWN save path (PATCH /config/{id}/plan) — the generic PUT above
+  // preserves these fields server-side, so they can only be mutated here.
+  const handleSavePlan = async (tenant: TenantConfiguration) => {
+    if (!canMutate) return; // read-only Global Reader
+    try {
+      setSavingPlan(true);
+      setError(null);
+      setSuccessMessage(null);
+
+      const response = await authenticatedFetch(api.config.plan(tenant.tenantId), getAccessToken, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // Legacy stored tiers (free/pro) resolve to Community server-side; the select only
+          // offers the two canonical values, so normalize on save.
+          planTier: tenant.planTier === "enterprise" ? "enterprise" : "community",
+          trialExpiresUtc: tenant.trialExpiresUtc ?? null,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Failed to save plan: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      const apply = (t: TenantConfiguration): TenantConfiguration => ({
+        ...t,
+        planTier: result.planTier,
+        trialExpiresUtc: result.trialExpiresUtc ?? null,
+        trialConsumed: result.trialConsumed ?? t.trialConsumed,
+      });
+      setTenants(prev => prev.map(t => (t.tenantId === tenant.tenantId ? apply(t) : t)));
+      setEditingTenant(prev => (prev && prev.tenantId === tenant.tenantId ? apply(prev) : prev));
+      setSuccessMessage(`Plan saved — effective edition: ${result.effectiveEdition}`);
+      setTimeout(() => setSuccessMessage(null), 4000);
+    } catch (err) {
+      if (err instanceof TokenExpiredError) {
+        console.error("Session expired while saving plan");
+      }
+      setError(err instanceof Error ? err.message : "Failed to save plan");
+    } finally {
+      setSavingPlan(false);
     }
   };
 
@@ -502,6 +553,94 @@ export function TenantManagementSection({
                 </div>
               </div>
 
+              {/* Plan & Trial (own save path — PATCH plan endpoint; the modal's generic Save
+                  does not touch these fields, the backend preserves them on PUT) */}
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold text-purple-900">Plan &amp; Trial</h3>
+                  {(() => {
+                    const isEnterpriseTier = editingTenant.planTier === "enterprise";
+                    const trialActive = !!editingTenant.trialExpiresUtc &&
+                      new Date(editingTenant.trialExpiresUtc).getTime() > Date.now();
+                    const effective = isEnterpriseTier || trialActive ? "Enterprise" : "Community";
+                    return (
+                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                        effective === "Enterprise"
+                          ? "bg-purple-100 text-purple-800"
+                          : "bg-gray-100 text-gray-700"
+                      }`}>
+                        Effective: {effective}{!isEnterpriseTier && trialActive ? " (Trial)" : ""}
+                      </span>
+                    );
+                  })()}
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Plan Tier</label>
+                    <select
+                      value={editingTenant.planTier === "enterprise" ? "enterprise" : "community"}
+                      onChange={(e) => setEditingTenant({ ...editingTenant, planTier: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    >
+                      <option value="community">Community</option>
+                      <option value="enterprise">Enterprise</option>
+                    </select>
+                    {editingTenant.planTier && editingTenant.planTier !== "enterprise" && editingTenant.planTier !== "community" && (
+                      <p className="text-xs text-amber-600 mt-1">
+                        Stored legacy tier &quot;{editingTenant.planTier}&quot; resolves to Community. Saving normalizes it.
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Trial Ends (UTC)</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="datetime-local"
+                        value={editingTenant.trialExpiresUtc ? new Date(editingTenant.trialExpiresUtc).toISOString().slice(0, 16) : ""}
+                        onChange={(e) => setEditingTenant({
+                          ...editingTenant,
+                          trialExpiresUtc: e.target.value ? new Date(e.target.value + "Z").toISOString() : null,
+                        })}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                      />
+                      {editingTenant.trialExpiresUtc && (
+                        <button
+                          onClick={() => setEditingTenant({ ...editingTenant, trialExpiresUtc: null })}
+                          className="px-3 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                          title="End the trial (saves as no trial)"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Set a date to grant/extend an Enterprise trial; clear to end it. Saving does not reset trial consumption.
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-500">
+                      {editingTenant.trialConsumed
+                        ? "Self-service trial: already consumed (re-grants only via this panel)."
+                        : "Self-service trial: still available to the tenant."}
+                    </span>
+                    <button
+                      onClick={() => handleSavePlan(editingTenant)}
+                      disabled={!canMutate || savingPlan}
+                      className="px-3 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+                    >
+                      {savingPlan ? (
+                        <>
+                          <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white"></div>
+                          <span>Saving…</span>
+                        </>
+                      ) : (
+                        <span>Save Plan</span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               {/* Admin Users Info */}
               <TenantAdminSection
                 tenantId={editingTenant.tenantId}
@@ -633,10 +772,10 @@ export function TenantManagementSection({
                 />
                 {editingTenant.dataRetentionDays === 0 ? (
                   <p className="text-xs text-amber-600 mt-1 font-medium">⚠ Infinite retention — data will never be automatically deleted</p>
-                ) : (editingTenant.dataRetentionDays < 7 || editingTenant.dataRetentionDays > 180) ? (
-                  <p className="text-xs text-amber-600 mt-1 font-medium">⚠ Outside tenant range (7–180) — field will be locked for tenant admins</p>
+                ) : (editingTenant.dataRetentionDays < 7 || editingTenant.dataRetentionDays > 365) ? (
+                  <p className="text-xs text-amber-600 mt-1 font-medium">⚠ Outside tenant range (7–365) — field will be locked for tenant admins</p>
                 ) : (
-                  <p className="text-xs text-gray-400 mt-1">Tenant range: 7–180. Set 0 for infinite retention. No upper limit for Global.</p>
+                  <p className="text-xs text-gray-400 mt-1">Tenant range: 7–90 (Community) / 7–365 (Enterprise). Values above the plan cap are enforced at the cap. Set 0 for infinite retention (Global only).</p>
                 )}
               </div>
 

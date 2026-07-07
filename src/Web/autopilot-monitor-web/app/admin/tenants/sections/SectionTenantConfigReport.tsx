@@ -74,6 +74,8 @@ interface TenantConfig {
 
   // Plan tier
   planTier?: string;
+  trialExpiresUtc?: string | null;
+  trialConsumed?: boolean;
 
   // Bootstrap & unrestricted
   bootstrapTokenEnabled?: boolean;
@@ -515,7 +517,12 @@ export function SectionTenantConfigReport() {
                 <ConfigRow label="Disabled Reason" value={config.disabledReason} />
                 <ConfigRow label="Disabled Until" value={config.disabledUntil} isDate />
                 <ConfigRow label="Onboarded At" value={config.onboardedAt} isDate />
-                <ConfigRow label="Plan Tier" value={config.planTier || 'free'} configKey="planTier" defaults={DEFAULTS} />
+                <ConfigRow
+                  label="Plan Tier"
+                  value={`${config.planTier || 'free'}${config.trialExpiresUtc && new Date(config.trialExpiresUtc).getTime() > Date.now() ? ` (trial until ${formatDate(config.trialExpiresUtc)})` : ''}`}
+                  configKey="planTier"
+                  defaults={DEFAULTS}
+                />
               </Section>
 
               <Section title="Security & Validation">

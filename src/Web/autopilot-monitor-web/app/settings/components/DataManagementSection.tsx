@@ -8,6 +8,8 @@ interface DataManagementSectionProps {
   sessionTimeoutHours: number;
   setSessionTimeoutHours: (value: number) => void;
   isGlobalAdmin?: boolean;
+  /** Edition retention cap (Community 90 / Enterprise 365) — from feature-flags entitlements. */
+  retentionCapDays?: number;
   onSave: () => Promise<void> | void;
   onReset: () => void;
   saving: boolean;
@@ -19,11 +21,12 @@ export default function DataManagementSection({
   sessionTimeoutHours,
   setSessionTimeoutHours,
   isGlobalAdmin,
+  retentionCapDays = 90,
   onSave,
   onReset,
   saving,
 }: DataManagementSectionProps) {
-  const isOverridden = dataRetentionDays === 0 || dataRetentionDays < 7 || dataRetentionDays > 180;
+  const isOverridden = dataRetentionDays === 0 || dataRetentionDays < 7 || dataRetentionDays > retentionCapDays;
   const isRetentionDisabled = isOverridden && !isGlobalAdmin;
 
   return (
@@ -50,7 +53,7 @@ export default function DataManagementSection({
             <input
               type="number"
               min="7"
-              max="180"
+              max={retentionCapDays}
               value={dataRetentionDays}
               disabled={isRetentionDisabled}
               onChange={(e) => setDataRetentionDays(parseInt(e.target.value) || 90)}
@@ -67,12 +70,14 @@ export default function DataManagementSection({
                   <span className="font-semibold">Overridden by administrator</span> —{" "}
                   {dataRetentionDays === 0
                     ? "Infinite retention is active. Data will never be automatically deleted."
-                    : `Retention is set to ${dataRetentionDays} days (outside the standard 7–180 day range).`}
+                    : `Retention is set to ${dataRetentionDays} days (outside the standard 7–${retentionCapDays} day range for your plan).`}
                   {" "}Contact your Global admin to change this value.
                 </p>
               </div>
             ) : (
-              <p className="text-xs text-gray-400 mt-1">Minimum: 7 days, Maximum: 180 days</p>
+              <p className="text-xs text-gray-400 mt-1">
+                Minimum: 7 days, Maximum: {retentionCapDays} days{retentionCapDays < 365 ? " (up to 365 with Enterprise)" : ""}
+              </p>
             )}
           </label>
         </div>

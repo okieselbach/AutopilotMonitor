@@ -149,7 +149,8 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         var isScopedRoute = catalogEntry.TenantScoping is TenantScoping.RouteParam or TenantScoping.QueryParam;
         if (!hasGlobalScope && !string.IsNullOrEmpty(upn) && isScopedRoute && crossTenant)
         {
-            var scope = await _delegatedAdminService.GetScopeAsync(upn);
+            // Home-tenant (JWT tid) gates the delegated scope: MSP seats require an Enterprise home tenant.
+            var scope = await _delegatedAdminService.GetScopeAsync(upn, jwtTenantId);
             delegatedRole = scope.RoleFor(namedTarget);
             if (delegatedRole != null)
                 allowedTenantIds = scope.TenantIds;
@@ -314,7 +315,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
                 return await EvaluateGlobalReadOrAdminAsync(upn, userIdentifier);
 
             case EndpointPolicy.GlobalReadOrDelegatedSubset:
-                return await EvaluateGlobalReadOrDelegatedSubsetAsync(upn, userIdentifier);
+                return await EvaluateGlobalReadOrDelegatedSubsetAsync(tenantId, upn, userIdentifier);
 
             case EndpointPolicy.GlobalAdminOnly:
                 return await EvaluateGlobalAdminOnlyAsync(upn, userIdentifier);
@@ -513,7 +514,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
     /// denied. Used by aggregate endpoints whose body can be filtered per tenant (e.g. config/all).
     /// </summary>
     private async Task<CatalogDecisionResult> EvaluateGlobalReadOrDelegatedSubsetAsync(
-        string? upn, string userIdentifier)
+        string? jwtTenantId, string? upn, string userIdentifier)
     {
         if (string.IsNullOrEmpty(upn))
             return CatalogDecisionResult.Deny(userIdentifier, "N/A", "MissingClaims");
@@ -522,7 +523,8 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         if (globalRole != null)
             return CatalogDecisionResult.Allow(userIdentifier, globalRole, "GlobalScope");
 
-        var scope = await _delegatedAdminService.GetScopeAsync(upn);
+        // Home-tenant (JWT tid) gates the delegated scope: MSP seats require an Enterprise home tenant.
+        var scope = await _delegatedAdminService.GetScopeAsync(upn, jwtTenantId);
         if (!scope.IsEmpty)
             return CatalogDecisionResult.Allow(
                 userIdentifier, Constants.DelegatedRoles.DelegatedReader, "DelegatedSubset",
