@@ -430,6 +430,32 @@ namespace AutopilotMonitor.Functions.Services
                 new { domainName, failedPhase, errorMessage, retryCount });
         }
 
+        // ── Tenant trial lifecycle (informational — enforcement is read-time) ──
+        // Both types are dual-registered in OpsAlertRulesSection.tsx OPS_EVENT_TYPES
+        // (memory feedback_ops_event_types_dual_register). Dispatched by TrialExpirySweepFunction.
+
+        /// <summary>Heads-up: an Enterprise trial ends within the next few days. Info-tier visibility signal.</summary>
+        public Task RecordTenantTrialExpiringAsync(string tenantId, string? domainName, DateTime trialExpiresUtc, int daysLeft)
+        {
+            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            return WriteAsync(OpsEventCategory.Tenant, "TenantTrialExpiring", OpsEventSeverity.Info,
+                $"Enterprise trial for tenant {tenantLabel} expires in {daysLeft} day(s) ({trialExpiresUtc:yyyy-MM-dd HH:mm}Z)",
+                tenantId, "System.TrialSweep", new { domainName, trialExpiresUtc, daysLeft });
+        }
+
+        /// <summary>
+        /// An Enterprise trial expired within the last sweep window — the tenant silently degraded
+        /// to Community at read time (retention cap, rate limits, MSP delegation, MCP plan).
+        /// Warning-tier: a conversion moment an operator likely wants a Telegram ping for.
+        /// </summary>
+        public Task RecordTenantTrialExpiredAsync(string tenantId, string? domainName, DateTime trialExpiredUtc)
+        {
+            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            return WriteAsync(OpsEventCategory.Tenant, "TenantTrialExpired", OpsEventSeverity.Warning,
+                $"Enterprise trial for tenant {tenantLabel} expired ({trialExpiredUtc:yyyy-MM-dd HH:mm}Z) — tenant is now Community",
+                tenantId, "System.TrialSweep", new { domainName, trialExpiredUtc });
+        }
+
         // ── Agent ──────────────────────────────────────────────────────────────
 
         public Task RecordSessionTimeoutsAsync(string tenantId, int sessionCount, int timeoutHours)

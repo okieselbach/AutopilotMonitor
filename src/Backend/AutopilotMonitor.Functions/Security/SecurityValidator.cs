@@ -72,17 +72,24 @@ namespace AutopilotMonitor.Functions.Security
 
         /// <summary>
         /// Resolves the effective device (agent/cert) rate limit for a tenant:
-        /// the per-tenant override if set, otherwise the global default. The global
-        /// AdminConfiguration read is served from a 5-minute in-memory cache.
+        /// the per-tenant override if set, otherwise the global default raised to the tenant
+        /// edition's entitlement floor (Enterprise: 150/min — see FeatureEntitlementCatalog).
+        /// The global AdminConfiguration read is served from a 5-minute in-memory cache.
         /// </summary>
         private async Task<int> ResolveDeviceRateLimitAsync(TenantConfiguration config)
         {
             // The global read is served from a 5-minute in-memory cache (O(1) dictionary hit on the
             // hot path), so we always take it rather than branching on the override.
             var adminConfig = await _adminConfigService.GetConfigurationAsync();
+            // Edition resolves purely from the config already in hand — no extra I/O on the
+            // agent hot path. Fail-closed by construction (unknown tier → Community → null floor).
+            var entitlementFloor = FeatureEntitlementCatalog
+                .Get(Services.TenantEntitlementService.ResolveEdition(config, DateTime.UtcNow))
+                .DeviceRateLimitPerMinute;
             return RateLimitResolver.ResolveDeviceLimit(
                 config.CustomRateLimitRequestsPerMinute,
-                adminConfig.GlobalRateLimitRequestsPerMinute);
+                adminConfig.GlobalRateLimitRequestsPerMinute,
+                entitlementFloor);
         }
 
         /// <summary>

@@ -94,10 +94,11 @@ public class AuthFunction
         // gate below). A genuine first-user still gets their config created by HandleNewTenantDomainAsync.
         var tenantConfigTask = _tenantConfigService.TryGetConfigurationAsync(tenantId);
         var globalRoleTask = _globalAdminService.GetGlobalRoleAsync(upn);
-        var delegatedScopeTask = _delegatedAdminService.GetScopeAsync(upn);
+        // tenantId = JWT tid = the caller's home tenant — gates the delegated (MSP) scope (Enterprise-only seat).
+        var delegatedScopeTask = _delegatedAdminService.GetScopeAsync(upn, tenantId);
         var isApprovedTask = _previewWhitelistService.IsApprovedAsync(tenantId);
         var membershipTask = _tenantAdminsService.GetTableMembershipAsync(tenantId, upn);
-        var mcpCheckTask = _mcpUserService.IsAllowedAsync(upn);
+        var mcpCheckTask = _mcpUserService.IsAllowedAsync(upn, tenantId);
         var existingAdminsTask = _tenantAdminsService.GetTenantAdminsAsync(tenantId);
 
         await Task.WhenAll(tenantConfigTask, globalRoleTask, delegatedScopeTask, isApprovedTask,
@@ -301,7 +302,19 @@ public class AuthFunction
         // sync jobs that mutate UpdatedBy cannot leak sentinel strings into TenantAdmins.
         if (string.IsNullOrWhiteSpace(tenantConfig.OnboardedBy))
             tenantConfig.OnboardedBy = upn;
-        await _tenantConfigService.SaveConfigurationAsync(tenantConfig);
+        try
+        {
+            await _tenantConfigService.SaveConfigurationAsync(tenantConfig);
+        }
+        catch (Exception ex)
+        {
+            // Best-effort side-effect: SaveConfigurationAsync now throws on a failed persist
+            // (fail-loud for config endpoints), but a storage blip must not 500 the login.
+            // The handler self-gates on DomainName being empty, so the next login retries —
+            // skip the notifications too so they only fire once the write actually stuck.
+            _logger.LogWarning(ex, "First-login domain write failed for tenant {TenantId} — will retry on next login", tenantId);
+            return;
+        }
 
         // Fire-and-forget: Telegram
         _ = _telegramNotificationService.SendNewTenantSignupAsync(tenantId, upn)
@@ -335,7 +348,16 @@ public class AuthFunction
         tenantConfig.DisabledReason = null;
         tenantConfig.DisabledUntil = null;
         tenantConfig.UpdatedBy = "System (auto-re-enable)";
-        await _tenantConfigService.SaveConfigurationAsync(tenantConfig);
+        try
+        {
+            await _tenantConfigService.SaveConfigurationAsync(tenantConfig);
+        }
+        catch (Exception ex)
+        {
+            // Best-effort: the in-memory flip above already lets THIS login through; a failed
+            // persist just means the next login re-runs the auto-re-enable. Must not 500 auth/me.
+            _logger.LogWarning(ex, "Auto-re-enable persist failed for tenant {TenantId} — will retry on next login", tenantId);
+        }
     }
 
     /// <summary>

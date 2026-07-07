@@ -35,13 +35,15 @@ public class McpUserServiceDelegatedTests
         _globalAdmin = new Mock<GlobalAdminService>(
             _adminRepo.Object, cache, NullLogger<GlobalAdminService>.Instance) { CallBase = false };
         _delegatedAdmin = new Mock<DelegatedAdminService>(
-            _adminRepo.Object, cache, NullLogger<DelegatedAdminService>.Instance) { CallBase = false };
+            _adminRepo.Object,
+            new StubTenantEntitlementService(AutopilotMonitor.Functions.Security.TenantEdition.Enterprise),
+            cache, NullLogger<DelegatedAdminService>.Instance) { CallBase = false };
         _adminConfig = new Mock<AdminConfigurationService>(
             Mock.Of<IConfigRepository>(), NullLogger<AdminConfigurationService>.Instance, cache) { CallBase = false };
 
         // Defaults: no platform role, no delegated scope, WhitelistOnly, no McpUsers row (NotPresent).
         _globalAdmin.Setup(x => x.GetGlobalRoleAsync(It.IsAny<string>())).ReturnsAsync((string?)null);
-        _delegatedAdmin.Setup(x => x.GetScopeAsync(It.IsAny<string>())).ReturnsAsync(DelegatedScope.Empty);
+        _delegatedAdmin.Setup(x => x.GetScopeAsync(It.IsAny<string>(), It.IsAny<string?>())).ReturnsAsync(DelegatedScope.Empty);
         _adminRepo.Setup(x => x.GetMcpUserAsync(It.IsAny<string>())).ReturnsAsync((McpUserEntry?)null);
         SetPolicy(McpAccessPolicy.WhitelistOnly);
 
@@ -59,7 +61,7 @@ public class McpUserServiceDelegatedTests
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (tenant, role) in assignments)
             map[tenant.ToLowerInvariant()] = role;
-        _delegatedAdmin.Setup(x => x.GetScopeAsync(It.IsAny<string>()))
+        _delegatedAdmin.Setup(x => x.GetScopeAsync(It.IsAny<string>(), It.IsAny<string?>()))
             .ReturnsAsync(new DelegatedScope(map));
     }
 

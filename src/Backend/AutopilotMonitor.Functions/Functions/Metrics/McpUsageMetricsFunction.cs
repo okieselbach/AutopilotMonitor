@@ -19,15 +19,18 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
         private readonly ILogger<McpUsageMetricsFunction> _logger;
         private readonly IUserUsageRepository _userUsageRepo;
         private readonly McpUserService _mcpUserService;
+        private readonly McpQuotaService _quotaService;
 
         public McpUsageMetricsFunction(
             ILogger<McpUsageMetricsFunction> logger,
             IUserUsageRepository userUsageRepo,
-            McpUserService mcpUserService)
+            McpUserService mcpUserService,
+            McpQuotaService quotaService)
         {
             _logger = logger;
             _userUsageRepo = userUsageRepo;
             _mcpUserService = mcpUserService;
+            _quotaService = quotaService;
         }
 
         /// <summary>
@@ -57,12 +60,26 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var records = await _userUsageRepo.GetUsageByUserAsync(userId, dateFrom, dateTo);
                 var mcpUser = !string.IsNullOrEmpty(upn) ? await _mcpUserService.GetMcpUserAsync(upn) : null;
 
+                // Effective quota state: resolved plan (per-user override → tenant edition),
+                // limits (SectionUsagePlans definition → catalog fallback) and current counters.
+                var tenantId = principal?.GetTenantId();
+                var quota = await _quotaService.CheckAsync(userId, upn, tenantId);
+
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new
                 {
                     userId,
                     upn,
                     usagePlan = mcpUser?.UsagePlan,
+                    effectivePlan = quota.Plan,
+                    quota = new
+                    {
+                        dailyLimit = quota.DailyLimit,
+                        monthlyLimit = quota.MonthlyLimit,
+                        dailyUsed = quota.DailyUsed,
+                        monthlyUsed = quota.MonthlyUsed,
+                        resetUtc = quota.ResetUtc
+                    },
                     records
                 });
                 return response;

@@ -1,5 +1,7 @@
 using System.Net;
 using System.Text.Json;
+using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models.Config;
@@ -9,52 +11,121 @@ using Microsoft.Extensions.Logging;
 
 namespace AutopilotMonitor.Functions.Functions.Config
 {
+    /// <summary>
+    /// Plan/edition management: GA-only plan+trial mutation (PATCH plan), tenant-admin self-service
+    /// trial (POST trial), and the global usage-plan definitions (SectionUsagePlans). All writes go
+    /// through <see cref="TenantConfigurationService"/> so the 5-minute config cache is invalidated,
+    /// and every mutation is audited under the target tenant's trail.
+    /// </summary>
     public class PlanManagementFunction
     {
+        /// <summary>Self-service trial length. GA can grant arbitrary end dates via PATCH.</summary>
+        internal const int SelfServiceTrialDays = 30;
+
         private readonly ILogger<PlanManagementFunction> _logger;
-        private readonly IConfigRepository _configRepo;
+        private readonly TenantConfigurationService _configService;
         private readonly AdminConfigurationService _adminConfigService;
+        private readonly IMaintenanceRepository _maintenanceRepo;
+        private readonly TimeProvider _time;
 
         public PlanManagementFunction(
             ILogger<PlanManagementFunction> logger,
-            IConfigRepository configRepo,
-            AdminConfigurationService adminConfigService)
+            TenantConfigurationService configService,
+            AdminConfigurationService adminConfigService,
+            IMaintenanceRepository maintenanceRepo)
+            : this(logger, configService, adminConfigService, maintenanceRepo, TimeProvider.System)
+        {
+        }
+
+        /// <summary>Test seam — inject a fake <see cref="TimeProvider"/> for deterministic trial math.</summary>
+        public PlanManagementFunction(
+            ILogger<PlanManagementFunction> logger,
+            TenantConfigurationService configService,
+            AdminConfigurationService adminConfigService,
+            IMaintenanceRepository maintenanceRepo,
+            TimeProvider time)
         {
             _logger = logger;
-            _configRepo = configRepo;
+            _configService = configService;
             _adminConfigService = adminConfigService;
+            _maintenanceRepo = maintenanceRepo;
+            _time = time;
         }
 
         /// <summary>
-        /// PATCH /api/config/{tenantId}/plan
-        /// Sets the plan tier for a tenant. Body: { "planTier": "pro" }
+        /// PATCH /api/config/{tenantId}/plan — GlobalAdminOnly (catalog-enforced).
+        /// Body: { "planTier"?: "community"|"enterprise", "trialExpiresUtc"?: ISO-8601 | null }.
+        /// Setting a trial date grants/extends the trial (TrialConsumed is NOT touched — GA
+        /// re-grants stay possible); explicit null ends the trial. Absent properties are unchanged.
         /// </summary>
         [Function("SetTenantPlanTier")]
         public async Task<HttpResponseData> SetPlanTier(
             [HttpTrigger(AuthorizationLevel.Anonymous, "patch", Route = "config/{tenantId}/plan")] HttpRequestData req,
             string tenantId)
         {
-            _logger.LogInformation("SetTenantPlanTier: tenantId={TenantId}", tenantId);
-
             try
             {
-                var body = await req.ReadFromJsonAsync<SetPlanTierRequest>();
-                if (body == null || string.IsNullOrWhiteSpace(body.PlanTier))
+                var requestCtx = req.GetRequestContext();
+                var caller = requestCtx.UserPrincipalName ?? "Unknown";
+                _logger.LogInformation("SetTenantPlanTier: tenantId={TenantId} by {User}", requestCtx.TargetTenantId, caller);
+
+                var body = await req.ReadAsStringAsync() ?? string.Empty;
+                JsonDocument doc;
+                try
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { error = "planTier is required" });
-                    return badRequest;
+                    doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(body) ? "{}" : body);
+                }
+                catch (JsonException)
+                {
+                    return await BadRequestAsync(req, "Invalid JSON body");
                 }
 
-                var validTiers = new[] { "free", "pro", "enterprise" };
-                if (!validTiers.Contains(body.PlanTier.ToLowerInvariant()))
+                string? newPlanTier = null;
+                bool trialProvided = false;
+                DateTime? newTrialExpiresUtc = null;
+
+                using (doc)
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { error = $"Invalid planTier. Valid values: {string.Join(", ", validTiers)}" });
-                    return badRequest;
+                    if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                        return await BadRequestAsync(req, "Body must be a JSON object");
+
+                    if (doc.RootElement.TryGetProperty("planTier", out var tierProp))
+                    {
+                        if (tierProp.ValueKind != JsonValueKind.String)
+                            return await BadRequestAsync(req, "planTier must be a string");
+
+                        newPlanTier = tierProp.GetString()!.Trim().ToLowerInvariant();
+                        if (newPlanTier != FeatureEntitlementCatalog.CommunityTierName &&
+                            newPlanTier != FeatureEntitlementCatalog.EnterpriseTierName)
+                        {
+                            return await BadRequestAsync(req,
+                                $"Invalid planTier. Valid values: {FeatureEntitlementCatalog.CommunityTierName}, {FeatureEntitlementCatalog.EnterpriseTierName}");
+                        }
+                    }
+
+                    if (doc.RootElement.TryGetProperty("trialExpiresUtc", out var trialProp))
+                    {
+                        trialProvided = true;
+                        if (trialProp.ValueKind == JsonValueKind.Null)
+                        {
+                            newTrialExpiresUtc = null; // explicit null = end trial
+                        }
+                        else if (trialProp.ValueKind == JsonValueKind.String &&
+                                 trialProp.TryGetDateTime(out var parsed))
+                        {
+                            newTrialExpiresUtc = parsed.Kind == DateTimeKind.Utc ? parsed : parsed.ToUniversalTime();
+                        }
+                        else
+                        {
+                            return await BadRequestAsync(req, "trialExpiresUtc must be an ISO-8601 date-time string or null");
+                        }
+                    }
                 }
 
-                var config = await _configRepo.GetTenantConfigurationAsync(tenantId);
+                if (newPlanTier == null && !trialProvided)
+                    return await BadRequestAsync(req, "Provide planTier and/or trialExpiresUtc");
+
+                var config = await _configService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
                 if (config == null)
                 {
                     var notFound = req.CreateResponse(HttpStatusCode.NotFound);
@@ -62,16 +133,147 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     return notFound;
                 }
 
-                config.PlanTier = body.PlanTier.ToLowerInvariant();
-                await _configRepo.SaveTenantConfigurationAsync(config);
+                var nowUtc = _time.GetUtcNow().UtcDateTime;
+                var changes = new Dictionary<string, string>();
+
+                if (newPlanTier != null && !string.Equals(config.PlanTier, newPlanTier, StringComparison.Ordinal))
+                {
+                    changes["PlanTier"] = $"{config.PlanTier} -> {newPlanTier}";
+                    config.PlanTier = newPlanTier;
+                }
+
+                if (trialProvided && config.TrialExpiresUtc != newTrialExpiresUtc)
+                {
+                    changes["TrialExpiresUtc"] = $"{FormatUtc(config.TrialExpiresUtc)} -> {FormatUtc(newTrialExpiresUtc)}";
+                    config.TrialExpiresUtc = newTrialExpiresUtc;
+                    if (newTrialExpiresUtc.HasValue)
+                    {
+                        config.TrialStartedUtc ??= nowUtc;
+                        config.TrialGrantedBy = caller;
+                    }
+                }
+
+                if (changes.Count > 0)
+                {
+                    config.UpdatedBy = caller;
+                    // Fail-loud: SaveConfigurationAsync throws when the write did not persist (and
+                    // invalidates the cached — possibly mutated — instance in its finally), so a
+                    // failed save can never be audited or returned as 200.
+                    await _configService.SaveConfigurationAsync(config);
+
+                    await _maintenanceRepo.LogAuditEntryAsync(
+                        requestCtx.TargetTenantId,
+                        "UPDATE",
+                        "TenantPlan",
+                        requestCtx.TargetTenantId,
+                        caller,
+                        changes);
+                }
+
+                var effectiveEdition = FeatureEntitlementCatalog.ResolveEdition(config.PlanTier, config.TrialExpiresUtc, nowUtc);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new { tenantId, planTier = config.PlanTier });
+                await response.WriteAsJsonAsync(new
+                {
+                    tenantId = requestCtx.TargetTenantId,
+                    planTier = config.PlanTier,
+                    trialExpiresUtc = config.TrialExpiresUtc,
+                    trialConsumed = config.TrialConsumed,
+                    effectiveEdition = effectiveEdition.ToString().ToLowerInvariant()
+                });
                 return response;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error setting plan tier");
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteAsJsonAsync(new { error = "Internal server error" });
+                return errorResponse;
+            }
+        }
+
+        /// <summary>
+        /// POST /api/config/{tenantId}/trial — TenantAdminOrGA (catalog-enforced). Self-service
+        /// 30-day Enterprise trial, exactly once per tenant. 409 when the trial was already
+        /// consumed or the tenant is already effectively Enterprise.
+        /// </summary>
+        [Function("StartTenantTrial")]
+        public async Task<HttpResponseData> StartTrial(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "config/{tenantId}/trial")] HttpRequestData req,
+            string tenantId)
+        {
+            try
+            {
+                var requestCtx = req.GetRequestContext();
+                var caller = requestCtx.UserPrincipalName ?? "Unknown";
+                _logger.LogInformation("StartTenantTrial: tenantId={TenantId} by {User}", requestCtx.TargetTenantId, caller);
+
+                var config = await _configService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
+                if (config == null)
+                {
+                    var notFound = req.CreateResponse(HttpStatusCode.NotFound);
+                    await notFound.WriteAsJsonAsync(new { error = "Tenant not found" });
+                    return notFound;
+                }
+
+                var nowUtc = _time.GetUtcNow().UtcDateTime;
+
+                if (config.TrialConsumed)
+                {
+                    var conflict = req.CreateResponse(HttpStatusCode.Conflict);
+                    await conflict.WriteAsJsonAsync(new
+                    {
+                        error = "TrialAlreadyConsumed",
+                        message = "This tenant has already used its one self-service Enterprise trial. Contact support to extend."
+                    });
+                    return conflict;
+                }
+
+                if (FeatureEntitlementCatalog.ResolveEdition(config.PlanTier, config.TrialExpiresUtc, nowUtc) == TenantEdition.Enterprise)
+                {
+                    var conflict = req.CreateResponse(HttpStatusCode.Conflict);
+                    await conflict.WriteAsJsonAsync(new
+                    {
+                        error = "AlreadyEnterprise",
+                        message = "This tenant is already on the Enterprise edition."
+                    });
+                    return conflict;
+                }
+
+                config.TrialStartedUtc = nowUtc;
+                config.TrialExpiresUtc = nowUtc.AddDays(SelfServiceTrialDays);
+                config.TrialConsumed = true;
+                config.TrialGrantedBy = caller;
+                config.UpdatedBy = caller;
+
+                // Fail-loud: throws when the write did not persist (cache invalidated in finally).
+                await _configService.SaveConfigurationAsync(config);
+
+                await _maintenanceRepo.LogAuditEntryAsync(
+                    requestCtx.TargetTenantId,
+                    "CREATE",
+                    "TenantTrial",
+                    requestCtx.TargetTenantId,
+                    caller,
+                    new Dictionary<string, string>
+                    {
+                        { "TrialStartedUtc", FormatUtc(config.TrialStartedUtc) },
+                        { "TrialExpiresUtc", FormatUtc(config.TrialExpiresUtc) }
+                    });
+
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(new
+                {
+                    tenantId = requestCtx.TargetTenantId,
+                    trialStartedUtc = config.TrialStartedUtc,
+                    trialExpiresUtc = config.TrialExpiresUtc,
+                    effectiveEdition = FeatureEntitlementCatalog.EnterpriseTierName
+                });
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error starting trial");
                 var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
                 await errorResponse.WriteAsJsonAsync(new { error = "Internal server error" });
                 return errorResponse;
@@ -89,7 +291,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             try
             {
                 var config = await _adminConfigService.GetConfigurationAsync();
-                var tiers = ParsePlanTierDefinitions(config.PlanTierDefinitionsJson);
+                var tiers = PlanTierDefinitionParser.Parse(config.PlanTierDefinitionsJson);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new { tiers });
@@ -117,18 +319,14 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var body = await req.ReadFromJsonAsync<SetPlanTierDefinitionsRequest>();
                 if (body?.Tiers == null || body.Tiers.Count == 0)
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { error = "At least one tier definition is required" });
-                    return badRequest;
+                    return await BadRequestAsync(req, "At least one tier definition is required");
                 }
 
                 // Validate tier names are unique
                 var names = body.Tiers.Select(t => t.Name.ToLowerInvariant()).ToList();
                 if (names.Distinct().Count() != names.Count)
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { error = "Tier names must be unique" });
-                    return badRequest;
+                    return await BadRequestAsync(req, "Tier names must be unique");
                 }
 
                 // Normalize names to lowercase
@@ -152,25 +350,14 @@ namespace AutopilotMonitor.Functions.Functions.Config
             }
         }
 
-        private static List<PlanTierDefinition> ParsePlanTierDefinitions(string? json)
-        {
-            if (string.IsNullOrWhiteSpace(json))
-                return new List<PlanTierDefinition>();
+        private static string FormatUtc(DateTime? value)
+            => value?.ToString("yyyy-MM-ddTHH:mm:ssZ") ?? "(none)";
 
-            try
-            {
-                return JsonSerializer.Deserialize<List<PlanTierDefinition>>(json,
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new List<PlanTierDefinition>();
-            }
-            catch
-            {
-                return new List<PlanTierDefinition>();
-            }
-        }
-
-        private class SetPlanTierRequest
+        private static async Task<HttpResponseData> BadRequestAsync(HttpRequestData req, string message)
         {
-            public string PlanTier { get; set; } = string.Empty;
+            var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
+            await badRequest.WriteAsJsonAsync(new { error = message });
+            return badRequest;
         }
 
         private class SetPlanTierDefinitionsRequest

@@ -101,6 +101,10 @@ export const api = {
     all: () => `${API_BASE_URL}/api/config/all`,
     tenant: (tenantId: string) => `${API_BASE_URL}/api/config/${tenantId}`,
     featureFlags: (tenantId: string) => `${API_BASE_URL}/api/config/${tenantId}/feature-flags`,
+    /** PATCH — GA-only plan/trial mutation: { planTier?, trialExpiresUtc?: ISO | null }. */
+    plan: (tenantId: string) => `${API_BASE_URL}/api/config/${tenantId}/plan`,
+    /** POST — tenant-admin self-service 30-day Enterprise trial (once per tenant, 409 after). */
+    trial: (tenantId: string) => `${API_BASE_URL}/api/config/${tenantId}/trial`,
     autopilotConsentUrl: (tenantId: string, redirectUri: string) =>
       `${API_BASE_URL}/api/config/${tenantId}/autopilot-device-validation/consent-url${qs({ redirectUri })}`,
     autopilotConsentStatus: (tenantId: string) =>

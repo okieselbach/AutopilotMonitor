@@ -14,9 +14,11 @@ namespace AutopilotMonitor.Functions.Tests;
 /// </summary>
 public class GetTenantFeatureFlagsPayloadTests
 {
+    private static readonly DateTime Now = new(2026, 7, 7, 12, 0, 0, DateTimeKind.Utc);
+
     private static JsonElement Serialize(TenantConfiguration config)
     {
-        var payload = GetTenantFeatureFlagsFunction.BuildPayload(config);
+        var payload = GetTenantFeatureFlagsFunction.BuildPayload(config, Now);
         var json = JsonSerializer.Serialize(payload);
         return JsonDocument.Parse(json).RootElement;
     }
@@ -33,9 +35,14 @@ public class GetTenantFeatureFlagsPayloadTests
         Assert.Equal(new[]
         {
             "bootstrapTokenEnabled",
+            "edition",
             "enableIntegrityBypassAnalyzer",
             "enableSoftwareInventoryAnalyzer",
+            "entitlements",
+            "isTrial",
             "showScriptOutput",
+            "trialAvailable",
+            "trialExpiresUtc",
             "unrestrictedMode",
             "validateAutopilotDevice",
         }, fieldNames);
@@ -97,7 +104,7 @@ public class GetTenantFeatureFlagsPayloadTests
             WebhookUrl = "https://hooks.example.com/services/secret-generic-hook",
         };
 
-        var json = JsonSerializer.Serialize(GetTenantFeatureFlagsFunction.BuildPayload(config));
+        var json = JsonSerializer.Serialize(GetTenantFeatureFlagsFunction.BuildPayload(config, Now));
 
         Assert.DoesNotContain("secret-sas-token", json);
         Assert.DoesNotContain("secret-team-hook", json);
@@ -105,5 +112,55 @@ public class GetTenantFeatureFlagsPayloadTests
         Assert.DoesNotContain("diagnosticsBlobSasUrl", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("teamsWebhookUrl", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("webhookUrl", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ── Edition / trial surface ─────────────────────────────────────────────
+
+    [Fact]
+    public void Payload_CommunityDefault_EditionAndTrialAvailability()
+    {
+        var element = Serialize(new TenantConfiguration()); // PlanTier default "free" → Community
+
+        Assert.Equal("community", element.GetProperty("edition").GetString());
+        Assert.False(element.GetProperty("isTrial").GetBoolean());
+        Assert.True(element.GetProperty("trialAvailable").GetBoolean());
+        Assert.Equal(90, element.GetProperty("entitlements").GetProperty("retentionCapDays").GetInt32());
+        Assert.False(element.GetProperty("entitlements").GetProperty("delegatedAdminAllowed").GetBoolean());
+        Assert.Equal("community", element.GetProperty("entitlements").GetProperty("mcpUsagePlan").GetString());
+    }
+
+    [Fact]
+    public void Payload_EnterpriseTier_NotTrial()
+    {
+        var element = Serialize(new TenantConfiguration { PlanTier = "enterprise" });
+
+        Assert.Equal("enterprise", element.GetProperty("edition").GetString());
+        Assert.False(element.GetProperty("isTrial").GetBoolean());
+        Assert.False(element.GetProperty("trialAvailable").GetBoolean());
+        Assert.Equal(365, element.GetProperty("entitlements").GetProperty("retentionCapDays").GetInt32());
+        Assert.Equal(150, element.GetProperty("entitlements").GetProperty("userRateLimitPerMinute").GetInt32());
+        Assert.True(element.GetProperty("entitlements").GetProperty("delegatedAdminAllowed").GetBoolean());
+    }
+
+    [Fact]
+    public void Payload_ActiveTrial_IsTrialWithExpiry()
+    {
+        var expiry = Now.AddDays(10);
+        var element = Serialize(new TenantConfiguration { TrialExpiresUtc = expiry, TrialConsumed = true });
+
+        Assert.Equal("enterprise", element.GetProperty("edition").GetString());
+        Assert.True(element.GetProperty("isTrial").GetBoolean());
+        Assert.False(element.GetProperty("trialAvailable").GetBoolean());
+        Assert.Equal(expiry, element.GetProperty("trialExpiresUtc").GetDateTime());
+    }
+
+    [Fact]
+    public void Payload_ExpiredTrial_DegradesToCommunity_NoTrialAvailable()
+    {
+        var element = Serialize(new TenantConfiguration { TrialExpiresUtc = Now.AddDays(-1), TrialConsumed = true });
+
+        Assert.Equal("community", element.GetProperty("edition").GetString());
+        Assert.False(element.GetProperty("isTrial").GetBoolean());
+        Assert.False(element.GetProperty("trialAvailable").GetBoolean(), "consumed trial must not be offered again");
     }
 }

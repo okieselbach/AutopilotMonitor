@@ -41,6 +41,10 @@ builder.UseMiddleware<GlobalExceptionMiddleware>();
 builder.UseMiddleware<AuthenticationMiddleware>();
 builder.UseMiddleware<PolicyEnforcementMiddleware>();
 builder.UseMiddleware<UserRateLimitMiddleware>();
+// MCP quota (daily/monthly budget on top of the per-minute rate limit): only requests marked
+// X-Client-Source: mcp with an authenticated principal are checked; GA exempt; fail-open on
+// counter errors, fail-closed on plan resolution. See McpQuotaEnforcementMiddleware.
+builder.UseMiddleware<McpQuotaEnforcementMiddleware>();
 // After policy enforcement (RequestContext resolved): record best-effort "last seen" presence for
 // authenticated web users so a Global Admin can see who is active right now. Throttled + fail-open.
 builder.UseMiddleware<UserPresenceMiddleware>();
@@ -214,6 +218,8 @@ builder.Services.AddHostedService<TableInitializerService>(); // Initialize all 
 builder.Services.AddTableStorageDataAccess();
 builder.Services.AddSingleton<TenantConfigurationService>();
 builder.Services.AddSingleton<AdminConfigurationService>();
+builder.Services.AddSingleton<TenantEntitlementService>();
+builder.Services.AddSingleton<McpQuotaService>();
 builder.Services.AddSingleton<ILatestVersionsService, LatestVersionsService>();
 builder.Services.AddSingleton<RateLimitService>();
 builder.Services.AddSingleton<DistressRateLimitService>();

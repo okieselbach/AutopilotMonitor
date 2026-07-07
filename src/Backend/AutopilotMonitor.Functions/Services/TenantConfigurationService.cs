@@ -86,7 +86,12 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Saves configuration for a tenant
+        /// Saves configuration for a tenant. THROWS when the write did not persist — the repository
+        /// swallows storage exceptions and reports failure via its bool return, so ignoring it would
+        /// let callers audit + return 200 for a save that never happened (Codex finding, 2026-07-07).
+        /// The cached row is invalidated on EVERY attempted save (finally): on success it is stale;
+        /// on failure the caller may have mutated the cached instance in place (plan/trial endpoints),
+        /// which must not linger as phantom-saved state for the 5-minute TTL.
         /// </summary>
         public virtual async Task SaveConfigurationAsync(TenantConfiguration config)
         {
@@ -99,10 +104,12 @@ namespace AutopilotMonitor.Functions.Services
             {
                 config.LastUpdated = DateTime.UtcNow;
 
-                await _configRepo.SaveTenantConfigurationAsync(config);
-
-                // Invalidate cache
-                _cache.Remove($"tenant-config:{config.TenantId}");
+                var saved = await _configRepo.SaveTenantConfigurationAsync(config);
+                if (!saved)
+                {
+                    throw new InvalidOperationException(
+                        $"Tenant configuration save failed for {config.TenantId} — storage write did not persist (see repository logs)");
+                }
 
                 _logger.LogInformation($"Configuration saved for tenant {config.TenantId} by {config.UpdatedBy}");
             }
@@ -110,6 +117,11 @@ namespace AutopilotMonitor.Functions.Services
             {
                 _logger.LogError(ex, $"Error saving configuration for tenant {config.TenantId}");
                 throw;
+            }
+            finally
+            {
+                // Invalidate cache — success AND failure paths (see summary).
+                _cache.Remove($"tenant-config:{config.TenantId}");
             }
         }
 

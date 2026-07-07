@@ -10,10 +10,7 @@ using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Http;
 using System.Net;
 using System.Security.Claims;
-using AutopilotMonitor.Functions.Extensions;
-using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
-using AutopilotMonitor.Shared.DataAccess;
 
 namespace AutopilotMonitor.Functions.Middleware;
 
@@ -26,7 +23,6 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
     private readonly ILogger<AuthenticationMiddleware> _logger;
     private readonly IConfiguration _configuration;
     private readonly JwtSecurityTokenHandler _tokenHandler;
-    private readonly IUserUsageRepository _userUsageRepo;
 
     // Cache configuration managers per tenant to avoid repeated OIDC metadata fetches
     // Bounded with LRU eviction to prevent memory exhaustion from malicious tenant ID flooding
@@ -36,12 +32,10 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
 
     public AuthenticationMiddleware(
         ILogger<AuthenticationMiddleware> logger,
-        IConfiguration configuration,
-        IUserUsageRepository userUsageRepo)
+        IConfiguration configuration)
     {
         _logger = logger;
         _configuration = configuration;
-        _userUsageRepo = userUsageRepo;
         _tokenHandler = new JwtSecurityTokenHandler();
         _configManagerCache = new Dictionary<string, (IConfigurationManager<OpenIdConnectConfiguration> Manager, DateTime LastAccessed)>();
 
@@ -222,35 +216,11 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
             context.Items["ClaimsPrincipal"] = principal;
             authenticated = true;
 
-            // Track MCP usage only (identified by X-Client-Source header, fire-and-forget, non-blocking)
-            var isMcpRequest = string.Equals(
-                httpContext.Request.Headers["X-Client-Source"].FirstOrDefault(), "mcp", StringComparison.OrdinalIgnoreCase);
-            if (isMcpRequest)
-            {
-                var oid = principal.GetObjectId();
-                if (!string.IsNullOrEmpty(oid))
-                {
-                    var upn = principal.GetUserPrincipalName() ?? "unknown";
-                    var tid = principal.GetTenantId() ?? "";
-                    var normalizedEndpoint = EndpointNormalizer.Normalize(requestPath);
-                    var mcpToolName = httpContext.Request.Headers["X-MCP-Tool-Name"].FirstOrDefault();
-                    if (!string.IsNullOrEmpty(mcpToolName))
-                        normalizedEndpoint = $"{mcpToolName}:{normalizedEndpoint}";
-                    var repo = _userUsageRepo;
-                    var logger = _logger;
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            await repo.IncrementUsageAsync(oid, upn, tid, normalizedEndpoint);
-                        }
-                        catch (Exception ex)
-                        {
-                            logger.LogWarning(ex, "[Auth Middleware] Failed to record usage: user={UserId}, endpoint={Endpoint}", oid, normalizedEndpoint);
-                        }
-                    });
-                }
-            }
+            // NOTE: MCP usage tracking moved to McpQuotaEnforcementMiddleware (Codex finding,
+            // 2026-07-07): incrementing here — BEFORE the quota decision — raced the quota read
+            // (the exact-limit request depended on whether the fire-and-forget increment won),
+            // and denied (403/429) requests inflated the counters. The quota middleware now
+            // counts strictly check-then-increment, and only requests that are actually served.
         }
         catch (SecurityTokenValidationException ex)
         {

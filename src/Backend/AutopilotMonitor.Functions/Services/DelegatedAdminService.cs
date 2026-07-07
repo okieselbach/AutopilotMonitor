@@ -12,13 +12,16 @@ namespace AutopilotMonitor.Functions.Services;
 /// SUBSET of tenants: exactly the tenants for which it holds an Active, enabled DelegatedAdmins row.
 /// Externally this is surfaced as "MSP mode".
 ///
-/// The scope is keyed on UPN and is <b>tid-agnostic</b> — identical to <see cref="GlobalAdminService"/>:
-/// the caller signs into their own home tenant, and their cross-tenant reach is resolved from this table
-/// regardless of the JWT's tid. Resolution is cached for 5 minutes; every mutation invalidates the cache.
+/// The scope is keyed on UPN; assignment RESOLUTION is tid-agnostic (identical to <see cref="GlobalAdminService"/>),
+/// but the effective scope is GATED on the caller's home tenant (JWT tid) being Enterprise — the MSP
+/// seat is an Enterprise capability of the tenant the admin is homed in, while the managed targets may
+/// be any edition. Resolution is cached briefly (UPN-keyed, gate applied per call); every mutation
+/// invalidates the cache.
 /// </summary>
 public class DelegatedAdminService
 {
     private readonly IAdminRepository _adminRepo;
+    private readonly TenantEntitlementService _entitlementService;
     private readonly IMemoryCache _cache;
     private readonly ILogger<DelegatedAdminService> _logger;
     // Per-process cache: on scaled-out Flex Consumption, the scope invalidation in UpsertAsync/revoke
@@ -30,10 +33,12 @@ public class DelegatedAdminService
 
     public DelegatedAdminService(
         IAdminRepository adminRepo,
+        TenantEntitlementService entitlementService,
         IMemoryCache cache,
         ILogger<DelegatedAdminService> logger)
     {
         _adminRepo = adminRepo;
+        _entitlementService = entitlementService;
         _cache = cache;
         _logger = logger;
     }
@@ -43,8 +48,18 @@ public class DelegatedAdminService
     /// tenant. Only <see cref="Constants.DelegatedStatus.Active"/> + enabled rows with a recognized role
     /// contribute; pending/revoked/disabled/unknown-role rows are ignored (fail-closed). Cached briefly (see _cacheDuration).
     /// Returns an empty (never null) scope for a UPN with no effective assignments.
+    /// <para>
+    /// <b>Entitlement gate (single choke-point for ALL delegated-scope consumers):</b> delegated ("MSP")
+    /// access is an Enterprise capability of the caller's HOME tenant — the tenant that pays for the MSP
+    /// seat (<paramref name="callerHomeTenantId"/> = the validated JWT tid, unforgeable). The MANAGED
+    /// (target) tenants may be any edition — an MSP on Enterprise may manage Community customers.
+    /// Null/empty home tid or a non-Enterprise home tenant ⇒ empty scope (fail-closed). Grant rows stay
+    /// untouched; they become inert and resurrect when the home tenant upgrades / trials.
+    /// The gate sits AFTER the cache read so the cached scope stays pure (keyed on UPN only) and a
+    /// home-tenant edition change converges within the entitlement service's own config-cache TTL.
+    /// </para>
     /// </summary>
-    public virtual async Task<DelegatedScope> GetScopeAsync(string? upn)
+    public virtual async Task<DelegatedScope> GetScopeAsync(string? upn, string? callerHomeTenantId = null)
     {
         if (string.IsNullOrWhiteSpace(upn))
             return DelegatedScope.Empty;
@@ -52,7 +67,7 @@ public class DelegatedAdminService
         upn = upn.ToLowerInvariant();
         var cacheKey = $"delegated-scope:{upn}";
         if (_cache.TryGetValue<DelegatedScope>(cacheKey, out var cached) && cached != null)
-            return cached;
+            return await ApplyHomeTenantGateAsync(cached, upn, callerHomeTenantId);
 
         var rows = await _adminRepo.GetDelegatedTenantsAsync(upn);
         var tenantRoles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -98,9 +113,34 @@ public class DelegatedAdminService
             }
         }
 
+        // Entitlement gate (single choke-point for ALL delegated-scope consumers — policy rescue,
+        // AllowedTenantIds, delegated config/all, MCP auto-grant): delegated ("MSP") access is an
+        // Enterprise capability of the caller's HOME tenant (the tenant paying for the MSP seat) —
+        // NOT of the managed targets. An Enterprise MSP may manage Community customers. Resolution
+        // failure / unknown home tenant counts as Community (fail-closed inside the entitlement
+        // service), which empties the scope. Grant rows stay untouched — inert until upgrade/trial.
         var scope = new DelegatedScope(tenantRoles);
         _cache.Set(cacheKey, scope, _cacheDuration);
-        return scope;
+        return await ApplyHomeTenantGateAsync(scope, upn, callerHomeTenantId);
+    }
+
+    /// <summary>
+    /// Empties a non-empty scope when the caller's home tenant is not Enterprise. Applied after
+    /// every cache read/write so the cached scope stays pure (UPN-keyed) — the edition lookup has
+    /// its own 5-minute config cache, so this adds no per-request storage I/O in the steady state.
+    /// </summary>
+    private async Task<DelegatedScope> ApplyHomeTenantGateAsync(DelegatedScope scope, string upn, string? callerHomeTenantId)
+    {
+        if (scope.IsEmpty)
+            return scope;
+
+        if (await _entitlementService.GetEditionAsync(callerHomeTenantId) == Security.TenantEdition.Enterprise)
+            return scope;
+
+        _logger.LogInformation(
+            "[DelegatedAdmin] Suppressing delegated scope for {Upn} — home tenant {HomeTenantId} is not Enterprise (MSP seat requires Enterprise)",
+            upn, string.IsNullOrWhiteSpace(callerHomeTenantId) ? "(unknown)" : callerHomeTenantId);
+        return DelegatedScope.Empty;
     }
 
     /// <summary>Creates or replaces an assignment, then invalidates the UPN's cached scope.</summary>

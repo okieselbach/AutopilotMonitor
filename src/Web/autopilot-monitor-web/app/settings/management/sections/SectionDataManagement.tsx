@@ -8,7 +8,7 @@ export function SectionDataManagement() {
   const {
     dataRetentionDays, setDataRetentionDays,
     sessionTimeoutHours, setSessionTimeoutHours,
-    user,
+    user, editionInfo,
     handleSaveDataManagement, handleResetDataManagement,
     savingSection,
   } = useTenantConfig();
@@ -22,6 +22,7 @@ export function SectionDataManagement() {
         sessionTimeoutHours={sessionTimeoutHours}
         setSessionTimeoutHours={setSessionTimeoutHours}
         isGlobalAdmin={user?.isGlobalAdmin}
+        retentionCapDays={editionInfo.entitlements.retentionCapDays}
         onSave={handleSaveDataManagement}
         onReset={handleResetDataManagement}
         saving={savingSection === "dataManagement"}

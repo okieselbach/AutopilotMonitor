@@ -78,6 +78,11 @@ public class DelegatedAdminManagementFunction
         if (role != Constants.DelegatedRoles.DelegatedReader && role != Constants.DelegatedRoles.DelegatedAdmin)
             return await Bad(req, $"role must be '{Constants.DelegatedRoles.DelegatedReader}' or '{Constants.DelegatedRoles.DelegatedAdmin}'");
 
+        // Edition note: TARGET tenants may be any edition — an MSP on Enterprise may manage Community
+        // customers. The Enterprise requirement applies to the delegated admin's HOME tenant and is
+        // enforced at resolve time (DelegatedAdminService.GetScopeAsync gates on the JWT tid). It cannot
+        // be checked here: at grant time only the UPN is known, and UPN-domain → tenant mapping is not
+        // reliable (multi-domain tenants). Grants to non-Enterprise-homed admins are simply inert.
         var entry = await _delegatedAdminService.UpsertAsync(
             body.Upn, body.TenantId, role,
             Constants.DelegatedStatus.Active, Constants.DelegatedSource.OperatorGranted, currentUpn ?? "");

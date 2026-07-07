@@ -136,7 +136,22 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         private async Task RunForTenantAsync(string tenantId, FanoutResult result, CancellationToken cancellationToken)
         {
             var config = await _tenantConfig.GetConfigurationAsync(tenantId).ConfigureAwait(false);
-            var retentionDays = config?.DataRetentionDays ?? 90;
+            // Edition retention cap (fail-closed backstop): the stored value is clamped to the
+            // effective edition's cap at read time (Community 90 / Enterprise 365). A tenant whose
+            // trial expired, or whose stored value predates the cap, is enforced here even though
+            // the stored DataRetentionDays is left untouched. days <= 0 stays the GA-only
+            // "infinite" escape hatch (skipped below, never clamped).
+            var storedDays = config?.DataRetentionDays ?? 90;
+            var retentionDays = config == null
+                ? 90
+                : TenantEntitlementService.GetEffectiveRetentionDays(config, DateTime.UtcNow);
+            if (retentionDays > 0 && retentionDays < storedDays)
+            {
+                _logger.LogWarning(
+                    "Tenant {TenantId}: DataRetentionDays={Stored} exceeds the {Edition}-edition cap — enforcing {Effective} days",
+                    tenantId, storedDays,
+                    TenantEntitlementService.ResolveEdition(config!, DateTime.UtcNow), retentionDays);
+            }
 
             if (retentionDays <= 0)
             {

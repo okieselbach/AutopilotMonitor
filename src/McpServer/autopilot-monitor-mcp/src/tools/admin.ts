@@ -14,7 +14,8 @@ import { toolError } from './error-handler.js';
  * is dropped by default rather than leaking by omission.
  */
 export const TENANT_SAFE_FIELDS: ReadonlySet<string> = new Set([
-  'tenantId', 'domainName', 'planTier', 'disabled', 'disabledReason',
+  'tenantId', 'domainName', 'planTier', 'trialExpiresUtc', 'trialConsumed',
+  'disabled', 'disabledReason',
   'onboardedAt', 'onboardedBy', 'lastUpdated', 'dataRetentionDays',
 ]);
 

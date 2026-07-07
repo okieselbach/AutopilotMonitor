@@ -92,7 +92,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                         var allowedCrossTenant = requestCtx.HasGlobalScope;
                         if (!allowedCrossTenant && !string.IsNullOrEmpty(userEmail))
                         {
-                            var scope = await _delegatedAdminService.GetScopeAsync(userEmail);
+                            var scope = await _delegatedAdminService.GetScopeAsync(userEmail, userTenantId);
                             allowedCrossTenant = scope.RoleFor(requestedTenantId) != null;
                         }
 
