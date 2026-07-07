@@ -63,6 +63,19 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     return badRequest;
                 }
 
+                // Per-tenant rate-limit overrides are optional (null = inherit global), but if provided
+                // they must be positive — a zero/negative override would throttle every request.
+                var customLimitError =
+                    config.CustomRateLimitRequestsPerMinute is int dev && dev < 1 ? "Device API Rate Limit" :
+                    config.CustomUserRateLimitRequestsPerMinute is int usr && usr < 1 ? "User API Rate Limit" :
+                    null;
+                if (customLimitError != null)
+                {
+                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badRequest.WriteAsJsonAsync(new { success = false, message = $"{customLimitError} override must be at least 1 request per minute (or left blank to inherit the global default)." });
+                    return badRequest;
+                }
+
                 // Load the stored config up-front so we can (1) restore any redacted secret placeholders
                 // before validation/save and (2) protect GA-only fields below.
                 var existingConfig = await _configService.GetConfigurationAsync(requestCtx.TargetTenantId);
@@ -127,7 +140,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                         config.UnrestrictedModeEnabled != existingConfig.UnrestrictedModeEnabled ||
                         config.EntraAppRolesEnabled != existingConfig.EntraAppRolesEnabled ||
                         config.CustomRateLimitRequestsPerMinute != existingConfig.CustomRateLimitRequestsPerMinute ||
-                        config.RateLimitRequestsPerMinute != existingConfig.RateLimitRequestsPerMinute ||
+                        config.CustomUserRateLimitRequestsPerMinute != existingConfig.CustomUserRateLimitRequestsPerMinute ||
                         config.Disabled != existingConfig.Disabled ||
                         config.ValidateDeviceAssociation != existingConfig.ValidateDeviceAssociation)
                     {
@@ -141,7 +154,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     config.UnrestrictedModeEnabled = existingConfig.UnrestrictedModeEnabled;
                     config.EntraAppRolesEnabled = existingConfig.EntraAppRolesEnabled;
                     config.CustomRateLimitRequestsPerMinute = existingConfig.CustomRateLimitRequestsPerMinute;
-                    config.RateLimitRequestsPerMinute = existingConfig.RateLimitRequestsPerMinute;
+                    config.CustomUserRateLimitRequestsPerMinute = existingConfig.CustomUserRateLimitRequestsPerMinute;
                     config.Disabled = existingConfig.Disabled;
                     config.DisabledReason = existingConfig.DisabledReason;
                     config.DisabledUntil = existingConfig.DisabledUntil;

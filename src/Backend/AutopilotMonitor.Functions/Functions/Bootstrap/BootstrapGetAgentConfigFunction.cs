@@ -18,6 +18,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
         private readonly ILogger<BootstrapGetAgentConfigFunction> _logger;
         private readonly GetAgentConfigFunction _inner;
         private readonly TenantConfigurationService _configService;
+        private readonly AdminConfigurationService _adminConfigService;
         private readonly RateLimitService _rateLimitService;
         private readonly AutopilotDeviceValidator _autopilotDeviceValidator;
         private readonly CorporateIdentifierValidator _corporateIdentifierValidator;
@@ -28,6 +29,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
             ILogger<BootstrapGetAgentConfigFunction> logger,
             GetAgentConfigFunction inner,
             TenantConfigurationService configService,
+            AdminConfigurationService adminConfigService,
             RateLimitService rateLimitService,
             AutopilotDeviceValidator autopilotDeviceValidator,
             CorporateIdentifierValidator corporateIdentifierValidator,
@@ -37,6 +39,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
             _logger = logger;
             _inner = inner;
             _configService = configService;
+            _adminConfigService = adminConfigService;
             _rateLimitService = rateLimitService;
             _autopilotDeviceValidator = autopilotDeviceValidator;
             _corporateIdentifierValidator = corporateIdentifierValidator;
@@ -76,7 +79,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 }
 
                 var (validation, errorResponse) = await req.ValidateSecurityAsync(
-                    tenantId, _configService, _rateLimitService,
+                    tenantId, _configService, _adminConfigService, _rateLimitService,
                     _autopilotDeviceValidator, _corporateIdentifierValidator,
                     _logger, bootstrapSessionService: _bootstrapSessionService,
                     deviceAssociationValidator: _deviceAssociationValidator);

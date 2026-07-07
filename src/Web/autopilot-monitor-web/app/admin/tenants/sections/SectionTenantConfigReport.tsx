@@ -26,8 +26,8 @@ interface TenantConfig {
   disabledUntil?: string;
 
   // Security
-  rateLimitRequestsPerMinute?: number;
   customRateLimitRequestsPerMinute?: number | null;
+  customUserRateLimitRequestsPerMinute?: number | null;
   manufacturerWhitelist?: string;
   modelWhitelist?: string;
   validateAutopilotDevice?: boolean;
@@ -103,8 +103,8 @@ interface TenantConfig {
 
 const DEFAULTS: Record<string, unknown> = {
   disabled: false,
-  rateLimitRequestsPerMinute: 100,
   customRateLimitRequestsPerMinute: null,
+  customUserRateLimitRequestsPerMinute: null,
   manufacturerWhitelist: 'Dell*,HP*,Lenovo*,Microsoft Corporation',
   modelWhitelist: '*',
   validateAutopilotDevice: false,
@@ -522,8 +522,8 @@ export function SectionTenantConfigReport() {
                 <ConfigRow label="Validate Autopilot Device" value={config.validateAutopilotDevice} configKey="validateAutopilotDevice" defaults={DEFAULTS} />
                 <ConfigRow label="Validate Corporate Identifier" value={config.validateCorporateIdentifier} configKey="validateCorporateIdentifier" defaults={DEFAULTS} />
                 <ConfigRow label="Allow Insecure Agent Requests" value={config.allowInsecureAgentRequests} configKey="allowInsecureAgentRequests" defaults={DEFAULTS} />
-                <ConfigRow label="Rate Limit (req/min)" value={config.rateLimitRequestsPerMinute} configKey="rateLimitRequestsPerMinute" defaults={DEFAULTS} />
-                <ConfigRow label="Custom Rate Limit" value={config.customRateLimitRequestsPerMinute} configKey="customRateLimitRequestsPerMinute" defaults={DEFAULTS} />
+                <ConfigRow label="Device API Rate Limit Override" value={config.customRateLimitRequestsPerMinute} configKey="customRateLimitRequestsPerMinute" defaults={DEFAULTS} />
+                <ConfigRow label="User API Rate Limit Override" value={config.customUserRateLimitRequestsPerMinute} configKey="customUserRateLimitRequestsPerMinute" defaults={DEFAULTS} />
               </Section>
 
               <Section title="Hardware Whitelist">

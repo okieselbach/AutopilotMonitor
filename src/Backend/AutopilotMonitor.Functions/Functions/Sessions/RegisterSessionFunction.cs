@@ -32,12 +32,14 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         private readonly BootstrapSessionService _bootstrapSessionService;
         private readonly WebhookNotificationService _webhookNotificationService;
         private readonly SessionDeletionGuard _deletionGuard;
+        private readonly AdminConfigurationService _adminConfigService;
 
         public RegisterSessionFunction(
             ILogger<RegisterSessionFunction> logger,
             ISessionRepository sessionRepo,
             IMetricsRepository metricsRepo,
             TenantConfigurationService configService,
+            AdminConfigurationService adminConfigService,
             RateLimitService rateLimitService,
             AutopilotDeviceValidator autopilotDeviceValidator,
             CorporateIdentifierValidator corporateIdentifierValidator,
@@ -50,6 +52,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             _sessionRepo = sessionRepo;
             _metricsRepo = metricsRepo;
             _configService = configService;
+            _adminConfigService = adminConfigService;
             _rateLimitService = rateLimitService;
             _autopilotDeviceValidator = autopilotDeviceValidator;
             _corporateIdentifierValidator = corporateIdentifierValidator;
@@ -90,6 +93,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 var (validation, errorResponse2) = await req.ValidateSecurityAsync(
                     registration.TenantId,
                     _configService,
+                    _adminConfigService,
                     _rateLimitService,
                     _autopilotDeviceValidator,
                     _corporateIdentifierValidator,

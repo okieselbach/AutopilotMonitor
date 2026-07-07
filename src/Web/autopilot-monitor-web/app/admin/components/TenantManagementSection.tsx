@@ -14,7 +14,10 @@ export interface TenantConfiguration {
   disabled: boolean;
   disabledReason?: string;
   disabledUntil?: string;
-  rateLimitRequestsPerMinute: number;
+  /** Per-tenant device API rate-limit override (null/undefined = inherit global). GA-only. */
+  customRateLimitRequestsPerMinute?: number | null;
+  /** Per-tenant user API rate-limit override for standard users (null/undefined = inherit global). GA-only. */
+  customUserRateLimitRequestsPerMinute?: number | null;
   manufacturerWhitelist: string;
   modelWhitelist: string;
   validateAutopilotDevice: boolean;
@@ -544,17 +547,40 @@ export function TenantManagementSection({
                 </p>
               </div>
 
-              {/* Rate Limit */}
+              {/* Device API Rate Limit override */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Rate Limit (Requests/Min)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Device API Rate Limit (Requests/Min)</label>
                 <input
                   type="number"
                   min="1"
-                  max="1000"
-                  value={editingTenant.rateLimitRequestsPerMinute}
-                  onChange={(e) => setEditingTenant({ ...editingTenant, rateLimitRequestsPerMinute: parseInt(e.target.value) || 100 })}
+                  max="10000"
+                  placeholder="Blank = inherit global default"
+                  value={editingTenant.customRateLimitRequestsPerMinute ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value.trim();
+                    setEditingTenant({ ...editingTenant, customRateLimitRequestsPerMinute: v === "" ? null : (parseInt(v) || null) });
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 />
+                <p className="mt-1 text-xs text-gray-500">Per-device (agent/cert) limit. Leave blank to inherit the global default.</p>
+              </div>
+
+              {/* User API Rate Limit override */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">User API Rate Limit (Requests/Min)</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="10000"
+                  placeholder="Blank = inherit global default"
+                  value={editingTenant.customUserRateLimitRequestsPerMinute ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value.trim();
+                    setEditingTenant({ ...editingTenant, customUserRateLimitRequestsPerMinute: v === "" ? null : (parseInt(v) || null) });
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                />
+                <p className="mt-1 text-xs text-gray-500">Per-user (portal) limit for standard users. Leave blank to inherit the global default. Does not apply to Global Admins.</p>
               </div>
 
               <label className="flex items-center space-x-2 cursor-pointer">

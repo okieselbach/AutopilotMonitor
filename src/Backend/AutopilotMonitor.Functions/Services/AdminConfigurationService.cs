@@ -136,62 +136,17 @@ namespace AutopilotMonitor.Functions.Services
 
                 _logger.LogInformation($"Admin configuration saved by {config.UpdatedBy}");
 
-                // Sync global rate limit to all tenant configurations (only if not custom)
-                await SyncRateLimitToTenantsAsync(config.GlobalRateLimitRequestsPerMinute);
+                // NOTE: Rate limits are no longer mirrored into every tenant row. The effective
+                // per-tenant limit is computed at read time as `tenantOverride ?? global`
+                // (see SecurityValidator for the device path and UserRateLimitMiddleware for the
+                // user path). This removes the former background sync job — and the clobbering
+                // foot-gun where a per-tenant edit to the base field was overwritten on the next
+                // global save.
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error saving admin configuration");
                 throw;
-            }
-        }
-
-        /// <summary>
-        /// Syncs the global rate limit to all tenant configurations that don't have a custom override
-        /// </summary>
-        private async Task SyncRateLimitToTenantsAsync(int globalRateLimit)
-        {
-            try
-            {
-                _logger.LogInformation($"Syncing global rate limit ({globalRateLimit}) to all tenant configurations...");
-
-                var tenantsUpdated = 0;
-                var tenantsSkipped = 0;
-
-                // Get all tenant configurations via repository
-                var allConfigs = await _configRepo.GetAllTenantConfigurationsAsync();
-
-                foreach (var tenantConfig in allConfigs)
-                {
-                    // Check if tenant has a custom rate limit override
-                    if (tenantConfig.CustomRateLimitRequestsPerMinute.HasValue)
-                    {
-                        // Skip tenants with custom rate limit
-                        tenantsSkipped++;
-                        _logger.LogDebug($"Skipping tenant {tenantConfig.TenantId} - has custom rate limit: {tenantConfig.CustomRateLimitRequestsPerMinute}");
-                        continue;
-                    }
-
-                    // Update tenant's rate limit to match global default.
-                    // Deliberately do NOT touch UpdatedBy: this is a background sync, not an
-                    // edit by a real user, and downstream code (e.g. PreviewWhitelistFunction
-                    // auto-promote) treats UpdatedBy as the tenant's onboarding-requester UPN.
-                    // Clobbering it with a sentinel string corrupted 10 tenants' TenantAdmins
-                    // rows before this was caught. Audit trail stays via the LogInformation
-                    // line below and via LastUpdated.
-                    tenantConfig.RateLimitRequestsPerMinute = globalRateLimit;
-                    tenantConfig.LastUpdated = DateTime.UtcNow;
-
-                    await _configRepo.SaveTenantConfigurationAsync(tenantConfig);
-                    tenantsUpdated++;
-                }
-
-                _logger.LogInformation($"Rate limit sync completed: {tenantsUpdated} tenants updated, {tenantsSkipped} tenants skipped (custom rate limit)");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error syncing rate limit to tenant configurations");
-                // Don't throw - we don't want to fail the admin config save if sync fails
             }
         }
 

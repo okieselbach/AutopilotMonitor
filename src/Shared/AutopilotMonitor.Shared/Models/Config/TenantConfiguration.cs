@@ -76,18 +76,20 @@ namespace AutopilotMonitor.Shared.Models
         // ===== SECURITY SETTINGS =====
 
         /// <summary>
-        /// Rate limit: Maximum requests per minute per device
-        /// This value is synchronized from the global AdminConfiguration
-        /// Default: 100
-        /// </summary>
-        public int RateLimitRequestsPerMinute { get; set; } = 100;
-
-        /// <summary>
-        /// Optional custom rate limit for this tenant (overrides RateLimitRequestsPerMinute)
-        /// If set (not null), this custom value takes precedence over the global default
-        /// Note: This is only configurable by Global Admins directly in the database
+        /// Optional per-tenant override for the device (agent/cert) API rate limit.
+        /// If null, the effective limit is the global <c>AdminConfiguration.GlobalRateLimitRequestsPerMinute</c>.
+        /// If set, this value takes precedence. Global-Admin-only (see UpdateTenantConfigurationFunction GA-gate).
         /// </summary>
         public int? CustomRateLimitRequestsPerMinute { get; set; } = null;
+
+        /// <summary>
+        /// Optional per-tenant override for the user (portal/JWT) API rate limit applied to
+        /// standard users (Tenant Admins, Operators, Viewers). If null, the effective limit is the
+        /// global <c>AdminConfiguration.UserRateLimitRequestsPerMinute</c>. Global-Admin-only.
+        /// Note: Global Admins are rate-limited by the global GlobalAdminRateLimitRequestsPerMinute
+        /// (cross-tenant), so this override does not apply to them.
+        /// </summary>
+        public int? CustomUserRateLimitRequestsPerMinute { get; set; } = null;
 
         /// <summary>
         /// Tenant plan tier. Determines default API rate limits and feature gates.
@@ -797,8 +799,8 @@ namespace AutopilotMonitor.Shared.Models
                 Disabled = false,
                 DisabledReason = null,
                 DisabledUntil = null,
-                RateLimitRequestsPerMinute = 100,
                 CustomRateLimitRequestsPerMinute = null,
+                CustomUserRateLimitRequestsPerMinute = null,
                 ManufacturerWhitelist = "Dell*,HP*,Lenovo*,Microsoft Corporation",
                 ModelWhitelist = "*",
                 ValidateAutopilotDevice = false,

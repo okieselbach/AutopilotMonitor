@@ -40,8 +40,16 @@ public sealed class BootstrapAuthDisabledTenantTests
             .Setup(x => x.TryGetConfigurationAsync(It.IsAny<string>()))
             .ReturnsAsync((config, true));
 
+        var adminConfigServiceMock = new Mock<AdminConfigurationService>(
+            configRepo, Mock.Of<ILogger<AdminConfigurationService>>(), cache)
+        { CallBase = false };
+        adminConfigServiceMock
+            .Setup(x => x.GetConfigurationAsync())
+            .ReturnsAsync(new AdminConfiguration());
+
         return new SecurityValidator(
             configService: configServiceMock.Object,
+            adminConfigService: adminConfigServiceMock.Object,
             rateLimitService: null!,
             autopilotDeviceValidator: null!,
             corporateIdentifierValidator: null!,

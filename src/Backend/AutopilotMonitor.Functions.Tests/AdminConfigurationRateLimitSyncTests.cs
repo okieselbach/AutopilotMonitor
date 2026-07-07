@@ -9,70 +9,29 @@ using Xunit;
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Tests that <see cref="AdminConfigurationService.SaveConfigurationAsync"/>'s background
-/// rate-limit sync does NOT mutate <see cref="TenantConfiguration.UpdatedBy"/>.
+/// Rate limits are no longer mirrored into every tenant row. The effective per-tenant
+/// limit is computed at read time as <c>tenantOverride ?? global</c> (see SecurityValidator
+/// for the device path and UserRateLimitMiddleware for the user path). These tests pin the
+/// removal of the former background sync job:
+/// <list type="bullet">
+///   <item>Saving the admin config must NOT enumerate or write ANY tenant configuration.</item>
+/// </list>
 /// <para>
-/// Regression: the sync used to overwrite UpdatedBy with the sentinel string
-/// <c>"System (Global Rate Limit Sync)"</c>. Downstream code in
-/// <c>PreviewWhitelistFunction</c> reads UpdatedBy as the tenant's onboarding-requester
-/// UPN and wrote it verbatim into TenantAdmins on preview approval — corrupting 10
-/// tenants before the bug was caught.
+/// Historical context: the sync used to copy <c>GlobalRateLimitRequestsPerMinute</c> into every
+/// tenant's base <c>RateLimitRequestsPerMinute</c> field (skipping tenants with a custom override).
+/// That both clobbered per-tenant edits to the base field on the next global save AND, in an even
+/// earlier incarnation, corrupted <c>UpdatedBy</c> on 10 tenants. Removing the sync entirely
+/// eliminates both foot-guns. The compute-at-read model makes a global change take effect for all
+/// non-override tenants without touching a single tenant row.
 /// </para>
 /// </summary>
 public class AdminConfigurationRateLimitSyncTests
 {
     [Fact]
-    public async Task SaveConfigurationAsync_RateLimitSync_PreservesUpdatedBy()
+    public async Task SaveConfigurationAsync_DoesNotEnumerateOrWriteTenantConfigs()
     {
-        var savedTenantConfigs = new List<TenantConfiguration>();
-        var repo = new Mock<IConfigRepository>();
+        var repo = new Mock<IConfigRepository>(MockBehavior.Strict);
         repo.Setup(r => r.SaveAdminConfigurationAsync(It.IsAny<AdminConfiguration>()))
-            .ReturnsAsync(true);
-        repo.Setup(r => r.GetAllTenantConfigurationsAsync())
-            .ReturnsAsync(new List<TenantConfiguration>
-            {
-                new() { TenantId = "t1", UpdatedBy = "onboarder.t1@contoso.com", RateLimitRequestsPerMinute = 50 },
-                new() { TenantId = "t2", UpdatedBy = "real.user.t2@example.com", RateLimitRequestsPerMinute = 50 },
-            });
-        repo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()))
-            .Callback<TenantConfiguration>(c => savedTenantConfigs.Add(c))
-            .ReturnsAsync(true);
-
-        var sut = new AdminConfigurationService(
-            repo.Object,
-            NullLogger<AdminConfigurationService>.Instance,
-            new MemoryCache(new MemoryCacheOptions()));
-
-        var adminConfig = new AdminConfiguration
-        {
-            UpdatedBy = "global-admin@contoso.com",
-            GlobalRateLimitRequestsPerMinute = 200,
-        };
-
-        await sut.SaveConfigurationAsync(adminConfig);
-
-        Assert.Equal(2, savedTenantConfigs.Count);
-        Assert.Equal("onboarder.t1@contoso.com", savedTenantConfigs[0].UpdatedBy);
-        Assert.Equal("real.user.t2@example.com", savedTenantConfigs[1].UpdatedBy);
-        // And the rate limit IS synced — sanity check the sync still runs
-        Assert.All(savedTenantConfigs, c => Assert.Equal(200, c.RateLimitRequestsPerMinute));
-    }
-
-    [Fact]
-    public async Task SaveConfigurationAsync_RateLimitSync_SkipsTenantsWithCustomOverride()
-    {
-        var savedTenantConfigs = new List<TenantConfiguration>();
-        var repo = new Mock<IConfigRepository>();
-        repo.Setup(r => r.SaveAdminConfigurationAsync(It.IsAny<AdminConfiguration>()))
-            .ReturnsAsync(true);
-        repo.Setup(r => r.GetAllTenantConfigurationsAsync())
-            .ReturnsAsync(new List<TenantConfiguration>
-            {
-                new() { TenantId = "custom-tenant", UpdatedBy = "owner@contoso.com",
-                        RateLimitRequestsPerMinute = 1000, CustomRateLimitRequestsPerMinute = 1000 },
-            });
-        repo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()))
-            .Callback<TenantConfiguration>(c => savedTenantConfigs.Add(c))
             .ReturnsAsync(true);
 
         var sut = new AdminConfigurationService(
@@ -84,9 +43,13 @@ public class AdminConfigurationRateLimitSyncTests
         {
             UpdatedBy = "global-admin@contoso.com",
             GlobalRateLimitRequestsPerMinute = 200,
+            UserRateLimitRequestsPerMinute = 240,
         });
 
-        // Tenant with custom override is skipped — UpdatedBy untouched either way
-        Assert.Empty(savedTenantConfigs);
+        // The admin config row is written...
+        repo.Verify(r => r.SaveAdminConfigurationAsync(It.IsAny<AdminConfiguration>()), Times.Once);
+        // ...but NO tenant configuration is enumerated or mutated (sync removed).
+        repo.Verify(r => r.GetAllTenantConfigurationsAsync(), Times.Never);
+        repo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
     }
 }

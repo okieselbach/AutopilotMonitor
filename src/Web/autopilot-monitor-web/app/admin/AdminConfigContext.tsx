@@ -20,6 +20,10 @@ interface AdminConfigContextValue {
   // Config field state
   globalRateLimit: number;
   setGlobalRateLimit: (value: number) => void;
+  userRateLimit: number;
+  setUserRateLimit: (value: number) => void;
+  globalAdminRateLimit: number;
+  setGlobalAdminRateLimit: (value: number) => void;
   platformStatsBlobSasUrl: string;
   setPlatformStatsBlobSasUrl: (value: string) => void;
   collectorIdleTimeoutMinutes: number;
@@ -123,6 +127,8 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
   const [loadingConfig, setLoadingConfig] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
   const [globalRateLimit, setGlobalRateLimit] = useState(100);
+  const [userRateLimit, setUserRateLimit] = useState(120);
+  const [globalAdminRateLimit, setGlobalAdminRateLimit] = useState(600);
   const [platformStatsBlobSasUrl, setPlatformStatsBlobSasUrl] = useState("");
   const [collectorIdleTimeoutMinutes, setCollectorIdleTimeoutMinutes] = useState(15);
   const [desktopDetectorNoCandidateTimeoutMinutes, setDesktopDetectorNoCandidateTimeoutMinutes] = useState(10);
@@ -182,6 +188,8 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         const data: AdminConfiguration = await response.json();
         setAdminConfig(data);
         setGlobalRateLimit(data.globalRateLimitRequestsPerMinute);
+        setUserRateLimit(data.userRateLimitRequestsPerMinute ?? 120);
+        setGlobalAdminRateLimit(data.globalAdminRateLimitRequestsPerMinute ?? 600);
         setPlatformStatsBlobSasUrl(data.platformStatsBlobSasUrl ?? "");
         setCollectorIdleTimeoutMinutes(data.collectorIdleTimeoutMinutes ?? 15);
         setDesktopDetectorNoCandidateTimeoutMinutes(data.desktopDetectorNoCandidateTimeoutMinutes ?? 10);
@@ -285,6 +293,8 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
       const updatedConfig: AdminConfiguration = {
         ...adminConfig,
         globalRateLimitRequestsPerMinute: globalRateLimit,
+        userRateLimitRequestsPerMinute: userRateLimit,
+        globalAdminRateLimitRequestsPerMinute: globalAdminRateLimit,
         platformStatsBlobSasUrl: platformStatsBlobSasUrl.trim(),
         collectorIdleTimeoutMinutes,
         desktopDetectorNoCandidateTimeoutMinutes,
@@ -322,12 +332,14 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
     } finally {
       setSavingConfig(false);
     }
-  }, [isGlobalAdmin, adminConfig, globalRateLimit, platformStatsBlobSasUrl, collectorIdleTimeoutMinutes, desktopDetectorNoCandidateTimeoutMinutes, maxSessionWindowHours, maintenanceBlockDurationHours, opsEventRetentionDays, slaNotificationCooldownHours, allowAgentDowngrade, modernDeploymentHarmlessEventIds, enableIndexDualWrite, sessionDeletionKillSwitch, getAccessToken]);
+  }, [isGlobalAdmin, adminConfig, globalRateLimit, userRateLimit, globalAdminRateLimit, platformStatsBlobSasUrl, collectorIdleTimeoutMinutes, desktopDetectorNoCandidateTimeoutMinutes, maxSessionWindowHours, maintenanceBlockDurationHours, opsEventRetentionDays, slaNotificationCooldownHours, allowAgentDowngrade, modernDeploymentHarmlessEventIds, enableIndexDualWrite, sessionDeletionKillSwitch, getAccessToken]);
 
   // Reset admin config
   const handleResetAdminConfig = useCallback(() => {
     if (!adminConfig) return;
     setGlobalRateLimit(adminConfig.globalRateLimitRequestsPerMinute);
+    setUserRateLimit(adminConfig.userRateLimitRequestsPerMinute ?? 120);
+    setGlobalAdminRateLimit(adminConfig.globalAdminRateLimitRequestsPerMinute ?? 600);
     setPlatformStatsBlobSasUrl(adminConfig.platformStatsBlobSasUrl ?? "");
     setCollectorIdleTimeoutMinutes(adminConfig.collectorIdleTimeoutMinutes ?? 15);
     setDesktopDetectorNoCandidateTimeoutMinutes(adminConfig.desktopDetectorNoCandidateTimeoutMinutes ?? 10);
@@ -470,6 +482,8 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
     <AdminConfigContext.Provider value={{
       adminConfig, setAdminConfig, loadingConfig, savingConfig, setSavingConfig,
       globalRateLimit, setGlobalRateLimit,
+      userRateLimit, setUserRateLimit,
+      globalAdminRateLimit, setGlobalAdminRateLimit,
       platformStatsBlobSasUrl, setPlatformStatsBlobSasUrl,
       collectorIdleTimeoutMinutes, setCollectorIdleTimeoutMinutes,
       desktopDetectorNoCandidateTimeoutMinutes, setDesktopDetectorNoCandidateTimeoutMinutes,

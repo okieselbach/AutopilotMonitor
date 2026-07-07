@@ -8,6 +8,8 @@ export function SectionGlobalSettings() {
   const {
     loadingConfig, savingConfig, adminConfig,
     globalRateLimit, setGlobalRateLimit,
+    userRateLimit, setUserRateLimit,
+    globalAdminRateLimit, setGlobalAdminRateLimit,
     platformStatsBlobSasUrl, setPlatformStatsBlobSasUrl,
     collectorIdleTimeoutMinutes, setCollectorIdleTimeoutMinutes,
     desktopDetectorNoCandidateTimeoutMinutes, setDesktopDetectorNoCandidateTimeoutMinutes,
@@ -28,6 +30,10 @@ export function SectionGlobalSettings() {
         adminConfig={adminConfig}
         globalRateLimit={globalRateLimit}
         setGlobalRateLimit={setGlobalRateLimit}
+        userRateLimit={userRateLimit}
+        setUserRateLimit={setUserRateLimit}
+        globalAdminRateLimit={globalAdminRateLimit}
+        setGlobalAdminRateLimit={setGlobalAdminRateLimit}
         platformStatsBlobSasUrl={platformStatsBlobSasUrl}
         setPlatformStatsBlobSasUrl={setPlatformStatsBlobSasUrl}
         collectorIdleTimeoutMinutes={collectorIdleTimeoutMinutes}

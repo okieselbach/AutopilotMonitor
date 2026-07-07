@@ -47,6 +47,7 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
 
         private readonly ILogger<GetDiagnosticsUploadUrlFunction> _logger;
         private readonly TenantConfigurationService _configService;
+        private readonly AdminConfigurationService _adminConfigService;
         private readonly RateLimitService _rateLimitService;
         private readonly AutopilotDeviceValidator _autopilotDeviceValidator;
         private readonly CorporateIdentifierValidator _corporateIdentifierValidator;
@@ -57,6 +58,7 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
         public GetDiagnosticsUploadUrlFunction(
             ILogger<GetDiagnosticsUploadUrlFunction> logger,
             TenantConfigurationService configService,
+            AdminConfigurationService adminConfigService,
             RateLimitService rateLimitService,
             AutopilotDeviceValidator autopilotDeviceValidator,
             CorporateIdentifierValidator corporateIdentifierValidator,
@@ -66,6 +68,7 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
         {
             _logger = logger;
             _configService = configService;
+            _adminConfigService = adminConfigService;
             _rateLimitService = rateLimitService;
             _autopilotDeviceValidator = autopilotDeviceValidator;
             _corporateIdentifierValidator = corporateIdentifierValidator;
@@ -114,6 +117,7 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
                 var (validation, errorResponse) = await req.ValidateSecurityAsync(
                     requestBody.TenantId,
                     _configService,
+                    _adminConfigService,
                     _rateLimitService,
                     _autopilotDeviceValidator,
                     _corporateIdentifierValidator,

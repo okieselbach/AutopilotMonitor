@@ -26,6 +26,7 @@ namespace AutopilotMonitor.Functions.Security
             this HttpRequestData req,
             string tenantId,
             TenantConfigurationService configService,
+            AdminConfigurationService adminConfigService,
             RateLimitService rateLimitService,
             AutopilotDeviceValidator autopilotDeviceValidator,
             CorporateIdentifierValidator corporateIdentifierValidator,
@@ -34,7 +35,7 @@ namespace AutopilotMonitor.Functions.Security
             BootstrapSessionService? bootstrapSessionService = null,
             DeviceAssociationValidator? deviceAssociationValidator = null)
         {
-            var validator = new SecurityValidator(configService, rateLimitService, autopilotDeviceValidator, corporateIdentifierValidator, logger, bootstrapSessionService, deviceAssociationValidator);
+            var validator = new SecurityValidator(configService, adminConfigService, rateLimitService, autopilotDeviceValidator, corporateIdentifierValidator, logger, bootstrapSessionService, deviceAssociationValidator);
             var validation = await validator.ValidateRequestAsync(req, tenantId, sessionId);
 
             if (!validation.IsValid)

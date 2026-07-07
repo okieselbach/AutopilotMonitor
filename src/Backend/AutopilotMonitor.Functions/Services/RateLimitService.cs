@@ -46,6 +46,13 @@ namespace AutopilotMonitor.Functions.Services
                 };
             }
 
+            // Defense-in-depth: the sliding-window logic below assumes a positive limit. A value of 0
+            // (or negative) makes `Count >= max` true even at Count==0, then `requestHistory.Min()`
+            // throws on the empty history — 500 on the device path, fail-open on the user path. Clamp
+            // any bad stored/config value to a sane floor so a misconfiguration can never break traffic.
+            if (maxRequestsPerMinute < 1)
+                maxRequestsPerMinute = 1;
+
             var cacheKey = $"ratelimit_{deviceThumbprint}";
             var now = DateTime.UtcNow;
 

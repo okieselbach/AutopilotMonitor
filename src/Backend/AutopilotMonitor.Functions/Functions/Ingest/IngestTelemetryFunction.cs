@@ -44,6 +44,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         private readonly IIndexReconcileProducer _indexReconcileProducer;
         private readonly EventIngestProcessor _eventProcessor;
         private readonly TenantConfigurationService _configService;
+        private readonly AdminConfigurationService _adminConfigService;
         private readonly RateLimitService _rateLimitService;
         private readonly AutopilotDeviceValidator _autopilotDeviceValidator;
         private readonly CorporateIdentifierValidator _corporateIdentifierValidator;
@@ -60,6 +61,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             IIndexReconcileProducer indexReconcileProducer,
             EventIngestProcessor eventProcessor,
             TenantConfigurationService configService,
+            AdminConfigurationService adminConfigService,
             RateLimitService rateLimitService,
             AutopilotDeviceValidator autopilotDeviceValidator,
             CorporateIdentifierValidator corporateIdentifierValidator,
@@ -75,6 +77,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             _indexReconcileProducer = indexReconcileProducer;
             _eventProcessor = eventProcessor;
             _configService = configService;
+            _adminConfigService = adminConfigService;
             _rateLimitService = rateLimitService;
             _autopilotDeviceValidator = autopilotDeviceValidator;
             _corporateIdentifierValidator = corporateIdentifierValidator;
@@ -102,6 +105,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 var (validation, errorResponse) = await req.ValidateSecurityAsync(
                     tenantIdHeader,
                     _configService,
+                    _adminConfigService,
                     _rateLimitService,
                     _autopilotDeviceValidator,
                     _corporateIdentifierValidator,

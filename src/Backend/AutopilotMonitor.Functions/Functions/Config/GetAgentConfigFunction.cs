@@ -78,6 +78,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var (validation, errorResponse) = await req.ValidateSecurityAsync(
                     tenantId,
                     _configService,
+                    _adminConfigService,
                     _rateLimitService,
                     _autopilotDeviceValidator,
                     _corporateIdentifierValidator,

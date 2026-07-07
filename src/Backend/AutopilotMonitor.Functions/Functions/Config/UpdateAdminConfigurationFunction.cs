@@ -60,6 +60,20 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     return badRequest;
                 }
 
+                // Rate limits must be positive: a zero/negative value would throttle every request
+                // (RateLimitService clamps as a last resort, but reject at the edge for a clear error).
+                var rateLimitError =
+                    config.GlobalRateLimitRequestsPerMinute < 1 ? "Global Device API Rate Limit" :
+                    config.UserRateLimitRequestsPerMinute < 1 ? "Global User API Rate Limit" :
+                    config.GlobalAdminRateLimitRequestsPerMinute < 1 ? "Global Admin API Rate Limit" :
+                    null;
+                if (rateLimitError != null)
+                {
+                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badRequest.WriteAsJsonAsync(new { success = false, message = $"{rateLimitError} must be at least 1 request per minute." });
+                    return badRequest;
+                }
+
                 // Set the actual user identifier for audit logging
                 config.UpdatedBy = userIdentifier;
 

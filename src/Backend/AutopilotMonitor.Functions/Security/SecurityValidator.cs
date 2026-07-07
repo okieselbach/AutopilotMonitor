@@ -42,6 +42,7 @@ namespace AutopilotMonitor.Functions.Security
         }
 
         private readonly TenantConfigurationService _configService;
+        private readonly AdminConfigurationService _adminConfigService;
         private readonly RateLimitService _rateLimitService;
         private readonly AutopilotDeviceValidator _autopilotDeviceValidator;
         private readonly CorporateIdentifierValidator _corporateIdentifierValidator;
@@ -51,6 +52,7 @@ namespace AutopilotMonitor.Functions.Security
 
         public SecurityValidator(
             TenantConfigurationService configService,
+            AdminConfigurationService adminConfigService,
             RateLimitService rateLimitService,
             AutopilotDeviceValidator autopilotDeviceValidator,
             CorporateIdentifierValidator corporateIdentifierValidator,
@@ -59,12 +61,28 @@ namespace AutopilotMonitor.Functions.Security
             DeviceAssociationValidator? deviceAssociationValidator = null)
         {
             _configService = configService;
+            _adminConfigService = adminConfigService;
             _rateLimitService = rateLimitService;
             _autopilotDeviceValidator = autopilotDeviceValidator;
             _corporateIdentifierValidator = corporateIdentifierValidator;
             _deviceAssociationValidator = deviceAssociationValidator;
             _bootstrapSessionService = bootstrapSessionService;
             _logger = logger;
+        }
+
+        /// <summary>
+        /// Resolves the effective device (agent/cert) rate limit for a tenant:
+        /// the per-tenant override if set, otherwise the global default. The global
+        /// AdminConfiguration read is served from a 5-minute in-memory cache.
+        /// </summary>
+        private async Task<int> ResolveDeviceRateLimitAsync(TenantConfiguration config)
+        {
+            // The global read is served from a 5-minute in-memory cache (O(1) dictionary hit on the
+            // hot path), so we always take it rather than branching on the override.
+            var adminConfig = await _adminConfigService.GetConfigurationAsync();
+            return RateLimitResolver.ResolveDeviceLimit(
+                config.CustomRateLimitRequestsPerMinute,
+                adminConfig.GlobalRateLimitRequestsPerMinute);
         }
 
         /// <summary>
@@ -177,7 +195,7 @@ namespace AutopilotMonitor.Functions.Security
                     tenantId, bootstrapSession.ShortCode);
 
                 // Rate limit check for bootstrap auth (DoS protection)
-                var bsRateLimitValue = config.CustomRateLimitRequestsPerMinute ?? config.RateLimitRequestsPerMinute;
+                var bsRateLimitValue = await ResolveDeviceRateLimitAsync(config);
                 var bsRateLimitResult = _rateLimitService.CheckRateLimit(
                     $"bootstrap:{bootstrapTokenHeader}",
                     bsRateLimitValue
@@ -248,8 +266,8 @@ namespace AutopilotMonitor.Functions.Security
             }
 
             // 2. Check rate limit (DoS protection)
-            // Use custom tenant rate limit if set, otherwise use the synced global rate limit
-            var rateLimitValue = config.CustomRateLimitRequestsPerMinute ?? config.RateLimitRequestsPerMinute;
+            // Effective limit = per-tenant override if set, otherwise the global default.
+            var rateLimitValue = await ResolveDeviceRateLimitAsync(config);
 
             var rateLimitResult = _rateLimitService.CheckRateLimit(
                 certValidation.Thumbprint!,

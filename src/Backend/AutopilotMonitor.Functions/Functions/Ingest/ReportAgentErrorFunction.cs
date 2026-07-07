@@ -26,6 +26,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
     {
         private readonly ILogger<ReportAgentErrorFunction> _logger;
         private readonly TenantConfigurationService _configService;
+        private readonly AdminConfigurationService _adminConfigService;
         private readonly RateLimitService _rateLimitService;
         private readonly AutopilotDeviceValidator _autopilotDeviceValidator;
         private readonly CorporateIdentifierValidator _corporateIdentifierValidator;
@@ -36,6 +37,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         public ReportAgentErrorFunction(
             ILogger<ReportAgentErrorFunction> logger,
             TenantConfigurationService configService,
+            AdminConfigurationService adminConfigService,
             RateLimitService rateLimitService,
             AutopilotDeviceValidator autopilotDeviceValidator,
             CorporateIdentifierValidator corporateIdentifierValidator,
@@ -45,6 +47,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         {
             _logger = logger;
             _configService = configService;
+            _adminConfigService = adminConfigService;
             _rateLimitService = rateLimitService;
             _autopilotDeviceValidator = autopilotDeviceValidator;
             _corporateIdentifierValidator = corporateIdentifierValidator;
@@ -76,6 +79,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 var (_, errorResponse) = await req.ValidateSecurityAsync(
                     tenantId,
                     _configService,
+                    _adminConfigService,
                     _rateLimitService,
                     _autopilotDeviceValidator,
                     _corporateIdentifierValidator,

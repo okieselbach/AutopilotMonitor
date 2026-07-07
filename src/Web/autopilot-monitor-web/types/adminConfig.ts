@@ -4,6 +4,10 @@ export interface AdminConfiguration {
   lastUpdated: string;
   updatedBy: string;
   globalRateLimitRequestsPerMinute: number;
+  /** Per-user (portal/JWT) rate limit for standard users (Tenant Admins, Operators, Viewers). Default 120. */
+  userRateLimitRequestsPerMinute?: number;
+  /** Per-user (portal/JWT) rate limit for Global Admins. Default 600. */
+  globalAdminRateLimitRequestsPerMinute?: number;
   platformStatsBlobSasUrl?: string;
   collectorIdleTimeoutMinutes?: number;
   desktopDetectorNoCandidateTimeoutMinutes?: number;

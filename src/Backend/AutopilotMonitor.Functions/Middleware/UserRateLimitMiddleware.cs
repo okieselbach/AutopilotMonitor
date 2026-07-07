@@ -17,15 +17,18 @@ public class UserRateLimitMiddleware : IFunctionsWorkerMiddleware
 {
     private readonly RateLimitService _rateLimitService;
     private readonly AdminConfigurationService _adminConfigService;
+    private readonly TenantConfigurationService _tenantConfigService;
     private readonly ILogger<UserRateLimitMiddleware> _logger;
 
     public UserRateLimitMiddleware(
         RateLimitService rateLimitService,
         AdminConfigurationService adminConfigService,
+        TenantConfigurationService tenantConfigService,
         ILogger<UserRateLimitMiddleware> logger)
     {
         _rateLimitService = rateLimitService;
         _adminConfigService = adminConfigService;
+        _tenantConfigService = tenantConfigService;
         _logger = logger;
     }
 
@@ -52,9 +55,30 @@ public class UserRateLimitMiddleware : IFunctionsWorkerMiddleware
         try
         {
             var config = await _adminConfigService.GetConfigurationAsync();
-            var limit = requestContext.IsGlobalAdmin
-                ? config.GlobalAdminRateLimitRequestsPerMinute
-                : config.UserRateLimitRequestsPerMinute;
+
+            // Per-tenant overrides apply ONLY to genuinely tenant-scoped callers. Platform roles with
+            // cross-tenant scope (Global Admin AND Global Reader — HasGlobalScope) must not be limited by
+            // any single tenant's override, since they aren't bound to one tenant. Delegated admins remain
+            // scoped to their target tenant, so they still observe that tenant's override.
+            // The tenant-config read is served from a 5-minute in-memory cache. Use the strict point-read
+            // (GetConfigurationIfExistsAsync) — NOT GetConfigurationAsync, which auto-creates+persists a
+            // default row. A valid JWT from an unregistered tenant hitting a read/self-service endpoint must
+            // never materialize a tenant config row. No row → inherit global.
+            int? tenantOverride = null;
+            if (!requestContext.HasGlobalScope && !string.IsNullOrEmpty(requestContext.TargetTenantId))
+            {
+                var tenantConfig = await _tenantConfigService.GetConfigurationIfExistsAsync(requestContext.TargetTenantId);
+                tenantOverride = tenantConfig?.CustomUserRateLimitRequestsPerMinute;
+            }
+
+            // Base limit: Global Admins get the GA budget; everyone else (standard users AND read-only
+            // Global Readers) gets the standard user default (with the tenant override applied above only
+            // for tenant-scoped callers).
+            var limit = RateLimitResolver.ResolveUserLimit(
+                requestContext.IsGlobalAdmin,
+                tenantOverride,
+                config.UserRateLimitRequestsPerMinute,
+                config.GlobalAdminRateLimitRequestsPerMinute);
 
             var key = $"user_ratelimit_{requestContext.UserPrincipalName.ToLowerInvariant()}";
             result = _rateLimitService.CheckRateLimit(key, limit);

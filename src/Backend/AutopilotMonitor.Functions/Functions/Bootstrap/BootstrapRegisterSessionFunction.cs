@@ -21,6 +21,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
         private readonly ILogger<BootstrapRegisterSessionFunction> _logger;
         private readonly RegisterSessionFunction _inner;
         private readonly TenantConfigurationService _configService;
+        private readonly AdminConfigurationService _adminConfigService;
         private readonly RateLimitService _rateLimitService;
         private readonly AutopilotDeviceValidator _autopilotDeviceValidator;
         private readonly CorporateIdentifierValidator _corporateIdentifierValidator;
@@ -31,6 +32,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
             ILogger<BootstrapRegisterSessionFunction> logger,
             RegisterSessionFunction inner,
             TenantConfigurationService configService,
+            AdminConfigurationService adminConfigService,
             RateLimitService rateLimitService,
             AutopilotDeviceValidator autopilotDeviceValidator,
             CorporateIdentifierValidator corporateIdentifierValidator,
@@ -40,6 +42,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
             _logger = logger;
             _inner = inner;
             _configService = configService;
+            _adminConfigService = adminConfigService;
             _rateLimitService = rateLimitService;
             _autopilotDeviceValidator = autopilotDeviceValidator;
             _corporateIdentifierValidator = corporateIdentifierValidator;
@@ -91,7 +94,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 }
 
                 var (validation, errorResponse) = await req.ValidateSecurityAsync(
-                    registration.TenantId, _configService, _rateLimitService,
+                    registration.TenantId, _configService, _adminConfigService, _rateLimitService,
                     _autopilotDeviceValidator, _corporateIdentifierValidator,
                     _logger, registration.SessionId,
                     bootstrapSessionService: _bootstrapSessionService,

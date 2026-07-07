@@ -8,6 +8,10 @@ interface AdminConfigSettingsSectionProps {
   adminConfig: AdminConfiguration | null;
   globalRateLimit: number;
   setGlobalRateLimit: (value: number) => void;
+  userRateLimit: number;
+  setUserRateLimit: (value: number) => void;
+  globalAdminRateLimit: number;
+  setGlobalAdminRateLimit: (value: number) => void;
   platformStatsBlobSasUrl: string;
   setPlatformStatsBlobSasUrl: (value: string) => void;
   collectorIdleTimeoutMinutes: number;
@@ -34,6 +38,10 @@ export function AdminConfigSettingsSection({
   adminConfig,
   globalRateLimit,
   setGlobalRateLimit,
+  userRateLimit,
+  setUserRateLimit,
+  globalAdminRateLimit,
+  setGlobalAdminRateLimit,
   platformStatsBlobSasUrl,
   setPlatformStatsBlobSasUrl,
   collectorIdleTimeoutMinutes,
@@ -76,11 +84,11 @@ export function AdminConfigSettingsSection({
           <div className="space-y-4">
             <div>
               <label className="block">
-                <span className="text-indigo-900 dark:text-indigo-100 font-medium">Global Rate Limit (Requests per Minute per Device)</span>
+                <span className="text-indigo-900 dark:text-indigo-100 font-medium">Global Device API Rate Limit (Requests per Minute per Device)</span>
                 <p className="text-sm text-indigo-800 dark:text-gray-300 mb-2">
-                  Configure default DoS protection limits for all tenants. Normal enrollment generates ~10-30 requests/min.
+                  Default DoS protection limit for agent/device traffic (keyed per device certificate). Normal enrollment generates ~10-30 requests/min.
                   <br />
-                  <strong className="text-indigo-900 dark:text-indigo-100">Note:</strong> Tenants cannot change this value. Only Global Admins can override per tenant in tenant management section.
+                  <strong className="text-indigo-900 dark:text-indigo-100">Note:</strong> Tenants cannot change this value. Global Admins can override it per tenant in the tenant management section (leave the tenant field blank to inherit this global default).
                 </p>
                 <input
                   type="number"
@@ -88,6 +96,40 @@ export function AdminConfigSettingsSection({
                   max="1000"
                   value={globalRateLimit}
                   onChange={(e) => setGlobalRateLimit(parseInt(e.target.value) || 100)}
+                  className="mt-1 block w-full px-4 py-2 border border-indigo-300 dark:border-indigo-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                />
+              </label>
+            </div>
+
+            <div>
+              <label className="block">
+                <span className="text-indigo-900 dark:text-indigo-100 font-medium">Global User API Rate Limit (Requests per Minute per User)</span>
+                <p className="text-sm text-indigo-800 dark:text-gray-300 mb-2">
+                  Default rate limit for authenticated portal/API traffic from standard users (Tenant Admins, Operators, Viewers), keyed per user (UPN). Global Admins can override it per tenant (blank = inherit this global default).
+                </p>
+                <input
+                  type="number"
+                  min="1"
+                  max="10000"
+                  value={userRateLimit}
+                  onChange={(e) => setUserRateLimit(parseInt(e.target.value) || 120)}
+                  className="mt-1 block w-full px-4 py-2 border border-indigo-300 dark:border-indigo-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                />
+              </label>
+            </div>
+
+            <div>
+              <label className="block">
+                <span className="text-indigo-900 dark:text-indigo-100 font-medium">Global Admin API Rate Limit (Requests per Minute per Global Admin)</span>
+                <p className="text-sm text-indigo-800 dark:text-gray-300 mb-2">
+                  Rate limit for authenticated portal/API traffic from Global Admins, keyed per user (UPN). Higher budget for cross-tenant work; not exempt. Applies platform-wide (no per-tenant override).
+                </p>
+                <input
+                  type="number"
+                  min="1"
+                  max="10000"
+                  value={globalAdminRateLimit}
+                  onChange={(e) => setGlobalAdminRateLimit(parseInt(e.target.value) || 600)}
                   className="mt-1 block w-full px-4 py-2 border border-indigo-300 dark:border-indigo-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
                 />
               </label>
