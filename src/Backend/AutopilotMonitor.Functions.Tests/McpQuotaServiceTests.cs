@@ -69,7 +69,8 @@ public class McpQuotaServiceTests
         Mock<IUserUsageRepository> usageRepo,
         string? planDefinitionsJson = null,
         string? mcpUserPlanOverride = null,
-        TenantEdition edition = TenantEdition.Community)
+        TenantEdition edition = TenantEdition.Community,
+        IMemoryCache? cache = null)
     {
         var adminRepo = new Mock<IAdminRepository>();
         adminRepo.Setup(r => r.GetMcpUserAsync(It.IsAny<string>()))
@@ -77,7 +78,7 @@ public class McpQuotaServiceTests
                 ? null
                 : new McpUserEntry { Upn = Upn, IsEnabled = true, UsagePlan = mcpUserPlanOverride });
 
-        var cache = new MemoryCache(new MemoryCacheOptions());
+        cache ??= new MemoryCache(new MemoryCacheOptions());
         var mcpUserService = new McpUserService(
             adminRepo.Object, cache, NullLogger<McpUserService>.Instance,
             globalAdminService: null!, delegatedAdminService: null!, adminConfigService: null!);
@@ -224,5 +225,63 @@ public class McpQuotaServiceTests
 
         repo.Verify(r => r.GetUsageByUserAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()),
             Times.Once);
+    }
+
+    // ── Soft-boundary contract (Codex finding 2026-07-07) ─────────────────────────
+    // The quota is DELIBERATELY soft: the per-user decision is cached for 60s, so an allowed
+    // decision keeps admitting requests inside that window even after the fire-and-forget
+    // increments push the stored counters past the limit. Overshoot is bounded (~TTL × request
+    // rate per instance) — the same posture as the sliding-window rate limiter. These tests PIN
+    // that contract; if strict limit+1 blocking is ever wanted, the decision cache must be
+    // reworked and these tests consciously rewritten.
+
+    [Fact]
+    public async Task Check_SoftBoundary_CachedAllowedDecision_KeepsAdmitting_WithinTtl()
+    {
+        // First read: one request below the daily limit → allowed, decision cached.
+        var repo = UsageRepo(("20260707", 99));
+        var svc = Build(repo);
+
+        var first = await svc.CheckAsync(Oid, Upn, TenantId);
+        Assert.True(first.Allowed);
+
+        // The async increments land: stored counters are now OVER the limit — but the cached
+        // allowed decision keeps admitting within the TTL, without re-reading storage.
+        repo.Setup(r => r.GetUsageByUserAsync(Oid, It.IsAny<string?>(), It.IsAny<string?>()))
+            .ReturnsAsync(new List<UserUsageRecord>
+            {
+                new() { UserId = Oid, Date = "20260707", RequestCount = 150 }
+            });
+
+        var second = await svc.CheckAsync(Oid, Upn, TenantId);
+
+        Assert.True(second.Allowed, "soft boundary: cached allowed decision persists within the TTL");
+        repo.Verify(r => r.GetUsageByUserAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Check_SoftBoundary_AfterCacheEviction_OverLimitCounters_Block()
+    {
+        // Same scenario as above, but once the cached decision is gone (TTL expiry — simulated
+        // via eviction), the next check reads the over-limit counters and blocks.
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        var repo = UsageRepo(("20260707", 99));
+        var svc = Build(repo, cache: cache);
+
+        Assert.True((await svc.CheckAsync(Oid, Upn, TenantId)).Allowed);
+
+        repo.Setup(r => r.GetUsageByUserAsync(Oid, It.IsAny<string?>(), It.IsAny<string?>()))
+            .ReturnsAsync(new List<UserUsageRecord>
+            {
+                new() { UserId = Oid, Date = "20260707", RequestCount = 150 }
+            });
+        cache.Remove($"mcp-quota:{Oid}"); // stands in for the 60s TTL elapsing
+
+        var decision = await svc.CheckAsync(Oid, Upn, TenantId);
+
+        Assert.False(decision.Allowed);
+        Assert.Equal("daily", decision.Scope);
+        Assert.Equal(150, decision.DailyUsed);
     }
 }

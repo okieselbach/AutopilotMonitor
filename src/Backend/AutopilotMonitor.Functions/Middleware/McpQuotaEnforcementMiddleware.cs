@@ -18,10 +18,19 @@ namespace AutopilotMonitor.Functions.Middleware;
 /// quota (but their usage is still tracked for the metrics surface).
 ///
 /// This middleware also OWNS the usage-counter increment (moved here from AuthenticationMiddleware,
-/// Codex finding 2026-07-07): strictly check-then-increment, and only for requests that are
-/// actually served — the request that hits the limit is deterministic (requests 1..limit pass,
-/// limit+1 blocks) and denied requests (403 upstream, 429 here) no longer inflate the counters.
-/// The increment itself stays fire-and-forget (never blocks the request path).
+/// Codex finding 2026-07-07): check-then-increment, and only for requests that are actually
+/// served — denied requests (403 upstream, 429 here) no longer inflate the counters, and a
+/// request can never be blocked by its OWN in-flight increment. The increment stays
+/// fire-and-forget (never blocks the request path).
+///
+/// <b>The quota boundary is deliberately SOFT, not exact.</b> McpQuotaService caches the
+/// per-user decision for 60 seconds (per instance), so an ALLOWED decision keeps admitting
+/// requests inside that window even after the async increments push the stored counters past
+/// the limit. Worst-case overshoot is bounded: ~60s × the caller's request rate (× instance
+/// count on scaled-out Flex Consumption) — the same deliberate posture as the sliding-window
+/// rate limiter, trading exactness for one counter read per user per minute instead of per
+/// request. Pinned by McpQuotaServiceTests soft-boundary tests; do NOT re-document this as an
+/// exact limit without reworking the decision cache.
 ///
 /// Over-quota requests get 429 with a structured body, <c>Retry-After</c>, and
 /// <c>X-MCP-Quota-*</c> headers; allowed MCP requests get the quota headers too so the MCP
