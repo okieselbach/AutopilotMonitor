@@ -1,4 +1,5 @@
 export const TENANT_NAV_SECTIONS = [
+  { id: "plan", label: "Plan", description: "Your current plan and what Enterprise adds" },
   { id: "access-management", label: "Access Management", description: "Manage tenant admins and operators" },
   { id: "autopilot", label: "Autopilot Validation", description: "Autopilot device and corporate identifier validation" },
   { id: "hardware-whitelist", label: "Hardware Whitelist", description: "Manufacturer and model whitelist configuration" },

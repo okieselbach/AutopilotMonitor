@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import { notFound } from "next/navigation";
 import { type TenantSectionId } from "../tenantNavSections";
+import { SectionPlan } from "../sections/SectionPlan";
 import { SectionAutopilotValidation } from "../sections/SectionAutopilotValidation";
 import { SectionHardwareWhitelist } from "../sections/SectionHardwareWhitelist";
 import { SectionNotifications } from "../sections/SectionNotifications";
@@ -13,6 +14,7 @@ import { SectionSubmitLogs } from "../sections/SectionSubmitLogs";
 import { SectionOptionalGraphCapabilities } from "../sections/SectionOptionalGraphCapabilities";
 
 const SECTION_COMPONENTS: Record<TenantSectionId, React.ComponentType> = {
+  "plan": SectionPlan,
   "autopilot": SectionAutopilotValidation,
   "hardware-whitelist": SectionHardwareWhitelist,
   "notifications": SectionNotifications,

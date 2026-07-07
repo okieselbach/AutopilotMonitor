@@ -1,24 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
 import { editionLabel } from "@/lib/edition";
 import { useTenantConfig } from "../TenantConfigContext";
 
 /**
- * Edition badge + self-service trial CTA for the settings header.
+ * Edition badge for the settings header.
  * - "Enterprise" / "Enterprise Trial — X days left" / "Community"
- * - "Start 30-day Enterprise trial" button only when the backend reports the trial as
- *   still available (never consumed + currently Community) AND the caller is a tenant admin.
- *   One-time action → guarded by an inline confirm step.
+ * - For Community tenants, an "Upgrade plan" link to the Plan section, where the full picture
+ *   (what Enterprise adds) and the trial CTA live. The badge itself only reports status.
  */
 export default function EditionBadge() {
-  const { editionInfo, startTrial, startingTrial, user } = useTenantConfig();
-  const [confirming, setConfirming] = useState(false);
+  const { editionInfo } = useTenantConfig();
 
   const isEnterprise = editionInfo.edition === "enterprise";
   const label = editionLabel(editionInfo);
-  const canStartTrial =
-    editionInfo.trialAvailable && (user?.isTenantAdmin === true || user?.isGlobalAdmin === true);
 
   return (
     <div className="flex items-center gap-3">
@@ -32,43 +28,23 @@ export default function EditionBadge() {
           isEnterprise
             ? editionInfo.isTrial
               ? "Enterprise trial is active — all Enterprise features are unlocked."
-              : "This tenant is on the Enterprise edition."
-            : "This tenant is on the Community edition."
+              : "This tenant is on the Enterprise plan."
+            : "This tenant is on the Community plan."
         }
       >
         {label}
       </span>
 
-      {canStartTrial && !confirming && (
-        <button
-          onClick={() => setConfirming(true)}
-          className="text-xs font-medium text-purple-700 border border-purple-300 rounded-full px-3 py-1 hover:bg-purple-50 transition-colors"
+      {!isEnterprise && (
+        <Link
+          href="/settings/tenant/plan"
+          className="inline-flex items-center gap-1 text-xs font-medium text-purple-700 border border-purple-300 rounded-full px-3 py-1 hover:bg-purple-50 transition-colors"
         >
-          Start 30-day Enterprise trial
-        </button>
-      )}
-
-      {canStartTrial && confirming && (
-        <span className="flex items-center gap-2 text-xs">
-          <span className="text-gray-600">One-time trial — start now?</span>
-          <button
-            onClick={async () => {
-              const ok = await startTrial();
-              if (ok) setConfirming(false);
-            }}
-            disabled={startingTrial}
-            className="font-medium text-white bg-purple-600 rounded-full px-3 py-1 hover:bg-purple-700 disabled:opacity-50 transition-colors"
-          >
-            {startingTrial ? "Starting…" : "Confirm"}
-          </button>
-          <button
-            onClick={() => setConfirming(false)}
-            disabled={startingTrial}
-            className="text-gray-500 hover:text-gray-700"
-          >
-            Cancel
-          </button>
-        </span>
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+          </svg>
+          Upgrade plan
+        </Link>
       )}
     </div>
   );
