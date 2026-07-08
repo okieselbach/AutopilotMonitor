@@ -26,14 +26,31 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
         [InlineData("")]                                       // empty
         [InlineData("   ")]                                    // whitespace only
         [InlineData("<![LOG[truncated line with no closing")]  // truncated / missing fields
-        [InlineData("﻿<![LOG[msg]LOG]!><time=\"06:08:04.8834397\" date=\"2-8-2026\" component=\"C\" context=\"\" type=\"1\" thread=\"1\" file=\"\">")] // leading BOM breaks the StartsWith gate
-        [InlineData("garbage prefix <![LOG[msg]LOG]!><time=\"06:08:04.8834397\" date=\"2-8-2026\" component=\"C\" context=\"\" type=\"1\" thread=\"1\" file=\"\">")] // leading junk
+        [InlineData("garbage prefix <![LOG[msg]LOG]!><time=\"06:08:04.8834397\" date=\"2-8-2026\" component=\"C\" context=\"\" type=\"1\" thread=\"1\" file=\"\">")] // leading junk (non-ignorable) fails the StartsWith gate
         public void TryParseLine_returns_false_without_throwing_for_malformed_input(string line)
         {
             var ok = CmTraceLogParser.TryParseLine(line, out var entry);
 
             Assert.False(ok);
             Assert.Null(entry);
+        }
+
+        // ── Leading BOM → still parses (BOM-tolerant) ────────────────────────
+
+        [Fact]
+        public void TryParseLine_parses_bom_prefixed_line()
+        {
+            // A U+FEFF BOM can prefix the first line of a freshly-opened log. It does NOT break
+            // parsing: string.StartsWith (culture-sensitive) treats U+FEFF as an ignorable
+            // character so the gate passes, and the unanchored regex matches the "<![LOG[..."
+            // body after the BOM. This pins the BOM-tolerant behaviour.
+            var line = "﻿" + CmTraceLine("msg", "06:08:04.8834397", "2-8-2026");
+
+            var ok = CmTraceLogParser.TryParseLine(line, out var entry);
+
+            Assert.True(ok);
+            Assert.NotNull(entry);
+            Assert.Equal("msg", entry.Message);
         }
 
         // ── Well-formed line → parses ────────────────────────────────────────
