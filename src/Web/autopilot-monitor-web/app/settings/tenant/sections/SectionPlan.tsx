@@ -12,6 +12,14 @@ import { trialDaysLeft } from "@/lib/edition";
  */
 const TRIAL_SELF_SERVICE_ENABLED = false;
 
+/**
+ * Retention baselines per plan tier. These describe the two PLANS on the comparison cards, so they
+ * must not depend on the viewer's current edition — they mirror the backend catalog
+ * (FeatureEntitlementCatalog: Community RetentionCapDays = 90, Enterprise = 365).
+ */
+const COMMUNITY_RETENTION_DAYS = 90;
+const ENTERPRISE_RETENTION_DAYS = 365;
+
 function CheckIcon({ className }: { className: string }) {
   return (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
@@ -42,7 +50,6 @@ export function SectionPlan() {
   const [confirming, setConfirming] = useState(false);
 
   const isEnterprise = editionInfo.edition === "enterprise";
-  const retention = editionInfo.entitlements.retentionCapDays;
   const daysLeft = editionInfo.isTrial ? trialDaysLeft(editionInfo.trialExpiresUtc) : 0;
   const trialConsumed = !isEnterprise && !editionInfo.trialAvailable;
   const canStartTrial =
@@ -53,12 +60,12 @@ export function SectionPlan() {
     "Full rules engine, including custom rules",
     "Fleet analytics, notifications & diagnostics",
     "AI integration (MCP) within usage limits",
-    `${retention}-day data retention`,
+    `${COMMUNITY_RETENTION_DAYS}-day data retention`,
     "Community support (GitHub)",
   ];
 
   const enterpriseFeatures = [
-    `Extended data retention — 365 days (vs ${retention})`,
+    `Extended data retention — ${ENTERPRISE_RETENTION_DAYS} days (vs ${COMMUNITY_RETENTION_DAYS})`,
     "Higher portal & agent API rate limits",
     "Larger AI (MCP) usage quota",
     "Delegated (MSP) administration across tenants",
