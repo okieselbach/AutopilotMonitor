@@ -79,7 +79,8 @@ namespace AutopilotMonitor.Functions.Services
             int AccountSetupTotal,
             bool AccountSetupAllSucceeded,
             bool HasExplicitFailure,
-            bool HasTerminalComplete);
+            bool HasTerminalComplete,
+            bool HasAgentEmergencyBreak);
 
         /// <summary>
         /// Walk a session's events and distill the ESP rollup. Tolerant of missing/empty input
@@ -94,7 +95,7 @@ namespace AutopilotMonitor.Functions.Services
             bool deviceAll = false;
             int acctBestN = 0, acctBestM = 0;
             bool acctFallbackAll = false;
-            bool hasFailure = false, hasComplete = false;
+            bool hasFailure = false, hasComplete = false, hasEmergencyBreak = false;
 
             foreach (var evt in events)
             {
@@ -104,6 +105,8 @@ namespace AutopilotMonitor.Functions.Services
                     hasFailure = true;
                 else if (Eq(type, "enrollment_complete") || Eq(type, "whiteglove_complete"))
                     hasComplete = true;
+                else if (Eq(type, "agent_emergency_break"))
+                    hasEmergencyBreak = true;
 
                 var msg = evt.Message;
                 if (string.IsNullOrEmpty(msg)) continue;
@@ -141,7 +144,8 @@ namespace AutopilotMonitor.Functions.Services
                 AccountSetupTotal: acctBestM,
                 AccountSetupAllSucceeded: acctAll,
                 HasExplicitFailure: hasFailure,
-                HasTerminalComplete: hasComplete);
+                HasTerminalComplete: hasComplete,
+                HasAgentEmergencyBreak: hasEmergencyBreak);
         }
 
         /// <summary>
@@ -166,7 +170,14 @@ namespace AutopilotMonitor.Functions.Services
                 return (SessionStatus.Succeeded,
                     "Reconciled at timeout: Account Setup completed (all subcategories succeeded / enrollment_complete observed)");
 
-            // 3. Device Setup fully provisioned (device is AADJ + MDM-enrolled), user phase pending.
+            // 3. The agent's absolute-age emergency break fired — the agent has cleaned up and exited, so
+            //    nothing more will ever arrive for this session. Terminalize NOW (skip the AwaitingUser grace):
+            //    it did not complete (2) and did not explicitly fail (1), so the honest verdict is Incomplete.
+            if (rollup.HasAgentEmergencyBreak)
+                return (SessionStatus.Incomplete,
+                    "Agent emergency break fired (absolute session-age cap) — agent gone without completion");
+
+            // 4. Device Setup fully provisioned (device is AADJ + MDM-enrolled), user phase pending.
             if (rollup.DeviceSetupAllSucceeded)
             {
                 var elapsedHours = (nowUtc - startedAtUtc).TotalHours;
@@ -184,7 +195,7 @@ namespace AutopilotMonitor.Functions.Services
                     $"(last Account Setup {rollup.AccountSetupSucceededCount}/{rollup.AccountSetupTotal})");
             }
 
-            // 4. Silent before Device Setup completed, with no explicit failure → unknown, not a failure.
+            // 5. Silent before Device Setup completed, with no explicit failure → unknown, not a failure.
             return (SessionStatus.Incomplete,
                 "No Device Setup completion or explicit failure signal observed before timeout");
         }

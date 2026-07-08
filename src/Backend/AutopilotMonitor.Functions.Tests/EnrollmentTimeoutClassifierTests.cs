@@ -85,6 +85,27 @@ public class EnrollmentTimeoutClassifierTests
         Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("esp_failure") }).HasExplicitFailure);
         Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("enrollment_complete") }).HasTerminalComplete);
         Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("whiteglove_complete") }).HasTerminalComplete);
+        Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("agent_emergency_break") }).HasAgentEmergencyBreak);
+    }
+
+    [Fact]
+    public void Classify_emergency_break_skips_grace_and_is_Incomplete()
+    {
+        // Agent reported its absolute-age break → it's gone. Even DeviceSetup-done + well within grace
+        // must NOT wait as AwaitingUser; the honest verdict is Incomplete right now.
+        var (status, reason) = Classify(
+            new[] { Esp(DeviceSetup44), Esp(AccountSetup05), Evt("agent_emergency_break") }, hoursSinceStart: 6);
+        Assert.Equal(SessionStatus.Incomplete, status);
+        Assert.Contains("emergency break", reason);
+    }
+
+    [Fact]
+    public void Classify_emergency_break_still_yields_to_a_real_completion()
+    {
+        // If the session actually completed, that wins over the break marker.
+        var (status, _) = Classify(
+            new[] { Esp(DeviceSetup44), Esp(AccountSetup55), Evt("agent_emergency_break") }, hoursSinceStart: 6);
+        Assert.Equal(SessionStatus.Succeeded, status);
     }
 
     // -------- ClassifyTimedOutSession --------
