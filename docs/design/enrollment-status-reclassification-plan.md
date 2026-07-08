@@ -55,12 +55,17 @@ timeline AND let the backend terminalize precisely instead of guessing with grac
       `ISessionRepository` and, on `SessionAgeEmergencyBreak`, writes an `agent_emergency_break`
       `EnrollmentEvent` (Sequence = max+1, idempotent, best-effort) into the stream. Pure
       `BuildAgentEmergencyBreakEvent` helper (Warning, non-terminal) + tests. Suite: 2685 pass.
-- [ ] **Part C (agent, CI-only — net48, not Linux-buildable here): best-effort emit.** In
-      `CheckSessionAgeEmergencyBreak`, before cleanup/exit, send an `AgentErrorReport`
-      (`SessionAgeEmergencyBreak`, message w/ session age) via the resilient `EmergencyReporter`.
-      ⚠️ The guard runs in `AgentBootstrap` *before* auth/`BackendApiClient` construction — needs a
-      minimal emergency client wired at the call site (or move the emit to a point where `auth` exists).
-      May be lost if the device is fully offline — acceptable (best-effort, that case falls back to grace).
+- [x] **Part C (agent, net48 — CI/local build only): best-effort emit.** Implemented via a decoupled
+      callback so the guard stays pure and its unit tests are untouched:
+      - `CheckSessionAgeEmergencyBreak` gains an optional `Action onBreakFired = null`, invoked once when
+        the break is confirmed, BEFORE the marker/cleanup, fully swallowed.
+      - New `EmergencyBreakReporter.TrySend` builds a throwaway auth bundle (`BackendClientFactory`) and
+        fires a `SessionAgeEmergencyBreak` `AgentErrorReport` over the resilient emergency channel, bounded
+        to a 5s wait. `AgentBootstrap` wires it (`GetAgentVersion` made `internal`).
+      - Lost if the device is fully offline — acceptable (that case falls back to the grace window).
+      ⚠️ **Not compiled here** (agent targets net48; this container has only the .NET 8 SDK). The Shared
+      `AgentErrorType.SessionAgeEmergencyBreak` value IS verified (it compiled in the Functions build).
+      **@okieselbach to run the net48 agent build locally.**
 
 ## PR3 — Reconciliation of late completions ✅ done
 
