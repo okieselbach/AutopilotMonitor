@@ -1033,6 +1033,7 @@ namespace AutopilotMonitor.Functions.Services
             int active = 0;
             int succeeded = 0;
             int failed = 0;
+            int incomplete = 0;
             long succeededDurationSeconds = 0;
             int succeededWithDurationCount = 0;
             int totalToday = 0;
@@ -1061,6 +1062,10 @@ namespace AutopilotMonitor.Functions.Services
                     case SessionStatus.Failed:
                         failed++;
                         break;
+                    case SessionStatus.Incomplete:
+                        // Terminal, non-failure. Reported separately, kept out of the failure rate.
+                        incomplete++;
+                        break;
                 }
 
                 if (s.StartedAt >= utcMidnight)
@@ -1085,6 +1090,7 @@ namespace AutopilotMonitor.Functions.Services
                 TotalLastNDays = sessions.Count,
                 SucceededLastNDays = succeeded,
                 FailedLastNDays = failed,
+                IncompleteLastNDays = incomplete,
                 SuccessRatePct = successRatePct,
                 AvgDurationMinutes = avgDurationMinutes,
                 TotalToday = totalToday,

@@ -75,16 +75,19 @@ timeline AND let the backend terminalize precisely instead of guessing with grac
 - [x] Tests `SessionStatusTransitionTests` (20, full matrix). Suite: 2705 pass (one pre-existing
       timing-flaky maintenance test, green on retry/isolation — unrelated).
 
-## PR4 — Stats / metrics expose 3 states
+## PR4 — Stats / metrics expose 3 states ✅ done (Fleet Health deferred to PR5)
 
-- [ ] `SessionStatusBuckets` (`MetricsMath.cs:317`): explicit `AwaitingUser` + `Incomplete`
-      buckets (out of `Other`).
-- [ ] `SessionStats` (`SessionApiModels.cs:442`): add `IncompleteLastNDays`; failure-rate
-      denominator = `Succeeded + Failed` only.
-- [ ] Fleet Health payload (`MetricsMath.BuildFleetHealthPayload`): count Incomplete
-      separately; keep SuccessRate honest.
-- [ ] Aggregation equivalence tests (`SessionStatsAggregationTests`,
-      `SessionStatsProjectionEquivalenceTests`, `MetricsSummaryProjectionEquivalenceTests`).
+- [x] `SessionStatusBuckets` (`MetricsMath.cs`): explicit `AwaitingUser` + `Incomplete` buckets
+      (out of `Other`); buckets still reconcile to Total by construction.
+- [x] Metrics summary (`GetMetricsSummaryAsync`): surface `awaitingUser` + `incomplete`; **failure
+      rate now `Failed / (Succeeded + Failed)`** — Incomplete + non-terminal excluded from the denominator.
+- [x] `SessionStats` (`SessionApiModels.cs`): add `IncompleteLastNDays`; dashboard `SuccessRatePct`
+      was already terminal-only (`Succeeded/(Succeeded+Failed)`), so Incomplete is excluded there too.
+- [x] Daily aggregation (`ComputeUsageMetricsSnapshotAsync`) already uses `Succeeded+Failed` as the
+      denominator — no change needed (Incomplete already excluded).
+- [x] Tests `SessionStatusBucketsTests` (bucketing + terminal-only failure-rate). Suite: 2705 pass.
+- [ ] **Deferred to PR5:** Fleet Health payload Incomplete count (its SuccessRate is documented as
+      "over all sessions" with equivalence tests — fold the Incomplete surfacing in with the web work).
 
 ## PR5 — Web surface
 

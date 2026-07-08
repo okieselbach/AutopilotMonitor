@@ -464,6 +464,13 @@ namespace AutopilotMonitor.Shared.Models
         public int FailedLastNDays { get; set; }
 
         /// <summary>
+        /// Terminal, non-failure sessions in the window (docs/design/enrollment-status-reclassification.md):
+        /// the sweep saw no completion or explicit failure. Reported as the third headline bucket and
+        /// deliberately excluded from <see cref="SuccessRatePct"/> (which is over Succeeded + Failed only).
+        /// </summary>
+        public int IncompleteLastNDays { get; set; }
+
+        /// <summary>
         /// Succeeded / (Succeeded + Failed) * 100, rounded. Zero when no terminal
         /// sessions are in the window (the card renders "0%" rather than NaN).
         /// </summary>

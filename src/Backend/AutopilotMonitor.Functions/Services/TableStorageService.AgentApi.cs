@@ -1315,20 +1315,30 @@ namespace AutopilotMonitor.Functions.Services
                 TallyMetricsSummaryRow(groups, entity);
             }
 
-            return groups.Select(kvp => (object)new
+            return groups.Select(kvp =>
             {
-                tenantId = kvp.Key,
-                totalSessions = kvp.Value.Total,
-                succeeded = kvp.Value.Succeeded,
-                failed = kvp.Value.Failed,
-                inProgress = kvp.Value.InProgress,
-                pending = kvp.Value.Pending,
-                stalled = kvp.Value.Stalled,
-                other = kvp.Value.Other,
-                failureRate = kvp.Value.Total > 0
-                    ? Math.Round((double)kvp.Value.Failed / kvp.Value.Total * 100, 1)
-                    : 0.0,
-                windowDays = days
+                var b = kvp.Value;
+                // Honest failure rate: failed over the TERMINAL outcomes only (Succeeded + Failed).
+                // Incomplete (unknown, non-failure) is deliberately excluded from the denominator, and
+                // non-terminal states (InProgress/AwaitingUser/Pending/Stalled) never belonged in it.
+                var terminal = b.Succeeded + b.Failed;
+                return (object)new
+                {
+                    tenantId = kvp.Key,
+                    totalSessions = b.Total,
+                    succeeded = b.Succeeded,
+                    failed = b.Failed,
+                    inProgress = b.InProgress,
+                    pending = b.Pending,
+                    stalled = b.Stalled,
+                    awaitingUser = b.AwaitingUser,
+                    incomplete = b.Incomplete,
+                    other = b.Other,
+                    failureRate = terminal > 0
+                        ? Math.Round((double)b.Failed / terminal * 100, 1)
+                        : 0.0,
+                    windowDays = days
+                };
             }).ToList();
         }
     }

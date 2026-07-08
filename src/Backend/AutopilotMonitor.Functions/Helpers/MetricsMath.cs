@@ -315,7 +315,8 @@ public static class MetricsMath
 /// their own buckets, and any unrecognised status (incl. Unknown) lands in <see cref="Other"/>.
 /// </summary>
 public readonly record struct SessionStatusBuckets(
-    int Total, int Succeeded, int Failed, int InProgress, int Pending, int Stalled, int Other)
+    int Total, int Succeeded, int Failed, int InProgress, int Pending, int Stalled,
+    int AwaitingUser, int Incomplete, int Other)
 {
     /// <summary>Returns a new tally with <paramref name="status"/> folded in.</summary>
     public SessionStatusBuckets Add(string? status)
@@ -326,7 +327,11 @@ public readonly record struct SessionStatusBuckets(
         var inProgress = InProgress + (status == "InProgress" ? 1 : 0);
         var pending = Pending + (status == "Pending" ? 1 : 0);
         var stalled = Stalled + (status == "Stalled" ? 1 : 0);
-        var other = total - (succeeded + failed + inProgress + pending + stalled);
-        return new SessionStatusBuckets(total, succeeded, failed, inProgress, pending, stalled, other);
+        // AwaitingUser (non-terminal, Device Setup done) and Incomplete (terminal, non-failure) get
+        // their own buckets so they no longer hide in Other and never inflate the failure count.
+        var awaitingUser = AwaitingUser + (status == "AwaitingUser" ? 1 : 0);
+        var incomplete = Incomplete + (status == "Incomplete" ? 1 : 0);
+        var other = total - (succeeded + failed + inProgress + pending + stalled + awaitingUser + incomplete);
+        return new SessionStatusBuckets(total, succeeded, failed, inProgress, pending, stalled, awaitingUser, incomplete, other);
     }
 }
