@@ -560,12 +560,15 @@ namespace AutopilotMonitor.Functions.Services
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
 
                 // Eligible for the 5h-timeout sweep: InProgress or Stalled sessions (Stalled is a
-                // non-terminal intermediate state set earlier by either the agent or the 2h sweep;
-                // when the 5h mark is reached without healing, the session graduates to Failed).
+                // non-terminal intermediate state set earlier by either the agent or the 2h sweep).
+                // At the 5h mark the session is reclassified rather than blindly failed — see
+                // EnrollmentTimeoutClassifier. AwaitingUser is included too so it keeps being
+                // re-evaluated each pass and graduates to Incomplete once SessionGraceHours elapses
+                // (docs/design/enrollment-status-reclassification.md).
                 // IsPreProvisioned ne true → WhiteGlove sessions are intentionally long-lived and
                 // must never be timed out, even after months in storage.
                 var filter = $"PartitionKey eq '{tenantId}' " +
-                             $"and (Status eq 'InProgress' or Status eq 'Stalled') " +
+                             $"and (Status eq 'InProgress' or Status eq 'Stalled' or Status eq 'AwaitingUser') " +
                              $"and StartedAt lt datetime'{cutoffTime:yyyy-MM-ddTHH:mm:ss}Z' " +
                              $"and IsPreProvisioned ne true";
                 var query = tableClient.QueryAsync<TableEntity>(filter: filter);

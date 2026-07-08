@@ -1363,16 +1363,27 @@ namespace AutopilotMonitor.Functions.Services
                     var entity = await tableClient.GetEntityAsync<TableEntity>(tenantId, sessionId);
                     var session = entity.Value;
 
-                    // Idempotency: if the session is already in a terminal state (Succeeded/Failed),
-                    // do not overwrite it with another terminal state to prevent duplicate notifications.
+                    // Idempotency: never overwrite one terminal state with another. Terminal states
+                    // are Succeeded, Failed and Incomplete (docs/design/enrollment-status-reclassification.md).
+                    // Reconciling a Failed/Incomplete session UP to Succeeded on a late completion is
+                    // done on the dedicated reconcile path, not here.
                     var existingStatusStr = session.GetString("Status");
-                    if (status == SessionStatus.Succeeded || status == SessionStatus.Failed)
+                    bool incomingTerminal = status == SessionStatus.Succeeded
+                        || status == SessionStatus.Failed
+                        || status == SessionStatus.Incomplete;
+                    bool existingTerminal = existingStatusStr == SessionStatus.Succeeded.ToString()
+                        || existingStatusStr == SessionStatus.Failed.ToString()
+                        || existingStatusStr == SessionStatus.Incomplete.ToString();
+                    if (incomingTerminal && existingTerminal)
                     {
-                        if (existingStatusStr == SessionStatus.Succeeded.ToString() || existingStatusStr == SessionStatus.Failed.ToString())
-                        {
-                            _logger.LogInformation($"Session {sessionId} already in terminal state '{existingStatusStr}', skipping status update to '{status}'");
-                            return false;
-                        }
+                        _logger.LogInformation($"Session {sessionId} already in terminal state '{existingStatusStr}', skipping status update to '{status}'");
+                        return false;
+                    }
+                    // AwaitingUser is non-terminal but must never regress a terminal session.
+                    if (status == SessionStatus.AwaitingUser && existingTerminal)
+                    {
+                        _logger.LogInformation($"Session {sessionId} already terminal '{existingStatusStr}', skipping AwaitingUser update");
+                        return false;
                     }
 
                     // Build a Merge update with only the fields that actually change
@@ -1487,6 +1498,16 @@ namespace AutopilotMonitor.Functions.Services
                                 update["DurationSeconds"] = (int)(latestEventTimestamp.Value - durationStart).TotalSeconds;
                         }
                     }
+                    // Incomplete is terminal but not a completion — stamp a terminal timestamp so the
+                    // session reads as closed, but do NOT compute DurationSeconds (a ~grace-length span
+                    // would skew duration stats, and Incomplete is excluded from those anyway).
+                    else if (status == SessionStatus.Incomplete)
+                    {
+                        update["CompletedAt"] = EnsureUtc(ResolveCompletionTimestamp(
+                            completedAt,
+                            session.GetDateTimeOffset("LastEventAt")?.UtcDateTime,
+                            DateTime.UtcNow));
+                    }
 
                     // Track the most recent event timestamp for excessive data sender detection
                     if (latestEventTimestamp.HasValue)
@@ -1496,8 +1517,11 @@ namespace AutopilotMonitor.Functions.Services
                             update["LastEventAt"] = EnsureUtc(latestEventTimestamp.Value);
                     }
 
-                    // Set failure reason if failed
-                    if (status == SessionStatus.Failed && !string.IsNullOrEmpty(failureReason))
+                    // Set the reason string for the sweep-authored states. Failed keeps its failure
+                    // reason; Incomplete and AwaitingUser carry the informational classification reason
+                    // (same field reuse as the Stalled path below), so the UI can explain the state.
+                    if ((status == SessionStatus.Failed || status == SessionStatus.Incomplete || status == SessionStatus.AwaitingUser)
+                        && !string.IsNullOrEmpty(failureReason))
                     {
                         update["FailureReason"] = failureReason;
                     }
@@ -1507,7 +1531,8 @@ namespace AutopilotMonitor.Functions.Services
                     // fix, 2026-05-01); other terminal paths leave the field untouched, which
                     // is fine — null/empty means "no snapshot available" and the UI falls back
                     // to the existing FailureReason rendering.
-                    if (status == SessionStatus.Failed && !string.IsNullOrEmpty(failureSnapshotJson))
+                    if ((status == SessionStatus.Failed || status == SessionStatus.Incomplete || status == SessionStatus.AwaitingUser)
+                        && !string.IsNullOrEmpty(failureSnapshotJson))
                     {
                         update["FailureSnapshotJson"] = failureSnapshotJson;
                     }

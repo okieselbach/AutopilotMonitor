@@ -184,6 +184,17 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public int SessionTimeoutHours { get; set; } = 5;
 
+        /// <summary>
+        /// Grace window in hours for a session that reached the inactivity timeout with Device Setup
+        /// already provisioned but no completion signal yet (docs/design/enrollment-status-reclassification.md).
+        /// At <see cref="SessionTimeoutHours"/> such a session becomes AwaitingUser (non-terminal) instead
+        /// of Failed; only after this longer window elapses without a completion does it graduate to the
+        /// terminal, non-failure Incomplete state. The user/Account-Setup phase legitimately spans hours or
+        /// overnight, so this must be comfortably larger than SessionTimeoutHours.
+        /// Default: 72 hours.
+        /// </summary>
+        public int SessionGraceHours { get; set; } = 72;
+
         // ===== PAYLOAD SETTINGS =====
 
         /// <summary>
@@ -832,6 +843,7 @@ namespace AutopilotMonitor.Shared.Models
                 AllowInsecureAgentRequests = false,
                 DataRetentionDays = 90,
                 SessionTimeoutHours = 5,
+                SessionGraceHours = 72,
                 MaxNdjsonPayloadSizeMB = 5,
                 EnablePerformanceCollector = true,
                 PerformanceCollectorIntervalSeconds = 30,

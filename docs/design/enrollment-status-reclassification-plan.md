@@ -23,21 +23,23 @@ Backend + stats only — no agent changes, no heartbeat.
 - [x] Unit tests `EnrollmentTimeoutClassifierTests` (12) — rollup extraction (0/5, 1–4/5,
       5/5, fallback, missing) + every classification branch. **Full Functions.Tests: 2670 pass.**
 
-## PR2 — Sweep uses the classifier + grace window
+## PR2 — Sweep uses the classifier + grace window ✅ done
 
-- [ ] `TenantConfiguration.SessionGraceHours` (default 72) + config plumbing.
-- [ ] In `MarkStalledSessionsAsTimedOutAsync` (Stage 2, `MaintenanceService.cs:~360`):
-      replace the hard-coded `SessionStatus.Failed` with `ClassifyTimedOutSession(...)`.
-      - 5h reached, DeviceSetup succeeded, within grace → `AwaitingUser` (non-terminal).
-      - grace expired → `Incomplete`.
-      - AccountSetup all-succeeded / `enrollment_complete` seen → `Succeeded`.
-      - explicit failure event → `Failed` (unchanged).
-- [ ] Keep the synthetic `session_timeout` event + analyze enqueue ONLY for the real
-      `Failed`/`Incomplete` terminal transitions (not for `AwaitingUser`).
-- [ ] `GetStalledSessionsAsync` / `GetAgentSilentSessionsAsync` must re-scan `AwaitingUser`
-      so the grace→`Incomplete` transition fires on a later pass.
-- [ ] Tests: `SessionTimeoutRuleTests` / `MaintenanceServiceSessionTimeoutEventTests` extended
-      for the new target states + grace boundary.
+- [x] `TenantConfiguration.SessionGraceHours` (default 72) + default-config plumbing.
+- [x] `MarkStalledSessionsAsTimedOutAsync` (Stage 2): replaced hard-coded `Failed` with
+      `EnrollmentTimeoutClassifier.ClassifyTimedOutSession(...)`. Fast-path skips within-grace
+      `AwaitingUser` sessions with NO event read (grace is time-based). Per-outcome counters +
+      audit/ops only when the pass did something.
+- [x] Synthetic `session_timeout` event + analyze enqueue kept ONLY for `Failed`/`Incomplete`
+      terminal transitions (not `AwaitingUser`/`Succeeded`).
+- [x] `GetStalledSessionsAsync` now includes `AwaitingUser` so grace→`Incomplete` fires later.
+      `GetAgentSilentSessionsAsync` left InProgress-only (no regress).
+- [x] `UpdateSessionStatusAsync`: `Incomplete` treated as terminal (idempotency guard);
+      `AwaitingUser` never regresses a terminal; `CompletedAt` stamped for `Incomplete` (no
+      duration); reason + snapshot persisted for `Incomplete`/`AwaitingUser`.
+- [x] Decision logic + grace boundary covered by `EnrollmentTimeoutClassifierTests` (pure —
+      the sweep itself has ~17 deps, same rationale as `MaintenanceServiceSessionTimeoutEventTests`).
+      **Full Functions.Tests: 2670 pass.** End-to-end validated via the live forward-only watch.
 
 ## PR3 — Reconciliation of late completions
 
