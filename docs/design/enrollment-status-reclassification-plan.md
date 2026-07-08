@@ -41,6 +41,28 @@ Backend + stats only — no agent changes, no heartbeat.
       the sweep itself has ~17 deps, same rationale as `MaintenanceServiceSessionTimeoutEventTests`).
       **Full Functions.Tests: 2670 pass.** End-to-end validated via the live forward-only watch.
 
+## PR-EB — Agent emergency-break event (transparency: close the silent-48h blind spot)
+
+The agent's 48h absolute session-age break (`Program.Guards.CheckSessionAgeEmergencyBreak`)
+writes only a LOCAL marker + cleans up + exits — silent to the backend. Make it visible in the
+timeline AND let the backend terminalize precisely instead of guessing with grace.
+
+- [x] `Constants.EventTypes.AgentEmergencyBreak` + `AgentErrorType.SessionAgeEmergencyBreak`.
+- [x] Classifier consumes it: `ExtractRollup.HasAgentEmergencyBreak`; a session carrying the break
+      classifies as `Incomplete` NOW (skips the AwaitingUser grace) unless it actually completed.
+      Tested. **This is the load-bearing backend consumer.**
+- [ ] **Part B (backend, testable): materialize the timeline event.** `ReportAgentErrorFunction`
+      currently only logs to App Insights. Inject `ISessionRepository`; on
+      `SessionAgeEmergencyBreak`, write an `agent_emergency_break` `EnrollmentEvent` into the stream
+      (Sequence = max+1, idempotent) so it shows in the timeline and the sweep classifier sees it.
+      Add a pure `BuildAgentEmergencyBreakEvent` helper (analog to `BuildSessionTimeoutEvent`) + test.
+- [ ] **Part C (agent, CI-only — net48, not Linux-buildable here): best-effort emit.** In
+      `CheckSessionAgeEmergencyBreak`, before cleanup/exit, send an `AgentErrorReport`
+      (`SessionAgeEmergencyBreak`, message w/ session age) via the resilient `EmergencyReporter`.
+      ⚠️ The guard runs in `AgentBootstrap` *before* auth/`BackendApiClient` construction — needs a
+      minimal emergency client wired at the call site (or move the emit to a point where `auth` exists).
+      May be lost if the device is fully offline — acceptable (best-effort, that case falls back to grace).
+
 ## PR3 — Reconciliation of late completions
 
 - [ ] Allow `Failed` / `Incomplete` / `AwaitingUser` → `Succeeded` when a genuine terminal
