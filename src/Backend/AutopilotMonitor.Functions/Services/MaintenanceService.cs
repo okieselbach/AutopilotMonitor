@@ -409,6 +409,13 @@ namespace AutopilotMonitor.Functions.Services
                                     var timeoutEvent = BuildSessionTimeoutEvent(session, timeoutHours, sessionEvents, now);
                                     await _sessionRepo.StoreEventsBatchAsync(new List<EnrollmentEvent> { timeoutEvent });
 
+                                    // StoreEventsBatchAsync only bumps the orphan side-index, not the
+                                    // session's EventCount, and the terminal reconcile already ran inside
+                                    // UpdateSessionStatusAsync *before* this synthetic event existed. Recount
+                                    // now so the session_timeout event is reflected in the stored EventCount
+                                    // (authoritative recount from the Events table; idempotent + fail-soft).
+                                    await _sessionRepo.ReconcileSessionCountersAsync(session.TenantId, session.SessionId);
+
                                     await _analyzeProducer.EnqueueAsync(new AnalyzeOnEnrollmentEndEnvelope
                                     {
                                         TenantId = session.TenantId,

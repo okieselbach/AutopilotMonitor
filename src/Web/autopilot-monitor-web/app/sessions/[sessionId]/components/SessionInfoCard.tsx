@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Session } from "@/types";
+import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 import FailureSnapshotBlock from "./FailureSnapshotBlock";
 
 interface SessionInfoCardProps {
@@ -160,52 +161,30 @@ function InfoItem({ label, value, copyText, tooltip }: { label: string; value: R
 }
 
 function StatusBadge({ status, failureReason, failureSource, adminMarkedAction }: { status: string; failureReason?: string; failureSource?: string; adminMarkedAction?: string }) {
-  const statusConfig = {
-    InProgress: { color: "bg-blue-100 text-blue-800", text: "In Progress" },
-    Pending: { color: "bg-amber-100 text-amber-800", text: "Pending" },
-    Stalled: { color: "bg-orange-100 text-orange-800", text: "Stalled" },
-    Succeeded: { color: "bg-green-100 text-green-800", text: "Succeeded" },
-    Failed: { color: "bg-red-100 text-red-800", text: "Failed" },
-    Unknown: { color: "bg-gray-100 text-gray-800", text: "Unknown" },
-  };
+  // Delegate the status pill (+ timeout affordance + "manual" badge) to the shared, canonical
+  // SessionStatusBadge so this page picks up every status — incl. the AwaitingUser/Incomplete
+  // reclassification states — from one source instead of a divergent local map.
+  const badge = (
+    <SessionStatusBadge status={status} failureReason={failureReason} adminMarkedAction={adminMarkedAction} />
+  );
 
-  const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.Unknown;
-
-  const isTimeout = status === "Failed" && failureReason && failureReason.toLowerCase().includes("timed out");
+  // Session-detail-only affordance: link a rule-attributed failure back to its analyze rule.
   const ruleId = status === "Failed" && failureSource && failureSource.startsWith("rule:")
     ? failureSource.substring("rule:".length)
     : null;
 
+  if (!ruleId) return badge;
+
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span
-        className={`px-2 inline-flex items-center gap-1 text-xs leading-5 font-semibold rounded-full ${config.color}`}
-        title={failureReason || undefined}
+      {badge}
+      <a
+        href={`/analyze-rules?highlight=${encodeURIComponent(ruleId)}`}
+        className="px-1.5 py-0.5 text-[10px] leading-4 font-semibold rounded border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
+        title={`Failed by analyze rule ${ruleId}${failureReason ? ` — ${failureReason}` : ""}`}
       >
-        {config.text}
-        {isTimeout && (
-          <span title={failureReason} className="inline-flex items-center">
-            ⏱️
-          </span>
-        )}
-      </span>
-      {ruleId && (
-        <a
-          href={`/analyze-rules?highlight=${encodeURIComponent(ruleId)}`}
-          className="px-1.5 py-0.5 text-[10px] leading-4 font-semibold rounded border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
-          title={`Failed by analyze rule ${ruleId}${failureReason ? ` — ${failureReason}` : ""}`}
-        >
-          via rule {ruleId}
-        </a>
-      )}
-      {adminMarkedAction && (
-        <span
-          className="px-1.5 py-0.5 text-[10px] leading-4 font-semibold rounded border border-gray-300 bg-gray-50 text-gray-600"
-          title={`Manually marked as ${adminMarkedAction} by administrator`}
-        >
-          manual
-        </span>
-      )}
+        via rule {ruleId}
+      </a>
     </span>
   );
 }

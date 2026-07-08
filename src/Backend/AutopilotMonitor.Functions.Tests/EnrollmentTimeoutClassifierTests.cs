@@ -169,6 +169,7 @@ public class EnrollmentTimeoutClassifierTests
     [InlineData(0, null, 51)]    // 0 override = auto-derive
     [InlineData(0, 48, 51)]      // explicit agent cap = default
     [InlineData(0, 96, 99)]      // bigger agent cap → grace follows (96 + 3)
+    [InlineData(0, 36, 51)]      // override BELOW the real agent default is clamped up to 48 (agent isn't wired yet)
     [InlineData(0, 0, 51)]       // agent cap 0/invalid → fall back to default 48
     [InlineData(90, 48, 90)]     // override ABOVE the floor wins
     [InlineData(30, 48, 51)]     // override BELOW the floor is clamped up to the floor

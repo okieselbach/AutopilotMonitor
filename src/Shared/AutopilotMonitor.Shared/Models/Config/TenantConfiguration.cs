@@ -176,9 +176,12 @@ namespace AutopilotMonitor.Shared.Models
         public int DataRetentionDays { get; set; } = 90;
 
         /// <summary>
-        /// Session timeout in hours
-        /// Sessions in "InProgress" status longer than this will be marked as "Failed - Timed Out"
-        /// This prevents stalled sessions from running indefinitely and skewing statistics
+        /// Session inactivity timeout in hours. Once an "InProgress" session is idle past this, the
+        /// maintenance sweep reclassifies it out of "InProgress" (see
+        /// docs/design/enrollment-status-reclassification.md): if Device Setup already finished it
+        /// becomes AwaitingUser (non-terminal), otherwise it eventually settles as the terminal,
+        /// non-failure Incomplete state once <see cref="SessionGraceHours"/> elapses — it is NOT
+        /// counted as a failure. This prevents stalled sessions from running indefinitely and skewing statistics.
         /// Recommended: Use the same value as your ESP (Enrollment Status Page) timeout
         /// Default: 5 hours
         /// </summary>
@@ -191,7 +194,7 @@ namespace AutopilotMonitor.Shared.Models
         /// of Failed; only after this window elapses without a completion does it graduate to the terminal,
         /// non-failure Incomplete state.
         /// <para>
-        /// 0 (default) = auto-derive: <c>AbsoluteMaxSessionHours + 12h buffer</c> (= 60h with defaults). The
+        /// 0 (default) = auto-derive: <c>AbsoluteMaxSessionHours + buffer</c> (= 48h + 3h = 51h with defaults). The
         /// grace is always floored at the agent's absolute session-age cap plus buffer — until that cap fires
         /// the agent may still be legitimately enrolling, and because the cap is silent to the backend anything
         /// still quiet past cap+buffer is provably dead. A non-zero value acts as an override but can only
@@ -858,7 +861,7 @@ namespace AutopilotMonitor.Shared.Models
                 AllowInsecureAgentRequests = false,
                 DataRetentionDays = 90,
                 SessionTimeoutHours = 5,
-                SessionGraceHours = 0, // auto-derive: AbsoluteMaxSessionHours + buffer (= 60h)
+                SessionGraceHours = 0, // auto-derive: AbsoluteMaxSessionHours + buffer (= 48h + 3h = 51h)
                 MaxNdjsonPayloadSizeMB = 5,
                 EnablePerformanceCollector = true,
                 PerformanceCollectorIntervalSeconds = 30,

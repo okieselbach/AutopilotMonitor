@@ -51,7 +51,14 @@ namespace AutopilotMonitor.Functions.Services
         public static int ResolveGraceHours(int? configuredGraceHours, int? absoluteMaxSessionHours, int bufferHours = DefaultGraceBufferHours)
         {
             var absMax = absoluteMaxSessionHours.GetValueOrDefault(DefaultAbsoluteMaxSessionHours);
-            if (absMax <= 0) absMax = DefaultAbsoluteMaxSessionHours;
+            // The agent does NOT yet honor a per-tenant AbsoluteMaxSessionHours override (wiring it
+            // down to the agent config response is a follow-up — see TenantConfiguration.AbsoluteMaxSessionHours),
+            // so the agent always runs to at least the real runtime default (48h). The silence-based
+            // grace floor is only safe if it assumes the agent could still be alive up to that real cap:
+            // a lower/unset override must therefore only ever RAISE the assumed cap, never drag the floor
+            // below the agent's actual runtime — which would terminalize a still-running session as
+            // Incomplete before its emergency break even fires. Clamp accordingly (also covers 0/negative).
+            absMax = Math.Max(absMax, DefaultAbsoluteMaxSessionHours);
             var floor = absMax + Math.Max(0, bufferHours);
             var configured = configuredGraceHours.GetValueOrDefault(0);
             return Math.Max(floor, configured);

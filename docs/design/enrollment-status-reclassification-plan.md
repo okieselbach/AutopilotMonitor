@@ -130,9 +130,11 @@ timeline AND let the backend terminalize precisely instead of guessing with grac
   **PR6 backfill is deferred** — run it once forward-only looks good, to heal historical
   crcins.com + platform stats. Remembered follow-up.
 - **`SessionGraceHours`:** now **auto-derived** from the agent's absolute cap, not a magic 72h.
-  `effectiveGrace = max(AbsoluteMaxSessionHours + 12h buffer, override)` = **60h** by default
+  `effectiveGrace = max(AbsoluteMaxSessionHours + 3h buffer, override)` = **51h** by default (48 + 3)
   (`EnrollmentTimeoutClassifier.ResolveGraceHours`). Rationale: the 48h agent emergency break is
   *silent* to the backend, so grace must be ≥ that cap and only slightly beyond it. `SessionGraceHours=0`
-  means auto; an override can only raise the floor. `AbsoluteMaxSessionHours` mirrored into TenantConfiguration.
+  means auto; an override can only raise the floor. `AbsoluteMaxSessionHours` mirrored into TenantConfiguration,
+  but until the agent honors it (follow-up below) the derivation clamps the assumed cap to ≥ the real agent
+  default (48), so a lower override can never drag the grace below the agent's actual runtime.
   - **Follow-up:** wire `TenantConfiguration.AbsoluteMaxSessionHours` down into `AgentConfigResponse` +
     RemoteConfigMerger so a tenant override reaches the agent too (today the agent still uses its own default 48).
