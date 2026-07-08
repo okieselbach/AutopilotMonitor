@@ -2,7 +2,7 @@
 
 > Working copy lives in `tasks/todo.md` (gitignored); this is the tracked, buildable checklist.
 
-Design note: [`docs/design/enrollment-status-reclassification.md`](../docs/design/enrollment-status-reclassification.md)
+Design note: [`docs/design/enrollment-status-reclassification.md`](./enrollment-status-reclassification.md)
 Branch: `claude/crcins-enrollment-failures-ac943m`
 
 Goal: stop the 5h sweep from labelling silent-but-provisioned sessions `Failed`; add a
@@ -11,20 +11,17 @@ Backend + stats only — no agent changes, no heartbeat.
 
 ---
 
-## PR1 — Status model + ESP rollup extraction (foundation)
+## PR1 — Status model + ESP rollup extraction (foundation) ✅ done
 
-- [ ] Add `AwaitingUser` and `Incomplete` to `SessionStatus` enum
-      (`src/Shared/AutopilotMonitor.Shared/Models/SessionApiModels.cs:426`).
-      Keep ordinal order stable (append; do not renumber existing members).
-- [ ] Extend `FailureSnapshotBuilder` to parse `esp_provisioning_status` events and expose
-      the **last** DeviceSetup and AccountSetup rollups: `{ deviceSetupAllSucceeded: bool,
-      accountSetupSucceededCount: int, accountSetupTotal: int, accountSetupAllSucceeded: bool }`.
-      Gate on the subcategory rollup, NOT `categorySucceeded` (always `"in_progress"`).
-- [ ] Extract a pure `ClassifyTimedOutSession(...)` helper (static, unit-testable — mirror
-      the existing `BuildSessionTimeoutEvent` / `DecideAutoAction` pattern in
-      `MaintenanceService.cs`) implementing the decision table (§2 of the design note).
-- [ ] Unit tests: rollup extraction (0/5, 1–4/5, 5/5, missing) + every classification branch,
-      using fixtures under `tests/fixtures/` (e.g. `account-setup-provisioning-complete-v1.json`).
+- [x] Add `AwaitingUser` and `Incomplete` to `SessionStatus` enum
+      (`SessionApiModels.cs`, appended — existing ordinals unchanged).
+- [x] Extend `FailureSnapshotBuilder` to embed the ESP rollup
+      (`deviceSetupAllSucceeded` / `accountSetup{SucceededCount,Total,AllSucceeded}`),
+      schema v2. Gated on the subcategory rollup, NOT `categorySucceeded`.
+- [x] Pure `EnrollmentTimeoutClassifier.ExtractRollup` + `ClassifyTimedOutSession`
+      (new `EnrollmentTimeoutClassifier.cs`) implementing the decision table.
+- [x] Unit tests `EnrollmentTimeoutClassifierTests` (12) — rollup extraction (0/5, 1–4/5,
+      5/5, fallback, missing) + every classification branch. **Full Functions.Tests: 2670 pass.**
 
 ## PR2 — Sweep uses the classifier + grace window
 
@@ -90,7 +87,9 @@ Backend + stats only — no agent changes, no heartbeat.
 ## Review (fill in after implementation)
 - _pending_
 
-## Open questions for @okieselbach
-- [ ] `SessionGraceHours` default — 72h ok, or tie to `SessionTimeoutHours` multiple?
-- [ ] Reporting label for the third state: `Incomplete`, `Unknown`, or `Incomplete/Unknown`?
-- [ ] Backfill (PR6) in scope now, or ship forward-only first and backfill later?
+## Decisions (2026-07-08)
+- **Third state label:** `Incomplete` (enum member `SessionStatus.Incomplete`, badge "Incomplete").
+- **Scope:** forward-only first (PR1–PR5) to watch how the first live sessions classify.
+  **PR6 backfill is deferred** — run it once forward-only looks good, to heal historical
+  crcins.com + platform stats. Remembered follow-up.
+- **`SessionGraceHours` default:** 72h (per-tenant adjustable); revisit after live data.
