@@ -116,6 +116,32 @@ public class UsageMetricsServiceWindowTests
     }
 
     [Fact]
+    public async Task Incomplete_sessions_get_their_own_bucket_and_are_excluded_from_success_rate()
+    {
+        // The reclassification shape (docs/design/enrollment-status-reclassification.md): timed-out
+        // sessions become terminal Incomplete, not Failed. They must be counted in their own bucket
+        // (previously invisible: in Total but no breakdown) and kept out of the failure-rate
+        // denominator — Succeeded + Failed only. 1 succeeded, 1 failed, 8 incomplete -> 50%, not 10%.
+        var sessions = new List<SessionSummary>
+        {
+            new() { SessionId = "ok",   TenantId = "t1", StartedAt = DateTime.UtcNow.AddDays(-1), Status = SessionStatus.Succeeded },
+            new() { SessionId = "bad",  TenantId = "t1", StartedAt = DateTime.UtcNow.AddDays(-1), Status = SessionStatus.Failed },
+        };
+        for (var i = 0; i < 8; i++)
+            sessions.Add(new SessionSummary { SessionId = $"inc{i}", TenantId = "t1", StartedAt = DateTime.UtcNow.AddDays(-1), Status = SessionStatus.Incomplete });
+
+        var (service, _) = CreateService(sessions);
+
+        var result = await service.ComputeTenantUsageMetricsAsync("t1", 90);
+
+        Assert.Equal(10, result.Sessions.Total);
+        Assert.Equal(1, result.Sessions.Succeeded);
+        Assert.Equal(1, result.Sessions.Failed);
+        Assert.Equal(8, result.Sessions.Incomplete);
+        Assert.Equal(50.0, result.Sessions.SuccessRate);
+    }
+
+    [Fact]
     public async Task Smaller_window_yields_smaller_or_equal_session_total()
     {
         // Three sessions spanning ~80 days

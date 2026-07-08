@@ -170,6 +170,12 @@ permit an already‑terminal → `Succeeded` upgrade for these reconcile signals
 - `SessionStats` / Fleet Health: add `IncompleteLastNDays`; **failure rate denominator =
   `Succeeded + Failed` only** (Incomplete and AwaitingUser excluded). Headline becomes
   Success / Failed / Incomplete‑Unknown.
+- Same `Incomplete` bucket added to the other reporting surfaces that read session status:
+  the live usage metrics (`UsageMetricsService.SessionMetrics`, both platform + tenant paths,
+  feeding `get_usage_metrics` and the usage dashboards) and the persisted daily
+  `UsageMetricsSnapshot` (`SessionsIncomplete`, stored + mapped in `TableStorageService.Metrics`).
+  Their success rate already used the `Succeeded + Failed` denominator; only the count bucket
+  was missing, so terminal Incomplete sessions were silently absent from the breakdown.
 - Web: `SessionStatus` mirror + badge + `isTerminalStatus`
   ([`utils/sessionStatus.ts`](../../src/Web/autopilot-monitor-web/utils/sessionStatus.ts),
   [`SessionStatusBadge.tsx`](../../src/Web/autopilot-monitor-web/components/SessionStatusBadge.tsx)).

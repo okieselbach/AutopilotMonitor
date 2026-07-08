@@ -170,6 +170,7 @@ namespace AutopilotMonitor.Functions.Services
                 SessionsSucceeded = succeeded,
                 SessionsFailed = sessions.Count(s => s.Status == SessionStatus.Failed),
                 SessionsInProgress = sessions.Count(s => s.Status == SessionStatus.InProgress),
+                SessionsIncomplete = sessions.Count(s => s.Status == SessionStatus.Incomplete),
                 SessionsSuccessRate = successRate,
                 AvgDurationMinutes = avgDuration,
                 MedianDurationMinutes = medianDuration,

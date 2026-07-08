@@ -19,6 +19,7 @@ interface SessionMetrics {
   succeeded: number;
   failed: number;
   inProgress: number;
+  incomplete: number;
   successRate: number;
 }
 
@@ -231,7 +232,7 @@ export default function UsageMetricsPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mt-4">
             <div className="bg-white rounded-lg shadow p-6">
               <div className="text-sm text-gray-500 mb-1">Succeeded</div>
               <div className="text-3xl font-bold text-green-600">{metrics.sessions.succeeded.toLocaleString()}</div>
@@ -239,6 +240,10 @@ export default function UsageMetricsPage() {
             <div className="bg-white rounded-lg shadow p-6">
               <div className="text-sm text-gray-500 mb-1">Failed</div>
               <div className="text-3xl font-bold text-red-600">{metrics.sessions.failed.toLocaleString()}</div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="text-sm text-gray-500 mb-1" title="Terminal, non-failure: timed out with no completion or failure signal. Excluded from the success rate.">Incomplete</div>
+              <div className="text-3xl font-bold text-slate-500">{metrics.sessions.incomplete.toLocaleString()}</div>
             </div>
             <div className="bg-white rounded-lg shadow p-6">
               <div className="text-sm text-gray-500 mb-1">In Progress</div>

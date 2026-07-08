@@ -131,6 +131,7 @@ namespace AutopilotMonitor.Functions.Services
                 Succeeded = allSessions.Count(s => s.Status == SessionStatus.Succeeded),
                 Failed = allSessions.Count(s => s.Status == SessionStatus.Failed),
                 InProgress = allSessions.Count(s => s.Status == SessionStatus.InProgress),
+                Incomplete = allSessions.Count(s => s.Status == SessionStatus.Incomplete),
                 SuccessRate = CalculateSuccessRate(allSessions)
             };
 
@@ -296,6 +297,7 @@ namespace AutopilotMonitor.Functions.Services
                 Succeeded = tenantSessions.Count(s => s.Status == SessionStatus.Succeeded),
                 Failed = tenantSessions.Count(s => s.Status == SessionStatus.Failed),
                 InProgress = tenantSessions.Count(s => s.Status == SessionStatus.InProgress),
+                Incomplete = tenantSessions.Count(s => s.Status == SessionStatus.Incomplete),
                 SuccessRate = CalculateSuccessRate(tenantSessions)
             };
 

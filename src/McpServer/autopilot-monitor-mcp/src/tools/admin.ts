@@ -722,7 +722,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'Pass the whole nextLink string as "continuation" so all backend-echoed query params round-trip correctly.',
       inputSchema: {
         tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID to query. Omit for cross-tenant access (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
-        status: z.enum(['InProgress', 'Pending', 'Stalled', 'Succeeded', 'Failed']).optional(),
+        status: z.enum(['InProgress', 'Pending', 'Stalled', 'Succeeded', 'Failed', 'AwaitingUser', 'Incomplete']).optional(),
         startedAfter: z.string().optional().describe('ISO 8601 datetime'),
         startedBefore: z.string().optional().describe('ISO 8601 datetime'),
         serialNumber: z.string().optional(),

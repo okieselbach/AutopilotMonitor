@@ -79,6 +79,13 @@ namespace AutopilotMonitor.Shared.Models
         public int Succeeded { get; set; }
         public int Failed { get; set; }
         public int InProgress { get; set; }
+        /// <summary>
+        /// Terminal, non-failure sessions (timeout reclassification): the sweep classified them as
+        /// Incomplete instead of Failed. Surfaced as its own count and deliberately excluded from
+        /// <see cref="SuccessRate"/> (denominator = Succeeded + Failed only), mirroring SessionStats
+        /// and FleetHealthStats. See docs/design/enrollment-status-reclassification.md §5.
+        /// </summary>
+        public int Incomplete { get; set; }
         public double SuccessRate { get; set; }
     }
 
