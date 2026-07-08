@@ -587,6 +587,9 @@ export function SessionTable({
                 InProgress: "text-blue-600",
                 Pending: "text-amber-600",
                 Stalled: "text-orange-600",
+                // Reclassification states — mirror SessionStatusBadge (sky = awaiting user, slate = incomplete)
+                AwaitingUser: "text-sky-600",
+                Incomplete: "text-slate-600",
               };
               return (
                 <button
@@ -667,13 +670,17 @@ export function SessionTable({
 
       {/* Status Filter Badges */}
       <div className="mb-4 flex items-center gap-2 flex-wrap">
-        {(["Succeeded", "InProgress", "Pending", "Stalled", "Failed"] as const).map((status) => {
+        {(["Succeeded", "InProgress", "Pending", "Stalled", "AwaitingUser", "Failed", "Incomplete"] as const).map((status) => {
           const config: Record<string, { bg: string; bgActive: string; text: string; label: string }> = {
             Succeeded: { bg: "bg-green-50 text-green-700 border-green-200 hover:bg-green-100", bgActive: "bg-green-600 text-white border-green-600", text: "text-green-600", label: "Succeeded" },
             InProgress: { bg: "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100", bgActive: "bg-blue-600 text-white border-blue-600", text: "text-blue-600", label: "In Progress" },
             Pending: { bg: "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100", bgActive: "bg-amber-500 text-white border-amber-500", text: "text-amber-600", label: "Pending" },
             Stalled: { bg: "bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100", bgActive: "bg-orange-600 text-white border-orange-600", text: "text-orange-600", label: "Stalled" },
+            // Non-terminal reclassification state (Device Setup done, waiting on user) — sky, mirrors SessionStatusBadge.
+            AwaitingUser: { bg: "bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100", bgActive: "bg-sky-600 text-white border-sky-600", text: "text-sky-600", label: "Awaiting User" },
             Failed: { bg: "bg-red-50 text-red-700 border-red-200 hover:bg-red-100", bgActive: "bg-red-600 text-white border-red-600", text: "text-red-600", label: "Failed" },
+            // Terminal but NOT a failure (went silent, no completion) — neutral slate, clearly not red.
+            Incomplete: { bg: "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100", bgActive: "bg-slate-600 text-white border-slate-600", text: "text-slate-600", label: "Incomplete" },
           };
           const c = config[status];
           const count = sessions.filter(s => s.status === status).length;

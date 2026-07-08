@@ -349,6 +349,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 { "AllowInsecureAgentRequests", config.AllowInsecureAgentRequests },
                 { "DataRetentionDays", config.DataRetentionDays },
                 { "SessionTimeoutHours", config.SessionTimeoutHours },
+                { "SessionGraceHours", config.SessionGraceHours },
+                { "AbsoluteMaxSessionHours", config.AbsoluteMaxSessionHours },
                 { "MaxNdjsonPayloadSizeMB", config.MaxNdjsonPayloadSizeMB },
                 { "EnablePerformanceCollector", config.EnablePerformanceCollector },
                 { "PerformanceCollectorIntervalSeconds", config.PerformanceCollectorIntervalSeconds },
@@ -442,6 +444,12 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 AllowInsecureAgentRequests = entity.GetBoolean("AllowInsecureAgentRequests") ?? false,
                 DataRetentionDays = entity.GetInt32("DataRetentionDays") ?? 90,
                 SessionTimeoutHours = entity.GetInt32("SessionTimeoutHours") ?? 5,
+                // 0 (default) = auto-derive grace from the agent's absolute cap; legacy rows lacking
+                // the column read back as 0, preserving the auto-derive behaviour.
+                SessionGraceHours = entity.GetInt32("SessionGraceHours") ?? 0,
+                // null = agent default (48); nullable so an unset override never masquerades as an
+                // explicit value in EnrollmentTimeoutClassifier.ResolveGraceHours.
+                AbsoluteMaxSessionHours = entity.GetInt32("AbsoluteMaxSessionHours"),
                 MaxNdjsonPayloadSizeMB = entity.GetInt32("MaxNdjsonPayloadSizeMB") ?? 5,
                 EnablePerformanceCollector = entity.GetBoolean("EnablePerformanceCollector") ?? false,
                 PerformanceCollectorIntervalSeconds = entity.GetInt32("PerformanceCollectorIntervalSeconds") ?? 30,

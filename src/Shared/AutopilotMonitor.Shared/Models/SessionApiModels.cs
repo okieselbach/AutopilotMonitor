@@ -430,7 +430,17 @@ namespace AutopilotMonitor.Shared.Models
         Stalled,      // Agent reported no progress for >60 min, or backend sweep detected >2h silence. Non-terminal, can heal back to InProgress.
         Succeeded,
         Failed,
-        Unknown
+        Unknown,
+        // Appended 2026-07-08 (docs/design/enrollment-status-reclassification.md). New members
+        // MUST stay appended so existing persisted ordinals never shift.
+        AwaitingUser, // Device Setup (ESP DeviceSetup) fully succeeded but the user/Account-Setup
+                      // phase has not completed and the agent went silent within the grace window.
+                      // NON-TERMINAL: reconciles to Succeeded on a late completion, or graduates to
+                      // Incomplete once SessionGraceHours elapses. NOT a failure.
+        Incomplete    // Terminal, NON-FAILURE. The session never produced a terminal completion or
+                      // failure signal and the grace window expired (or it went silent before Device
+                      // Setup completed with no explicit failure). Excluded from the failure-rate
+                      // denominator; surfaced to operators as "Incomplete".
     }
 
     /// <summary>
@@ -452,6 +462,13 @@ namespace AutopilotMonitor.Shared.Models
 
         public int SucceededLastNDays { get; set; }
         public int FailedLastNDays { get; set; }
+
+        /// <summary>
+        /// Terminal, non-failure sessions in the window (docs/design/enrollment-status-reclassification.md):
+        /// the sweep saw no completion or explicit failure. Reported as the third headline bucket and
+        /// deliberately excluded from <see cref="SuccessRatePct"/> (which is over Succeeded + Failed only).
+        /// </summary>
+        public int IncompleteLastNDays { get; set; }
 
         /// <summary>
         /// Succeeded / (Succeeded + Failed) * 100, rounded. Zero when no terminal

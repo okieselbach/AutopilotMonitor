@@ -14,6 +14,8 @@ export interface FleetHealthStats {
   succeeded: number;
   failed: number;
   inProgress: number;
+  /** Terminal, non-failure (timeout reclassification). Surfaced separately; not counted as a failure. */
+  incomplete: number;
   successRate: number;
   avgDurationMinutes: number;
 }

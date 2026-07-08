@@ -24,7 +24,10 @@ namespace AutopilotMonitor.Functions.Services
     /// </summary>
     public static class FailureSnapshotBuilder
     {
-        public const int CurrentSchemaVersion = 1;
+        // v2 (2026-07-08): added the ESP DeviceSetup/AccountSetup subcategory rollup fields
+        // (deviceSetupAllSucceeded / accountSetup*) that the timeout reclassification uses —
+        // see docs/design/enrollment-status-reclassification.md.
+        public const int CurrentSchemaVersion = 2;
 
         // Canonical signals we expect to have seen by the time a healthy session completes.
         // Missing entries are surfaced in the snapshot under "missingSignals". Some entries
@@ -204,6 +207,12 @@ namespace AutopilotMonitor.Functions.Services
                 }
             }
 
+            // ---- ESP subcategory rollup (drives timeout reclassification) --------------
+            // Same extraction the maintenance sweep's classifier uses, embedded here so the
+            // snapshot records the exact evidence behind the AwaitingUser/Incomplete/Succeeded
+            // verdict. categorySucceeded is intentionally ignored (Windows never sets it).
+            var espRollup = EnrollmentTimeoutClassifier.ExtractRollup(ordered);
+
             var snapshot = new
             {
                 schemaVersion = CurrentSchemaVersion,
@@ -223,6 +232,10 @@ namespace AutopilotMonitor.Functions.Services
                 isHybridJoin,
                 enrollmentType,
                 lastNetworkState,
+                deviceSetupAllSucceeded = espRollup.DeviceSetupAllSucceeded,
+                accountSetupSucceededCount = espRollup.AccountSetupSucceededCount,
+                accountSetupTotal = espRollup.AccountSetupTotal,
+                accountSetupAllSucceeded = espRollup.AccountSetupAllSucceeded,
                 missingSignals = missing,
             };
 

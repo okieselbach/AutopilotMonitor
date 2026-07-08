@@ -463,7 +463,9 @@ namespace AutopilotMonitor.Agent.V2
             Console.Out.WriteLine(GetAgentVersion());
         }
 
-        private static string GetAgentVersion()
+        // internal (not private) so AgentBootstrap can stamp the best-effort emergency-break report
+        // with the running agent version (docs/design/enrollment-status-reclassification.md).
+        internal static string GetAgentVersion()
         {
             try
             {

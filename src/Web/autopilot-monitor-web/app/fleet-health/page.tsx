@@ -124,6 +124,7 @@ export default function FleetHealthPage() {
     succeeded: s?.succeeded ?? 0,
     failed: s?.failed ?? 0,
     inProgress: s?.inProgress ?? 0,
+    incomplete: s?.incomplete ?? 0,
     successRate: s?.successRate ?? 0,
     avgDuration: s?.avgDurationMinutes ?? 0,
   };
@@ -223,7 +224,7 @@ export default function FleetHealthPage() {
 
         <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
           {/* Top Stats */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5 mb-8">
             <FleetStatCard
               title="Success Rate"
               value={`${stats.successRate.toFixed(1)}%`}
@@ -247,6 +248,12 @@ export default function FleetHealthPage() {
               value={stats.failed.toString()}
               subtitle="Needs attention"
               color="red"
+            />
+            <FleetStatCard
+              title="Incomplete"
+              value={stats.incomplete.toString()}
+              subtitle="No completion signal — not a failure"
+              color="slate"
             />
             <FleetStatCard
               title="Active Now"

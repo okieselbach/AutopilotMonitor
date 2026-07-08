@@ -72,13 +72,15 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
             // Reconcile the authoritative EventCount + RebootCount whenever a session actually
             // transitions to a terminal state through ANY caller — ingest, admin mark
-            // (Mark{Succeeded,Failed}Function), maintenance timeout, or rule-engine fail. This is
-            // the single seam they all funnel through, so the stored counts stay correct even on
-            // the non-ingest terminal paths that never run a terminal ingest batch. The ingest
-            // path additionally reconciles after its event-count increment (covering
-            // already-terminal batch replays, where this call's transitioned=false
-            // short-circuits). Idempotent + fail-soft, so the redundancy is cheap.
-            if (transitioned && (status == SessionStatus.Succeeded || status == SessionStatus.Failed))
+            // (Mark{Succeeded,Failed}Function), maintenance timeout (Failed OR Incomplete), or
+            // rule-engine fail. This is the single seam they all funnel through, so the stored
+            // counts stay correct even on the non-ingest terminal paths that never run a terminal
+            // ingest batch. The ingest path additionally reconciles after its event-count increment
+            // (covering already-terminal batch replays, where this call's transitioned=false
+            // short-circuits). Incomplete is terminal too, so it must reconcile like Failed —
+            // otherwise a swept-Incomplete session keeps whatever stale live count it had.
+            // Idempotent + fail-soft, so the redundancy is cheap.
+            if (transitioned && (status == SessionStatus.Succeeded || status == SessionStatus.Failed || status == SessionStatus.Incomplete))
                 await _storage.ReconcileSessionCountersAsync(tenantId, sessionId);
 
             return transitioned;

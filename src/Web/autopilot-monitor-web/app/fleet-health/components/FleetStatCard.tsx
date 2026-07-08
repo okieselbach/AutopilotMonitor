@@ -9,13 +9,14 @@ export default function FleetStatCard({
   title: string;
   value: string;
   subtitle: string;
-  color: "green" | "blue" | "red" | "yellow";
+  color: "green" | "blue" | "red" | "yellow" | "slate";
 }) {
   const colorClasses = {
     green: "border-green-500 bg-green-50",
     blue: "border-blue-500 bg-blue-50",
     red: "border-red-500 bg-red-50",
     yellow: "border-yellow-500 bg-yellow-50",
+    slate: "border-slate-400 bg-slate-50",
   };
 
   const valueColors = {
@@ -23,6 +24,7 @@ export default function FleetStatCard({
     blue: "text-blue-700",
     red: "text-red-700",
     yellow: "text-yellow-700",
+    slate: "text-slate-600",
   };
 
   return (

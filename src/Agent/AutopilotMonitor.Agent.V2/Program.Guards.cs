@@ -253,7 +253,8 @@ namespace AutopilotMonitor.Agent.V2
             bool selfDestructOnComplete,
             Func<CleanupService> cleanupServiceFactory,
             AgentLogger logger,
-            bool consoleMode)
+            bool consoleMode,
+            Action onBreakFired = null)
         {
             try
             {
@@ -286,6 +287,14 @@ namespace AutopilotMonitor.Agent.V2
                 logger.Warning($"EMERGENCY BREAK: session age {sessionAgeHours:F1}h exceeds maximum {absoluteMaxSessionHours}h — forcing cleanup.");
                 if (consoleMode)
                     Console.Out.WriteLine($"EMERGENCY: Session is {sessionAgeHours:F1}h old (max: {absoluteMaxSessionHours}h). Forcing cleanup.");
+
+                // Best-effort: tell the backend the agent is emergency-breaking so the otherwise-silent
+                // 48h absolute cap is no longer a blind spot in the timeline
+                // (docs/design/enrollment-status-reclassification.md). Fired BEFORE cleanup, while the
+                // session state and network are still intact. Never throws — a send failure (e.g. no
+                // network) must not block the cleanup/exit that is the whole point of this guard.
+                try { onBreakFired?.Invoke(); }
+                catch (Exception cbEx) { logger.Debug($"Emergency-break notify callback failed: {cbEx.Message}"); }
 
                 // Write enrollment-complete.marker so the next start exits cleanly even if
                 // the cleanup retry below fails (Scheduled Task still alive, files locked, …).

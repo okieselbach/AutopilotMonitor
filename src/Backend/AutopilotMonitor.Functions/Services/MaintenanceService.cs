@@ -279,6 +279,10 @@ namespace AutopilotMonitor.Functions.Services
                     {
                         var config = await _tenantConfigService.GetConfigurationAsync(tenantId);
                         var timeoutHours = config?.SessionTimeoutHours ?? 5;
+                        // Grace is derived from the agent's absolute session-age cap so it can never be
+                        // shorter than the agent could still legitimately be running (see ResolveGraceHours).
+                        var graceHours = EnrollmentTimeoutClassifier.ResolveGraceHours(
+                            config?.SessionGraceHours, config?.AbsoluteMaxSessionHours);
                         const int agentSilenceHours = 2; // fixed policy: 2h silence → Stalled intermediate
                         var now = DateTime.UtcNow;
                         var cutoffTime = now.AddHours(-timeoutHours);
@@ -331,19 +335,23 @@ namespace AutopilotMonitor.Functions.Services
                             continue;
                         }
 
-                        int sessionCount = 0;
+                        int terminalizedCount = 0;   // Failed + Incomplete — the real "timed out" outcomes
+                        int awaitingCount = 0;       // reached timeout but Device Setup done → AwaitingUser (non-terminal)
+                        int reconciledCount = 0;     // late completion detected at the sweep → Succeeded
 
                         foreach (var session in stalledSessions)
                         {
-                            // Hybrid User-Driven completion-gap fix (2026-05-01): before
-                            // graduating the session to terminal Failed, build a compact
-                            // snapshot of "what we last knew" so operators don't have to
-                            // scroll through hundreds of events to reconstruct where the
-                            // session was stuck. Best-effort — a snapshot read failure
-                            // must never block the timeout transition itself.
+                            // Fast path: an AwaitingUser session still inside the grace window needs no
+                            // work and — crucially — no event read (grace is purely time-based). A late
+                            // completion is picked up by the ingest path, so we don't re-scan every pass.
+                            var elapsedHours = (now - session.StartedAt).TotalHours;
+                            if (session.Status == SessionStatus.AwaitingUser && elapsedHours < graceHours)
+                                continue;
+
+                            // Build a compact snapshot of "what we last knew" (Hybrid User-Driven
+                            // completion-gap fix, 2026-05-01) plus the ESP rollup that drives the
+                            // reclassification. Best-effort — a read failure must never block the sweep.
                             string? snapshotJson = null;
-                            // Reused below to assign the synthetic session_timeout a Sequence after the
-                            // session's last event so it sorts last in the canonical Sequence order.
                             List<EnrollmentEvent> sessionEvents = new();
                             try
                             {
@@ -354,31 +362,59 @@ namespace AutopilotMonitor.Functions.Services
                             catch (Exception snapEx)
                             {
                                 _logger.LogWarning(snapEx,
-                                    $"Failed to build failure snapshot for session {session.SessionId}; proceeding with timeout transition without snapshot");
+                                    $"Failed to read events for session {session.SessionId}; proceeding with timeout classification without snapshot");
                             }
+
+                            // Timeout ≠ failure. Classify from the ESP subcategory rollup the agent already
+                            // emits instead of blindly failing every silent session
+                            // (docs/design/enrollment-status-reclassification.md): explicit failure → Failed;
+                            // Account Setup all-succeeded / enrollment_complete → Succeeded (reconcile);
+                            // Device Setup done + within grace → AwaitingUser, else Incomplete; silent before
+                            // Device Setup → Incomplete. Never Failed without an explicit failure signal.
+                            var rollup = EnrollmentTimeoutClassifier.ExtractRollup(sessionEvents);
+                            var (targetStatus, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
+                                rollup, session.StartedAt, now, graceHours);
+
+                            // No-op if the verdict equals the current (non-terminal) state.
+                            if (targetStatus == session.Status)
+                                continue;
 
                             var transitioned = await _sessionRepo.UpdateSessionStatusAsync(
                                 session.TenantId,
                                 session.SessionId,
-                                SessionStatus.Failed,
-                                failureReason: $"Session timed out after {timeoutHours} hours (started at {session.StartedAt:yyyy-MM-dd HH:mm:ss} UTC)",
+                                targetStatus,
+                                failureReason: reason,
                                 failureSnapshotJson: snapshotJson
                             );
-                            sessionCount++;
 
-                            // Parity with the agent max-lifetime path: the status flip alone is invisible to the
-                            // analyze pipeline (it fires on stream events, not on a repo status change), so a
-                            // server-timed-out session would otherwise analyze to totalIssues:0. Emit a terminal
-                            // session_timeout event into the stream and enqueue auto-analyze so ANALYZE-ENRL-002
-                            // fires. Gated on the real first transition (transitioned==true) so a re-run or an
-                            // already-terminal session can never produce a duplicate event. Best-effort — a
-                            // failure here must never break the maintenance sweep.
-                            if (transitioned)
+                            if (!transitioned)
+                                continue;
+
+                            switch (targetStatus)
+                            {
+                                case SessionStatus.AwaitingUser: awaitingCount++; break;
+                                case SessionStatus.Succeeded: reconciledCount++; break;
+                                default: terminalizedCount++; break; // Failed / Incomplete
+                            }
+
+                            // Only the terminal "sweep-terminalized" outcomes (Failed / Incomplete) get the
+                            // synthetic session_timeout event + auto-analyze, so the analyze pipeline
+                            // (ANALYZE-ENRL-002) still has a terminal event to fire on — parity with the agent
+                            // max-lifetime path. AwaitingUser is non-terminal and Succeeded is a reconcile, so
+                            // neither emits a timeout artifact. Best-effort — a failure here must not break the sweep.
+                            if (targetStatus == SessionStatus.Failed || targetStatus == SessionStatus.Incomplete)
                             {
                                 try
                                 {
                                     var timeoutEvent = BuildSessionTimeoutEvent(session, timeoutHours, sessionEvents, now);
                                     await _sessionRepo.StoreEventsBatchAsync(new List<EnrollmentEvent> { timeoutEvent });
+
+                                    // StoreEventsBatchAsync only bumps the orphan side-index, not the
+                                    // session's EventCount, and the terminal reconcile already ran inside
+                                    // UpdateSessionStatusAsync *before* this synthetic event existed. Recount
+                                    // now so the session_timeout event is reflected in the stored EventCount
+                                    // (authoritative recount from the Events table; idempotent + fail-soft).
+                                    await _sessionRepo.ReconcileSessionCountersAsync(session.TenantId, session.SessionId);
 
                                     await _analyzeProducer.EnqueueAsync(new AnalyzeOnEnrollmentEndEnvelope
                                     {
@@ -391,28 +427,42 @@ namespace AutopilotMonitor.Functions.Services
                                 catch (Exception emitEx)
                                 {
                                     _logger.LogWarning(emitEx,
-                                        $"Failed to emit session_timeout event / enqueue analyze for session {session.SessionId}; timeout transition stands");
+                                        $"Failed to emit session_timeout event / enqueue analyze for session {session.SessionId}; transition stands");
                                 }
                             }
                         }
 
-                        totalSessionsTimedOut += sessionCount;
+                        totalSessionsTimedOut += terminalizedCount;
 
-                        await _maintenanceRepo.LogAuditEntryAsync(
-                            tenantId,
-                            "SessionTimeout",
-                            "Session",
-                            $"{sessionCount} sessions",
-                            "System.Maintenance",
-                            new Dictionary<string, string>
-                            {
-                                { "SessionsTimedOut", sessionCount.ToString() },
-                                { "TimeoutHours", timeoutHours.ToString() },
-                                { "CutoffTime", cutoffTime.ToString("yyyy-MM-dd HH:mm:ss") }
-                            });
+                        // Only record when the sweep actually did something this pass — otherwise every
+                        // 2h tick over a backlog of within-grace AwaitingUser sessions would spam a 0-count
+                        // audit entry + ops event.
+                        if (terminalizedCount + awaitingCount + reconciledCount > 0)
+                        {
+                            await _maintenanceRepo.LogAuditEntryAsync(
+                                tenantId,
+                                "SessionTimeout",
+                                "Session",
+                                $"{terminalizedCount} sessions",
+                                "System.Maintenance",
+                                new Dictionary<string, string>
+                                {
+                                    { "SessionsTimedOut", terminalizedCount.ToString() },
+                                    { "SessionsAwaitingUser", awaitingCount.ToString() },
+                                    { "SessionsReconciled", reconciledCount.ToString() },
+                                    { "TimeoutHours", timeoutHours.ToString() },
+                                    { "GraceHours", graceHours.ToString() },
+                                    { "CutoffTime", cutoffTime.ToString("yyyy-MM-dd HH:mm:ss") }
+                                });
 
-                        _logger.LogInformation($"Tenant {tenantId}: Marked {sessionCount} stalled sessions as timed out (timeout: {timeoutHours}h)");
-                        await _opsEventService.RecordSessionTimeoutsAsync(tenantId, sessionCount, timeoutHours);
+                            _logger.LogInformation(
+                                $"Tenant {tenantId}: timeout sweep — {terminalizedCount} terminalized (Failed/Incomplete), " +
+                                $"{awaitingCount} held AwaitingUser, {reconciledCount} reconciled to Succeeded " +
+                                $"(timeout: {timeoutHours}h, grace: {graceHours}h)");
+
+                            if (terminalizedCount > 0)
+                                await _opsEventService.RecordSessionTimeoutsAsync(tenantId, terminalizedCount, timeoutHours);
+                        }
                     }
                     catch (Exception ex)
                     {

@@ -534,16 +534,21 @@ namespace AutopilotMonitor.Functions.Services
                 for (var casAttempt = 0; ; casAttempt++)
                 {
                     Azure.ETag? freshEtag = null;
-                    string? freshDeletionState = null;
-                    string? freshPendingDeletionManifestId = null;
+                    TableEntity? freshEntity = null;
                     try
                     {
                         var freshResponse = await tableClient.GetEntityAsync<TableEntity>(
                             registration.TenantId, registration.SessionId,
-                            select: new[] { "DeletionState", "PendingDeletionManifestId" });
+                            select: new[]
+                            {
+                                "DeletionState", "PendingDeletionManifestId",
+                                // Terminal tuple — re-read so a terminal verdict that landed in the
+                                // fresh-read window isn't reverted by the Replace below (see guard).
+                                "Status", "CurrentPhase", "CompletedAt", "FailureReason",
+                                "FailureSnapshotJson", "FailureSource", "AdminMarkedAction", "DurationSeconds",
+                            });
                         freshEtag = freshResponse.Value.ETag;
-                        freshDeletionState = freshResponse.Value.GetString("DeletionState");
-                        freshPendingDeletionManifestId = freshResponse.Value.GetString("PendingDeletionManifestId");
+                        freshEntity = freshResponse.Value;
                     }
                     catch (RequestFailedException ex) when (ex.Status == 404)
                     {
@@ -555,6 +560,8 @@ namespace AutopilotMonitor.Functions.Services
                     // Stamp cascade-lock columns from the FRESH read so the Replace below
                     // doesn't silently clear them. This kicks in even when the initial read
                     // saw None and the producer transitioned to Preparing in between.
+                    var freshDeletionState = freshEntity?.GetString("DeletionState");
+                    var freshPendingDeletionManifestId = freshEntity?.GetString("PendingDeletionManifestId");
                     if (!string.IsNullOrEmpty(freshDeletionState))
                         entity["DeletionState"] = freshDeletionState;
                     else if (!string.IsNullOrEmpty(existingDeletionState))
@@ -563,6 +570,30 @@ namespace AutopilotMonitor.Functions.Services
                         entity["PendingDeletionManifestId"] = freshPendingDeletionManifestId;
                     else if (!string.IsNullOrEmpty(existingPendingDeletionManifestId))
                         entity["PendingDeletionManifestId"] = existingPendingDeletionManifestId;
+
+                    // Guard the fresh-read window against a just-landed terminal. The initial-read
+                    // guard at the top only sees the status as of the FIRST read; a terminal verdict
+                    // (Succeeded/Failed/Incomplete — e.g. maintenance setting Incomplete, or a late
+                    // completion setting Succeeded) can land between that read and this ETag-bound
+                    // Replace. Without this the Replace would silently regress the terminal back to the
+                    // stale registration status (and lose its completion/failure tuple). Terminal states
+                    // are authoritative and irreversible — re-stamp the fresh terminal tuple verbatim so
+                    // re-registration can never revert them (parity with IsTerminalTransitionAllowed).
+                    var freshStatus = freshEntity?.GetString("Status");
+                    if (freshStatus == SessionStatus.Succeeded.ToString()
+                        || freshStatus == SessionStatus.Failed.ToString()
+                        || freshStatus == SessionStatus.Incomplete.ToString())
+                    {
+                        entity["Status"] = freshStatus;
+                        foreach (var col in new[] { "CurrentPhase", "CompletedAt", "FailureReason", "FailureSnapshotJson", "FailureSource", "AdminMarkedAction", "DurationSeconds" })
+                        {
+                            if (freshEntity!.TryGetValue(col, out var val) && val is not null)
+                                entity[col] = val;
+                            else
+                                entity.Remove(col); // absent on the fresh terminal row → don't carry a stale value through the Replace
+                        }
+                        _logger.LogInformation($"Session {registration.SessionId}: terminal '{freshStatus}' landed during re-registration, preserving it over the Replace");
+                    }
 
                     try
                     {
@@ -1033,6 +1064,7 @@ namespace AutopilotMonitor.Functions.Services
             int active = 0;
             int succeeded = 0;
             int failed = 0;
+            int incomplete = 0;
             long succeededDurationSeconds = 0;
             int succeededWithDurationCount = 0;
             int totalToday = 0;
@@ -1061,6 +1093,10 @@ namespace AutopilotMonitor.Functions.Services
                     case SessionStatus.Failed:
                         failed++;
                         break;
+                    case SessionStatus.Incomplete:
+                        // Terminal, non-failure. Reported separately, kept out of the failure rate.
+                        incomplete++;
+                        break;
                 }
 
                 if (s.StartedAt >= utcMidnight)
@@ -1085,6 +1121,7 @@ namespace AutopilotMonitor.Functions.Services
                 TotalLastNDays = sessions.Count,
                 SucceededLastNDays = succeeded,
                 FailedLastNDays = failed,
+                IncompleteLastNDays = incomplete,
                 SuccessRatePct = successRatePct,
                 AvgDurationMinutes = avgDurationMinutes,
                 TotalToday = totalToday,
@@ -1345,6 +1382,33 @@ namespace AutopilotMonitor.Functions.Services
         /// back to the session's LastEventAt and only to UtcNow as a last resort, so DurationSeconds
         /// reflects when the session went silent rather than when the operator clicked the button.
         /// </param>
+        /// <summary>
+        /// Pure gate for the terminal/reconcile status rules (docs/design/enrollment-status-reclassification.md).
+        /// Returns whether a write to <paramref name="incoming"/> may proceed given the persisted
+        /// <paramref name="existingStatus"/> string:
+        /// <list type="bullet">
+        /// <item>Succeeded may UPGRADE any non-Succeeded state (late completion reconcile); idempotent no-op if already Succeeded.</item>
+        /// <item>Failed / Incomplete (silent-terminal verdicts) never overwrite an existing terminal (Succeeded/Failed/Incomplete).</item>
+        /// <item>AwaitingUser never regresses an existing terminal.</item>
+        /// <item>Non-terminal incoming statuses (InProgress/Stalled/Pending) are allowed here and governed by their own downstream guards.</item>
+        /// </list>
+        /// Static + pure so the reconcile matrix is unit-testable without Table Storage.
+        /// </summary>
+        internal static bool IsTerminalTransitionAllowed(string? existingStatus, SessionStatus incoming)
+        {
+            bool existingTerminal = existingStatus == SessionStatus.Succeeded.ToString()
+                || existingStatus == SessionStatus.Failed.ToString()
+                || existingStatus == SessionStatus.Incomplete.ToString();
+
+            return incoming switch
+            {
+                SessionStatus.Succeeded => existingStatus != SessionStatus.Succeeded.ToString(),
+                SessionStatus.Failed or SessionStatus.Incomplete => !existingTerminal,
+                SessionStatus.AwaitingUser => !existingTerminal,
+                _ => true,
+            };
+        }
+
         public async Task<bool> UpdateSessionStatusAsync(string tenantId, string sessionId, SessionStatus status, EnrollmentPhase? currentPhase = null, string? failureReason = null, DateTime? completedAt = null, DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null, bool? isPreProvisioned = null, bool? isUserDriven = null, DateTime? resumedAt = null, DateTime? stalledAt = null, bool clearStalledAt = false, bool clearFailureReason = false, string? failureSource = null, string? adminMarkedAction = null, string? failureSnapshotJson = null)
         {
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
@@ -1363,16 +1427,29 @@ namespace AutopilotMonitor.Functions.Services
                     var entity = await tableClient.GetEntityAsync<TableEntity>(tenantId, sessionId);
                     var session = entity.Value;
 
-                    // Idempotency: if the session is already in a terminal state (Succeeded/Failed),
-                    // do not overwrite it with another terminal state to prevent duplicate notifications.
+                    // Terminal / reconcile transition gate (docs/design/enrollment-status-reclassification.md):
+                    // a genuine completion (Succeeded) may UPGRADE a prior Failed/Incomplete/AwaitingUser
+                    // verdict — a device that reached the desktop is enrolled regardless of an earlier timeout
+                    // guess — but the silent-terminal verdicts (Failed/Incomplete) and AwaitingUser never
+                    // overwrite an existing terminal. Non-terminal incoming statuses fall through to their
+                    // own guards below.
                     var existingStatusStr = session.GetString("Status");
-                    if (status == SessionStatus.Succeeded || status == SessionStatus.Failed)
+                    if (!IsTerminalTransitionAllowed(existingStatusStr, status))
                     {
-                        if (existingStatusStr == SessionStatus.Succeeded.ToString() || existingStatusStr == SessionStatus.Failed.ToString())
-                        {
-                            _logger.LogInformation($"Session {sessionId} already in terminal state '{existingStatusStr}', skipping status update to '{status}'");
-                            return false;
-                        }
+                        _logger.LogInformation($"Session {sessionId}: transition '{existingStatusStr}' → '{status}' not allowed (terminal/reconcile guard), skipping");
+                        return false;
+                    }
+
+                    // Preserve an administrator's explicit terminal decision: the late-completion reconcile
+                    // (Succeeded upgrading a Failed/Incomplete row) must never silently override a session an
+                    // admin marked terminal by hand (AdminMarkedAction is set only by the Mark*Session functions).
+                    if (status == SessionStatus.Succeeded
+                        && !string.IsNullOrEmpty(session.GetString("AdminMarkedAction"))
+                        && (existingStatusStr == SessionStatus.Failed.ToString()
+                            || existingStatusStr == SessionStatus.Incomplete.ToString()))
+                    {
+                        _logger.LogInformation($"Session {sessionId}: admin-marked terminal '{existingStatusStr}', not auto-reconciling to Succeeded");
+                        return false;
                     }
 
                     // Build a Merge update with only the fields that actually change
@@ -1414,6 +1491,11 @@ namespace AutopilotMonitor.Functions.Services
                     if (status == SessionStatus.Succeeded)
                     {
                         update["CurrentPhase"] = (int)EnrollmentPhase.Complete;
+                        // Reconcile hygiene: a session that (re)reaches Succeeded carries no failure reason or
+                        // snapshot — clear anything left from a prior Failed/Incomplete/AwaitingUser verdict so
+                        // a late-completed device doesn't keep showing a stale "timed out" reason.
+                        update["FailureReason"] = string.Empty;
+                        update["FailureSnapshotJson"] = string.Empty;
                     }
                     else if (status == SessionStatus.Failed)
                     {
@@ -1487,6 +1569,16 @@ namespace AutopilotMonitor.Functions.Services
                                 update["DurationSeconds"] = (int)(latestEventTimestamp.Value - durationStart).TotalSeconds;
                         }
                     }
+                    // Incomplete is terminal but not a completion — stamp a terminal timestamp so the
+                    // session reads as closed, but do NOT compute DurationSeconds (a ~grace-length span
+                    // would skew duration stats, and Incomplete is excluded from those anyway).
+                    else if (status == SessionStatus.Incomplete)
+                    {
+                        update["CompletedAt"] = EnsureUtc(ResolveCompletionTimestamp(
+                            completedAt,
+                            session.GetDateTimeOffset("LastEventAt")?.UtcDateTime,
+                            DateTime.UtcNow));
+                    }
 
                     // Track the most recent event timestamp for excessive data sender detection
                     if (latestEventTimestamp.HasValue)
@@ -1496,8 +1588,11 @@ namespace AutopilotMonitor.Functions.Services
                             update["LastEventAt"] = EnsureUtc(latestEventTimestamp.Value);
                     }
 
-                    // Set failure reason if failed
-                    if (status == SessionStatus.Failed && !string.IsNullOrEmpty(failureReason))
+                    // Set the reason string for the sweep-authored states. Failed keeps its failure
+                    // reason; Incomplete and AwaitingUser carry the informational classification reason
+                    // (same field reuse as the Stalled path below), so the UI can explain the state.
+                    if ((status == SessionStatus.Failed || status == SessionStatus.Incomplete || status == SessionStatus.AwaitingUser)
+                        && !string.IsNullOrEmpty(failureReason))
                     {
                         update["FailureReason"] = failureReason;
                     }
@@ -1507,7 +1602,8 @@ namespace AutopilotMonitor.Functions.Services
                     // fix, 2026-05-01); other terminal paths leave the field untouched, which
                     // is fine — null/empty means "no snapshot available" and the UI falls back
                     // to the existing FailureReason rendering.
-                    if (status == SessionStatus.Failed && !string.IsNullOrEmpty(failureSnapshotJson))
+                    if ((status == SessionStatus.Failed || status == SessionStatus.Incomplete || status == SessionStatus.AwaitingUser)
+                        && !string.IsNullOrEmpty(failureSnapshotJson))
                     {
                         update["FailureSnapshotJson"] = failureSnapshotJson;
                     }
@@ -1601,12 +1697,28 @@ namespace AutopilotMonitor.Functions.Services
                             var freshEntity = await forceTableClient.GetEntityAsync<TableEntity>(tenantId, sessionId);
                             var freshSession = freshEntity.Value;
 
-                            // Re-check idempotency: do not overwrite a terminal state
+                            // Re-check the transition guard against the freshly-read status using the
+                            // SAME pure predicate as the normal path (IsTerminalTransitionAllowed) — the
+                            // old hard-coded Succeeded/Failed check predated Incomplete/AwaitingUser and
+                            // would let an unconditional force-write regress a terminal that landed during
+                            // our retries (e.g. an Incomplete verdict stomping a concurrently-written
+                            // Succeeded/Failed, or a second Incomplete overwriting the first).
                             var freshStatusStr = freshSession.GetString("Status");
-                            if ((status == SessionStatus.Succeeded || status == SessionStatus.Failed) &&
-                                (freshStatusStr == SessionStatus.Succeeded.ToString() || freshStatusStr == SessionStatus.Failed.ToString()))
+                            if (!IsTerminalTransitionAllowed(freshStatusStr, status))
                             {
-                                _logger.LogInformation($"Session {sessionId} reached terminal state '{freshStatusStr}' during retries, skipping force write");
+                                _logger.LogInformation($"Session {sessionId}: transition '{freshStatusStr}' → '{status}' not allowed (terminal/reconcile guard), skipping force write");
+                                return false;
+                            }
+
+                            // Preserve an administrator's explicit terminal decision — mirror the normal
+                            // path: a late-completion reconcile (Succeeded upgrading Failed/Incomplete) must
+                            // never silently override a session an admin marked terminal by hand.
+                            if (status == SessionStatus.Succeeded
+                                && !string.IsNullOrEmpty(freshSession.GetString("AdminMarkedAction"))
+                                && (freshStatusStr == SessionStatus.Failed.ToString()
+                                    || freshStatusStr == SessionStatus.Incomplete.ToString()))
+                            {
+                                _logger.LogInformation($"Session {sessionId}: admin-marked terminal '{freshStatusStr}', not auto-reconciling to Succeeded (force path)");
                                 return false;
                             }
 
@@ -1627,6 +1739,11 @@ namespace AutopilotMonitor.Functions.Services
                             if (status == SessionStatus.Succeeded)
                             {
                                 forceUpdate["CurrentPhase"] = (int)EnrollmentPhase.Complete;
+                                // Mirror the normal path: a (re)Succeeded session carries no failure
+                                // reason/snapshot — clear anything left from a prior Failed/Incomplete/
+                                // AwaitingUser verdict so a late-completed device shows no stale reason.
+                                forceUpdate["FailureReason"] = string.Empty;
+                                forceUpdate["FailureSnapshotJson"] = string.Empty;
                             }
                             else if (status == SessionStatus.Failed)
                             {
@@ -1680,6 +1797,17 @@ namespace AutopilotMonitor.Functions.Services
                                         forceUpdate["DurationSeconds"] = (int)(latestEventTimestamp.Value - durationStart).TotalSeconds;
                                 }
                             }
+                            // Mirror the normal path: Incomplete is terminal but not a completion — stamp a
+                            // terminal timestamp so the session reads as closed, but do NOT compute
+                            // DurationSeconds (a ~grace-length span would skew stats, and Incomplete is
+                            // excluded from those anyway). AwaitingUser is non-terminal → no CompletedAt.
+                            else if (status == SessionStatus.Incomplete)
+                            {
+                                forceUpdate["CompletedAt"] = EnsureUtc(ResolveCompletionTimestamp(
+                                    completedAt,
+                                    freshSession.GetDateTimeOffset("LastEventAt")?.UtcDateTime,
+                                    DateTime.UtcNow));
+                            }
 
                             if (latestEventTimestamp.HasValue)
                             {
@@ -1688,12 +1816,19 @@ namespace AutopilotMonitor.Functions.Services
                                     forceUpdate["LastEventAt"] = EnsureUtc(latestEventTimestamp.Value);
                             }
 
-                            if (status == SessionStatus.Failed && !string.IsNullOrEmpty(failureReason))
+                            // Mirror the normal path: Incomplete/AwaitingUser carry the classification
+                            // reason too (same field reuse as Failed), not just Failed — otherwise the
+                            // force-merge fallback persists a reason-less Incomplete/AwaitingUser under
+                            // ETag contention and the UI can't explain the state.
+                            if ((status == SessionStatus.Failed || status == SessionStatus.Incomplete || status == SessionStatus.AwaitingUser)
+                                && !string.IsNullOrEmpty(failureReason))
                                 forceUpdate["FailureReason"] = failureReason;
 
-                            // Mirror the FailureSnapshotJson from the regular path so the
-                            // force-merge fallback never silently drops the snapshot.
-                            if (status == SessionStatus.Failed && !string.IsNullOrEmpty(failureSnapshotJson))
+                            // Mirror the FailureSnapshotJson from the regular path so the force-merge
+                            // fallback never silently drops the snapshot — the maintenance timeout path
+                            // supplies it for Incomplete/AwaitingUser as well, not only Failed.
+                            if ((status == SessionStatus.Failed || status == SessionStatus.Incomplete || status == SessionStatus.AwaitingUser)
+                                && !string.IsNullOrEmpty(failureSnapshotJson))
                                 forceUpdate["FailureSnapshotJson"] = failureSnapshotJson;
 
                             // Mirror FailureSource (failure attribution: agent / rule:<id> / manual)

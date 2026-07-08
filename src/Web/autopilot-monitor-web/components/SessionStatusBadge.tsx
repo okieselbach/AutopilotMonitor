@@ -10,8 +10,12 @@ const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
   InProgress: { color: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300", text: "In Progress" },
   Pending: { color: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300", text: "Pending" },
   Stalled: { color: "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300", text: "Stalled" },
+  // Non-terminal: Device Setup done, waiting on the user / Account-Setup phase. Blue-ish "still going".
+  AwaitingUser: { color: "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300", text: "Awaiting User" },
   Succeeded: { color: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300", text: "Succeeded" },
   Failed: { color: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300", text: "Failed" },
+  // Terminal but NOT a failure — no completion or explicit failure signal. Neutral slate, clearly not red.
+  Incomplete: { color: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300", text: "Incomplete" },
   Unknown: { color: "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300", text: "Unknown" },
 };
 
@@ -26,7 +30,11 @@ export function SessionStatusBadge({
   adminMarkedAction?: string | null;
 }) {
   const config = STATUS_CONFIG[status] || STATUS_CONFIG.Unknown;
-  const isTimeout = status === "Failed" && !!failureReason?.toLowerCase().includes("timed out");
+  // The ⏱️ affordance marks the silence/timeout family: a "timed out" Failed, or any Incomplete
+  // (which is, by definition, a session that went silent without a completion).
+  const isTimeout =
+    (status === "Failed" && !!failureReason?.toLowerCase().includes("timed out")) ||
+    status === "Incomplete";
 
   const pill = (
     <span

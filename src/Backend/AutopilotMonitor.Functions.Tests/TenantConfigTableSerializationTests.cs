@@ -85,4 +85,38 @@ public class TenantConfigTableSerializationTests
         var entity = new TableEntity(TenantId, "config") { { "DomainName", "fabrikam.com" } };
         Assert.Equal("free", TableConfigRepository.ConvertFromTenantTableEntity(entity).PlanTier);
     }
+
+    [Fact]
+    public void Roundtrip_SessionGraceAndAbsoluteCapOverrides_SurviveStoreAndMap()
+    {
+        // These feed EnrollmentTimeoutClassifier via MaintenanceService — a tenant override that
+        // doesn't roundtrip means the sweep silently falls back to auto-derive/defaults.
+        var config = new TenantConfiguration
+        {
+            TenantId = TenantId,
+            DomainName = "contoso.com",
+            UpdatedBy = "admin@contoso.com",
+            SessionGraceHours = 72,
+            AbsoluteMaxSessionHours = 36
+        };
+
+        var mapped = TableConfigRepository.ConvertFromTenantTableEntity(
+            TableConfigRepository.ConvertToTenantTableEntity(config));
+
+        Assert.Equal(72, mapped.SessionGraceHours);
+        Assert.Equal(36, mapped.AbsoluteMaxSessionHours);
+    }
+
+    [Fact]
+    public void Map_LegacyRow_WithoutTimeoutColumns_DefaultsToAutoDerive()
+    {
+        // A row written before the reclassification columns existed: grace reads back as 0
+        // (auto-derive) and the absolute-cap override stays null (agent default 48h applies).
+        var entity = new TableEntity(TenantId, "config") { { "DomainName", "fabrikam.com" } };
+
+        var mapped = TableConfigRepository.ConvertFromTenantTableEntity(entity);
+
+        Assert.Equal(0, mapped.SessionGraceHours);
+        Assert.Null(mapped.AbsoluteMaxSessionHours);
+    }
 }

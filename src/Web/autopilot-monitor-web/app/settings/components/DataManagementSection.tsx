@@ -87,8 +87,10 @@ export default function DataManagementSection({
           <label className="block">
             <span className="text-gray-700 font-medium">Session Timeout (Hours)</span>
             <p className="text-sm text-gray-500 mb-2">
-              Sessions in "InProgress" status longer than this will be marked as "Failed - Timed Out".
-              This prevents stalled sessions from running indefinitely and skewing statistics.
+              Sessions inactive past this timeout are reclassified out of "In Progress": if Device Setup
+              already finished they become "Awaiting User", otherwise they eventually settle as "Incomplete"
+              (a non-completion, not counted as a failure). This keeps stalled sessions from running
+              indefinitely and skewing statistics.
               <br />
               <strong>Tip:</strong> Use the same value as your ESP (Enrollment Status Page) timeout for consistency.
             </p>

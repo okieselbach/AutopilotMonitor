@@ -83,7 +83,10 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             if (Program.CheckSessionAgeEmergencyBreak(
                     dataDirectory, stateSubdir,
                     agentConfig.AbsoluteMaxSessionHours, agentConfig.SelfDestructOnComplete,
-                    cleanupServiceFactory, logger, consoleMode))
+                    cleanupServiceFactory, logger, consoleMode,
+                    // Best-effort: surface the otherwise-silent 48h break to the backend before cleanup
+                    // (docs/design/enrollment-status-reclassification.md). Never blocks the exit.
+                    onBreakFired: () => EmergencyBreakReporter.TrySend(agentConfig, Program.GetAgentVersion(), logger)))
             {
                 logger.Info("Emergency break fired — agent exiting.");
                 return BootstrapResult.Exit(0);

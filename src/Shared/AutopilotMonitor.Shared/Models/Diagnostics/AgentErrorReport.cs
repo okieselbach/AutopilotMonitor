@@ -28,6 +28,16 @@ namespace AutopilotMonitor.Shared.Models
         /// the hash provided by the backend. Possible tampering or stale blob storage.
         /// </summary>
         IntegrityCheckFailed = 3,
+
+        /// <summary>
+        /// The agent's absolute session-age emergency break fired
+        /// (Program.Guards.CheckSessionAgeEmergencyBreak → AbsoluteMaxSessionHours): the agent is
+        /// cleaning up and exiting. Best-effort report over the resilient emergency channel (may be
+        /// lost if the device is fully offline) so the backend can materialize an
+        /// <c>agent_emergency_break</c> timeline event and terminalize the session instead of waiting
+        /// out the silence grace. See docs/design/enrollment-status-reclassification.md.
+        /// </summary>
+        SessionAgeEmergencyBreak = 4,
     }
 
     /// <summary>

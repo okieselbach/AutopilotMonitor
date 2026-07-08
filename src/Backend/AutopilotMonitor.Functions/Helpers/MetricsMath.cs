@@ -99,7 +99,7 @@ public static class MetricsMath
     /// </summary>
     public static FleetHealthMetrics BuildFleetHealthPayload(IReadOnlyList<SessionSummary> sessions, int days)
     {
-        int succeeded = 0, failed = 0, inProgress = 0;
+        int succeeded = 0, failed = 0, inProgress = 0, incomplete = 0;
         long completedDurationSeconds = 0;
         int completedWithDurationCount = 0;
 
@@ -110,6 +110,7 @@ public static class MetricsMath
                 case SessionStatus.Succeeded: succeeded++; break;
                 case SessionStatus.Failed: failed++; break;
                 case SessionStatus.InProgress: inProgress++; break;
+                case SessionStatus.Incomplete: incomplete++; break;
             }
 
             if (s.Status != SessionStatus.InProgress && s.DurationSeconds is int d && d > 0)
@@ -126,6 +127,7 @@ public static class MetricsMath
             Succeeded = succeeded,
             Failed = failed,
             InProgress = inProgress,
+            Incomplete = incomplete,
             SuccessRate = total > 0 ? Math.Round((double)succeeded / total * 100, 1) : 0,
             AvgDurationMinutes = completedWithDurationCount > 0
                 ? (int)Math.Round((double)completedDurationSeconds / completedWithDurationCount / 60.0, MidpointRounding.AwayFromZero)
@@ -315,7 +317,8 @@ public static class MetricsMath
 /// their own buckets, and any unrecognised status (incl. Unknown) lands in <see cref="Other"/>.
 /// </summary>
 public readonly record struct SessionStatusBuckets(
-    int Total, int Succeeded, int Failed, int InProgress, int Pending, int Stalled, int Other)
+    int Total, int Succeeded, int Failed, int InProgress, int Pending, int Stalled,
+    int AwaitingUser, int Incomplete, int Other)
 {
     /// <summary>Returns a new tally with <paramref name="status"/> folded in.</summary>
     public SessionStatusBuckets Add(string? status)
@@ -326,7 +329,11 @@ public readonly record struct SessionStatusBuckets(
         var inProgress = InProgress + (status == "InProgress" ? 1 : 0);
         var pending = Pending + (status == "Pending" ? 1 : 0);
         var stalled = Stalled + (status == "Stalled" ? 1 : 0);
-        var other = total - (succeeded + failed + inProgress + pending + stalled);
-        return new SessionStatusBuckets(total, succeeded, failed, inProgress, pending, stalled, other);
+        // AwaitingUser (non-terminal, Device Setup done) and Incomplete (terminal, non-failure) get
+        // their own buckets so they no longer hide in Other and never inflate the failure count.
+        var awaitingUser = AwaitingUser + (status == "AwaitingUser" ? 1 : 0);
+        var incomplete = Incomplete + (status == "Incomplete" ? 1 : 0);
+        var other = total - (succeeded + failed + inProgress + pending + stalled + awaitingUser + incomplete);
+        return new SessionStatusBuckets(total, succeeded, failed, inProgress, pending, stalled, awaitingUser, incomplete, other);
     }
 }

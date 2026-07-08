@@ -210,7 +210,7 @@ export function useSessionEvents({
       }
 
       const currentStatus = sessionRef.current?.status;
-      if (foundTerminalEvent && currentStatus && currentStatus !== "Succeeded" && currentStatus !== "Failed") {
+      if (foundTerminalEvent && currentStatus && !isTerminalStatus(currentStatus)) {
         console.info(
           `[SessionDetail] Terminal event detected but session status is '${currentStatus}' — refetching session details`
         );
