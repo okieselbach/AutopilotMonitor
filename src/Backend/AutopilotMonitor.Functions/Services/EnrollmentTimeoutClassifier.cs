@@ -28,8 +28,16 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>Fallback agent absolute session-age cap (AgentConfiguration.AbsoluteMaxSessionHours) when a tenant hasn't overridden it.</summary>
         public const int DefaultAbsoluteMaxSessionHours = 48;
-        /// <summary>Extra hours added on top of the agent's absolute cap before a silent session graduates to Incomplete — covers last-mile spooled telemetry landing after network recovery.</summary>
-        public const int DefaultGraceBufferHours = 12;
+        /// <summary>
+        /// Small margin added on top of the agent's absolute cap before a silent session graduates to
+        /// Incomplete. A completion can only ever arrive ≤ the cap (the agent self-destructs at the cap and
+        /// sends nothing after), so this does NOT need to wait hours for stragglers — it only has to (a) span
+        /// one 2h maintenance-sweep cycle so a boundary session is reliably picked up on the next tick, and
+        /// (b) let a single in-flight event land / absorb minor session.created↔StartedAt clock skew. Kept
+        /// small on purpose: the reconcile path heals any prematurely-set Incomplete back to Succeeded, so a
+        /// tight buffer costs at most a brief flicker, never a wrong terminal state.
+        /// </summary>
+        public const int DefaultGraceBufferHours = 3;
 
         /// <summary>
         /// Resolve the effective backend grace window. The grace MUST never be shorter than the agent's

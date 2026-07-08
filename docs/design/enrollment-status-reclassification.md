@@ -131,12 +131,25 @@ cap has fired + last spooled telemetry has had time to land, silence = dead):
 
 ```
 effectiveGrace = max( AbsoluteMaxSessionHours + bufferHours , SessionGraceHours override )
-              = max( 48 + 12 , 0 )  = 60h   (defaults)
+              = max( 48 + 3 , 0 )  = 51h   (defaults)
 ```
+
+The buffer is deliberately **small (3h)**, not a long straggler‑wait: a completion can only ever
+arrive ≤ the cap (the agent self‑destructs at the cap and sends nothing after), so the buffer only
+has to span one 2h maintenance‑sweep cycle + absorb minor clock skew. The reconcile path heals any
+prematurely‑set `Incomplete` back to `Succeeded`, so a tight buffer costs at most a brief flicker.
 
 `SessionGraceHours` defaults to `0` (auto‑derive) and can only *raise* the grace above the
 floor, never below it (`EnrollmentTimeoutClassifier.ResolveGraceHours`). `AbsoluteMaxSessionHours`
 is mirrored into `TenantConfiguration` so the floor follows any tenant override of the agent cap.
+
+**Agent emergency‑break signal (closes the blind spot).** The 48h break is otherwise silent to the
+backend. The agent best‑effort sends an emergency‑break report (resilient channel — may be lost if
+the device is fully offline); the backend materializes an `agent_emergency_break` timeline event
+from it and treats it as a definitive "agent is gone" signal → terminalize **now** by the ESP rollup
+(Account Setup all‑succeeded → `Succeeded`, else `Incomplete`), skipping the grace wait. With this
+signal the grace/buffer only governs the *truly silent* death (bluescreen / power‑cut with no
+network), where no event can ever be sent.
 
 The waiting session is just a table row compared against a timestamp — no process, no
 telemetry, no agent change.

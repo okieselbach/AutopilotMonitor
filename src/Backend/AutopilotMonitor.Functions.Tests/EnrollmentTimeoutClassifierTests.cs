@@ -144,13 +144,13 @@ public class EnrollmentTimeoutClassifierTests
     // -------- ResolveGraceHours --------
 
     [Theory]
-    [InlineData(null, null, 60)] // defaults: 48 + 12
-    [InlineData(0, null, 60)]    // 0 override = auto-derive
-    [InlineData(0, 48, 60)]      // explicit agent cap = default
-    [InlineData(0, 96, 108)]     // bigger agent cap → grace follows (96 + 12)
-    [InlineData(0, 0, 60)]       // agent cap 0/invalid → fall back to default 48
+    [InlineData(null, null, 51)] // defaults: 48 + 3
+    [InlineData(0, null, 51)]    // 0 override = auto-derive
+    [InlineData(0, 48, 51)]      // explicit agent cap = default
+    [InlineData(0, 96, 99)]      // bigger agent cap → grace follows (96 + 3)
+    [InlineData(0, 0, 51)]       // agent cap 0/invalid → fall back to default 48
     [InlineData(90, 48, 90)]     // override ABOVE the floor wins
-    [InlineData(30, 48, 60)]     // override BELOW the floor is clamped up to the floor
+    [InlineData(30, 48, 51)]     // override BELOW the floor is clamped up to the floor
     public void ResolveGraceHours_floors_at_agent_cap_plus_buffer(int? configured, int? absoluteMax, int expected)
     {
         Assert.Equal(expected, EnrollmentTimeoutClassifier.ResolveGraceHours(configured, absoluteMax));
