@@ -51,11 +51,10 @@ timeline AND let the backend terminalize precisely instead of guessing with grac
 - [x] Classifier consumes it: `ExtractRollup.HasAgentEmergencyBreak`; a session carrying the break
       classifies as `Incomplete` NOW (skips the AwaitingUser grace) unless it actually completed.
       Tested. **This is the load-bearing backend consumer.**
-- [ ] **Part B (backend, testable): materialize the timeline event.** `ReportAgentErrorFunction`
-      currently only logs to App Insights. Inject `ISessionRepository`; on
-      `SessionAgeEmergencyBreak`, write an `agent_emergency_break` `EnrollmentEvent` into the stream
-      (Sequence = max+1, idempotent) so it shows in the timeline and the sweep classifier sees it.
-      Add a pure `BuildAgentEmergencyBreakEvent` helper (analog to `BuildSessionTimeoutEvent`) + test.
+- [x] **Part B (backend): materialize the timeline event.** `ReportAgentErrorFunction` now injects
+      `ISessionRepository` and, on `SessionAgeEmergencyBreak`, writes an `agent_emergency_break`
+      `EnrollmentEvent` (Sequence = max+1, idempotent, best-effort) into the stream. Pure
+      `BuildAgentEmergencyBreakEvent` helper (Warning, non-terminal) + tests. Suite: 2685 pass.
 - [ ] **Part C (agent, CI-only — net48, not Linux-buildable here): best-effort emit.** In
       `CheckSessionAgeEmergencyBreak`, before cleanup/exit, send an `AgentErrorReport`
       (`SessionAgeEmergencyBreak`, message w/ session age) via the resilient `EmergencyReporter`.

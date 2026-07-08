@@ -1,9 +1,12 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Text.Json;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.ApplicationInsights;
 using Microsoft.Azure.Functions.Worker;
@@ -33,6 +36,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         private readonly DeviceAssociationValidator _deviceAssociationValidator;
         private readonly TelemetryClient _telemetryClient;
         private readonly BootstrapSessionService _bootstrapSessionService;
+        private readonly ISessionRepository _sessionRepo;
 
         public ReportAgentErrorFunction(
             ILogger<ReportAgentErrorFunction> logger,
@@ -43,7 +47,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             CorporateIdentifierValidator corporateIdentifierValidator,
             DeviceAssociationValidator deviceAssociationValidator,
             TelemetryClient telemetryClient,
-            BootstrapSessionService bootstrapSessionService)
+            BootstrapSessionService bootstrapSessionService,
+            ISessionRepository sessionRepo)
         {
             _logger = logger;
             _configService = configService;
@@ -54,6 +59,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             _deviceAssociationValidator = deviceAssociationValidator;
             _telemetryClient = telemetryClient;
             _bootstrapSessionService = bootstrapSessionService;
+            _sessionRepo = sessionRepo;
         }
 
         [Function("ReportAgentError")]
@@ -163,7 +169,77 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 ["AgentTimestamp"] = report.Timestamp.ToString("O"),
             });
 
+            // Materialize the agent's silent 48h emergency break as a timeline event so it shows in the
+            // session and the timeout classifier can see it (docs/design/enrollment-status-reclassification.md).
+            // Best-effort — a failure here must never turn the always-200 emergency channel into a retry loop.
+            if (report.ErrorType == AgentErrorType.SessionAgeEmergencyBreak
+                && !string.IsNullOrEmpty(report.SessionId))
+            {
+                try
+                {
+                    var existing = await _sessionRepo.GetSessionEventsAsync(tenantId, report.SessionId, maxResults: 1000);
+                    // Idempotency: the agent's emergency channel can send up to a few reports per session;
+                    // only ever materialize one timeline event.
+                    var alreadyMaterialized = existing.Any(e =>
+                        string.Equals(e.EventType, Constants.EventTypes.AgentEmergencyBreak, StringComparison.OrdinalIgnoreCase));
+                    if (!alreadyMaterialized)
+                    {
+                        var evt = BuildAgentEmergencyBreakEvent(report, tenantId, existing, DateTime.UtcNow);
+                        await _sessionRepo.StoreEventsBatchAsync(new List<EnrollmentEvent> { evt });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "ReportAgentError: failed to materialize agent_emergency_break event for session {SessionId}", report.SessionId);
+                }
+            }
+
             return req.CreateResponse(HttpStatusCode.OK);
+        }
+
+        /// <summary>
+        /// Builds the backend-materialized <c>agent_emergency_break</c> timeline event from the agent's
+        /// best-effort emergency report. Static + pure (analog to
+        /// <see cref="Services.MaintenanceService.BuildSessionTimeoutEvent"/>) so the field shape and the
+        /// Sequence assignment (one past the session's last event, so it sorts LAST) are unit-testable.
+        /// Severity is Warning, not Error: the emergency break means "the agent gave up monitoring at its
+        /// absolute age cap", NOT that the enrollment failed — the timeout classifier decides the real
+        /// verdict from the ESP rollup.
+        /// </summary>
+        internal static EnrollmentEvent BuildAgentEmergencyBreakEvent(
+            AgentErrorReport report, string tenantId, IReadOnlyList<EnrollmentEvent> existingEvents, DateTime nowUtc)
+        {
+            var maxSequence = existingEvents != null && existingEvents.Count > 0
+                ? existingEvents.Max(e => e.Sequence)
+                : 0L;
+
+            // Prefer the agent's break timestamp for an accurate timeline; fall back to receipt time when
+            // the report carries no (or a clearly bogus) timestamp.
+            var breakAt = report.Timestamp > new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                ? report.Timestamp.ToUniversalTime()
+                : nowUtc;
+
+            return new EnrollmentEvent
+            {
+                TenantId = tenantId,
+                SessionId = report.SessionId,
+                EventType = Constants.EventTypes.AgentEmergencyBreak,
+                Source = "System.EmergencyChannel",
+                Severity = EventSeverity.Warning,
+                Phase = EnrollmentPhase.Unknown,
+                Timestamp = breakAt,
+                Sequence = maxSequence + 1,
+                Message = string.IsNullOrWhiteSpace(report.Message)
+                    ? "Agent absolute session-age emergency break fired — agent cleaned up and exited"
+                    : report.Message,
+                Data = new Dictionary<string, object>
+                {
+                    ["source"] = "emergency_channel",
+                    ["agentVersion"] = report.AgentVersion ?? string.Empty,
+                    ["reportedAtUtc"] = report.Timestamp.ToString("o"),
+                },
+            };
         }
     }
 }
