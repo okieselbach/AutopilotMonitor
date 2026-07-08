@@ -89,13 +89,17 @@ timeline AND let the backend terminalize precisely instead of guessing with grac
 - [ ] **Deferred to PR5:** Fleet Health payload Incomplete count (its SuccessRate is documented as
       "over all sessions" with equivalence tests — fold the Incomplete surfacing in with the web work).
 
-## PR5 — Web surface
+## PR5 — Web surface ✅ done (typecheck clean)
 
-- [ ] Mirror enum + `isTerminalStatus` (`utils/sessionStatus.ts`): `Incomplete` terminal,
-      `AwaitingUser` non-terminal.
-- [ ] `SessionStatusBadge.tsx` colours/labels for both new states.
-- [ ] Dashboard / Fleet Health cards render the third bucket; failure-rate copy updated.
-- [ ] `lib/__tests__/sessionStatus.test.ts` updated.
+- [x] `utils/sessionStatus.ts`: `isTerminalStatus` includes `Incomplete`; docstring notes AwaitingUser non-terminal.
+- [x] `SessionStatusBadge.tsx`: `Incomplete` = neutral slate (clearly not red), `AwaitingUser` = sky/blue
+      ("still going"); ⏱️ affordance extended to Incomplete (the silence family).
+- [x] Fleet Health: `FleetHealthStats.Incomplete` (C# model + `MetricsMath.BuildFleetHealthPayload`) +
+      web interface + a dedicated slate "Incomplete" stat card (`FleetStatCard` gained a `slate` color);
+      grid widened to 5.
+- [x] Main dashboard KPI row left as-is (its Success Rate is already the honest terminal rate); the third
+      state is surfaced via the badge everywhere, the Fleet Health card, and the metrics summary `incomplete`.
+- [x] Verified: `tsc --noEmit` clean; backend suite 2709 pass.
 
 ## PR6 — Backfill (optional, one-shot)
 

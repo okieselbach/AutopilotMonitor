@@ -34,6 +34,8 @@ namespace AutopilotMonitor.Shared.Models
         public int Succeeded { get; set; }
         public int Failed { get; set; }
         public int InProgress { get; set; }
+        /// <summary>Terminal, non-failure sessions (timeout reclassification). Surfaced as its own count; not a failure.</summary>
+        public int Incomplete { get; set; }
         /// <summary>Succeeded / total * 100 (one decimal). Note: over all sessions, not just terminal.</summary>
         public double SuccessRate { get; set; }
         /// <summary>Average duration in minutes over non-in-progress sessions that carry a duration.</summary>

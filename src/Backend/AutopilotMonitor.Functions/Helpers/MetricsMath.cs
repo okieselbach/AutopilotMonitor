@@ -99,7 +99,7 @@ public static class MetricsMath
     /// </summary>
     public static FleetHealthMetrics BuildFleetHealthPayload(IReadOnlyList<SessionSummary> sessions, int days)
     {
-        int succeeded = 0, failed = 0, inProgress = 0;
+        int succeeded = 0, failed = 0, inProgress = 0, incomplete = 0;
         long completedDurationSeconds = 0;
         int completedWithDurationCount = 0;
 
@@ -110,6 +110,7 @@ public static class MetricsMath
                 case SessionStatus.Succeeded: succeeded++; break;
                 case SessionStatus.Failed: failed++; break;
                 case SessionStatus.InProgress: inProgress++; break;
+                case SessionStatus.Incomplete: incomplete++; break;
             }
 
             if (s.Status != SessionStatus.InProgress && s.DurationSeconds is int d && d > 0)
@@ -126,6 +127,7 @@ public static class MetricsMath
             Succeeded = succeeded,
             Failed = failed,
             InProgress = inProgress,
+            Incomplete = incomplete,
             SuccessRate = total > 0 ? Math.Round((double)succeeded / total * 100, 1) : 0,
             AvgDurationMinutes = completedWithDurationCount > 0
                 ? (int)Math.Round((double)completedDurationSeconds / completedWithDurationCount / 60.0, MidpointRounding.AwayFromZero)
