@@ -62,16 +62,18 @@ timeline AND let the backend terminalize precisely instead of guessing with grac
       minimal emergency client wired at the call site (or move the emit to a point where `auth` exists).
       May be lost if the device is fully offline — acceptable (best-effort, that case falls back to grace).
 
-## PR3 — Reconciliation of late completions
+## PR3 — Reconciliation of late completions ✅ done
 
-- [ ] Allow `Failed` / `Incomplete` / `AwaitingUser` → `Succeeded` when a genuine terminal
-      arrives (`enrollment_complete`, `whiteglove_complete`, AccountSetup all-succeeded).
-      Audit the `UpdateSessionStatusAsync` terminal-guard so ONLY these reconcile signals may
-      upgrade an already-terminal row (no other Failed→X path opens up).
-- [ ] Verify `EventIngestProcessor.Classification.cs` routes a late `enrollment_complete`
-      through this path (it already sets `Succeeded`; confirm the guard).
-- [ ] Tests: `SessionCompletionTimestampTests` + new reconcile test (sweep→Failed, then late
-      `enrollment_complete` → Succeeded).
+- [x] `UpdateSessionStatusAsync` terminal-guard replaced by pure `IsTerminalTransitionAllowed`:
+      a genuine completion (`Succeeded`) UPGRADES a prior `Failed`/`Incomplete`/`AwaitingUser`
+      verdict (late reconcile); silent-terminal verdicts + `AwaitingUser` never overwrite a terminal.
+- [x] On `Succeeded`, clear stale `FailureReason` + `FailureSnapshotJson` (reconcile hygiene).
+- [x] Admin-marked terminal decisions are preserved — a late completion does NOT auto-override a
+      hand-marked `Failed`/`Incomplete`.
+- [x] Ingest already routes late `enrollment_complete`/`gather` → `Succeeded` with no pre-terminal
+      skip, so the relaxed guard makes reconcile work end-to-end (no ingest change needed).
+- [x] Tests `SessionStatusTransitionTests` (20, full matrix). Suite: 2705 pass (one pre-existing
+      timing-flaky maintenance test, green on retry/isolation — unrelated).
 
 ## PR4 — Stats / metrics expose 3 states
 
