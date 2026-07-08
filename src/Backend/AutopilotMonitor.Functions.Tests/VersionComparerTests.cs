@@ -75,40 +75,18 @@ public class VersionComparerTests
     // IsVersionAffected
     // -----------------------------------------------------------------------
 
-    [Fact]
-    public void IsVersionAffected_WithinRange_ReturnsTrue()
+    // (installed, startInclusive, startExclusive, endInclusive, endExclusive) → affected?
+    [Theory]
+    [InlineData("5.1.5", "5.0", null, null, "6.0", true)]   // within [5.0, 6.0)
+    [InlineData("4.9", "5.0", null, null, "6.0", false)]    // below the inclusive start
+    [InlineData("6.1", "5.0", null, null, "6.0", false)]    // above the exclusive end
+    [InlineData("6.0", "5.0", null, "6.0", null, true)]     // inclusive end includes the boundary
+    [InlineData("6.0", "5.0", null, null, "6.0", false)]    // exclusive end excludes the boundary
+    [InlineData("5.0", null, "5.0", null, "6.0", false)]    // exclusive start excludes the boundary
+    public void IsVersionAffected_respects_boundary_inclusivity(
+        string installed, string? startIncl, string? startExcl, string? endIncl, string? endExcl, bool expected)
     {
-        Assert.True(VersionComparer.IsVersionAffected("5.1.5", "5.0", null, null, "6.0"));
-    }
-
-    [Fact]
-    public void IsVersionAffected_BelowRange_ReturnsFalse()
-    {
-        Assert.False(VersionComparer.IsVersionAffected("4.9", "5.0", null, null, "6.0"));
-    }
-
-    [Fact]
-    public void IsVersionAffected_AboveRange_ReturnsFalse()
-    {
-        Assert.False(VersionComparer.IsVersionAffected("6.1", "5.0", null, null, "6.0"));
-    }
-
-    [Fact]
-    public void IsVersionAffected_InclusiveEnd_ReturnsTrue()
-    {
-        Assert.True(VersionComparer.IsVersionAffected("6.0", "5.0", null, "6.0", null));
-    }
-
-    [Fact]
-    public void IsVersionAffected_ExclusiveEnd_ReturnsFalse()
-    {
-        Assert.False(VersionComparer.IsVersionAffected("6.0", "5.0", null, null, "6.0"));
-    }
-
-    [Fact]
-    public void IsVersionAffected_ExclusiveStart_ReturnsFalse()
-    {
-        Assert.False(VersionComparer.IsVersionAffected("5.0", null, "5.0", null, "6.0"));
+        Assert.Equal(expected, VersionComparer.IsVersionAffected(installed, startIncl, startExcl, endIncl, endExcl));
     }
 
     [Fact]

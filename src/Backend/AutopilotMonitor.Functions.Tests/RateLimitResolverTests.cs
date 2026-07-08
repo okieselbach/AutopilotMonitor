@@ -10,99 +10,30 @@ namespace AutopilotMonitor.Functions.Tests;
 /// </summary>
 public class RateLimitResolverTests
 {
-    [Fact]
-    public void ResolveDeviceLimit_NoOverride_UsesGlobalDefault()
+    // ── Device path: override ?? max(globalDefault, entitlementFloor) ──
+    [Theory]
+    [InlineData(null, 100, null, 100)]   // no override, no floor → global default (Community unchanged)
+    [InlineData(250, 100, null, 250)]    // per-tenant override wins over the global default
+    [InlineData(null, 100, 150, 150)]    // Enterprise floor raises the default
+    [InlineData(50, 100, 150, 50)]       // explicit override beats the floor (deliberate throttle)
+    public void ResolveDeviceLimit_applies_override_then_floor(int? tenantOverride, int globalDefault, int? entitlementFloor, int expected)
     {
-        Assert.Equal(100, RateLimitResolver.ResolveDeviceLimit(tenantOverride: null, globalDefault: 100));
+        Assert.Equal(expected, RateLimitResolver.ResolveDeviceLimit(tenantOverride, globalDefault, entitlementFloor));
     }
 
-    [Fact]
-    public void ResolveDeviceLimit_OverrideSet_WinsOverGlobal()
+    // ── User path: GA → globalAdminDefault (override + floor never apply); else override ?? max(default, floor) ──
+    [Theory]
+    [InlineData(false, null, 120, 600, null, 120)]   // standard user, no override → global user default
+    [InlineData(false, 300, 120, 600, null, 300)]    // per-tenant user override wins over the global user default
+    [InlineData(true, 300, 120, 600, null, 600)]     // Global Admin: per-tenant override must NOT apply (cross-tenant identity)
+    [InlineData(false, null, 120, 600, 150, 150)]    // Enterprise floor raises the default
+    [InlineData(false, null, 200, 600, 150, 200)]    // admin-raised default (200) must never be LOWERED by the floor
+    [InlineData(false, 50, 120, 600, 150, 50)]       // explicit override beats the floor
+    [InlineData(true, null, 120, 600, 9999, 600)]    // Global Admin: entitlement floor never applies
+    public void ResolveUserLimit_respects_global_admin_override_and_floor(
+        bool isGlobalAdmin, int? tenantUserOverride, int globalUserDefault, int globalAdminDefault, int? entitlementFloor, int expected)
     {
-        Assert.Equal(250, RateLimitResolver.ResolveDeviceLimit(tenantOverride: 250, globalDefault: 100));
-    }
-
-    [Fact]
-    public void ResolveUserLimit_StandardUser_NoOverride_UsesGlobalUserDefault()
-    {
-        var limit = RateLimitResolver.ResolveUserLimit(
-            isGlobalAdmin: false, tenantUserOverride: null, globalUserDefault: 120, globalAdminDefault: 600);
-        Assert.Equal(120, limit);
-    }
-
-    [Fact]
-    public void ResolveUserLimit_StandardUser_OverrideSet_WinsOverGlobalUser()
-    {
-        var limit = RateLimitResolver.ResolveUserLimit(
-            isGlobalAdmin: false, tenantUserOverride: 300, globalUserDefault: 120, globalAdminDefault: 600);
-        Assert.Equal(300, limit);
-    }
-
-    [Fact]
-    public void ResolveUserLimit_GlobalAdmin_UsesGlobalAdminDefault_IgnoringTenantOverride()
-    {
-        // A per-tenant user override must NOT apply to a Global Admin (cross-tenant identity).
-        var limit = RateLimitResolver.ResolveUserLimit(
-            isGlobalAdmin: true, tenantUserOverride: 300, globalUserDefault: 120, globalAdminDefault: 600);
-        Assert.Equal(600, limit);
-    }
-
-    // ── Edition entitlement floor (Enterprise: raises the DEFAULT, never beats an override) ──
-
-    [Fact]
-    public void ResolveUserLimit_EnterpriseFloor_RaisesDefault()
-    {
-        var limit = RateLimitResolver.ResolveUserLimit(
-            isGlobalAdmin: false, tenantUserOverride: null, globalUserDefault: 120, globalAdminDefault: 600,
-            entitlementFloor: 150);
-        Assert.Equal(150, limit);
-    }
-
-    [Fact]
-    public void ResolveUserLimit_FloorBelowAdminRaisedDefault_DefaultWins()
-    {
-        // An admin-raised global default (200) must never be LOWERED by the entitlement floor.
-        var limit = RateLimitResolver.ResolveUserLimit(
-            isGlobalAdmin: false, tenantUserOverride: null, globalUserDefault: 200, globalAdminDefault: 600,
-            entitlementFloor: 150);
-        Assert.Equal(200, limit);
-    }
-
-    [Fact]
-    public void ResolveUserLimit_ExplicitOverride_BeatsEnterpriseFloor()
-    {
-        // A GA-set per-tenant override (e.g. deliberate throttle to 50) wins outright — the floor
-        // only raises the default, it must not undo a targeted override.
-        var limit = RateLimitResolver.ResolveUserLimit(
-            isGlobalAdmin: false, tenantUserOverride: 50, globalUserDefault: 120, globalAdminDefault: 600,
-            entitlementFloor: 150);
-        Assert.Equal(50, limit);
-    }
-
-    [Fact]
-    public void ResolveUserLimit_GlobalAdmin_FloorNeverApplies()
-    {
-        var limit = RateLimitResolver.ResolveUserLimit(
-            isGlobalAdmin: true, tenantUserOverride: null, globalUserDefault: 120, globalAdminDefault: 600,
-            entitlementFloor: 9999);
-        Assert.Equal(600, limit);
-    }
-
-    [Fact]
-    public void ResolveDeviceLimit_EnterpriseFloor_RaisesDefault()
-    {
-        Assert.Equal(150, RateLimitResolver.ResolveDeviceLimit(tenantOverride: null, globalDefault: 100, entitlementFloor: 150));
-    }
-
-    [Fact]
-    public void ResolveDeviceLimit_ExplicitOverride_BeatsEnterpriseFloor()
-    {
-        Assert.Equal(50, RateLimitResolver.ResolveDeviceLimit(tenantOverride: 50, globalDefault: 100, entitlementFloor: 150));
-    }
-
-    [Fact]
-    public void ResolveDeviceLimit_NullFloor_CommunityUnchanged()
-    {
-        Assert.Equal(100, RateLimitResolver.ResolveDeviceLimit(tenantOverride: null, globalDefault: 100, entitlementFloor: null));
+        Assert.Equal(expected, RateLimitResolver.ResolveUserLimit(
+            isGlobalAdmin, tenantUserOverride, globalUserDefault, globalAdminDefault, entitlementFloor));
     }
 }

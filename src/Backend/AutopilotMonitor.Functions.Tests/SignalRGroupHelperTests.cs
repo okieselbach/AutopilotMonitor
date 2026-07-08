@@ -14,40 +14,23 @@ public class SignalRGroupHelperTests
     private const string TenantId = "11111111-2222-3333-4444-555555555555";
     private const string SessionId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 
-    [Fact]
-    public void ExtractTenantId_TenantWideGroup()
+    // group name → extracted tenantId (or null for the roleless/unknown formats). Interpolated over the
+    // const GUIDs, so MemberData rather than InlineData (string interpolation is not a compile-time const).
+    public static IEnumerable<object?[]> ExtractTenantIdCases() => new[]
     {
-        Assert.Equal(TenantId, SignalRGroupHelper.ExtractTenantIdFromGroupName($"tenant-{TenantId}"));
-    }
+        new object?[] { $"tenant-{TenantId}", TenantId },                    // tenant-wide broadcast
+        new object?[] { $"tenant-{TenantId}-notify-member", TenantId },      // member-notify
+        new object?[] { $"tenant-{TenantId}-notify-admin", TenantId },       // admin-notify
+        new object?[] { $"session-{TenantId}-{SessionId}", TenantId },       // per-session
+        new object?[] { "global-admins", null },                            // platform group → no tenant
+        new object?[] { "foo-bar", null },                                  // unknown format → null
+    };
 
-    [Fact]
-    public void ExtractTenantId_TenantNotifyMemberGroup()
+    [Theory]
+    [MemberData(nameof(ExtractTenantIdCases))]
+    public void ExtractTenantIdFromGroupName_parses_supported_formats(string group, string? expected)
     {
-        Assert.Equal(TenantId, SignalRGroupHelper.ExtractTenantIdFromGroupName($"tenant-{TenantId}-notify-member"));
-    }
-
-    [Fact]
-    public void ExtractTenantId_TenantNotifyAdminGroup()
-    {
-        Assert.Equal(TenantId, SignalRGroupHelper.ExtractTenantIdFromGroupName($"tenant-{TenantId}-notify-admin"));
-    }
-
-    [Fact]
-    public void ExtractTenantId_SessionGroup()
-    {
-        Assert.Equal(TenantId, SignalRGroupHelper.ExtractTenantIdFromGroupName($"session-{TenantId}-{SessionId}"));
-    }
-
-    [Fact]
-    public void ExtractTenantId_GlobalAdmins_ReturnsNull()
-    {
-        Assert.Null(SignalRGroupHelper.ExtractTenantIdFromGroupName("global-admins"));
-    }
-
-    [Fact]
-    public void ExtractTenantId_UnknownFormat_ReturnsNull()
-    {
-        Assert.Null(SignalRGroupHelper.ExtractTenantIdFromGroupName("foo-bar"));
+        Assert.Equal(expected, SignalRGroupHelper.ExtractTenantIdFromGroupName(group));
     }
 
     [Fact]
