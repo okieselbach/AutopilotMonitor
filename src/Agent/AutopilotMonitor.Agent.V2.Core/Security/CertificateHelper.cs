@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -52,37 +53,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                         }
                         else
                         {
-                            // Auto-detect MDM certificate by issuer and EKU.
-                            // Match ONLY "CN=Microsoft Intune MDM Device CA" — NOT
-                            // "CN=Microsoft Intune Device Management Device CA" (MMP-C stack),
-                            // which is co-installed on dual-enrolled devices and chains to a
-                            // different intermediate the backend does not pin. A broader
-                            // substring match on "Microsoft Intune" would let the MMP-C cert
-                            // win the NotAfter tiebreaker and produce ChainFailed at the backend.
-                            var mdmCerts = store.Certificates
-                                .OfType<X509Certificate2>()
-                                .Where(c =>
-                                {
-                                    var issuerIsMdm = string.Equals(
-                                        c.Issuer,
-                                        "CN=Microsoft Intune MDM Device CA",
-                                        StringComparison.OrdinalIgnoreCase);
-
-                                    // Check Enhanced Key Usage for Client Authentication (1.3.6.1.5.5.7.3.2)
-                                    var hasClientAuth = c.Extensions
-                                        .OfType<X509EnhancedKeyUsageExtension>()
-                                        .Any(ext => ext.EnhancedKeyUsages
-                                            .OfType<Oid>()
-                                            .Any(oid => oid.Value == "1.3.6.1.5.5.7.3.2"));
-
-                                    return issuerIsMdm && hasClientAuth;
-                                })
-                                .OrderByDescending(c => c.NotAfter) // Prefer certs with longer validity
-                                .ToList();
-
-                            if (mdmCerts.Any())
+                            // Auto-detect the MDM certificate by issuer + EKU + NotAfter tiebreaker.
+                            // The selection rules live in the pure SelectMdmCertificate seam so they
+                            // can be unit-tested without a real store.
+                            var cert = SelectMdmCertificate(store.Certificates.OfType<X509Certificate2>());
+                            if (cert != null)
                             {
-                                var cert = mdmCerts.First();
                                 logger?.Info($"Found MDM certificate: Issuer={cert.Issuer}, Subject={cert.Subject}, Thumbprint={cert.Thumbprint}");
                                 return cert;
                             }
@@ -98,6 +74,48 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                 logger?.Error("Error finding MDM certificate", ex);
                 return null;
             }
+        }
+
+        // Client Authentication EKU (used by the MDM device cert for mTLS to the backend).
+        private const string ClientAuthEku = "1.3.6.1.5.5.7.3.2";
+
+        // The exact issuer of the Intune MDM device certificate. Deliberately NOT a substring match
+        // on "Microsoft Intune": the MMP-C stack issues "CN=Microsoft Intune Device Management Device
+        // CA", co-installed on dual-enrolled devices, which chains to a different intermediate the
+        // backend does not pin. Selecting it would produce ChainFailed at the backend.
+        private const string MdmIssuer = "CN=Microsoft Intune MDM Device CA";
+
+        /// <summary>
+        /// Pure selection of the MDM device certificate from a candidate set (typically the
+        /// LocalMachine\My / CurrentUser\My store contents). Applies the issuer discrimination,
+        /// ClientAuth-EKU filter and NotAfter tiebreaker that <see cref="FindMdmCertificate"/> relies
+        /// on — extracted so the security-critical selection is unit-testable without a real store.
+        /// Among qualifying certs the longest-lived (highest NotAfter) wins; returns null if none
+        /// qualify (or the input is null).
+        /// </summary>
+        public static X509Certificate2 SelectMdmCertificate(IEnumerable<X509Certificate2> candidates)
+        {
+            if (candidates == null)
+                return null;
+
+            return candidates
+                .Where(c => c != null && IsMdmCertificate(c))
+                .OrderByDescending(c => c.NotAfter) // prefer the cert with the longest validity
+                .FirstOrDefault();
+        }
+
+        private static bool IsMdmCertificate(X509Certificate2 c)
+        {
+            var issuerIsMdm = string.Equals(c.Issuer, MdmIssuer, StringComparison.OrdinalIgnoreCase);
+
+            // Enhanced Key Usage must advertise Client Authentication (1.3.6.1.5.5.7.3.2).
+            var hasClientAuth = c.Extensions
+                .OfType<X509EnhancedKeyUsageExtension>()
+                .Any(ext => ext.EnhancedKeyUsages
+                    .OfType<Oid>()
+                    .Any(oid => oid.Value == ClientAuthEku));
+
+            return issuerIsMdm && hasClientAuth;
         }
 
         /// <summary>

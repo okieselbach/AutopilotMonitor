@@ -94,17 +94,14 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
             // otherwise drive an outbound OIDC-metadata fetch to a bogus authority — a DoS/cost
             // surface on malformed-token floods. Every legitimate Entra token (including consumer
             // MSA, tid 9188040d-…) carries a GUID tid, so this reject is loss-free.
-            if (!Guid.TryParse(tenantId, out _))
+            if (!IsValidTenantId(tenantId))
             {
                 _logger.LogWarning("[Auth Middleware] Rejected token with missing/non-GUID tid for {Path}", requestPath);
                 throw new SecurityTokenValidationException("Token tid claim is missing or not a valid GUID");
             }
 
             // Determine which endpoint to use based on the issuer (v1.0 vs v2.0)
-            var isV1Token = issuer.Contains("sts.windows.net");
-            var tenantSpecificAuthority = isV1Token
-                ? $"https://login.microsoftonline.com/{tenantId}"  // v1.0
-                : $"https://login.microsoftonline.com/{tenantId}/v2.0";  // v2.0
+            var tenantSpecificAuthority = BuildTenantAuthority(issuer, tenantId);
 
             // Get or create cached configuration manager for this tenant
             IConfigurationManager<OpenIdConnectConfiguration>? tenantConfigManager = null;
@@ -157,45 +154,12 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
 
             var openIdConfig = await tenantConfigManager.GetConfigurationAsync(context.CancellationToken);
 
-            // Set up token validation parameters with OIDC signing keys
-            var validationParameters = new TokenValidationParameters
-            {
-                // For multi-tenant, validate issuer format but accept any tenant
-                ValidateIssuer = true,
-                IssuerValidator = (issuer, token, parameters) =>
-                {
-                    // Accept issuers from any Azure AD tenant
-                    if (issuer.StartsWith("https://login.microsoftonline.com/") ||
-                        issuer.StartsWith("https://sts.windows.net/"))
-                    {
-                        return issuer;
-                    }
-                    throw new SecurityTokenInvalidIssuerException($"Invalid issuer: {issuer}");
-                },
-                ValidateAudience = true,
-                ValidAudiences = new[]
-                {
-                    _configuration["EntraId:ClientId"],
-                    $"api://{_configuration["EntraId:ClientId"]}"
-                },
-                ValidateLifetime = true,
-
-                // Signature validation enabled
-                // Token is requested for backend API (api://<clientId>/access_as_user)
-                ValidateIssuerSigningKey = true,
-                RequireSignedTokens = true,
-
-                // Use key resolver for dynamic key resolution
-                IssuerSigningKeyResolver = (token, securityToken, kid, validationParameters) =>
-                {
-                    var matchedKeys = openIdConfig.SigningKeys.Where(k => k.KeyId == kid).ToList();
-                    return matchedKeys.Any() ? matchedKeys : openIdConfig.SigningKeys;
-                },
-
-                // Algorithm whitelist: RS256 today, PS256 for Entra's announced rollout.
-                // Hard-blocks HS-family and "none" (algorithm-confusion defence).
-                ValidAlgorithms = new[] { "RS256", "PS256" }
-            };
+            // Build the security-critical validation parameters (issuer/audience/lifetime + the
+            // RS256/PS256 algorithm whitelist that hard-blocks alg:none and HS-family confusion).
+            // Extracted to a pure seam so those rejects are unit-testable against locally-minted
+            // tokens without a live OIDC ConfigurationManager.
+            var validationParameters = BuildTokenValidationParameters(
+                openIdConfig.SigningKeys, _configuration["EntraId:ClientId"]);
 
             var principal = _tokenHandler.ValidateToken(token, validationParameters, out var validatedToken);
 
@@ -263,5 +227,69 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
     {
         var entry = EndpointAccessPolicyCatalog.FindPolicy(httpMethod, path);
         return entry is { Policy: EndpointPolicy.PublicAnonymous or EndpointPolicy.DeviceOrBootstrapAuth };
+    }
+
+    /// <summary>
+    /// Pre-signature gate on the (unverified) <c>tid</c> claim: it must be a GUID. Rejecting a
+    /// missing/garbage tid here prevents an outbound OIDC-metadata fetch to a bogus authority on
+    /// malformed-token floods. Loss-free — every legitimate Entra token carries a GUID tid.
+    /// </summary>
+    internal static bool IsValidTenantId(string? tid) => Guid.TryParse(tid, out _);
+
+    /// <summary>
+    /// Maps a token issuer + tenant id to the OIDC authority to fetch signing keys from. Entra v1.0
+    /// tokens carry an <c>sts.windows.net</c> issuer and use the bare authority; v2.0 tokens use the
+    /// <c>/v2.0</c> authority. The tenant id is assumed already validated by <see cref="IsValidTenantId"/>.
+    /// </summary>
+    internal static string BuildTenantAuthority(string issuer, string tenantId)
+    {
+        var isV1Token = issuer != null && issuer.Contains("sts.windows.net");
+        return isV1Token
+            ? $"https://login.microsoftonline.com/{tenantId}"        // v1.0
+            : $"https://login.microsoftonline.com/{tenantId}/v2.0";  // v2.0
+    }
+
+    /// <summary>
+    /// Builds the token validation parameters the middleware validates against: multi-tenant issuer
+    /// format check, audience = <c>{clientId}</c> / <c>api://{clientId}</c>, lifetime, and — the
+    /// algorithm-confusion defence — <c>RequireSignedTokens</c> plus the RS256/PS256 whitelist that
+    /// hard-blocks alg:none and the HS family. Signing keys are supplied by the caller (the tenant's
+    /// OIDC config at runtime; a test key under unit test).
+    /// </summary>
+    internal static TokenValidationParameters BuildTokenValidationParameters(
+        IEnumerable<SecurityKey> signingKeys, string? clientId)
+    {
+        var keys = signingKeys as ICollection<SecurityKey> ?? signingKeys?.ToList() ?? new List<SecurityKey>();
+
+        return new TokenValidationParameters
+        {
+            // For multi-tenant, validate issuer format but accept any tenant.
+            ValidateIssuer = true,
+            IssuerValidator = (iss, token, parameters) =>
+            {
+                if (iss.StartsWith("https://login.microsoftonline.com/") ||
+                    iss.StartsWith("https://sts.windows.net/"))
+                {
+                    return iss;
+                }
+                throw new SecurityTokenInvalidIssuerException($"Invalid issuer: {iss}");
+            },
+            ValidateAudience = true,
+            ValidAudiences = new[] { clientId, $"api://{clientId}" },
+            ValidateLifetime = true,
+
+            // Signature validation enabled (token minted for api://<clientId>/access_as_user).
+            ValidateIssuerSigningKey = true,
+            RequireSignedTokens = true,
+            IssuerSigningKeyResolver = (token, securityToken, kid, parameters) =>
+            {
+                var matched = keys.Where(k => k.KeyId == kid).ToList();
+                return matched.Any() ? matched : keys;
+            },
+
+            // Algorithm whitelist: RS256 today, PS256 for Entra's announced rollout.
+            // Hard-blocks HS-family and "none" (algorithm-confusion defence).
+            ValidAlgorithms = new[] { "RS256", "PS256" }
+        };
     }
 }
