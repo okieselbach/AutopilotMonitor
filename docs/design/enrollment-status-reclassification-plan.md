@@ -91,8 +91,8 @@ timeline AND let the backend terminalize precisely instead of guessing with grac
 - [x] Daily aggregation (`ComputeUsageMetricsSnapshotAsync`) already uses `Succeeded+Failed` as the
       denominator — no change needed (Incomplete already excluded).
 - [x] Tests `SessionStatusBucketsTests` (bucketing + terminal-only failure-rate). Suite: 2705 pass.
-- [ ] **Deferred to PR5:** Fleet Health payload Incomplete count (its SuccessRate is documented as
-      "over all sessions" with equivalence tests — fold the Incomplete surfacing in with the web work).
+- [x] Fleet Health payload Incomplete count — done in PR5 (`FleetHealthStats.Incomplete` + slate card).
+      Its SuccessRate stays "over all sessions" (documented), only the Incomplete count was added.
 
 ## PR5 — Web surface ✅ done (typecheck clean)
 
