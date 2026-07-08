@@ -94,4 +94,10 @@ Backend + stats only — no agent changes, no heartbeat.
 - **Scope:** forward-only first (PR1–PR5) to watch how the first live sessions classify.
   **PR6 backfill is deferred** — run it once forward-only looks good, to heal historical
   crcins.com + platform stats. Remembered follow-up.
-- **`SessionGraceHours` default:** 72h (per-tenant adjustable); revisit after live data.
+- **`SessionGraceHours`:** now **auto-derived** from the agent's absolute cap, not a magic 72h.
+  `effectiveGrace = max(AbsoluteMaxSessionHours + 12h buffer, override)` = **60h** by default
+  (`EnrollmentTimeoutClassifier.ResolveGraceHours`). Rationale: the 48h agent emergency break is
+  *silent* to the backend, so grace must be ≥ that cap and only slightly beyond it. `SessionGraceHours=0`
+  means auto; an override can only raise the floor. `AbsoluteMaxSessionHours` mirrored into TenantConfiguration.
+  - **Follow-up:** wire `TenantConfiguration.AbsoluteMaxSessionHours` down into `AgentConfigResponse` +
+    RemoteConfigMerger so a tenant override reaches the agent too (today the agent still uses its own default 48).

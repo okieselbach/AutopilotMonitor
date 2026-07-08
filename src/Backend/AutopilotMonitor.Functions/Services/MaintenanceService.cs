@@ -279,7 +279,10 @@ namespace AutopilotMonitor.Functions.Services
                     {
                         var config = await _tenantConfigService.GetConfigurationAsync(tenantId);
                         var timeoutHours = config?.SessionTimeoutHours ?? 5;
-                        var graceHours = config?.SessionGraceHours ?? 72;
+                        // Grace is derived from the agent's absolute session-age cap so it can never be
+                        // shorter than the agent could still legitimately be running (see ResolveGraceHours).
+                        var graceHours = EnrollmentTimeoutClassifier.ResolveGraceHours(
+                            config?.SessionGraceHours, config?.AbsoluteMaxSessionHours);
                         const int agentSilenceHours = 2; // fixed policy: 2h silence → Stalled intermediate
                         var now = DateTime.UtcNow;
                         var cutoffTime = now.AddHours(-timeoutHours);

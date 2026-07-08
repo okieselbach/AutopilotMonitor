@@ -141,6 +141,34 @@ public class EnrollmentTimeoutClassifierTests
         Assert.Equal(SessionStatus.Incomplete, status);
     }
 
+    // -------- ResolveGraceHours --------
+
+    [Theory]
+    [InlineData(null, null, 60)] // defaults: 48 + 12
+    [InlineData(0, null, 60)]    // 0 override = auto-derive
+    [InlineData(0, 48, 60)]      // explicit agent cap = default
+    [InlineData(0, 96, 108)]     // bigger agent cap → grace follows (96 + 12)
+    [InlineData(0, 0, 60)]       // agent cap 0/invalid → fall back to default 48
+    [InlineData(90, 48, 90)]     // override ABOVE the floor wins
+    [InlineData(30, 48, 60)]     // override BELOW the floor is clamped up to the floor
+    public void ResolveGraceHours_floors_at_agent_cap_plus_buffer(int? configured, int? absoluteMax, int expected)
+    {
+        Assert.Equal(expected, EnrollmentTimeoutClassifier.ResolveGraceHours(configured, absoluteMax));
+    }
+
+    [Fact]
+    public void ResolveGraceHours_never_below_agent_absolute_cap()
+    {
+        // Property: whatever the inputs, the grace is at least the agent's absolute cap, so the backend
+        // never terminalizes Incomplete while the agent could still legitimately be enrolling.
+        foreach (var absMax in new int?[] { null, 6, 48, 72, 96 })
+        {
+            var cap = absMax.GetValueOrDefault(EnrollmentTimeoutClassifier.DefaultAbsoluteMaxSessionHours);
+            var grace = EnrollmentTimeoutClassifier.ResolveGraceHours(0, absMax);
+            Assert.True(grace >= cap, $"grace {grace} must be >= agent cap {cap}");
+        }
+    }
+
     [Fact]
     public void Classify_never_returns_Failed_without_explicit_failure()
     {

@@ -188,12 +188,17 @@ namespace AutopilotMonitor.Shared.Models
         /// Grace window in hours for a session that reached the inactivity timeout with Device Setup
         /// already provisioned but no completion signal yet (docs/design/enrollment-status-reclassification.md).
         /// At <see cref="SessionTimeoutHours"/> such a session becomes AwaitingUser (non-terminal) instead
-        /// of Failed; only after this longer window elapses without a completion does it graduate to the
-        /// terminal, non-failure Incomplete state. The user/Account-Setup phase legitimately spans hours or
-        /// overnight, so this must be comfortably larger than SessionTimeoutHours.
-        /// Default: 72 hours.
+        /// of Failed; only after this window elapses without a completion does it graduate to the terminal,
+        /// non-failure Incomplete state.
+        /// <para>
+        /// 0 (default) = auto-derive: <c>AbsoluteMaxSessionHours + 12h buffer</c> (= 60h with defaults). The
+        /// grace is always floored at the agent's absolute session-age cap plus buffer — until that cap fires
+        /// the agent may still be legitimately enrolling, and because the cap is silent to the backend anything
+        /// still quiet past cap+buffer is provably dead. A non-zero value acts as an override but can only
+        /// raise the effective grace above that floor, never below it (see EnrollmentTimeoutClassifier.ResolveGraceHours).
+        /// </para>
         /// </summary>
-        public int SessionGraceHours { get; set; } = 72;
+        public int SessionGraceHours { get; set; } = 0;
 
         // ===== PAYLOAD SETTINGS =====
 
@@ -246,6 +251,16 @@ namespace AutopilotMonitor.Shared.Models
         /// null = use default (360 = 6 hours). 0 = disabled (no lifetime limit).
         /// </summary>
         public int? AgentMaxLifetimeMinutes { get; set; }
+
+        /// <summary>
+        /// Absolute per-session age cap in hours enforced by the agent's emergency break
+        /// (Program.Guards.CheckSessionAgeEmergencyBreak → AgentConfiguration.AbsoluteMaxSessionHours).
+        /// null = agent default (48). Mirrored here so the backend can derive the session-grace floor from
+        /// the same value: the timeout grace is never shorter than this cap + buffer. NOTE: the agent still
+        /// reads its own AbsoluteMaxSessionHours today; wiring this override down to the agent config
+        /// response is a follow-up so the two stay in lockstep.
+        /// </summary>
+        public int? AbsoluteMaxSessionHours { get; set; }
 
         // ===== AGENT BEHAVIOR OVERRIDES =====
 
@@ -843,7 +858,7 @@ namespace AutopilotMonitor.Shared.Models
                 AllowInsecureAgentRequests = false,
                 DataRetentionDays = 90,
                 SessionTimeoutHours = 5,
-                SessionGraceHours = 72,
+                SessionGraceHours = 0, // auto-derive: AbsoluteMaxSessionHours + buffer (= 60h)
                 MaxNdjsonPayloadSizeMB = 5,
                 EnablePerformanceCollector = true,
                 PerformanceCollectorIntervalSeconds = 30,

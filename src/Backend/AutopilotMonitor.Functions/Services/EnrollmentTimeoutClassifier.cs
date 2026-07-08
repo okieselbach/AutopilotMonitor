@@ -26,6 +26,29 @@ namespace AutopilotMonitor.Functions.Services
         private const string DeviceSetup = "DeviceSetup";
         private const string AccountSetup = "AccountSetup";
 
+        /// <summary>Fallback agent absolute session-age cap (AgentConfiguration.AbsoluteMaxSessionHours) when a tenant hasn't overridden it.</summary>
+        public const int DefaultAbsoluteMaxSessionHours = 48;
+        /// <summary>Extra hours added on top of the agent's absolute cap before a silent session graduates to Incomplete — covers last-mile spooled telemetry landing after network recovery.</summary>
+        public const int DefaultGraceBufferHours = 12;
+
+        /// <summary>
+        /// Resolve the effective backend grace window. The grace MUST never be shorter than the agent's
+        /// absolute session-age cap (<c>AbsoluteMaxSessionHours</c>, default 48h) — until that cap fires the
+        /// agent may legitimately still be enrolling, so terminalizing to Incomplete earlier would race a
+        /// real completion. And because the agent's 48h emergency break is SILENT to the backend (it writes a
+        /// local marker, cleans up and exits without a terminal event), anything still silent past cap+buffer
+        /// is provably dead. So: effective grace = max(agentAbsoluteCap + buffer, tenant override).
+        /// A tenant override of 0/null means "auto-derive".
+        /// </summary>
+        public static int ResolveGraceHours(int? configuredGraceHours, int? absoluteMaxSessionHours, int bufferHours = DefaultGraceBufferHours)
+        {
+            var absMax = absoluteMaxSessionHours.GetValueOrDefault(DefaultAbsoluteMaxSessionHours);
+            if (absMax <= 0) absMax = DefaultAbsoluteMaxSessionHours;
+            var floor = absMax + Math.Max(0, bufferHours);
+            var configured = configuredGraceHours.GetValueOrDefault(0);
+            return Math.Max(floor, configured);
+        }
+
         // "ESP provisioning status: AccountSetup — 5 of 5 subcategories completed"
         private static readonly Regex RollupRegex = new(
             @"ESP provisioning status:\s*(?<cat>DeviceSetup|AccountSetup)\s*[—-]\s*(?<n>\d+)\s+of\s+(?<m>\d+)\s+subcategories completed",

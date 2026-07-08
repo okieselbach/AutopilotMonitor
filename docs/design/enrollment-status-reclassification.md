@@ -112,11 +112,31 @@ Rationale for each bucket sizing is in the Evidence table above.
 
 ### 3. Grace window (backend owns the wait — zero client cost)
 
-Add `TenantConfiguration.SessionGraceHours` (default **72**). Two‑stage terminalization in
-the same sweep that already runs:
+Two‑stage terminalization in the same sweep that already runs:
 
 - At `SessionTimeoutHours` (5h): non‑terminal → **`AwaitingUser`** (was `Failed`).
-- At `SessionGraceHours` (72h): `AwaitingUser` → **`Incomplete`** (unless already reconciled).
+- At the grace window: `AwaitingUser` → **`Incomplete`** (unless already reconciled).
+
+**The grace is anchored to the agent, not a magic number.** The agent has two brakes:
+a **6h per‑run** max‑lifetime (`AgentMaxLifetimeMinutes`, re‑armed each reboot) that emits an
+explicit `enrollment_failed(max_lifetime)` → the session is already `Failed` at ~6h; and a
+**48h absolute session‑age emergency break** (`AbsoluteMaxSessionHours`, cumulative across
+reboots, skipped while WhiteGlove‑paused) that is **silent to the backend** — it writes a local
+marker, cleans up and exits without any terminal event. So a session only stays *non‑terminal*
+past 48h precisely when the agent hit that silent break and is now provably gone.
+
+Therefore the grace must be **≥ the agent's absolute cap** (never terminalize `Incomplete`
+while the agent could still legitimately be enrolling) and only slightly beyond it (once the
+cap has fired + last spooled telemetry has had time to land, silence = dead):
+
+```
+effectiveGrace = max( AbsoluteMaxSessionHours + bufferHours , SessionGraceHours override )
+              = max( 48 + 12 , 0 )  = 60h   (defaults)
+```
+
+`SessionGraceHours` defaults to `0` (auto‑derive) and can only *raise* the grace above the
+floor, never below it (`EnrollmentTimeoutClassifier.ResolveGraceHours`). `AbsoluteMaxSessionHours`
+is mirrored into `TenantConfiguration` so the floor follows any tenant override of the agent cap.
 
 The waiting session is just a table row compared against a timestamp — no process, no
 telemetry, no agent change.
