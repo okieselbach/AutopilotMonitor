@@ -85,44 +85,47 @@
     },
     {
       "ruleId": "GATHER-DEVICE-004",
-      "title": "Recent Windows updates",
-      "description": "Lists the 10 most recent hotfixes/updates installed on the device. Useful for correlating known issues with specific KB articles or verifying that prerequisite updates are present.",
+      "title": "Windows Update history snapshot",
+      "description": "Lists recently installed hotfixes/updates (Get-HotFix) at agent startup as secondary corroboration of updates applied during enrollment. Complements the live WindowsUpdate watcher — catches updates whose events fell outside the watcher's backfill window. Opt-in: Get-HotFix spawns a PowerShell cmdlet and only reports QFE-registered updates (it misses some cumulative/driver updates and all failures), so enable per tenant after weighing the OOBE cost.",
       "category": "device",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": "Autopilot Monitor",
       "enabled": false,
       "collectorType": "command_allowlisted",
       "target": "Get-HotFix | Select-Object -First 10 HotFixID, InstalledOn, Description",
       "trigger": "startup",
-      "outputEventType": "gather_recent_updates",
+      "outputEventType": "windows_update_history",
       "outputSeverity": "Info",
       "tags": [
         "device",
-        "updates",
-        "hotfix"
+        "windows-update",
+        "hotfix",
+        "oobe"
       ]
     },
     {
       "ruleId": "GATHER-DEVICE-005",
-      "title": "Pending reboot detection",
-      "description": "Checks the Component Based Servicing registry key for a pending reboot after app installations. A pending reboot at FinalizingSetup can delay or block enrollment completion.",
+      "title": "Windows Update pending reboot",
+      "description": "Checks the Component Based Servicing RebootPending registry key at agent startup and emits windows_update_reboot_pending ONLY when a reboot is actually pending (the key exists). A pending reboot present when the agent starts is a high-confidence corroborator that a Windows Update (often a quality/cumulative update installed during the OOBE 'Getting updates' phase, before the agent started) landed and now needs a restart — which can delay or block enrollment completion.",
       "category": "device",
-      "version": "1.0.0",
+      "version": "1.2.0",
       "author": "Autopilot Monitor",
-      "enabled": false,
+      "enabled": true,
       "collectorType": "registry",
       "target": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending",
       "parameters": {
+        "emitOnlyIfExists": "true",
         "severityIfExists": "Warning"
       },
-      "trigger": "phase_change",
-      "triggerPhase": "FinalizingSetup",
-      "outputEventType": "gather_pending_reboot",
+      "trigger": "startup",
+      "outputEventType": "windows_update_reboot_pending",
       "outputSeverity": "Info",
       "tags": [
         "device",
+        "windows-update",
         "reboot",
-        "servicing"
+        "servicing",
+        "oobe"
       ]
     },
     {

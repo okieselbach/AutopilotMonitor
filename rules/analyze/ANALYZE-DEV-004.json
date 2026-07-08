@@ -1,0 +1,91 @@
+{
+  "$schema": "../schema/analyze-rule.schema.json",
+  "ruleId": "ANALYZE-DEV-004",
+  "title": "Windows Update Failed During Enrollment",
+  "description": "Detects a Windows quality/cumulative update that FAILED to install during the OOBE / ESP enrollment window (WindowsUpdateClient EventID 20). A cumulative update failing mid-OOBE is a known cause of enrollment errors and is otherwise invisible in the Intune console.",
+  "severity": "high",
+  "category": "device",
+  "version": "1.0.0",
+  "enabled": true,
+  "trigger": "single",
+  "baseConfidence": 70,
+  "confidenceThreshold": 60,
+  "conditions": [
+    {
+      "signal": "wu_install_failed",
+      "source": "event_type",
+      "eventType": "windows_update_failed",
+      "operator": "exists",
+      "value": "",
+      "required": true
+    },
+    {
+      "signal": "wu_update_title",
+      "source": "event_data",
+      "eventType": "windows_update_failed",
+      "dataField": "updateTitle",
+      "operator": "exists",
+      "value": "",
+      "required": false
+    },
+    {
+      "signal": "wu_hresult",
+      "source": "event_data",
+      "eventType": "windows_update_failed",
+      "dataField": "hresult",
+      "operator": "exists",
+      "value": "",
+      "required": false
+    },
+    {
+      "signal": "wu_hresult_symbol",
+      "source": "event_data",
+      "eventType": "windows_update_failed",
+      "dataField": "hresultSymbol",
+      "operator": "exists",
+      "value": "",
+      "required": false
+    },
+    {
+      "signal": "enrollment_failed",
+      "source": "event_type",
+      "eventType": "enrollment_failed",
+      "operator": "exists",
+      "value": "",
+      "required": false
+    },
+    {
+      "signal": "reboot_pending",
+      "source": "event_data",
+      "eventType": "windows_update_reboot_pending",
+      "dataField": "exists",
+      "operator": "equals",
+      "value": "true",
+      "required": false
+    }
+  ],
+  "confidenceFactors": [
+    { "signal": "enrollment_failed", "condition": "exists", "weight": 20 },
+    { "signal": "reboot_pending", "condition": "exists", "weight": 10 }
+  ],
+  "explanation": "A Windows Update failed to install during enrollment: **{{updateTitle}}** (error {{hresult}} {{hresultSymbol}}). Windows can install quality/cumulative updates during OOBE (the \"Getting updates\" screen and the ESP \"Install Windows quality updates during OOBE\" option). When one of these fails mid-enrollment it can leave the device in an inconsistent state, force an unexpected reboot, or block the Enrollment Status Page — a failure mode that is otherwise only discoverable by deep manual digging on the device.",
+  "remediation": [
+    {
+      "title": "Investigate the failed update",
+      "steps": [
+        "Decode the HRESULT ({{hresult}}) against the Windows Update error reference to identify the failure class (WU agent, CBS/servicing, or network).",
+        "Check whether the same KB fails on other devices — a broadly failing cumulative update points at a servicing-stack or content issue rather than a single device.",
+        "Consider whether Windows Update during OOBE should be deferred (Autopilot ESP setting / update ring) until the problematic update is superseded.",
+        "Confirm the device reached the desktop despite the failure; a failed OOBE update does not always fail the enrollment but frequently correlates with ESP delays."
+      ]
+    }
+  ],
+  "relatedDocs": [
+    {
+      "title": "Windows Update error reference",
+      "url": "https://learn.microsoft.com/windows/deployment/update/windows-update-error-reference"
+    }
+  ],
+  "markSessionAsFailedDefault": false,
+  "tags": ["device", "windows-update", "oobe", "servicing"]
+}

@@ -18,10 +18,38 @@ namespace AutopilotMonitor.Functions.Services
         private readonly ILogger<GatherRuleService> _logger;
         private bool _seeded = false;
 
+        // Cached set of currently-shipped built-in gather rule IDs from
+        // <see cref="BuiltInGatherRules.GetAll"/>. Used by the runtime sunset filter in
+        // <see cref="GetAllRulesForTenantAsync"/> to hide rules whose code definition has been
+        // removed but whose DB row hasn't been tombstoned yet (sunset GC may still be retrying).
+        // Mirrors AnalyzeRuleService.LiveCatalogIds — same lazy-cache rationale (GetAll()
+        // re-deserialises the embedded JSON on every call).
+        private HashSet<string>? _liveCatalogIds;
+        private readonly object _liveCatalogLock = new();
+
         public GatherRuleService(IRuleRepository ruleRepo, ILogger<GatherRuleService> logger)
         {
             _ruleRepo = ruleRepo;
             _logger = logger;
+        }
+
+        /// <summary>
+        /// Lazy accessor for the currently-shipped built-in gather rule ID set. See
+        /// AnalyzeRuleService.LiveCatalogIds for the caching rationale.
+        /// </summary>
+        private HashSet<string> LiveCatalogIds
+        {
+            get
+            {
+                if (_liveCatalogIds != null) return _liveCatalogIds;
+                lock (_liveCatalogLock)
+                {
+                    _liveCatalogIds ??= BuiltInGatherRules.GetAll()
+                        .Select(r => r.RuleId)
+                        .ToHashSet(StringComparer.Ordinal);
+                }
+                return _liveCatalogIds;
+            }
         }
 
         /// <summary>
@@ -54,8 +82,23 @@ namespace AutopilotMonitor.Functions.Services
 
             // Apply tenant state overrides to global rules.
             // MarkSessionAsFailed is analyze-rule-only; gather rules ignore it.
+            //
+            // Runtime sunset filter (mirrors AnalyzeRuleService): a built-in / community rule
+            // removed from the code catalog stays in the global table until the sunset GC
+            // tombstones it. If the GC is mid-retry, a surviving RuleState{Enabled=true} would
+            // re-enable the rule via the override below — the "resurrected zombie" the sunset
+            // path prevents. Hide rules whose code definition is gone regardless of any override;
+            // the DB row stays so the next seed cycle still finds it in the sunset diff.
+            var liveCatalog = LiveCatalogIds;
             foreach (var rule in globalRules)
             {
+                // GitHub-ahead rows (reseeded, not yet in this binary's catalog) are exempt — they are
+                // legitimately present, not sunset-pending, so the catalog filter must not hide them.
+                if ((rule.IsBuiltIn || rule.IsCommunity)
+                    && !liveCatalog.Contains(rule.RuleId)
+                    && !RuleProvenance.IsGitHubAhead(rule.Provenance))
+                    continue; // sunset-pending: definition removed, GC not yet completed
+
                 if (ruleStates.TryGetValue(rule.RuleId, out var state))
                     rule.Enabled = state.Enabled;
                 mergedRules.Add(rule);
@@ -132,25 +175,103 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Re-imports all built-in gather rules into the global partition.
-        /// Deletes old global built-in rules and writes current code definitions.
-        /// Tenant RuleStates are preserved.
+        /// Drives the sunset sequence for a single built-in / community gather rule that is no
+        /// longer in the code catalog. Mirror of <c>AnalyzeRuleService.ProcessSunsetRuleAsync</c>
+        /// (minus the analyze-only MarkSessionAsFailedDefault): three ordered steps with strict
+        /// "later step requires earlier success" semantics so a partial failure can never leave a
+        /// tenant's enabled/disabled preference pointing at a resurrected rule.
+        /// <list type="number">
+        ///   <item><b>Safe-state</b>: re-write the global row with <c>Enabled=false</c>.</item>
+        ///   <item><b>Orphan GC</b>: delete every per-tenant <c>RuleState</c> row for the ruleId
+        ///     (shared RuleStates table, keyed by ruleId). Skipped if safe-state failed.</item>
+        ///   <item><b>Tombstone</b>: delete the global rule row. Skipped if GC reported failures,
+        ///     so the rule stays in the sunset diff for the next cycle's retry.</item>
+        /// </list>
         /// </summary>
-        public async Task<(int deleted, int written)> ReseedBuiltInRulesAsync()
+        public async Task<(SunsetOutcome outcome, int orphanStatesGcd)> ProcessSunsetGatherRuleAsync(GatherRule rule)
+        {
+            // Step 1: safe-state. Neutralise the global default first so any orphan state we fail
+            // to clean below is harmless.
+            rule.Enabled = false;
+            rule.UpdatedAt = DateTime.UtcNow;
+            var safeStateOk = await _ruleRepo.StoreGatherRuleAsync(rule, "global");
+            if (!safeStateOk)
+            {
+                _logger.LogWarning(
+                    "Sunset safe-state write failed for gather rule {RuleId}; skipping GC + tombstone, will retry next seed cycle",
+                    rule.RuleId);
+                return (SunsetOutcome.SkippedOnSafeStateFailure, 0);
+            }
+
+            // Step 2: orphan-GC (cross-tenant RuleState rows for this ruleId).
+            var (gcDeleted, gcFailed) = await _ruleRepo.DeleteRuleStatesForRuleIdAcrossTenantsAsync(rule.RuleId);
+            if (gcFailed != 0)
+            {
+                _logger.LogWarning(
+                    "Sunset GC partial failure for gather rule {RuleId} (deleted={Deleted}, failed={Failed}); rule is safe-stated (Enabled=false) globally, will retry GC + tombstone next seed cycle",
+                    rule.RuleId, gcDeleted, gcFailed);
+                return (SunsetOutcome.SkippedOnGcFailure, gcDeleted);
+            }
+
+            // Step 3: tombstone.
+            var globalDeleted = await _ruleRepo.DeleteGatherRuleAsync("global", rule.RuleId);
+            if (!globalDeleted)
+            {
+                _logger.LogWarning(
+                    "Sunset GC clean but global delete failed for gather rule {RuleId}; rule is effectively dead (Enabled=false + no tenant overrides) but the row will be retried next seed cycle",
+                    rule.RuleId);
+                return (SunsetOutcome.SkippedOnGlobalDeleteFailure, gcDeleted);
+            }
+
+            return (SunsetOutcome.Completed, gcDeleted);
+        }
+
+        /// <summary>
+        /// Re-imports all built-in gather rules into the global partition. Survivors (still in the
+        /// code catalog) get the legacy delete-then-rewrite; sunset rules (no longer shipped) get
+        /// the retry-safe safe-state → GC → tombstone sequence so per-tenant RuleState orphans are
+        /// cleaned. Mirror of <c>AnalyzeRuleService.ReseedBuiltInRulesAsync</c>. Tenant RuleStates
+        /// for surviving rules are preserved. Returns <c>(deleted, written, orphanStatesGcd)</c>.
+        /// </summary>
+        public async Task<(int deleted, int written, int orphanStatesGcd)> ReseedBuiltInRulesAsync()
         {
             _logger.LogInformation("Reseeding built-in gather rules (full re-import)...");
 
             var existingGlobalRules = await _ruleRepo.GetGatherRulesAsync("global");
+            var builtInRules = BuiltInGatherRules.GetAll();
+            var newCatalogIds = builtInRules.Select(r => r.RuleId).ToHashSet(StringComparer.Ordinal);
+            foreach (var r in builtInRules) r.Provenance = RuleProvenance.Embedded;
+
+            var survivors = existingGlobalRules.Where(r => r.IsBuiltIn && newCatalogIds.Contains(r.RuleId)).ToList();
+            // GitHub-ahead rows are exempt: this embedded reseed is not authoritative for them.
+            var sunset = existingGlobalRules.Where(r => r.IsBuiltIn && !newCatalogIds.Contains(r.RuleId)
+                                                        && !RuleProvenance.IsGitHubAhead(r.Provenance)).ToList();
 
             var deleted = 0;
-            foreach (var rule in existingGlobalRules.Where(r => r.IsBuiltIn))
+
+            // Survivor path: delete then re-write (legacy behaviour).
+            foreach (var rule in survivors)
             {
                 await _ruleRepo.DeleteGatherRuleAsync("global", rule.RuleId);
                 deleted++;
             }
-            _logger.LogInformation($"Deleted {deleted} old global built-in gather rules");
 
-            var builtInRules = BuiltInGatherRules.GetAll();
+            // Sunset path: safe-state -> GC -> tombstone via the shared helper.
+            var orphanStatesGcd = 0;
+            var outcomeCounts = new Dictionary<SunsetOutcome, int>();
+            foreach (var sunsetRule in sunset)
+            {
+                var (outcome, gcd) = await ProcessSunsetGatherRuleAsync(sunsetRule);
+                orphanStatesGcd += gcd;
+                outcomeCounts[outcome] = outcomeCounts.GetValueOrDefault(outcome) + 1;
+                if (outcome == SunsetOutcome.Completed)
+                    deleted++;
+            }
+
+            _logger.LogInformation(
+                "Reseed gather rules: {Deleted} rows deleted, {Survivors} survivors, {Sunset} sunset (outcomes {Outcomes}, orphan states removed={OrphanGcd})",
+                deleted, survivors.Count, sunset.Count, FormatOutcomes(outcomeCounts), orphanStatesGcd);
+
             foreach (var rule in builtInRules)
             {
                 await _ruleRepo.StoreGatherRuleAsync(rule, "global");
@@ -159,7 +280,7 @@ namespace AutopilotMonitor.Functions.Services
 
             _seeded = false;
 
-            return (deleted, builtInRules.Count);
+            return (deleted, builtInRules.Count, orphanStatesGcd);
         }
 
         /// <summary>
@@ -172,6 +293,11 @@ namespace AutopilotMonitor.Functions.Services
 
             var existingRules = await _ruleRepo.GetGatherRulesAsync("global");
             var builtInRules = BuiltInGatherRules.GetAll();
+            var newCatalogIds = builtInRules.Select(r => r.RuleId).ToHashSet(StringComparer.Ordinal);
+            // Everything the embedded binary ships is embedded-provenance. This is what lets the
+            // sunset tell "removed from the binary" apart from a GitHub-ahead reseed, and reclaims a
+            // formerly-GitHub-ahead rule once the binary catches up.
+            foreach (var r in builtInRules) r.Provenance = RuleProvenance.Embedded;
 
             if (existingRules.Count == 0)
             {
@@ -191,13 +317,19 @@ namespace AutopilotMonitor.Functions.Services
                 {
                     if (existingLookup.TryGetValue(rule.RuleId, out var existing))
                     {
-                        if (existing.Version != rule.Version
-                            || existing.Target != rule.Target
-                            || existing.Description != rule.Description
-                            || existing.Title != rule.Title
-                            || existing.CollectorType != rule.CollectorType
-                            || existing.Trigger != rule.Trigger
-                            || existing.TriggerPhase != rule.TriggerPhase)
+                        var contentDiffers = !ContentEquivalent(existing, rule);
+
+                        // Protect a GitHub-ahead row the binary hasn't caught up to yet: a GitHub
+                        // reseed may have shipped a NEWER version/content for an id the (older) binary
+                        // still has embedded. Do NOT overwrite it with the binary's stale definition.
+                        // It stays GitHub-ahead until a redeploy makes the embedded content match.
+                        if (RuleProvenance.IsGitHubAhead(existing.Provenance) && contentDiffers)
+                            continue;
+
+                        // Write on a real content change, OR to reclaim a now-matching GitHub-ahead
+                        // row back to embedded provenance (content equal, only provenance differs).
+                        if (contentDiffers
+                            || !RuleProvenance.AreEquivalent(existing.Provenance, rule.Provenance))
                         {
                             await _ruleRepo.StoreGatherRuleAsync(rule, "global");
                             updated++;
@@ -215,9 +347,73 @@ namespace AutopilotMonitor.Functions.Services
                 {
                     _logger.LogInformation($"Updated {updated} built-in gather rules from code definitions");
                 }
+
+                // Sunset detection: built-in rules that existed in the DB but are no longer in the
+                // code catalog. ProcessSunsetGatherRuleAsync runs safe-state -> GC -> tombstone with
+                // strict ordering. Any non-Completed outcome means work remains — leave _seeded=false
+                // so the next GetAllRulesForTenantAsync retries without a process restart. Mirrors
+                // AnalyzeRuleService.EnsureBuiltInRulesSeededAsync.
+                var sunsetRules = existingRules
+                    .Where(r => r.IsBuiltIn && !newCatalogIds.Contains(r.RuleId)
+                                && !RuleProvenance.IsGitHubAhead(r.Provenance))
+                    .ToList();
+
+                var allSunsetsClean = true;
+                if (sunsetRules.Count > 0)
+                {
+                    var orphanStatesGcd = 0;
+                    var outcomeCounts = new Dictionary<SunsetOutcome, int>();
+                    foreach (var sunset in sunsetRules)
+                    {
+                        var (outcome, gcd) = await ProcessSunsetGatherRuleAsync(sunset);
+                        orphanStatesGcd += gcd;
+                        outcomeCounts[outcome] = outcomeCounts.GetValueOrDefault(outcome) + 1;
+                        if (outcome != SunsetOutcome.Completed)
+                            allSunsetsClean = false;
+                    }
+                    _logger.LogInformation(
+                        "Sunset {RuleCount} built-in gather rule(s); orphan RuleState rows GC'd {OrphanCount}; outcomes {Outcomes}",
+                        sunsetRules.Count, orphanStatesGcd, FormatOutcomes(outcomeCounts));
+                }
+
+                if (!allSunsetsClean)
+                {
+                    _logger.LogInformation("One or more sunset gather rules did not complete; leaving _seeded=false so the next GetAllRulesForTenantAsync retries.");
+                    return;
+                }
             }
 
             _seeded = true;
+        }
+
+        /// <summary>
+        /// Compact log-friendly rendering of the sunset-outcome histogram. Mirror of
+        /// AnalyzeRuleService.FormatOutcomes.
+        /// </summary>
+        private static string FormatOutcomes(Dictionary<SunsetOutcome, int> counts)
+        {
+            return string.Join(", ",
+                Enum.GetValues<SunsetOutcome>()
+                    .Where(o => counts.GetValueOrDefault(o) > 0)
+                    .Select(o => $"{o}={counts[o]}"));
+        }
+
+        /// <summary>
+        /// True when two gather rule definitions are the same content (ignoring provenance / tenant
+        /// state / timestamps) — the seed's "did the definition change?" test. Also used by the
+        /// GitHub reseed to decide whether a fetched rule is already shipped identically by the
+        /// binary (embedded) or is ahead of it (github). Keeping both sites on ONE comparison is what
+        /// makes the ahead/reclaim handshake consistent.
+        /// </summary>
+        internal static bool ContentEquivalent(GatherRule a, GatherRule b)
+        {
+            return a.Version == b.Version
+                && a.Target == b.Target
+                && a.Description == b.Description
+                && a.Title == b.Title
+                && a.CollectorType == b.CollectorType
+                && a.Trigger == b.Trigger
+                && a.TriggerPhase == b.TriggerPhase;
         }
     }
 }

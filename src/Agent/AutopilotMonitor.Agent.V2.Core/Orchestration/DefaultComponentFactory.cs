@@ -297,6 +297,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     harmlessModernDeploymentEventIds: collectors.ModernDeploymentHarmlessEventIds));
             }
 
+            // Windows Update during OOBE watcher — subscribes to WindowsUpdateClient/Operational and
+            // backfills recent events (OOBE quality updates run before the agent starts). Surfaces
+            // quality/cumulative updates installing/failing DURING enrollment — otherwise invisible.
+            if (collectors.WindowsUpdateWatcherEnabled)
+            {
+                hosts.Add(new WindowsUpdateWatcherHost(
+                    sessionId: sessionId,
+                    tenantId: tenantId,
+                    logger: logger,
+                    ingress: ingress,
+                    clock: clock,
+                    targetedEventIds: collectors.WindowsUpdateTargetedEventIds,
+                    backfillLookbackMinutes: collectors.WindowsUpdateBackfillLookbackMinutes,
+                    stateDirectory: _stateDirectory));
+            }
+
             // ----- Peripheral hosts (event-only; driven by remote-config toggles) --------------
 
             // V1 parity (PeriodicCollectorManager) — combine Performance + AgentSelfMetrics under

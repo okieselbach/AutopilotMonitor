@@ -284,6 +284,55 @@ public class AnalyzeRuleServiceSunsetTests
         Assert.Equal(2, orphanStatesGcd);
     }
 
+    [Fact]
+    public async Task GitHubAhead_rule_is_not_sunset_and_stays_visible()
+    {
+        // A rule reseeded from GitHub ahead of this binary (Provenance=github, not in the embedded
+        // catalog) must NOT be sunset by the embedded auto-seed, and must NOT be hidden by the
+        // runtime filter — it is legitimately present, just not yet shipped in the binary.
+        var tenantId = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+        var rig = new SunsetRig(SunsetRuleId, gcDeleted: 0, gcFailed: 0, provenance: RuleProvenance.GitHubAhead);
+
+        var service = new AnalyzeRuleService(rig.Repo.Object, NullLogger<AnalyzeRuleService>.Instance);
+        var merged = await service.GetAllRulesForTenantAsync(tenantId);
+
+        Assert.DoesNotContain(SunsetRuleId, rig.GcCalls);
+        Assert.DoesNotContain(SunsetRuleId, rig.DeleteAnalyzeCalls);
+        Assert.Contains(merged, r => r.RuleId == SunsetRuleId);
+    }
+
+    [Fact]
+    public async Task GitHubAhead_content_update_on_existing_id_survives_embedded_seed()
+    {
+        // Codex round 2: GitHub reseeded a NEWER version of an EXISTING built-in id while the binary
+        // is still old (Provenance=github + content differs). The embedded seed must NOT overwrite it
+        // with the older embedded definition — it stays until a redeploy makes the content match.
+        var tenantId = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+        var liveId = BuiltInAnalyzeRules.GetAll().First().RuleId;
+        var rig = new SunsetRig(liveId, gcDeleted: 0, gcFailed: 0,
+            provenance: RuleProvenance.GitHubAhead, divergeContent: true);
+
+        var service = new AnalyzeRuleService(rig.Repo.Object, NullLogger<AnalyzeRuleService>.Instance);
+        await service.GetAllRulesForTenantAsync(tenantId);
+
+        Assert.DoesNotContain(liveId, rig.SafeStateWrites); // NOT overwritten by the older binary def
+    }
+
+    [Fact]
+    public async Task GitHubAhead_rule_is_reclaimed_to_embedded_once_binary_ships_it()
+    {
+        // A github-provenance row whose id IS in the embedded catalog (binary caught up) is rewritten
+        // with embedded provenance via the update-diff, so the embedded sunset manages it again.
+        var tenantId = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+        var liveId = BuiltInAnalyzeRules.GetAll().First().RuleId;
+        var rig = new SunsetRig(liveId, gcDeleted: 0, gcFailed: 0, provenance: RuleProvenance.GitHubAhead);
+
+        var service = new AnalyzeRuleService(rig.Repo.Object, NullLogger<AnalyzeRuleService>.Instance);
+        await service.GetAllRulesForTenantAsync(tenantId);
+
+        Assert.Contains(liveId, rig.SafeStateWrites); // rewritten (reclaimed embedded) via update-diff
+    }
+
     // ===== Helpers =====
 
     /// <summary>
@@ -304,7 +353,8 @@ public class AnalyzeRuleServiceSunsetTests
         private (int gcDeleted, int gcFailed) _gcReturn;
 
         public SunsetRig(string sunsetRuleId, int gcDeleted, int gcFailed,
-                         bool safeStateOk = true, bool globalDeleteOk = true)
+                         bool safeStateOk = true, bool globalDeleteOk = true, string? provenance = null,
+                         bool divergeContent = false)
         {
             _gcReturn = (gcDeleted, gcFailed);
 
@@ -324,6 +374,12 @@ public class AnalyzeRuleServiceSunsetTests
                     Enabled = true,
                 });
             }
+            var targetRow = existingInDb.First(r => r.RuleId == sunsetRuleId);
+            if (provenance != null)
+                targetRow.Provenance = provenance;
+            // Simulate a GitHub reseed that shipped a newer version than the binary for this id.
+            if (divergeContent)
+                targetRow.Version = (targetRow.Version ?? "1.0.0") + "-github";
 
             Repo = new Mock<IRuleRepository>();
             Repo.Setup(r => r.GetAnalyzeRulesAsync("global")).ReturnsAsync(existingInDb);

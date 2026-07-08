@@ -19,25 +19,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
                 return data;
 
             // Determine hive
-            RegistryKey hive = null;
+            RegistryHive hive;
             string subPath = path;
 
             if (path.StartsWith("HKLM\\", StringComparison.OrdinalIgnoreCase) ||
                 path.StartsWith("HKEY_LOCAL_MACHINE\\", StringComparison.OrdinalIgnoreCase))
             {
-                hive = Registry.LocalMachine;
+                hive = RegistryHive.LocalMachine;
                 subPath = path.Substring(path.IndexOf('\\') + 1);
             }
             else if (path.StartsWith("HKCU\\", StringComparison.OrdinalIgnoreCase) ||
                      path.StartsWith("HKEY_CURRENT_USER\\", StringComparison.OrdinalIgnoreCase))
             {
-                hive = Registry.CurrentUser;
+                hive = RegistryHive.CurrentUser;
                 subPath = path.Substring(path.IndexOf('\\') + 1);
             }
             else
             {
                 // Default to HKLM
-                hive = Registry.LocalMachine;
+                hive = RegistryHive.LocalMachine;
             }
 
             // Guard: only allow enrollment-relevant registry paths
@@ -59,9 +59,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
             rule.Parameters?.TryGetValue("severityIfExists", out severityIfExists);
             rule.Parameters?.TryGetValue("severityIfNotExists", out severityIfNotExists);
 
+            // Optional: suppress emission entirely when the key/value does NOT exist. For
+            // existence-signal rules whose OutputEventType is a positive assertion (e.g.
+            // windows_update_reboot_pending), emitting a "not found" event would be misleading on
+            // the timeline AND would false-positive any analyze rule matching on event_type
+            // existence. When set, an absent key returns an empty result → the executor emits nothing.
+            string emitOnlyIfExistsStr = null;
+            rule.Parameters?.TryGetValue("emitOnlyIfExists", out emitOnlyIfExistsStr);
+            bool emitOnlyIfExists = string.Equals(emitOnlyIfExistsStr, "true", StringComparison.OrdinalIgnoreCase);
+
+            // Default to the native 64-bit view (like Security/TenantIdResolver): a net48 AnyCPU agent
+            // can resolve to a 32-bit process at runtime, where HKLM\SOFTWARE reads are
+            // WOW6432Node-redirected and would silently miss native keys such as CBS RebootPending.
+            // Optional registryView param ("32" | "64" | "default") overrides.
+            var registryView = ResolveRegistryView(rule);
+
             try
             {
-                using (var key = hive.OpenSubKey(subPath, false))
+                using (var baseKey = RegistryKey.OpenBaseKey(hive, registryView))
+                using (var key = baseKey.OpenSubKey(subPath, false))
                 {
                     if (key == null)
                     {
@@ -77,7 +93,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
                                 var parentSubPath = subPath.Substring(0, lastBackslash);
                                 var inferredValueName = subPath.Substring(lastBackslash + 1);
 
-                                using (var parentKey = hive.OpenSubKey(parentSubPath, false))
+                                using (var parentKey = baseKey.OpenSubKey(parentSubPath, false))
                                 {
                                     if (parentKey != null)
                                     {
@@ -94,6 +110,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
                                 }
                             }
                         }
+
+                        // Suppress the "not found" event when the rule only wants a positive signal.
+                        if (emitOnlyIfExists)
+                            return new Dictionary<string, object>(); // empty → executor emits nothing
 
                         data["exists"] = false;
                         data["path"] = path;
@@ -151,6 +171,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
             }
 
             return data;
+        }
+
+        /// <summary>
+        /// Resolves the registry view. Defaults to <see cref="RegistryView.Registry64"/> so HKLM
+        /// reads are bitness-independent (see the class usage note). A rule can opt into the 32-bit
+        /// (WOW6432Node) or process-default view via the <c>registryView</c> parameter.
+        /// </summary>
+        private static RegistryView ResolveRegistryView(GatherRule rule)
+        {
+            string viewStr = null;
+            rule.Parameters?.TryGetValue("registryView", out viewStr);
+
+            if (string.Equals(viewStr, "32", StringComparison.OrdinalIgnoreCase))
+                return RegistryView.Registry32;
+            if (string.Equals(viewStr, "default", StringComparison.OrdinalIgnoreCase))
+                return RegistryView.Default;
+            // "64" or unspecified → native 64-bit view.
+            return RegistryView.Registry64;
         }
     }
 }

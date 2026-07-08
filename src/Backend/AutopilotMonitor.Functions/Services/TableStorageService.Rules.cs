@@ -150,6 +150,7 @@ namespace AutopilotMonitor.Functions.Services
                     ["Enabled"] = rule.Enabled,
                     ["IsBuiltIn"] = rule.IsBuiltIn,
                     ["IsCommunity"] = rule.IsCommunity,
+                    ["Provenance"] = rule.Provenance ?? string.Empty,
                     ["CollectorType"] = rule.CollectorType ?? string.Empty,
                     ["Target"] = rule.Target ?? string.Empty,
                     ["ParametersJson"] = JsonConvert.SerializeObject(rule.Parameters ?? new Dictionary<string, string>()),
@@ -234,6 +235,8 @@ namespace AutopilotMonitor.Functions.Services
                 Enabled = entity.GetBoolean("Enabled") ?? true,
                 IsBuiltIn = entity.GetBoolean("IsBuiltIn") ?? false,
                 IsCommunity = entity.GetBoolean("IsCommunity") ?? false,
+                // Absent column (pre-existing rows) → null → treated as "embedded" by RuleProvenance.
+                Provenance = string.IsNullOrEmpty(entity.GetString("Provenance")) ? null : entity.GetString("Provenance"),
                 CollectorType = entity.GetString("CollectorType") ?? string.Empty,
                 Target = entity.GetString("Target") ?? string.Empty,
                 Parameters = DeserializeJson<Dictionary<string, string>>(entity.GetString("ParametersJson")),
@@ -435,6 +438,7 @@ namespace AutopilotMonitor.Functions.Services
                     ["Enabled"] = rule.Enabled,
                     ["IsBuiltIn"] = rule.IsBuiltIn,
                     ["IsCommunity"] = rule.IsCommunity,
+                    ["Provenance"] = rule.Provenance ?? string.Empty,
                     ["Trigger"] = rule.Trigger ?? "single",
                     ["PreconditionsJson"] = JsonConvert.SerializeObject(rule.Preconditions ?? new List<RulePrecondition>()),
                     ["ConditionsJson"] = JsonConvert.SerializeObject(rule.Conditions ?? new List<RuleCondition>()),
@@ -569,6 +573,8 @@ namespace AutopilotMonitor.Functions.Services
                 Enabled = entity.GetBoolean("Enabled") ?? true,
                 IsBuiltIn = entity.GetBoolean("IsBuiltIn") ?? false,
                 IsCommunity = entity.GetBoolean("IsCommunity") ?? false,
+                // Absent column (pre-existing rows) → null → treated as "embedded" by RuleProvenance.
+                Provenance = string.IsNullOrEmpty(entity.GetString("Provenance")) ? null : entity.GetString("Provenance"),
                 Trigger = entity.GetString("Trigger") ?? "single",
                 Preconditions = DeserializeJson<List<RulePrecondition>>(entity.GetString("PreconditionsJson")),
                 Conditions = DeserializeJson<List<RuleCondition>>(entity.GetString("ConditionsJson")),

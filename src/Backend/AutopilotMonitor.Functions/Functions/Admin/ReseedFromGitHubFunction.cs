@@ -63,15 +63,15 @@ namespace AutopilotMonitor.Functions.Functions.Admin
 
                 _logger.LogInformation($"Reseed from GitHub triggered by Global Admin {upn}, type={typeParam}");
 
-                var gatherResult = new { deleted = 0, written = 0 };
+                var gatherResult = new { deleted = 0, written = 0, orphanStatesGcd = 0, sunsetSkipped = 0 };
                 var analyzeResult = new { deleted = 0, written = 0, orphanStatesGcd = 0, sunsetSkipped = 0 };
                 var imeResult = new { deleted = 0, written = 0 };
 
                 if (typeParam == "all" || typeParam == "gather")
                 {
                     var rules = await _gitHubRepo.FetchGatherRulesAsync();
-                    var (d, w) = await ReseedGatherAsync(rules);
-                    gatherResult = new { deleted = d, written = w };
+                    var (d, w, gcd, skipped) = await ReseedGatherAsync(rules);
+                    gatherResult = new { deleted = d, written = w, orphanStatesGcd = gcd, sunsetSkipped = skipped };
                 }
 
                 if (typeParam == "all" || typeParam == "analyze")
@@ -135,14 +135,46 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             }
         }
 
-        private async Task<(int deleted, int written)> ReseedGatherAsync(List<AutopilotMonitor.Shared.Models.GatherRule> rules)
+        private async Task<(int deleted, int written, int orphanStatesGcd, int sunsetSkipped)> ReseedGatherAsync(List<AutopilotMonitor.Shared.Models.GatherRule> rules)
         {
             var existing = await _ruleRepo.GetGatherRulesAsync("global");
+            var newCatalogIds = rules.Select(r => r.RuleId).ToHashSet(System.StringComparer.Ordinal);
+            // A rule the deployed binary already ships IDENTICALLY is embedded-provenance; one whose
+            // id the binary lacks OR whose content the binary hasn't caught up to is github-ahead →
+            // exempt from the embedded catalog sunset/filter until a redeploy makes the embedded
+            // content match. Content check (not just id) so a GitHub version bump on an existing id
+            // is protected too. See RuleProvenance.
+            var embeddedById = AutopilotMonitor.Functions.Services.BuiltInGatherRules.GetAll()
+                .ToDictionary(r => r.RuleId, r => r, System.StringComparer.Ordinal);
+
+            // Split existing built-in / community rows into survivors (in new catalog → re-imported
+            // below) and sunsets (NOT in new catalog → orphan-state GC first, global delete only on
+            // clean GC). Mirrors ReseedAnalyzeAsync / GatherRuleService.EnsureBuiltInRulesSeededAsync
+            // so every reseed path leaves the same DB invariants and partial failures retry.
+            var survivors = existing.Where(r => (r.IsBuiltIn || r.IsCommunity) && newCatalogIds.Contains(r.RuleId)).ToList();
+            var sunset = existing.Where(r => (r.IsBuiltIn || r.IsCommunity) && !newCatalogIds.Contains(r.RuleId)).ToList();
+
             var deleted = 0;
-            foreach (var rule in existing.Where(r => r.IsBuiltIn || r.IsCommunity))
+
+            // Survivor path: delete then re-write (legacy behaviour).
+            foreach (var rule in survivors)
             {
                 await _ruleRepo.DeleteGatherRuleAsync("global", rule.RuleId);
                 deleted++;
+            }
+
+            // Sunset path: shared helper on GatherRuleService — same safe-state -> GC -> tombstone
+            // ordering as the in-process EnsureSeed and ReseedBuiltIn paths.
+            var orphanStatesGcd = 0;
+            var sunsetSkipped = 0;
+            foreach (var sunsetRule in sunset)
+            {
+                var (outcome, gcd) = await _gatherRuleService.ProcessSunsetGatherRuleAsync(sunsetRule);
+                orphanStatesGcd += gcd;
+                if (outcome == AutopilotMonitor.Functions.Services.SunsetOutcome.Completed)
+                    deleted++;
+                else
+                    sunsetSkipped++;
             }
 
             foreach (var rule in rules)
@@ -150,19 +182,32 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 // Community rules keep IsCommunity=true from JSON; all others are built-in
                 if (!rule.IsCommunity)
                     rule.IsBuiltIn = true;
+                rule.Provenance = (embeddedById.TryGetValue(rule.RuleId, out var binaryGather)
+                        && AutopilotMonitor.Functions.Services.GatherRuleService.ContentEquivalent(binaryGather, rule))
+                    ? AutopilotMonitor.Shared.Models.RuleProvenance.Embedded
+                    : AutopilotMonitor.Shared.Models.RuleProvenance.GitHubAhead;
                 rule.CreatedAt = DateTime.UtcNow;
                 rule.UpdatedAt = DateTime.UtcNow;
                 await _ruleRepo.StoreGatherRuleAsync(rule, "global");
             }
 
-            _logger.LogInformation($"GitHub reseed gather: {deleted} deleted, {rules.Count} written");
-            return (deleted, rules.Count);
+            _logger.LogInformation(
+                "GitHub reseed gather: {Deleted} deleted, {Written} written, {OrphanCount} orphan per-tenant RuleState(s) cleaned across {SunsetTotal} sunset rule(s) ({Skipped} skipped on failure for retry)",
+                deleted, rules.Count, orphanStatesGcd, sunset.Count, sunsetSkipped);
+            return (deleted, rules.Count, orphanStatesGcd, sunsetSkipped);
         }
 
         private async Task<(int deleted, int written, int orphanStatesGcd, int sunsetSkipped)> ReseedAnalyzeAsync(List<AutopilotMonitor.Shared.Models.AnalyzeRule> rules)
         {
             var existing = await _ruleRepo.GetAnalyzeRulesAsync("global");
             var newCatalogIds = rules.Select(r => r.RuleId).ToHashSet(System.StringComparer.Ordinal);
+            // A rule the deployed binary already ships IDENTICALLY is embedded-provenance; one whose
+            // id the binary lacks OR whose content the binary hasn't caught up to is github-ahead →
+            // exempt from the embedded catalog sunset/filter until a redeploy makes the embedded
+            // content match. Content check (not just id) so a GitHub version bump on an existing id
+            // is protected too. See RuleProvenance.
+            var embeddedById = AutopilotMonitor.Functions.Services.BuiltInAnalyzeRules.GetAll()
+                .ToDictionary(r => r.RuleId, r => r, System.StringComparer.Ordinal);
 
             // Split existing built-in / community rows into survivors (in new catalog
             // → re-imported below) and sunsets (NOT in new catalog → orphan-state GC
@@ -205,6 +250,10 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 // Community rules keep IsCommunity=true from JSON; all others are built-in
                 if (!rule.IsCommunity)
                     rule.IsBuiltIn = true;
+                rule.Provenance = (embeddedById.TryGetValue(rule.RuleId, out var binaryAnalyze)
+                        && AutopilotMonitor.Functions.Services.AnalyzeRuleService.ContentEquivalent(binaryAnalyze, rule))
+                    ? AutopilotMonitor.Shared.Models.RuleProvenance.Embedded
+                    : AutopilotMonitor.Shared.Models.RuleProvenance.GitHubAhead;
                 rule.CreatedAt = DateTime.UtcNow;
                 rule.UpdatedAt = DateTime.UtcNow;
                 await _ruleRepo.StoreAnalyzeRuleAsync(rule, "global");

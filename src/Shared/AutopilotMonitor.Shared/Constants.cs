@@ -357,6 +357,20 @@ namespace AutopilotMonitor.Shared
             public const string ModernDeploymentWarning   = "modern_deployment_warning";  // Level 3 (Warning)
             public const string ModernDeploymentError     = "modern_deployment_error";    // Level 1-2 (Critical/Error)
 
+            // Windows Update during OOBE (WindowsUpdateTracker — Microsoft-Windows-WindowsUpdateClient/
+            // Operational live watcher + startup backfill). Surfaces quality/cumulative updates that
+            // install DURING enrollment — a blind spot no other tool (Intune console included) covers.
+            // A cumulative update installing mid-OOBE can break the enrollment (r/Intune KB5095189) and
+            // is becoming more common with the ESP "Install Windows quality updates during OOBE" feature.
+            // WU Client EventIDs: 19=success, 20=failure (carries HRESULT), 43=install started, 44=download started.
+            public const string WindowsUpdateSucceeded    = "windows_update_succeeded";      // WU Client EventID 19
+            public const string WindowsUpdateFailed       = "windows_update_failed";         // WU Client EventID 20 — Data.hresult(hex)+hresultSymbol(decoded)+updateTitle+updateGuid
+            public const string WindowsUpdateStarted      = "windows_update_started";        // WU Client EventID 43 (install) / 44 (download) — Debug context
+            // Corroboration snapshots (gather rules, config-delivered). Secondary evidence that an
+            // update landed during enrollment even when the watcher's backfill window missed it.
+            public const string WindowsUpdateRebootPending = "windows_update_reboot_pending"; // CBS / WU Auto-Update pending-reboot regkey snapshot
+            public const string WindowsUpdateHistory       = "windows_update_history";        // Get-HotFix installed-updates snapshot (QFE-registered only)
+
             // TEMPORARY: shadow SM rollout verification — remove when CompletionStateMachine is promoted to primary
             public const string ShadowDiscrepancy         = "shadow_discrepancy";
 

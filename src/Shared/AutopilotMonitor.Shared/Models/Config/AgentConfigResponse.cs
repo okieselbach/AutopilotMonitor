@@ -424,6 +424,39 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public int ModernDeploymentBackfillLookbackMinutes { get; set; } = 30;
 
+        // -----------------------------------------------------------------------
+        // Windows Update during OOBE watcher (WindowsUpdateClient/Operational)
+        // -----------------------------------------------------------------------
+
+        /// <summary>
+        /// Master switch for the Windows Update watcher. When enabled the agent subscribes to
+        /// <c>Microsoft-Windows-WindowsUpdateClient/Operational</c> and forwards update
+        /// install/failure events (windows_update_succeeded / _failed / _started) so quality
+        /// and cumulative updates that run DURING enrollment become visible with evidence.
+        /// Default: true.
+        /// </summary>
+        public bool WindowsUpdateWatcherEnabled { get; set; } = true;
+
+        /// <summary>
+        /// WindowsUpdateClient/Operational EventIDs to capture. Kept configurable so additional
+        /// IDs can be enabled after real-device validation WITHOUT an agent redeploy. Verified set:
+        /// 19=install success, 20=install failure (carries HRESULT), 43=install started, 44=download
+        /// started. IDs whose semantics are still unverified (25/26/31, restart-required 21 vs 41)
+        /// are intentionally excluded until confirmed on a device trace.
+        /// Default: [19, 20, 43, 44].
+        /// </summary>
+        public int[] WindowsUpdateTargetedEventIds { get; set; } = new[] { 19, 20, 43, 44 };
+
+        /// <summary>
+        /// Lookback window in minutes for the Windows Update backfill scan on startup. OOBE quality
+        /// updates run at the early "Getting updates" screen — often BEFORE the agent starts — but
+        /// the WindowsUpdateClient/Operational .evtx persists across the mid-OOBE reboot, so a
+        /// generous backfill catches them. Set higher than the ModernDeployment backfill because the
+        /// update scan/download can begin well before MDM enrollment. 0 = backfill disabled.
+        /// Default: 60 minutes.
+        /// </summary>
+        public int WindowsUpdateBackfillLookbackMinutes { get; set; } = 60;
+
         /// <summary>
         /// Creates default collector configuration
         /// </summary>

@@ -119,6 +119,13 @@ export const EVENT_TYPES_CATALOG = {
     'modern_deployment_error',
     'configmgr_client_detected',
   ],
+  windows_update_events: [
+    'windows_update_succeeded',
+    'windows_update_failed',
+    'windows_update_started',
+    'windows_update_reboot_pending',
+    'windows_update_history',
+  ],
   lifecycle_events: [
     'agent_started',
     'agent_shutting_down',

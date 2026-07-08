@@ -187,11 +187,15 @@ namespace AutopilotMonitor.Functions.Services
             var liveCatalog = LiveCatalogIds;
             foreach (var rule in globalRules)
             {
-                if ((rule.IsBuiltIn || rule.IsCommunity) && !liveCatalog.Contains(rule.RuleId))
+                if ((rule.IsBuiltIn || rule.IsCommunity)
+                    && !liveCatalog.Contains(rule.RuleId)
+                    && !RuleProvenance.IsGitHubAhead(rule.Provenance))
                 {
                     // Sunset-pending: code catalog no longer ships this rule. Hide it
                     // so a surviving tenant override can't keep it firing while the
                     // GC retry is in flight. NOT logged on every call — that's noisy.
+                    // GitHub-ahead rows (reseeded, not yet in this binary) are exempt — they are
+                    // legitimately present, not sunset-pending.
                     continue;
                 }
 
@@ -378,8 +382,12 @@ namespace AutopilotMonitor.Functions.Services
             // legacy "delete then re-write" treatment (preserves UpdatedAt etc.).
             // Sunset:   existing built-ins NOT in the new catalog — these get the
             // retry-safe "GC first, global delete on clean GC" treatment.
+            foreach (var r in builtInRules) r.Provenance = RuleProvenance.Embedded;
+
             var survivors = existingGlobalRules.Where(r => r.IsBuiltIn && newCatalogIds.Contains(r.RuleId)).ToList();
-            var sunset = existingGlobalRules.Where(r => r.IsBuiltIn && !newCatalogIds.Contains(r.RuleId)).ToList();
+            // GitHub-ahead rows are exempt: this embedded reseed is not authoritative for them.
+            var sunset = existingGlobalRules.Where(r => r.IsBuiltIn && !newCatalogIds.Contains(r.RuleId)
+                                                        && !RuleProvenance.IsGitHubAhead(r.Provenance)).ToList();
 
             var deleted = 0;
 
@@ -432,6 +440,10 @@ namespace AutopilotMonitor.Functions.Services
             var existingRules = await _ruleRepo.GetAnalyzeRulesAsync("global");
             var builtInRules = BuiltInAnalyzeRules.GetAll();
             var newCatalogIds = builtInRules.Select(r => r.RuleId).ToHashSet(StringComparer.Ordinal);
+            // Everything the embedded binary ships is embedded-provenance — lets the sunset tell
+            // "removed from the binary" apart from a GitHub-ahead reseed, and reclaims a formerly
+            // GitHub-ahead rule once the binary catches up. See RuleProvenance.
+            foreach (var r in builtInRules) r.Provenance = RuleProvenance.Embedded;
 
             if (existingRules.Count == 0)
             {
@@ -451,11 +463,19 @@ namespace AutopilotMonitor.Functions.Services
                 {
                     if (existingLookup.TryGetValue(rule.RuleId, out var existing))
                     {
-                        if (existing.Version != rule.Version
-                            || existing.Title != rule.Title
-                            || existing.Description != rule.Description
-                            || existing.Severity != rule.Severity
-                            || existing.Trigger != rule.Trigger)
+                        var contentDiffers = !ContentEquivalent(existing, rule);
+
+                        // Protect a GitHub-ahead row the binary hasn't caught up to yet: a GitHub
+                        // reseed may have shipped a NEWER version/content for an id the (older) binary
+                        // still has embedded. Do NOT overwrite it with the binary's stale definition.
+                        // It stays GitHub-ahead until a redeploy makes the embedded content match.
+                        if (RuleProvenance.IsGitHubAhead(existing.Provenance) && contentDiffers)
+                            continue;
+
+                        // Write on a real content change, OR to reclaim a now-matching GitHub-ahead
+                        // row back to embedded provenance (content equal, only provenance differs).
+                        if (contentDiffers
+                            || !RuleProvenance.AreEquivalent(existing.Provenance, rule.Provenance))
                         {
                             await _ruleRepo.StoreAnalyzeRuleAsync(rule, "global");
                             updated++;
@@ -481,7 +501,8 @@ namespace AutopilotMonitor.Functions.Services
                 // do — we leave _seeded = false so the next GetAllRulesForTenantAsync
                 // call retries the seed without waiting for a process restart.
                 var sunsetRules = existingRules
-                    .Where(r => r.IsBuiltIn && !newCatalogIds.Contains(r.RuleId))
+                    .Where(r => r.IsBuiltIn && !newCatalogIds.Contains(r.RuleId)
+                                && !RuleProvenance.IsGitHubAhead(r.Provenance))
                     .ToList();
 
                 var allSunsetsClean = true;
@@ -528,6 +549,23 @@ namespace AutopilotMonitor.Functions.Services
                 Enum.GetValues<SunsetOutcome>()
                     .Where(o => counts.GetValueOrDefault(o) > 0)
                     .Select(o => $"{o}={counts[o]}"));
+        }
+
+        /// <summary>
+        /// True when two analyze rule definitions are the same content (ignoring provenance / tenant
+        /// state / timestamps) — the seed's "did the definition change?" test. Also used by the
+        /// GitHub reseed to decide whether a fetched rule is already shipped identically by the binary
+        /// (embedded) or is ahead of it (github). One comparison at both sites keeps the ahead/reclaim
+        /// handshake consistent. (Same field set as the historical seed diff — Version is the primary
+        /// contract; a content change without a Version bump is an authoring anti-pattern.)
+        /// </summary>
+        internal static bool ContentEquivalent(AnalyzeRule a, AnalyzeRule b)
+        {
+            return a.Version == b.Version
+                && a.Title == b.Title
+                && a.Description == b.Description
+                && a.Severity == b.Severity
+                && a.Trigger == b.Trigger;
         }
     }
 }

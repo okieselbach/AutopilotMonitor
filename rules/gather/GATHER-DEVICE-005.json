@@ -1,20 +1,20 @@
 {
   "$schema": "../schema/gather-rule.schema.json",
   "ruleId": "GATHER-DEVICE-005",
-  "title": "Pending reboot detection",
-  "description": "Checks the Component Based Servicing registry key for a pending reboot after app installations. A pending reboot at FinalizingSetup can delay or block enrollment completion.",
+  "title": "Windows Update pending reboot",
+  "description": "Checks the Component Based Servicing RebootPending registry key at agent startup and emits windows_update_reboot_pending ONLY when a reboot is actually pending (the key exists). A pending reboot present when the agent starts is a high-confidence corroborator that a Windows Update (often a quality/cumulative update installed during the OOBE 'Getting updates' phase, before the agent started) landed and now needs a restart — which can delay or block enrollment completion.",
   "category": "device",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "author": "Autopilot Monitor",
-  "enabled": false,
+  "enabled": true,
   "collectorType": "registry",
   "target": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending",
   "parameters": {
+    "emitOnlyIfExists": "true",
     "severityIfExists": "Warning"
   },
-  "trigger": "phase_change",
-  "triggerPhase": "FinalizingSetup",
-  "outputEventType": "gather_pending_reboot",
+  "trigger": "startup",
+  "outputEventType": "windows_update_reboot_pending",
   "outputSeverity": "Info",
-  "tags": ["device", "reboot", "servicing"]
+  "tags": ["device", "windows-update", "reboot", "servicing", "oobe"]
 }

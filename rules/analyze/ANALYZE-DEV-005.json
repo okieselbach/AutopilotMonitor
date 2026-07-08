@@ -1,0 +1,57 @@
+{
+  "$schema": "../schema/analyze-rule.schema.json",
+  "ruleId": "ANALYZE-DEV-005",
+  "title": "Windows Update Installed During Enrollment",
+  "description": "Informational: a Windows quality/cumulative update installed during the OOBE / ESP enrollment window (WindowsUpdateClient EventID 19). Surfaces updates applied mid-enrollment — useful context when correlating enrollment duration, reboots, or later issues with a specific KB.",
+  "severity": "info",
+  "category": "device",
+  "version": "1.0.0",
+  "enabled": true,
+  "trigger": "single",
+  "baseConfidence": 60,
+  "confidenceThreshold": 50,
+  "conditions": [
+    {
+      "signal": "wu_installed",
+      "source": "event_type",
+      "eventType": "windows_update_succeeded",
+      "operator": "exists",
+      "value": "",
+      "required": true
+    },
+    {
+      "signal": "wu_update_title",
+      "source": "event_data",
+      "eventType": "windows_update_succeeded",
+      "dataField": "updateTitle",
+      "operator": "exists",
+      "value": "",
+      "required": false
+    },
+    {
+      "signal": "reboot_pending",
+      "source": "event_data",
+      "eventType": "windows_update_reboot_pending",
+      "dataField": "exists",
+      "operator": "equals",
+      "value": "true",
+      "required": false
+    }
+  ],
+  "confidenceFactors": [
+    { "signal": "reboot_pending", "condition": "exists", "weight": 15 }
+  ],
+  "explanation": "One or more Windows updates installed during enrollment (e.g. **{{updateTitle}}**). This is normal when Windows Update runs during OOBE, but it extends enrollment time and can trigger a reboot mid-ESP. Track it when correlating enrollment duration or reboot count with a specific cumulative update, or when a device behaves differently after a particular KB landed during provisioning.",
+  "remediation": [
+    {
+      "title": "Optional review",
+      "steps": [
+        "No action required for a successful install — this is informational.",
+        "If enrollment time or reboot count is a concern, review whether quality updates during OOBE are desired for your Autopilot profile.",
+        "Correlate the installed KB with any post-enrollment issues if the device behaves unexpectedly."
+      ]
+    }
+  ],
+  "markSessionAsFailedDefault": false,
+  "tags": ["device", "windows-update", "oobe"]
+}

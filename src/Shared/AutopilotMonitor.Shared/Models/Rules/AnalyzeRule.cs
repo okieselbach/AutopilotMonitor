@@ -62,6 +62,14 @@ namespace AutopilotMonitor.Shared.Models
         public bool IsCommunity { get; set; } = false;
 
         /// <summary>
+        /// Where this global rule row came from — see <see cref="RuleProvenance"/>. Drives the
+        /// self-maintaining sunset: "embedded"/null = owned by the deployed binary's catalog (may be
+        /// sunset when it leaves that catalog); "github" = reseeded from GitHub ahead of the binary
+        /// (exempt from the embedded catalog sunset/filter). Null on pre-existing rows = embedded.
+        /// </summary>
+        public string? Provenance { get; set; }
+
+        /// <summary>
         /// Rule trigger type: "single" (matches individual events) or "correlation" (combines multiple event types)
         /// Both types run at the same time during analysis - this field is organizational/descriptive
         /// </summary>

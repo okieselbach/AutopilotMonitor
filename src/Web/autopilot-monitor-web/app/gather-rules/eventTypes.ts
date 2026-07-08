@@ -67,6 +67,18 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
   { value: "modern_deployment_log", label: "modern_deployment_log", category: "esp",
     description: "Windows ModernDeployment-Diagnostics-Provider informational event." },
 
+  // -------- Windows Update during OOBE --------
+  { value: "windows_update_failed", label: "windows_update_failed", category: "esp",
+    description: "A Windows quality/cumulative update FAILED to install during enrollment (WindowsUpdateClient EventID 20). Carries the decoded HRESULT (hresult + hresultSymbol), updateTitle and updateGuid. A cumulative update failing mid-OOBE is a known enrollment-breaker otherwise invisible in the Intune console." },
+  { value: "windows_update_succeeded", label: "windows_update_succeeded", category: "esp",
+    description: "A Windows quality/cumulative update installed during enrollment (WindowsUpdateClient EventID 19). Carries updateTitle and updateGuid." },
+  { value: "windows_update_started", label: "windows_update_started", category: "esp",
+    description: "Windows Update download/install started during enrollment (WindowsUpdateClient EventID 43/44). Debug context for the timeline." },
+  { value: "windows_update_reboot_pending", label: "windows_update_reboot_pending", category: "esp",
+    description: "Startup snapshot of the CBS RebootPending registry key. Present at agent start = a high-confidence corroborator that a (often pre-agent, OOBE-time) update landed and needs a reboot, which can delay/block completion. Gather rule GATHER-DEVICE-005 (on by default)." },
+  { value: "windows_update_history", label: "windows_update_history", category: "esp",
+    description: "Get-HotFix snapshot of recently installed updates (secondary corroboration). Gather rule GATHER-DEVICE-004 — opt-in (cmdlet cost; QFE-registered updates only)." },
+
   // -------- ESP signals --------
   { value: "esp_phase_changed", label: "esp_phase_changed", category: "esp",
     description: "ESP phase transition detected via IME log patterns." },
