@@ -798,4 +798,110 @@ describe("reduceScriptEvents — durationSeconds", () => {
     ]);
     expect(item.durationSeconds).toBeUndefined();
   });
+
+  // ── durationBasis normalization: run time vs "reported after" (cycle incl. IME latency) ──
+  it("platform durations stay run time (no reportedAfter) — legacy events without a basis field", () => {
+    const [item] = reduceScriptEvents([
+      finalEvent({ data: { policyId: "p1", scriptType: "platform", result: "Success", durationSeconds: "42.00" } }),
+    ]);
+    expect(item.durationSeconds).toBe(42);
+    expect(item.reportedAfterSeconds).toBeUndefined();
+  });
+
+  it("legacy remediation duration (no basis field) is treated as reportedAfter, NOT run time", () => {
+    // Pre-basis agents measured remediation durations to the HS-NEW-RESULT line, which IME
+    // only writes after its batched service report — displaying that as run time was the
+    // user-reported "script ran seconds, list says 8m" bug. Old data must never regress.
+    const [item] = reduceScriptEvents([
+      finalEvent({
+        data: { policyId: "p1", scriptType: "remediation", scriptPart: "detection",
+                exitCode: "1", complianceResult: "False", durationSeconds: "480.00" },
+      }),
+    ]);
+    expect(item.durationSeconds).toBeUndefined();
+    expect(item.reportedAfterSeconds).toBe(480);
+  });
+
+  it("remediation duration with basis script_runtime (early-signal emission) is real run time", () => {
+    const [item] = reduceScriptEvents([
+      finalEvent({
+        data: { policyId: "p1", scriptType: "remediation", scriptPart: "detection",
+                exitCode: "0", complianceResult: "True",
+                durationSeconds: "20.00", durationBasis: "script_runtime" },
+      }),
+    ]);
+    expect(item.durationSeconds).toBe(20);
+    expect(item.reportedAfterSeconds).toBeUndefined();
+  });
+
+  it("explicit cycle basis routes the value to reportedAfterSeconds (snake_case too)", () => {
+    const [item] = reduceScriptEvents([
+      finalEvent({
+        data: { policyId: "p1", scriptType: "remediation", scriptPart: "detection",
+                exit_code: "0", compliance_result: "True",
+                duration_seconds: "95.00", duration_basis: "cycle_including_reporting_latency" },
+      }),
+    ]);
+    expect(item.durationSeconds).toBeUndefined();
+    expect(item.reportedAfterSeconds).toBe(95);
+  });
+
+  it("dedupe merges the early-signal run time with the late HS-NEW-RESULT reportedAfter", () => {
+    // The two-stage remediation emission: early HS-COMPLIANCE carries the run time, the
+    // later (more complete) HS-NEW-RESULT carries the cycle value. The completeness winner
+    // must keep BOTH timings — dropping the run time was the "counter said 20s, list says
+    // 8m" mismatch.
+    const [item] = reduceScriptEvents([
+      finalEvent({
+        eventType: "script_completed", ts: 0,
+        data: { policyId: "p1", scriptType: "remediation", scriptPart: "detection",
+                exitCode: "0", complianceResult: "True",
+                durationSeconds: "20.00", durationBasis: "script_runtime" },
+      }),
+      finalEvent({
+        eventType: "script_completed", ts: 74,
+        data: { policyId: "p1", scriptType: "remediation", scriptPart: "detection",
+                exitCode: "0", complianceResult: "True",
+                stdout: "LocalAdminIsEnabled=False",
+                remediationStatus: "4", targetType: "2", runContext: "System",
+                durationSeconds: "94.00", durationBasis: "cycle_including_reporting_latency" },
+      }),
+    ]);
+    // Late event wins on completeness (stdout, remediationStatus, runContext)…
+    expect(item.stdout).toBe("LocalAdminIsEnabled=False");
+    expect(item.remediationStatus).toBe(4);
+    // …but the early run time survives the merge alongside the cycle value.
+    expect(item.durationSeconds).toBe(20);
+    expect(item.reportedAfterSeconds).toBe(94);
+  });
+});
+
+describe("groupScriptItems — card durationSeconds is the max phase run time", () => {
+  const item = (overrides: Partial<ScriptItem>): ScriptItem => ({
+    policyId: "p1",
+    scriptType: "remediation",
+    state: "Success",
+    timestamp: ts(0),
+    ...overrides,
+  });
+
+  it("multi-phase cycle takes the max (phase runtimes are cumulative from the cycle start)", () => {
+    const cards = groupScriptItems([
+      item({ scriptPart: "detection", complianceResult: "False", exitCode: 1, remediationStatus: 2, durationSeconds: 8, timestamp: ts(0) }),
+      item({ scriptPart: "remediation", exitCode: 0, remediationStatus: 2, reportedAfterSeconds: 300, timestamp: ts(1) }),
+      item({ scriptPart: "post-detection", complianceResult: "True", exitCode: 0, remediationStatus: 2, durationSeconds: 25, timestamp: ts(2) }),
+    ]);
+    expect(cards[0].isCycle).toBe(true);
+    expect(cards[0].durationSeconds).toBe(25);
+  });
+
+  it("phases with only reportedAfterSeconds contribute nothing to the card run time", () => {
+    // Legacy cycle: every phase carried only the reporting-latency-inflated value → the
+    // header shows no run time at all (the details panels still show "Reported after").
+    const cards = groupScriptItems([
+      item({ scriptPart: "detection", complianceResult: "False", exitCode: 1, remediationStatus: 3, reportedAfterSeconds: 480, timestamp: ts(0) }),
+      item({ scriptPart: "post-detection", complianceResult: "False", exitCode: 1, remediationStatus: 3, reportedAfterSeconds: 480, timestamp: ts(2) }),
+    ]);
+    expect(cards[0].durationSeconds).toBeUndefined();
+  });
 });

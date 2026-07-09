@@ -849,19 +849,22 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             // against clock skew between the (possibly clock-derived) completion stamp and start.
             //
             // L19 (delta review 2026-07-02): the same field name carries two different semantics —
-            // platform scripts measure start→result (≈ script runtime), remediation scripts measure
-            // HS-SCRIPT-START→HS-NEW-RESULT (the whole cycle INCLUDING IME's 30 s–3 min batched
-            // reporting latency, i.e. systematically longer than the script ran). `durationBasis`
-            // names which one applies so downstream consumers never compare the two as equals.
+            // start→own-end-signal (≈ script runtime) vs HS-SCRIPT-START→HS-NEW-RESULT (the whole
+            // cycle INCLUDING IME's 30 s–3 min batched reporting latency, i.e. systematically
+            // longer than the script ran). `durationBasis` names which one applies so downstream
+            // consumers never compare the two as equals. The emitting handler stamps the basis on
+            // the state (health-script early-signal completions are script_runtime too); the
+            // scriptType fallback covers states from paths that predate the field.
             if (script.StartedAtUtc.HasValue)
             {
                 var durationSeconds = (now - script.StartedAtUtc.Value).TotalSeconds;
                 if (durationSeconds >= 0)
                 {
                     data["durationSeconds"] = durationSeconds.ToString("F2", culture);
-                    data["durationBasis"] = IsRemediation(script.ScriptType)
-                        ? "cycle_including_reporting_latency"
-                        : "script_runtime";
+                    data["durationBasis"] = script.DurationBasis
+                        ?? (IsRemediation(script.ScriptType)
+                            ? "cycle_including_reporting_latency"
+                            : "script_runtime");
                 }
             }
 

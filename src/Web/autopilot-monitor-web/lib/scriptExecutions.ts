@@ -27,12 +27,22 @@ export interface ScriptItem {
   stdout?: string;
   stderr?: string;
   /**
-   * Observed run duration in seconds (start line → completion), surfaced by the agent on
-   * every platform-script completion. Lets the UI flag slow / inefficient scripts. Absent
-   * when the agent never saw the script's start line (e.g. a completion observed on replay
-   * without a matching start).
+   * Actual script run time in seconds (start line → the script's own end signal). Only
+   * populated from events whose durationBasis is "script_runtime" — platform scripts and
+   * health-script early-signal (HS-COMPLIANCE) completions. Absent when the agent never
+   * saw the start line, or when only the cycle-basis value is known (see
+   * reportedAfterSeconds).
    */
   durationSeconds?: number;
+  /**
+   * Whole-cycle duration in seconds measured to the HS-NEW-RESULT line, which IME only
+   * writes after its batched report to the Microsoft service — systematically longer than
+   * the scripts actually ran (30 s – minutes of reporting latency). Populated from events
+   * with durationBasis "cycle_including_reporting_latency" (and from legacy remediation
+   * events that predate the basis field, which measured the same span). Shown as
+   * "Reported after Xm" in the details panel, never as the run duration.
+   */
+  reportedAfterSeconds?: number;
   state: "Running" | "Success" | "Failed";
   timestamp: string;
   bootstrapVersion?: string | null;
@@ -91,10 +101,11 @@ export interface ScriptCard {
   /** First-phase timestamp; used for sorting cards chronologically in the UI. */
   timestamp: string;
   /**
-   * Cycle-level run duration in seconds. For platform / single-phase cards this is the lone
-   * phase's duration; for multi-phase remediation cycles every phase event carries the same
-   * whole-cycle duration (HS-SCRIPT-START → HS-NEW-RESULT), so we lift it once onto the card
-   * header rather than repeating it on each nested phase row. Absent when no phase reported one.
+   * Card-level actual run time in seconds. Phases carry cumulative script_runtime durations
+   * measured from the same cycle start (detection ≤ post-detection), so the max across
+   * phases is the execution time through the latest observed phase. Shown once on the card
+   * header rather than repeated on each nested phase row. Absent when no phase reported a
+   * runtime-basis duration (e.g. legacy events that only carried the cycle-basis value).
    */
   durationSeconds?: number;
 }
@@ -123,6 +134,7 @@ function dataCompleteness(item: ScriptItem): number {
   if (item.stderr && item.stderr.length > 0) score += 1;
   if (item.runContext) score += 1;
   if (item.durationSeconds != null) score += 1;
+  if (item.reportedAfterSeconds != null) score += 1;
   return score;
 }
 
@@ -239,7 +251,24 @@ export function reduceScriptEvents(events: ScriptInputEvent[]): ScriptItem[] {
     if (policyId) policyIdsWithFinal.add(`${policyId}-${scriptType}`);
 
     const exitCode = toNumber(d.exitCode ?? d.exit_code);
-    const durationSeconds = toNumber(d.durationSeconds ?? d.duration_seconds);
+
+    // Duration normalization — the wire field durationSeconds carries two different
+    // semantics, named by durationBasis (see the ScriptItem field docs):
+    //   "script_runtime"                     → actual run time → durationSeconds
+    //   "cycle_including_reporting_latency"  → HS-NEW-RESULT stamp incl. IME's batched
+    //                                          reporting delay → reportedAfterSeconds
+    // Legacy events predate the basis field: platform durations were always measured to
+    // the script's own result line (runtime), remediation durations to HS-NEW-RESULT
+    // (cycle) — infer accordingly so old data is never displayed as run time when it
+    // isn't one.
+    const rawDuration = toNumber(d.durationSeconds ?? d.duration_seconds);
+    const rawBasis = d.durationBasis ?? d.duration_basis;
+    const isCycleBasis = typeof rawBasis === "string"
+      ? rawBasis === "cycle_including_reporting_latency"
+      : scriptType === "remediation";
+    const durationSeconds = isCycleBasis ? undefined : rawDuration;
+    const reportedAfterSeconds = isCycleBasis ? rawDuration : undefined;
+
     const remediationStatus = toNumber(d.remediationStatus ?? d.remediation_status);
     const targetType = toNumber(d.targetType ?? d.target_type);
     const errorCode = toNumber(d.errorCode ?? d.error_code);
@@ -277,14 +306,24 @@ export function reduceScriptEvents(events: ScriptInputEvent[]): ScriptItem[] {
       stdout,
       stderr,
       durationSeconds,
+      reportedAfterSeconds,
       state: isFailureSignal ? "Failed" : "Success",
       timestamp: evt.timestamp,
       bootstrapVersion: scriptType === "platform" ? extractBootstrapVersion(stdout) : null,
     };
 
+    // Keep the most-complete entry, but merge the duration fields across both: the
+    // early-signal emission carries the runtime, the later HS-NEW-RESULT emission the
+    // cycle value — whichever entry wins on completeness must not drop the other's timing.
     const existing = finalsByKey.get(key);
-    if (!existing || dataCompleteness(candidate) > dataCompleteness(existing)) {
+    if (!existing) {
       finalsByKey.set(key, candidate);
+    } else {
+      const winner = dataCompleteness(candidate) > dataCompleteness(existing) ? candidate : existing;
+      const loser = winner === candidate ? existing : candidate;
+      winner.durationSeconds ??= loser.durationSeconds;
+      winner.reportedAfterSeconds ??= loser.reportedAfterSeconds;
+      finalsByKey.set(key, winner);
     }
   }
 
@@ -488,10 +527,14 @@ export function groupScriptItems(items: ScriptItem[]): ScriptCard[] {
         : (first.result ?? (first.state === "Failed" ? "Failed" : "Success"));
     }
 
-    // Cycle-level duration: phases of a remediation cycle all carry the same whole-cycle
-    // duration, so the first defined value is representative. Platform / single-phase cards
-    // inherit their lone phase's duration (rendered on the row itself, not the header).
-    const cardDuration = phases.map(p => p.durationSeconds).find(d => d != null);
+    // Card-level run time: phase runtimes are cumulative from the same cycle start
+    // (detection ≤ post-detection), so the max is the execution time through the latest
+    // observed phase. Platform / single-phase cards inherit their lone phase's duration
+    // (rendered on the row itself, not the header).
+    const phaseDurations = phases
+      .map(p => p.durationSeconds)
+      .filter((d): d is number => d != null);
+    const cardDuration = phaseDurations.length > 0 ? Math.max(...phaseDurations) : undefined;
 
     cards.push({
       policyId: first.policyId,

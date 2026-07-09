@@ -227,6 +227,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                         // source) but the earliest wins.
                         StartedAtUtc = LastMatchedLogTimestamp ?? DateTime.UtcNow,
                     };
+                    // Live "running" indicator — same signal health scripts emit. Gated on slot
+                    // creation so the duplicate start line (agentexecutor + ime source) doesn't
+                    // double-emit for the same execution.
+                    try { OnScriptStarted?.Invoke(new ScriptStartedInfo { PolicyId = id, ScriptType = "platform" }); }
+                    catch (Exception ex) { _logger.Warning($"ImeLogTracker: OnScriptStarted handler threw: {ex.Message}"); }
                 }
                 _lastPlatformScriptPolicyId = id;
                 // Started lines fire twice per script (agentexecutor + ime source) and carry no
@@ -624,6 +629,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 RunContext = runContext,
                 Stdout = stdout,
                 Stderr = stderr,
+                // The compliance line is logged right after the (pre/post) detection script
+                // exits, so cycle-start → this line is the actual execution time — unlike the
+                // HS-NEW-RESULT path whose end stamp includes IME's batched reporting latency.
+                // Peek only: HS-NEW-RESULT still consumes + removes the entry for cycle timing.
+                StartedAtUtc = _healthScriptStartTimes.TryGetValue(id, out var earlyStart)
+                    ? earlyStart
+                    : (DateTime?)null,
+                DurationBasis = "script_runtime",
             };
 
             _logger.Info($"ImeLogTracker: health-script {scriptPart} early-signal for {id}: " +
@@ -866,7 +879,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 ErrorDetails = errorDetails,
                 // Cycle start (HS-SCRIPT-START). Every phase carries the same cycle start so the
                 // adapter computes the total run duration; the Web surfaces it once at card level.
-                StartedAtUtc = startedAtUtc
+                StartedAtUtc = startedAtUtc,
+                // End stamp is the HS-NEW-RESULT line — written only after IME's batched report
+                // to the service, so this duration overstates the actual script execution time.
+                DurationBasis = "cycle_including_reporting_latency"
             };
 
         private static string TryGetString(JsonElement parent, string name)

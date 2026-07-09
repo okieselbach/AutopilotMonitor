@@ -164,6 +164,52 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
 
             var info = Assert.Single(f.InfoEvents(SharedEventTypes.ScriptCompleted));
             Assert.Equal("65.00", info.Payload!["durationSeconds"]);
+            // HS-NEW-RESULT is written only after IME's batched report to the service, so this
+            // value overstates the script run time — the basis names that so consumers (Web
+            // "Reported after", MCP) never display it as the run time.
+            Assert.Equal("cycle_including_reporting_latency", info.Payload["durationBasis"]);
+        }
+
+        [Fact]
+        public void HealthScriptDetection_early_signal_emits_runtime_duration_and_keeps_cycle_start()
+        {
+            using var f = new ImeLogTrackerAdapterFixture(T0);
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            // Detection script started 20s ago; the HS-COMPLIANCE line is logged right after the
+            // script exits, so the early-signal completion carries the ACTUAL run time.
+            f.Tracker.SeedHealthScriptStartForTesting(
+                "75d14a95-d49f-473d-9d65-d4b006bc7468", T0.AddSeconds(-20));
+            f.Tracker.HandleHealthScriptDetectionResultForTest(
+                "75d14a95-d49f-473d-9d65-d4b006bc7468", "True", "pre");
+
+            var early = Assert.Single(f.InfoEvents(SharedEventTypes.ScriptCompleted));
+            Assert.Equal("20.00", early.Payload!["durationSeconds"]);
+            Assert.Equal("script_runtime", early.Payload["durationBasis"]);
+
+            // The early signal must only PEEK the cycle start — the consolidated HS-NEW-RESULT
+            // arriving 45s later still times the whole cycle from the same start (65s total).
+            f.Clock.Advance(TimeSpan.FromSeconds(45));
+            f.Tracker.HandleHealthScriptResultJson(DetectOnlyResultJson);
+
+            var all = f.InfoEvents(SharedEventTypes.ScriptCompleted);
+            Assert.Equal(2, all.Count);
+            Assert.Equal("65.00", all[1].Payload!["durationSeconds"]);
+            Assert.Equal("cycle_including_reporting_latency", all[1].Payload["durationBasis"]);
+        }
+
+        [Fact]
+        public void HealthScriptDetection_early_signal_without_observed_start_omits_duration()
+        {
+            using var f = new ImeLogTrackerAdapterFixture(T0);
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            f.Tracker.HandleHealthScriptDetectionResultForTest(
+                "75d14a95-d49f-473d-9d65-d4b006bc7468", "True", "pre");
+
+            var info = Assert.Single(f.InfoEvents(SharedEventTypes.ScriptCompleted));
+            Assert.False(info.Payload!.ContainsKey("durationSeconds"));
+            Assert.False(info.Payload.ContainsKey("durationBasis"));
         }
 
         [Fact]

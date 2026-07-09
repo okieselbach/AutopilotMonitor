@@ -191,8 +191,10 @@ function ScriptCardView({ card, showScriptOutput, latestBootstrapVersion, displa
   const remediationStatusLabel = mapRemediationStatus(remediationStatus);
   const cardDisplayName = lookupScriptDisplayName(displayNamesByRefKey, card.scriptType, card.policyId);
 
-  // Whole-cycle run duration (HS-SCRIPT-START → HS-NEW-RESULT). Shown once on the header so the
-  // user sees how long the remediation ran without the same number repeated on every phase row.
+  // Actual cycle run time (max of the phases' cumulative script_runtime durations). Shown once
+  // on the header so the user sees how long the remediation ran without the same number repeated
+  // on every phase row. The reporting-latency-inflated cycle value lives in the phase details
+  // ("Reported after"), never here.
   const cardDurationLabel = formatScriptDuration(card.durationSeconds);
   const isCardSlow = card.durationSeconds != null && card.durationSeconds >= STALE_RUNNING_THRESHOLD_SECONDS;
 
@@ -335,12 +337,16 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
     statusText = item.result ?? (item.state === "Success" ? "Success" : "Failed");
   }
 
-  // Run duration (from the agent's start→completion timing). Surfaced for every completed
-  // script so slow / inefficient scripts stand out; styled amber past the stale threshold
-  // (10 min) since at that range a script is a plausible enrollment-pipeline blocker. Suppressed
-  // on nested phase rows: a remediation cycle's phases all carry the same whole-cycle duration,
-  // which is shown once on the parent card header instead of repeated on each phase.
+  // Actual run time (from the agent's start → own-end-signal timing). Surfaced for every
+  // completed script so slow / inefficient scripts stand out; styled amber past the stale
+  // threshold (10 min) since at that range a script is a plausible enrollment-pipeline blocker.
+  // Suppressed on nested phase rows' compact line — the parent card header already shows the
+  // cycle run time — but still listed in each phase's details panel alongside "Reported after"
+  // (the cycle value inflated by IME's batched reporting latency, kept out of the compact row
+  // so it is never mistaken for the run time).
   const durationLabel = item.state !== "Running" && !nested ? formatScriptDuration(item.durationSeconds) : null;
+  const detailDurationLabel = item.state !== "Running" ? formatScriptDuration(item.durationSeconds) : null;
+  const reportedAfterLabel = item.state !== "Running" ? formatScriptDuration(item.reportedAfterSeconds) : null;
   const isSlowDuration = item.durationSeconds != null && item.durationSeconds >= STALE_RUNNING_THRESHOLD_SECONDS;
 
   const hasStdout = item.state !== "Running" && showScriptOutput !== false && item.stdout && item.stdout.trim().length > 0;
@@ -473,7 +479,12 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
             {!nested && item.runContext && <span><span className="font-medium text-gray-700">Context:</span> {item.runContext}</span>}
             {!nested && item.targetType != null && <span><span className="font-medium text-gray-700">Target:</span> {item.targetType === 2 ? "Device" : "User"}</span>}
             {item.exitCode != null && <span><span className="font-medium text-gray-700">Exit Code:</span> <span className="font-mono">{item.exitCode}</span></span>}
-            {durationLabel && <span><span className="font-medium text-gray-700">Duration:</span> <span className={`font-mono ${isSlowDuration ? "text-amber-600" : ""}`}>{durationLabel}</span></span>}
+            {detailDurationLabel && <span><span className="font-medium text-gray-700">Duration:</span> <span className={`font-mono ${isSlowDuration ? "text-amber-600" : ""}`}>{detailDurationLabel}</span></span>}
+            {reportedAfterLabel && (
+              <span title="Time from script start until IME reported the result to the Intune service — includes IME's batched reporting delay, so it is longer than the script actually ran">
+                <span className="font-medium text-gray-700">Reported after:</span> <span className="font-mono">{reportedAfterLabel}</span>
+              </span>
+            )}
             {item.result && <span><span className="font-medium text-gray-700">Result:</span> {item.result}</span>}
             {item.complianceResult && <span><span className="font-medium text-gray-700">Compliance:</span> {item.complianceResult === "True" ? "Compliant" : "Non-compliant"}</span>}
             {!nested && remediationStatusLabel && <span><span className="font-medium text-gray-700">Status:</span> {remediationStatusLabel}</span>}

@@ -88,13 +88,26 @@ public class ScriptExecutionState
 
     /// <summary>Top-level <c>Info.ErrorDetails</c> string from the <c>[HS] new result</c> JSON.</summary>
     public string ErrorDetails { get; set; }
+
+    /// <summary>
+    /// Semantics of the duration derived from <see cref="StartedAtUtc"/> → completion, surfaced
+    /// as <c>durationBasis</c> next to <c>durationSeconds</c> on the emitted event:
+    /// <c>"script_runtime"</c> — completion stamp is the script's own end signal (platform
+    /// PS-SCRIPT-RESULT / AgentExecutor exit, or the health-script HS-COMPLIANCE line logged
+    /// right after the detection script exits); <c>"cycle_including_reporting_latency"</c> —
+    /// completion stamp is the HS-NEW-RESULT line, which IME only writes after its batched
+    /// report to the Microsoft service (30 s – minutes after the scripts actually finished),
+    /// so the value systematically overstates the run time. Set by the emitting handler; when
+    /// null the adapter falls back to the scriptType-based default (remediation → cycle).
+    /// </summary>
+    public string DurationBasis { get; set; }
 }
 
 /// <summary>
-/// Lightweight live-progress signal emitted when IME logs the start of a script
-/// (currently only health scripts via the <c>HS-SCRIPT-START</c> pattern).
-/// Gives the UI a "running" indicator before the consolidated final result arrives
-/// (which may be 30 s – 3 min later).
+/// Lightweight live-progress signal emitted when IME logs the start of a script —
+/// health scripts via the <c>HS-SCRIPT-START</c> pattern, platform scripts on
+/// pending-slot creation from their start line. Gives the UI a "running" indicator
+/// before the final result arrives (health scripts: 30 s – 3 min later).
 /// </summary>
 public class ScriptStartedInfo
 {
