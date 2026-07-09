@@ -344,11 +344,19 @@ namespace AutopilotMonitor.Functions.Services
                 long successfulEnrollments = 0;
                 long totalEvents = 0;
                 long totalUsers = 0;
+                // "Active tenants" = tenants that have actually produced at least one enrollment
+                // session. tenantIds comes from the TenantConfiguration table (every registered
+                // tenant, including those that never granted consent and can never send data), so
+                // it equals TotalSignedUpTenants and must NOT be used for the active count. Count
+                // the tenants whose session query returns rows instead.
+                int activeTenants = 0;
                 var uniqueModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                 foreach (var tid in tenantIds)
                 {
                     var sessions = await _sessionRepo.GetSessionsAsync(tid);
+                    if (sessions.Count > 0)
+                        activeTenants++;
                     totalEnrollments += sessions.Count;
                     successfulEnrollments += sessions.Count(s => s.Status == SessionStatus.Succeeded);
 
@@ -375,7 +383,7 @@ namespace AutopilotMonitor.Functions.Services
                 {
                     TotalEnrollments = totalEnrollments,
                     TotalUsers = cumulativeUsers,
-                    TotalTenants = tenantIds.Count,
+                    TotalTenants = activeTenants,
                     TotalSignedUpTenants = allConfigs.Count,
                     UniqueDeviceModels = uniqueModels.Count,
                     TotalEventsProcessed = totalEvents,
