@@ -685,7 +685,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                     data["lanMbpsMax"] = Math.Round(estimate.LanMbpsMax.Value, 1);
                 }
 
+                // DO throttle-policy context (read fresh — Intune policies land DURING the
+                // enrollment): lets an analysis distinguish "line-limited" (no caps → the p90
+                // is a real capacity lower bound) from "policy-limited" (caps present → the
+                // measured rate reflects the throttle, the line is likely faster). GPO and MDM
+                // are SEPARATE registry stores; both are reported when present.
+                var throttle = DoThrottlePolicyReader.Read();
+                data["doThrottleConfigured"] = throttle.ThrottleConfigured;
+                if (throttle.ThrottleSources != null) data["doThrottleSources"] = throttle.ThrottleSources;
+                if (throttle.GpoMaxForegroundKBps.HasValue) data["doPolicyGpoMaxForegroundKBps"] = throttle.GpoMaxForegroundKBps.Value;
+                if (throttle.GpoMaxBackgroundKBps.HasValue) data["doPolicyGpoMaxBackgroundKBps"] = throttle.GpoMaxBackgroundKBps.Value;
+                if (throttle.GpoPctMaxForeground.HasValue) data["doPolicyGpoPctMaxForeground"] = throttle.GpoPctMaxForeground.Value;
+                if (throttle.GpoPctMaxBackground.HasValue) data["doPolicyGpoPctMaxBackground"] = throttle.GpoPctMaxBackground.Value;
+                if (throttle.GpoDownloadMode.HasValue) data["doPolicyGpoDownloadMode"] = throttle.GpoDownloadMode.Value;
+                if (throttle.MdmMaxForegroundKBps.HasValue) data["doPolicyMdmMaxForegroundKBps"] = throttle.MdmMaxForegroundKBps.Value;
+                if (throttle.MdmMaxBackgroundKBps.HasValue) data["doPolicyMdmMaxBackgroundKBps"] = throttle.MdmMaxBackgroundKBps.Value;
+                if (throttle.MdmPctMaxForeground.HasValue) data["doPolicyMdmPctMaxForeground"] = throttle.MdmPctMaxForeground.Value;
+                if (throttle.MdmPctMaxBackground.HasValue) data["doPolicyMdmPctMaxBackground"] = throttle.MdmPctMaxBackground.Value;
+                if (throttle.MdmDownloadMode.HasValue) data["doPolicyMdmDownloadMode"] = throttle.MdmDownloadMode.Value;
+
                 var interimSuffix = trigger == "device_setup_end" ? " [interim, after DeviceSetup]" : "";
+                if (throttle.ThrottleConfigured) interimSuffix += " [DO throttled by policy]";
                 string message;
                 if (estimate.WanMbpsP90.HasValue)
                 {
