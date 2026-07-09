@@ -31,7 +31,9 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>Null/empty is treated as <see cref="Embedded"/> so pre-existing rows (written
         /// before this field) keep the historical "binary owns it" semantics.</summary>
         public static string Normalize(string? provenance)
-            => string.IsNullOrEmpty(provenance) ? Embedded : provenance;
+            // netstandard2.0's IsNullOrEmpty lacks [NotNullWhen(false)], so the compiler can't
+            // see that the else branch is non-null (CS8603) — assert it.
+            => string.IsNullOrEmpty(provenance) ? Embedded : provenance!;
 
         /// <summary>True when the row is a GitHub-reseeded rule not in the deployed binary's catalog
         /// — i.e. exempt from the embedded catalog-based sunset and runtime filter.</summary>
