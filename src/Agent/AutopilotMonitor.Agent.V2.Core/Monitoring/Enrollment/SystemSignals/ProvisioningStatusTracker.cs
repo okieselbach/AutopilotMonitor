@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime;
@@ -58,6 +59,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         // write and IME workload log).
         internal const int ProvisioningFailureSettleWindowSeconds = 30;
 
+        // Session 2bc884b6 enrichment: MSIX/Store app failures never touch the IME Win32 sidecar
+        // logs, so an ESP "Apps (0x80073cf9)" failure with all tracked apps green is a blackbox.
+        // When an Apps-subcategory failure arms the settle window, a one-shot scan of the AppX
+        // deployment event log runs on the threadpool and emits esp_appx_failure_analysis with
+        // scored package candidates. Lookback is capped so resumed/long sessions don't correlate
+        // against hours of unrelated servicing noise.
+        internal const int AppxScanLookbackCapHours = 4;
+
         // Regex for HRESULT extraction from subcategory statusText (e.g. "Apps (0x87d1041c)").
         // Language-invariant: the parenthesised hex tail is consistent across Windows locales.
         private static readonly Regex HResultPattern = new Regex(
@@ -107,6 +116,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         // failure details that fire after the settle window expires.
         private Dictionary<string, Timer> _provisioningFailureSettleTimers;
         private Dictionary<string, EspFailureDetectedEventArgs> _provisioningFailureSettleArgs;
+        // Session 2bc884b6: AppX enrichment scan seams + fire-once guard. The scanner and the
+        // dispatcher are injectable so tests never touch the real event log or the threadpool.
+        private readonly IAppxDeploymentFailureScanner _appxScanner;
+        private readonly Action<Action> _backgroundDispatcher;
+        private DateTime _monitoringStartUtc;
+        private bool _appxScanStarted;
         private readonly object _stateLock = new object();
 
         public event EventHandler<EspFailureDetectedEventArgs> EspFailureDetected;
@@ -125,12 +140,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             string sessionId,
             string tenantId,
             InformationalEventPost post,
-            AgentLogger logger)
+            AgentLogger logger,
+            IAppxDeploymentFailureScanner appxScanner = null,
+            Action<Action> backgroundDispatcher = null)
         {
             _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
             _tenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId));
             _post = post ?? throw new ArgumentNullException(nameof(post));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _appxScanner = appxScanner ?? new AppxDeploymentFailureScanner();
+            _backgroundDispatcher = backgroundDispatcher ?? (action => Task.Run(action));
         }
 
         // =====================================================================
@@ -262,6 +281,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             _deviceSetupFallbackTimer = null;
             _accountSetupProvisioningCompleteFired = false;
             _accountSetupFallbackTimer = null;
+            _monitoringStartUtc = DateTime.UtcNow;
+            _appxScanStarted = false;
 
             // Try to start immediately; if key doesn't exist yet, retry every 2s
             if (!TryStartWatcher())
@@ -1042,6 +1063,175 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 $"Provisioning failure settle window armed: category={args.Category}, " +
                 $"failedSubcategory={args.FailedSubcategory ?? "n/a"}, errorCode={args.ErrorCode ?? "n/a"}, " +
                 $"settleSeconds={ProvisioningFailureSettleWindowSeconds}");
+
+            MaybeStartAppxFailureScan(args);
+        }
+
+        /// <summary>
+        /// Session 2bc884b6 enrichment: on an Apps-subcategory failure, queue a one-shot scan of
+        /// the AppX deployment event log so MSIX/Store failures — invisible to ImeLogTracker —
+        /// get named while the settle window is still open (the enrichment event lands before
+        /// enrollment_failed in the timeline). Fire-once per session: a second Apps failure in
+        /// the other category would rescan the same window for no new information.
+        /// <para>
+        /// Caller holds <see cref="_stateLock"/> — only the QUEUING happens here; the scan body
+        /// runs lock-free on the threadpool against an immutable request. The settle-window
+        /// expiry never waits for the scan (worst case the enrichment is lost at shutdown —
+        /// degraded enrichment only, the failure path is unchanged).
+        /// </para>
+        /// </summary>
+        private void MaybeStartAppxFailureScan(EspFailureDetectedEventArgs args)
+        {
+            if (!string.Equals(args.FailedSubcategory, "Apps", StringComparison.OrdinalIgnoreCase))
+                return;
+            if (_appxScanStarted)
+                return;
+            _appxScanStarted = true;
+
+            var now = DateTime.UtcNow;
+            var lookbackCap = now.AddHours(-AppxScanLookbackCapHours);
+            var windowStart = _monitoringStartUtc > lookbackCap ? _monitoringStartUtc : lookbackCap;
+            var request = new AppxFailureScanRequest(
+                windowStartUtc: windowStart,
+                windowEndUtc: now,
+                espErrorCode: args.ErrorCode,
+                espCategory: args.Category,
+                failedSubcategory: args.FailedSubcategory);
+
+            _logger.Info(
+                $"AppX failure scan queued: category={args.Category ?? "n/a"}, " +
+                $"errorCode={args.ErrorCode ?? "n/a"}, windowStartUtc={windowStart:o}");
+
+            _backgroundDispatcher(() => RunAppxFailureScan(request));
+        }
+
+        private void RunAppxFailureScan(AppxFailureScanRequest request)
+        {
+            try
+            {
+                var scan = _appxScanner.Scan(request);
+                var analysis = AppxFailureAnalyzer.Analyze(request, scan);
+                EmitAppxFailureAnalysis(request, scan, analysis);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error("AppX failure scan failed", ex);
+                CollectorDegradationReporter.Report(
+                    _post, _sessionId, _tenantId, "AppxDeploymentFailureScanner", "scan_failed", ex);
+            }
+        }
+
+        /// <summary>
+        /// Emits <c>esp_appx_failure_analysis</c>. Fields the RuleEngine matches on are FLAT
+        /// top-level (it cannot traverse nested collections — see the failedSubcategories
+        /// precedent in EmitProvisioningEvent); the <c>candidates</c> list is UI/MCP detail.
+        /// ImmediateUpload: the agent terminates ~30s after the settle window, same reasoning
+        /// as esp_apps_failure_correlation in EnrollmentTerminationHandler.
+        /// </summary>
+        private void EmitAppxFailureAnalysis(
+            AppxFailureScanRequest request,
+            AppxFailureScanResult scan,
+            AppxFailureAnalysis analysis)
+        {
+            var data = new Dictionary<string, object>
+            {
+                { "verdict", analysis.Verdict },
+                { "confidence", analysis.Confidence },
+                { "espCategory", request.EspCategory ?? "unknown" },
+                { "failedSubcategory", request.FailedSubcategory ?? "Apps" },
+                { "candidateCount", analysis.TotalCandidateCount },
+                { "errorEventCount", analysis.ErrorEventCount },
+                { "windowStartUtc", request.WindowStartUtc.ToString("o") },
+                { "windowEndUtc", request.WindowEndUtc.ToString("o") },
+                { "scanDurationMs", scan.ScanDurationMs },
+                { "channel", AppxDeploymentFailureScanner.Channel }
+            };
+            if (request.EspErrorCode != null)
+                data["espErrorCode"] = request.EspErrorCode;
+            if (analysis.ScanUnavailableReason != null)
+                data["scanError"] = analysis.ScanUnavailableReason;
+            if (scan.Truncated)
+                data["scanTruncated"] = true;
+            if (analysis.OtherHresultsSeen.Count > 0)
+                data["otherHresultsSeen"] = string.Join(",", analysis.OtherHresultsSeen);
+
+            var top = analysis.Candidates.FirstOrDefault();
+            if (top != null)
+            {
+                data["topCandidatePackage"] = top.PackageFullName;
+                data["topCandidatePackageName"] = top.PackageName;
+                data["topCandidateMatchType"] = top.MatchType;
+                data["topCandidateEventId"] = top.EventId;
+                data["topCandidateTimeUtc"] = top.TimeUtc.ToString("o");
+                if (top.Hresults.Count > 0)
+                    data["topCandidateHresult"] = top.Hresults[0];
+
+                var candidateList = new List<object>();
+                foreach (var c in analysis.Candidates)
+                {
+                    candidateList.Add(new Dictionary<string, object>
+                    {
+                        { "packageFullName", c.PackageFullName },
+                        { "packageName", c.PackageName },
+                        { "score", c.Score },
+                        { "matchType", c.MatchType },
+                        { "hresults", string.Join(",", c.Hresults) },
+                        { "eventId", c.EventId },
+                        { "timeUtc", c.TimeUtc.ToString("o") },
+                        { "occurrences", c.Occurrences },
+                        { "messageExcerpt", c.MessageExcerpt }
+                    });
+                }
+                data["candidates"] = candidateList;
+            }
+
+            string message;
+            var severity = EventSeverity.Info;
+            switch (analysis.Verdict)
+            {
+                case AppxFailureAnalyzer.VerdictCandidateIdentified:
+                    severity = EventSeverity.Warning;
+                    message = $"ESP Apps failure enrichment: suspected MSIX/Store package '{top.PackageName}'" +
+                              (request.EspErrorCode != null ? $" matches ESP error {request.EspErrorCode}" : "") +
+                              $" — {analysis.TotalCandidateCount} candidate(s) in AppX deployment log " +
+                              "(assessment, not a confirmed root cause)";
+                    break;
+                case AppxFailureAnalyzer.VerdictActivityNoHresultMatch:
+                    message = $"ESP Apps failure enrichment: AppX deployment errors found (top package '{top.PackageName}') " +
+                              $"but none match ESP error {request.EspErrorCode ?? "n/a"} — weak correlation " +
+                              "(assessment, not a confirmed root cause)";
+                    break;
+                case AppxFailureAnalyzer.VerdictErrorsNoPackage:
+                    message = "ESP Apps failure enrichment: AppX deployment errors in window but no package name " +
+                              "extractable — inconclusive";
+                    break;
+                case AppxFailureAnalyzer.VerdictScanUnavailable:
+                    message = $"ESP Apps failure enrichment: AppX deployment log unavailable " +
+                              $"({analysis.ScanUnavailableReason}) — no assessment possible";
+                    break;
+                default: // no_appx_candidates
+                    message = "ESP Apps failure enrichment: no AppX deployment errors in window — failure likely " +
+                              "originates outside the MSIX/Store pipeline (check Win32/IME apps)";
+                    break;
+            }
+
+            _post.Emit(new EnrollmentEvent
+            {
+                SessionId = _sessionId,
+                TenantId = _tenantId,
+                EventType = Constants.EventTypes.EspAppxFailureAnalysis,
+                Severity = severity,
+                Source = "EspAndHelloTracker",
+                Phase = EnrollmentPhase.Unknown,
+                Message = message,
+                Data = data,
+                ImmediateUpload = true
+            });
+
+            _logger.Info(
+                $"AppX failure analysis emitted: verdict={analysis.Verdict}, confidence={analysis.Confidence}, " +
+                $"candidates={analysis.TotalCandidateCount}/{analysis.ErrorEventCount} records, " +
+                $"durationMs={scan.ScanDurationMs}");
         }
 
         private void OnProvisioningFailureSettleExpired(string categoryName)

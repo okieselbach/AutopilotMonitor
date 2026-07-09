@@ -88,6 +88,8 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
     description: "Generic ESP state change event." },
   { value: "esp_failure_advisory", label: "esp_failure_advisory", category: "esp",
     description: "ESP reported a subcategory failure but the device had already progressed to AccountSetup with ContinueAnyway enabled — non-terminal advisory, the agent continues monitoring." },
+  { value: "esp_appx_failure_analysis", label: "esp_appx_failure_analysis", category: "esp",
+    description: "AppX deployment log scan during the ESP failure settle window: suspected MSIX/Store package candidates behind an Apps-subcategory failure (assessment, not a confirmed root cause)." },
 
   // -------- App installs --------
   { value: "app_install_started", label: "app_install_started", category: "app",

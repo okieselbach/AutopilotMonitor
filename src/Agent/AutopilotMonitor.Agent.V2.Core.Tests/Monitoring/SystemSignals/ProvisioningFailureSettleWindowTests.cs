@@ -48,7 +48,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
                     sessionId: "S1",
                     tenantId: "T1",
                     post: post,
-                    logger: logger);
+                    logger: logger,
+                    // Fake scanner + synchronous dispatcher: the Apps-failure tests below arm the
+                    // settle window, which triggers the AppX enrichment scan — the default seams
+                    // would hit the real event log via Task.Run (mock ALL system calls).
+                    appxScanner: new FakeAppxDeploymentFailureScanner(),
+                    backgroundDispatcher: action => action());
                 Tracker.EspFailureDetected += (_, args) => EspFailures.Add(args);
             }
 

@@ -63,6 +63,7 @@ export const EVENT_TYPES_CATALOG = {
     'app_install_skipped',
     'app_install_starved',
     'esp_apps_failure_correlation',
+    'esp_appx_failure_analysis',
     'download_progress',
     'do_telemetry',
     'all_apps_completed',

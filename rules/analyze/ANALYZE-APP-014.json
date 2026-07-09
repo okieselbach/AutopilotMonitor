@@ -1,0 +1,72 @@
+{
+  "$schema": "../schema/analyze-rule.schema.json",
+  "ruleId": "ANALYZE-APP-014",
+  "title": "MSIX/Store App Failure During ESP (AppX Deployment)",
+  "description": "Detects when the Enrollment Status Page failed on the Apps subcategory and the agent's AppX deployment log scan identified a suspected MSIX/Store package. Store/MSIX apps install outside the Win32 pipeline, so the regular per-app tracking sees nothing — this correlation names the likely culprit.",
+  "severity": "warning",
+  "category": "apps",
+  "version": "1.0.0",
+  "enabled": true,
+  "baseConfidence": 75,
+  "preconditions": [
+    {
+      "source": "event_data",
+      "eventType": "esp_appx_failure_analysis",
+      "dataField": "verdict",
+      "operator": "equals",
+      "value": "appx_candidate_identified",
+      "description": "Scope this rule to sessions where the settle-window AppX scan found a package whose deployment error matches the ESP failure HRESULT. Weaker verdicts (appx_activity_no_hresult_match, no_appx_candidates) intentionally do not fire this rule — they carry too little signal for an admin-facing finding."
+    }
+  ],
+  "conditions": [
+    {
+      "signal": "appx_candidate",
+      "source": "event_type",
+      "eventType": "esp_appx_failure_analysis",
+      "dataField": "topCandidatePackageName",
+      "operator": "exists",
+      "required": true
+    },
+    {
+      "signal": "esp_appx_family_errorcode",
+      "source": "event_type",
+      "eventType": "esp_failure_settle_started",
+      "dataField": "errorCode",
+      "operator": "regex",
+      "value": "^0x80073[cd]",
+      "required": false
+    }
+  ],
+  "explanation": "The ESP **{{espCategory}}/Apps** subcategory failed with HRESULT **{{espErrorCode}}** — an error from the AppX/MSIX deployment stack, i.e. a **Microsoft Store / MSIX app**, not a Win32 app. These apps install via the EnterpriseModernAppManagement CSP and never appear in the IME Win32 sidecar logs, which is why all tracked Win32/WinGet apps in this session can look green while ESP still reports an Apps failure.\n\nThe agent scanned the AppXDeploymentServer event log during the failure settle window and identified **{{topCandidatePackageName}}** (package `{{topCandidatePackage}}`) as the most likely culprit — its deployment error matches the ESP failure code ({{candidateCount}} candidate(s) total, confidence: {{confidence}}).\n\n**This is a correlation-based assessment, not a confirmed root cause** — validate against the AppXDeploymentServer/Operational event log on the device or in the diagnostics archive before acting.",
+  "remediation": [
+    {
+      "title": "Confirm the failing package",
+      "steps": [
+        "Open Event Viewer → Applications and Services Logs → Microsoft → Windows → AppXDeploymentServer → Operational on the device (or in the diagnostics archive if uploaded)",
+        "Filter for Error-level events around the ESP failure time and confirm the package name and HRESULT match this finding",
+        "Look up the HRESULT: 0x80073cf9 = generic install failure, 0x80073cf0 = invalid/corrupt package, 0x80073cff = sideloading/licensing policy block, 0x80073d02 = blocked because app is in use"
+      ]
+    },
+    {
+      "title": "Check Store app assignment and licensing",
+      "steps": [
+        "Intune portal → Apps → check the assignment of the suspected app: device context vs user context — user-context Store apps installing during Account Setup ESP are a common failure source",
+        "Verify the app's license type (online vs offline): online-licensed Store apps require the user's Entra ID token and Store connectivity during ESP",
+        "Check whether the Microsoft Store endpoints are reachable from the enrollment network (proxy/firewall allowlists)",
+        "If the app is not business-critical during provisioning: remove it from the ESP blocking-app list so a failure no longer terminates enrollment"
+      ]
+    },
+    {
+      "title": "Consider repackaging",
+      "steps": [
+        "For maximum ESP reliability, wrap the app as a Win32 (.intunewin) deployment instead of a Store/MSIX assignment — Win32 installs are fully tracked and produce per-app failure telemetry",
+        "Alternatively deploy the app post-enrollment (available, not required) so it cannot block the ESP"
+      ]
+    }
+  ],
+  "relatedDocs": [
+    { "title": "Microsoft Learn: Troubleshoot Windows Autopilot ESP error codes", "url": "https://learn.microsoft.com/en-us/autopilot/troubleshoot-tsg" },
+    { "title": "Add Microsoft Store apps to Intune", "url": "https://learn.microsoft.com/en-us/mem/intune/apps/store-apps-microsoft" }
+  ],
+  "tags": ["apps", "appx", "msix", "store", "esp", "0x80073cf9"]
+}

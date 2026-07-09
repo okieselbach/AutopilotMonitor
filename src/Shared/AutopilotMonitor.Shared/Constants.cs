@@ -471,6 +471,7 @@ namespace AutopilotMonitor.Shared
 
             // ESP provisioning detail
             public const string EspFailureSettleStarted   = "esp_failure_settle_started";
+            public const string EspAppxFailureAnalysis    = "esp_appx_failure_analysis"; // One-shot AppXDeploymentServer/Operational scan during the ESP failure settle window: candidate MSIX/Store packages behind an "Apps (0x…)" subcategory failure invisible to ImeLogTracker (session 2bc884b6). Assessment, not a confirmed root cause.
             public const string EspProvisioningRaw        = "esp_provisioning_raw";
             public const string EspFailure                = "esp_failure";
             public const string EspExiting                = "esp_exiting";

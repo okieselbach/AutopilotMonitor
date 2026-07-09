@@ -485,8 +485,8 @@ function EventRow({ event, showScriptOutput }: { event: EnrollmentEvent; showScr
               defang). The HRESULT is extracted from the ESP registry statusText by the agent
               (e.g. "Apps (0x87d1041c)") and surfaced as top-level event data so the UI can
               render it without parsing nested text. */}
-          {(event.eventType === "enrollment_failed" || event.eventType === "esp_provisioning_status" || event.eventType === "esp_failure_advisory") && (() => {
-            const code = event.data?.errorCode ?? event.data?.failedSubcategoryErrorCode;
+          {(event.eventType === "enrollment_failed" || event.eventType === "esp_provisioning_status" || event.eventType === "esp_failure_advisory" || event.eventType === "esp_appx_failure_analysis") && (() => {
+            const code = event.data?.errorCode ?? event.data?.failedSubcategoryErrorCode ?? event.data?.espErrorCode;
             const sub = event.data?.failedSubcategory ?? event.data?.failedSubcategories;
             const isAdvisory = event.eventType === "esp_failure_advisory";
             if (!code && !isAdvisory) return null;
