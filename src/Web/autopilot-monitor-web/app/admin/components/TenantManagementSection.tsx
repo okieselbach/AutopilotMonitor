@@ -74,11 +74,21 @@ export function TenantManagementSection({
   const [sendingWelcomeEmail, setSendingWelcomeEmail] = useState(false);
   const [notificationEmail, setNotificationEmail] = useState("");
 
-  // Filter and sort tenants
+  // Filter and sort tenants.
+  // Quoted queries ("microsoft.com") do an exact, case-insensitive equality
+  // match against tenantId/domainName instead of a substring match. This lets
+  // you find a tenant like "microsoft.com" that would otherwise be swallowed by
+  // every "*.onmicrosoft.com" domain in a plain substring search.
+  const rawQuery = searchQuery.trim();
+  const quotedMatch = rawQuery.match(/^"(.*)"$/);
+  const exactTerm = quotedMatch ? quotedMatch[1].toLowerCase() : null;
+  const substringTerm = searchQuery.toLowerCase();
   const filteredTenants = tenants.filter(t => {
-    const matchesSearch =
-      t.tenantId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      t.domainName.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = exactTerm !== null
+      ? t.tenantId.toLowerCase() === exactTerm ||
+        t.domainName.toLowerCase() === exactTerm
+      : t.tenantId.toLowerCase().includes(substringTerm) ||
+        t.domainName.toLowerCase().includes(substringTerm);
     const matchesWaitlist = !showOnlyWaitlist || !previewApproved.has(t.tenantId);
     const matchesReady = !showOnlyReady || t.validateAutopilotDevice;
     return matchesSearch && matchesWaitlist && matchesReady;
@@ -316,7 +326,7 @@ export function TenantManagementSection({
                   </svg>
                   <input
                     type="text"
-                    placeholder="Search by domain or tenant ID..."
+                    placeholder={'Search by domain or tenant ID (use "..." for exact match)'}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
