@@ -39,7 +39,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             public List<EspFailureDetectedEventArgs> EspFailures { get; } = new List<EspFailureDetectedEventArgs>();
             public ProvisioningStatusTracker Tracker { get; }
 
-            public Fixture()
+            public Fixture(Func<IReadOnlyList<AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime.AppPackageState>> packageStatesProbe = null)
             {
                 var clock = new VirtualClock(Fixed);
                 var post = new InformationalEventPost(Sink, clock);
@@ -53,7 +53,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
                     // settle window, which triggers the AppX enrichment scan — the default seams
                     // would hit the real event log via Task.Run (mock ALL system calls).
                     appxScanner: new FakeAppxDeploymentFailureScanner(),
-                    backgroundDispatcher: action => action());
+                    backgroundDispatcher: action => action(),
+                    packageStatesProbe: packageStatesProbe);
                 Tracker.EspFailureDetected += (_, args) => EspFailures.Add(args);
             }
 
@@ -179,6 +180,184 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
 
             var captured = f.CapturedEvents();
             Assert.Single(captured.Where(e => e.EventType == "esp_failure_settle_started"));
+        }
+
+        // =====================================================================
+        // Session c071e92b — recovery during the settle window (ESP "Try again"
+        // flipped Apps failed → inProgress 12 s after settle start; the expiry
+        // handler fired the latched args anyway and terminated the agent on a
+        // failure Windows no longer reported).
+        // =====================================================================
+
+        [Fact]
+        public void RecoveryDuringSettleWindow_SuppressesFailure_EmitsRecoveredEvent()
+        {
+            using var f = new Fixture();
+
+            f.Tracker.ProcessCategoryStatusForTest("AccountSetupCategory.Status", @"{
+                ""categorySucceeded"": null,
+                ""AppsSubcategory"": {""subcategoryState"":""inProgress"",""subcategoryStatusText"":""Apps (0 of 1 installed)""}
+            }");
+            f.Tracker.ProcessCategoryStatusForTest("AccountSetupCategory.Status", @"{
+                ""categorySucceeded"": null,
+                ""AppsSubcategory"": {""subcategoryState"":""failed"",""subcategoryStatusText"":""Apps (Error)""}
+            }");
+
+            // Failure retracted inside the settle window (e.g. user clicked "Try again").
+            f.Tracker.ProcessCategoryStatusForTest("AccountSetupCategory.Status", @"{
+                ""categorySucceeded"": null,
+                ""AppsSubcategory"": {""subcategoryState"":""inProgress"",""subcategoryStatusText"":""Apps (Working on it...)""}
+            }");
+
+            f.Tracker.TriggerSettleTimerForTest("AccountSetupCategory.Status");
+
+            // No terminal fire — the failure was retracted.
+            Assert.Empty(f.EspFailures);
+
+            var recovered = Assert.Single(f.CapturedEvents()
+                .Where(e => e.EventType == "esp_failure_settle_recovered"));
+            Assert.Equal("AccountSetup", (string)recovered.Data["category"]);
+            Assert.Equal("Apps", (string)recovered.Data["failedSubcategory"]);
+            Assert.Equal("inProgress", (string)recovered.Data["observedState"]);
+        }
+
+        [Fact]
+        public void RecoveryDuringSettleWindow_ReFailure_ArmsFreshSettleWindow_ThenFires()
+        {
+            using var f = new Fixture();
+
+            f.Tracker.ProcessCategoryStatusForTest("AccountSetupCategory.Status", @"{
+                ""categorySucceeded"": null,
+                ""AppsSubcategory"": {""subcategoryState"":""inProgress"",""subcategoryStatusText"":""Apps (0 of 1 installed)""}
+            }");
+            f.Tracker.ProcessCategoryStatusForTest("AccountSetupCategory.Status", @"{
+                ""categorySucceeded"": null,
+                ""AppsSubcategory"": {""subcategoryState"":""failed"",""subcategoryStatusText"":""Apps (Error)""}
+            }");
+            f.Tracker.ProcessCategoryStatusForTest("AccountSetupCategory.Status", @"{
+                ""categorySucceeded"": null,
+                ""AppsSubcategory"": {""subcategoryState"":""inProgress"",""subcategoryStatusText"":""Apps (Working on it...)""}
+            }");
+            f.Tracker.TriggerSettleTimerForTest("AccountSetupCategory.Status");
+            Assert.Empty(f.EspFailures);
+
+            // The retry fails again — the cleared fire-once gate must allow a FRESH settle window.
+            f.Tracker.ProcessCategoryStatusForTest("AccountSetupCategory.Status", @"{
+                ""categorySucceeded"": null,
+                ""AppsSubcategory"": {""subcategoryState"":""failed"",""subcategoryStatusText"":""Apps (Error)""}
+            }");
+
+            var settleStarted = f.CapturedEvents()
+                .Where(e => e.EventType == "esp_failure_settle_started").ToList();
+            Assert.Equal(2, settleStarted.Count);
+
+            // Second expiry with the failure still present → terminal fire.
+            f.Tracker.TriggerSettleTimerForTest("AccountSetupCategory.Status");
+            var fired = Assert.Single(f.EspFailures);
+            Assert.Equal("Provisioning_AccountSetup_Apps_Failed", fired.FailureType);
+        }
+
+        [Fact]
+        public void SubcategoryRecovery_ButCategoryResolvedFailed_StillFires()
+        {
+            using var f = new Fixture();
+
+            f.Tracker.ProcessCategoryStatusForTest("AccountSetupCategory.Status", @"{
+                ""categorySucceeded"": null,
+                ""AppsSubcategory"": {""subcategoryState"":""inProgress"",""subcategoryStatusText"":""Apps (0 of 1 installed)""}
+            }");
+            f.Tracker.ProcessCategoryStatusForTest("AccountSetupCategory.Status", @"{
+                ""categorySucceeded"": false,
+                ""AppsSubcategory"": {""subcategoryState"":""failed"",""subcategoryStatusText"":""Apps (Error)""}
+            }");
+            // Subcategory flips back but Windows keeps the category-level failed verdict —
+            // the resolved boolean is authoritative, the failure must still fire.
+            f.Tracker.ProcessCategoryStatusForTest("AccountSetupCategory.Status", @"{
+                ""categorySucceeded"": false,
+                ""AppsSubcategory"": {""subcategoryState"":""inProgress"",""subcategoryStatusText"":""Apps (Working on it...)""}
+            }");
+
+            f.Tracker.TriggerSettleTimerForTest("AccountSetupCategory.Status");
+
+            Assert.Single(f.EspFailures);
+            Assert.Empty(f.CapturedEvents().Where(e => e.EventType == "esp_failure_settle_recovered"));
+        }
+
+        // =====================================================================
+        // Session c071e92b — Apps-subcategory failures name the tracked apps
+        // that never completed (e.g. Company Portal Store app stuck "pending",
+        // invisible to both the starved-app probe and esp_apps_failure_correlation).
+        // =====================================================================
+
+        private static AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime.AppPackageState BuildApp(
+            string id, string name,
+            AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime.AppInstallationState state,
+            AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime.AppIntent intent,
+            AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime.AppTargeted targeted)
+        {
+            var pkg = new AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime.AppPackageState(id, 0);
+            pkg.UpdateName(name);
+            pkg.UpdateIntent(intent);
+            pkg.UpdateTargeted(targeted);
+            if (state != AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime.AppInstallationState.Unknown)
+                pkg.UpdateState(state);
+            return pkg;
+        }
+
+        [Fact]
+        public void AppsFailure_SettleStarted_NamesTrackedAppsNotCompleted()
+        {
+            var pending = BuildApp("app-cp", "Company Portal",
+                AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime.AppInstallationState.Unknown,
+                AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime.AppIntent.Install,
+                AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime.AppTargeted.User);
+            var installed = BuildApp("app-ok", "Falcon Sensor",
+                AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime.AppInstallationState.Installed,
+                AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime.AppIntent.Install,
+                AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime.AppTargeted.Device);
+            using var f = new Fixture(() => new[] { pending, installed });
+
+            f.Tracker.ProcessCategoryStatusForTest("AccountSetupCategory.Status", @"{
+                ""categorySucceeded"": null,
+                ""AppsSubcategory"": {""subcategoryState"":""inProgress"",""subcategoryStatusText"":""Apps (0 of 1 installed)""}
+            }");
+            f.Tracker.ProcessCategoryStatusForTest("AccountSetupCategory.Status", @"{
+                ""categorySucceeded"": null,
+                ""AppsSubcategory"": {""subcategoryState"":""failed"",""subcategoryStatusText"":""Apps (Error)""}
+            }");
+
+            var settleStarted = Assert.Single(f.CapturedEvents()
+                .Where(e => e.EventType == "esp_failure_settle_started"));
+            Assert.Equal(1, (int)settleStarted.Data["trackedAppsNotCompletedCount"]);
+            var apps = (List<Dictionary<string, object>>)settleStarted.Data["trackedAppsNotCompleted"];
+            var app = Assert.Single(apps);
+            Assert.Equal("Company Portal", (string)app["appName"]);
+            Assert.Equal("Unknown", (string)app["state"]);
+            Assert.False((bool)app["everStartedInstalling"]);
+        }
+
+        [Fact]
+        public void NonAppsFailure_SettleStarted_CarriesNoAppFields()
+        {
+            var pending = BuildApp("app-cp", "Company Portal",
+                AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime.AppInstallationState.Unknown,
+                AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime.AppIntent.Install,
+                AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime.AppTargeted.User);
+            using var f = new Fixture(() => new[] { pending });
+
+            f.Tracker.ProcessCategoryStatusForTest("AccountSetupCategory.Status", @"{
+                ""categorySucceeded"": null,
+                ""SecurityPoliciesSubcategory"": {""subcategoryState"":""inProgress"",""subcategoryStatusText"":""Working""}
+            }");
+            f.Tracker.ProcessCategoryStatusForTest("AccountSetupCategory.Status", @"{
+                ""categorySucceeded"": null,
+                ""SecurityPoliciesSubcategory"": {""subcategoryState"":""failed"",""subcategoryStatusText"":""Failed""}
+            }");
+
+            var settleStarted = Assert.Single(f.CapturedEvents()
+                .Where(e => e.EventType == "esp_failure_settle_started"));
+            Assert.False(settleStarted.Data.ContainsKey("trackedAppsNotCompleted"));
+            Assert.False(settleStarted.Data.ContainsKey("trackedAppsNotCompletedCount"));
         }
     }
 }

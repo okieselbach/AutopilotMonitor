@@ -120,6 +120,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         // dispatcher are injectable so tests never touch the real event log or the threadpool.
         private readonly IAppxDeploymentFailureScanner _appxScanner;
         private readonly Action<Action> _backgroundDispatcher;
+        // Session c071e92b enrichment: IME package-state probe (wired to
+        // ImeLogHost.AllKnownPackageStates by the factory chain) so an Apps-subcategory
+        // failure can name the tracked apps that never completed — e.g. a Store app
+        // (Company Portal) that starved the ESP into its sync-failure timeout without
+        // ever producing an IME install event. Defaults to empty for single-tracker wiring.
+        private readonly Func<IReadOnlyList<AppPackageState>> _packageStatesProbe;
         private DateTime _monitoringStartUtc;
         private bool _appxScanStarted;
         private readonly object _stateLock = new object();
@@ -142,7 +148,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             InformationalEventPost post,
             AgentLogger logger,
             IAppxDeploymentFailureScanner appxScanner = null,
-            Action<Action> backgroundDispatcher = null)
+            Action<Action> backgroundDispatcher = null,
+            Func<IReadOnlyList<AppPackageState>> packageStatesProbe = null)
         {
             _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
             _tenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId));
@@ -150,6 +157,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _appxScanner = appxScanner ?? new AppxDeploymentFailureScanner();
             _backgroundDispatcher = backgroundDispatcher ?? (action => Task.Run(action));
+            _packageStatesProbe = packageStatesProbe ?? (() => Array.Empty<AppPackageState>());
         }
 
         // =====================================================================
@@ -1239,6 +1247,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             EspFailureDetectedEventArgs args = null;
             try
             {
+                bool recovered;
+                string observedState = null;
                 lock (_stateLock)
                 {
                     if (_provisioningFailureSettleArgs == null
@@ -1255,6 +1265,43 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         try { timer?.Dispose(); } catch { /* swallow */ }
                         _provisioningFailureSettleTimers.Remove(categoryName);
                     }
+
+                    // Session c071e92b fix: re-check CURRENT registry-derived state before
+                    // committing the latched failure. ESP failures can be retracted inside the
+                    // window (user clicks "Try again" / IME re-sync flips the subcategory back
+                    // to inProgress) — firing the stale args would terminate the agent on a
+                    // failure Windows no longer reports, and the retry outcome is lost.
+                    recovered = IsSettledFailureRecovered(categoryName, args);
+                    if (recovered)
+                    {
+                        if (args.FailedSubcategory != null
+                            && _lastSubcategoryStates.TryGetValue(categoryName, out var subs)
+                            && subs.TryGetValue(args.FailedSubcategory, out var current))
+                        {
+                            observedState = current;
+                        }
+
+                        // Clear the fire-once gate so a subsequent re-failure arms a FRESH
+                        // settle window (the retry may fail again — that one is terminal).
+                        _provisioningFailureFired.Remove(categoryName);
+                        // The category is back in progress — it must not count towards the
+                        // "all categories resolved with success" self-termination check.
+                        if (_lastCategorySucceeded.TryGetValue(categoryName, out var succeededNow)
+                            && succeededNow == null)
+                        {
+                            _provisioningCategoriesResolved.Remove(categoryName);
+                        }
+                    }
+                }
+
+                if (recovered)
+                {
+                    _logger.Info(
+                        $"Provisioning failure settle window elapsed but the failure was retracted — " +
+                        $"suppressing EspFailureDetected: category={args.Category}, " +
+                        $"failedSubcategory={args.FailedSubcategory ?? "n/a"}, observedState={observedState ?? "n/a"}");
+                    EmitFailureSettleRecovered(args, observedState);
+                    return;
                 }
 
                 _logger.Info(
@@ -1271,6 +1318,70 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             }
         }
 
+        /// <summary>
+        /// Session c071e92b fix: true when the failure that armed the settle window is no
+        /// longer present in the tracked registry state — categorySucceeded is not false AND
+        /// no subcategory of the category is currently "failed". The any-subcategory check
+        /// (instead of only the latched one) is deliberate: if the original subcategory
+        /// recovered but a different one failed inside the window, the failure is still real
+        /// and must fire (with the latched args — statusText/HRESULT of the new subcategory
+        /// were never captured). Caller holds <see cref="_stateLock"/>.
+        /// </summary>
+        private bool IsSettledFailureRecovered(string categoryName, EspFailureDetectedEventArgs args)
+        {
+            if (_lastCategorySucceeded != null
+                && _lastCategorySucceeded.TryGetValue(categoryName, out var succeeded)
+                && succeeded == false)
+            {
+                return false;
+            }
+
+            if (_lastSubcategoryStates == null
+                || !_lastSubcategoryStates.TryGetValue(categoryName, out var subs)
+                || subs == null)
+            {
+                // No tracked state — conservative: treat as still failed and fire.
+                return false;
+            }
+
+            foreach (var state in subs.Values)
+            {
+                if (string.Equals(state, "failed", StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+
+            return true;
+        }
+
+        private void EmitFailureSettleRecovered(EspFailureDetectedEventArgs args, string observedState)
+        {
+            var data = new Dictionary<string, object>
+            {
+                { "category", args.Category ?? "unknown" },
+                { "failedSubcategory", args.FailedSubcategory ?? "category-level" },
+                { "failureType", args.FailureType },
+                { "settleSeconds", ProvisioningFailureSettleWindowSeconds },
+                { "observedState", observedState ?? "unknown" },
+                { "note", "ESP retracted the failure during the settle window (e.g. a 'Try again' retry) — terminal failure suppressed, monitoring continues; a subsequent failure re-arms a fresh settle window." }
+            };
+            if (!string.IsNullOrEmpty(args.ErrorCode))
+                data["errorCode"] = args.ErrorCode;
+
+            _post.Emit(new EnrollmentEvent
+            {
+                SessionId = _sessionId,
+                TenantId = _tenantId,
+                EventType = Constants.EventTypes.EspFailureSettleRecovered,
+                Severity = EventSeverity.Info,
+                Source = "EspAndHelloTracker",
+                Phase = EnrollmentPhase.Unknown,
+                Message = $"ESP failure retracted during settle window — {args.Category}/{args.FailedSubcategory ?? "category-level"} " +
+                          $"recovered (now {observedState ?? "unknown"}); terminal failure suppressed, monitoring continues.",
+                Data = data,
+                ImmediateUpload = true
+            });
+        }
+
         private void EmitFailureSettleStarted(EspFailureDetectedEventArgs args)
         {
             var data = new Dictionary<string, object>
@@ -1284,6 +1395,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             if (!string.IsNullOrEmpty(args.ErrorCode))
                 data["errorCode"] = args.ErrorCode;
 
+            var appsSuffix = string.Empty;
+            if (string.Equals(args.FailedSubcategory, "Apps", StringComparison.OrdinalIgnoreCase))
+            {
+                var notCompleted = SnapshotTrackedAppsNotCompleted();
+                if (notCompleted.Count > 0)
+                {
+                    data["trackedAppsNotCompletedCount"] = notCompleted.Count;
+                    data["trackedAppsNotCompleted"] = notCompleted;
+                    var names = notCompleted
+                        .Select(a => $"{a["appName"]} ({a["state"]})");
+                    appsSuffix = $" — {notCompleted.Count} tracked app(s) not completed: {string.Join(", ", names)}";
+                }
+            }
+
             _post.Emit(new EnrollmentEvent
             {
                 SessionId = _sessionId,
@@ -1294,9 +1419,52 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 Phase = EnrollmentPhase.Unknown,
                 Message = $"ESP failure settle window started ({ProvisioningFailureSettleWindowSeconds}s) — " +
                           $"{args.Category}/{args.FailedSubcategory ?? "category-level"}" +
-                          (string.IsNullOrEmpty(args.ErrorCode) ? "" : $" (errorCode={args.ErrorCode})"),
+                          (string.IsNullOrEmpty(args.ErrorCode) ? "" : $" (errorCode={args.ErrorCode})") +
+                          appsSuffix,
                 Data = data
             });
+        }
+
+        /// <summary>
+        /// Session c071e92b enrichment: names the tracked apps that are not terminal at the
+        /// moment an Apps-subcategory failure is detected. When ESP fails Apps via its
+        /// sync-failure timeout, the blocker is often an app IME never surfaced an error for —
+        /// e.g. a Store/WinGet app (Company Portal) stuck "pending" with zero install events.
+        /// Both existing correlation paths miss exactly that shape: the starved-app probe is
+        /// gated on IME-log AccountSetup phase detection + Install intent, and
+        /// esp_apps_failure_correlation deliberately only blames actively-installing device
+        /// apps. This is registry-driven and unconditional: whatever ESP counted as unfinished
+        /// is what the admin needs to see. Best-effort; empty on any probe failure.
+        /// </summary>
+        private List<Dictionary<string, object>> SnapshotTrackedAppsNotCompleted()
+        {
+            var result = new List<Dictionary<string, object>>();
+            try
+            {
+                var packages = _packageStatesProbe();
+                if (packages == null) return result;
+
+                foreach (var pkg in packages)
+                {
+                    if (pkg == null || pkg.IsCompleted || pkg.IsError) continue;
+
+                    result.Add(new Dictionary<string, object>
+                    {
+                        { "appId", pkg.Id ?? string.Empty },
+                        { "appName", string.IsNullOrEmpty(pkg.Name) ? (pkg.Id ?? "(unknown)") : pkg.Name },
+                        { "state", pkg.InstallationState.ToString() },
+                        { "intent", pkg.Intent.ToString() },
+                        { "targeted", pkg.Targeted.ToString() },
+                        { "everStartedInstalling", pkg.DownloadingOrInstallingSeen }
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Debug($"SnapshotTrackedAppsNotCompleted probe threw: {ex.Message}");
+                result.Clear();
+            }
+            return result;
         }
 
         /// <summary>

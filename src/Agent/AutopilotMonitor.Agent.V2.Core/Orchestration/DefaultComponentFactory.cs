@@ -147,6 +147,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 // Liveness plan PR3: starved-apps probe over the same lazily-assigned IME host.
                 starvedUserEspAppsProbe: () =>
                     imeLogHostRef?.GetStarvedUserEspApps()
+                    ?? Array.Empty<Monitoring.Enrollment.Ime.AppPackageState>(),
+                // Session c071e92b: package-state probe (union incl. phase snapshots) so an
+                // Apps-subcategory failure names the tracked apps that never completed —
+                // covers Store/WinGet apps invisible to the starved/correlation paths.
+                packageStatesProbe: () =>
+                    imeLogHostRef?.AllKnownPackageStates
                     ?? Array.Empty<Monitoring.Enrollment.Ime.AppPackageState>());
             hosts.Add(espAndHelloHost);
 

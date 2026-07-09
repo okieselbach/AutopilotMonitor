@@ -22,6 +22,7 @@ export const EVENT_TYPES_CATALOG = {
     'esp_failure',
     'esp_failure_advisory',
     'esp_failure_settle_started',
+    'esp_failure_settle_recovered',
     'esp_exiting',
     'esp_config_detected',
     'completion_check',

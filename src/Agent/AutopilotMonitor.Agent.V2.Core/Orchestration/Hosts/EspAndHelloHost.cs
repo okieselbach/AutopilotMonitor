@@ -71,7 +71,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             int[]? modernDeploymentHarmlessEventIds,
             string stateDirectory,
             Func<bool>? userEspAppsSettledProbe = null,
-            Func<System.Collections.Generic.IReadOnlyList<Monitoring.Enrollment.Ime.AppPackageState>>? starvedUserEspAppsProbe = null)
+            Func<System.Collections.Generic.IReadOnlyList<Monitoring.Enrollment.Ime.AppPackageState>>? starvedUserEspAppsProbe = null,
+            Func<System.Collections.Generic.IReadOnlyList<Monitoring.Enrollment.Ime.AppPackageState>>? packageStatesProbe = null)
         {
             if (ingress == null) throw new ArgumentNullException(nameof(ingress));
             if (clock == null) throw new ArgumentNullException(nameof(clock));
@@ -89,7 +90,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 stateDirectory: stateDirectory,
                 modernDeploymentHarmlessEventIds: modernDeploymentHarmlessEventIds,
                 userEspAppsSettledProbe: userEspAppsSettledProbe,
-                starvedUserEspAppsProbe: starvedUserEspAppsProbe);
+                starvedUserEspAppsProbe: starvedUserEspAppsProbe,
+                packageStatesProbe: packageStatesProbe);
 
             _tracker.WhiteGloveCompleted += OnTrackerWhiteGloveCompleted;
             _tracker.DeviceSetupProvisioningComplete += OnTrackerDeviceSetupProvisioningComplete;

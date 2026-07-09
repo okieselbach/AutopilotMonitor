@@ -41,6 +41,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private readonly Func<bool> _accountSetupActivityProbe;
         private readonly Func<bool> _userEspAppsSettledProbe;
         private readonly Func<System.Collections.Generic.IReadOnlyList<Ime.AppPackageState>> _starvedUserEspAppsProbe;
+        private readonly Func<System.Collections.Generic.IReadOnlyList<Ime.AppPackageState>> _packageStatesProbe;
 
         // Session caa6cf50 gate-starvation fix (2026-06-11) — fire-once guard for the
         // user-ESP-apps-settled AccountSetup synthesis (see MaybeSynthesizeAccountSetupComplete).
@@ -204,7 +205,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             Func<(bool? skipUser, bool? skipDevice)> skipConfigProbe = null,
             Func<bool> accountSetupActivityProbe = null,
             Func<bool> userEspAppsSettledProbe = null,
-            Func<System.Collections.Generic.IReadOnlyList<Ime.AppPackageState>> starvedUserEspAppsProbe = null)
+            Func<System.Collections.Generic.IReadOnlyList<Ime.AppPackageState>> starvedUserEspAppsProbe = null,
+            Func<System.Collections.Generic.IReadOnlyList<Ime.AppPackageState>> packageStatesProbe = null)
         {
             _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
             _tenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId));
@@ -231,6 +233,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             // ImeLogHost.GetStarvedUserEspApps by DefaultComponentFactory). Defaults to empty
             // so single-tracker wiring scenarios never emit app_install_starved.
             _starvedUserEspAppsProbe = starvedUserEspAppsProbe
+                ?? (() => Array.Empty<Ime.AppPackageState>());
+            // Session c071e92b enrichment: IME package-state probe (wired to
+            // ImeLogHost.AllKnownPackageStates by DefaultComponentFactory) — lets the
+            // provisioning tracker name not-completed apps on an Apps-subcategory failure.
+            _packageStatesProbe = packageStatesProbe
                 ?? (() => Array.Empty<Ime.AppPackageState>());
         }
 
@@ -335,7 +342,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 _sessionId,
                 _tenantId,
                 _post,
-                _logger);
+                _logger,
+                packageStatesProbe: _packageStatesProbe);
             _provisioningTracker.EspFailureDetected += OnProvisioningEspFailureDetected;
             _provisioningTracker.DeviceSetupProvisioningComplete += OnDeviceSetupProvisioningComplete;
             _provisioningTracker.AccountSetupProvisioningComplete += OnAccountSetupProvisioningComplete;
