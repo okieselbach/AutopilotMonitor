@@ -406,11 +406,47 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // rematerialises every missing StepIndex. For no-replay branches the callback
             // is simply never invoked; the journal stays aligned from the pre-replay
             // truncate step above.
-            initialState = ReducerReplay.Replay(
-                engine: replayEngine,
-                seed: seed,
-                signals: signalsToReplay,
-                onTransition: journal.Append);
+            try
+            {
+                initialState = ReducerReplay.Replay(
+                    engine: replayEngine,
+                    seed: seed,
+                    signals: signalsToReplay,
+                    onTransition: journal.Append);
+            }
+            catch (InvalidOperationException ex)
+            {
+                // ReducerReplay (or the Journal backfill callback) rejected the persisted
+                // stream — non-monotonic ordinal, null signal, or a journal monotonicity
+                // violation. The exception contract says "caller should quarantine rather
+                // than trust this stream": do exactly that instead of letting the throw
+                // escape as a fatal startup failure. Field case (session b9b92d89,
+                // 2026-07-09): a self-update restart killed the agent mid-append and left a
+                // duplicated final line in the SignalLog; the uncaught throw here turned
+                // that single crash artifact into a PERMANENT crash-loop — every restart
+                // replayed the same corrupt log and died again. Fail-closed to a fresh
+                // Initial seed; the quarantine bucket keeps the stream for forensics.
+                logger.Error(
+                    "EnrollmentOrchestrator: SignalLog replay failed — quarantining all reducer " +
+                    "segments and reseeding from Initial state.", ex);
+
+                snapshot.Quarantine("replay-failed: " + ex.Message);
+                SegmentQuarantine.QuarantineAll(
+                    stateDirectory, "replay-failed: " + ex.Message, () => clock.UtcNow);
+
+                // Same pattern as the log-head-corrupt quarantine above: writers hold paths,
+                // not handles, but their in-memory counters are stale after the move —
+                // recreate to reset them to -1.
+                signalLog = new SignalLogWriter(signalLogPath);
+                journal = new JournalWriter(journalPath, () => clock.UtcNow);
+                eventSequence = new EventSequencePersistence(eventSequencePath);
+
+                seed = DecisionState.CreateInitial(sessionId, tenantId, agentBootUtc);
+                signalsToReplay = Array.Empty<DecisionSignal>();
+                initialState = seed;
+                branchTag += "+replay-quarantined";
+                wasStartupQuarantine = true;
+            }
 
             logger.Info(
                 $"EnrollmentOrchestrator: recovery branch={branchTag}, " +

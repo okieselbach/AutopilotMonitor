@@ -292,6 +292,74 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             Assert.True(new FileInfo(rig.StatePath("signal-log.jsonl")).Length > 0);
         }
 
+        // ================================================================= Replay failure → quarantine
+
+        [Fact]
+        public void Byte_identical_duplicate_log_line_replays_clean_without_quarantine()
+        {
+            // Field case (session b9b92d89, 2026-07-09): the dying process double-flushed
+            // its final Append → identical JSONL line twice. ReadAll dedupes the artifact,
+            // so recovery replays the distinct signals and does NOT quarantine anything.
+            using var rig = new Rig();
+
+            var sigs = new[]
+            {
+                MakeSignal(0, DecisionSignalKind.SessionStarted),
+                MakeSignal(1, DecisionSignalKind.AppInstallCompleted),
+            };
+            SeedSignalLog(rig, sigs);
+
+            var logPath = rig.StatePath("signal-log.jsonl");
+            var lines = File.ReadAllLines(logPath, Encoding.UTF8);
+            File.AppendAllText(logPath, lines[lines.Length - 1] + "\n", Encoding.UTF8);
+
+            var expected = ReducerReplay.Replay(
+                new DecisionEngine(), DecisionState.CreateInitial(SessionId, TenantId), sigs);
+
+            var result = rig.Recover();
+
+            Assert.Equal(expected.StepIndex, result.InitialState.StepIndex);
+            Assert.Equal(expected.LastAppliedSignalOrdinal, result.InitialState.LastAppliedSignalOrdinal);
+            Assert.False(Directory.Exists(Path.Combine(rig.StateDir, ".quarantine")));
+        }
+
+        [Fact]
+        public void Non_monotonic_log_is_quarantined_and_reseeds_fresh_instead_of_throwing()
+        {
+            // A duplicate ordinal on a NON-identical line (true corruption) must not escape
+            // Recover as a fatal exception — pre-fix this produced a permanent startup
+            // crash-loop (every restart replayed the same corrupt log and died again).
+            // Contract: quarantine all reducer segments, reseed from Initial.
+            using var rig = new Rig();
+
+            var sigs = new[]
+            {
+                MakeSignal(0, DecisionSignalKind.SessionStarted),
+                MakeSignal(1, DecisionSignalKind.AppInstallCompleted),
+            };
+            SeedSignalLog(rig, sigs);
+
+            // Same ordinal 1, different kind → different bytes → survives ReadAll dedup.
+            var rogue = AutopilotMonitor.DecisionCore.Serialization.SignalSerializer.Serialize(
+                MakeSignal(1, DecisionSignalKind.DesktopArrived));
+            File.AppendAllText(rig.StatePath("signal-log.jsonl"), rogue + "\n", Encoding.UTF8);
+
+            var result = rig.Recover();
+
+            Assert.True(result.WasStartupQuarantine);
+            Assert.Equal(SessionStage.SessionStarted, result.InitialState.Stage);
+            Assert.Equal(0, result.InitialState.StepIndex);
+            Assert.Equal(-1, result.InitialState.LastAppliedSignalOrdinal);
+
+            // Corrupt stream preserved for forensics; live writers are fresh.
+            Assert.True(Directory.Exists(Path.Combine(rig.StateDir, ".quarantine")));
+            var quarantinedLogs = Directory.GetFiles(
+                Path.Combine(rig.StateDir, ".quarantine"), "signal-log.jsonl", SearchOption.AllDirectories);
+            Assert.Single(quarantinedLogs);
+            Assert.Equal(-1, result.SignalLog.LastOrdinal);
+            Assert.Equal(-1, result.Journal.LastStepIndex);
+        }
+
         // ================================================================= Journal alignment
 
         [Fact]

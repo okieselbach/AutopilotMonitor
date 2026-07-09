@@ -76,12 +76,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Persistence
 
                 // WriteThrough + Flush(true) — belt-and-suspenders per L.12: OS cache
                 // bypass plus explicit disk flush. Any return from Append means on-disk.
+                //
+                // bufferSize: 1 — at-most-once physical write. With the default 4096
+                // buffer a line shorter than the buffer stays in FileStream's internal
+                // buffer until Flush; if that flush faults AFTER the data landed on disk
+                // (observed 2026-07-09, session b9b92d89: process killed by the self-update
+                // restart mid-append), the buffer position is not reset and the using-
+                // Dispose flushes the SAME buffer again → byte-identical duplicate line →
+                // non-monotonic ordinal on the next recovery replay. An unbuffered write
+                // hands the payload to the OS exactly once; Dispose has nothing to re-flush.
                 using (var fs = new FileStream(
                     _path,
                     FileMode.Append,
                     FileAccess.Write,
                     FileShare.Read,
-                    bufferSize: 4096,
+                    bufferSize: 1,
                     options: FileOptions.WriteThrough))
                 {
                     fs.Write(bytes, 0, bytes.Length);
@@ -106,9 +115,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Persistence
                     return signals;
                 }
 
+                string? previousRawLine = null;
                 foreach (var rawLine in File.ReadAllLines(_path, Encoding.UTF8))
                 {
                     if (string.IsNullOrWhiteSpace(rawLine)) continue;
+
+                    // Byte-identical consecutive duplicate = known crash artifact, not
+                    // tampering: a pre-fix agent killed mid-append (self-update restart,
+                    // session b9b92d89 2026-07-09) could flush the same buffered line twice.
+                    // Skipping it preserves every distinct signal; anything non-monotonic
+                    // that ISN'T an exact duplicate still reaches the replay ordinal check
+                    // (and its quarantine handling) untouched.
+                    if (rawLine == previousRawLine) continue;
 
                     DecisionSignal parsed;
                     try
@@ -124,6 +142,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Persistence
                     }
 
                     signals.Add(parsed);
+                    previousRawLine = rawLine;
                 }
 
                 return signals;

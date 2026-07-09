@@ -106,6 +106,55 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Persistence
         }
 
         [Fact]
+        public void ReadAll_skips_byte_identical_duplicate_line_crash_artifact()
+        {
+            // Field case (session b9b92d89, 2026-07-09): a process kill during the final
+            // Append (self-update restart) double-flushed the same buffered line → the
+            // identical JSONL line landed twice. That is a crash artifact, not tampering —
+            // ReadAll must dedupe it so recovery replay sees a strictly monotonic stream.
+            using var tmp = new TempDirectory();
+            var log = tmp.File("signal-log.jsonl");
+
+            var writer = new SignalLogWriter(log);
+            writer.Append(TestSignals.Raw(0));
+            writer.Append(TestSignals.Raw(1));
+
+            // Duplicate the last line verbatim — simulates the double-flush.
+            var lines = File.ReadAllLines(log, Encoding.UTF8);
+            File.AppendAllText(log, lines[lines.Length - 1] + "\n", Encoding.UTF8);
+
+            var reread = new SignalLogWriter(log);
+            Assert.Equal(1, reread.LastOrdinal);
+
+            var signals = reread.ReadAll();
+            Assert.Equal(2, signals.Count);
+            Assert.Equal(0, signals[0].SessionSignalOrdinal);
+            Assert.Equal(1, signals[1].SessionSignalOrdinal);
+        }
+
+        [Fact]
+        public void ReadAll_does_not_dedupe_non_identical_duplicate_ordinal()
+        {
+            // A duplicate ordinal carried by a DIFFERENT line (true corruption / tamper)
+            // must NOT be silently dropped — it stays in the stream so the replay ordinal
+            // check can reject it and trigger quarantine.
+            using var tmp = new TempDirectory();
+            var log = tmp.File("signal-log.jsonl");
+
+            var writer = new SignalLogWriter(log);
+            writer.Append(TestSignals.Raw(0));
+            writer.Append(TestSignals.Raw(1));
+
+            // Re-serialize ordinal 1 with a different kind → same ordinal, different bytes.
+            var rogue = AutopilotMonitor.DecisionCore.Serialization.SignalSerializer.Serialize(
+                TestSignals.Raw(1, DecisionSignalKind.DesktopArrived));
+            File.AppendAllText(log, rogue + "\n", Encoding.UTF8);
+
+            var reread = new SignalLogWriter(log);
+            Assert.Equal(3, reread.ReadAll().Count);
+        }
+
+        [Fact]
         public void ReadAll_on_missing_file_returns_empty()
         {
             using var tmp = new TempDirectory();
