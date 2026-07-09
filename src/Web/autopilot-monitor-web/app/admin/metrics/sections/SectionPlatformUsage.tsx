@@ -86,6 +86,7 @@ interface PlatformUsageMetrics {
   deploymentTypes: DeploymentTypeMetrics;
   appScripts?: AppScriptMetrics;
   platformStats?: PlatformStats;
+  windowDays: number;
   computedAt: string;
   computeDurationMs: number;
   fromCache: boolean;
@@ -205,7 +206,7 @@ export function SectionPlatformUsage() {
               <div>
                 <h1 className="text-2xl font-normal text-gray-900">Platform Usage Metrics</h1>
                 <p className="text-sm text-gray-600 mt-1">
-                  Cross-tenant metrics • Computed at {formatTimestamp(metrics.computedAt)} in {metrics.computeDurationMs}ms
+                  Cross-tenant metrics • Rolling {metrics.windowDays ?? 90}-day window • Computed at {formatTimestamp(metrics.computedAt)} in {metrics.computeDurationMs}ms
                   {metrics.fromCache && (
                     <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">
                       From Cache
@@ -231,10 +232,13 @@ export function SectionPlatformUsage() {
 
         {/* Session Statistics */}
         <div className="mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Sessions</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-1">Sessions (Last {metrics.windowDays ?? 90} Days)</h2>
+          <p className="text-xs text-gray-500 mb-4">
+            Rolling {metrics.windowDays ?? 90}-day window. For all-time totals see Platform Statistics below.
+          </p>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="bg-white rounded-lg shadow p-6">
-              <div className="text-sm text-gray-500 mb-1">Total Sessions</div>
+              <div className="text-sm text-gray-500 mb-1" title={`Sessions started in the last ${metrics.windowDays ?? 90} days. All-time total is under Platform Statistics.`}>Sessions in Window</div>
               <div className="text-3xl font-bold text-gray-900">{metrics.sessions.total.toLocaleString()}</div>
             </div>
             <div className="bg-white rounded-lg shadow p-6">
@@ -465,14 +469,14 @@ export function SectionPlatformUsage() {
             {/* Enrollments */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               <div className="bg-white rounded-lg shadow p-6">
-                <div className="text-sm text-gray-500 mb-1">Total Enrollments</div>
+                <div className="text-sm text-gray-500 mb-1" title="One enrollment = one session. This is the all-time cumulative count, so it is higher than the windowed Sessions figure above.">Total Enrollments</div>
                 <div className="text-3xl font-bold text-blue-600">{metrics.platformStats.totalEnrollments.toLocaleString()}</div>
-                <div className="text-xs text-gray-400 mt-1">all enrollment sessions</div>
+                <div className="text-xs text-gray-400 mt-1">all sessions ever (cumulative)</div>
               </div>
               <div className="bg-white rounded-lg shadow p-6">
                 <div className="text-sm text-gray-500 mb-1">Successful Enrollments</div>
                 <div className="text-3xl font-bold text-green-600">{metrics.platformStats.successfulEnrollments.toLocaleString()}</div>
-                <div className="text-xs text-gray-400 mt-1">completed successfully</div>
+                <div className="text-xs text-gray-400 mt-1">cumulative, all-time</div>
               </div>
               <div className="bg-white rounded-lg shadow p-6">
                 <div className="text-sm text-gray-500 mb-1">Issues Detected</div>
