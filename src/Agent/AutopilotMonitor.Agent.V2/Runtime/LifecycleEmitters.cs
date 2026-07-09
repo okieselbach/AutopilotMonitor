@@ -513,8 +513,10 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         /// <param name="agentConfig">Carries SessionId / TenantId / agent build version.</param>
         /// <param name="reason">Discriminator stored in <c>data["reason"]</c>. Allowed values:
         /// <c>ctrl_c</c>, <c>process_exit</c>, <c>unhandled_exception</c>,
-        /// <c>runtime_host_exit</c>. Other reasons (auth_failure / decision_terminal /
-        /// max_lifetime) are emitted by their own dedicated paths.</param>
+        /// <c>runtime_host_exit</c>, <c>self_update_restart</c> (runtime hash-mismatch
+        /// update routing through the graceful shutdown, session b9b92d89 hardening). Other
+        /// reasons (auth_failure / decision_terminal / max_lifetime) are emitted by their
+        /// own dedicated paths.</param>
         /// <param name="agentStartTimeUtc">Used to compute uptime for the event payload.</param>
         /// <param name="agentVersion">Build hash tag, mirrored from <c>agent_started</c>.</param>
         /// <param name="logger">For best-effort log on emit failure.</param>

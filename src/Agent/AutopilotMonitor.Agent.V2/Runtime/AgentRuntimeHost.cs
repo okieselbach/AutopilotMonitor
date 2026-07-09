@@ -282,6 +282,27 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                         releaseShutdownEventClaim: ReleaseShutdownEventClaim);
                     auth.AuthFailureTracker.ThresholdExceeded += authThresholdHandler;
 
+                    // Self-update restart coordination (session b9b92d89, 2026-07-09): the
+                    // runtime-hash-mismatch trigger runs the update pipeline on a thread-pool
+                    // task concurrent with this host. Before this hook existed,
+                    // SelfUpdater.RestartAgent called Environment.Exit directly — the
+                    // ProcessExit window (~2-3s) cannot fit the full drain and the kill
+                    // landed mid-SignalLog-append (duplicated final line → recovery replay
+                    // crash-loop). Wired BEFORE orchestrator.Start so there is no window in
+                    // which the SignalLog is open but the restart would still hard-exit:
+                    // update finishes earlier → hook unset → immediate exit is safe (no
+                    // orchestrator, no open segment files); update finishes later → this
+                    // hook routes it through the normal graceful shutdown (emit + loop
+                    // signal + finally→TerminationPipeline). SelfUpdater hard-exits after
+                    // 15s if this pipeline ever hangs (restart script Wait-Process caps at 30s).
+                    SelfUpdater.RequestGracefulShutdown = () =>
+                    {
+                        logger.Info("Self-update restart requested — initiating graceful shutdown.");
+                        TryEmitAgentShuttingDownGap(reason: "self_update_restart");
+                        shutdown.Set();
+                        return true;
+                    };
+
                     // Death-Rattle (Plan §B, 2026-05-03): capture the prior run's last
                     // persisted snapshot BEFORE orchestrator.Start runs. Start triggers
                     // the recovery pipeline which may quarantine the snapshot or have the
@@ -581,6 +602,15 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     }
                     finally
                     {
+                        // Clear the self-update restart hook FIRST: past this point the
+                        // shutdown machinery (shutdown MRES, emit gate) is being torn down,
+                        // so a late-finishing updater must take the immediate-exit path —
+                        // which is safe again once the orchestrator below has stopped. A
+                        // racing updater that read the hook just before this clear is
+                        // covered by SelfUpdater.TryInitiateGracefulShutdown's catch
+                        // (disposed MRES → exception → immediate-exit fallback).
+                        SelfUpdater.RequestGracefulShutdown = null;
+
                         // Detach the WG-Part-1 inventory trigger before TerminationPipeline runs
                         // so any stragglers fired during shutdown don't reach a half-torn-down
                         // analyzerManager. Idempotent: Dispose unsubscribes via Interlocked guard.

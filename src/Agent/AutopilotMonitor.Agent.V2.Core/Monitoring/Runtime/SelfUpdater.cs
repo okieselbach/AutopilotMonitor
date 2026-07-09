@@ -89,6 +89,38 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         public static string BackendExpectedSha256 { get; set; }
 
         /// <summary>
+        /// Optional: graceful-shutdown request hook, set by the runtime host once its
+        /// shutdown machinery is armed (before the orchestrator starts) and cleared in its
+        /// shutdown finally. Same static-hook idiom as <see cref="BackendExpectedSha256"/>.
+        /// <para>
+        /// Field case (session b9b92d89, 2026-07-09): the runtime-hash-mismatch trigger runs
+        /// the update pipeline on a thread-pool task while the orchestrator is live; the old
+        /// <see cref="RestartAgent"/> then called <c>Environment.Exit</c> directly, giving
+        /// the ProcessExit handlers only the CLR's ~2-3s window — far too short for the full
+        /// drain (ingress → orchestrator.Stop → spool flush → snapshot). The kill landed
+        /// mid-SignalLog-append and produced a duplicated line. With this hook wired, the
+        /// restart routes through the host's normal graceful shutdown instead; the returned
+        /// <c>true</c> tells <see cref="RestartAgent"/> to wait (bounded) for the process to
+        /// exit on its own rather than hard-exiting.
+        /// </para>
+        /// <para>
+        /// Contract: returns <c>true</c> when a graceful shutdown was initiated (host loop
+        /// signalled); <c>false</c> to request the immediate-exit fallback. Must be cheap
+        /// and non-blocking. Exceptions are treated as <c>false</c>.
+        /// </para>
+        /// </summary>
+        public static Func<bool> RequestGracefulShutdown { get; set; }
+
+        /// <summary>
+        /// Upper bound for the graceful-shutdown wait in <see cref="RestartAgent"/>. MUST
+        /// stay well below the restart script's <c>Wait-Process -Timeout 30</c>: if the old
+        /// process outlives that timeout, PowerShell starts the new agent while the old one
+        /// is still running and the new instance kills itself via the multi-instance guard —
+        /// leaving the device without an agent until the next boot trigger.
+        /// </summary>
+        internal const int GracefulExitFallbackMs = 15000;
+
+        /// <summary>
         /// Checks for a newer agent version and applies the update if available.
         /// On success, restarts the process and never returns.
         /// On any failure, returns normally so the current version continues.
@@ -647,6 +679,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         /// <summary>
         /// Restarts the agent using PowerShell Wait-Process (same pattern as SummaryDialog.SelfCleanup).
         /// Wait-Process uses OS handles — zero polling, exits within milliseconds of process termination.
+        /// <para>
+        /// Exit strategy: when the runtime host has wired <see cref="RequestGracefulShutdown"/>
+        /// (orchestrator live), the restart routes through the host's graceful shutdown — the
+        /// script's Wait-Process holds until the process exits on its own, so we spend part of
+        /// its 30s budget on a REAL drain instead of the ~2-3s ProcessExit window an inline
+        /// <c>Environment.Exit</c> would leave. A bounded hard-exit fallback
+        /// (<see cref="GracefulExitFallbackMs"/>) guarantees the update still applies if the
+        /// shutdown pipeline ever hangs. Startup-phase updates (hook not set) keep the
+        /// original immediate exit — no orchestrator exists yet, nothing to drain.
+        /// </para>
         /// </summary>
         private static void RestartAgent(string agentDir, Action<string> log)
         {
@@ -659,7 +701,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             var safeAgentExePath = agentExePath.Replace("'", "''");
 
             // PowerShell Wait-Process: waits for our process to actually exit (no polling),
-            // then immediately starts the new agent. 30s timeout as safety net.
+            // then immediately starts the new agent. 30s timeout as safety net — the graceful
+            // path below must stay well inside it (see GracefulExitFallbackMs doc).
             var psScript = $"Wait-Process -Id {pid} -Timeout 30 -ErrorAction SilentlyContinue; " +
                            $"& '{safeAgentExePath}'";
             var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(psScript));
@@ -674,8 +717,51 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             };
             Process.Start(psi);
 
-            log("Self-update: restart script launched, exiting current process");
+            if (TryInitiateGracefulShutdown(log))
+            {
+                log($"Self-update: restart script launched — graceful shutdown initiated, " +
+                    $"hard-exit fallback in {GracefulExitFallbackMs / 1000}s.");
+
+                // Normal path: the host loop unblocks, its finally runs the full
+                // TerminationPipeline (drain, orchestrator.Stop, spool flush) and the process
+                // exits before this sleep completes — Wait-Process picks that up instantly.
+                // The sleep only ever finishes when the shutdown pipeline hangs.
+                System.Threading.Thread.Sleep(GracefulExitFallbackMs);
+                log("Self-update: graceful shutdown did not complete in time — forcing exit.");
+            }
+            else
+            {
+                log("Self-update: restart script launched, exiting current process");
+            }
+
             Environment.Exit(0);
+        }
+
+        /// <summary>
+        /// Invokes <see cref="RequestGracefulShutdown"/> fail-safe. Extracted from
+        /// <see cref="RestartAgent"/> so the hook contract is unit-testable without touching
+        /// <c>Environment.Exit</c>. Returns <c>true</c> only when the hook exists, did not
+        /// throw, and reported that a graceful shutdown was initiated.
+        /// </summary>
+        internal static bool TryInitiateGracefulShutdown(Action<string> log)
+        {
+            var requestShutdown = RequestGracefulShutdown;
+            if (requestShutdown == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                return requestShutdown();
+            }
+            catch (Exception ex)
+            {
+                // Hook may race the host's own shutdown (cleared/disposed machinery) —
+                // fall back to the immediate exit, which is safe once the host is gone.
+                log?.Invoke($"Self-update: graceful-shutdown hook threw ({ex.Message}) — falling back to immediate exit.");
+                return false;
+            }
         }
 
         /// <summary>
