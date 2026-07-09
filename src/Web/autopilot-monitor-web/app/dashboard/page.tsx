@@ -34,6 +34,12 @@ export default function Home() {
 
 const FULL_WIDTH_STORAGE_KEY = "dashboard_fullWidth";
 
+// Canonical status-filter values (mirrors the status badges in SessionTable). Guards the
+// `?status=` deep-link so only a real bucket seeds the filter.
+const VALID_STATUS_FILTERS = new Set([
+  "Succeeded", "InProgress", "Pending", "Stalled", "AwaitingUser", "Failed", "Incomplete",
+]);
+
 function HomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -86,6 +92,14 @@ function HomeContent() {
   // `?tenant=<id>` deep-links a cross-tenant view onto one tenant — used by the /fleet card grid to drill
   // a managed tenant into this dashboard. Ignored for non-cross-tenant users (the filter is unused there).
   const initialTenantFilter = searchParams?.get("tenant") ?? "";
+  // `?search=` + `?status=` deep-link a pre-filtered session list — used by Fleet Health's
+  // "Health by Device Model" rows to drill a model into the dashboard filtered to Failed.
+  // Status is validated against the known set so a junk param can't hide every session.
+  const initialSearchQuery = searchParams?.get("search") ?? "";
+  const rawStatusParam = searchParams?.get("status");
+  const initialStatusFilter = rawStatusParam && VALID_STATUS_FILTERS.has(rawStatusParam)
+    ? rawStatusParam
+    : null;
   const [tenantIdFilter, setTenantIdFilter] = useState(initialTenantFilter);
   // Mirrors the last filter value the user actually submitted (Submit / Clear).
   // Drives the stats refetch — server-side stats follow the submitted scope so
@@ -140,6 +154,8 @@ function HomeContent() {
     hasMore,
     loadingMore,
     loadMore,
+    initialSearchQuery,
+    initialStatusFilter,
   });
 
   // Stats cards: server-side aggregation so the numbers don't drift with whatever

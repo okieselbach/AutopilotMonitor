@@ -16,6 +16,10 @@ interface UseDashboardFiltersParams {
   hasMore: boolean;
   loadingMore: boolean;
   loadMore: () => void;
+  // Deep-link seed (e.g. Fleet Health "Health by Device Model" → dashboard filtered
+  // to Failed + that model). Applied once as the initial state, then user-owned.
+  initialSearchQuery?: string;
+  initialStatusFilter?: string | null;
 }
 
 export interface UseDashboardFiltersReturn {
@@ -55,9 +59,11 @@ export function useDashboardFilters({
   hasMore,
   loadingMore,
   loadMore,
+  initialSearchQuery = "",
+  initialStatusFilter = null,
 }: UseDashboardFiltersParams): UseDashboardFiltersReturn {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
+  const [statusFilter, setStatusFilter] = useState<string | null>(initialStatusFilter);
   const [sortColumn, setSortColumn] = useState<keyof Session | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [columnFilters, setColumnFilters] = useState<Record<string, Set<string>>>({});

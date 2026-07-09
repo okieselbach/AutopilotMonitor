@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useMemo } from "react";
+import Link from "next/link";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
 import { useSignalR } from "../../contexts/SignalRContext";
 import { useTenant } from "../../contexts/TenantContext";
@@ -130,6 +131,16 @@ export default function FleetHealthPage() {
   };
   const modelHealth = data?.modelHealth ?? [];
   const slowestModels = data?.slowestModels ?? [];
+
+  // Deep-link a model bucket into the dashboard, pre-filtered to Failed sessions of that
+  // model. The model key is "{Manufacturer} {Model}", which the dashboard search matches
+  // against its combined manufacturer+model text. Carry the selected tenant so a global
+  // admin scoped to one tenant lands on that tenant's list rather than their default scope.
+  const dashboardModelHref = (model: string) => {
+    const params = new URLSearchParams({ status: "Failed", search: model });
+    if (isGlobalAdmin && selectedTenantId) params.set("tenant", selectedTenantId);
+    return `/dashboard?${params.toString()}`;
+  };
   const topFailingModels = data?.topFailingModels ?? [];
   const failureReasons = data?.failureReasons ?? [];
 
@@ -625,9 +636,14 @@ export default function FleetHealthPage() {
                       ? Math.round((m.succeeded / m.total) * 100)
                       : 0;
                   return (
-                    <div key={m.model}>
+                    <Link
+                      key={m.model}
+                      href={dashboardModelHref(m.model)}
+                      className="block -mx-2 px-2 py-1 rounded-md hover:bg-gray-50 transition-colors group cursor-pointer"
+                      title={`Show failed enrollments for ${m.model}`}
+                    >
                       <div className="flex items-baseline justify-between mb-1">
-                        <span className="text-sm text-gray-700 break-words leading-snug">{m.model}</span>
+                        <span className="text-sm text-gray-700 group-hover:text-blue-600 break-words leading-snug">{m.model}</span>
                         <span className="ml-3 flex-shrink-0 text-sm font-medium text-gray-900">
                           {successRate}% <span className="text-xs font-normal text-gray-400">({m.total} devices)</span>
                         </span>
@@ -644,7 +660,7 @@ export default function FleetHealthPage() {
                           style={{ width: `${successRate}%` }}
                         />
                       </div>
-                    </div>
+                    </Link>
                   );
                 })}
               </div>
