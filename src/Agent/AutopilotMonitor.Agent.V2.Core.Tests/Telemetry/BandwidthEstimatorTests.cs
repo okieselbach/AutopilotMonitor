@@ -211,6 +211,73 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry
         }
 
         [Fact]
+        public void ExportImport_Roundtrip_PreservesEstimate()
+        {
+            var original = new BandwidthEstimator(3);
+            original.AddSnapshot(T0, Jobs(Job("a", 0, 0)));
+            original.AddSnapshot(T0.AddSeconds(3), Jobs(Job("a", 6_000_000, 3_000_000)));
+            original.AddSnapshot(T0.AddSeconds(6), Jobs(Job("a", 12_000_000, 6_000_000)));
+
+            // Restart: fresh estimator seeded from the exported state.
+            var resumed = new BandwidthEstimator(3);
+            resumed.ImportState(original.ExportState());
+
+            var before = original.TryBuildEstimate();
+            var after = resumed.TryBuildEstimate();
+            Assert.Equal(before.WanMbpsP90, after.WanMbpsP90);
+            Assert.Equal(before.WanSampleCount, after.WanSampleCount);
+            Assert.Equal(before.WanBytesObserved, after.WanBytesObserved);
+            Assert.Equal(before.LanMbpsP90, after.LanMbpsP90);
+            Assert.Equal(before.Confidence, after.Confidence);
+        }
+
+        [Fact]
+        public void ImportedState_MergesWithNewSamples()
+        {
+            // Pre-reboot run: two 16 Mbps samples.
+            var preReboot = new BandwidthEstimator(3);
+            preReboot.AddSnapshot(T0, Jobs(Job("a", 0)));
+            preReboot.AddSnapshot(T0.AddSeconds(3), Jobs(Job("a", 6_000_000)));
+            preReboot.AddSnapshot(T0.AddSeconds(6), Jobs(Job("a", 12_000_000)));
+
+            // Post-reboot run resumes the state and adds one more sample from a NEW job.
+            var postReboot = new BandwidthEstimator(3);
+            postReboot.ImportState(preReboot.ExportState());
+            postReboot.AddSnapshot(T0.AddSeconds(300), Jobs(Job("b", 0)));
+            postReboot.AddSnapshot(T0.AddSeconds(303), Jobs(Job("b", 6_000_000)));
+
+            var estimate = postReboot.TryBuildEstimate();
+            Assert.Equal(3, estimate.WanSampleCount);
+            Assert.Equal(18_000_000, estimate.WanBytesObserved);
+        }
+
+        [Fact]
+        public void ImportState_SanitizesGarbage()
+        {
+            var estimator = new BandwidthEstimator(3);
+            estimator.ImportState(new BandwidthEstimatorState
+            {
+                WanSamplesMbps = new List<double> { 16.0, double.NaN, double.PositiveInfinity, -5.0, 0.0 },
+                LanSamplesMbps = null,
+                WanBytesObserved = -1_000, // negative counter ignored
+                LanBytesObserved = 0,
+            });
+
+            var estimate = estimator.TryBuildEstimate();
+            Assert.Equal(1, estimate.WanSampleCount); // only the finite positive sample survived
+            Assert.Equal(16.0, estimate.WanMbpsP90.Value, 3);
+            Assert.Equal(0, estimate.WanBytesObserved);
+        }
+
+        [Fact]
+        public void ImportState_NullIsIgnored()
+        {
+            var estimator = new BandwidthEstimator(3);
+            estimator.ImportState(null);
+            Assert.Null(estimator.TryBuildEstimate());
+        }
+
+        [Fact]
         public void EmptyOrNullSnapshots_AreIgnored()
         {
             var estimator = new BandwidthEstimator(3);

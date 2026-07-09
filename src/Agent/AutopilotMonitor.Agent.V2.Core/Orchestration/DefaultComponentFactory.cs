@@ -403,7 +403,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     logger: logger,
                     intervalSeconds: collectors.DeliveryOptimizationIntervalSeconds,
                     imeHost: imeLogHost,
-                    officeHost: officeHost);
+                    officeHost: officeHost,
+                    stateDirectory: _stateDirectory);
                 hosts.Add(doHost);
             }
 

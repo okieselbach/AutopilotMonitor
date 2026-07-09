@@ -17,6 +17,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         public long LanBytes;
     }
 
+    /// <summary>
+    /// Serializable accumulator state for restart persistence. Baselines are deliberately
+    /// NOT part of it: a reboot gap always exceeds the per-file delta window, so restored
+    /// baselines would be discarded on first sight anyway — only the reduced samples and
+    /// byte counters carry information across restarts.
+    /// </summary>
+    public sealed class BandwidthEstimatorState
+    {
+        public List<double> WanSamplesMbps { get; set; }
+        public List<double> LanSamplesMbps { get; set; }
+        public long WanBytesObserved { get; set; }
+        public long LanBytesObserved { get; set; }
+    }
+
     /// <summary>Result of <see cref="BandwidthEstimator.TryBuildEstimate"/>.</summary>
     public sealed class BandwidthEstimate
     {
@@ -157,6 +171,51 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                     _wanSamplesMbps.Add(wanRateMbps);
                 if (lanDelta >= MinSampleBytes && _lanSamplesMbps.Count < MaxSamples)
                     _lanSamplesMbps.Add(lanRateMbps);
+            }
+        }
+
+        /// <summary>Copies the accumulator state for restart persistence (see <see cref="ImportState"/>).</summary>
+        public BandwidthEstimatorState ExportState()
+        {
+            lock (_sync)
+            {
+                return new BandwidthEstimatorState
+                {
+                    WanSamplesMbps = new List<double>(_wanSamplesMbps),
+                    LanSamplesMbps = new List<double>(_lanSamplesMbps),
+                    WanBytesObserved = _wanBytesObserved,
+                    LanBytesObserved = _lanBytesObserved,
+                };
+            }
+        }
+
+        /// <summary>
+        /// Seeds the accumulator from a persisted state (previous agent run of the SAME
+        /// session — the reboot survivor path). Defensive against a tampered/corrupt file:
+        /// non-finite or negative sample values are dropped, list sizes and counters are
+        /// clamped. Intended for a freshly constructed estimator; imported samples simply
+        /// prepend the ones this run will collect.
+        /// </summary>
+        public void ImportState(BandwidthEstimatorState state)
+        {
+            if (state == null) return;
+            lock (_sync)
+            {
+                ImportSamples(state.WanSamplesMbps, _wanSamplesMbps);
+                ImportSamples(state.LanSamplesMbps, _lanSamplesMbps);
+                if (state.WanBytesObserved > 0) _wanBytesObserved += state.WanBytesObserved;
+                if (state.LanBytesObserved > 0) _lanBytesObserved += state.LanBytesObserved;
+            }
+        }
+
+        private static void ImportSamples(List<double> source, List<double> target)
+        {
+            if (source == null) return;
+            for (int i = 0; i < source.Count && target.Count < MaxSamples; i++)
+            {
+                var v = source[i];
+                if (double.IsNaN(v) || double.IsInfinity(v) || v <= 0) continue;
+                target.Add(v);
             }
         }
 

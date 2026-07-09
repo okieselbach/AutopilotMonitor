@@ -32,7 +32,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             AgentLogger logger,
             int intervalSeconds,
             ImeLogHost imeHost,
-            OfficeInstallDetectorHost? officeHost = null)
+            OfficeInstallDetectorHost? officeHost = null,
+            string? stateDirectory = null)
         {
             if (ingress == null) throw new ArgumentNullException(nameof(ingress));
             if (clock == null) throw new ArgumentNullException(nameof(clock));
@@ -54,7 +55,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     catch (Exception ex) { logger.Warning($"DeliveryOptimizationHost: OnDoTelemetryReceived invocation threw: {ex.Message}"); }
                 },
                 logDirectory: Environment.ExpandEnvironmentVariables(Constants.LogDirectory),
-                onOfficeDoSample: officeHost != null ? officeHost.SubmitDoSample : (Action<OfficeDoSample>?)null);
+                onOfficeDoSample: officeHost != null ? officeHost.SubmitDoSample : (Action<OfficeDoSample>?)null,
+                bandwidthStatePersistence: stateDirectory != null
+                    ? new BandwidthStatePersistence(stateDirectory, logger)
+                    : null);
         }
 
         public void Start()

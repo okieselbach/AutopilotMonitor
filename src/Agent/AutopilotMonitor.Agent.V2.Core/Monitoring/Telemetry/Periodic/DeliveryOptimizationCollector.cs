@@ -86,6 +86,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         private bool _bandwidthEstimateEmitted;
         private int _interimBandwidthEmitted; // Interlocked guard — phase callback runs on the IME tracker thread
 
+        // Restart persistence for the estimator accumulator (one enrollment spans several
+        // reboots; without it a mid-DeviceSetup reboot discards all samples collected so far).
+        // Null-tolerant: tests and callers without a state directory simply run in-memory-only.
+        private readonly BandwidthStatePersistence _bandwidthStatePersistence;
+
         public DeliveryOptimizationCollector(
             string sessionId,
             string tenantId,
@@ -95,7 +100,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             Func<AppPackageStateList> getPackageStates,
             Action<AppPackageState> onDoTelemetryReceived,
             string logDirectory,
-            Action<OfficeDoSample> onOfficeDoSample = null)
+            Action<OfficeDoSample> onOfficeDoSample = null,
+            BandwidthStatePersistence bandwidthStatePersistence = null)
             : base(sessionId, tenantId, post, logger, intervalSeconds)
         {
             _getPackageStates = getPackageStates ?? throw new ArgumentNullException(nameof(getPackageStates));
@@ -104,6 +110,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             _onOfficeDoSample = onOfficeDoSample;
             _pollIntervalSeconds = intervalSeconds;
             _bandwidthEstimator = new BandwidthEstimator(intervalSeconds);
+            _bandwidthStatePersistence = bandwidthStatePersistence;
+
+            // Resume the accumulator from a previous run of the SAME session (reboot survivor):
+            // samples and byte counters carry over, and the interim once-guard stays claimed so
+            // device_setup_end fires once per session, not once per process.
+            var persisted = _bandwidthStatePersistence?.Load(sessionId);
+            if (persisted != null)
+            {
+                _bandwidthEstimator.ImportState(persisted.ToEstimatorState());
+                if (persisted.InterimEmitted) _interimBandwidthEmitted = 1;
+                Logger.Info($"[DeliveryOptimizationCollector] Resumed bandwidth state from previous run — " +
+                            $"{persisted.WanSamplesMbps?.Count ?? 0} WAN samples / {persisted.WanBytesObserved} bytes, " +
+                            $"interimEmitted={persisted.InterimEmitted}");
+            }
         }
 
         /// <summary>Start dormant — timer does not fire until WakeUp() is called.</summary>
@@ -120,6 +140,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             // collectors BEFORE the diagnostics ZIP is built, so this one-shot still lands
             // ahead of diagnostics_collecting in the timeline.
             EmitBandwidthEstimateOnce();
+            SaveBandwidthState();
             DisposeRunspace();
         }
 
@@ -225,6 +246,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                 Logger.Info("[DeliveryOptimizationCollector] Going dormant — no active downloads, pending enrichment or Office install");
                 _dormant = true;
                 PauseTimer();
+                // Natural persistence point: all downloads are done — which is exactly when an
+                // app-forced reboot becomes possible. Saves the accumulated samples so a reboot
+                // before the interim/final emission does not discard them (reboot survivor).
+                SaveBandwidthState();
                 return;
             }
 
@@ -583,6 +608,32 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             if (!"AccountSetup".Equals(phase, StringComparison.OrdinalIgnoreCase)) return;
             if (Interlocked.CompareExchange(ref _interimBandwidthEmitted, 1, 0) != 0) return;
             EmitBandwidthEstimate("device_setup_end");
+            // Persist AFTER the emission (StartupEventGate's MarkEmitted ordering): a crash
+            // between emit and save re-emits the interim on the next run instead of silently
+            // suppressing it for the rest of the session. A rare duplicate is harmless —
+            // analyses take the latest event per trigger.
+            SaveBandwidthState();
+        }
+
+        /// <summary>
+        /// Persists the estimator accumulator + interim guard (no-op without a persistence
+        /// instance). Called at the dormant transition, after the interim emission and at
+        /// stop — never per-poll. Fail-soft: Save never throws.
+        /// </summary>
+        private void SaveBandwidthState()
+        {
+            if (_bandwidthStatePersistence == null) return;
+            var state = _bandwidthEstimator.ExportState();
+            _bandwidthStatePersistence.Save(new BandwidthStateData
+            {
+                SessionId = SessionId,
+                SavedAtUtc = DateTime.UtcNow,
+                InterimEmitted = _interimBandwidthEmitted != 0,
+                WanSamplesMbps = state.WanSamplesMbps,
+                LanSamplesMbps = state.LanSamplesMbps,
+                WanBytesObserved = state.WanBytesObserved,
+                LanBytesObserved = state.LanBytesObserved,
+            });
         }
 
         /// <summary>
