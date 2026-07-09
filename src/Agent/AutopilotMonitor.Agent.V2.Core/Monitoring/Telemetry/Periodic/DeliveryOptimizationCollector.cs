@@ -73,6 +73,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         // Change detection for JSONL log: only write when overall state changed
         private long _lastSnapshotFingerprint;
 
+        // Passive session-level bandwidth estimate: fed with EVERY DO job's byte counters
+        // (IME apps, Office CDN, WU/Store/Defender — all real traffic) on each poll; reduced
+        // to a network_bandwidth_estimate event. Emitted (at most) twice per session: an
+        // interim snapshot when the ESP leaves DeviceSetup (the bulk of Win32 downloads is
+        // done by then — keeps the estimate available for analysis even when the session
+        // later starves in AccountSetup and the agent never stops cleanly) and the
+        // authoritative final one when the collector stops at enrollment end.
+        // Zero extra traffic/load — pure arithmetic on the existing poll.
+        private readonly BandwidthEstimator _bandwidthEstimator;
+        private readonly int _pollIntervalSeconds;
+        private bool _bandwidthEstimateEmitted;
+        private int _interimBandwidthEmitted; // Interlocked guard — phase callback runs on the IME tracker thread
+
         public DeliveryOptimizationCollector(
             string sessionId,
             string tenantId,
@@ -89,6 +102,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             _onDoTelemetryReceived = onDoTelemetryReceived;
             _logFilePath = Path.Combine(logDirectory, LogFileName);
             _onOfficeDoSample = onOfficeDoSample;
+            _pollIntervalSeconds = intervalSeconds;
+            _bandwidthEstimator = new BandwidthEstimator(intervalSeconds);
         }
 
         /// <summary>Start dormant — timer does not fire until WakeUp() is called.</summary>
@@ -101,6 +116,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
 
         protected override void OnAfterStop()
         {
+            // Emit before the runspace teardown: the termination handler stops peripheral
+            // collectors BEFORE the diagnostics ZIP is built, so this one-shot still lands
+            // ahead of diagnostics_collecting in the timeline.
+            EmitBandwidthEstimateOnce();
             DisposeRunspace();
         }
 
@@ -358,6 +377,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             // Build JSONL snapshot for log (only if fingerprint changes)
             var logEntries = new JArray();
 
+            // Every DO job feeds the passive bandwidth estimate — including non-IME,
+            // non-Office jobs (WU, Store, Defender): all of it is real line traffic.
+            var bandwidthJobs = new List<BandwidthJobSample>(results.Count);
+
             foreach (var result in results)
             {
                 var fileId = GetPropString(result, "FileId");
@@ -377,6 +400,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                 var downloadDuration = GetPropTimeSpan(result, "DownloadDuration");
                 var sourceUrl = GetPropString(result, "SourceURL");
                 var cacheHost = GetPropUriString(result, "CacheHost");
+
+                bandwidthJobs.Add(new BandwidthJobSample
+                {
+                    FileId = fileId,
+                    WanBytes = bytesFromHttp + bytesInternetPeers,
+                    LanBytes = bytesLanPeers + bytesGroupPeers + bytesLinkLocalPeers + bytesFromCacheServer
+                });
 
                 // Build log entry for JSONL
                 logEntries.Add(new JObject
@@ -503,6 +533,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             // Decrement the bounded registry-hint probe window only while no Office job is being seen.
             if (!officeJobsThisPoll && _officeExpectedPolls > 0) _officeExpectedPolls--;
 
+            _bandwidthEstimator.AddSnapshot(DateTime.UtcNow, bandwidthJobs);
+
             // Write JSONL log only when overall state changed
             var fingerprint = ComputeFingerprint(logEntries);
             if (fingerprint != _lastSnapshotFingerprint)
@@ -531,6 +563,115 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             foreach (var host in OfficeCdnHosts)
                 if (sourceUrl.IndexOf(host, StringComparison.OrdinalIgnoreCase) >= 0) return true;
             return false;
+        }
+
+        // -----------------------------------------------------------------------
+        // Passive bandwidth estimate (one-shot at collector stop)
+        // -----------------------------------------------------------------------
+
+        /// <summary>
+        /// Interim snapshot trigger: the IME tracker reports an ESP phase. On the FIRST
+        /// AccountSetup sighting (= DeviceSetup, and with it the bulk of Win32 downloads, is
+        /// over) the current estimate is emitted with snapshotTrigger=device_setup_end — so
+        /// an analysis still has a bandwidth figure when the session later starves in
+        /// AccountSetup and the final collector-stop emission never happens. The tracker
+        /// invokes the callback on every phase RE-match too (IME re-logs the phase string
+        /// periodically), hence the Interlocked once-guard. Called from the tracker thread.
+        /// </summary>
+        public void NotifyEspPhaseChanged(string phase)
+        {
+            if (!"AccountSetup".Equals(phase, StringComparison.OrdinalIgnoreCase)) return;
+            if (Interlocked.CompareExchange(ref _interimBandwidthEmitted, 1, 0) != 0) return;
+            EmitBandwidthEstimate("device_setup_end");
+        }
+
+        /// <summary>
+        /// Emits the authoritative session-level network_bandwidth_estimate once, at collector
+        /// stop. Guarded against the double OnAfterStop from Stop() + Dispose().
+        /// </summary>
+        private void EmitBandwidthEstimateOnce()
+        {
+            if (_bandwidthEstimateEmitted) return;
+            _bandwidthEstimateEmitted = true;
+            EmitBandwidthEstimate("collector_stop");
+        }
+
+        /// <summary>
+        /// Builds and emits one network_bandwidth_estimate event. Silently skipped when no
+        /// valid rate sample exists yet (e.g. no DO-tracked downloads happened so far).
+        /// </summary>
+        private void EmitBandwidthEstimate(string trigger)
+        {
+            try
+            {
+                var estimate = _bandwidthEstimator.TryBuildEstimate();
+                if (estimate == null)
+                {
+                    Logger.Info($"[DeliveryOptimizationCollector] No bandwidth estimate at {trigger} — no valid DO rate samples yet");
+                    return;
+                }
+
+                var data = new Dictionary<string, object>
+                {
+                    ["wanSampleCount"] = estimate.WanSampleCount,
+                    ["wanBytesObserved"] = estimate.WanBytesObserved,
+                    ["lanSampleCount"] = estimate.LanSampleCount,
+                    ["lanBytesObserved"] = estimate.LanBytesObserved,
+                    ["bandwidthBucket"] = estimate.Bucket,
+                    ["confidence"] = estimate.Confidence,
+                    ["pollIntervalSeconds"] = _pollIntervalSeconds,
+                    ["snapshotTrigger"] = trigger,
+                    ["doSource"] = "os_cmdlet"
+                };
+                if (estimate.WanMbpsP90.HasValue)
+                {
+                    data["estimatedWanMbps"] = Math.Round(estimate.WanMbpsP90.Value, 1);
+                    data["wanMbpsMax"] = Math.Round(estimate.WanMbpsMax.Value, 1);
+                }
+                if (estimate.LanMbpsP90.HasValue)
+                {
+                    data["estimatedLanMbps"] = Math.Round(estimate.LanMbpsP90.Value, 1);
+                    data["lanMbpsMax"] = Math.Round(estimate.LanMbpsMax.Value, 1);
+                }
+
+                var interimSuffix = trigger == "device_setup_end" ? " [interim, after DeviceSetup]" : "";
+                string message;
+                if (estimate.WanMbpsP90.HasValue)
+                {
+                    message = $"Estimated internet bandwidth ~{estimate.WanMbpsP90.Value:0.#} Mbit/s " +
+                              $"(bucket {estimate.Bucket}, confidence {estimate.Confidence}; " +
+                              $"{estimate.WanSampleCount} samples / {estimate.WanBytesObserved / (1024 * 1024)} MB via internet)" +
+                              interimSuffix;
+                }
+                else
+                {
+                    // All observed download traffic came from LAN peers / Connected Cache —
+                    // the internet line was never exercised enough to estimate it.
+                    message = $"No internet-path bandwidth estimate — downloads were LAN/cache-fed " +
+                              $"(~{estimate.LanMbpsP90.Value:0.#} Mbit/s from LAN, " +
+                              $"{estimate.LanBytesObserved / (1024 * 1024)} MB observed)" +
+                              interimSuffix;
+                }
+
+                Post.Emit(new EnrollmentEvent
+                {
+                    SessionId = SessionId,
+                    TenantId = TenantId,
+                    EventType = Constants.EventTypes.NetworkBandwidthEstimate,
+                    Severity = EventSeverity.Info,
+                    Source = "DeliveryOptimizationCollector",
+                    Phase = EnrollmentPhase.Unknown,
+                    Message = message,
+                    Data = data,
+                    ImmediateUpload = true
+                });
+
+                Logger.Info($"[DeliveryOptimizationCollector] Bandwidth estimate emitted: {message}");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"[DeliveryOptimizationCollector] Bandwidth estimate emission failed: {ex.Message}");
+            }
         }
 
         // -----------------------------------------------------------------------

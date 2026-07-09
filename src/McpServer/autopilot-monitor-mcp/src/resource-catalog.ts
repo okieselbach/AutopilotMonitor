@@ -82,6 +82,7 @@ export const EVENT_TYPES_CATALOG = {
     'dns_configuration',
     'proxy_configuration',
     'wifi_signal_info',
+    'network_bandwidth_estimate',
   ],
   device_info_events: [
     'os_info',
@@ -138,6 +139,7 @@ export const EVENT_TYPES_CATALOG = {
     'system_reboot_detected',
     'prior_run_died_with_state',
     'previous_crash_detected',
+    'agent_emergency_break',
     'performance_collector_stopped',
     'agent_metrics_collector_stopped',
     'keep_awake_engaged',

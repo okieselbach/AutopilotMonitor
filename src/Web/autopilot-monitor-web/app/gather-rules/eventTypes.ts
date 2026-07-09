@@ -134,6 +134,8 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
     description: "Certificate validation result." },
   { value: "network_state_change", label: "network_state_change", category: "diagnostics",
     description: "Network state changed (online/offline/interface)." },
+  { value: "network_bandwidth_estimate", label: "network_bandwidth_estimate", category: "diagnostics",
+    description: "Session-level internet-bandwidth estimate derived passively from the Delivery Optimization byte counters (no synthetic traffic). At most twice per session: an interim snapshot after DeviceSetup (snapshotTrigger=device_setup_end — survives account-phase starvation) and the authoritative final at enrollment end (collector_stop). p90/max Mbit/s for internet-path (HTTP + internet peers) and LAN sources (peers/Connected Cache) separately, plus bucket (<10 / 10-50 / 50-100 / 100-250 / 250+) and confidence." },
   { value: "vulnerability_report", label: "vulnerability_report", category: "diagnostics",
     description: "Aggregated vulnerability scan finding." },
   { value: "software_inventory_analysis", label: "software_inventory_analysis", category: "diagnostics",

@@ -337,6 +337,16 @@ namespace AutopilotMonitor.Shared
             public const string DoTelemetry               = "do_telemetry";
             public const string AllAppsCompleted          = "all_apps_completed";
             public const string AppTrackingSummary        = "app_tracking_summary";  // Plan §5 Fix 4b — terminal per-session app summary
+            // Session-level internet-bandwidth estimate derived PASSIVELY from the DO byte counters
+            // the DeliveryOptimizationCollector already polls — no synthetic traffic, no extra load.
+            // At most twice per session (snapshotTrigger disambiguates): an interim snapshot at the
+            // first AccountSetup sighting (device_setup_end — survives sessions that starve in the
+            // account phase) and the authoritative final at collector stop (collector_stop).
+            // WAN (HTTP + internet peers) and LAN
+            // (LAN/group/link-local peers + Connected Cache) are reported separately so peer-fed
+            // downloads cannot inflate the WAN figure; p90 of per-poll rates ≈ lower bound of the
+            // effective line capacity during enrollment ("DSL 16 vs 250").
+            public const string NetworkBandwidthEstimate  = "network_bandwidth_estimate";
 
             // Microsoft 365 Apps (Office Click-to-Run) install lifecycle — emitted by the V2
             // OfficeInstallDetector which watches the C2R client (registry + process) directly.

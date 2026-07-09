@@ -20,6 +20,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private readonly OfficeInstallDetectorHost? _officeHost;
         private Action<AppPackageState, AppInstallationState, AppInstallationState>? _prevStateChanged;
         private Action<AppPackageState, AppInstallationState, AppInstallationState>? _chainedHandler;
+        private Action<string>? _prevEspPhaseChanged;
+        private Action<string>? _chainedEspPhaseHandler;
         private int _disposed;
 
         public DeliveryOptimizationHost(
@@ -75,6 +77,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             };
             _imeHost.Tracker.OnAppStateChanged = _chainedHandler;
 
+            // Chain into the ESP phase callback (same preserve/restore pattern): the collector
+            // emits an interim bandwidth snapshot on the first AccountSetup sighting, so the
+            // estimate survives sessions that later starve in the account phase and never
+            // reach the clean collector-stop emission.
+            _prevEspPhaseChanged = _imeHost.Tracker.OnEspPhaseChanged;
+            _chainedEspPhaseHandler = phase =>
+            {
+                try { _prevEspPhaseChanged?.Invoke(phase); }
+                catch (Exception ex) { _logger.Warning($"DeliveryOptimizationHost: previous OnEspPhaseChanged handler threw: {ex.Message}"); }
+
+                try { _collector.NotifyEspPhaseChanged(phase); }
+                catch (Exception ex) { _logger.Warning($"DeliveryOptimizationHost: NotifyEspPhaseChanged threw: {ex.Message}"); }
+            };
+            _imeHost.Tracker.OnEspPhaseChanged = _chainedEspPhaseHandler;
+
             // Office C2R wake sources (no IME package keeps the collector polling otherwise):
             //  - the worker process up/down (keep-awake while a worker runs), and
             //  - the early registry hint (Scenario\INSTALL) so we probe for the Office-CDN job before
@@ -105,6 +122,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 && object.ReferenceEquals(_imeHost.Tracker.OnAppStateChanged, _chainedHandler))
             {
                 _imeHost.Tracker.OnAppStateChanged = _prevStateChanged;
+            }
+            if (_chainedEspPhaseHandler != null
+                && object.ReferenceEquals(_imeHost.Tracker.OnEspPhaseChanged, _chainedEspPhaseHandler))
+            {
+                _imeHost.Tracker.OnEspPhaseChanged = _prevEspPhaseChanged;
             }
             if (_officeHost != null)
             {
