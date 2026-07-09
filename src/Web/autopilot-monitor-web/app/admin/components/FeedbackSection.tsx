@@ -20,6 +20,7 @@ interface FeedbackEntry {
 }
 
 type FeedbackTab = "InApp" | "Offboarding";
+type InAppFilter = "all" | "submitted" | "dismissed";
 
 interface FeedbackSectionProps {
   getAccessToken: () => Promise<string | null>;
@@ -30,6 +31,7 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
   const [loading, setLoading] = useState(false);
   const [entries, setEntries] = useState<FeedbackEntry[]>([]);
   const [activeTab, setActiveTab] = useState<FeedbackTab>("InApp");
+  const [inAppFilter, setInAppFilter] = useState<InAppFilter>("all");
   const [currentPage, setCurrentPage] = useState(0);
   const entriesPerPage = 5;
 
@@ -81,8 +83,15 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
     ? (submittedEntries.reduce((sum, e) => sum + (e.rating || 0), 0) / submittedEntries.length).toFixed(1)
     : "—";
 
+  // In-App tab honours the Submitted/Dismissed filter (click the stat to narrow the list).
+  const filteredInAppEntries = inAppFilter === "submitted"
+    ? submittedEntries
+    : inAppFilter === "dismissed"
+      ? dismissedEntries
+      : inAppEntries;
+
   // Pagination over the currently-active tab.
-  const activeEntries = activeTab === "InApp" ? inAppEntries : offboardingEntries;
+  const activeEntries = activeTab === "InApp" ? filteredInAppEntries : offboardingEntries;
   const totalPages = Math.ceil(activeEntries.length / entriesPerPage);
   const paginatedEntries = activeEntries.slice(
     currentPage * entriesPerPage,
@@ -91,6 +100,13 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
 
   const switchTab = (tab: FeedbackTab) => {
     setActiveTab(tab);
+    setInAppFilter("all");
+    setCurrentPage(0);
+  };
+
+  // Click a stat to filter; click the active one again to clear back to "all".
+  const toggleInAppFilter = (filter: Exclude<InAppFilter, "all">) => {
+    setInAppFilter(prev => (prev === filter ? "all" : filter));
     setCurrentPage(0);
   };
 
@@ -182,17 +198,43 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
             <div className="flex flex-wrap items-center gap-4 py-4 text-sm">
               {activeTab === "InApp" ? (
                 <>
-                  <span className="text-gray-600 dark:text-gray-300">
+                  <button
+                    onClick={() => toggleInAppFilter("submitted")}
+                    aria-pressed={inAppFilter === "submitted"}
+                    title={inAppFilter === "submitted" ? "Show all" : "Show only submitted"}
+                    className={`text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-md transition-colors ${
+                      inAppFilter === "submitted"
+                        ? "bg-purple-100 dark:bg-purple-900 ring-1 ring-purple-300 dark:ring-purple-700"
+                        : "hover:bg-gray-100 dark:hover:bg-gray-700"
+                    }`}
+                  >
                     <span className="font-semibold text-purple-600 dark:text-purple-400">{submittedEntries.length}</span> Submitted
-                  </span>
+                  </button>
                   <span className="text-gray-400">|</span>
-                  <span className="text-gray-600 dark:text-gray-300">
+                  <button
+                    onClick={() => toggleInAppFilter("dismissed")}
+                    aria-pressed={inAppFilter === "dismissed"}
+                    title={inAppFilter === "dismissed" ? "Show all" : "Show only dismissed"}
+                    className={`text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-md transition-colors ${
+                      inAppFilter === "dismissed"
+                        ? "bg-gray-200 dark:bg-gray-700 ring-1 ring-gray-300 dark:ring-gray-600"
+                        : "hover:bg-gray-100 dark:hover:bg-gray-700"
+                    }`}
+                  >
                     <span className="font-semibold text-gray-500">{dismissedEntries.length}</span> Dismissed
-                  </span>
+                  </button>
                   <span className="text-gray-400">|</span>
                   <span className="text-gray-600 dark:text-gray-300">
                     Avg <span className="font-semibold text-yellow-500">{avgRating}</span>
                   </span>
+                  {inAppFilter !== "all" && (
+                    <button
+                      onClick={() => setInAppFilter("all")}
+                      className="text-xs text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 underline"
+                    >
+                      Clear filter
+                    </button>
+                  )}
                 </>
               ) : (
                 <span className="text-gray-600 dark:text-gray-300">
