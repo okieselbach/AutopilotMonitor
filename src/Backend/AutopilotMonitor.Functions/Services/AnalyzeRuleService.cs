@@ -55,6 +55,24 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Parses a RuleState's notify-channel-id JSON array. Fail-soft: null/malformed → null
+        /// (no targets → no notification), mirroring the "absent column = no preference" contract.
+        /// </summary>
+        private static List<string>? ParseChannelIds(string? json)
+        {
+            if (string.IsNullOrEmpty(json))
+                return null;
+            try
+            {
+                return JsonConvert.DeserializeObject<List<string>>(json);
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Lazy accessor for the currently-shipped built-in rule ID set. Pulled out
         /// because <see cref="BuiltInAnalyzeRules.GetAll"/> re-deserialises the embedded
         /// JSON on every call — caching the resulting HashSet on the service instance
@@ -203,12 +221,15 @@ namespace AutopilotMonitor.Functions.Services
                 {
                     rule.Enabled = state.Enabled;
                     rule.MarkSessionAsFailed = state.MarkSessionAsFailed;
+                    rule.Notify = state.Notify;
+                    rule.NotifyChannelIds = ParseChannelIds(state.NotifyChannelIdsJson);
                 }
                 mergedRules.Add(rule);
             }
 
-            // Tenant custom rules carry their own MarkSessionAsFailedDefault; no override needed
-            // since the tenant already fully owns the rule definition.
+            // Tenant custom rules carry their own MarkSessionAsFailedDefault / NotifyDefault /
+            // NotifyChannelIds on the rule row; no override needed since the tenant already
+            // fully owns the rule definition.
             mergedRules.AddRange(customRules);
 
             return mergedRules;
@@ -246,9 +267,21 @@ namespace AutopilotMonitor.Functions.Services
                 var state = new RuleState
                 {
                     Enabled = rule.Enabled,
-                    MarkSessionAsFailed = rule.MarkSessionAsFailed
+                    MarkSessionAsFailed = rule.MarkSessionAsFailed,
+                    Notify = rule.Notify,
+                    NotifyChannelIdsJson = rule.NotifyChannelIds is { Count: > 0 }
+                        ? JsonConvert.SerializeObject(rule.NotifyChannelIds)
+                        : null
                 };
                 return await _ruleRepo.StoreRuleStateAsync(tenantId, rule.RuleId, state);
+            }
+
+            // Custom rules are fully tenant-owned: fold a notify override into the row default
+            // (there is no separate RuleState for them) — mirrors how the UI edits Enabled.
+            if (rule.Notify.HasValue)
+            {
+                rule.NotifyDefault = rule.Notify.Value;
+                rule.Notify = null;
             }
 
             rule.UpdatedAt = DateTime.UtcNow;

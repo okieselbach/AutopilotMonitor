@@ -77,6 +77,9 @@ export default function AnalyzeRulesPage() {
   // Rule telemetry stats (hit rates)
   const [ruleStatsMap, setRuleStatsMap] = useState<Record<string, { hitRate: number; fireCount: number }>>({});
 
+  // Tenant notification channels (for the per-rule notify target selector)
+  const [tenantChannels, setTenantChannels] = useState<{ id: string; name: string }[]>([]);
+
   // Global admin tenant scope (tenant list, selector state, override/effective tenant)
   const scope = useGlobalAdminScope();
   const { isGlobalOverride, effectiveTenantId } = scope;
@@ -126,6 +129,46 @@ export default function AnalyzeRulesPage() {
     };
     fetchStats();
   }, [effectiveTenantId, scope.isGlobalAdmin, getAccessToken]);
+
+  // Fetch the tenant's notification channels (id + name) for the per-rule notify selector.
+  // Mirrors the backend legacy synthesis: a non-migrated tenant with a single webhook shows
+  // one "Default" channel under the stable "legacy" id. Redacted configs (read-only viewers)
+  // still expose channel ids/names — only URLs/headers are masked.
+  useEffect(() => {
+    if (!effectiveTenantId) return;
+    const fetchChannels = async () => {
+      try {
+        const response = await authenticatedFetch(api.config.tenant(effectiveTenantId), getAccessToken);
+        if (!response.ok) return;
+        const data = await response.json();
+        const cfg = (data?.config ?? data) as {
+          notificationChannelsJson?: string;
+          webhookUrl?: string;
+          webhookProviderType?: number;
+          teamsWebhookUrl?: string;
+        };
+        if (cfg?.notificationChannelsJson) {
+          try {
+            const parsed = JSON.parse(cfg.notificationChannelsJson);
+            if (Array.isArray(parsed)) {
+              setTenantChannels(parsed
+                .filter((c) => c && c.id && c.enabled !== false)
+                .map((c) => ({ id: String(c.id), name: String(c.name || c.id) })));
+              return;
+            }
+          } catch { /* malformed → fall through to legacy check */ }
+        }
+        if ((cfg?.webhookUrl && cfg?.webhookProviderType) || cfg?.teamsWebhookUrl) {
+          setTenantChannels([{ id: "legacy", name: "Default" }]);
+        } else {
+          setTenantChannels([]);
+        }
+      } catch {
+        // Non-critical: the notify selector simply shows "no channels configured".
+      }
+    };
+    fetchChannels();
+  }, [effectiveTenantId, getAccessToken]);
 
   // Toggle rule enabled/disabled
   const handleToggleRule = async (rule: AnalyzeRule) => {
@@ -179,6 +222,34 @@ export default function AnalyzeRulesPage() {
         (prev || []).map((r) => (r.ruleId === rule.ruleId ? { ...r, markSessionAsFailed: nextOverride } : r))
       );
       showSuccess(`Rule "${rule.title}" ${nextEffective ? "set as KO criterion (session will be marked failed)" : "will no longer mark session as failed"}`);
+    }
+    setTogglingRuleId(null);
+  };
+
+  // Update the rule-level channel-notification override + channel targets.
+  // Same override semantics as the KO criterion: store an explicit override only when it
+  // diverges from the rule default, so future default changes propagate.
+  const handleUpdateNotify = async (rule: AnalyzeRule, notify: boolean, channelIds: string[]) => {
+    const nextOverride: boolean | null = notify === (rule.notifyDefault ?? false) ? null : notify;
+
+    setTogglingRuleId(rule.ruleId);
+    const result = await mutate(
+      api.rules.analyzeRule(rule.ruleId),
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...rule, notify: nextOverride, notifyChannelIds: channelIds }),
+      }
+    );
+    if (result !== null) {
+      setRules((prev) =>
+        (prev || []).map((r) => (r.ruleId === rule.ruleId ? { ...r, notify: nextOverride, notifyChannelIds: channelIds } : r))
+      );
+      showSuccess(notify
+        ? (channelIds.length > 0
+          ? `Rule "${rule.title}" now notifies ${channelIds.length} channel(s) when it fires`
+          : `Notification enabled for "${rule.title}" — select at least one channel`)
+        : `Channel notification disabled for "${rule.title}"`);
     }
     setTogglingRuleId(null);
   };
@@ -740,6 +811,8 @@ export default function AnalyzeRulesPage() {
                       }}
                       onToggleEnabled={handleToggleRule}
                       onToggleMarkAsFailed={handleToggleMarkAsFailed}
+                      onUpdateNotify={handleUpdateNotify}
+                      tenantChannels={tenantChannels}
                       onStartEditing={startEditing}
                       onSaveEdit={handleSaveEdit}
                       onCancelEdit={() => { setEditingRuleId(null); setJsonModeEdit(false); setJsonError(null); }}

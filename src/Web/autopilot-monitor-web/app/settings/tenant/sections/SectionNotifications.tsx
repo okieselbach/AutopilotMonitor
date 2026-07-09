@@ -6,13 +6,8 @@ import NotificationsSection from "../../components/NotificationsSection";
 
 export function SectionNotifications() {
   const {
-    webhookProviderType, setWebhookProviderType,
-    webhookUrl, setWebhookUrl,
-    webhookNotifyOnSuccess, setWebhookNotifyOnSuccess,
-    webhookNotifyOnFailure, setWebhookNotifyOnFailure,
-    webhookNotifyOnStart, setWebhookNotifyOnStart,
-    webhookCustomHeaders, setWebhookCustomHeaders,
-    handleTestWebhook, testingWebhook, testWebhookResult,
+    notificationChannels, setNotificationChannels,
+    handleTestChannel, testingChannelId, testChannelResult,
     handleSaveNotifications, handleResetNotifications,
     savingSection,
   } = useTenantConfig();
@@ -21,21 +16,11 @@ export function SectionNotifications() {
     <>
       <TenantNotifications />
       <NotificationsSection
-        webhookProviderType={webhookProviderType}
-        setWebhookProviderType={setWebhookProviderType}
-        webhookUrl={webhookUrl}
-        setWebhookUrl={setWebhookUrl}
-        webhookNotifyOnSuccess={webhookNotifyOnSuccess}
-        setWebhookNotifyOnSuccess={setWebhookNotifyOnSuccess}
-        webhookNotifyOnFailure={webhookNotifyOnFailure}
-        setWebhookNotifyOnFailure={setWebhookNotifyOnFailure}
-        webhookNotifyOnStart={webhookNotifyOnStart}
-        setWebhookNotifyOnStart={setWebhookNotifyOnStart}
-        webhookCustomHeaders={webhookCustomHeaders}
-        setWebhookCustomHeaders={setWebhookCustomHeaders}
-        onTestWebhook={handleTestWebhook}
-        testingWebhook={testingWebhook}
-        testWebhookResult={testWebhookResult}
+        channels={notificationChannels}
+        setChannels={setNotificationChannels}
+        onTestChannel={handleTestChannel}
+        testingChannelId={testingChannelId}
+        testChannelResult={testChannelResult}
         onSave={handleSaveNotifications}
         onReset={handleResetNotifications}
         saving={savingSection === "notifications"}

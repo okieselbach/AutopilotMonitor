@@ -93,6 +93,7 @@ interface TenantConfig {
   webhookNotifyOnSuccess?: boolean;
   webhookNotifyOnFailure?: boolean;
   webhookNotifyOnStart?: boolean;
+  notificationChannelsJson?: string | null;
 
   // Teams notifications (legacy)
   teamsWebhookUrl?: string | null;
@@ -399,18 +400,27 @@ export function SectionTenantConfigReport() {
   // Computed runtime
   const runtime = config ? computeRuntime(config) : null;
 
-  // Webhook display helper
-  const webhookDisplay = config
+  // Webhook display helper: channel list when migrated, else legacy single-webhook fields
+  // (mirrors the backend's GetNotificationChannels fallback order).
+  const webhookChannels = config
     ? (() => {
+        if (config.notificationChannelsJson) {
+          try {
+            const parsed = JSON.parse(config.notificationChannelsJson);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              return parsed as { id: string; name?: string; providerType?: number; url?: string; enabled?: boolean; notifyOnStart?: boolean; notifyOnSuccess?: boolean; notifyOnFailure?: boolean; notifyOnSlaEvents?: boolean }[];
+            }
+          } catch { /* malformed → fall back to legacy display */ }
+        }
         if (config.webhookUrl && config.webhookProviderType) {
-          return { url: config.webhookUrl, provider: config.webhookProviderType, onSuccess: config.webhookNotifyOnSuccess, onFailure: config.webhookNotifyOnFailure, onStart: config.webhookNotifyOnStart };
+          return [{ id: 'legacy', name: 'Default (legacy)', providerType: config.webhookProviderType, url: config.webhookUrl, enabled: true, notifyOnStart: config.webhookNotifyOnStart, notifyOnSuccess: config.webhookNotifyOnSuccess, notifyOnFailure: config.webhookNotifyOnFailure, notifyOnSlaEvents: true }];
         }
         if (config.teamsWebhookUrl) {
-          return { url: config.teamsWebhookUrl, provider: 1, onSuccess: config.teamsNotifyOnSuccess, onFailure: config.teamsNotifyOnFailure, onStart: config.teamsNotifyOnStart };
+          return [{ id: 'legacy', name: 'Default (legacy)', providerType: 1, url: config.teamsWebhookUrl, enabled: true, notifyOnStart: config.teamsNotifyOnStart, notifyOnSuccess: config.teamsNotifyOnSuccess, notifyOnFailure: config.teamsNotifyOnFailure, notifyOnSlaEvents: true }];
         }
-        return { url: null, provider: 0, onSuccess: true, onFailure: true, onStart: false };
+        return [];
       })()
-    : null;
+    : [];
 
   const selectedTenant = tenants.find((t) => t.tenantId === selectedTenantId);
 
@@ -585,11 +595,20 @@ export function SectionTenantConfigReport() {
               </Section>
 
               <Section title="Webhooks">
-                <ConfigRow label="Provider" value={WEBHOOK_PROVIDERS[webhookDisplay?.provider ?? 0] ?? 'Unknown'} />
-                <ConfigRow label="Webhook URL" value={webhookDisplay?.url} masked />
-                <ConfigRow label="Notify On Start" value={webhookDisplay?.onStart} />
-                <ConfigRow label="Notify On Success" value={webhookDisplay?.onSuccess} />
-                <ConfigRow label="Notify On Failure" value={webhookDisplay?.onFailure} />
+                {webhookChannels.length === 0 && (
+                  <ConfigRow label="Provider" value={WEBHOOK_PROVIDERS[0] ?? 'None'} />
+                )}
+                {webhookChannels.map((ch, i) => (
+                  <div key={ch.id ?? i} className={i > 0 ? 'mt-2 pt-2 border-t border-gray-100 dark:border-gray-700' : ''}>
+                    <ConfigRow label="Channel" value={`${ch.name || ch.id}${ch.enabled === false ? ' (disabled)' : ''}`} />
+                    <ConfigRow label="Provider" value={WEBHOOK_PROVIDERS[ch.providerType ?? 0] ?? 'Unknown'} />
+                    <ConfigRow label="Webhook URL" value={ch.url} masked />
+                    <ConfigRow label="Notify On Start" value={ch.notifyOnStart ?? false} />
+                    <ConfigRow label="Notify On Success" value={ch.notifyOnSuccess ?? false} />
+                    <ConfigRow label="Notify On Failure" value={ch.notifyOnFailure ?? false} />
+                    <ConfigRow label="Notify On SLA" value={ch.notifyOnSlaEvents ?? false} />
+                  </div>
+                ))}
               </Section>
 
               <Section title="Diagnostics">

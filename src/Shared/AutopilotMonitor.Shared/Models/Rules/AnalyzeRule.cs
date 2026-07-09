@@ -161,6 +161,29 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public bool? MarkSessionAsFailed { get; set; }
 
+        // ===== NOTIFICATION POLICY =====
+
+        /// <summary>
+        /// Rule-definition default for whether newly detected findings of this rule send an outbound
+        /// notification. Off for all shipped rules — notification targets are tenant-specific channel
+        /// ids, so notify only becomes actionable through the tenant override + channel selection.
+        /// </summary>
+        public bool NotifyDefault { get; set; } = false;
+
+        /// <summary>
+        /// Tenant-scoped override for <see cref="NotifyDefault"/>. Not persisted in the rule JSON —
+        /// populated at load time from the RuleStates table. Null = no preference (use the default).
+        /// </summary>
+        public bool? Notify { get; set; }
+
+        /// <summary>
+        /// Tenant-scoped notification targets: ids of the tenant's notification channels
+        /// (<c>TenantConfiguration.NotificationChannelsJson</c>) that receive an alert when this rule
+        /// fires. Populated at load time from the RuleStates table alongside <see cref="Notify"/>.
+        /// Effective notify requires both the flag and at least one resolvable channel id.
+        /// </summary>
+        public List<string>? NotifyChannelIds { get; set; }
+
         /// <summary>
         /// Tags for filtering and categorization
         /// </summary>

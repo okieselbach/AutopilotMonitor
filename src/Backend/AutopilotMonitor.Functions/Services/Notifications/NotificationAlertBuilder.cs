@@ -195,6 +195,57 @@ namespace AutopilotMonitor.Functions.Services.Notifications
         }
 
         /// <summary>
+        /// Builds a notification alert for a single analyze-rule finding (rule-level notify:
+        /// the tenant opted this rule into alerting specific notification channels). Fired only
+        /// for NEWLY detected findings on the automatic enrollment-end path.
+        /// </summary>
+        public static NotificationAlert BuildRuleFiredAlert(
+            RuleResult result,
+            string? deviceName,
+            string? serialNumber,
+            string? sessionUrl = null)
+        {
+            var (emoji, themeColor, severity) = result.Severity switch
+            {
+                "critical" => ("🟥", "FF0000", NotificationSeverity.Error),
+                "high" => ("🟠", "FF0000", NotificationSeverity.Error),
+                "warning" => ("🟡", "FFA500", NotificationSeverity.Warning),
+                _ => ("🔵", "0078D4", NotificationSeverity.Info),
+            };
+
+            var alert = new NotificationAlert
+            {
+                EventType = "analyze_rule_fired",
+                Title = $"{emoji} Rule Fired: {result.RuleTitle}",
+                Summary = $"Analyze rule {result.RuleId} fired on {deviceName ?? "Unknown Device"}",
+                Severity = severity,
+                ThemeColor = themeColor,
+                Facts = new List<NotificationFact>
+                {
+                    new() { Name = "Device", Value = deviceName ?? "–" },
+                    new() { Name = "Serial", Value = serialNumber ?? "–" },
+                    new() { Name = "Rule", Value = $"{result.RuleId} – {result.RuleTitle}" },
+                    new() { Name = "Severity", Value = result.Severity ?? "–" },
+                    new() { Name = "Category", Value = result.Category ?? "–" },
+                    new() { Name = "Confidence", Value = $"{result.ConfidenceScore}%" },
+                },
+            };
+
+            if (!string.IsNullOrEmpty(result.Explanation))
+            {
+                var explanation = result.Explanation.Length > 300
+                    ? result.Explanation[..300] + "..."
+                    : result.Explanation;
+                alert.Sections.Add(new NotificationSection { Title = "Explanation", Text = explanation });
+            }
+
+            if (!string.IsNullOrEmpty(sessionUrl))
+                alert.Actions.Add(new NotificationAction { Type = "openUrl", Title = "Open session", Url = sessionUrl });
+
+            return alert;
+        }
+
+        /// <summary>
         /// Appends rule results as notification sections (warning/high/critical only, max 5).
         /// </summary>
         public static void AddRuleResultSections(NotificationAlert alert, List<RuleResult> ruleResults)

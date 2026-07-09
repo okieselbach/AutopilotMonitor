@@ -277,6 +277,10 @@ namespace AutopilotMonitor.Functions.Services
                 // null values, leaving a stale `true` on the row (reset would silently fail).
                 if (state.MarkSessionAsFailed.HasValue)
                     entity["MarkSessionAsFailed"] = state.MarkSessionAsFailed.Value;
+                if (state.Notify.HasValue)
+                    entity["Notify"] = state.Notify.Value;
+                if (!string.IsNullOrEmpty(state.NotifyChannelIdsJson))
+                    entity["NotifyChannelIdsJson"] = state.NotifyChannelIdsJson;
 
                 await tableClient.UpsertEntityAsync(entity, TableUpdateMode.Replace);
                 _logger.LogDebug($"Stored rule state {ruleId} for {tenantId}: enabled={state.Enabled}, markAsFailed={state.MarkSessionAsFailed?.ToString() ?? "inherit"}");
@@ -307,7 +311,9 @@ namespace AutopilotMonitor.Functions.Services
                     states[entity.RowKey] = new RuleState
                     {
                         Enabled = entity.GetBoolean("Enabled") ?? true,
-                        MarkSessionAsFailed = entity.GetBoolean("MarkSessionAsFailed")
+                        MarkSessionAsFailed = entity.GetBoolean("MarkSessionAsFailed"),
+                        Notify = entity.GetBoolean("Notify"),
+                        NotifyChannelIdsJson = entity.GetString("NotifyChannelIdsJson")
                     };
                 }
 
@@ -452,6 +458,10 @@ namespace AutopilotMonitor.Functions.Services
                     ["TemplateVariablesJson"] = JsonConvert.SerializeObject(rule.TemplateVariables ?? new List<TemplateVariable>()),
                     ["DerivedFromTemplateRuleId"] = rule.DerivedFromTemplateRuleId ?? string.Empty,
                     ["MarkSessionAsFailedDefault"] = rule.MarkSessionAsFailedDefault,
+                    ["NotifyDefault"] = rule.NotifyDefault,
+                    // Channel ids are tenant-specific: populated only for tenant custom rules
+                    // (built-in/community rules keep their targets in RuleStates instead).
+                    ["NotifyChannelIdsJson"] = JsonConvert.SerializeObject(rule.NotifyChannelIds ?? new List<string>()),
                     ["CreatedAt"] = rule.CreatedAt,
                     ["UpdatedAt"] = rule.UpdatedAt
                 };
@@ -588,6 +598,8 @@ namespace AutopilotMonitor.Functions.Services
                 TemplateVariables = DeserializeJson<List<TemplateVariable>>(entity.GetString("TemplateVariablesJson")),
                 DerivedFromTemplateRuleId = string.IsNullOrEmpty(derivedFrom) ? null : derivedFrom,
                 MarkSessionAsFailedDefault = entity.GetBoolean("MarkSessionAsFailedDefault") ?? false,
+                NotifyDefault = entity.GetBoolean("NotifyDefault") ?? false,
+                NotifyChannelIds = DeserializeJson<List<string>>(entity.GetString("NotifyChannelIdsJson")),
                 CreatedAt = entity.GetDateTimeOffset("CreatedAt")?.UtcDateTime ?? DateTime.UtcNow,
                 UpdatedAt = entity.GetDateTimeOffset("UpdatedAt")?.UtcDateTime ?? DateTime.UtcNow
             };

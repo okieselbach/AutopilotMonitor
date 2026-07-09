@@ -381,6 +381,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 { "WebhookNotifyOnHardwareRejection", config.WebhookNotifyOnHardwareRejection },
                 { "WebhookNotifyOnStart", config.WebhookNotifyOnStart },
                 { "WebhookCustomHeadersJson", config.WebhookCustomHeadersJson },
+                { "NotificationChannelsJson", config.NotificationChannelsJson },
                 { "ShowScriptOutput", config.ShowScriptOutput },
                 { "ShowEnrollmentSummary", config.ShowEnrollmentSummary },
                 { "EnrollmentSummaryTimeoutSeconds", config.EnrollmentSummaryTimeoutSeconds },
@@ -482,6 +483,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 WebhookNotifyOnHardwareRejection = entity.GetBoolean("WebhookNotifyOnHardwareRejection") ?? false,
                 WebhookNotifyOnStart = entity.GetBoolean("WebhookNotifyOnStart") ?? false,
                 WebhookCustomHeadersJson = entity.GetString("WebhookCustomHeadersJson"),
+                // null for legacy rows → GetNotificationChannels() synthesizes from the single-webhook fields
+                NotificationChannelsJson = entity.GetString("NotificationChannelsJson"),
                 ShowScriptOutput = entity.GetBoolean("ShowScriptOutput") ?? true,
                 ShowEnrollmentSummary = entity.GetBoolean("ShowEnrollmentSummary"),
                 EnrollmentSummaryTimeoutSeconds = entity.GetInt32("EnrollmentSummaryTimeoutSeconds"),

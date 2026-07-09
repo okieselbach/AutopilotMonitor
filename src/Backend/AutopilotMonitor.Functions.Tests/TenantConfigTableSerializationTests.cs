@@ -119,4 +119,31 @@ public class TenantConfigTableSerializationTests
         Assert.Equal(0, mapped.SessionGraceHours);
         Assert.Null(mapped.AbsoluteMaxSessionHours);
     }
+
+    [Fact]
+    public void Roundtrip_NotificationChannelsJson_SurvivesStoreAndMap()
+    {
+        var channelsJson = "[{\"id\":\"ch-1\",\"name\":\"Service Desk\",\"providerType\":20,\"url\":\"https://desk.example/hook\",\"enabled\":true,\"notifyOnFailure\":true}]";
+        var config = new TenantConfiguration
+        {
+            TenantId = TenantId,
+            DomainName = "contoso.com",
+            UpdatedBy = "admin@contoso.com",
+            NotificationChannelsJson = channelsJson
+        };
+
+        var mapped = TableConfigRepository.ConvertFromTenantTableEntity(
+            TableConfigRepository.ConvertToTenantTableEntity(config));
+
+        Assert.Equal(channelsJson, mapped.NotificationChannelsJson);
+    }
+
+    [Fact]
+    public void Map_LegacyRow_WithoutChannelsColumn_ReadsNull()
+    {
+        // Pre-channels row: the column is absent — GetNotificationChannels() then synthesizes
+        // from the legacy single-webhook fields.
+        var entity = new TableEntity(TenantId, "config") { { "DomainName", "fabrikam.com" } };
+        Assert.Null(TableConfigRepository.ConvertFromTenantTableEntity(entity).NotificationChannelsJson);
+    }
 }

@@ -19,22 +19,30 @@ namespace AutopilotMonitor.Functions.Services
             List<RuleResult> ruleResults)
         {
             var tenantConfig = await _configService.GetConfigurationAsync(request.TenantId);
-            var (webhookUrl, providerTypeInt) = tenantConfig.GetEffectiveWebhookConfig();
+            // Per-channel routing: each enabled channel opts into event kinds via its NotifyOn*
+            // toggles. Legacy single-webhook tenants get one synthesized channel with their
+            // previous effective toggles (see TenantConfiguration.GetNotificationChannels).
+            var successChannels = new List<NotificationChannel>();
+            var failureChannels = new List<NotificationChannel>();
+            foreach (var channel in tenantConfig.GetNotificationChannels())
+            {
+                if (!channel.Enabled) continue;
+                if (channel.NotifyOnSuccess) successChannels.Add(channel);
+                if (channel.NotifyOnFailure) failureChannels.Add(channel);
+            }
 
-            if (string.IsNullOrEmpty(webhookUrl) || providerTypeInt == 0)
+            if (successChannels.Count == 0 && failureChannels.Count == 0)
                 return;
 
-            var providerType = (WebhookProviderType)providerTypeInt;
-            var customHeaders = tenantConfig.GetGenericWebhookHeaders();
             var sessionUrl = updatedSession != null
                 ? $"https://portal.autopilotmonitor.com/sessions/{request.SessionId}"
                 : null;
 
             if (statusTransitioned && (c.CompletionEvent != null || c.FailureEvent != null))
             {
-                var notifySuccess = c.CompletionEvent != null && tenantConfig.GetEffectiveNotifyOnSuccess();
-                var notifyFailure = c.FailureEvent != null && tenantConfig.GetEffectiveNotifyOnFailure();
-                if (notifySuccess || notifyFailure)
+                var isSuccess = c.CompletionEvent != null;
+                var targets = isSuccess ? successChannels : failureChannels;
+                if (targets.Count > 0)
                 {
                     var duration = updatedSession?.DurationSeconds != null
                         ? TimeSpan.FromSeconds(updatedSession.DurationSeconds.Value)
@@ -52,19 +60,19 @@ namespace AutopilotMonitor.Functions.Services
                         updatedSession?.SerialNumber,
                         updatedSession?.Manufacturer,
                         updatedSession?.Model,
-                        success: c.CompletionEvent != null,
+                        success: isSuccess,
                         failureReason: failureReason,
                         duration: duration,
                         sessionUrl: sessionUrl);
                     NotificationAlertBuilder.AddRuleResultSections(alert, ruleResults);
 
-                    _ = _webhookNotificationService.SendNotificationAsync(webhookUrl, providerType, alert, customHeaders)
+                    _ = _webhookNotificationService.SendToChannelsAsync(targets, alert)
                         .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
                             "Fire-and-forget webhook notification failed"), TaskContinuationOptions.OnlyOnFaulted);
                 }
             }
 
-            if (whiteGloveStatusTransitioned && c.WhiteGloveEvent != null && tenantConfig.GetEffectiveNotifyOnSuccess())
+            if (whiteGloveStatusTransitioned && c.WhiteGloveEvent != null && successChannels.Count > 0)
             {
                 var duration = updatedSession?.DurationSeconds != null
                     ? TimeSpan.FromSeconds(updatedSession.DurationSeconds.Value)
@@ -80,12 +88,12 @@ namespace AutopilotMonitor.Functions.Services
                     sessionUrl: sessionUrl);
                 NotificationAlertBuilder.AddRuleResultSections(alert, ruleResults);
 
-                _ = _webhookNotificationService.SendNotificationAsync(webhookUrl, providerType, alert, customHeaders)
+                _ = _webhookNotificationService.SendToChannelsAsync(successChannels, alert)
                     .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
                         "Fire-and-forget webhook notification failed"), TaskContinuationOptions.OnlyOnFaulted);
             }
 
-            if (c.EspFailureEvent != null && updatedSession?.IsPreProvisioned == true && tenantConfig.GetEffectiveNotifyOnFailure())
+            if (c.EspFailureEvent != null && updatedSession?.IsPreProvisioned == true && failureChannels.Count > 0)
             {
                 var duration = updatedSession?.DurationSeconds != null
                     ? TimeSpan.FromSeconds(updatedSession.DurationSeconds.Value)
@@ -101,7 +109,7 @@ namespace AutopilotMonitor.Functions.Services
                     sessionUrl: sessionUrl);
                 NotificationAlertBuilder.AddRuleResultSections(alert, ruleResults);
 
-                _ = _webhookNotificationService.SendNotificationAsync(webhookUrl, providerType, alert, customHeaders)
+                _ = _webhookNotificationService.SendToChannelsAsync(failureChannels, alert)
                     .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
                         "Fire-and-forget webhook notification failed"), TaskContinuationOptions.OnlyOnFaulted);
             }

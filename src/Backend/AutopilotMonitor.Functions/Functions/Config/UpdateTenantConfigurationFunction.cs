@@ -108,6 +108,15 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     await badRequest.WriteAsJsonAsync(new { success = false, message = $"Invalid custom headers: {headersError}" });
                     return badRequest;
                 }
+                // Per-channel counterpart of the two checks above: every channel's URL and custom
+                // headers must pass the same format/SSRF gates as the legacy single-webhook fields.
+                var channelsError = ValidateNotificationChannels(config.NotificationChannelsJson);
+                if (channelsError != null)
+                {
+                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badRequest.WriteAsJsonAsync(new { success = false, message = $"Invalid notification channels: {channelsError}" });
+                    return badRequest;
+                }
                 // Only validate the customer-supplied SAS URL when the tenant has actually
                 // selected the CustomerSas destination. In Hosted mode the field is unused at
                 // runtime (see GetDiagnosticsUploadUrlFunction), so a stale/legacy value left
@@ -240,6 +249,65 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
         private const int MaxCustomHeadersJsonLength = 8192;
         private const int MaxCustomHeaderCount = 25;
+        private const int MaxNotificationChannelsJsonLength = 65536;
+
+        /// <summary>
+        /// Validates the notification-channel list JSON. Returns an error message, or null when
+        /// valid/empty. Strict counterpart of the fail-soft <c>NotificationChannel.ParseList</c>:
+        /// entries the parser would silently drop (missing id, unknown provider) are rejected here
+        /// so a tenant admin gets feedback instead of a channel that never fires. Each channel's
+        /// URL and custom headers pass the same gates as the legacy single-webhook fields.
+        /// </summary>
+        internal static string? ValidateNotificationChannels(string? json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+                return null;
+
+            if (json.Length > MaxNotificationChannelsJsonLength)
+                return $"too large (max {MaxNotificationChannelsJsonLength} characters).";
+
+            List<Shared.Models.Notifications.NotificationChannel>? channels;
+            try
+            {
+                channels = System.Text.Json.JsonSerializer.Deserialize<List<Shared.Models.Notifications.NotificationChannel>>(
+                    json, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return "not valid JSON.";
+            }
+
+            if (channels == null)
+                return "must be a JSON array of channels.";
+
+            if (channels.Count > Shared.Models.Notifications.NotificationChannel.MaxChannelsPerTenant)
+                return $"too many channels (max {Shared.Models.Notifications.NotificationChannel.MaxChannelsPerTenant}).";
+
+            var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var channel in channels)
+            {
+                if (channel == null || string.IsNullOrWhiteSpace(channel.Id))
+                    return "every channel needs an id.";
+                if (!ids.Add(channel.Id))
+                    return $"duplicate channel id \"{channel.Id}\".";
+
+                var label = string.IsNullOrWhiteSpace(channel.Name) ? channel.Id : channel.Name;
+
+                if (!Enum.IsDefined(typeof(Shared.Models.Notifications.WebhookProviderType), channel.ProviderType)
+                    || channel.ProviderType == (int)Shared.Models.Notifications.WebhookProviderType.None)
+                    return $"channel \"{label}\" has an invalid provider type.";
+
+                var urlError = SsrfGuard.ValidateWebhookUrlFormat(channel.Url);
+                if (urlError != null)
+                    return $"channel \"{label}\": {urlError}";
+
+                var headerError = ValidateWebhookCustomHeaders(channel.CustomHeadersJson);
+                if (headerError != null)
+                    return $"channel \"{label}\" headers: {headerError}";
+            }
+
+            return null;
+        }
 
         /// <summary>
         /// Validates the generic-webhook custom-headers JSON. Returns an error message, or null when

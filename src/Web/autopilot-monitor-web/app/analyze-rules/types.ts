@@ -85,6 +85,12 @@ export interface AnalyzeRule {
   markSessionAsFailedDefault?: boolean;
   /** Tenant override. `undefined`/`null` = inherit the default. */
   markSessionAsFailed?: boolean | null;
+  /** Rule-definition default for "fire → send channel notification" (false for all shipped rules). */
+  notifyDefault?: boolean;
+  /** Tenant override. `undefined`/`null` = inherit the default. */
+  notify?: boolean | null;
+  /** Tenant notification-channel ids targeted when this rule fires (requires effective notify). */
+  notifyChannelIds?: string[];
   createdAt: string;
   updatedAt: string;
 }

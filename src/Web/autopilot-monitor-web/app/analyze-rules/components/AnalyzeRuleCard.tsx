@@ -22,6 +22,10 @@ interface AnalyzeRuleCardProps {
   onToggle: () => void;
   onToggleEnabled: (rule: AnalyzeRule) => void;
   onToggleMarkAsFailed?: (rule: AnalyzeRule) => void;
+  /** Update the rule-level notification override + channel targets in one call. */
+  onUpdateNotify?: (rule: AnalyzeRule, notify: boolean, channelIds: string[]) => void;
+  /** The tenant's enabled notification channels (id + display name) for the target selector. */
+  tenantChannels?: { id: string; name: string }[];
   onStartEditing: (rule: AnalyzeRule) => void;
   onSaveEdit: (rule: AnalyzeRule, formOverride?: RuleForm) => void;
   onCancelEdit: () => void;
@@ -46,7 +50,8 @@ export default function AnalyzeRuleCard({
   rule, isExpanded, isEditing, editForm, setEditForm, saving,
   togglingRuleId, deletingRuleId,
   jsonModeEdit, jsonText, jsonError,
-  onToggle, onToggleEnabled, onToggleMarkAsFailed, onStartEditing, onSaveEdit, onCancelEdit,
+  onToggle, onToggleEnabled, onToggleMarkAsFailed, onUpdateNotify, tenantChannels,
+  onStartEditing, onSaveEdit, onCancelEdit,
   onDelete, onExport,
   onSetJsonModeEdit, onSetJsonText, onSetJsonError,
   readOnly = false,
@@ -63,6 +68,9 @@ export default function AnalyzeRuleCard({
   const isDerived = !!rule.derivedFromTemplateRuleId;
   const effectiveMarkAsFailed = (rule.markSessionAsFailed ?? rule.markSessionAsFailedDefault) ?? false;
   const koOverrideIsExplicit = rule.markSessionAsFailed !== null && rule.markSessionAsFailed !== undefined;
+  const effectiveNotify = (rule.notify ?? rule.notifyDefault) ?? false;
+  const notifyOverrideIsExplicit = rule.notify !== null && rule.notify !== undefined;
+  const selectedChannelIds = rule.notifyChannelIds ?? [];
 
   return (
     <div
@@ -103,6 +111,15 @@ export default function AnalyzeRuleCard({
               title={`KO criterion: firing this rule marks the session as failed in the portal${koOverrideIsExplicit ? " (tenant override)" : " (rule default)"}.`}
             >
               KO
+            </span>
+          )}
+          {/* Read-only notify indicator — same pattern as the KO badge: visible only when active. */}
+          {rule.enabled && effectiveNotify && selectedChannelIds.length > 0 && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-sky-100 text-sky-800 border border-sky-300 flex-shrink-0"
+              title={`Channel notification: firing this rule alerts ${selectedChannelIds.length} notification channel(s).`}
+            >
+              🔔
             </span>
           )}
           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${sevColor.bg} ${sevColor.text} flex-shrink-0`}>
@@ -378,6 +395,90 @@ export default function AnalyzeRuleCard({
                 >
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${effectiveMarkAsFailed ? "translate-x-6" : "translate-x-1"}`} />
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* Channel notification toggle — mirrors the KO-criterion block. Sends an alert to the
+              selected notification channels when this rule NEWLY fires (auto-analysis only). */}
+          {!readOnly && rule.enabled && onUpdateNotify && (
+            <div className="pt-4">
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4 className="text-sm font-semibold text-gray-800">Channel notification</h4>
+                      {effectiveNotify && selectedChannelIds.length > 0 && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-800 border border-sky-300">
+                          ACTIVE
+                        </span>
+                      )}
+                      {notifyOverrideIsExplicit && (
+                        <span className="text-[10px] text-gray-500 italic" title="Tenant override — differs from the rule's shipped default">
+                          tenant override
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-600 leading-relaxed">
+                      When enabled, each <span className="font-semibold">new</span> finding of this rule sends a message to the selected
+                      notification channels (Teams, Slack, webhook — configured under Settings → Notifications) with device, rule, and a
+                      direct link to the session.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => onUpdateNotify(rule, !effectiveNotify, selectedChannelIds)}
+                    disabled={togglingRuleId === rule.ruleId}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${togglingRuleId === rule.ruleId ? "opacity-50 cursor-not-allowed" : "cursor-pointer"} ${effectiveNotify ? "bg-sky-500" : "bg-gray-300"}`}
+                    title={effectiveNotify ? "Disable channel notification" : "Enable channel notification"}
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${effectiveNotify ? "translate-x-6" : "translate-x-1"}`} />
+                  </button>
+                </div>
+                {effectiveNotify && (
+                  <div className="mt-3">
+                    {(tenantChannels?.length ?? 0) === 0 ? (
+                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                        No notification channels configured yet — add one under Settings → Notifications first.
+                      </p>
+                    ) : (
+                      <>
+                        <p className="text-xs font-medium text-gray-600 mb-1.5">Notify these channels:</p>
+                        <div className="flex flex-wrap gap-2">
+                          {tenantChannels!.map((ch) => {
+                            const selected = selectedChannelIds.includes(ch.id);
+                            return (
+                              <button
+                                key={ch.id}
+                                type="button"
+                                disabled={togglingRuleId === rule.ruleId}
+                                onClick={() => onUpdateNotify(
+                                  rule,
+                                  effectiveNotify,
+                                  selected
+                                    ? selectedChannelIds.filter((id) => id !== ch.id)
+                                    : [...selectedChannelIds.filter((id) => tenantChannels!.some((t) => t.id === id)), ch.id]
+                                )}
+                                className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                                  selected
+                                    ? "bg-sky-100 text-sky-800 border-sky-300"
+                                    : "bg-white text-gray-500 border-gray-300 hover:border-sky-300"
+                                }`}
+                              >
+                                <span className={`mr-1.5 inline-block h-2 w-2 rounded-full ${selected ? "bg-sky-500" : "bg-gray-300"}`} />
+                                {ch.name || ch.id}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {selectedChannelIds.length === 0 && (
+                          <p className="mt-2 text-xs text-amber-700">
+                            Select at least one channel — without a target no notification is sent.
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}

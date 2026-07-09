@@ -26,8 +26,55 @@ const validationEnabledSuffix = (t: ValidationTrigger) =>
     : " enabled. Backend agent endpoints are now unlocked for this tenant.";
 import { parseSasExpiry } from "./components/DiagnosticsSection";
 import { COMMUNITY_DEFAULT, parseEditionInfo, type EditionInfo } from "@/lib/edition";
-import { TenantConfiguration, TenantAdmin, DiagnosticsLogPath } from "./types";
+import { TenantConfiguration, TenantAdmin, DiagnosticsLogPath, NotificationChannel, LEGACY_CHANNEL_ID } from "./types";
 import { type BootstrapSessionItem } from "./components/BootstrapSessionsSection";
+
+/**
+ * Channels for display/editing from a loaded config: prefers notificationChannelsJson; while
+ * unset, synthesizes ONE channel from the legacy single-webhook fields under the stable
+ * "legacy" id (mirrors backend TenantConfiguration.GetNotificationChannels so the UI shows
+ * exactly what the backend dispatches). First save materializes the synthesized channel.
+ */
+function channelsFromConfig(data: TenantConfiguration): NotificationChannel[] {
+  if (data.notificationChannelsJson) {
+    try {
+      const parsed = JSON.parse(data.notificationChannelsJson);
+      if (Array.isArray(parsed)) return parsed as NotificationChannel[];
+    } catch {
+      // Malformed (hand-edited) JSON — fall through to legacy synthesis.
+    }
+  }
+  if (data.webhookUrl && data.webhookProviderType) {
+    return [{
+      id: LEGACY_CHANNEL_ID,
+      name: "Default",
+      providerType: data.webhookProviderType,
+      url: data.webhookUrl,
+      customHeadersJson: data.webhookCustomHeadersJson || undefined,
+      enabled: true,
+      notifyOnStart: data.webhookNotifyOnStart ?? false,
+      notifyOnSuccess: data.webhookNotifyOnSuccess ?? true,
+      notifyOnFailure: data.webhookNotifyOnFailure ?? true,
+      notifyOnHardwareRejection: data.webhookNotifyOnHardwareRejection ?? false,
+      notifyOnSlaEvents: true, // legacy behavior: SLA alerts always went to the single webhook
+    }];
+  }
+  if (data.teamsWebhookUrl) {
+    return [{
+      id: LEGACY_CHANNEL_ID,
+      name: "Default",
+      providerType: 1, // TeamsLegacyConnector
+      url: data.teamsWebhookUrl,
+      enabled: true,
+      notifyOnStart: data.teamsNotifyOnStart ?? false,
+      notifyOnSuccess: data.teamsNotifyOnSuccess ?? true,
+      notifyOnFailure: data.teamsNotifyOnFailure ?? true,
+      notifyOnHardwareRejection: data.webhookNotifyOnHardwareRejection ?? false,
+      notifyOnSlaEvents: true,
+    }];
+  }
+  return [];
+}
 
 // ---------------------------------------------------------------------------
 // Context value interface
@@ -149,22 +196,12 @@ interface TenantConfigContextValue {
   setUnrestrictedMode: (v: boolean) => void;
   handleSaveUnrestrictedMode: (value: boolean) => Promise<boolean>;
 
-  // Notifications / Webhook
-  webhookProviderType: number;
-  setWebhookProviderType: (v: number) => void;
-  webhookUrl: string;
-  setWebhookUrl: (v: string) => void;
-  webhookNotifyOnSuccess: boolean;
-  setWebhookNotifyOnSuccess: (v: boolean) => void;
-  webhookNotifyOnFailure: boolean;
-  setWebhookNotifyOnFailure: (v: boolean) => void;
-  webhookNotifyOnStart: boolean;
-  setWebhookNotifyOnStart: (v: boolean) => void;
-  webhookCustomHeaders: string;
-  setWebhookCustomHeaders: (v: string) => void;
-  testingWebhook: boolean;
-  testWebhookResult: { success: boolean; message: string } | null;
-  handleTestWebhook: () => Promise<void>;
+  // Notifications / channels
+  notificationChannels: NotificationChannel[];
+  setNotificationChannels: (v: SetStateAction<NotificationChannel[]>) => void;
+  testingChannelId: string | null;
+  testChannelResult: { channelId: string; success: boolean; message: string } | null;
+  handleTestChannel: (channelId: string) => Promise<void>;
   handleSaveNotifications: () => void;
   handleResetNotifications: () => void;
 
@@ -337,15 +374,10 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const [enrollmentSummaryBrandingImageUrl, setEnrollmentSummaryBrandingImageUrl] = useState("");
   const [enrollmentSummaryLaunchRetrySeconds, setEnrollmentSummaryLaunchRetrySeconds] = useState(120);
 
-  // Webhook notifications
-  const [webhookProviderType, setWebhookProviderType] = useState(0);
-  const [webhookUrl, setWebhookUrl] = useState("");
-  const [webhookNotifyOnSuccess, setWebhookNotifyOnSuccess] = useState(true);
-  const [webhookNotifyOnFailure, setWebhookNotifyOnFailure] = useState(true);
-  const [webhookNotifyOnStart, setWebhookNotifyOnStart] = useState(false);
-  const [webhookCustomHeaders, setWebhookCustomHeaders] = useState("");
-  const [testingWebhook, setTestingWebhook] = useState(false);
-  const [testWebhookResult, setTestWebhookResult] = useState<{ success: boolean; message: string } | null>(null);
+  // Notification channels
+  const [notificationChannels, setNotificationChannels] = useState<NotificationChannel[]>([]);
+  const [testingChannelId, setTestingChannelId] = useState<string | null>(null);
+  const [testChannelResult, setTestChannelResult] = useState<{ channelId: string; success: boolean; message: string } | null>(null);
 
   // SLA Targets
   const [slaTargetSuccessRate, setSlaTargetSuccessRate] = useState<number | null>(null);
@@ -458,29 +490,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         setEnrollmentSummaryTimeoutSeconds(data.enrollmentSummaryTimeoutSeconds ?? 60);
         setEnrollmentSummaryBrandingImageUrl(data.enrollmentSummaryBrandingImageUrl ?? "");
         setEnrollmentSummaryLaunchRetrySeconds(data.enrollmentSummaryLaunchRetrySeconds ?? 120);
-        // Webhook notifications: auto-migrate from legacy fields
-        if (data.webhookUrl && data.webhookProviderType) {
-          setWebhookProviderType(data.webhookProviderType);
-          setWebhookUrl(data.webhookUrl);
-          setWebhookNotifyOnSuccess(data.webhookNotifyOnSuccess ?? true);
-          setWebhookNotifyOnFailure(data.webhookNotifyOnFailure ?? true);
-          setWebhookNotifyOnStart(data.webhookNotifyOnStart ?? false);
-          setWebhookCustomHeaders(data.webhookCustomHeadersJson ?? "");
-        } else if (data.teamsWebhookUrl) {
-          setWebhookProviderType(1); // TeamsLegacyConnector
-          setWebhookUrl(data.teamsWebhookUrl);
-          setWebhookNotifyOnSuccess(data.teamsNotifyOnSuccess ?? true);
-          setWebhookNotifyOnFailure(data.teamsNotifyOnFailure ?? true);
-          setWebhookNotifyOnStart(data.teamsNotifyOnStart ?? false);
-          setWebhookCustomHeaders("");
-        } else {
-          setWebhookProviderType(0);
-          setWebhookUrl("");
-          setWebhookNotifyOnSuccess(true);
-          setWebhookNotifyOnFailure(true);
-          setWebhookNotifyOnStart(false);
-          setWebhookCustomHeaders("");
-        }
+        // Notification channels (auto-migrates from the legacy single-webhook fields)
+        setNotificationChannels(channelsFromConfig(data));
         // SLA Targets
         setSlaTargetSuccessRate(data.slaTargetSuccessRate ?? null);
         setSlaTargetMaxDurationMinutes(data.slaTargetMaxDurationMinutes ?? null);
@@ -673,20 +684,14 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         enrollmentSummaryTimeoutSeconds,
         enrollmentSummaryBrandingImageUrl: enrollmentSummaryBrandingImageUrl || undefined,
         enrollmentSummaryLaunchRetrySeconds,
-        // New webhook fields
-        webhookProviderType,
-        webhookUrl: webhookUrl || undefined,
-        webhookNotifyOnSuccess,
-        webhookNotifyOnFailure,
-        webhookNotifyOnStart,
-        // Custom headers only apply to the generic provider; clear them otherwise so a
-        // provider switch does not leave stale auth headers persisted.
-        webhookCustomHeadersJson: webhookProviderType === 20 ? (webhookCustomHeaders || undefined) : undefined,
-        // Legacy compat: mirror to old fields during transition
-        teamsWebhookUrl: webhookProviderType === 1 ? (webhookUrl || undefined) : undefined,
-        teamsNotifyOnSuccess: webhookNotifyOnSuccess,
-        teamsNotifyOnFailure: webhookNotifyOnFailure,
-        teamsNotifyOnStart: webhookNotifyOnStart,
+        // Notification channels are the authoritative config; the legacy single-webhook
+        // fields are cleared on save so deleting the last channel can't resurrect a zombie
+        // webhook via the backend's legacy-synthesis fallback.
+        notificationChannelsJson: notificationChannels.length > 0 ? JSON.stringify(notificationChannels) : "",
+        webhookProviderType: 0,
+        webhookUrl: undefined,
+        webhookCustomHeadersJson: undefined,
+        teamsWebhookUrl: undefined,
         // SLA targets
         slaTargetSuccessRate: slaTargetSuccessRate ?? undefined,
         slaTargetMaxDurationMinutes: slaTargetMaxDurationMinutes ?? undefined,
@@ -752,8 +757,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     helloWaitTimeoutSeconds, selfDestructOnComplete, keepLogFile, rebootOnComplete, rebootDelaySeconds,
     enableGeoLocation, enableTimezoneAutoSet, enableImeMatchLog, logLevel, showScriptOutput, showEnrollmentSummary,
     enrollmentSummaryTimeoutSeconds, enrollmentSummaryBrandingImageUrl, enrollmentSummaryLaunchRetrySeconds,
-    webhookProviderType, webhookUrl, webhookNotifyOnSuccess, webhookNotifyOnFailure, webhookNotifyOnStart,
-    webhookCustomHeaders,
+    notificationChannels,
     slaTargetSuccessRate, slaTargetMaxDurationMinutes, slaTargetAppInstallSuccessRate,
     slaNotifyOnSuccessRateBreach, slaSuccessRateNotifyThreshold, slaNotifyOnDurationBreach,
     slaNotifyOnAppInstallBreach, slaNotifyOnConsecutiveFailures, slaConsecutiveFailureThreshold,
@@ -1022,22 +1026,24 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   }, [tenantId, tryReconcilePreApprovedConsent, addNotification]);
 
   // -----------------------------------------------------------------------
-  // Test webhook
+  // Test webhook channel
   // -----------------------------------------------------------------------
-  const handleTestWebhook = useCallback(async () => {
+  const handleTestChannel = useCallback(async (channelId: string) => {
     if (!tenantId) return;
-    setTestingWebhook(true);
-    setTestWebhookResult(null);
+    setTestingChannelId(channelId);
+    setTestChannelResult(null);
     try {
       const response = await authenticatedFetch(api.config.testNotification(tenantId), getAccessToken, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channelId }),
       });
       const data = await response.json();
-      setTestWebhookResult({ success: data.success, message: data.message });
+      setTestChannelResult({ channelId, success: data.success, message: data.message });
     } catch (err) {
-      setTestWebhookResult({ success: false, message: err instanceof Error ? err.message : "Failed to send test notification." });
+      setTestChannelResult({ channelId, success: false, message: err instanceof Error ? err.message : "Failed to send test notification." });
     } finally {
-      setTestingWebhook(false);
+      setTestingChannelId(null);
     }
   }, [tenantId, getAccessToken]);
 
@@ -1050,7 +1056,26 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     setManufacturerWhitelist(config.manufacturerWhitelist);
     setModelWhitelist(config.modelWhitelist);
     setWebhookNotifyOnHardwareRejection(config.webhookNotifyOnHardwareRejection ?? false);
+    // The hardware-rejection toggle writes through to the per-channel flags — restore those
+    // to their saved values too, without disturbing other unsaved channel edits.
+    const savedById = new Map(channelsFromConfig(config).map((c) => [c.id, c]));
+    setNotificationChannels((prev) => prev.map((c) => {
+      const saved = savedById.get(c.id);
+      return saved ? { ...c, notifyOnHardwareRejection: saved.notifyOnHardwareRejection } : c;
+    }));
   }, [config]);
+
+  // Hardware-rejection notify: with channels configured, the hardware-section toggle is a
+  // convenience view over the per-channel flags (checked = any enabled channel opted in;
+  // toggling writes through to every channel). Without channels it edits the legacy tenant
+  // flag, which the backend maps into the synthesized channel.
+  const effectiveHwRejectionNotify = notificationChannels.length > 0
+    ? notificationChannels.some((c) => c.enabled && c.notifyOnHardwareRejection)
+    : webhookNotifyOnHardwareRejection;
+  const setHwRejectionNotifyWriteThrough = useCallback((v: boolean) => {
+    setWebhookNotifyOnHardwareRejection(v);
+    setNotificationChannels((prev) => prev.map((c) => ({ ...c, notifyOnHardwareRejection: v })));
+  }, []);
 
   const handleSaveAgentSettings = useCallback(() => saveConfiguration("agentSettings"), [saveConfiguration]);
   const handleResetAgentSettings = useCallback(() => {
@@ -1091,28 +1116,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const handleSaveNotifications = useCallback(() => saveConfiguration("notifications"), [saveConfiguration]);
   const handleResetNotifications = useCallback(() => {
     if (!config) return;
-    if (config.webhookUrl && config.webhookProviderType) {
-      setWebhookProviderType(config.webhookProviderType);
-      setWebhookUrl(config.webhookUrl);
-      setWebhookNotifyOnSuccess(config.webhookNotifyOnSuccess ?? true);
-      setWebhookNotifyOnFailure(config.webhookNotifyOnFailure ?? true);
-      setWebhookNotifyOnStart(config.webhookNotifyOnStart ?? false);
-      setWebhookCustomHeaders(config.webhookCustomHeadersJson ?? "");
-    } else if (config.teamsWebhookUrl) {
-      setWebhookProviderType(1);
-      setWebhookUrl(config.teamsWebhookUrl);
-      setWebhookNotifyOnSuccess(config.teamsNotifyOnSuccess ?? true);
-      setWebhookNotifyOnFailure(config.teamsNotifyOnFailure ?? true);
-      setWebhookNotifyOnStart(config.teamsNotifyOnStart ?? false);
-      setWebhookCustomHeaders("");
-    } else {
-      setWebhookProviderType(0);
-      setWebhookUrl("");
-      setWebhookNotifyOnSuccess(true);
-      setWebhookNotifyOnFailure(true);
-      setWebhookNotifyOnStart(false);
-      setWebhookCustomHeaders("");
-    }
+    setNotificationChannels(channelsFromConfig(config));
+    setTestChannelResult(null);
   }, [config]);
 
   const handleSaveSlaTargets = useCallback(() => saveConfiguration("slaTargets"), [saveConfiguration]);
@@ -1491,7 +1496,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       // Hardware whitelist
       manufacturerWhitelist, setManufacturerWhitelist,
       modelWhitelist, setModelWhitelist,
-      webhookNotifyOnHardwareRejection, setWebhookNotifyOnHardwareRejection,
+      webhookNotifyOnHardwareRejection: effectiveHwRejectionNotify,
+      setWebhookNotifyOnHardwareRejection: setHwRejectionNotifyWriteThrough,
       handleSaveHardwareWhitelist, handleResetHardwareWhitelist,
 
       // Agent settings
@@ -1529,14 +1535,9 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       handleSaveUnrestrictedMode,
 
       // Notifications
-      webhookProviderType, setWebhookProviderType,
-      webhookUrl, setWebhookUrl,
-      webhookNotifyOnSuccess, setWebhookNotifyOnSuccess,
-      webhookNotifyOnFailure, setWebhookNotifyOnFailure,
-      webhookNotifyOnStart, setWebhookNotifyOnStart,
-      webhookCustomHeaders, setWebhookCustomHeaders,
-      testingWebhook, testWebhookResult,
-      handleTestWebhook, handleSaveNotifications, handleResetNotifications,
+      notificationChannels, setNotificationChannels,
+      testingChannelId, testChannelResult,
+      handleTestChannel, handleSaveNotifications, handleResetNotifications,
 
       // SLA Targets
       slaTargetSuccessRate, setSlaTargetSuccessRate,

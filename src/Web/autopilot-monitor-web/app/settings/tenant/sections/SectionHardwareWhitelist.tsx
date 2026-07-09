@@ -21,12 +21,12 @@ export function SectionHardwareWhitelist() {
     manufacturerWhitelist, setManufacturerWhitelist,
     modelWhitelist, setModelWhitelist,
     webhookNotifyOnHardwareRejection, setWebhookNotifyOnHardwareRejection,
-    webhookUrl, webhookProviderType,
+    notificationChannels,
     handleSaveHardwareWhitelist, handleResetHardwareWhitelist,
     savingSection,
   } = useTenantConfig();
 
-  const hasWebhook = !!webhookUrl && webhookProviderType > 0;
+  const hasWebhook = notificationChannels.some((c) => c.enabled && (c.url ?? "").length > 0);
 
   const handleAddManufacturer = useCallback((value: string) => {
     const items = parseList(manufacturerWhitelist);

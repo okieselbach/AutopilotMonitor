@@ -248,11 +248,10 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             try
             {
                 var tenantConfig = await _configService.GetConfigurationAsync(tenantId);
-                if (!tenantConfig.GetEffectiveNotifyOnStart())
-                    return;
-
-                var (webhookUrl, providerTypeInt) = tenantConfig.GetEffectiveWebhookConfig();
-                if (string.IsNullOrEmpty(webhookUrl) || providerTypeInt == 0)
+                var startChannels = tenantConfig.GetNotificationChannels()
+                    .Where(c => c.Enabled && c.NotifyOnStart)
+                    .ToList();
+                if (startChannels.Count == 0)
                     return;
 
                 var sessionUrl = $"https://portal.autopilotmonitor.com/sessions/{sessionId}";
@@ -264,7 +263,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     isResume: isResume,
                     sessionUrl: sessionUrl);
 
-                await _webhookNotificationService.SendNotificationAsync(webhookUrl, (WebhookProviderType)providerTypeInt, alert, tenantConfig.GetGenericWebhookHeaders());
+                await _webhookNotificationService.SendToChannelsAsync(startChannels, alert);
             }
             catch (Exception ex)
             {

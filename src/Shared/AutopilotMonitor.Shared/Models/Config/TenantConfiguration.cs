@@ -613,6 +613,17 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public string WebhookCustomHeadersJson { get; set; } = default!;
 
+        /// <summary>
+        /// Named notification channels as a JSON array (camelCase, see
+        /// <see cref="Notifications.NotificationChannel"/>). Supersedes the single
+        /// WebhookUrl/WebhookProviderType pair: each channel carries its own provider, URL,
+        /// custom headers and per-event opt-in toggles, and analyze rules can target specific
+        /// channels by id. Null/empty = tenant not migrated yet — <see cref="GetNotificationChannels"/>
+        /// then synthesizes one channel from the legacy fields so existing tenants keep their
+        /// exact behavior without a data migration.
+        /// </summary>
+        public string NotificationChannelsJson { get; set; } = default!;
+
         // ===== SLA TARGETS =====
 
         /// <summary>
@@ -687,10 +698,37 @@ namespace AutopilotMonitor.Shared.Models
             copy.TeamsWebhookUrl = Redact(copy.TeamsWebhookUrl);
             copy.WebhookUrl = Redact(copy.WebhookUrl);
             copy.WebhookCustomHeadersJson = Redact(copy.WebhookCustomHeadersJson);
+            copy.NotificationChannelsJson = RedactChannels(copy.NotificationChannelsJson);
             return copy;
 
             static string Redact(string? value)
                 => string.IsNullOrEmpty(value) ? (value ?? string.Empty) : Constants.RedactedSecretPlaceholder;
+
+            // Channels: redact the secret fields (url, custom headers) per channel but keep the
+            // list structure (ids, names, toggles) visible so a reader still sees the channel
+            // setup. Non-empty but unparseable JSON falls back to whole-string redaction.
+            static string RedactChannels(string? json)
+            {
+                if (string.IsNullOrEmpty(json))
+                    return json ?? string.Empty;
+
+                var channels = Notifications.NotificationChannel.ParseList(json);
+                if (channels.Count == 0)
+                    return Constants.RedactedSecretPlaceholder;
+
+                foreach (var channel in channels)
+                {
+                    channel.Url = RedactNullable(channel.Url);
+                    channel.CustomHeadersJson = RedactNullable(channel.CustomHeadersJson);
+                }
+
+                return Notifications.NotificationChannel.SerializeList(channels);
+
+                // Unlike the top-level fields (non-nullable strings), channel secrets are
+                // string? — an unset field must stay null, not become "".
+                static string? RedactNullable(string? value)
+                    => string.IsNullOrEmpty(value) ? value : Constants.RedactedSecretPlaceholder;
+            }
         }
 
         /// <summary>
@@ -706,6 +744,43 @@ namespace AutopilotMonitor.Shared.Models
             if (TeamsWebhookUrl == Constants.RedactedSecretPlaceholder) TeamsWebhookUrl = existing.TeamsWebhookUrl;
             if (WebhookUrl == Constants.RedactedSecretPlaceholder) WebhookUrl = existing.WebhookUrl;
             if (WebhookCustomHeadersJson == Constants.RedactedSecretPlaceholder) WebhookCustomHeadersJson = existing.WebhookCustomHeadersJson;
+            RestoreRedactedChannelsFrom(existing);
+        }
+
+        /// <summary>
+        /// Channel counterpart of <see cref="RestoreRedactedSecretsFrom"/>: per-channel secret
+        /// fields carrying the redaction sentinel are restored from the existing channel with the
+        /// same id (whole-string sentinel restores the whole list). Unmatched sentinels are left
+        /// in place — an unresolvable placeholder URL simply fails SSRF validation at dispatch.
+        /// </summary>
+        private void RestoreRedactedChannelsFrom(TenantConfiguration existing)
+        {
+            if (NotificationChannelsJson == Constants.RedactedSecretPlaceholder)
+            {
+                NotificationChannelsJson = existing.NotificationChannelsJson;
+                return;
+            }
+
+            if (string.IsNullOrEmpty(NotificationChannelsJson)
+                || NotificationChannelsJson.IndexOf(Constants.RedactedSecretPlaceholder, StringComparison.Ordinal) < 0)
+                return;
+
+            var incoming = Notifications.NotificationChannel.ParseList(NotificationChannelsJson);
+            if (incoming.Count == 0)
+                return;
+
+            var existingById = Notifications.NotificationChannel.ParseList(existing.NotificationChannelsJson)
+                .ToDictionary(c => c.Id, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var channel in incoming)
+            {
+                if (!existingById.TryGetValue(channel.Id, out var match))
+                    continue;
+                if (channel.Url == Constants.RedactedSecretPlaceholder) channel.Url = match.Url;
+                if (channel.CustomHeadersJson == Constants.RedactedSecretPlaceholder) channel.CustomHeadersJson = match.CustomHeadersJson;
+            }
+
+            NotificationChannelsJson = Notifications.NotificationChannel.SerializeList(incoming);
         }
 
         /// <summary>
@@ -744,17 +819,6 @@ namespace AutopilotMonitor.Shared.Models
             => !string.IsNullOrEmpty(WebhookUrl) ? WebhookNotifyOnStart : TeamsNotifyOnStart;
 
         /// <summary>
-        /// HTTP headers that must never be set via the custom-header mechanism: framing/host/content
-        /// headers are owned by the HTTP client and overriding them breaks the request or enables
-        /// request-smuggling. Compared case-insensitively.
-        /// </summary>
-        private static readonly HashSet<string> RestrictedWebhookHeaders = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "Host", "Content-Length", "Content-Type", "Transfer-Encoding", "Connection",
-            "Keep-Alive", "Upgrade", "TE", "Trailer", "Expect", "Proxy-Connection",
-        };
-
-        /// <summary>
         /// Parses <see cref="WebhookCustomHeadersJson"/> into header name/value pairs for the generic
         /// webhook dispatcher. Returns an empty dictionary unless the effective provider is
         /// <see cref="Notifications.WebhookProviderType.GenericJson"/>, the JSON is a parseable object,
@@ -762,43 +826,55 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public IReadOnlyDictionary<string, string> GetGenericWebhookHeaders()
         {
-            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
             var (_, providerType) = GetEffectiveWebhookConfig();
             if (providerType != (int)Notifications.WebhookProviderType.GenericJson)
-                return result;
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-            if (string.IsNullOrWhiteSpace(WebhookCustomHeadersJson))
-                return result;
+            return Notifications.WebhookHeaderParser.Parse(WebhookCustomHeadersJson);
+        }
 
-            try
+        /// <summary>
+        /// Stable id of the channel synthesized from the legacy single-webhook fields. The web UI
+        /// materializes the synthesized channel under the same id on first save, so rule → channel
+        /// references made before the tenant migrates stay valid afterwards.
+        /// </summary>
+        public const string LegacyChannelId = "legacy";
+
+        /// <summary>
+        /// Returns the tenant's notification channels. Prefers <see cref="NotificationChannelsJson"/>;
+        /// when unset, synthesizes a single channel from the legacy single-webhook fields
+        /// (<see cref="GetEffectiveWebhookConfig"/> incl. TeamsWebhookUrl fallback) so existing
+        /// tenants keep their exact pre-channels behavior without a data migration. Tenants with
+        /// no webhook configured at all get an empty list.
+        /// </summary>
+        public IReadOnlyList<Notifications.NotificationChannel> GetNotificationChannels()
+        {
+            var channels = Notifications.NotificationChannel.ParseList(NotificationChannelsJson);
+            if (channels.Count > 0)
+                return channels;
+
+            var (url, providerType) = GetEffectiveWebhookConfig();
+            if (string.IsNullOrEmpty(url) || providerType == 0)
+                return channels;
+
+            channels.Add(new Notifications.NotificationChannel
             {
-                using var doc = JsonDocument.Parse(WebhookCustomHeadersJson);
-                if (doc.RootElement.ValueKind != JsonValueKind.Object)
-                    return result;
+                Id = LegacyChannelId,
+                Name = "Default",
+                ProviderType = providerType,
+                Url = url,
+                CustomHeadersJson = WebhookCustomHeadersJson,
+                Enabled = true,
+                NotifyOnStart = GetEffectiveNotifyOnStart(),
+                NotifyOnSuccess = GetEffectiveNotifyOnSuccess(),
+                NotifyOnFailure = GetEffectiveNotifyOnFailure(),
+                NotifyOnHardwareRejection = WebhookNotifyOnHardwareRejection,
+                // Legacy behavior: SLA notifications always went to the single webhook (gated
+                // upstream by the tenant-level SlaNotifyOn* evaluation flags).
+                NotifyOnSlaEvents = true,
+            });
 
-                foreach (var prop in doc.RootElement.EnumerateObject())
-                {
-                    if (prop.Value.ValueKind != JsonValueKind.String)
-                        continue;
-
-                    var name = prop.Name.Trim();
-                    var value = prop.Value.GetString();
-
-                    if (string.IsNullOrWhiteSpace(name) || string.IsNullOrEmpty(value))
-                        continue;
-                    if (RestrictedWebhookHeaders.Contains(name))
-                        continue;
-
-                    result[name] = value!;
-                }
-            }
-            catch (JsonException)
-            {
-                // Malformed JSON → no custom headers (fail-soft; dispatch still proceeds).
-            }
-
-            return result;
+            return channels;
         }
 
         /// <summary>

@@ -16,7 +16,7 @@ public class ConfigRedactionTests
 {
     // A string property whose NAME matches one of these fragments is considered secret-bearing.
     private static readonly string[] SecretNameFragments =
-        { "SasUrl", "WebhookUrl", "ApiKey", "CustomHeadersJson", "Secret", "Password", "BotToken" };
+        { "SasUrl", "WebhookUrl", "ApiKey", "CustomHeadersJson", "Secret", "Password", "BotToken", "ChannelsJson" };
 
     private static bool IsSecretName(string name)
         => SecretNameFragments.Any(f => name.Contains(f, StringComparison.OrdinalIgnoreCase));

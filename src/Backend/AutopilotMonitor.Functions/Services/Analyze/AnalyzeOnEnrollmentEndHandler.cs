@@ -43,6 +43,8 @@ namespace AutopilotMonitor.Functions.Services.Analyze
         private readonly ISessionRepository _sessionRepo;
         private readonly IMetricsRepository _metricsRepo;
         private readonly SignalRNotificationService _signalRNotification;
+        private readonly TenantConfigurationService _configService;
+        private readonly Notifications.WebhookNotificationService _webhookNotification;
         private readonly ILogger<AnalyzeOnEnrollmentEndHandler> _logger;
 
         public const string ReasonEnrollmentComplete     = "enrollment_complete";
@@ -55,6 +57,8 @@ namespace AutopilotMonitor.Functions.Services.Analyze
             ISessionRepository sessionRepo,
             IMetricsRepository metricsRepo,
             SignalRNotificationService signalRNotification,
+            TenantConfigurationService configService,
+            Notifications.WebhookNotificationService webhookNotification,
             ILogger<AnalyzeOnEnrollmentEndHandler> logger)
         {
             _ruleService = ruleService;
@@ -62,6 +66,8 @@ namespace AutopilotMonitor.Functions.Services.Analyze
             _sessionRepo = sessionRepo;
             _metricsRepo = metricsRepo;
             _signalRNotification = signalRNotification;
+            _configService = configService;
+            _webhookNotification = webhookNotification;
             _logger = logger;
         }
 
@@ -119,6 +125,12 @@ namespace AutopilotMonitor.Functions.Services.Analyze
 
                 await SafeNotifySignalRAsync(envelope, sessionPrefix, outcome.Results.Count).ConfigureAwait(false);
 
+                // Rule-level channel notifications. Anti-spam by construction: outcome.Results
+                // only contains NEWLY detected findings (the engine dedupes against stored
+                // results), and the manual "Analyze Now" reanalyze path never enters this
+                // handler. Vulnerability reruns are included — their findings are new too.
+                await SafeNotifyRuleChannelsAsync(envelope, sessionPrefix, outcome).ConfigureAwait(false);
+
                 if (!isVulnerabilityRerun)
                 {
                     await SafeIncrementIssuesDetectedAsync(sessionPrefix, outcome.Results.Count).ConfigureAwait(false);
@@ -128,6 +140,66 @@ namespace AutopilotMonitor.Functions.Services.Analyze
             if (!isVulnerabilityRerun)
             {
                 await SafeRecordAnalyzeRuleStatsAsync(envelope.TenantId, outcome).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Sends an outbound alert to the tenant's selected notification channels for each newly
+        /// fired rule whose effective Notify flag is on (tenant RuleState override ?? rule default)
+        /// and that has at least one resolvable channel id. Side-effect failures are swallowed —
+        /// a webhook outage must never trigger a re-evaluation of the whole envelope.
+        /// </summary>
+        private async Task SafeNotifyRuleChannelsAsync(
+            AnalyzeOnEnrollmentEndEnvelope envelope, string sessionPrefix, AnalysisOutcome outcome)
+        {
+            try
+            {
+                // EvaluatedRules carries the tenant-merged rule objects (Notify/NotifyChannelIds
+                // applied from RuleStates) for exactly the rules evaluated this run.
+                var rulesById = outcome.EvaluatedRules.ToDictionary(r => r.RuleId);
+                var candidates = outcome.Results
+                    .Where(result => rulesById.TryGetValue(result.RuleId, out var rule)
+                        && (rule.Notify ?? rule.NotifyDefault)
+                        && rule.NotifyChannelIds is { Count: > 0 })
+                    .Select(result => (Result: result, Rule: rulesById[result.RuleId]))
+                    .ToList();
+
+                if (candidates.Count == 0)
+                    return;
+
+                var tenantConfig = await _configService.GetConfigurationAsync(envelope.TenantId).ConfigureAwait(false);
+                var channelsById = tenantConfig.GetNotificationChannels()
+                    .Where(c => c.Enabled)
+                    .ToDictionary(c => c.Id, StringComparer.OrdinalIgnoreCase);
+
+                if (channelsById.Count == 0)
+                    return;
+
+                var session = await _sessionRepo.GetSessionAsync(envelope.TenantId, envelope.SessionId).ConfigureAwait(false);
+                var sessionUrl = $"https://portal.autopilotmonitor.com/sessions/{envelope.SessionId}";
+
+                foreach (var (result, rule) in candidates)
+                {
+                    var targets = rule.NotifyChannelIds!
+                        .Where(id => channelsById.ContainsKey(id))
+                        .Select(id => channelsById[id])
+                        .ToList();
+                    if (targets.Count == 0)
+                        continue;
+
+                    var alert = Notifications.NotificationAlertBuilder.BuildRuleFiredAlert(
+                        result, session?.DeviceName, session?.SerialNumber, sessionUrl);
+
+                    await _webhookNotification.SendToChannelsAsync(targets, alert).ConfigureAwait(false);
+
+                    _logger.LogInformation(
+                        "{Prefix} Rule-notify: {RuleId} → {ChannelCount} channel(s)",
+                        sessionPrefix, rule.RuleId, targets.Count);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "{Prefix} Rule-notify dispatch failed (non-fatal)", sessionPrefix);
             }
         }
 

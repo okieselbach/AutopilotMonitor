@@ -71,6 +71,28 @@ namespace AutopilotMonitor.Functions.Services.Notifications
         }
 
         /// <summary>
+        /// Sends a notification to every channel in <paramref name="channels"/> (callers pre-filter
+        /// by <see cref="NotificationChannel.Enabled"/> and the relevant NotifyOn* toggle).
+        /// Channels are dispatched sequentially and independently — a failing endpoint only logs
+        /// a warning (via <see cref="SendNotificationAsync"/>) and never blocks the remaining
+        /// channels or the caller's pipeline.
+        /// </summary>
+        public async Task SendToChannelsAsync(IEnumerable<NotificationChannel> channels, NotificationAlert alert)
+        {
+            foreach (var channel in channels)
+            {
+                if (channel == null || string.IsNullOrEmpty(channel.Url))
+                    continue;
+
+                await SendNotificationAsync(
+                    channel.Url,
+                    (WebhookProviderType)channel.ProviderType,
+                    alert,
+                    channel.GetCustomHeaders());
+            }
+        }
+
+        /// <summary>
         /// Sends a notification and returns the result (for test endpoint). Not fire-and-forget.
         /// <paramref name="customHeaders"/> (generic webhooks only) are attached to the request.
         /// </summary>

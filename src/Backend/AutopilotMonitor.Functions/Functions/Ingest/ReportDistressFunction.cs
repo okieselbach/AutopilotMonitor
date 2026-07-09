@@ -225,13 +225,15 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     try
                     {
                         var (config, configExists) = await _tenantConfigService.TryGetConfigurationAsync(tenantId);
-                        if (configExists && config!.WebhookNotifyOnHardwareRejection)
+                        if (configExists)
                         {
-                            var (webhookUrl, providerTypeInt) = config.GetEffectiveWebhookConfig();
-                            if (!string.IsNullOrEmpty(webhookUrl) && providerTypeInt != 0)
+                            var hwChannels = config!.GetNotificationChannels()
+                                .Where(c => c.Enabled && c.NotifyOnHardwareRejection)
+                                .ToList();
+                            if (hwChannels.Count > 0)
                             {
                                 var alert = NotificationAlertBuilder.BuildHardwareRejectedAlert(manufacturer, model, serialNumber);
-                                _ = _webhookNotification.SendNotificationAsync(webhookUrl, (WebhookProviderType)providerTypeInt, alert, config.GetGenericWebhookHeaders());
+                                _ = _webhookNotification.SendToChannelsAsync(hwChannels, alert);
                             }
                         }
                     }

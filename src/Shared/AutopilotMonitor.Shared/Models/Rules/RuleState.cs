@@ -18,5 +18,18 @@ namespace AutopilotMonitor.Shared.Models
         /// Only meaningful for analyze rules; ignored for gather rules.
         /// </summary>
         public bool? MarkSessionAsFailed { get; set; }
+
+        /// <summary>
+        /// Tenant-scoped override for <see cref="AnalyzeRule.NotifyDefault"/>: send an outbound
+        /// notification when this rule newly fires. Null = inherit the rule default.
+        /// Only meaningful for analyze rules; ignored for gather rules.
+        /// </summary>
+        public bool? Notify { get; set; }
+
+        /// <summary>
+        /// JSON array of notification-channel ids (tenant's NotificationChannels) targeted when
+        /// this rule fires. Null/empty = no targets → no notification even if Notify is true.
+        /// </summary>
+        public string? NotifyChannelIdsJson { get; set; }
     }
 }

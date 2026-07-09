@@ -551,10 +551,10 @@ namespace AutopilotMonitor.Functions.Services
                 config.TenantId, currentValue, targetValue,
                 totalSessions, failedSessions, breachType, DashboardUrl, extraContext);
 
-            var (webhookUrl, providerType) = config.GetEffectiveWebhookConfig();
-            if (!string.IsNullOrEmpty(webhookUrl) && providerType != 0)
+            var slaChannels = GetSlaChannels(config);
+            if (slaChannels.Count > 0)
             {
-                await _webhookService.SendNotificationAsync(webhookUrl, (Shared.Models.Notifications.WebhookProviderType)providerType, alert, config.GetGenericWebhookHeaders());
+                await _webhookService.SendToChannelsAsync(slaChannels, alert);
             }
 
             await _tenantNotificationService.CreateNotificationAsync(
@@ -578,7 +578,7 @@ namespace AutopilotMonitor.Functions.Services
             _telemetryClient.TrackEvent("SlaNotificationSent", new Dictionary<string, string>
             {
                 { "TenantId", config.TenantId },
-                { "Channel", !string.IsNullOrEmpty(webhookUrl) ? "Webhook+InApp" : "InApp" },
+                { "Channel", slaChannels.Count > 0 ? "Webhook+InApp" : "InApp" },
                 { "NotificationType", "sla_breach" },
                 { "BreachType", breachType },
             });
@@ -594,10 +594,10 @@ namespace AutopilotMonitor.Functions.Services
                 config.TenantId, breachType, currentValue, targetValue,
                 firstBreachAt, resolvedAt, DashboardUrl);
 
-            var (webhookUrl, providerType) = config.GetEffectiveWebhookConfig();
-            if (!string.IsNullOrEmpty(webhookUrl) && providerType != 0)
+            var slaChannels = GetSlaChannels(config);
+            if (slaChannels.Count > 0)
             {
-                await _webhookService.SendNotificationAsync(webhookUrl, (Shared.Models.Notifications.WebhookProviderType)providerType, alert, config.GetGenericWebhookHeaders());
+                await _webhookService.SendToChannelsAsync(slaChannels, alert);
             }
 
             await _tenantNotificationService.CreateNotificationAsync(
@@ -682,10 +682,10 @@ namespace AutopilotMonitor.Functions.Services
                     var alert = NotificationAlertBuilder.BuildConsecutiveFailuresAlert(
                         tenantId, threshold, lastDevice, lastReason, DashboardUrl);
 
-                    var (webhookUrl, providerType) = config.GetEffectiveWebhookConfig();
-                    if (!string.IsNullOrEmpty(webhookUrl) && providerType != 0)
+                    var slaChannels = GetSlaChannels(config);
+                    if (slaChannels.Count > 0)
                     {
-                        await _webhookService.SendNotificationAsync(webhookUrl, (Shared.Models.Notifications.WebhookProviderType)providerType, alert, config.GetGenericWebhookHeaders());
+                        await _webhookService.SendToChannelsAsync(slaChannels, alert);
                     }
 
                     await _tenantNotificationService.CreateNotificationAsync(
@@ -706,7 +706,7 @@ namespace AutopilotMonitor.Functions.Services
                     _telemetryClient.TrackEvent("SlaNotificationSent", new Dictionary<string, string>
                     {
                         { "TenantId", tenantId },
-                        { "Channel", !string.IsNullOrEmpty(webhookUrl) ? "Webhook+InApp" : "InApp" },
+                        { "Channel", slaChannels.Count > 0 ? "Webhook+InApp" : "InApp" },
                         { "NotificationType", "consecutive_failures" },
                     });
 
@@ -724,6 +724,13 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
+
+        // SLA recipients: enabled channels that opted into SLA events. Which breach types are
+        // evaluated at all remains gated by the tenant-level SlaNotifyOn* flags upstream —
+        // this only selects WHERE the resulting alerts go. The in-app bell notification is
+        // sent unconditionally alongside (independent of channel config).
+        private static List<Shared.Models.Notifications.NotificationChannel> GetSlaChannels(TenantConfiguration config)
+            => config.GetNotificationChannels().Where(c => c.Enabled && c.NotifyOnSlaEvents).ToList();
 
         // Canonical effective consecutive-failure threshold. A configured value below the
         // minimum sensible window (< 2, i.e. unset or mis-set) falls back to the default of 5
