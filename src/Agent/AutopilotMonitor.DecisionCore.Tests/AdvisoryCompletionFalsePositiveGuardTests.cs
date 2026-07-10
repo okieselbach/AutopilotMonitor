@@ -19,9 +19,11 @@ namespace AutopilotMonitor.DecisionCore.Tests
     /// esp_exit_without_completion_evidence</c> on a live enrollment. 65 sessions platform-wide
     /// hit this between 2026-06-15 and 2026-07-10. Coverage:
     /// <list type="bullet">
-    ///   <item>Reboot cancel — <c>SystemRebootObserved</c> / <c>EspResumed</c> cancel the
-    ///         esp-exit-variant window (the arming exit predates a reboot ⇒ pre-reboot page
-    ///         close, not the 1ec8f4c6 dead-end) but never the advisory variant.</item>
+    ///   <item>Reboot rebase — <c>SystemRebootObserved</c> / <c>EspResumed</c> replace the
+    ///         esp-exit-variant window with a fresh one whose baselines anchor at the reboot
+    ///         (the arming exit predates a reboot ⇒ pre-reboot page close, not the 1ec8f4c6
+    ///         dead-end; session 7443317c: a pure cancel parked the session without a
+    ///         resolution deadline) but never touch the advisory variant.</item>
     ///   <item>Enforcement-progress re-arm — a fire while apps kept reaching terminal states
     ///         or the ESP re-asserted a user phase re-arms instead of failing; convergent
     ///         (a second fire without NEW progress fails).</item>
@@ -113,39 +115,80 @@ namespace AutopilotMonitor.DecisionCore.Tests
             return armed;
         }
 
-        // ============================================================ reboot cancel ====
+        // ============================================================ reboot rebase ====
 
         [Fact]
-        public void SystemReboot_CancelsEspExitVariantWindow_AndEmitsCancelEffect()
+        public void SystemReboot_RebasesEspExitVariantWindow_WithRebootAnchoredBaselines()
         {
             var engine = new DecisionEngine();
             var state = SetupClassicAccountSetupSession(engine);
             state = ArmEspExitWindow(engine, state);
 
+            var rebootAt = T0.AddMinutes(19);
             var step = engine.Reduce(state, MakeSignal(
-                60, DecisionSignalKind.SystemRebootObserved, T0.AddMinutes(19),
+                60, DecisionSignalKind.SystemRebootObserved, rebootAt,
                 new Dictionary<string, string> { ["previousExitType"] = "reboot_kill" }));
 
-            Assert.Null(FindDeadline(step.NewState, DeadlineNames.AdvisoryCompletion));
+            // The stale window is replaced by a fresh one anchored at the reboot — the session
+            // is never parked without a resolution-capable deadline (7443317c tripwire).
+            var rebased = FindDeadline(step.NewState, DeadlineNames.AdvisoryCompletion);
+            Assert.NotNull(rebased);
+            Assert.Equal(rebootAt.AddMinutes(30), rebased!.DueAtUtc);
+            Assert.Equal("60", rebased.FiresPayload!["armSignalOrdinal"]);
+            Assert.Equal("0", rebased.FiresPayload!["armAppTerminalCount"]);
+
             var cancel = step.Effects.Single(e => e.Kind == DecisionEffectKind.CancelDeadline);
             Assert.Equal(DeadlineNames.AdvisoryCompletion, cancel.CancelDeadlineName);
+            var schedule = step.Effects.Single(e => e.Kind == DecisionEffectKind.ScheduleDeadline);
+            Assert.Equal(rebased.DueAtUtc, schedule.Deadline!.DueAtUtc);
+
+            // The re-based due-time is announced on the timeline (fingerprint bypass).
+            var waiting = SingleTimelineEffect(step, "completion_waiting");
+            Assert.Equal("SystemRebootObserved:AdvisoryRebase", waiting.Parameters!["trigger"]);
+            Assert.Equal(rebased.DueAtUtc.ToString("o"), waiting.Parameters!["resolutionDeadlineDueAtUtc"]);
+
             // The reboot's own observability is untouched.
             SingleTimelineEffect(step, "system_reboot_detected");
             Assert.Null(step.NewState.Outcome);
         }
 
         [Fact]
-        public void EspResumed_CancelsEspExitVariantWindow()
+        public void EspResumed_RebasesEspExitVariantWindow()
         {
             var engine = new DecisionEngine();
             var state = SetupClassicAccountSetupSession(engine);
             state = ArmEspExitWindow(engine, state);
 
-            var step = engine.Reduce(state, MakeSignal(60, DecisionSignalKind.EspResumed, T0.AddMinutes(19)));
+            var resumeAt = T0.AddMinutes(19);
+            var step = engine.Reduce(state, MakeSignal(60, DecisionSignalKind.EspResumed, resumeAt));
 
-            Assert.Null(FindDeadline(step.NewState, DeadlineNames.AdvisoryCompletion));
+            var rebased = FindDeadline(step.NewState, DeadlineNames.AdvisoryCompletion);
+            Assert.NotNull(rebased);
+            Assert.Equal(resumeAt.AddMinutes(30), rebased!.DueAtUtc);
             var cancel = step.Effects.Single(e => e.Kind == DecisionEffectKind.CancelDeadline);
             Assert.Equal(DeadlineNames.AdvisoryCompletion, cancel.CancelDeadlineName);
+            var waiting = SingleTimelineEffect(step, "completion_waiting");
+            Assert.Equal("EspResumed:AdvisoryRebase", waiting.Parameters!["trigger"]);
+        }
+
+        [Fact]
+        public void RebasedWindow_TrueDeadEnd_NoProgressAfterReboot_FailsAtRebasedDue()
+        {
+            // The rebase must not swallow the genuine dead-end verdict: user reboots inside
+            // the window, ESP never comes back, nothing installs — the rebased window fires
+            // 30 min after the reboot and fails the session (instead of the pre-rebase
+            // behavior of idling to the max-lifetime watchdog after a pure cancel).
+            var engine = new DecisionEngine();
+            var state = SetupClassicAccountSetupSession(engine);
+            state = ArmEspExitWindow(engine, state, ordinal: 50);
+            state = engine.Reduce(state, MakeSignal(60, DecisionSignalKind.SystemRebootObserved, T0.AddMinutes(19))).NewState;
+
+            var step = engine.Reduce(state, DeadlineFired(70, T0.AddMinutes(49), DeadlineNames.AdvisoryCompletion));
+
+            Assert.Equal(SessionStage.Failed, step.NewState.Stage);
+            Assert.Equal(SessionOutcome.EnrollmentFailed, step.NewState.Outcome);
+            var failed = SingleTimelineEffect(step, "enrollment_failed");
+            Assert.Equal("esp_exit_without_completion_evidence", failed.Parameters!["reason"]);
         }
 
         [Fact]
@@ -173,10 +216,11 @@ namespace AutopilotMonitor.DecisionCore.Tests
             Assert.NotNull(after);
             Assert.Equal(armed!.DueAtUtc, after!.DueAtUtc);
             Assert.DoesNotContain(step.Effects, e => e.Kind == DecisionEffectKind.CancelDeadline);
+            Assert.DoesNotContain(step.Effects, e => e.Kind == DecisionEffectKind.ScheduleDeadline);
         }
 
         [Fact]
-        public void SystemReboot_WithoutArmedWindow_EmitsNoCancelEffect()
+        public void SystemReboot_WithoutArmedWindow_EmitsNoRebaseEffects()
         {
             var engine = new DecisionEngine();
             var state = SetupClassicAccountSetupSession(engine);
@@ -184,6 +228,7 @@ namespace AutopilotMonitor.DecisionCore.Tests
             var step = engine.Reduce(state, MakeSignal(60, DecisionSignalKind.SystemRebootObserved, T0.AddMinutes(10)));
 
             Assert.DoesNotContain(step.Effects, e => e.Kind == DecisionEffectKind.CancelDeadline);
+            Assert.DoesNotContain(step.Effects, e => e.Kind == DecisionEffectKind.ScheduleDeadline);
             SingleTimelineEffect(step, "system_reboot_detected");
         }
 
@@ -321,19 +366,22 @@ namespace AutopilotMonitor.DecisionCore.Tests
         public void Session1924092e_HandoffExitThenReboot_ActiveInstalls_CompletesInsteadOfFailing()
         {
             // The field session end-to-end: premature IME AccountSetup line → handoff exit
-            // arms the window → reboot cancels it → real user desktop → apps actively
-            // installing → a stray recovered-timer fire dead-ends → AccountSetup provisioning
-            // completes → the session finishes Completed. Pre-fix, the recovered deadline
-            // fired at 12:35:08 and failed the session mid-install.
+            // arms the window → reboot re-bases it → real user desktop → apps actively
+            // installing → a recovered-timer fire re-arms on demonstrated progress →
+            // AccountSetup provisioning completes → the session finishes Completed. Pre-fix,
+            // the recovered deadline fired at 12:35:08 and failed the session mid-install.
             var engine = new DecisionEngine();
             var state = SetupClassicAccountSetupSession(engine);
             state = ArmEspExitWindow(engine, state, ordinal: 50);
 
-            // AutoLogon restart chain (12:20 / 12:23 in the field session).
+            // AutoLogon restart chain (12:20 / 12:23 in the field session). The window is
+            // re-based at the reboot, never cancelled outright (7443317c parked tripwire).
             state = engine.Reduce(state, MakeSignal(
                 60, DecisionSignalKind.SystemRebootObserved, T0.AddMinutes(19),
                 new Dictionary<string, string> { ["previousExitType"] = "reboot_kill" })).NewState;
-            Assert.Null(FindDeadline(state, DeadlineNames.AdvisoryCompletion));
+            var rebased = FindDeadline(state, DeadlineNames.AdvisoryCompletion);
+            Assert.NotNull(rebased);
+            Assert.Equal(T0.AddMinutes(49), rebased!.DueAtUtc);
 
             // Real user signs in, Account-Setup ESP resumes visibly.
             state = engine.Reduce(state, MakeSignal(70, DecisionSignalKind.DesktopArrived, T0.AddMinutes(23))).NewState;
@@ -344,13 +392,12 @@ namespace AutopilotMonitor.DecisionCore.Tests
             state = engine.Reduce(state, AppInstallCompleted(95, T0.AddMinutes(28), "app-lansweeper")).NewState;
             Assert.Null(state.Outcome);
 
-            // The pre-reboot wall-clock timer can still fire after recovery (state says
-            // cancelled, but the scheduler re-armed it from the recovered snapshot before the
-            // reboot signal was processed). The stale guard must dead-end it — NOT fail.
+            // A stray pre-reboot wall-clock timer fires early: the rebased window IS armed,
+            // and enforcement progressed since the reboot baseline — re-arm, never fail.
             var strayFire = engine.Reduce(state, DeadlineFired(100, T0.AddMinutes(33), DeadlineNames.AdvisoryCompletion));
-            Assert.False(strayFire.Transition.Taken);
-            Assert.Equal("advisory_completion_stale_deadline_not_armed", strayFire.Transition.DeadEndReason);
             Assert.Null(strayFire.NewState.Outcome);
+            Assert.Equal(state.Stage, strayFire.NewState.Stage);
+            Assert.NotNull(FindDeadline(strayFire.NewState, DeadlineNames.AdvisoryCompletion));
 
             // Account-Setup ESP finishes for real → normal completion path.
             state = engine.Reduce(strayFire.NewState, MakeSignal(
@@ -363,23 +410,62 @@ namespace AutopilotMonitor.DecisionCore.Tests
         }
 
         [Fact]
-        public void RebootCancel_LaterGenuineGuardBlockedExit_RearmsFreshWindow()
+        public void Session7443317c_DoubleRebootRebase_LiveInstalls_RearmsAtFire_NeverParksNorFails()
         {
-            // After the reboot cancel, the arming site's fire-once guard must pass again: a
-            // later genuine guard-blocked post-AccountSetup exit re-arms a fresh window so
-            // the 1ec8f4c6 dead-end closure is not lost for the rest of the session.
+            // Field session 7443317c (2026-07-10, same tenant as 1924092e): handoff exit arms
+            // the window, a Windows-Update reboot chain (14:06 + 14:09) re-bases it twice,
+            // 32 apps install over ~65 min — each window fire sees new terminal states and
+            // re-arms — until the genuine ESP exit resolves the session. The session must
+            // never be parked (a resolution-capable deadline stays armed throughout) and
+            // never fail.
             var engine = new DecisionEngine();
             var state = SetupClassicAccountSetupSession(engine);
             state = ArmEspExitWindow(engine, state, ordinal: 50);
+
             state = engine.Reduce(state, MakeSignal(60, DecisionSignalKind.SystemRebootObserved, T0.AddMinutes(19))).NewState;
-            Assert.Null(FindDeadline(state, DeadlineNames.AdvisoryCompletion));
+            state = engine.Reduce(state, MakeSignal(65, DecisionSignalKind.SystemRebootObserved, T0.AddMinutes(22))).NewState;
+            var rebased = FindDeadline(state, DeadlineNames.AdvisoryCompletion);
+            Assert.NotNull(rebased);
+            Assert.Equal(T0.AddMinutes(52), rebased!.DueAtUtc);
+            Assert.Equal("65", rebased.FiresPayload!["armSignalOrdinal"]);
 
-            var exitAt = T0.AddMinutes(30);
-            var step = engine.Reduce(state, MakeSignal(70, DecisionSignalKind.EspExiting, exitAt));
+            state = engine.Reduce(state, MakeSignal(70, DecisionSignalKind.DesktopArrived, T0.AddMinutes(26))).NewState;
+            state = engine.Reduce(state, AppInstallCompleted(80, T0.AddMinutes(30), "app-lansweeper")).NewState;
 
-            var rearmed = FindDeadline(step.NewState, DeadlineNames.AdvisoryCompletion);
+            // Window fires at the rebased due-time mid-install → progress since the second
+            // reboot (one app terminal) → re-arm, session stays live.
+            var fire = engine.Reduce(state, DeadlineFired(90, T0.AddMinutes(52), DeadlineNames.AdvisoryCompletion));
+            Assert.Null(fire.NewState.Outcome);
+            var rearmed = FindDeadline(fire.NewState, DeadlineNames.AdvisoryCompletion);
             Assert.NotNull(rearmed);
-            Assert.Equal(exitAt.AddMinutes(30), rearmed!.DueAtUtc);
+            Assert.Equal(T0.AddMinutes(82), rearmed!.DueAtUtc);
+
+            // At no point between arming and completion was the session without a
+            // resolution-capable deadline (the 7443317c parked-tripwire condition).
+            state = engine.Reduce(fire.NewState, MakeSignal(
+                100, DecisionSignalKind.AccountSetupProvisioningComplete, T0.AddMinutes(70))).NewState;
+            Assert.Equal(SessionStage.Finalizing, state.Stage);
+        }
+
+        [Fact]
+        public void RebootRebase_LaterGuardBlockedExit_KeepsRebasedWindow_FireOnce()
+        {
+            // After the reboot rebase a window is still armed, so the arming site's fire-once
+            // guard holds: a later guard-blocked post-AccountSetup exit must NOT re-base the
+            // window again (the rebased baselines stay authoritative until it fires).
+            var engine = new DecisionEngine();
+            var state = SetupClassicAccountSetupSession(engine);
+            state = ArmEspExitWindow(engine, state, ordinal: 50);
+            var rebootAt = T0.AddMinutes(19);
+            state = engine.Reduce(state, MakeSignal(60, DecisionSignalKind.SystemRebootObserved, rebootAt)).NewState;
+            Assert.NotNull(FindDeadline(state, DeadlineNames.AdvisoryCompletion));
+
+            var step = engine.Reduce(state, MakeSignal(70, DecisionSignalKind.EspExiting, T0.AddMinutes(30)));
+
+            var kept = FindDeadline(step.NewState, DeadlineNames.AdvisoryCompletion);
+            Assert.NotNull(kept);
+            Assert.Equal(rebootAt.AddMinutes(30), kept!.DueAtUtc);
+            Assert.Equal("60", kept.FiresPayload!["armSignalOrdinal"]);
         }
 
         // ================================================== serialization round-trip ====

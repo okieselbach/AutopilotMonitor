@@ -17,8 +17,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// <c>EspAndHelloTracker</c> after a reboot mid-ESP. The session's stage is preserved
         /// (we were already somewhere in the ESP phase sequence), but the reboot fact is
         /// recorded so downstream classifiers (WhiteGloveSealingClassifier) can factor it in.
-        /// A reboot also cancels an esp-exit-variant AdvisoryCompletion window — see
-        /// <see cref="CancelEspExitVariantAdvisoryWindowOnReboot"/>.
+        /// A reboot also re-bases an esp-exit-variant AdvisoryCompletion window — see
+        /// <see cref="RebaseEspExitVariantAdvisoryWindowOnReboot"/>.
         /// </summary>
         private DecisionStep HandleEspResumedV1(DecisionState state, DecisionSignal signal)
         {
@@ -34,7 +34,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 builder.SystemRebootUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
             }
 
-            var cancelEffect = CancelEspExitVariantAdvisoryWindowOnReboot(state, builder);
+            var rebaseEffects = RebaseEspExitVariantAdvisoryWindowOnReboot(state, builder, signal);
 
             var newState = builder.Build();
             var transition = BuildTakenTransition(
@@ -44,10 +44,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 nextStepIndex: nextStep,
                 trigger: nameof(DecisionSignalKind.EspResumed));
 
-            return new DecisionStep(
-                newState,
-                transition,
-                cancelEffect != null ? new[] { cancelEffect } : Array.Empty<DecisionEffect>());
+            return new DecisionStep(newState, transition, rebaseEffects);
         }
 
         /// <summary>
@@ -60,35 +57,68 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// IME logged an AccountSetup phase line pre-sign-in (defaultuser0/AutoLogon frame),
         /// the handoff exit armed the window, and the deadline survived two reboots via state
         /// recovery — then failed the session mid-AccountSetup while apps were actively
-        /// installing. Cancel the window; a later genuine guard-blocked post-AccountSetup
-        /// exit re-arms a fresh one (the arming site is fire-once only while armed).
+        /// installing.
+        /// <para>
+        /// Session 7443317c (2026-07-10): a pure cancel left the post-AccountSetup dead-end
+        /// zone with no resolution-capable deadline and tripped the
+        /// <c>session_parked_without_deadline</c> liveness tripwire. So instead of cancelling,
+        /// RE-BASE: replace the stale window with a fresh one whose enforcement baselines
+        /// (<see cref="AdvisoryArmOrdinalKey"/> / <see cref="AdvisoryArmAppTerminalCountKey"/>)
+        /// anchor at the reboot signal. A live enrollment keeps disproving the dead-end at
+        /// each fire via <see cref="HasEnforcementProgressSinceArming"/>; a true dead-end
+        /// where the user rebooted inside the window now resolves one window later (30–60 min)
+        /// instead of idling to the max-lifetime watchdog.
+        /// </para>
         /// <para>
         /// The advisory variant (<see cref="DecisionState.EspAdvisoryFailureRecordedUtc"/>
-        /// set) is deliberately NOT cancelled: its anchor is a real ESP terminal failure and
+        /// set) is deliberately NOT touched: its anchor is a real ESP terminal failure and
         /// a reboot does not un-happen that failure — the window must still un-defang it.
         /// </para>
-        /// <para>
-        /// Trade-off: in a true dead-end where the user manually reboots inside the window,
-        /// the verdict falls back to the max-lifetime watchdog (plus the backend timeout
-        /// reconcile) instead of the 30-min resolution — acceptable against failing live
-        /// enrollments, which is a trust-destroying false positive.
-        /// </para>
-        /// Returns the CancelDeadline effect (and cancels on <paramref name="builder"/>),
-        /// or null when no esp-exit-variant window is armed.
+        /// Returns the effects (cancel + schedule + a fingerprint-bypassing
+        /// <c>completion_waiting</c> carrying the re-based due-time, mirroring the
+        /// enforcement-progress re-arm site), or an empty array when no esp-exit-variant
+        /// window is armed. Mutates <paramref name="builder"/> accordingly.
         /// </summary>
-        private static DecisionEffect? CancelEspExitVariantAdvisoryWindowOnReboot(
+        private DecisionEffect[] RebaseEspExitVariantAdvisoryWindowOnReboot(
             DecisionState state,
-            DecisionStateBuilder builder)
+            DecisionStateBuilder builder,
+            DecisionSignal signal)
         {
             if (state.EspAdvisoryFailureRecordedUtc != null || !HasAdvisoryCompletionDeadline(state))
             {
-                return null;
+                return Array.Empty<DecisionEffect>();
             }
 
             builder.CancelDeadline(DeadlineNames.AdvisoryCompletion);
-            return new DecisionEffect(
-                DecisionEffectKind.CancelDeadline,
-                cancelDeadlineName: DeadlineNames.AdvisoryCompletion);
+            var rebasedDeadline = BuildAdvisoryCompletionDeadline(state, signal);
+            builder.AddDeadline(rebasedDeadline);
+
+            return new[]
+            {
+                new DecisionEffect(
+                    DecisionEffectKind.CancelDeadline,
+                    cancelDeadlineName: DeadlineNames.AdvisoryCompletion),
+                new DecisionEffect(DecisionEffectKind.ScheduleDeadline, deadline: rebasedDeadline),
+                // Deliberately bypasses BuildCompletionWaitingEffect's fingerprint dedupe:
+                // the missing-prerequisites set is unchanged by a reboot, but the re-based
+                // resolution due-time is what an operator debugging the session needs on the
+                // timeline. Bounded by construction — at most one event per observed reboot
+                // signal.
+                new DecisionEffect(
+                    DecisionEffectKind.EmitEventTimelineEntry,
+                    parameters: new Dictionary<string, string>
+                    {
+                        ["eventType"] = SharedConstants.EventTypes.CompletionWaiting,
+                        ["source"] = "DecisionEngine",
+                        ["severity"] = "Info",
+                        ["immediateUpload"] = "false",
+                        ["message"] = "Completion resolution window re-based across reboot: the arming ESP exit predates the reboot",
+                        ["missingPrerequisites"] = string.Join(",", BuildMissingCompletionPrerequisites(state)),
+                        ["trigger"] = $"{signal.Kind}:AdvisoryRebase",
+                        ["stage"] = state.Stage.ToString(),
+                        ["resolutionDeadlineDueAtUtc"] = rebasedDeadline.DueAtUtc.ToString("o"),
+                    }),
+            };
         }
 
         /// <summary>
@@ -492,7 +522,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // `advisory_completion_stale_deadline_not_armed`. Session 1924092e (2026-07-10)
             // showed it CAN slip in when the IME logs an AccountSetup phase line pre-sign-in
             // (defaultuser0/AutoLogon frame) — that misfire is defused downstream by the
-            // reboot cancel (CancelEspExitVariantAdvisoryWindowOnReboot) and the
+            // reboot rebase (RebaseEspExitVariantAdvisoryWindowOnReboot) and the
             // enforcement-progress re-arm below, not by the anchor.
             var hasEspExitAnchor = state.EspFinalExitUtc != null
                 && state.AccountSetupEnteredUtc != null;
@@ -812,9 +842,9 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// Handle <see cref="DecisionSignalKind.SystemRebootObserved"/>. Records the fact so
         /// WhiteGlove scoring (plan §2.4) can credit the +15 reboot-observed weight, and emits
         /// the <c>system_reboot_detected</c> timeline entry so the session timeline shows the
-        /// split between pre-reboot and post-reboot collection. A reboot also cancels an
+        /// split between pre-reboot and post-reboot collection. A reboot also re-bases an
         /// esp-exit-variant AdvisoryCompletion window — see
-        /// <see cref="CancelEspExitVariantAdvisoryWindowOnReboot"/>.
+        /// <see cref="RebaseEspExitVariantAdvisoryWindowOnReboot"/>.
         /// </summary>
         private DecisionStep HandleSystemRebootObservedV1(DecisionState state, DecisionSignal signal)
         {
@@ -828,7 +858,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 builder.SystemRebootUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
             }
 
-            var cancelEffect = CancelEspExitVariantAdvisoryWindowOnReboot(state, builder);
+            var rebaseEffects = RebaseEspExitVariantAdvisoryWindowOnReboot(state, builder, signal);
 
             var newState = builder.Build();
             var transition = BuildTakenTransition(
@@ -854,9 +884,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
             var timelineEffect = new DecisionEffect(
                 DecisionEffectKind.EmitEventTimelineEntry,
                 parameters: timelineParams);
-            var effects = cancelEffect != null
-                ? new[] { cancelEffect, timelineEffect }
-                : new[] { timelineEffect };
+            var effects = AppendEffect(rebaseEffects, timelineEffect);
 
             return new DecisionStep(newState, transition, effects);
         }

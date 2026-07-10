@@ -375,6 +375,43 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         }
 
         [Fact]
+        public void Reboot_after_guard_blocked_exit_rebases_window_and_never_parks()
+        {
+            // Session 7443317c (2026-07-10): the pre-rebase reboot CANCEL left the dead-end
+            // zone without a resolution-capable deadline and tripped this tripwire on a live
+            // enrollment. Regression: drive the REAL engine through the field shape (premature
+            // AccountSetup entry → guard-blocked exit arms the window → reboot) and prove the
+            // resulting state carries the rebased AdvisoryCompletion deadline — not parked.
+            var state = DecisionState.CreateInitial("S1", "T1", At);
+            foreach (var signal in new[]
+            {
+                TestSignals.Raw(1, DecisionSignalKind.SessionStarted, At),
+                TestSignals.Raw(2, DecisionSignalKind.EspConfigDetected, At.AddMinutes(1),
+                    payload: new Dictionary<string, string>
+                    {
+                        [SignalPayloadKeys.SkipUserEsp] = "false",
+                        [SignalPayloadKeys.SkipDeviceEsp] = "false",
+                    }),
+                TestSignals.Raw(3, DecisionSignalKind.EspPhaseChanged, At.AddMinutes(2),
+                    payload: new Dictionary<string, string> { [SignalPayloadKeys.EspPhase] = "DeviceSetup" }),
+                TestSignals.Raw(4, DecisionSignalKind.EspPhaseChanged, At.AddMinutes(5),
+                    payload: new Dictionary<string, string> { [SignalPayloadKeys.EspPhase] = "AccountSetup" }),
+                TestSignals.Raw(5, DecisionSignalKind.EspExiting, At.AddMinutes(6)),
+                TestSignals.Raw(6, DecisionSignalKind.SystemRebootObserved, At.AddMinutes(20)),
+            })
+            {
+                state = _engine.Reduce(state, signal).NewState;
+            }
+            Assert.Contains(state.Deadlines, d => d.Name == DeadlineNames.AdvisoryCompletion);
+
+            var sut = Build(state);
+            var (step, signal2) = ReduceInformational(sut, 10);
+            sut.ApplyStep(step, signal2);
+
+            AssertNoTripwireAfterDwell();
+        }
+
+        [Fact]
         public void Without_informational_post_wired_parked_state_is_tolerated()
         {
             // Legacy ctor shape (no InformationalEventPost) — the tripwire is simply disabled.

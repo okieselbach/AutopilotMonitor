@@ -181,10 +181,11 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 // deliberately replaces it — the failure is the fresher dead-end signal).
                 // Caveat (session 1924092e, 2026-07-10): AccountSetupEnteredUtc can be set by
                 // a pre-sign-in IME AccountSetup line, letting the Device→Account handoff
-                // exit arm this window falsely. A reboot cancels the window again
-                // (CancelEspExitVariantAdvisoryWindowOnReboot) — after which a later genuine
-                // guard-blocked exit re-arms here — and the fire handler re-arms instead of
-                // failing while enforcement is demonstrably progressing.
+                // exit arm this window falsely. A reboot re-bases the window with fresh
+                // enforcement baselines (RebaseEspExitVariantAdvisoryWindowOnReboot; session
+                // 7443317c — a pure cancel parked the session without a resolution deadline)
+                // and the fire handler re-arms instead of failing while enforcement is
+                // demonstrably progressing.
                 var exitEffects = Array.Empty<DecisionEffect>();
                 if (state.AccountSetupEnteredUtc != null && !HasAdvisoryCompletionDeadline(state))
                 {
