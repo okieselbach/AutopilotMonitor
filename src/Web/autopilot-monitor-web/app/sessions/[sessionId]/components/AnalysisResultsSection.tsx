@@ -306,10 +306,15 @@ function scrollToEvent(eventId: string) {
 
 function EvidenceEventLinks({ matchedConditions }: { matchedConditions: Record<string, any> }) {
   const eventLinks: { signal: string; eventId: string; eventType?: string }[] = [];
+  const seenEventIds = new Set<string>();
 
   for (const [signal, evidence] of Object.entries(matchedConditions)) {
     if (signal.startsWith("factor_")) continue;
     if (evidence && typeof evidence === "object" && evidence.eventId) {
+      // Multiple matched conditions can extract different fields from the
+      // same event — one chip per distinct event, not per condition.
+      if (seenEventIds.has(evidence.eventId)) continue;
+      seenEventIds.add(evidence.eventId);
       eventLinks.push({ signal, eventId: evidence.eventId, eventType: evidence.eventType });
     }
   }
