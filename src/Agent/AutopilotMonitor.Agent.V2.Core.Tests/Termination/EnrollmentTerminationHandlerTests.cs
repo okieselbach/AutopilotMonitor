@@ -1263,6 +1263,31 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
         }
 
         [Fact]
+        public void StarvedApps_on_succeeded_outcome_soften_to_info()
+        {
+            // Session a4537c36: on a Succeeded termination nothing was starved — the ESP exited
+            // normally and pending installs continue via IME. Info + neutral wording, same Data.
+            using var rig = new Rig();
+            rig.StarvedAppsOverride = new[] { BuildStarvedApp("app-pending", "Contoso Backgrounds") };
+
+            rig.Build().Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.Completed));
+
+            Assert.Contains("app_install_starved", rig.EmittedEventTypes);
+            var post = rig.Ingress.Posted.Single(p =>
+                p.Payload != null
+                && p.Payload.TryGetValue(SignalPayloadKeys.EventType, out var et)
+                && et == "app_install_starved");
+            Assert.Equal("Info", post.Payload![SignalPayloadKeys.Severity]);
+            Assert.Contains("installs continue via the Intune Management Extension", post.Payload[SignalPayloadKeys.Message]);
+            Assert.DoesNotContain("starved", post.Payload[SignalPayloadKeys.Message]);
+            var data = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object>>(post.TypedPayload);
+            Assert.Equal("app-pending", data["appId"]);
+            Assert.Equal("termination", data["trigger"]);
+            Assert.Equal("Succeeded", data["terminationOutcome"]);
+        }
+
+        [Fact]
         public void StarvedApps_already_reported_by_live_path_are_skipped()
         {
             using var rig = new Rig();

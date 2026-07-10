@@ -452,9 +452,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
 
         /// <summary>
         /// Liveness plan PR3 — terminal sweep for <c>app_install_starved</c>. Emits a one-shot
-        /// Warning per required user-ESP app that never started installing and was not already
+        /// event per required user-ESP app that never started installing and was not already
         /// reported by the live (esp_exited) path in <c>EspAndHelloTracker</c>. Best-effort:
         /// any accessor / emit failure is logged and swallowed.
+        /// <para>
+        /// Session a4537c36 (2026-07-10): on <see cref="EnrollmentTerminationOutcome.Succeeded"/>
+        /// nothing was actually starved — the ESP exited normally and the pending installs simply
+        /// continue via IME after monitoring ends. That case is reported as Info with neutral
+        /// wording; Failed/TimedOut keep the Warning + "starved" verdict.
+        /// </para>
         /// </summary>
         private void EmitStarvedUserEspApps(EnrollmentTerminatedEventArgs args)
         {
@@ -465,6 +471,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 var starved = _appTracking.GetStarvedUserEspApps();
                 if (starved == null || starved.Count == 0) return;
 
+                var succeeded = args.Outcome == EnrollmentTerminationOutcome.Succeeded;
+
                 foreach (var app in starved)
                 {
                     // L6: atomic claim against the live path's dedupe set — the former
@@ -473,21 +481,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                     if (app?.Id == null || !_appTracking.TryClaimStarvedUserEspAppReport(app.Id)) continue;
 
                     var name = string.IsNullOrEmpty(app.Name) ? app.Id : app.Name;
-                    _logger.Warning(
+                    var logLine =
                         $"EnrollmentTerminationHandler: required user-ESP app '{name}' ({app.Id}) never started " +
                         $"installing (state={app.InstallationState}) — reporting app_install_starved at termination " +
-                        $"(outcome={args.Outcome}).");
+                        $"(outcome={args.Outcome}).";
+                    if (succeeded) _logger.Info(logLine); else _logger.Warning(logLine);
 
                     _post.Emit(new EnrollmentEvent
                     {
                         SessionId = _configuration.SessionId,
                         TenantId = _configuration.TenantId,
                         EventType = Constants.EventTypes.AppInstallStarved,
-                        Severity = EventSeverity.Warning,
+                        Severity = succeeded ? EventSeverity.Info : EventSeverity.Warning,
                         Source = "EnrollmentTerminationHandler",
                         Phase = EnrollmentPhase.Unknown,
-                        Message = $"Required app '{name}' never started installing while the ESP AccountSetup " +
-                                  "apps gate waited on it — the app starved the enrollment completion.",
+                        Message = succeeded
+                            ? $"Required app '{name}' had not started installing when enrollment monitoring " +
+                              "ended — installs continue via the Intune Management Extension after the ESP."
+                            : $"Required app '{name}' never started installing while the ESP AccountSetup " +
+                              "apps gate waited on it — the app starved the enrollment completion.",
                         Data = new Dictionary<string, object>
                         {
                             { "appId", app.Id },

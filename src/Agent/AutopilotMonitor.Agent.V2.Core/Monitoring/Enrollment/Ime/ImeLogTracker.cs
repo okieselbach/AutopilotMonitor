@@ -323,10 +323,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
         /// <summary>
         /// Liveness plan PR3 — returns the required user-ESP apps that are STARVING the
-        /// AccountSetup apps gate: tracked in the current AccountSetup phase, Install/Uninstall
-        /// intent, no download/install activity ever observed, not terminal and not failed.
+        /// AccountSetup apps gate: tracked in the current AccountSetup phase, Install intent
+        /// only, no download/install activity ever observed, not terminal and not failed.
         /// These are the apps whose enforcement IME never started (e.g. a user-targeted app
         /// stuck on "pending") — the actual blocker behind the gate-starvation dead-ends.
+        /// <para>
+        /// Session a4537c36 fix (2026-07-10): Uninstall-intent apps are excluded — the ESP
+        /// apps gate does not block on uninstalls, and "never started installing" is not a
+        /// meaningful claim for them. <see cref="AreUserEspAppsSettled"/> deliberately keeps
+        /// counting Uninstall-intent apps (unproven whether the ESP ever waits on them —
+        /// completion behaviour stays conservative until field data says otherwise).
+        /// </para>
         /// <para>
         /// Deliberately excludes apps that are alive (<see cref="AppPackageState.DownloadingOrInstallingSeen"/>
         /// covers Downloading/Installing and anything that ever progressed) and error-state apps
@@ -348,7 +355,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 var starved = new List<AppPackageState>();
                 foreach (var pkg in apps)
                 {
-                    if (pkg == null || !pkg.IsRequired) continue;
+                    if (pkg == null || pkg.Intent != AppIntent.Install) continue;
                     if (pkg.IsCompleted || pkg.IsError) continue;
                     if (pkg.DownloadingOrInstallingSeen) continue;
                     starved.Add(pkg);

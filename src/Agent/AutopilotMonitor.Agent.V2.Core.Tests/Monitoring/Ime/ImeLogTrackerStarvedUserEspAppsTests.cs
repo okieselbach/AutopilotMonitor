@@ -9,10 +9,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
 {
     /// <summary>
     /// Liveness plan PR3 — <see cref="ImeLogTracker.GetStarvedUserEspApps"/> semantics. A
-    /// starved app is REQUIRED (Install/Uninstall intent), tracked in the current AccountSetup
-    /// phase, has never shown download/install activity, and is neither terminal nor failed.
-    /// Apps that are alive (Downloading/Installing or any prior progress) and error-state apps
-    /// (owned by the failure path) must never be reported.
+    /// starved app is Install-intent, tracked in the current AccountSetup phase, has never
+    /// shown download/install activity, and is neither terminal nor failed. Apps that are
+    /// alive (Downloading/Installing or any prior progress) and error-state apps (owned by
+    /// the failure path) must never be reported. Session a4537c36: Uninstall-intent apps are
+    /// excluded — the ESP apps gate does not block on uninstalls.
     /// </summary>
     public sealed class ImeLogTrackerStarvedUserEspAppsTests
     {
@@ -128,6 +129,35 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             AddApp(tracker, "app-pending", AppIntent.Install, AppInstallationState.Unknown);
 
             Assert.Empty(tracker.GetStarvedUserEspApps());
+        }
+
+        [Fact]
+        public void Uninstall_intent_apps_are_not_starved()
+        {
+            // Session a4537c36: system-app removals (Xbox, WMP, …) sat pending through the whole
+            // AccountSetup phase and were flagged as "never started installing" — the ESP apps
+            // gate does not block on uninstalls, so they must not be reported.
+            using var tmp = new TempDirectory();
+            var tracker = BuildTracker(tmp);
+            tracker.SeedCurrentPhaseForTesting("AccountSetup");
+            AddApp(tracker, "app-uninstall-pending", AppIntent.Uninstall, AppInstallationState.Unknown);
+
+            Assert.Empty(tracker.GetStarvedUserEspApps());
+        }
+
+        [Fact]
+        public void Mixed_intents_report_only_the_pending_install()
+        {
+            using var tmp = new TempDirectory();
+            var tracker = BuildTracker(tmp);
+            tracker.SeedCurrentPhaseForTesting("AccountSetup");
+            AddApp(tracker, "app-uninstall-pending", AppIntent.Uninstall, AppInstallationState.Unknown);
+            AddApp(tracker, "app-install-pending", AppIntent.Install, AppInstallationState.Unknown);
+
+            var starved = tracker.GetStarvedUserEspApps();
+
+            var app = Assert.Single(starved);
+            Assert.Equal("app-install-pending", app.Id);
         }
 
         [Fact]
