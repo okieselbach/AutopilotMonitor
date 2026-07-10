@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { useTenantList, type TenantInfo } from "@/hooks/useTenantList";
 import { readTenantScope, writeTenantScope } from "@/utils/tenantScopeStorage";
+import { delegatedScopedTenantList, isHomeTenantTarget, upnDomain } from "@/utils/homeTenantScope";
 
 export type { TenantInfo };
 
@@ -30,6 +31,14 @@ export interface GlobalAdminScope {
   isGlobalOverride: boolean;
   /** GA mode with no tenant selected → aggregated cross-tenant view. Never true here / for delegated. */
   isAggregatedGlobalView: boolean;
+  /**
+   * Endpoint routing: true → the page should call the cross-tenant `/global/*` variant, false → the
+   * JWT-bound tenant-scoped member path. Equals {@link isGlobalAdmin} EXCEPT for a delegated ("MSP")
+   * caller viewing their OWN home tenant: their authorization there is member/operator (JWT-bound),
+   * not a delegated grant — and the `/global/*` fan-out is bounded to the managed set, so it would
+   * return an empty result for the home tenant. Mirrors the MCP server's pickGlobalOrTenantPath.
+   */
+  routeGlobal: boolean;
 }
 
 /**
@@ -52,13 +61,17 @@ export function useGlobalAdminScope(): GlobalAdminScope {
   const isGlobalAdmin = Boolean((globalAdminMode && hasGlobalScope) || isDelegatedScope);
 
   const allTenants = useTenantList(isGlobalAdmin);
-  const delegatedAllow = useMemo(
-    () => new Set((user?.delegatedTenantIds ?? []).map((t) => t.toLowerCase())),
-    [user?.delegatedTenantIds]
-  );
+  // Delegated: managed subset PLUS the caller's own home tenant when they hold a member role there
+  // (member-path access — see utils/homeTenantScope.ts). config/all is backend-bounded to the managed
+  // set, so the home entry is synthesized with the UPN-derived domain when absent.
+  const homeTenantId = user?.tenantId;
+  const hasHomeRole = !!user?.role;
   const tenants = useMemo(
-    () => (isDelegatedScope ? allTenants.filter((t) => delegatedAllow.has(t.tenantId.toLowerCase())) : allTenants),
-    [allTenants, isDelegatedScope, delegatedAllow]
+    () =>
+      isDelegatedScope
+        ? delegatedScopedTenantList(allTenants, user?.delegatedTenantIds, homeTenantId, upnDomain(user?.upn), hasHomeRole)
+        : allTenants,
+    [allTenants, isDelegatedScope, user?.delegatedTenantIds, homeTenantId, user?.upn, hasHomeRole]
   );
 
   const [selectedTenantId, setSelectedRaw] = useState<string>("");
@@ -102,6 +115,8 @@ export function useGlobalAdminScope(): GlobalAdminScope {
     ? selectedTenantId
     : (isDelegatedScope ? "" : tenantId);
   const isAggregatedGlobalView = Boolean(isGlobalAdmin && !selectedTenantId && !isDelegatedScope);
+  // Delegated + home tenant → member path (see interface doc). GA/Reader always route global here.
+  const routeGlobal = isGlobalAdmin && !(isDelegatedScope && isHomeTenantTarget(selectedTenantId, homeTenantId));
 
   return {
     isGlobalAdmin,
@@ -112,5 +127,6 @@ export function useGlobalAdminScope(): GlobalAdminScope {
     effectiveTenantId,
     isGlobalOverride,
     isAggregatedGlobalView,
+    routeGlobal,
   };
 }

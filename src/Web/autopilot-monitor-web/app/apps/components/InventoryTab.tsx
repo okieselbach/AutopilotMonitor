@@ -36,7 +36,7 @@ export default function InventoryTab({ scope }: { scope: SoftwareTabScope }) {
   const { tenantId } = useTenant();
   const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
-  const { isGlobalAdmin, selectedTenantId, scopeInitialized, scopeKey } = scope;
+  const { isGlobalAdmin, routeGlobal, selectedTenantId, scopeInitialized, scopeKey } = scope;
 
   const [resp, setResp] = useState<InventoryResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,7 +56,7 @@ export default function InventoryTab({ scope }: { scope: SoftwareTabScope }) {
     const run = async () => {
       try {
         setLoading(true);
-        const url = isGlobalAdmin
+        const url = routeGlobal
           ? api.vulnerability.softwareInventory(selectedTenantId)
           : api.metrics.softwareInventory();
         const res = await authenticatedFetch(url, getAccessToken);

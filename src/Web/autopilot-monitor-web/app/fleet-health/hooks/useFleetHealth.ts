@@ -73,7 +73,13 @@ interface SignalRApi {
 }
 
 interface UseFleetHealthParams {
-  isGlobalAdmin: boolean;
+  /**
+   * True → query the cross-tenant `/global/` fleet-health endpoint; false → the JWT-bound member
+   * endpoint. Pass the scope's routeGlobal (NOT raw isGlobalAdmin) so a delegated ("MSP") caller
+   * viewing their own HOME tenant takes the member path — the /global/ fan-out is bounded to the
+   * managed set and would return empty for it.
+   */
+  routeGlobal: boolean;
   /** GA-aggregated selection: "" = all tenants, else a single tenant id. */
   selectedTenantId: string;
   /** The user's own tenant id — used for non-GA SignalR scope filtering. */
@@ -106,7 +112,7 @@ const SIGNALR_DEBOUNCE_MS = 3000;
  * forced refetch on reconnect to recover messages missed during an outage.
  */
 export function useFleetHealth({
-  isGlobalAdmin,
+  routeGlobal,
   selectedTenantId,
   tenantId,
   scopeInitialized,
@@ -121,8 +127,8 @@ export function useFleetHealth({
   const [error, setError] = useState<string | null>(null);
 
   // Live refs so SignalR handlers see current scope without re-subscribing.
-  const isGlobalAdminRef = useRef(isGlobalAdmin);
-  isGlobalAdminRef.current = isGlobalAdmin;
+  const routeGlobalRef = useRef(routeGlobal);
+  routeGlobalRef.current = routeGlobal;
   const selectedTenantIdRef = useRef(selectedTenantId);
   selectedTenantIdRef.current = selectedTenantId;
   const tenantIdRef = useRef(tenantId);
@@ -141,7 +147,7 @@ export function useFleetHealth({
     setError(null);
 
     try {
-      const url = isGlobalAdminRef.current
+      const url = routeGlobalRef.current
         ? api.metrics.globalFleetHealth(
             daysRef.current,
             asGuidOrUndefined(selectedTenantIdRef.current.trim()),
@@ -214,7 +220,7 @@ export function useFleetHealth({
   useEffect(() => {
     function isInScope(eventTenantId: string | undefined): boolean {
       if (!eventTenantId) return false;
-      if (isGlobalAdminRef.current) {
+      if (routeGlobalRef.current) {
         const filter = selectedTenantIdRef.current.trim();
         return !filter || eventTenantId === filter;
       }

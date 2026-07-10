@@ -14,7 +14,7 @@ const TOP_N = 20;
 export default function VulnerabilitiesTab({ scope, timeRange }: { scope: SoftwareTabScope; timeRange: TimeRange }) {
   const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
-  const { isGlobalAdmin, selectedTenantId, scopeInitialized, scopeKey } = scope;
+  const { isGlobalAdmin, routeGlobal, selectedTenantId, scopeInitialized, scopeKey } = scope;
 
   const [summary, setSummary] = useState<VulnerabilitySummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -30,7 +30,7 @@ export default function VulnerabilitiesTab({ scope, timeRange }: { scope: Softwa
     const run = async () => {
       try {
         setLoading(true);
-        const url = isGlobalAdmin
+        const url = routeGlobal
           ? api.metrics.globalVulnerability(days, TOP_N, selectedTenantId || undefined)
           : api.metrics.vulnerability(days, TOP_N);
         const res = await authenticatedFetch(url, getAccessToken);

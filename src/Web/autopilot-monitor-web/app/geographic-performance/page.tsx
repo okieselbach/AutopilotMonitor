@@ -122,12 +122,12 @@ export default function GeographicPerformancePage() {
   // Global admin tenant scope (aggregated-capable): tenant list, selection ("" = all tenants),
   // and scope flags. Default selection is the GA's own tenant.
   const scope = useAggregatedAdminScope();
-  const { isGlobalAdmin, selectedTenantId, isAggregatedGlobalView, scopeInitialized, scopeKey } = scope;
+  const { isGlobalAdmin, routeGlobal, selectedTenantId, isAggregatedGlobalView, scopeInitialized, scopeKey } = scope;
 
   const fetchGeoMetrics = useCallback(async (range: TimeRange = timeRange, group: GroupBy = groupBy) => {
     try {
       const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
-      const endpoint = isGlobalAdmin
+      const endpoint = routeGlobal
         ? api.metrics.globalGeographic(days, group, selectedTenantId || undefined)
         : api.metrics.geographic(tenantId, days, group);
       const response = await authenticatedFetch(endpoint, getAccessToken);
@@ -144,7 +144,7 @@ export default function GeographicPerformancePage() {
     } finally {
       setLoading(false);
     }
-  }, [isGlobalAdmin, selectedTenantId, tenantId, getAccessToken, timeRange, groupBy]);
+  }, [routeGlobal, selectedTenantId, tenantId, getAccessToken, timeRange, groupBy]);
 
   useEffect(() => {
     if (!scopeInitialized) return;

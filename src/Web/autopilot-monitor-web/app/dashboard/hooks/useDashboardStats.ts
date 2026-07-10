@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { asGuidOrUndefined } from "@/utils/inputValidation";
 import { boundTenantToDelegatedScope } from "@/utils/delegatedScope";
+import { isHomeTenantTarget } from "@/utils/homeTenantScope";
 import type { NotificationType } from "@/contexts/NotificationContext";
 
 export interface DashboardStats {
@@ -131,7 +132,12 @@ export function useDashboardStats({
     setError(null);
 
     try {
-      const url = globalAdminModeRef.current
+      // A delegated ("MSP") caller filtering on their OWN home tenant routes to the JWT-bound member
+      // stats — their access there is member-based, and the /global/ path is bounded to the managed
+      // set (would return empty). Mirrors the scope hooks' routeGlobal carve-out.
+      const homeSelected = isDelegatedScopeRef.current &&
+        isHomeTenantTarget(asGuidOrUndefined(submittedFilterRef.current.trim()), tenantIdRef.current ?? undefined);
+      const url = globalAdminModeRef.current && !homeSelected
         ? api.globalSessions.stats({
             // Defense-in-depth: bound a delegated caller's filter to its managed set before sending
             // (an out-of-scope deep-linked tenant degrades to the bounded aggregate). See boundTenantToDelegatedScope.

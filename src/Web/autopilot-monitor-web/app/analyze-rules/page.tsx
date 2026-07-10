@@ -109,7 +109,7 @@ export default function AnalyzeRulesPage() {
     if (!effectiveTenantId) return;
     const fetchStats = async () => {
       try {
-        const statsUrl = scope.isGlobalAdmin
+        const statsUrl = scope.routeGlobal
           ? api.metrics.globalRuleStats(undefined, undefined, "analyze", effectiveTenantId)
           : api.metrics.ruleStats(undefined, undefined, "analyze");
         const response = await authenticatedFetch(statsUrl, getAccessToken);
@@ -128,7 +128,7 @@ export default function AnalyzeRulesPage() {
       }
     };
     fetchStats();
-  }, [effectiveTenantId, scope.isGlobalAdmin, getAccessToken]);
+  }, [effectiveTenantId, scope.routeGlobal, getAccessToken]);
 
   // Fetch the tenant's notification channels (id + name) for the per-rule notify selector.
   // Mirrors the backend legacy synthesis: a non-migrated tenant with a single webhook shows

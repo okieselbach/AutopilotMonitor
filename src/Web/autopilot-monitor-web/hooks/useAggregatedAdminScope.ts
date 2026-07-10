@@ -7,6 +7,7 @@ import { useAdminMode } from "@/hooks/useAdminMode";
 import { useTenantList, type TenantInfo } from "@/hooks/useTenantList";
 import { readTenantScope, writeTenantScope } from "@/utils/tenantScopeStorage";
 import { resolveDelegatedSeed, resolveGaSeed } from "@/hooks/aggregatedAdminScopeSeed";
+import { delegatedScopedTenantList, isHomeTenantTarget, upnDomain } from "@/utils/homeTenantScope";
 
 export interface AggregatedAdminScope {
   /**
@@ -46,6 +47,14 @@ export interface AggregatedAdminScope {
    * toggling GA mode while the page is mounted triggers a refetch instead of showing stale data.
    */
   scopeKey: string;
+  /**
+   * Endpoint routing: true → the page should call the cross-tenant `/global/*` variant, false → the
+   * JWT-bound tenant-scoped member path. Equals {@link isGlobalAdmin} EXCEPT for a delegated ("MSP")
+   * caller viewing their OWN home tenant: their authorization there is member/operator (JWT-bound),
+   * not a delegated grant — and the `/global/*` fan-out is bounded to the managed set, so it would
+   * return an empty result for the home tenant. Mirrors the MCP server's pickGlobalOrTenantPath.
+   */
+  routeGlobal: boolean;
 }
 
 /**
@@ -80,14 +89,16 @@ export function useAggregatedAdminScope(opts?: {
 
   const allTenants = useTenantList(isGlobalAdmin);
   // Delegated: bound the selector to the managed allow-list (defense in depth on top of the backend-bounded
-  // config/all). GA/Reader: the full list.
-  const delegatedAllow = useMemo(
-    () => new Set((user?.delegatedTenantIds ?? []).map((t) => t.toLowerCase())),
-    [user?.delegatedTenantIds]
-  );
+  // config/all), PLUS the caller's own home tenant when they hold a member role there (member-path access —
+  // see utils/homeTenantScope.ts). GA/Reader: the full list.
+  const homeTenantId = user?.tenantId;
+  const hasHomeRole = !!user?.role;
   const tenants = useMemo(
-    () => (isDelegatedScope ? allTenants.filter((t) => delegatedAllow.has(t.tenantId.toLowerCase())) : allTenants),
-    [allTenants, isDelegatedScope, delegatedAllow]
+    () =>
+      isDelegatedScope
+        ? delegatedScopedTenantList(allTenants, user?.delegatedTenantIds, homeTenantId, upnDomain(user?.upn), hasHomeRole)
+        : allTenants,
+    [allTenants, isDelegatedScope, user?.delegatedTenantIds, homeTenantId, user?.upn, hasHomeRole]
   );
 
   const [selectedTenantId, setSelectedRaw] = useState<string>("");
@@ -164,6 +175,8 @@ export function useAggregatedAdminScope(opts?: {
   );
   const effectiveTenantId = isGlobalAdmin ? selectedTenantId : tenantId;
   const scopeKey = isGlobalAdmin ? `ga:${selectedTenantId || "*all*"}` : `tenant:${tenantId}`;
+  // Delegated + home tenant → member path (see interface doc). GA/Reader always route global here.
+  const routeGlobal = isGlobalAdmin && !(isDelegatedScope && isHomeTenantTarget(selectedTenantId, homeTenantId));
 
   return {
     isGlobalAdmin,
@@ -177,5 +190,6 @@ export function useAggregatedAdminScope(opts?: {
     isGlobalOverride,
     scopeInitialized,
     scopeKey,
+    routeGlobal,
   };
 }

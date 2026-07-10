@@ -49,7 +49,7 @@ export default function FleetHealthPage() {
   // Global admin tenant scope (aggregated-capable): tenant list, selection ("" = all tenants),
   // scope flags, and effectiveTenantId (empty in aggregated mode → skips the SignalR group).
   const scope = useAggregatedAdminScope();
-  const { isGlobalAdmin, selectedTenantId, effectiveTenantId, scopeInitialized, scopeKey } = scope;
+  const { isGlobalAdmin, routeGlobal, selectedTenantId, effectiveTenantId, scopeInitialized, scopeKey } = scope;
 
   const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
 
@@ -57,7 +57,7 @@ export default function FleetHealthPage() {
   // Replaces the old client path that drained up to 200k raw sessions into the
   // browser and aggregated on the main thread.
   const { data, error } = useFleetHealth({
-    isGlobalAdmin,
+    routeGlobal,
     selectedTenantId,
     tenantId,
     scopeInitialized,
@@ -96,7 +96,7 @@ export default function FleetHealthPage() {
   const fetchAppMetrics = async (range: "7d" | "30d" | "90d" = timeRange) => {
     try {
       const d = range === "7d" ? 7 : range === "30d" ? 30 : 90;
-      const endpoint = isGlobalAdmin
+      const endpoint = routeGlobal
         ? api.metrics.globalApp(d, selectedTenantId || undefined)
         : api.metrics.app(tenantId, d);
       const response = await authenticatedFetch(endpoint, getAccessToken);

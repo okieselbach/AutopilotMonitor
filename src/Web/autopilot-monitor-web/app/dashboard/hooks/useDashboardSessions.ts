@@ -6,6 +6,7 @@ import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch"
 import { extractContinuation } from "@/lib/paginationLink";
 import { asGuidOrUndefined } from "@/utils/inputValidation";
 import { boundTenantToDelegatedScope } from "@/utils/delegatedScope";
+import { isHomeTenantTarget } from "@/utils/homeTenantScope";
 import type { NotificationType } from "@/contexts/NotificationContext";
 import type { Session } from "../types";
 
@@ -233,7 +234,12 @@ export function useDashboardSessions({
       const opts = loadMoreContinuation
         ? { pageSize, continuation: loadMoreContinuation }
         : { pageSize };
-      const endpoint = globalAdminModeRef.current
+      // A delegated ("MSP") caller filtering on their OWN home tenant routes to the JWT-bound member
+      // list — their access there is member-based, and the /global/ path is bounded to the managed
+      // set (would return empty). Mirrors the scope hooks' routeGlobal carve-out.
+      const homeSelected = isDelegatedScopeRef.current &&
+        isHomeTenantTarget(asGuidOrUndefined(rawFilter), tenantIdRef.current ?? undefined);
+      const endpoint = globalAdminModeRef.current && !homeSelected
         ? api.globalSessions.list(effectiveTenantFilter, undefined, opts)
         : api.sessions.list(tenantIdRef.current ?? undefined, undefined, opts);
 

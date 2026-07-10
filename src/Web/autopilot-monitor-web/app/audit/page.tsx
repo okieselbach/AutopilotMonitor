@@ -91,7 +91,7 @@ export default function AuditPage() {
   // GA/Reader starts in the aggregated "All tenants" view; a delegated ("MSP") admin has no aggregate and
   // still defaults to its first managed tenant via the normal tenant switcher.
   const scope = useAggregatedAdminScope({ defaultAggregated: true });
-  const { isGlobalAdmin: crossTenant, selectedTenantId, scopeInitialized, scopeKey } = scope;
+  const { isGlobalAdmin: crossTenant, routeGlobal, selectedTenantId, scopeInitialized, scopeKey } = scope;
 
   // The DEFAULT view ("All (excl. deletions)") is resolved server-side: the
   // backend drops per-session deletion bookkeeping and back-fills the page, so
@@ -114,8 +114,9 @@ export default function AuditPage() {
         excludeDeletions,
       };
       // Cross-tenant: globalLogs with the selected tenant ("" → GA aggregate over all tenants; a managed
-      // tenant for a delegated caller, validated server-side). Own-tenant member: the tenant-scoped logs.
-      const endpoint = crossTenant
+      // tenant for a delegated caller, validated server-side). Own-tenant member — including a delegated
+      // caller viewing their HOME tenant (routeGlobal false): the tenant-scoped logs.
+      const endpoint = routeGlobal
         ? api.audit.globalLogs({ ...opts, tenantId: selectedTenantId || undefined })
         : api.audit.logs(opts);
       const response = await authenticatedFetch(endpoint, getAccessToken);
@@ -141,7 +142,7 @@ export default function AuditPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [addNotification, dateFromIso, dateToIso, getAccessToken, crossTenant, selectedTenantId, excludeDeletions]);
+  }, [addNotification, dateFromIso, dateToIso, getAccessToken, routeGlobal, selectedTenantId, excludeDeletions]);
 
   // Initial / window-change fetch resets pagination state.
   // fetchPage is intentionally excluded from deps: its identity churns whenever

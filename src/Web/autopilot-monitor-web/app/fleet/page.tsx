@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTenantList, type TenantInfo } from "@/hooks/useTenantList";
+import { delegatedScopedTenantList, upnDomain } from "@/utils/homeTenantScope";
 import { useFleetSummaries } from "./hooks/useFleetSummaries";
 import { computeFleetRollup, type FleetSummary } from "./lib/fleetRollup";
 
@@ -22,18 +23,18 @@ export default function FleetPage() {
   const { user } = useAuth();
   const isDelegated = user?.isDelegated ?? false;
 
-  const allowed = useMemo(
-    () => new Set((user?.delegatedTenantIds ?? []).map((t) => t.toLowerCase())),
-    [user?.delegatedTenantIds]
-  );
   const tenants = useTenantList(isDelegated);
+  // Managed subset plus the caller's own HOME tenant when they hold a member role there — the home
+  // tenant is member-path access, not a delegated grant (see utils/homeTenantScope.ts), so its
+  // summary is fetched via the JWT-bound member stats endpoint below.
   const myTenants = useMemo(
-    () => tenants.filter((t) => allowed.has(t.tenantId.toLowerCase())),
-    [tenants, allowed]
+    () => delegatedScopedTenantList(tenants, user?.delegatedTenantIds, user?.tenantId, upnDomain(user?.upn), !!user?.role),
+    [tenants, user?.delegatedTenantIds, user?.tenantId, user?.upn, user?.role]
   );
   const tenantIds = useMemo(() => myTenants.map((t) => t.tenantId), [myTenants]);
+  const homeTenantId = myTenants.find((t) => t.isHome)?.tenantId;
 
-  const { summaries, loading } = useFleetSummaries(tenantIds, DAYS);
+  const { summaries, loading } = useFleetSummaries(tenantIds, DAYS, homeTenantId);
   const rollup = useMemo(() => computeFleetRollup(Object.values(summaries)), [summaries]);
 
   // Triage order: worst first (most failures, then lowest success rate). Tenants still loading sort last;
@@ -59,7 +60,7 @@ export default function FleetPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Fleet</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          {myTenants.length} managed tenant{myTenants.length === 1 ? "" : "s"} · last {DAYS} days
+          {myTenants.length} tenant{myTenants.length === 1 ? "" : "s"} · last {DAYS} days
           {loading ? " · refreshing…" : ""}
         </p>
       </div>
@@ -116,8 +117,15 @@ function FleetCard({ tenant, summary }: { tenant: TenantInfo; summary?: FleetSum
       href={`/dashboard?tenant=${encodeURIComponent(tenant.tenantId)}`}
       className="block rounded-lg border border-gray-200 bg-white p-5 shadow-sm transition-colors hover:border-blue-400 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-blue-500"
     >
-      <div className="truncate text-base font-semibold text-gray-900 dark:text-white">
-        {tenant.domainName || "Unknown domain"}
+      <div className="flex items-center gap-2">
+        <div className="truncate text-base font-semibold text-gray-900 dark:text-white">
+          {tenant.domainName || "Unknown domain"}
+        </div>
+        {tenant.isHome && (
+          <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+            your tenant
+          </span>
+        )}
       </div>
       <div className="mt-1 break-all font-mono text-xs text-gray-400 dark:text-gray-500">{tenant.tenantId}</div>
 

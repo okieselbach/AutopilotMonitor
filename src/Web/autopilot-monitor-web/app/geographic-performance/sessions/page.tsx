@@ -11,6 +11,7 @@ import { useAdminMode } from "@/hooks/useAdminMode";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 import { GlobalAdminBanner } from "@/components/GlobalAdminBanner";
 import { boundTenantToDelegatedScope } from "@/utils/delegatedScope";
+import { isHomeTenantTarget } from "@/utils/homeTenantScope";
 
 interface SessionSummary {
   sessionId: string;
@@ -99,12 +100,16 @@ function LocationSessionsContent() {
   // GA override OR a delegated/MSP admin). Its presence — or GA mode — drives the cross-tenant endpoint;
   // an empty tenantId in GA mode is the all-tenants aggregate.
   const urlTenantId = searchParams.get("tenantId") || "";
-  const crossTenant = globalAdminMode || !!urlTenantId;
+  const isDelegatedScope = !!user?.isDelegated && !hasGlobalScope;
+  // A delegated caller drilling their OWN home tenant routes to the tenant-scoped member endpoint —
+  // their access there is member-based, and the /global/ drill is bounded to the managed set (would
+  // return empty). Mirrors the scope hooks' routeGlobal carve-out.
+  const homeDrill = isDelegatedScope && isHomeTenantTarget(urlTenantId, user?.tenantId);
+  const crossTenant = (globalAdminMode || !!urlTenantId) && !homeDrill;
   // Defense-in-depth: a delegated ("MSP") reader (no platform scope) may only drill a managed tenant. Bind
   // the deep-linked tenant to the managed set before sending — an out-of-scope ?tenantId= degrades to the
   // bounded aggregate (which the backend then denies for a delegated caller). crossTenant stays keyed on the
   // raw presence so it never falls back to the caller's own-tenant endpoint.
-  const isDelegatedScope = !!user?.isDelegated && !hasGlobalScope;
   const boundedTenantId = boundTenantToDelegatedScope(urlTenantId || undefined, isDelegatedScope, user?.delegatedTenantIds);
 
   const fetchSessions = useCallback(async () => {

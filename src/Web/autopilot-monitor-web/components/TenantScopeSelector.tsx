@@ -57,6 +57,7 @@ export function TenantScopeSelector({
             {t.domainName
               ? `${t.domainName} (${t.tenantId.substring(0, 8)}…)`
               : t.tenantId}
+            {t.isHome ? " — your tenant" : ""}
           </option>
         ))}
       </select>

@@ -71,7 +71,7 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
   const { tenantId } = useTenant();
   const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
-  const { isGlobalAdmin, selectedTenantId, scopeInitialized, scopeKey } = scope;
+  const { isGlobalAdmin, routeGlobal, selectedTenantId, scopeInitialized, scopeKey } = scope;
 
   const [data, setData] = useState<AppsListResponse | null>(null);
   const [doRollup, setDoRollup] = useState<DeliveryOptimizationRollup | null>(null);
@@ -90,10 +90,10 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
     const run = async () => {
       try {
         setLoading(true);
-        const listUrl = isGlobalAdmin
+        const listUrl = routeGlobal
           ? api.apps.globalList(days, selectedTenantId || undefined)
           : api.apps.list(tenantId, days);
-        const metricsUrl = isGlobalAdmin
+        const metricsUrl = routeGlobal
           ? api.metrics.globalApp(days, selectedTenantId || undefined)
           : api.metrics.app(tenantId, days);
 

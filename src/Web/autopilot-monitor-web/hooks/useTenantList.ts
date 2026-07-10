@@ -8,6 +8,11 @@ import { authenticatedFetch } from "@/lib/authenticatedFetch";
 export interface TenantInfo {
   tenantId: string;
   domainName: string;
+  /**
+   * True when this entry is the caller's OWN (home) tenant surfaced into a delegated ("MSP") scope —
+   * see utils/homeTenantScope.ts. Home-tenant reads route via the tenant-scoped member path, not /global/*.
+   */
+  isHome?: boolean;
 }
 
 /**
