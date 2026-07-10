@@ -322,6 +322,53 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         }
 
         /// <summary>
+        /// Sessions 14690fc2/6cb01530 arm-C hardening (2026-07-10): returns the required
+        /// user-ESP Install-intent apps that have NOT reached a terminal state
+        /// (Installed / Skipped / Postponed / Error) in the current AccountSetup phase.
+        /// IME writes its <c>Completed user session N</c> line at the end of EVERY
+        /// user-session processing pass — including a first pass that merely enumerated the
+        /// app catalog — so <c>ImeLogTrackerAdapter</c> defers the
+        /// <c>ImeUserSessionCompleted</c> decision signal while this list is non-empty.
+        /// <para>
+        /// Unlike <see cref="AreUserEspAppsSettled"/>, <see cref="AppInstallationState.Error"/>
+        /// counts as settled here: IME delivered its verdict for that app (GRS re-tries hours
+        /// later, far outside the enrollment window), and blocking the signal on a failed app
+        /// would starve the AdvisoryCompletion conjunction into failing sessions whose user
+        /// has long been at the desktop. Uninstall-intent apps are excluded for the same
+        /// reason as in <see cref="GetStarvedUserEspApps"/>. Non-AccountSetup phases return
+        /// empty — pre-anchor completions keep their existing (never completion-triggering)
+        /// semantics. Same thread-safety contract as the sibling probes: snapshot copy, any
+        /// race-induced exception returns an empty list (fail-open to the pre-hardening
+        /// behaviour rather than parking completion on a probe bug).
+        /// </para>
+        /// </summary>
+        public IReadOnlyList<AppPackageState> GetPendingRequiredUserEspInstallApps()
+        {
+            try
+            {
+                if (!string.Equals(_lastEspPhaseDetected, "AccountSetup", StringComparison.OrdinalIgnoreCase))
+                    return Array.Empty<AppPackageState>();
+
+                var apps = new List<AppPackageState>(_packageStates);
+                if (apps.Count == 0) return Array.Empty<AppPackageState>();
+
+                var pending = new List<AppPackageState>();
+                foreach (var pkg in apps)
+                {
+                    if (pkg == null || pkg.Intent != AppIntent.Install) continue;
+                    if (pkg.IsCompleted) continue;   // terminal incl. Error
+                    pending.Add(pkg);
+                }
+                return pending;
+            }
+            catch (Exception ex)
+            {
+                _logger.Debug($"ImeLogTracker: GetPendingRequiredUserEspInstallApps probe threw: {ex.Message}");
+                return Array.Empty<AppPackageState>();
+            }
+        }
+
+        /// <summary>
         /// Liveness plan PR3 — returns the required user-ESP apps that are STARVING the
         /// AccountSetup apps gate: tracked in the current AccountSetup phase, Install intent
         /// only, no download/install activity ever observed, not terminal and not failed.

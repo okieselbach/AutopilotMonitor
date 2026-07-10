@@ -34,7 +34,10 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
     /// <list type="bullet">
     ///   <item><c>OnEspPhaseChanged(phase)</c> → <see cref="DecisionSignalKind.EspPhaseChanged"/>
     ///     (dedup per distinct phase value — Reducer Plan §2.1a idempotenz-Anforderung).</item>
-    ///   <item><c>OnUserSessionCompleted()</c> → <see cref="DecisionSignalKind.ImeUserSessionCompleted"/> (fire-once).</item>
+    ///   <item><c>OnUserSessionCompleted()</c> → <see cref="DecisionSignalKind.ImeUserSessionCompleted"/> (fire-once;
+    ///     deferred while required user-ESP Install-intent apps are still pending — IME's
+    ///     "Completed user session" line fires per processing pass, see
+    ///     <see cref="ImeLogTracker.GetPendingRequiredUserEspInstallApps"/>).</item>
     ///   <item><c>OnAppStateChanged(app, old, new)</c> → <see cref="DecisionSignalKind.AppInstallCompleted"/>
     ///     (state=Installed/Skipped/Postponed) oder <see cref="DecisionSignalKind.AppInstallFailed"/> (state=Error).
     ///     Dedup pro (AppId, terminal-state-tuple).</item>
@@ -86,6 +89,9 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         // Dedup state for DecisionSignals.
         private string? _lastEspPhase;
         private bool _userSessionCompletedPosted;
+        // One-shot flag for the user-session-completion deferral trace event — the INFO log
+        // line repeats per suppressed pass, the timeline event fires once per agent run.
+        private bool _userSessionDeferralNoted;
         private bool _sealingPatternPosted;
         // Fires once per session when a Platform Script stdout contains the Autopilot-Monitor
         // bootstrap marker line. Lets MCP report "which device runs which bootstrap version".
@@ -385,6 +391,23 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
 
         private void EmitUserSessionCompleted()
         {
+            // Sessions 14690fc2/6cb01530 hardening (2026-07-10): IME writes its "Completed
+            // user session N" line at the end of EVERY user-session processing pass, not when
+            // user-scope enforcement is done — both field sessions had 13–18 required apps
+            // still pending when the first post-reboot pass completed, and arm C
+            // (ShouldTransitionToAwaitingHello) stamped the session Succeeded 5 minutes later
+            // mid-install. Defer the decision signal while required Install-intent user-ESP
+            // apps are pending; the fire-once flag stays unclaimed, so the completion line of
+            // a later pass re-evaluates and posts once the apps have settled. Error counts as
+            // terminal in the probe (GRS owns retries), so a permanently failed app cannot
+            // park the signal — and with it the AdvisoryCompletion conjunction — forever.
+            var pendingApps = _tracker.GetPendingRequiredUserEspInstallApps();
+            if (pendingApps.Count > 0)
+            {
+                NoteUserSessionCompletionDeferred(pendingApps);
+                return;
+            }
+
             lock (_lock)
             {
                 if (_userSessionCompletedPosted) return;
@@ -406,7 +429,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 evidence: new Evidence(
                     kind: EvidenceKind.Derived,
                     identifier: "ime-log-tracker-v1",
-                    summary: "IME user session completed (all user-scope apps finished)",
+                    summary: "IME user session completed (no required user-scope apps pending)",
                     derivationInputs: derivationInputs));
 
             var data = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -427,6 +450,52 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
 
             // PR3-D4: terminal-ish lifecycle marker — INFO so it's visible at the default level.
             _logger?.Info($"ImeAdapter: user session completed -> posting ImeUserSessionCompleted (patternId={patternId ?? "(none)"})");
+        }
+
+        /// <summary>
+        /// Observability for the deferred user-session completion (sessions 14690fc2/6cb01530):
+        /// an INFO log line per suppressed pass plus a one-shot <c>agent_trace</c> timeline
+        /// event, so a field session shows WHY <c>ime_user_session_completed</c> arrived late
+        /// (or never) without needing the diagnostics ZIP.
+        /// </summary>
+        private void NoteUserSessionCompletionDeferred(IReadOnlyList<AppPackageState> pendingApps)
+        {
+            const int maxNames = 10;
+            var names = new List<string>(Math.Min(pendingApps.Count, maxNames));
+            foreach (var pkg in pendingApps)
+            {
+                if (names.Count >= maxNames) break;
+                if (pkg == null) continue;
+                names.Add(string.IsNullOrEmpty(pkg.Name) ? pkg.Id : pkg.Name!);
+            }
+            var namesJoined = string.Join("; ", names)
+                + (pendingApps.Count > maxNames ? $" (+{pendingApps.Count - maxNames} more)" : string.Empty);
+
+            _logger?.Info(
+                $"ImeAdapter: IME 'Completed user session' line observed but {pendingApps.Count} required user-ESP app(s) still pending -> deferring ImeUserSessionCompleted (pending: {namesJoined})");
+
+            lock (_lock)
+            {
+                if (_userSessionDeferralNoted) return;
+                _userSessionDeferralNoted = true;
+            }
+
+            var now = ResolveOccurredAt(out var derivedFromClock, out var rawSourceTs);
+            var data = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["decision"] = "ime_user_session_completion_deferred",
+                ["pendingRequiredInstallApps"] = pendingApps.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["pendingAppNames"] = namesJoined,
+            };
+            TagDerivedTimestamp(data, derivedFromClock, rawSourceTs);
+
+            _post.Emit(
+                eventType: SharedEventTypes.AgentTrace,
+                source: SourceLabel,
+                message: $"IME user-session completion line observed while {pendingApps.Count} required user app(s) pending — completion signal deferred until they settle",
+                severity: EventSeverity.Info,
+                data: data,
+                occurredAtUtc: now);
         }
 
         private void EmitAppState(AppPackageState app, AppInstallationState oldState, AppInstallationState newState)
