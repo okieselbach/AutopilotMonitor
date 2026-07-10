@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { apiFetch, buildQuery, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, pickGlobalOrTenantPath, scanUntilMatch } from '../client.js';
+import { apiFetch, buildQuery, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, getCallerUpnDomain, getDelegatedTenantIds, getHomeTenantId, pickGlobalOrTenantPath, scanUntilMatch } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
 import { getResourceContent, assertKnownEventType } from '../resource-catalog.js';
 import { READ_ONLY, READ_ONLY_OPEN, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema, tenantIdDescription } from './shared.js';
@@ -39,6 +39,41 @@ export function extractTenantList(data: unknown): Record<string, unknown>[] {
     }
     return projected;
   });
+}
+
+/**
+ * Delegated (MSP) view of the list_tenants result — the web analog is delegatedScopedTenantList in
+ * utils/homeTenantScope.ts. The backend already bounds config/all to the caller's managed subset
+ * (GlobalReadOrDelegatedSubset), so the intersect here is defense-in-depth, not the security boundary.
+ * The caller's HOME tenant is additionally surfaced (flagged `isHome: true`): it is never in the managed
+ * set, so when the backend page did not include it, a minimal entry is synthesized with the caller's UPN
+ * domain as the display label (the backend derives DomainName from a member's UPN suffix at onboarding,
+ * so the label matches what a real row would say). Synthesis happens only on the FIRST page
+ * (`isFirstPage`) so a paginated follow-up cannot duplicate it. Home access is member-based — the entry
+ * is advertised unconditionally (the MCP server cannot see tenant membership), and a non-member is simply
+ * denied by the backend when actually querying it, so surfacing the id never leaks data.
+ * Sorted by domainName (fallback tenantId) for a stable, human-friendly selector order. Pure + testable.
+ */
+export function delegatedTenantListView(
+  tenants: Record<string, unknown>[],
+  managedIds: string[] | undefined,
+  homeTenantId: string | undefined,
+  homeDomainLabel: string | undefined,
+  isFirstPage: boolean,
+): Record<string, unknown>[] {
+  const allow = new Set((managedIds ?? []).map((t) => t.toLowerCase()));
+  const isHome = (t: Record<string, unknown>) =>
+    !!homeTenantId && String(t.tenantId ?? '').toLowerCase() === homeTenantId;
+  const scoped = tenants
+    .filter((t) => allow.has(String(t.tenantId ?? '').toLowerCase()) || isHome(t))
+    .map((t) => (isHome(t) ? { ...t, isHome: true } : t));
+
+  if (isFirstPage && homeTenantId && !scoped.some((t) => t.isHome === true)) {
+    scoped.push({ tenantId: homeTenantId, domainName: homeDomainLabel ?? '', isHome: true });
+  }
+  scoped.sort((a, b) =>
+    String(a.domainName || a.tenantId || '').localeCompare(String(b.domainName || b.tenantId || '')));
+  return scoped;
 }
 
 /**
@@ -457,18 +492,27 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     })
   );
 
-  // Tool: list_tenants — reuses the GlobalAdminOnly /api/config/all endpoint.
-  // The endpoint returns FULL configs (incl. secrets); extractTenantList strips
+  // Tool: list_tenants — reuses the /api/config/all endpoint (GlobalReadOrDelegatedSubset tier).
+  // The endpoint returns FULL configs (incl. secrets) for a GA; extractTenantList strips
   // them down to TENANT_SAFE_FIELDS before anything reaches the model.
-  // Global Admin only; not registered for normal users.
-  if (ga) server.registerTool(
+  // For a delegated (MSP) caller the backend bounds the response to the managed subset (secrets
+  // already redacted server-side); delegatedTenantListView re-intersects as defense-in-depth and
+  // surfaces the caller's home tenant (isHome) so display names resolve for every addressable tenant.
+  // Not registered for normal (single-tenant) users.
+  if (ga || delegated) server.registerTool(
     'list_tenants',
     {
       title: 'List Tenants',
       description:
-        'List onboarded tenants with their identity, plan tier, and lifecycle status (onboarded/disabled dates). ' +
-        'Global Admin only. Use this to discover tenant IDs for the tenantId parameter of other tools when running ' +
-        'cross-tenant investigations. Returns only non-sensitive fields — secrets (webhook URLs, SAS URLs) are stripped ' +
+        (delegated
+          ? 'List the tenants you can query as a delegated (MSP) administrator: your managed tenants, plus your ' +
+            'own home tenant (marked "isHome": true — queryable only if you are a member there). Use this to ' +
+            'resolve a tenant\'s display name (domainName) to the tenantId that every other tool requires ' +
+            '(e.g. "sessions of tenant contoso.com" → look up its tenantId here first). '
+          : 'List onboarded tenants with their identity, plan tier, and lifecycle status (onboarded/disabled dates). ' +
+            'Global Admin only. Use this to discover tenant IDs for the tenantId parameter of other tools when running ' +
+            'cross-tenant investigations. ') +
+        'Returns only non-sensitive fields — secrets (webhook URLs, SAS URLs) are stripped ' +
         'server-side. Tenants are sorted by tenantId and returned in pages (default 100). For lean ID discovery pass ' +
         '`fields=tenantId,domainName` — the projection is applied server-side and is echoed in nextLink, so it carries ' +
         'across every page automatically. ' +
@@ -495,7 +539,11 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         // defense-in-depth (harmless pass-through once the backend has projected).
         const path = followNextLink('/api/config/all', { pageSize, fields }, continuation);
         const data = await apiFetch(path) as { count?: number; tenants?: unknown[]; nextLink?: string | null };
-        const tenants = extractTenantList({ tenants: data?.tenants ?? [] });
+        let tenants = extractTenantList({ tenants: data?.tenants ?? [] });
+        if (delegated) {
+          tenants = delegatedTenantListView(
+            tenants, getDelegatedTenantIds(), getHomeTenantId(), getCallerUpnDomain(), !continuation);
+        }
         return toolResultText(
           { count: tenants.length, tenants, nextLink: data?.nextLink ?? null },
           MAX_RESULT_SIZE_CHARS.adminStream);

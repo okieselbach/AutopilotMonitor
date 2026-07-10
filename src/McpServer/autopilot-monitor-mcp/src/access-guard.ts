@@ -496,6 +496,9 @@ export function accessGuard(req: Request, res: Response, next: NextFunction): vo
           // of their own home tenant keep reading it via the tenant-scoped member path — see client.ts
           // enforceDelegatedTenant / pickGlobalOrTenantPath. Harmless for GA / plain tenant callers.
           homeTenantId: claims.tid?.toLowerCase(),
+          // UPN domain labels the synthesized home-tenant entry in list_tenants for a delegated
+          // caller (the home tenant is never in the backend-bounded config/all subset).
+          upn,
         },
         () => next(),
       );

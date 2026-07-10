@@ -116,10 +116,12 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'query_table',
   ];
 
-  // The only delta between a plain tenant user and a delegated (MSP) caller: the
-  // global (non-tenant) IME-version archive is hidden — everything else a tenant
-  // user sees is tenant-boundable and stays.
+  // Deltas between a plain tenant user and a delegated (MSP) caller: the global
+  // (non-tenant) IME-version archive is hidden, while list_tenants — platform-only
+  // for tenant users — is ADDED back so a delegated caller can resolve its managed
+  // tenants' display names (backend bounds config/all to the managed subset).
   const DELEGATED_HIDDEN = ['get_ime_version_history'];
+  const DELEGATED_ADDED = ['list_tenants'];
 
   const without = (set: string[], remove: string[]) => set.filter((n) => !remove.includes(n));
 
@@ -135,9 +137,10 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     expect(registeredToolNames(false, false, false)).toEqual(without(GA_FULL, PLATFORM_ONLY));
   });
 
-  it('delegated (MSP) caller = tenant user minus the global IME archive', () => {
+  it('delegated (MSP) caller = tenant user minus the global IME archive, plus list_tenants', () => {
     const tenant = without(GA_FULL, PLATFORM_ONLY);
-    expect(registeredToolNames(false, false, true)).toEqual(without(tenant, DELEGATED_HIDDEN));
+    const expected = [...without(tenant, DELEGATED_HIDDEN), ...DELEGATED_ADDED].sort();
+    expect(registeredToolNames(false, false, true)).toEqual(expected);
   });
 
   // ── Consistency of the difference lists themselves (catch stale entries). ──
@@ -146,6 +149,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
       ['RAW_GA_STRICT', RAW_GA_STRICT],
       ['PLATFORM_ONLY', PLATFORM_ONLY],
       ['DELEGATED_HIDDEN', DELEGATED_HIDDEN],
+      ['DELEGATED_ADDED', DELEGATED_ADDED],
     ] as const) {
       const stale = list.filter((n) => !GA_FULL.includes(n));
       expect(stale, `${label} lists tools not present in the GA master set`).toEqual([]);

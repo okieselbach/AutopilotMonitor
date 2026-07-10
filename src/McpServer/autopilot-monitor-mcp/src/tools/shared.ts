@@ -60,7 +60,7 @@ export function tenantIdDescription(ga: boolean, delegated: boolean, gaText: str
     // per-tool `continuation` arg description owns those mechanics; here we only state the invariant.
     return 'REQUIRED: name the tenant to query — one of YOUR managed tenants (delegated/MSP), or your own ' +
       'home tenant if you are a member of it. There is no cross-tenant aggregate and no implicit default — ' +
-      'every query must name a specific tenant.';
+      'every query must name a specific tenant. Call list_tenants to see your tenants with display names.';
   }
   return ga ? gaText : tenantText;
 }

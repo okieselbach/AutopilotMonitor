@@ -147,7 +147,8 @@ function buildInstructions(ga: boolean, delegated: boolean, managedTenants: stri
     : delegated
       ? 'Scope: you are a delegated (MSP) administrator. Every query MUST name a tenant via tenantId — there ' +
         `is no cross-tenant aggregate. Your managed tenants: ${managedTenants.join(', ')}.` +
-        (homeTenantId ? ` If you are a member of your own home tenant (${homeTenantId}), you may query it by naming it too.` : '')
+        (homeTenantId ? ` If you are a member of your own home tenant (${homeTenantId}), you may query it by naming it too.` : '') +
+        ' Call list_tenants to resolve these IDs to tenant display names (domainName).'
       : 'Scope: all queries are automatically limited to your tenant.';
   return [
     'Autopilot-Monitor is a READ-ONLY telemetry server for Windows Autopilot enrollment sessions.',

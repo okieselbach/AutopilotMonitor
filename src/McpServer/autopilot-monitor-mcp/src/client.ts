@@ -69,6 +69,14 @@ interface CallerContext {
    * home tenant is simply denied there (MemberRead), so accepting the id here never leaks.
    */
   homeTenantId?: string;
+  /**
+   * The caller's UPN (lowercase). Used only to derive a display label for the SYNTHESIZED home-tenant
+   * entry in list_tenants for a delegated caller: the home tenant is never in the backend-bounded
+   * config/all subset, and the backend derives a tenant's DomainName from a member's UPN suffix at
+   * onboarding anyway — so the UPN domain matches what the real row would say (web analog: upnDomain
+   * in utils/homeTenantScope.ts).
+   */
+  upn?: string;
 }
 
 const callerStore = new AsyncLocalStorage<CallerContext>();
@@ -135,6 +143,17 @@ export function getHomeTenantId(): string | undefined {
 }
 
 /**
+ * The current caller's UPN domain suffix (e.g. "contoso.com" from "alice@contoso.com"), or undefined
+ * when no context is active / no UPN was captured. Display label for the synthesized home-tenant entry
+ * in list_tenants — see CallerContext.upn.
+ */
+export function getCallerUpnDomain(): string | undefined {
+  const upn = callerStore.getStore()?.upn ?? '';
+  const at = upn.indexOf('@');
+  return at >= 0 ? upn.slice(at + 1) : undefined;
+}
+
+/**
  * True when the caller may address the cross-tenant `/api/global/*` paths. That is the union of platform
  * scope (GA / read-only Global Reader, who may omit tenantId for an aggregate) and delegated scope (MSP,
  * who MUST name a managed tenant via ?tenantId=). Used ONLY for path SELECTION — NOT for catalog/secret
@@ -190,7 +209,8 @@ export function enforceDelegatedTenant(tenantId?: string): string | undefined {
     throw new Error(
       'tenantId is required: as a delegated (MSP) user you must name the tenant to query. ' +
       `Managed tenants: ${allowed.join(', ')}` +
-      (home ? `; or your own home tenant: ${home}.` : '.'),
+      (home ? `; or your own home tenant: ${home}.` : '.') +
+      ' Call list_tenants to see them with display names.',
     );
   }
   if (!allowed.includes(t) && t !== home) {

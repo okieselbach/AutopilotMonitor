@@ -15,6 +15,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerTools } from '../tools.js';
 import { runWithCaller } from '../client.js';
 import { tenantIdDescription } from '../tools/shared.js';
+import { delegatedTenantListView } from '../tools/admin.js';
 
 type ToolHandler = (args: Record<string, unknown>, extra: unknown) => Promise<{
   content?: Array<{ type: string; text?: string }>;
@@ -174,6 +175,122 @@ describe('tenantId arg description is role-aware (delegated = required, not opti
   it('leaves GA and plain-tenant wording unchanged', () => {
     expect(tenantIdDescription(true, false, GA, TENANT)).toBe(GA);
     expect(tenantIdDescription(false, false, GA, TENANT)).toBe(TENANT);
+  });
+});
+
+describe('list_tenants is available to delegated callers (display-name resolution)', () => {
+  const HOME = 'bbbb-2222-home';
+
+  /** Stub fetch with a config/all-shaped envelope (paginated { tenants } shape). */
+  function stubTenantsFetch(tenants: unknown[]): { urls: string[] } {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(String(url));
+      return { ok: true, status: 200, json: async () => ({ count: tenants.length, tenants, nextLink: null }), text: async () => '{}' } as unknown as Response;
+    }));
+    return { urls };
+  }
+
+  it('is registered for a delegated caller and NOT for a plain tenant user', () => {
+    expect(() => handlerFor('list_tenants', { delegated: true })).not.toThrow();
+    expect(() => handlerFor('list_tenants', {})).toThrow(/not registered/);
+  });
+
+  it('returns the managed subset with domain names, plus a synthesized isHome entry labeled with the UPN domain', async () => {
+    const handler = handlerFor('list_tenants', { delegated: true });
+    const { urls } = stubTenantsFetch([
+      { tenantId: MANAGED, domainName: 'fabrikam.com', planTier: 'Enterprise' },
+      // Backend must already bound the response; an out-of-scope row here must still be dropped (defense-in-depth).
+      { tenantId: 'zzzz-not-mine', domainName: 'other-customer.com' },
+    ]);
+
+    const r = await runWithCaller(
+      { token: 'msp', isGlobalAdmin: false, delegatedTenantIds: [MANAGED], homeTenantId: HOME, upn: 'alice@contoso.com' },
+      () => handler({}, extra));
+
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toContain('/api/config/all');
+    const body = JSON.parse(resultText(r)) as { count: number; tenants: Array<Record<string, unknown>> };
+    expect(body.tenants).toHaveLength(2);
+    expect(body.count).toBe(2);
+    const ids = body.tenants.map((t) => t.tenantId);
+    expect(ids).toContain(MANAGED);
+    expect(ids).toContain(HOME);
+    expect(ids).not.toContain('zzzz-not-mine');
+    const home = body.tenants.find((t) => t.tenantId === HOME)!;
+    expect(home.isHome).toBe(true);
+    expect(home.domainName).toBe('contoso.com');
+  });
+
+  it('keeps the real config row (flagged isHome) when the home tenant is itself managed', async () => {
+    const handler = handlerFor('list_tenants', { delegated: true });
+    stubTenantsFetch([{ tenantId: HOME, domainName: 'contoso-real.com' }]);
+
+    const r = await runWithCaller(
+      { token: 'msp', isGlobalAdmin: false, delegatedTenantIds: [MANAGED, HOME], homeTenantId: HOME, upn: 'alice@contoso.com' },
+      () => handler({}, extra));
+
+    const body = JSON.parse(resultText(r)) as { tenants: Array<Record<string, unknown>> };
+    const homes = body.tenants.filter((t) => t.isHome === true);
+    expect(homes).toHaveLength(1);
+    expect(homes[0].domainName).toBe('contoso-real.com');
+  });
+
+  it('does not duplicate the home entry on a paginated follow-up call', async () => {
+    const handler = handlerFor('list_tenants', { delegated: true });
+    stubTenantsFetch([{ tenantId: MANAGED, domainName: 'fabrikam.com' }]);
+
+    const r = await runWithCaller(
+      { token: 'msp', isGlobalAdmin: false, delegatedTenantIds: [MANAGED], homeTenantId: HOME, upn: 'alice@contoso.com' },
+      () => handler({ continuation: '/api/config/all?pageSize=100&continuation=opaque' }, extra));
+
+    const body = JSON.parse(resultText(r)) as { tenants: Array<Record<string, unknown>> };
+    expect(body.tenants.map((t) => t.tenantId)).toEqual([MANAGED]);
+  });
+
+  it('GA behavior is unchanged: no isHome synthesis, out-of-managed rows kept', async () => {
+    const handler = handlerFor('list_tenants', { ga: true });
+    stubTenantsFetch([
+      { tenantId: 'any-tenant', domainName: 'any.com', teamsWebhookUrl: 'https://secret' },
+    ]);
+
+    const r = await runWithCaller(
+      { token: 'ga', isGlobalAdmin: true, homeTenantId: HOME, upn: 'admin@contoso.com' },
+      () => handler({}, extra));
+
+    const body = JSON.parse(resultText(r)) as { tenants: Array<Record<string, unknown>> };
+    expect(body.tenants).toHaveLength(1);
+    expect(body.tenants[0].tenantId).toBe('any-tenant');
+    expect(body.tenants[0].isHome).toBeUndefined();
+    // Keep-list projection still strips secrets on the GA path.
+    expect(body.tenants[0].teamsWebhookUrl).toBeUndefined();
+  });
+});
+
+describe('delegatedTenantListView — pure projection of the delegated tenant list', () => {
+  const HOME = 'bbbb-2222-home';
+
+  it('intersects case-insensitively with the managed set and sorts by domainName', () => {
+    const view = delegatedTenantListView(
+      [
+        { tenantId: MANAGED.toUpperCase(), domainName: 'zeta.com' },
+        { tenantId: 'not-mine', domainName: 'alpha.com' },
+      ],
+      [MANAGED], undefined, undefined, true);
+    expect(view.map((t) => t.tenantId)).toEqual([MANAGED.toUpperCase()]);
+  });
+
+  it('synthesizes the home entry only on the first page and only when absent', () => {
+    const first = delegatedTenantListView([], [MANAGED], HOME, 'contoso.com', true);
+    expect(first).toEqual([{ tenantId: HOME, domainName: 'contoso.com', isHome: true }]);
+
+    const followUp = delegatedTenantListView([], [MANAGED], HOME, 'contoso.com', false);
+    expect(followUp).toEqual([]);
+  });
+
+  it('falls back to an empty label when no UPN domain is known', () => {
+    const view = delegatedTenantListView([], [MANAGED], HOME, undefined, true);
+    expect(view[0].domainName).toBe('');
   });
 });
 
