@@ -165,6 +165,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
             public IReadOnlyCollection<string> StarvedAlreadyReportedOverride { get; set; } = Array.Empty<string>();
             public List<string> TerminationActionLog { get; } = new List<string>();
             public TimeSpan SpoolDrainPeriodOverride { get; set; } = TimeSpan.Zero;
+            // WG Part-1 straggler-ordering fix — the production wiring passes
+            // orchestrator.StopCollectorHosts, whose collectors emit their one-shot
+            // stop-time stragglers (network_bandwidth_estimate, …) through Post during
+            // OnAfterStop. Tests that care about the ordering set this to a hook that
+            // emits a sentinel event; unset leaves the handler with a null action (the
+            // legacy no-op).
+            public Action? StopPeripheralCollectorsHook;
             // Shutdown-gap closure (2026-05-15) — when set, the constructed handler shares
             // this gate with the cross-path idempotency check. Tests that don't set this
             // get null = legacy always-emit behaviour (preserved).
@@ -200,6 +207,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
                     },
                     analyzerManager: null,
                     post: Post,
+                    stopPeripheralCollectors: StopPeripheralCollectorsHook,
                     // Zero out the timing ceremony for tests — production paths are covered by
                     // the dedicated V1-parity tests below which opt back in via their own Rig.
                     lateEventGracePeriod: TimeSpan.Zero);
@@ -463,6 +471,44 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
             // marker MUST NOT be written, or the next Part-2 boot would ghost-detect itself.
             Assert.Equal(0, rig.CleanupService.Invocations);
             Assert.False(File.Exists(Path.Combine(rig.StateDir, "enrollment-complete.marker")));
+        }
+
+        [Fact]
+        public void Handle_whiteglove_part1_stops_collectors_before_emitting_part1_complete()
+        {
+            // WG Part-1 straggler-ordering fix. Peripheral collectors emit their one-shot
+            // stop-time stragglers (e.g. the DeliveryOptimizationCollector's
+            // network_bandwidth_estimate via OnAfterStop) synchronously when stopped. The
+            // handler MUST stop them before emitting whiteglove_part1_complete so those
+            // stragglers receive a lower sequence than the marker — otherwise the web split
+            // (computeWhiteGloveSplitSequence) mis-files them into the resumed Part-2 block.
+            using var rig = new Rig();
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1")) { Stage = SessionStage.WhiteGloveSealed }.Build();
+            // Mirror production: the stop action emits the straggler through Post, exactly
+            // like a real collector's OnAfterStop would.
+            rig.StopPeripheralCollectorsHook = () => rig.Post.Emit(new EnrollmentEvent
+            {
+                SessionId = "S1",
+                TenantId = "T1",
+                EventType = Constants.EventTypes.NetworkBandwidthEstimate,
+                Severity = EventSeverity.Info,
+                Source = "DeliveryOptimizationCollector",
+                Phase = EnrollmentPhase.Unknown,
+                Message = "Estimated internet bandwidth ~200 Mbit/s.",
+                ImmediateUpload = true,
+            });
+
+            rig.Build().Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.WhiteGloveSealed));
+
+            var emitted = rig.EmittedEventTypes.ToList();
+            var bandwidthIdx = emitted.IndexOf(Constants.EventTypes.NetworkBandwidthEstimate);
+            var part1CompleteIdx = emitted.IndexOf(Constants.EventTypes.WhiteGlovePart1Complete);
+
+            Assert.True(bandwidthIdx >= 0, "collector straggler must have been emitted (stop action fired).");
+            Assert.True(part1CompleteIdx >= 0, "whiteglove_part1_complete must have been emitted.");
+            Assert.True(bandwidthIdx < part1CompleteIdx,
+                $"network_bandwidth_estimate (@{bandwidthIdx}) must precede whiteglove_part1_complete (@{part1CompleteIdx}) so the straggler stays in Part 1.");
         }
 
         [Fact]

@@ -36,8 +36,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
     ///     <c>reboot_triggered</c>, drain spool, call <c>shutdown.exe /r /t &lt;delay&gt;</c>.</item>
     ///   <item>Run <see cref="CleanupService.ExecuteSelfDestruct"/> — UNLESS the stage is
     ///     <see cref="SessionStage.WhiteGloveSealed"/> (Part-1 exit, session resumes Part 2).</item>
-    ///   <item>WhiteGlove Part-1 path: emit <c>whiteglove_part1_complete</c>, drain spool, and
-    ///     write <c>whiteglove.complete</c> marker via <see cref="SessionIdPersistence.SaveWhiteGloveComplete"/>
+    ///   <item>WhiteGlove Part-1 path: stop peripheral collectors first (so their stop-time
+    ///     stragglers — e.g. <c>network_bandwidth_estimate</c> — sequence BEFORE the marker),
+    ///     then emit <c>whiteglove_part1_complete</c>, drain spool, and write
+    ///     <c>whiteglove.complete</c> marker via <see cref="SessionIdPersistence.SaveWhiteGloveComplete"/>
     ///     so Part-2 resume is detected on the next boot.</item>
     ///   <item>Signal the caller-owned shutdown <see cref="ManualResetEventSlim"/>.</item>
     /// </list>
@@ -220,6 +222,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 // lets the next agent boot classify itself as a Part-2 resume.
                 if (isWhiteGlovePart1)
                 {
+                    // Stop peripheral collectors BEFORE the Part-1-complete marker so their
+                    // one-shot stop-time stragglers — the DeliveryOptimizationCollector's
+                    // network_bandwidth_estimate (OnAfterStop), a final agent_metrics_snapshot,
+                    // etc. — get a LOWER sequence than whiteglove_part1_complete. Without this,
+                    // the collectors are only stopped later by orchestrator.Stop() during host
+                    // teardown, so their stragglers land AFTER the marker; the web timeline then
+                    // mis-attributes them to the resumed Part-2 (User Enrollment) block because
+                    // computeWhiteGloveSplitSequence treats whiteglove_part1_complete as the
+                    // authoritative end-of-Part-1 boundary (everything with a higher sequence is
+                    // Part 2). Keeping the marker the highest-sequence Part-1 event fixes that.
+                    // Idempotent on the orchestrator side (StopCollectorHosts guards a flag), so
+                    // the full Stop() later is a no-op for the hosts.
+                    StopPeripheralCollectorsBestEffort();
+
                     EmitEventSafe(new EnrollmentEvent
                     {
                         SessionId = _configuration.SessionId,
