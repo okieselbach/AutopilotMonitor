@@ -303,6 +303,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     harmlessModernDeploymentEventIds: collectors.ModernDeploymentHarmlessEventIds));
             }
 
+            // Deterministic update corroboration — compares the persisted OS build (CurrentBuild.UBR)
+            // across agent restarts and emits os_build_changed when it differs (session 7443317c:
+            // build jump proved an OOBE quality update the WU channel never showed). Must be added
+            // BEFORE the WindowsUpdateWatcherHost: hosts start in list order and the watcher's
+            // channel census reads BuildChanged at its own start.
+            var osBuildChangeHost = new OsBuildChangeHost(
+                sessionId: sessionId,
+                tenantId: tenantId,
+                logger: logger,
+                ingress: ingress,
+                clock: clock,
+                stateDirectory: _stateDirectory);
+            hosts.Add(osBuildChangeHost);
+
             // Windows Update during OOBE watcher — subscribes to WindowsUpdateClient/Operational and
             // backfills recent events (OOBE quality updates run before the agent starts). Surfaces
             // quality/cumulative updates installing/failing DURING enrollment — otherwise invisible.
@@ -316,7 +330,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     clock: clock,
                     targetedEventIds: collectors.WindowsUpdateTargetedEventIds,
                     backfillLookbackMinutes: collectors.WindowsUpdateBackfillLookbackMinutes,
-                    stateDirectory: _stateDirectory));
+                    stateDirectory: _stateDirectory,
+                    channelCensusEnabled: collectors.WindowsUpdateChannelCensusEnabled,
+                    osBuildChangedProvider: () => osBuildChangeHost.BuildChanged));
             }
 
             // ----- Peripheral hosts (event-only; driven by remote-config toggles) --------------

@@ -128,6 +128,8 @@ export const EVENT_TYPES_CATALOG = {
     'windows_update_started',
     'windows_update_reboot_pending',
     'windows_update_history',
+    'os_build_changed',
+    'windows_update_channel_census',
   ],
   lifecycle_events: [
     'agent_started',

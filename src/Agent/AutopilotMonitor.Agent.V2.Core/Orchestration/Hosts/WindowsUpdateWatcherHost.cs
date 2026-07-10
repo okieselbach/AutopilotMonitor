@@ -31,7 +31,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             IClock clock,
             int[]? targetedEventIds,
             int backfillLookbackMinutes,
-            string stateDirectory)
+            string stateDirectory,
+            bool channelCensusEnabled = true,
+            Func<bool>? osBuildChangedProvider = null)
         {
             if (ingress == null) throw new ArgumentNullException(nameof(ingress));
             if (clock == null) throw new ArgumentNullException(nameof(clock));
@@ -46,7 +48,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 targetedEventIds: targetedEventIds,
                 backfillEnabled: backfillLookbackMinutes > 0,
                 backfillLookbackMinutes: backfillLookbackMinutes,
-                stateDirectory: stateDirectory);
+                stateDirectory: stateDirectory,
+                channelCensusEnabled: channelCensusEnabled,
+                osBuildChangedProvider: osBuildChangedProvider);
         }
 
         public void Start()

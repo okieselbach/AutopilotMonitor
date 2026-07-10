@@ -386,6 +386,11 @@ namespace AutopilotMonitor.Shared
             // update landed during enrollment even when the watcher's backfill window missed it.
             public const string WindowsUpdateRebootPending = "windows_update_reboot_pending"; // CBS / WU Auto-Update pending-reboot regkey snapshot
             public const string WindowsUpdateHistory       = "windows_update_history";        // Get-HotFix installed-updates snapshot (QFE-registered only)
+            // Deterministic update corroboration + blind-spot self-diagnosis (session 7443317c:
+            // OS build jumped 26200.8037→.8655 across a mid-OOBE reboot, yet the WU channel carried
+            // none of the targeted EventIDs — the update installed via a path the watcher is blind to).
+            public const string OsBuildChanged             = "os_build_changed";               // OS build (CurrentBuild.UBR) differs across an agent restart — an update was installed during enrollment
+            public const string WindowsUpdateChannelCensus = "windows_update_channel_census";  // One-shot EventID histogram of WU Client + UpdateOrchestrator channels when os_build_changed but zero targeted WU events captured
 
             // TEMPORARY: shadow SM rollout verification — remove when CompletionStateMachine is promoted to primary
             public const string ShadowDiscrepancy         = "shadow_discrepancy";

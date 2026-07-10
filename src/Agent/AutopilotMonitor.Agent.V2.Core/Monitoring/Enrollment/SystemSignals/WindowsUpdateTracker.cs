@@ -46,6 +46,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
     internal sealed class WindowsUpdateTracker : IDisposable
     {
         internal const string Channel = "Microsoft-Windows-WindowsUpdateClient/Operational";
+        internal const string OrchestratorChannel = "Microsoft-Windows-UpdateOrchestrator/Operational";
 
         internal const int EventId_InstallSuccess  = 19;
         internal const int EventId_InstallFailure  = 20;
@@ -53,6 +54,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         internal const int EventId_DownloadStarted  = 44;
 
         internal const string WatermarkStateFileName = "windows-update-watermark.json";
+
+        // Hard bound for the unfiltered census scan — during OOBE both channels carry at most a
+        // few hundred records in the lookback window; the cap only guards against a pathological
+        // log. A truncated census says so in its payload (no silent caps).
+        internal const int CensusRecordCap = 5000;
 
         private readonly AgentLogger _logger;
         private readonly string _sessionId;
@@ -62,6 +68,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private readonly bool _backfillEnabled;
         private readonly int _backfillLookbackMinutes;
         private readonly string _stateDirectory;
+        private readonly bool _channelCensusEnabled;
+        private readonly Func<bool> _osBuildChangedProvider;
+
+        // Count of targeted WU events emitted THIS run (live + backfill). Zero after the backfill
+        // while the OS build provably changed = the watcher is blind to the update's channel/IDs.
+        private int _emittedThisRun;
 
         private EventLogWatcher _watcher;
 
@@ -91,7 +103,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             int[] targetedEventIds = null,
             bool backfillEnabled = true,
             int backfillLookbackMinutes = 60,
-            string stateDirectory = null)
+            string stateDirectory = null,
+            bool channelCensusEnabled = true,
+            Func<bool> osBuildChangedProvider = null)
         {
             _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
             _tenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId));
@@ -103,6 +117,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             _backfillEnabled = backfillEnabled;
             _backfillLookbackMinutes = backfillLookbackMinutes;
             _stateDirectory = stateDirectory != null ? Environment.ExpandEnvironmentVariables(stateDirectory) : null;
+            _channelCensusEnabled = channelCensusEnabled;
+            _osBuildChangedProvider = osBuildChangedProvider;
         }
 
         public void Start()
@@ -118,6 +134,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             {
                 _logger.Info("WindowsUpdate backfill disabled by config");
             }
+
+            EmitChannelCensusIfBlind();
         }
 
         public void Stop()
@@ -260,6 +278,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         {
             if (!MarkProcessed(recordId))
                 return; // already emitted (cross-restart or duplicate delivery)
+
+            System.Threading.Interlocked.Increment(ref _emittedThisRun);
 
             string eventType;
             EventSeverity severity;
@@ -527,6 +547,135 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 _logger.Warning($"WindowsUpdate backfill failed: {ex.Message}");
             }
         }
+
+        // -----------------------------------------------------------------------
+        // Blind-spot channel census (session 7443317c)
+        // -----------------------------------------------------------------------
+
+        /// <summary>
+        /// Self-evidencing blind spot diagnosis. Session 7443317c: an OOBE quality update
+        /// provably installed (OS build changed across the mid-enrollment reboot) yet neither
+        /// the live watcher nor two 60-min backfills captured a single targeted event — the
+        /// update logged via a channel/EventID set the watcher is blind to. With diagnostics
+        /// upload tenant-disabled there is no client-log path to find out which one; so when
+        /// the blind spot provably occurred (build changed AND zero targeted events emitted
+        /// this run), emit a one-shot unfiltered EventID histogram of both update channels
+        /// over the lookback window. The histogram arrives via normal event upload and tells
+        /// us which IDs to add to <c>WindowsUpdateTargetedEventIds</c> via remote config —
+        /// no agent redeploy, no diagnostics access needed.
+        /// </summary>
+        internal void EmitChannelCensusIfBlind()
+        {
+            if (!_channelCensusEnabled) return;
+
+            try
+            {
+                if (_osBuildChangedProvider == null || !_osBuildChangedProvider())
+                    return;
+                if (System.Threading.Volatile.Read(ref _emittedThisRun) > 0)
+                    return;
+
+                var lookback = _backfillLookbackMinutes > 0 ? _backfillLookbackMinutes : 60;
+                var scanner = CensusScannerOverride ?? ScanChannel;
+                var wuClient = scanner(Channel, lookback);
+                var orchestrator = scanner(OrchestratorChannel, lookback);
+
+                var wuClientHistogram = FormatHistogram(wuClient.Histogram);
+                var orchestratorHistogram = FormatHistogram(orchestrator.Histogram);
+                _logger.Info(
+                    $"WindowsUpdate channel census (blind spot): wuClient=[{wuClientHistogram}] " +
+                    $"updateOrchestrator=[{orchestratorHistogram}] lookback={lookback}min");
+
+                var data = new Dictionary<string, object>
+                {
+                    { "wuClientCensus", wuClientHistogram },
+                    { "updateOrchestratorCensus", orchestratorHistogram },
+                    { "lookbackMinutes", lookback },
+                    { "restartWatermark", _restartWatermark },
+                    { "targetedEventIds", string.Join(",", _targetedEventIds.OrderBy(id => id)) },
+                };
+                if (wuClient.Truncated || orchestrator.Truncated)
+                    data["censusTruncated"] = true;
+
+                _post.Emit(new EnrollmentEvent
+                {
+                    SessionId = _sessionId,
+                    TenantId = _tenantId,
+                    EventType = Constants.EventTypes.WindowsUpdateChannelCensus,
+                    Severity = EventSeverity.Debug,
+                    Source = "WindowsUpdateWatcher",
+                    Phase = EnrollmentPhase.Unknown,
+                    Message = "Windows Update channel census: OS build changed across restart but no targeted WU events were captured — EventID histogram attached",
+                    Data = data,
+                    ImmediateUpload = false,
+                });
+            }
+            catch (Exception ex)
+            {
+                // Diagnosis must never break the watcher.
+                _logger.Warning($"WindowsUpdate channel census failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>Test seam — replaces the real per-channel scan (Windows event log access).</summary>
+        internal Func<string, int, ChannelCensusScan> CensusScannerOverride { get; set; }
+
+        internal sealed class ChannelCensusScan
+        {
+            public Dictionary<int, int> Histogram { get; }
+            public bool Truncated { get; }
+
+            public ChannelCensusScan(Dictionary<int, int> histogram, bool truncated)
+            {
+                Histogram = histogram ?? new Dictionary<int, int>();
+                Truncated = truncated;
+            }
+        }
+
+        /// <summary>
+        /// Unfiltered EventID→count histogram of <paramref name="channel"/> over the lookback
+        /// window. Fail-soft per channel (a missing UpdateOrchestrator channel returns an empty
+        /// histogram). Bounded by <see cref="CensusRecordCap"/>.
+        /// </summary>
+        internal static ChannelCensusScan ScanChannel(string channel, int lookbackMinutes)
+        {
+            var truncated = false;
+            var histogram = new Dictionary<int, int>();
+            try
+            {
+                var lookbackMs = (long)lookbackMinutes * 60 * 1000;
+                var xpath = $"*[System[TimeCreated[timediff(@SystemTime) <= {lookbackMs}]]]";
+                var query = new EventLogQuery(channel, PathType.LogName, xpath);
+
+                var scanned = 0;
+                using (var reader = new EventLogReader(query))
+                {
+                    EventRecord record;
+                    while ((record = reader.ReadEvent()) != null)
+                    {
+                        using (record)
+                        {
+                            histogram.TryGetValue(record.Id, out var count);
+                            histogram[record.Id] = count + 1;
+                            if (++scanned >= CensusRecordCap)
+                            {
+                                truncated = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (EventLogNotFoundException)
+            {
+                // Channel absent (older builds / test environments) — empty histogram says so.
+            }
+            return new ChannelCensusScan(histogram, truncated);
+        }
+
+        /// <summary>Compact "id=count" form ordered by EventID, e.g. "19=2,25=1,43=2".</summary>
+        internal static string FormatHistogram(Dictionary<int, int> histogram) =>
+            string.Join(",", histogram.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key}={kv.Value}"));
 
         // -----------------------------------------------------------------------
         // Watermark dedup (cross-restart)

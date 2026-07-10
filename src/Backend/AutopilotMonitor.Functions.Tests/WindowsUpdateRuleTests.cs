@@ -7,12 +7,15 @@ using Moq;
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Windows Update during OOBE — pins the firing behaviour of the two built-in analyze rules
+/// Windows Update during OOBE — pins the firing behaviour of the built-in analyze rules
 /// that surface update activity captured by the agent's WindowsUpdateTracker:
 ///   - ANALYZE-DEV-004 (high): a quality/cumulative update FAILED during enrollment.
 ///   - ANALYZE-DEV-005 (info): a quality/cumulative update INSTALLED during enrollment.
-/// Also verifies the matched-condition evidence carries updateTitle / hresult / hresultSymbol so
-/// the web interpolator can render {{updateTitle}} and {{hresultSymbol}} in the explanation.
+///   - ANALYZE-DEV-006 (info): the OS build changed across a mid-enrollment reboot —
+///     deterministic corroboration that works even when the WU channel showed nothing
+///     (session 7443317c blind spot).
+/// Also verifies the matched-condition evidence carries updateTitle / hresult / hresultSymbol /
+/// previousBuild / currentBuild so the web interpolator can render the explanation tokens.
 /// </summary>
 public class WindowsUpdateRuleTests
 {
@@ -122,7 +125,101 @@ public class WindowsUpdateRuleTests
             "exists=true must satisfy the reboot_pending condition.");
     }
 
+    [Fact]
+    public async Task ANALYZE_DEV_006_fires_info_on_os_build_change_with_interpolation_material()
+    {
+        var rule = BuiltInAnalyzeRules.GetAll().First(r => r.RuleId == "ANALYZE-DEV-006");
+        Assert.True(rule.Enabled);
+        Assert.Equal("info", rule.Severity);
+        Assert.False(rule.MarkSessionAsFailedDefault);
+
+        var events = new List<EnrollmentEvent>
+        {
+            OsBuildChanged("26200.8037", "26200.8655"),
+        };
+
+        var outcome = await RunAsync(rule, events);
+
+        var result = Assert.Single(outcome.Results);
+        Assert.Equal("ANALYZE-DEV-006", result.RuleId);
+        Assert.Equal("info", result.Severity);
+
+        // Interpolation material for {{previousBuild}} / {{currentBuild}}
+        var previous = AsDict(result.MatchedConditions["previous_build"]);
+        Assert.Equal("26200.8037", AsString(previous["value"]));
+        var current = AsDict(result.MatchedConditions["current_build"]);
+        Assert.Equal("26200.8655", AsString(current["value"]));
+    }
+
+    [Fact]
+    public async Task ANALYZE_DEV_006_counts_channel_census_as_corroboration()
+    {
+        // Session 7443317c shape: build change + census = the update came through a path the
+        // WU watcher is blind to; the census signal should be part of the matched evidence.
+        var rule = BuiltInAnalyzeRules.GetAll().First(r => r.RuleId == "ANALYZE-DEV-006");
+
+        var events = new List<EnrollmentEvent>
+        {
+            OsBuildChanged("26200.8037", "26200.8655"),
+            WindowsUpdateChannelCensus(),
+        };
+
+        var outcome = await RunAsync(rule, events);
+
+        var result = Assert.Single(outcome.Results);
+        Assert.True(result.MatchedConditions.ContainsKey("wu_channel_blind"),
+            "the census event must be counted as corroboration evidence.");
+    }
+
+    [Fact]
+    public async Task ANALYZE_DEV_006_does_not_fire_without_a_build_change()
+    {
+        var rule = BuiltInAnalyzeRules.GetAll().First(r => r.RuleId == "ANALYZE-DEV-006");
+
+        var events = new List<EnrollmentEvent>
+        {
+            WindowsUpdateSucceeded("2026-07 Cumulative Update (KB5099999)"),
+            WindowsUpdateChannelCensus(),
+        };
+
+        var outcome = await RunAsync(rule, events);
+        Assert.Empty(outcome.Results);
+    }
+
     // ===== Event builders — mirror the WindowsUpdateTracker emit shape =====
+
+    private static EnrollmentEvent OsBuildChanged(string previousBuild, string currentBuild) => new()
+    {
+        EventId = Guid.NewGuid().ToString(),
+        TenantId = TenantId,
+        SessionId = SessionId,
+        EventType = "os_build_changed",
+        Timestamp = DateTime.UtcNow,
+        Sequence = 45,
+        Data = new Dictionary<string, object>
+        {
+            ["previousBuild"] = previousBuild,
+            ["currentBuild"] = currentBuild,
+            ["previousCapturedUtc"] = DateTime.UtcNow.AddMinutes(-30).ToString("o"),
+        }
+    };
+
+    private static EnrollmentEvent WindowsUpdateChannelCensus() => new()
+    {
+        EventId = Guid.NewGuid().ToString(),
+        TenantId = TenantId,
+        SessionId = SessionId,
+        EventType = "windows_update_channel_census",
+        Timestamp = DateTime.UtcNow,
+        Sequence = 46,
+        Data = new Dictionary<string, object>
+        {
+            ["wuClientCensus"] = "21=1,25=3",
+            ["updateOrchestratorCensus"] = "200=2",
+            ["lookbackMinutes"] = 60,
+            ["targetedEventIds"] = "19,20,43,44",
+        }
+    };
 
     private static EnrollmentEvent WindowsUpdateFailed(string title, string hresult, string hresultSymbol) => new()
     {

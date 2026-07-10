@@ -78,6 +78,10 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
     description: "Startup snapshot of the CBS RebootPending registry key. Present at agent start = a high-confidence corroborator that a (often pre-agent, OOBE-time) update landed and needs a reboot, which can delay/block completion. Gather rule GATHER-DEVICE-005 (on by default)." },
   { value: "windows_update_history", label: "windows_update_history", category: "esp",
     description: "Get-HotFix snapshot of recently installed updates (secondary corroboration). Gather rule GATHER-DEVICE-004 — opt-in (cmdlet cost; QFE-registered updates only)." },
+  { value: "os_build_changed", label: "os_build_changed", category: "esp",
+    description: "The OS build (CurrentBuild.UBR) differs across an agent restart — an update was installed during enrollment, no matter which servicing path it took. Deterministic corroboration for the Windows Update watcher (cannot be lost to timing, watermarks or unexpected logging channels). Carries previousBuild and currentBuild." },
+  { value: "windows_update_channel_census", label: "windows_update_channel_census", category: "esp",
+    description: "Blind-spot self-diagnosis: the OS build changed but zero targeted Windows Update events were captured. Carries an unfiltered EventID histogram of the WindowsUpdateClient and UpdateOrchestrator channels (wuClientCensus / updateOrchestratorCensus, 'id=count' format) — field evidence for which EventIDs to add to WindowsUpdateTargetedEventIds via remote config." },
 
   // -------- ESP signals --------
   { value: "esp_phase_changed", label: "esp_phase_changed", category: "esp",

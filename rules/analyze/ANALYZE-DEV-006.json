@@ -1,0 +1,65 @@
+{
+  "$schema": "../schema/analyze-rule.schema.json",
+  "ruleId": "ANALYZE-DEV-006",
+  "title": "OS Build Changed During Enrollment",
+  "description": "Informational: the OS build (CurrentBuild.UBR) changed across a reboot during enrollment — an update was installed, regardless of which servicing path delivered it. Deterministic corroboration that works even when the Windows Update event channel shows nothing (registry comparison across restart cannot be lost to timing or logging-path differences).",
+  "severity": "info",
+  "category": "device",
+  "version": "1.0.0",
+  "enabled": true,
+  "trigger": "single",
+  "baseConfidence": 70,
+  "confidenceThreshold": 50,
+  "conditions": [
+    {
+      "signal": "build_changed",
+      "source": "event_type",
+      "eventType": "os_build_changed",
+      "operator": "exists",
+      "value": "",
+      "required": true
+    },
+    {
+      "signal": "previous_build",
+      "source": "event_data",
+      "eventType": "os_build_changed",
+      "dataField": "previousBuild",
+      "operator": "exists",
+      "value": "",
+      "required": false
+    },
+    {
+      "signal": "current_build",
+      "source": "event_data",
+      "eventType": "os_build_changed",
+      "dataField": "currentBuild",
+      "operator": "exists",
+      "value": "",
+      "required": false
+    },
+    {
+      "signal": "wu_channel_blind",
+      "source": "event_type",
+      "eventType": "windows_update_channel_census",
+      "operator": "exists",
+      "value": "",
+      "required": false
+    }
+  ],
+  "confidenceFactors": [
+    { "signal": "wu_channel_blind", "condition": "exists", "weight": 10 }
+  ],
+  "explanation": "The OS build changed from **{{previousBuild}}** to **{{currentBuild}}** across a reboot during enrollment — a Windows update was installed mid-provisioning. This is normal when quality updates run during OOBE, but it adds a reboot and extends enrollment time. If a windows_update_channel_census event is also present, the update installed via a servicing path the Windows Update watcher does not capture yet — its EventID histogram tells which IDs to enable.",
+  "remediation": [
+    {
+      "title": "Optional review",
+      "steps": [
+        "No action required — this is informational context for enrollment duration and reboot analysis.",
+        "Correlate the build jump with reboots and any behavior change after enrollment.",
+        "If quality updates during OOBE are not desired for this Autopilot profile, review the ESP 'Install quality updates during OOBE' setting."
+      ]
+    }
+  ],
+  "markSessionAsFailedDefault": false,
+  "tags": ["device", "windows-update", "oobe", "reboot"]
+}

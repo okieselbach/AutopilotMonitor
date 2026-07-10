@@ -458,6 +458,19 @@ namespace AutopilotMonitor.Shared.Models
         public int WindowsUpdateBackfillLookbackMinutes { get; set; } = 60;
 
         /// <summary>
+        /// Self-evidencing blind-spot census (session 7443317c: an OOBE quality update installed —
+        /// OS build changed across the reboot — yet the WindowsUpdateClient channel carried NONE of
+        /// the targeted EventIDs). When enabled and the OS build changed across an agent restart
+        /// while zero targeted WU events were captured, the tracker emits a one-shot
+        /// <c>windows_update_channel_census</c> event with an unfiltered EventID histogram of the
+        /// WindowsUpdateClient AND UpdateOrchestrator channels over the backfill lookback window —
+        /// field evidence for which EventIDs/channel to add to
+        /// <see cref="WindowsUpdateTargetedEventIds"/> via remote config, without diagnostics
+        /// upload access. Default: true.
+        /// </summary>
+        public bool WindowsUpdateChannelCensusEnabled { get; set; } = true;
+
+        /// <summary>
         /// Creates default collector configuration
         /// </summary>
         public static CollectorConfiguration CreateDefault()

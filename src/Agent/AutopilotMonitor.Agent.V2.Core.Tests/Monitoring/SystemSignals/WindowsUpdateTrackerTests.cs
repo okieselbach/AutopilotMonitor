@@ -250,5 +250,117 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             Assert.Equal("S_OK", WindowsUpdateTracker.DecodeHResult(0x00000000));
             Assert.Equal("WU_E_UNKNOWN", WindowsUpdateTracker.DecodeHResult(0x8888DEAD));
         }
+
+        // ---------------------------------------------------------------------------
+        // Blind-spot channel census (session 7443317c)
+        // ---------------------------------------------------------------------------
+
+        private WindowsUpdateTracker BuildCensusTracker(
+            bool censusEnabled,
+            bool osBuildChanged,
+            Func<string, int, WindowsUpdateTracker.ChannelCensusScan>? scanner = null)
+        {
+            var post = new InformationalEventPost(_sink, new VirtualClock(At));
+            var logger = new AgentLogger(_tmp.Path, AgentLogLevel.Info);
+            var tracker = new WindowsUpdateTracker(
+                sessionId: "sess-wu",
+                tenantId: "tenant-wu",
+                post: post,
+                logger: logger,
+                backfillEnabled: false,
+                stateDirectory: null,
+                channelCensusEnabled: censusEnabled,
+                osBuildChangedProvider: () => osBuildChanged);
+            tracker.CensusScannerOverride = scanner ?? ((channel, lookback) =>
+                new WindowsUpdateTracker.ChannelCensusScan(
+                    channel == WindowsUpdateTracker.Channel
+                        ? new Dictionary<int, int> { { 25, 3 }, { 21, 1 } }
+                        : new Dictionary<int, int> { { 200, 2 } },
+                    truncated: false));
+            return tracker;
+        }
+
+        [Fact]
+        public void Census_BuildChanged_ZeroTargetedEmitted_EmitsHistogramEvent()
+        {
+            var tracker = BuildCensusTracker(censusEnabled: true, osBuildChanged: true);
+
+            tracker.EmitChannelCensusIfBlind();
+
+            var s = Assert.Single(ByType(Constants.EventTypes.WindowsUpdateChannelCensus));
+            Assert.Equal("Debug", s.Payload![SignalPayloadKeys.Severity]);
+            var data = Data(s);
+            Assert.Equal("21=1,25=3", data["wuClientCensus"]);
+            Assert.Equal("200=2", data["updateOrchestratorCensus"]);
+            Assert.Equal("19,20,43,44", data["targetedEventIds"]);
+            Assert.False(data.ContainsKey("censusTruncated"));
+        }
+
+        [Fact]
+        public void Census_BuildUnchanged_EmitsNothing()
+        {
+            var tracker = BuildCensusTracker(censusEnabled: true, osBuildChanged: false);
+
+            tracker.EmitChannelCensusIfBlind();
+
+            Assert.Empty(ByType(Constants.EventTypes.WindowsUpdateChannelCensus));
+        }
+
+        [Fact]
+        public void Census_TargetedEventsWereEmittedThisRun_EmitsNothing()
+        {
+            // The watcher captured the update through its normal path — no blind spot to report.
+            var tracker = BuildCensusTracker(censusEnabled: true, osBuildChanged: true);
+            tracker.ProcessEvent(WindowsUpdateTracker.EventId_InstallSuccess, 4, recordId: 9, timeCreatedUtc: At,
+                updateTitle: "KB1", updateGuid: null, updateRevisionNumber: null, errorCode: null,
+                formattedDescription: null, isBackfill: false);
+
+            tracker.EmitChannelCensusIfBlind();
+
+            Assert.Empty(ByType(Constants.EventTypes.WindowsUpdateChannelCensus));
+        }
+
+        [Fact]
+        public void Census_DisabledByConfig_EmitsNothing()
+        {
+            var tracker = BuildCensusTracker(censusEnabled: false, osBuildChanged: true);
+
+            tracker.EmitChannelCensusIfBlind();
+
+            Assert.Empty(ByType(Constants.EventTypes.WindowsUpdateChannelCensus));
+        }
+
+        [Fact]
+        public void Census_TruncatedScan_SaysSoInPayload()
+        {
+            // No silent caps: a capped scan must be visible in the evidence.
+            var tracker = BuildCensusTracker(censusEnabled: true, osBuildChanged: true,
+                scanner: (channel, lookback) => new WindowsUpdateTracker.ChannelCensusScan(
+                    new Dictionary<int, int> { { 19, WindowsUpdateTracker.CensusRecordCap } }, truncated: true));
+
+            tracker.EmitChannelCensusIfBlind();
+
+            var s = Assert.Single(ByType(Constants.EventTypes.WindowsUpdateChannelCensus));
+            Assert.Equal(true, Data(s)["censusTruncated"]);
+        }
+
+        [Fact]
+        public void Census_ScannerThrows_IsSwallowed_NeverBreaksTheWatcher()
+        {
+            var tracker = BuildCensusTracker(censusEnabled: true, osBuildChanged: true,
+                scanner: (channel, lookback) => throw new InvalidOperationException("boom"));
+
+            tracker.EmitChannelCensusIfBlind();
+
+            Assert.Empty(ByType(Constants.EventTypes.WindowsUpdateChannelCensus));
+        }
+
+        [Fact]
+        public void FormatHistogram_OrdersByEventId()
+        {
+            Assert.Equal("19=2,25=1,43=7",
+                WindowsUpdateTracker.FormatHistogram(new Dictionary<int, int> { { 43, 7 }, { 19, 2 }, { 25, 1 } }));
+            Assert.Equal("", WindowsUpdateTracker.FormatHistogram(new Dictionary<int, int>()));
+        }
     }
 }
