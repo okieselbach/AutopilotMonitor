@@ -29,6 +29,7 @@ interface FailureSnapshot {
   lastNetworkState?: string | null;
   // Schema v3 (2026-07-10): evidence behind the "user completed setup" reconcile rule.
   helloResolved?: boolean;
+  skipUserEsp?: boolean;
   realmJoinDetected?: boolean;
   realmJoinResolved?: boolean;
   missingSignals?: string[];
@@ -86,6 +87,9 @@ export default function FailureSnapshotBlock({
             <SnapshotItem label="Hello policy" value={fmtHelloPolicy(snapshot)} />
             {snapshot.helloResolved !== undefined && (
               <SnapshotItem label="Hello completed" value={fmtBool(snapshot.helloResolved)} />
+            )}
+            {snapshot.skipUserEsp !== undefined && (
+              <SnapshotItem label="User ESP" value={snapshot.skipUserEsp ? "skipped (profile)" : "required"} />
             )}
             {snapshot.realmJoinDetected !== undefined && (
               <SnapshotItem label="RealmJoin" value={fmtRealmJoin(snapshot)} />

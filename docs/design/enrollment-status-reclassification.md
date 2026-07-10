@@ -101,8 +101,9 @@ Given a non-terminal session past the inactivity window:
 2. AccountSetup rollup = ALL subcategories succeeded
    OR enrollment_complete / whiteglove_complete present         → Succeeded       (reconcile)
 3. agent_emergency_break present (agent provably gone)          → Incomplete      (skip grace)
-4. desktop_arrived AND positive Hello terminal
-   (hello_provisioning_completed / hello_skipped) present       → Succeeded       (reconcile)
+4. desktop_arrived AND ( positive Hello terminal
+   (hello_provisioning_completed / hello_skipped) present
+   OR hello policy disabled AND User ESP skipped )              → Succeeded       (reconcile)
 5. DeviceSetup rollup = ALL subcategories succeeded (or 30s
    fallback) AND no failure event:
       a. within grace (now - StartedAt < SessionGraceHours)      → AwaitingUser    (non-terminal)
@@ -119,8 +120,18 @@ the completion report never left the device (shutdown / process kill / egress cu
 Labeling it `AwaitingUser` is factually wrong — the user was provably there. The reason
 string distinguishes "RealmJoin deployment never reported completion" (RJ detected but
 unresolved) from the generic "agent went silent before reporting completion". The failure
-snapshot (schema v3) carries the evidence: `helloResolved`, `realmJoinDetected`,
-`realmJoinResolved`.
+snapshot (schema v3) carries the evidence: `helloResolved`, `skipUserEsp`,
+`realmJoinDetected`, `realmJoinResolved`.
+
+The Hello‑disabled branch mirrors the agent's Hello‑disabled fast‑path exactly: with
+`hello_policy_detected(helloEnabled=false)` **and** `esp_config_detected(skipUserStatusPage=true)`
+no Hello terminal can ever exist, and the agent completes on desktop arrival in that
+configuration. Hello disabled **without** SkipUserEsp does NOT qualify — the agent's strong
+post‑AccountSetup gate (session `08c99638`) requires the AccountSetup rollup there, which
+step 2 already covers. Note `esp_exiting` (Shell‑Core 62407) is deliberately NOT used as
+success evidence anywhere in this table: it is a page‑lifecycle event that fires with
+`errorCode=0` even while AccountSetup apps are unfinished (the very lesson of `08c99638`),
+unlike the Hello events, which are outcome terminals.
 
 Rationale for each bucket sizing is in the Evidence table above.
 ⚠️ Gate step 2/3 on the **subcategory rollup**, not `categorySucceeded`.

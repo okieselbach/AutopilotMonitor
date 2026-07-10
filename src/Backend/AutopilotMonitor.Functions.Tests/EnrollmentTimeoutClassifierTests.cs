@@ -17,13 +17,21 @@ public class EnrollmentTimeoutClassifierTests
 {
     private static readonly DateTime Start = new(2026, 7, 6, 15, 0, 0, DateTimeKind.Utc);
 
-    private static EnrollmentEvent Evt(string type, string? message = null) => new()
+    private static EnrollmentEvent Evt(string type, string? message = null,
+        Dictionary<string, object>? data = null) => new()
     {
         EventType = type,
         Timestamp = Start,
         Source = "test",
         Message = message ?? type,
+        Data = data!,
     };
+
+    private static EnrollmentEvent HelloPolicy(bool enabled) =>
+        Evt("hello_policy_detected", data: new Dictionary<string, object> { ["helloEnabled"] = enabled.ToString() });
+
+    private static EnrollmentEvent EspConfig(bool skipUser) =>
+        Evt("esp_config_detected", data: new Dictionary<string, object> { ["skipUserStatusPage"] = skipUser });
 
     private static EnrollmentEvent Esp(string message) => Evt("esp_provisioning_status", message);
 
@@ -108,6 +116,26 @@ public class EnrollmentTimeoutClassifierTests
         // Both RealmJoin gate terminals count as resolved (phase 110 or 60-min hard timeout).
         Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("realmjoin_resolved") }).RealmJoinResolved);
         Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("realmjoin_timeout") }).RealmJoinResolved);
+    }
+
+    [Fact]
+    public void ExtractRollup_reads_hello_policy_and_skip_user_esp_from_event_data()
+    {
+        Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { HelloPolicy(enabled: false) }).HelloPolicyDisabled);
+        Assert.False(EnrollmentTimeoutClassifier.ExtractRollup(new[] { HelloPolicy(enabled: true) }).HelloPolicyDisabled);
+        // Contradicting observations resolve pessimistically → treat as enabled (keep demanding
+        // the Hello terminal).
+        Assert.False(EnrollmentTimeoutClassifier.ExtractRollup(
+            new[] { HelloPolicy(enabled: false), HelloPolicy(enabled: true) }).HelloPolicyDisabled);
+
+        Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { EspConfig(skipUser: true) }).SkipUserEsp);
+        Assert.False(EnrollmentTimeoutClassifier.ExtractRollup(new[] { EspConfig(skipUser: false) }).SkipUserEsp);
+        Assert.False(EnrollmentTimeoutClassifier.ExtractRollup(
+            new[] { EspConfig(skipUser: true), EspConfig(skipUser: false) }).SkipUserEsp);
+        // No policy events at all → both false (pessimistic default).
+        var bare = EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("agent_started") });
+        Assert.False(bare.HelloPolicyDisabled);
+        Assert.False(bare.SkipUserEsp);
     }
 
     [Fact]
@@ -199,6 +227,49 @@ public class EnrollmentTimeoutClassifierTests
             Esp(DeviceSetup44), Evt("desktop_arrived"), Evt("hello_skipped"),
         }, hoursSinceStart: 6);
         Assert.Equal(SessionStatus.Succeeded, status);
+    }
+
+    [Fact]
+    public void Classify_hello_disabled_plus_skip_user_esp_plus_desktop_reconciles_to_Succeeded()
+    {
+        // Mirror of the agent's Hello-disabled fast-path: HelloPolicyEnabled==false +
+        // SkipUserEsp==true + desktop arrival completes on the device, so a silent session
+        // with the same evidence reconciles to Succeeded — no Hello terminal can ever exist
+        // in this configuration.
+        var (status, reason) = Classify(new[]
+        {
+            Esp(DeviceSetup44), Evt("desktop_arrived"),
+            HelloPolicy(enabled: false), EspConfig(skipUser: true),
+        }, hoursSinceStart: 6);
+        Assert.Equal(SessionStatus.Succeeded, status);
+        Assert.Contains("User ESP skipped, Windows Hello disabled", reason);
+    }
+
+    [Fact]
+    public void Classify_hello_disabled_without_skip_user_esp_stays_AwaitingUser()
+    {
+        // Hello disabled but User ESP required: the agent's strong post-AccountSetup gate
+        // (session 08c99638) blocks its fast-path too — completion needs the AccountSetup
+        // rollup (rule 2) there, so the backend must keep waiting as well.
+        var (status, _) = Classify(new[]
+        {
+            Esp(DeviceSetup44), Esp(AccountSetup15), Evt("desktop_arrived"),
+            HelloPolicy(enabled: false), EspConfig(skipUser: false),
+        }, hoursSinceStart: 6);
+        Assert.Equal(SessionStatus.AwaitingUser, status);
+    }
+
+    [Fact]
+    public void Classify_skip_user_esp_with_hello_enabled_still_requires_hello_terminal()
+    {
+        // SkipUserEsp only waives the AccountSetup evidence, never the Hello wizard — with
+        // Hello enabled the user still has to finish/skip the wizard on the device.
+        var (status, _) = Classify(new[]
+        {
+            Esp(DeviceSetup44), Evt("desktop_arrived"),
+            HelloPolicy(enabled: true), EspConfig(skipUser: true),
+        }, hoursSinceStart: 6);
+        Assert.Equal(SessionStatus.AwaitingUser, status);
     }
 
     [Fact]

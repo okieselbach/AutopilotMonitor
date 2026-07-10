@@ -94,6 +94,8 @@ namespace AutopilotMonitor.Functions.Services
             bool HasAgentEmergencyBreak,
             bool DesktopArrived,
             bool HelloResolved,
+            bool HelloPolicyDisabled,
+            bool SkipUserEsp,
             bool RealmJoinDetected,
             bool RealmJoinResolved);
 
@@ -113,6 +115,8 @@ namespace AutopilotMonitor.Functions.Services
             bool hasFailure = false, hasComplete = false, hasEmergencyBreak = false;
             bool desktopArrived = false, helloResolved = false;
             bool realmJoinDetected = false, realmJoinResolved = false;
+            bool sawHelloPolicyEnabled = false, sawHelloPolicyDisabled = false;
+            bool sawSkipUserTrue = false, sawSkipUserFalse = false;
 
             foreach (var evt in events)
             {
@@ -137,6 +141,27 @@ namespace AutopilotMonitor.Functions.Services
                 // hard timeout (both dual-emitted to the timeline by the agent/engine).
                 else if (Eq(type, "realmjoin_resolved") || Eq(type, "realmjoin_timeout"))
                     realmJoinResolved = true;
+                // Policy facts for the Hello-disabled / User-ESP-skipped completion mirror.
+                // Contradicting observations are resolved pessimistically below (both-seen →
+                // treat as enabled/required, i.e. keep demanding the Hello terminal).
+                else if (Eq(type, "hello_policy_detected"))
+                {
+                    var raw = TryGetDataString(evt, "helloEnabled");
+                    if (bool.TryParse(raw, out var enabled))
+                    {
+                        if (enabled) sawHelloPolicyEnabled = true;
+                        else sawHelloPolicyDisabled = true;
+                    }
+                }
+                else if (Eq(type, "esp_config_detected"))
+                {
+                    var raw = TryGetDataString(evt, "skipUserStatusPage");
+                    if (bool.TryParse(raw, out var skip))
+                    {
+                        if (skip) sawSkipUserTrue = true;
+                        else sawSkipUserFalse = true;
+                    }
+                }
 
                 var msg = evt.Message;
                 if (string.IsNullOrEmpty(msg)) continue;
@@ -178,6 +203,8 @@ namespace AutopilotMonitor.Functions.Services
                 HasAgentEmergencyBreak: hasEmergencyBreak,
                 DesktopArrived: desktopArrived,
                 HelloResolved: helloResolved,
+                HelloPolicyDisabled: sawHelloPolicyDisabled && !sawHelloPolicyEnabled,
+                SkipUserEsp: sawSkipUserTrue && !sawSkipUserFalse,
                 RealmJoinDetected: realmJoinDetected,
                 RealmJoinResolved: realmJoinResolved);
         }
@@ -224,13 +251,26 @@ namespace AutopilotMonitor.Functions.Services
             //    remains explicitly rejected as a completion signal (design doc) — it fires
             //    while the user phase is still running; the Hello terminal is what proves the
             //    user finished.
-            if (rollup.DesktopArrived && rollup.HelloResolved)
+            //
+            //    Hello-disabled mirror: when the tenant runs with Windows Hello disabled AND
+            //    the User ESP skipped, no Hello terminal can ever exist — the agent's own
+            //    Hello-disabled fast-path (HandleDesktopArrivedV1) completes on desktop arrival
+            //    in exactly that configuration (HelloPolicyEnabled==false + SkipUserEsp==true).
+            //    Hello disabled WITHOUT SkipUserEsp intentionally does NOT qualify: there the
+            //    agent's strong post-AccountSetup gate (session 08c99638) requires the
+            //    AccountSetup rollup, which rule 2 already covers when it reached all-succeeded.
+            var helloSatisfied = rollup.HelloResolved
+                || (rollup.HelloPolicyDisabled && rollup.SkipUserEsp);
+            if (rollup.DesktopArrived && helloSatisfied)
             {
+                var evidence = rollup.HelloResolved
+                    ? "desktop + Windows Hello"
+                    : "desktop; User ESP skipped, Windows Hello disabled";
                 var detail = rollup.RealmJoinDetected && !rollup.RealmJoinResolved
                     ? "RealmJoin deployment never reported completion before the agent went silent"
                     : "agent went silent before reporting completion";
                 return (SessionStatus.Succeeded,
-                    $"Reconciled at timeout: user completed setup (desktop + Windows Hello) — {detail}");
+                    $"Reconciled at timeout: user completed setup ({evidence}) — {detail}");
             }
 
             // 5. Device Setup fully provisioned (device is AADJ + MDM-enrolled), user phase pending.
@@ -258,5 +298,12 @@ namespace AutopilotMonitor.Functions.Services
 
         private static bool Eq(string a, string b) =>
             string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+        private static string? TryGetDataString(EnrollmentEvent evt, string key)
+        {
+            if (evt?.Data == null) return null;
+            if (!evt.Data.TryGetValue(key, out var raw) || raw == null) return null;
+            return raw.ToString();
+        }
     }
 }

@@ -27,10 +27,10 @@ namespace AutopilotMonitor.Functions.Services
         // v2 (2026-07-08): added the ESP DeviceSetup/AccountSetup subcategory rollup fields
         // (deviceSetupAllSucceeded / accountSetup*) that the timeout reclassification uses —
         // see docs/design/enrollment-status-reclassification.md.
-        // v3 (2026-07-10): added helloResolved + realmJoinDetected/realmJoinResolved — the
-        // evidence behind the "user completed setup" reconcile rule (session 294ab5b4: user
-        // reached desktop + finished Hello, only the RealmJoin gate was pending when the
-        // agent went silent; previously mislabeled AwaitingUser).
+        // v3 (2026-07-10): added helloResolved + realmJoinDetected/realmJoinResolved +
+        // skipUserEsp — the evidence behind the "user completed setup" reconcile rule
+        // (session 294ab5b4: user reached desktop + finished Hello, only the RealmJoin gate
+        // was pending when the agent went silent; previously mislabeled AwaitingUser).
         public const int CurrentSchemaVersion = 3;
 
         // Canonical signals we expect to have seen by the time a healthy session completes.
@@ -241,6 +241,7 @@ namespace AutopilotMonitor.Functions.Services
                 accountSetupTotal = espRollup.AccountSetupTotal,
                 accountSetupAllSucceeded = espRollup.AccountSetupAllSucceeded,
                 helloResolved = espRollup.HelloResolved,
+                skipUserEsp = espRollup.SkipUserEsp,
                 realmJoinDetected = espRollup.RealmJoinDetected,
                 realmJoinResolved = espRollup.RealmJoinResolved,
                 missingSignals = missing,

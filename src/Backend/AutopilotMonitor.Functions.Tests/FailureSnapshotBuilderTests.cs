@@ -328,6 +328,20 @@ public class FailureSnapshotBuilderTests
         Assert.True((bool)obj["helloResolved"]!);
         Assert.True((bool)obj["realmJoinDetected"]!);
         Assert.False((bool)obj["realmJoinResolved"]!);
+        Assert.False((bool)obj["skipUserEsp"]!);
+    }
+
+    [Fact]
+    public void Build_records_skip_user_esp_from_esp_config_event_data()
+    {
+        var json = FailureSnapshotBuilder.Build(new[]
+        {
+            Event("esp_config_detected", Now.AddHours(-5),
+                data: new Dictionary<string, object> { ["skipUserStatusPage"] = true }),
+        }, Now);
+
+        var obj = JObject.Parse(json!);
+        Assert.True((bool)obj["skipUserEsp"]!);
     }
 
     // ============================================================================
