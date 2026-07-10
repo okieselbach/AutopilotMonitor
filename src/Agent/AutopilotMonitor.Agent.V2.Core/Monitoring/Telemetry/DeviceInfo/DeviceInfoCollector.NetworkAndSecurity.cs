@@ -513,7 +513,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
         /// the desktop via "Continue anyway".
         /// </para>
         /// </summary>
-        private (bool? skipUserStatusPage, bool? skipDeviceStatusPage) CollectEspConfiguration()
+        // Internal (not private) as a test seam: unlike CollectAll/CollectAtEnrollmentStart this
+        // method touches no live system state once both probes are overridden, so tests can
+        // drive the esp_config_detected event surface in isolation (InternalsVisibleTo).
+        internal (bool? skipUserStatusPage, bool? skipDeviceStatusPage) CollectEspConfiguration()
         {
             bool? skipUser = null;
             bool? skipDevice = null;
@@ -540,7 +543,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                 if (snapshot.SyncFailureTimeoutMinutes.HasValue)
                     data["syncFailureTimeoutMinutes"] = snapshot.SyncFailureTimeoutMinutes.Value;
 
-                var summary = BuildSummary(snapshot);
+                // Session a4537c36: the ESP's own tracking lists (ESPTrackingInfo\Diagnostics)
+                // tell which packages the ESP actually blocks on — vs. merely-required IME
+                // assignments. Omit all keys when the Diagnostics key is absent (non-Autopilot
+                // device / old build). The user-scoped S-<SID> subkeys usually appear only
+                // after sign-in, so the user list is often empty at this early emission.
+                var tracking = EspTrackingInfoProbe.Read(_logger);
+                if (tracking.HasData)
+                {
+                    data["espTrackedWin32AppIds"] = tracking.Win32AppIds;
+                    data["espTrackedUserWin32AppIds"] = tracking.UserWin32AppIds;
+                    data["espTrackedMsiProductCodes"] = tracking.MsiProductCodes;
+                    data["espTrackedModernAppPfns"] = tracking.ModernAppPfns;
+                    data["espTrackedWin32Count"] = tracking.Win32Count;
+                    data["espTrackedMsiCount"] = tracking.MsiCount;
+                    data["espTrackedModernCount"] = tracking.ModernCount;
+                }
+
+                var summary = BuildSummary(snapshot, tracking);
                 _logger.Info($"EnrollmentTracker: ESP configuration detected — {summary}");
                 EmitDeviceInfoEvent(Constants.EventTypes.EspConfigDetected, $"ESP configuration: {summary}", data);
                 PostEspConfigDetectedSignal(snapshot);
@@ -553,13 +573,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
             return (skipUser, skipDevice);
         }
 
-        private static string BuildSummary(EspFirstSyncSnapshot snapshot)
+        private static string BuildSummary(EspFirstSyncSnapshot snapshot, EspTrackingInfoSnapshot tracking = default)
         {
             var skipUserText = snapshot.SkipUser?.ToString() ?? "unknown";
             var skipDeviceText = snapshot.SkipDevice?.ToString() ?? "unknown";
             var basePart = $"SkipUser={skipUserText}, SkipDevice={skipDeviceText}";
 
-            if (!snapshot.BlockInStatusPage.HasValue && !snapshot.SyncFailureTimeoutMinutes.HasValue)
+            if (!snapshot.BlockInStatusPage.HasValue && !snapshot.SyncFailureTimeoutMinutes.HasValue && !tracking.HasData)
                 return basePart;
 
             var sb = new System.Text.StringBuilder(basePart);
@@ -572,6 +592,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
             }
             if (snapshot.SyncFailureTimeoutMinutes.HasValue)
                 sb.Append(", SyncFailureTimeoutMin=").Append(snapshot.SyncFailureTimeoutMinutes.Value);
+            if (tracking.HasData)
+            {
+                sb.Append(", TrackedApps(win32=").Append(tracking.Win32Count);
+                sb.Append(", msi=").Append(tracking.MsiCount);
+                sb.Append(", modern=").Append(tracking.ModernCount).Append(")");
+            }
             return sb.ToString();
         }
 
