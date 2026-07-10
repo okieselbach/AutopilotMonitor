@@ -56,7 +56,12 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// fires, same dead-end). Without it the session would idle until the max-lifetime
         /// watchdog with no terminal verdict. When this deadline fires the engine resolves the
         /// session either way: Completed when the real-user completion conjunction holds
-        /// (Desktop + Hello + genuine IME user-session evidence), Failed otherwise.
+        /// (Desktop + Hello + genuine IME user-session evidence), Failed otherwise — except
+        /// that the esp-exit variant first checks two false-positive guards (session 1924092e,
+        /// 2026-07-10: a pre-sign-in IME AccountSetup line let a Device→Account handoff exit
+        /// arm the window, which then failed a live enrollment mid-install): a reboot while
+        /// armed cancels the window, and enforcement progress since arming re-arms it instead
+        /// of failing.
         /// </summary>
         public const string AdvisoryCompletion = "advisory_completion";
     }

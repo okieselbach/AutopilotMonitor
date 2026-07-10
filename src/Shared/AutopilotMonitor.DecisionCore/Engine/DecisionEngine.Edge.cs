@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using AutopilotMonitor.DecisionCore.Signals;
 using AutopilotMonitor.DecisionCore.State;
+using AutopilotMonitor.Shared.Models;
 using SharedConstants = AutopilotMonitor.Shared.Constants;
 
 namespace AutopilotMonitor.DecisionCore.Engine
@@ -15,6 +17,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// <c>EspAndHelloTracker</c> after a reboot mid-ESP. The session's stage is preserved
         /// (we were already somewhere in the ESP phase sequence), but the reboot fact is
         /// recorded so downstream classifiers (WhiteGloveSealingClassifier) can factor it in.
+        /// A reboot also cancels an esp-exit-variant AdvisoryCompletion window — see
+        /// <see cref="CancelEspExitVariantAdvisoryWindowOnReboot"/>.
         /// </summary>
         private DecisionStep HandleEspResumedV1(DecisionState state, DecisionSignal signal)
         {
@@ -30,6 +34,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 builder.SystemRebootUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
             }
 
+            var cancelEffect = CancelEspExitVariantAdvisoryWindowOnReboot(state, builder);
+
             var newState = builder.Build();
             var transition = BuildTakenTransition(
                 before: state,
@@ -38,7 +44,51 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 nextStepIndex: nextStep,
                 trigger: nameof(DecisionSignalKind.EspResumed));
 
-            return new DecisionStep(newState, transition, Array.Empty<DecisionEffect>());
+            return new DecisionStep(
+                newState,
+                transition,
+                cancelEffect != null ? new[] { cancelEffect } : Array.Empty<DecisionEffect>());
+        }
+
+        /// <summary>
+        /// Session 1924092e (2026-07-10) — false-positive guard for the esp-exit-variant
+        /// <see cref="DeadlineNames.AdvisoryCompletion"/> window. The 1ec8f4c6 dead-end shape
+        /// is "the ESP page closed normally and then NOTHING happens on the device". A reboot
+        /// observed while that window is armed disproves the shape: the arming exit predates
+        /// the reboot, so it was a pre-reboot page close (Device→Account handoff, autologon
+        /// restart), not a final exit the user is now staring past. In session 1924092e the
+        /// IME logged an AccountSetup phase line pre-sign-in (defaultuser0/AutoLogon frame),
+        /// the handoff exit armed the window, and the deadline survived two reboots via state
+        /// recovery — then failed the session mid-AccountSetup while apps were actively
+        /// installing. Cancel the window; a later genuine guard-blocked post-AccountSetup
+        /// exit re-arms a fresh one (the arming site is fire-once only while armed).
+        /// <para>
+        /// The advisory variant (<see cref="DecisionState.EspAdvisoryFailureRecordedUtc"/>
+        /// set) is deliberately NOT cancelled: its anchor is a real ESP terminal failure and
+        /// a reboot does not un-happen that failure — the window must still un-defang it.
+        /// </para>
+        /// <para>
+        /// Trade-off: in a true dead-end where the user manually reboots inside the window,
+        /// the verdict falls back to the max-lifetime watchdog (plus the backend timeout
+        /// reconcile) instead of the 30-min resolution — acceptable against failing live
+        /// enrollments, which is a trust-destroying false positive.
+        /// </para>
+        /// Returns the CancelDeadline effect (and cancels on <paramref name="builder"/>),
+        /// or null when no esp-exit-variant window is armed.
+        /// </summary>
+        private static DecisionEffect? CancelEspExitVariantAdvisoryWindowOnReboot(
+            DecisionState state,
+            DecisionStateBuilder builder)
+        {
+            if (state.EspAdvisoryFailureRecordedUtc != null || !HasAdvisoryCompletionDeadline(state))
+            {
+                return null;
+            }
+
+            builder.CancelDeadline(DeadlineNames.AdvisoryCompletion);
+            return new DecisionEffect(
+                DecisionEffectKind.CancelDeadline,
+                cancelDeadlineName: DeadlineNames.AdvisoryCompletion);
         }
 
         /// <summary>
@@ -232,9 +282,25 @@ namespace AutopilotMonitor.DecisionCore.Engine
         private static readonly TimeSpan s_advisoryCompletionWindow = TimeSpan.FromMinutes(30);
 
         /// <summary>
+        /// Arming-time baseline keys carried on the AdvisoryCompletion deadline's
+        /// <see cref="ActiveDeadline.FiresPayload"/> (session 1924092e enforcement-progress
+        /// guard). The baselines live on the deadline — not on <see cref="DecisionState"/>
+        /// facts — because they are meaningful only relative to a specific arming: replay
+        /// reconstructs them deterministically and the snapshot serializer round-trips the
+        /// payload with the deadline. Deadlines armed by pre-fix agents lack the keys; the
+        /// progress guard then reports no progress and the fire resolves exactly as before.
+        /// </summary>
+        private const string AdvisoryArmOrdinalKey = "armSignalOrdinal";
+
+        /// <inheritdoc cref="AdvisoryArmOrdinalKey"/>
+        private const string AdvisoryArmAppTerminalCountKey = "armAppTerminalCount";
+
+        /// <summary>
         /// Build the <see cref="DeadlineNames.AdvisoryCompletion"/> resolution deadline for
         /// either arming site. Floored at AgentBootUtc so a replayed signal can't fire it
-        /// immediately at boot.
+        /// immediately at boot. Carries the arming-time enforcement baselines so
+        /// <see cref="HasEnforcementProgressSinceArming"/> can tell an idle dead-end from a
+        /// still-progressing enrollment at fire time.
         /// </summary>
         internal static ActiveDeadline BuildAdvisoryCompletionDeadline(DecisionState state, DecisionSignal signal) =>
             new ActiveDeadline(
@@ -244,15 +310,64 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 firesPayload: new Dictionary<string, string>
                 {
                     [SignalPayloadKeys.Deadline] = DeadlineNames.AdvisoryCompletion,
+                    [AdvisoryArmOrdinalKey] =
+                        signal.SessionSignalOrdinal.ToString(CultureInfo.InvariantCulture),
+                    [AdvisoryArmAppTerminalCountKey] =
+                        (state.AppInstallFacts.CompletedCount + state.AppInstallFacts.FailedCount)
+                            .ToString(CultureInfo.InvariantCulture),
                 });
 
         /// <summary>True when <see cref="DeadlineNames.AdvisoryCompletion"/> is armed in <paramref name="state"/>.</summary>
         internal static bool HasAdvisoryCompletionDeadline(DecisionState state)
+            => FindAdvisoryCompletionDeadline(state) != null;
+
+        /// <summary>The armed <see cref="DeadlineNames.AdvisoryCompletion"/> deadline, or null.</summary>
+        internal static ActiveDeadline? FindAdvisoryCompletionDeadline(DecisionState state)
         {
             foreach (var d in state.Deadlines)
             {
-                if (d.Name == DeadlineNames.AdvisoryCompletion) return true;
+                if (d.Name == DeadlineNames.AdvisoryCompletion) return d;
             }
+            return null;
+        }
+
+        /// <summary>
+        /// Session 1924092e (2026-07-10) — true when the device demonstrably kept enforcing
+        /// user-phase work AFTER the AdvisoryCompletion window was armed, i.e. the "page
+        /// closed and nothing happens" dead-end shape (1ec8f4c6) is disproven:
+        /// <list type="bullet">
+        ///   <item>an app reached a terminal install state since arming
+        ///         (<see cref="DecisionState.AppInstallFacts"/> terminal count grew past the
+        ///         arming-time baseline), or</item>
+        ///   <item>the ESP/IME re-asserted a user-phase enrollment phase
+        ///         (<see cref="EnrollmentPhase.AccountSetup"/> / <see cref="EnrollmentPhase.AppsUser"/>)
+        ///         with a signal ordinal newer than the arming.</item>
+        /// </list>
+        /// Missing baselines (deadline armed by a pre-fix agent, then recovered) report no
+        /// progress so legacy windows resolve with the pre-fix semantics.
+        /// </summary>
+        private static bool HasEnforcementProgressSinceArming(DecisionState state, ActiveDeadline armedDeadline)
+        {
+            var payload = armedDeadline.FiresPayload;
+            if (payload == null) return false;
+
+            if (payload.TryGetValue(AdvisoryArmAppTerminalCountKey, out var rawCount)
+                && int.TryParse(rawCount, NumberStyles.Integer, CultureInfo.InvariantCulture, out var armAppTerminalCount))
+            {
+                var appTerminalNow = state.AppInstallFacts.CompletedCount + state.AppInstallFacts.FailedCount;
+                if (appTerminalNow > armAppTerminalCount) return true;
+            }
+
+            if (payload.TryGetValue(AdvisoryArmOrdinalKey, out var rawOrdinal)
+                && long.TryParse(rawOrdinal, NumberStyles.Integer, CultureInfo.InvariantCulture, out var armOrdinal)
+                && state.CurrentEnrollmentPhase != null
+                && state.CurrentEnrollmentPhase.SourceSignalOrdinal > armOrdinal
+                && (state.CurrentEnrollmentPhase.Value == EnrollmentPhase.AccountSetup
+                    || state.CurrentEnrollmentPhase.Value == EnrollmentPhase.AppsUser))
+            {
+                return true;
+            }
+
             return false;
         }
 
@@ -345,6 +460,15 @@ namespace AutopilotMonitor.DecisionCore.Engine
         ///   deadline (<c>DeadlineFired</c>), which keeps the likely-stuck promotion OFF — the
         ///   ESP never gave up on those apps, the page just closed.
         ///   </item>
+        ///   <item>
+        ///   <b>Re-arm</b> (esp-exit variant only; session 1924092e, 2026-07-10) — before
+        ///   failing, check <see cref="HasEnforcementProgressSinceArming"/>: when apps kept
+        ///   reaching terminal install states or the ESP re-asserted a user phase AFTER the
+        ///   arming, the device is demonstrably still enrolling — failing it would be a false
+        ///   positive on a live enrollment. Re-arm a fresh window (with updated baselines)
+        ///   instead. Convergent: each re-arm demands NEW progress; a session that stalls
+        ///   fails one window later, a session that finishes completes via the normal paths.
+        ///   </item>
         /// </list>
         /// Stale-fire guards mirror <c>HandleRealmJoinTimeoutDeadlineFired</c>: a fire without
         /// any arming anchor (advisory recorded OR a post-AccountSetup final exit), without the
@@ -353,7 +477,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// </summary>
         private DecisionStep HandleAdvisoryCompletionDeadlineFired(DecisionState state, DecisionSignal signal)
         {
-            var deadlineStillArmed = HasAdvisoryCompletionDeadline(state);
+            var armedDeadline = FindAdvisoryCompletionDeadline(state);
+            var deadlineStillArmed = armedDeadline != null;
 
             var hasAdvisoryAnchor = state.EspAdvisoryFailureRecordedUtc != null;
             // Presence-only anchor (L5, delta review 2026-07-02). The esp-exit arming site only
@@ -362,9 +487,13 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // additional `EspFinalExitUtc >= AccountSetupEnteredUtc` comparison rejected fires
             // whose arming exit carried a backfilled/out-of-order source timestamp — returning
             // the session to the idle-until-max-lifetime dead-end this deadline exists to close.
-            // An intermediate Device→Account exit cannot slip in here: it happens BEFORE
-            // AccountSetup entry, never arms the window, and thus dead-ends on
-            // `advisory_completion_stale_deadline_not_armed`.
+            // An intermediate Device→Account exit normally happens BEFORE AccountSetup entry,
+            // never arms the window, and dead-ends on
+            // `advisory_completion_stale_deadline_not_armed`. Session 1924092e (2026-07-10)
+            // showed it CAN slip in when the IME logs an AccountSetup phase line pre-sign-in
+            // (defaultuser0/AutoLogon frame) — that misfire is defused downstream by the
+            // reboot cancel (CancelEspExitVariantAdvisoryWindowOnReboot) and the
+            // enforcement-progress re-arm below, not by the anchor.
             var hasEspExitAnchor = state.EspFinalExitUtc != null
                 && state.AccountSetupEnteredUtc != null;
 
@@ -423,6 +552,53 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     leadingEffects: helloSafetyCancelEffect != null
                         ? new[] { helloSafetyCancelEffect }
                         : null);
+            }
+
+            // Enforcement-progress guard (session 1924092e, 2026-07-10) — esp-exit variant
+            // only. The arming exit can be a misclassified handoff (IME logs an AccountSetup
+            // phase line pre-sign-in, then the Device→Account page close arms the window).
+            // When user-phase enforcement demonstrably progressed since arming, the dead-end
+            // shape is disproven: re-arm a fresh window with updated baselines instead of
+            // failing a live enrollment mid-install. The advisory variant is exempt — its
+            // anchor is a real ESP terminal failure that a busy IME does not un-happen.
+            if (!hasAdvisoryAnchor && HasEnforcementProgressSinceArming(state, armedDeadline!))
+            {
+                var rearmedDeadline = BuildAdvisoryCompletionDeadline(state, signal);
+                builder.AddDeadline(rearmedDeadline);
+
+                var rearmedState = builder.Build();
+                var rearmedTransition = BuildTakenTransition(
+                    before: state,
+                    signal: signal,
+                    toStage: state.Stage,
+                    nextStepIndex: nextStep,
+                    trigger: $"DeadlineFired:{DeadlineNames.AdvisoryCompletion}");
+
+                // Deliberately bypasses BuildCompletionWaitingEffect's fingerprint dedupe:
+                // the missing-prerequisites set is typically unchanged since arming, but the
+                // re-based resolution due-time is exactly what an operator debugging the
+                // session needs on the timeline. Bounded by construction — at most one event
+                // per 30-min window.
+                var rearmedEffects = new[]
+                {
+                    new DecisionEffect(DecisionEffectKind.ScheduleDeadline, deadline: rearmedDeadline),
+                    new DecisionEffect(
+                        DecisionEffectKind.EmitEventTimelineEntry,
+                        parameters: new Dictionary<string, string>
+                        {
+                            ["eventType"] = SharedConstants.EventTypes.CompletionWaiting,
+                            ["source"] = "DecisionEngine",
+                            ["severity"] = "Info",
+                            ["immediateUpload"] = "false",
+                            ["message"] = "Completion resolution window re-armed: enforcement still active after the ESP page exit",
+                            ["missingPrerequisites"] = string.Join(",", BuildMissingCompletionPrerequisites(state)),
+                            ["trigger"] = $"DeadlineFired:{DeadlineNames.AdvisoryCompletion}:EnforcementActive",
+                            ["stage"] = state.Stage.ToString(),
+                            ["resolutionDeadlineDueAtUtc"] = rearmedDeadline.DueAtUtc.ToString("o"),
+                        }),
+                };
+
+                return new DecisionStep(rearmedState, rearmedTransition, rearmedEffects);
             }
 
             // Conjunction not met — the session is failed. The two arming variants carry
@@ -638,7 +814,9 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// Handle <see cref="DecisionSignalKind.SystemRebootObserved"/>. Records the fact so
         /// WhiteGlove scoring (plan §2.4) can credit the +15 reboot-observed weight, and emits
         /// the <c>system_reboot_detected</c> timeline entry so the session timeline shows the
-        /// split between pre-reboot and post-reboot collection.
+        /// split between pre-reboot and post-reboot collection. A reboot also cancels an
+        /// esp-exit-variant AdvisoryCompletion window — see
+        /// <see cref="CancelEspExitVariantAdvisoryWindowOnReboot"/>.
         /// </summary>
         private DecisionStep HandleSystemRebootObservedV1(DecisionState state, DecisionSignal signal)
         {
@@ -651,6 +829,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
             {
                 builder.SystemRebootUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
             }
+
+            var cancelEffect = CancelEspExitVariantAdvisoryWindowOnReboot(state, builder);
 
             var newState = builder.Build();
             var transition = BuildTakenTransition(
@@ -673,12 +853,12 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     timelineParams["lastBootUtc"] = lastBootUtc ?? string.Empty;
             }
 
-            var effects = new[]
-            {
-                new DecisionEffect(
-                    DecisionEffectKind.EmitEventTimelineEntry,
-                    parameters: timelineParams),
-            };
+            var timelineEffect = new DecisionEffect(
+                DecisionEffectKind.EmitEventTimelineEntry,
+                parameters: timelineParams);
+            var effects = cancelEffect != null
+                ? new[] { cancelEffect, timelineEffect }
+                : new[] { timelineEffect };
 
             return new DecisionStep(newState, transition, effects);
         }

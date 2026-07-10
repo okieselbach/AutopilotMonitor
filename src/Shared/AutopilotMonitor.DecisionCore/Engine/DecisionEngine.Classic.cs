@@ -176,6 +176,12 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 // resolves the session either way. Fire-once: repeated post-AccountSetup exits
                 // do not re-base an already-armed window (unlike the advisory site, which
                 // deliberately replaces it — the failure is the fresher dead-end signal).
+                // Caveat (session 1924092e, 2026-07-10): AccountSetupEnteredUtc can be set by
+                // a pre-sign-in IME AccountSetup line, letting the Device→Account handoff
+                // exit arm this window falsely. A reboot cancels the window again
+                // (CancelEspExitVariantAdvisoryWindowOnReboot) — after which a later genuine
+                // guard-blocked exit re-arms here — and the fire handler re-arms instead of
+                // failing while enforcement is demonstrably progressing.
                 var exitEffects = Array.Empty<DecisionEffect>();
                 if (state.AccountSetupEnteredUtc != null && !HasAdvisoryCompletionDeadline(state))
                 {
