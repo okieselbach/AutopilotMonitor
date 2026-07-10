@@ -89,6 +89,28 @@ public class EnrollmentTimeoutClassifierTests
     }
 
     [Fact]
+    public void ExtractRollup_detects_desktop_hello_and_realmjoin_evidence()
+    {
+        var r = EnrollmentTimeoutClassifier.ExtractRollup(new[]
+        {
+            Evt("desktop_arrived"), Evt("hello_provisioning_completed"), Evt("realmjoin_detected"),
+        });
+        Assert.True(r.DesktopArrived);
+        Assert.True(r.HelloResolved);
+        Assert.True(r.RealmJoinDetected);
+        Assert.False(r.RealmJoinResolved);
+
+        // hello_skipped is the other positive Hello terminal (agent raises HelloResolved for it).
+        Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("hello_skipped") }).HelloResolved);
+        // Negative Hello terminals leave the agent waiting — must NOT count as resolved.
+        Assert.False(EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("hello_provisioning_failed") }).HelloResolved);
+        Assert.False(EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("hello_completion_timeout") }).HelloResolved);
+        // Both RealmJoin gate terminals count as resolved (phase 110 or 60-min hard timeout).
+        Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("realmjoin_resolved") }).RealmJoinResolved);
+        Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("realmjoin_timeout") }).RealmJoinResolved);
+    }
+
+    [Fact]
     public void Classify_emergency_break_skips_grace_and_is_Incomplete()
     {
         // Agent reported its absolute-age break → it's gone. Even DeviceSetup-done + well within grace
@@ -136,6 +158,84 @@ public class EnrollmentTimeoutClassifierTests
     {
         var (status, _) = Classify(new[] { Esp(DeviceSetup44), Esp(AccountSetup05), Evt("enrollment_complete") });
         Assert.Equal(SessionStatus.Succeeded, status);
+    }
+
+    // -------- "user completed setup" reconcile (session 294ab5b4) --------
+
+    [Fact]
+    public void Classify_desktop_plus_hello_with_unresolved_realmjoin_reconciles_to_Succeeded()
+    {
+        // Session 294ab5b4 replay: DeviceSetup 4/4, AccountSetup frozen at 1/5 after the user
+        // hit the desktop, Hello provisioned, RealmJoin detected but never resolved — agent
+        // went silent mid-deployment. The user was provably there; "AwaitingUser" is wrong.
+        var (status, reason) = Classify(new[]
+        {
+            Esp(DeviceSetup44), Esp(AccountSetup15),
+            Evt("desktop_arrived"), Evt("hello_provisioning_completed"), Evt("realmjoin_detected"),
+        }, hoursSinceStart: 6);
+        Assert.Equal(SessionStatus.Succeeded, status);
+        Assert.Contains("RealmJoin", reason);
+    }
+
+    [Fact]
+    public void Classify_desktop_plus_hello_without_realmjoin_reconciles_to_Succeeded()
+    {
+        // Both Classic completion prerequisites in and no gate pending: the agent died in the
+        // narrow window before it could report enrollment_complete.
+        var (status, reason) = Classify(new[]
+        {
+            Esp(DeviceSetup44), Esp(AccountSetup15),
+            Evt("desktop_arrived"), Evt("hello_provisioning_completed"),
+        }, hoursSinceStart: 6);
+        Assert.Equal(SessionStatus.Succeeded, status);
+        Assert.Contains("silent before reporting completion", reason);
+    }
+
+    [Fact]
+    public void Classify_desktop_plus_hello_skipped_also_reconciles_to_Succeeded()
+    {
+        var (status, _) = Classify(new[]
+        {
+            Esp(DeviceSetup44), Evt("desktop_arrived"), Evt("hello_skipped"),
+        }, hoursSinceStart: 6);
+        Assert.Equal(SessionStatus.Succeeded, status);
+    }
+
+    [Fact]
+    public void Classify_desktop_without_hello_terminal_stays_AwaitingUser()
+    {
+        // desktop_arrived alone is explicitly NOT a completion signal (design doc) — the user
+        // may still be mid Hello wizard / user phase. Falls through to the AwaitingUser rule.
+        var (status, _) = Classify(new[]
+        {
+            Esp(DeviceSetup44), Esp(AccountSetup15), Evt("desktop_arrived"),
+        }, hoursSinceStart: 6);
+        Assert.Equal(SessionStatus.AwaitingUser, status);
+    }
+
+    [Fact]
+    public void Classify_explicit_failure_beats_desktop_plus_hello()
+    {
+        var (status, _) = Classify(new[]
+        {
+            Esp(DeviceSetup44), Evt("desktop_arrived"), Evt("hello_provisioning_completed"),
+            Evt("enrollment_failed"),
+        }, hoursSinceStart: 6);
+        Assert.Equal(SessionStatus.Failed, status);
+    }
+
+    [Fact]
+    public void Classify_emergency_break_beats_desktop_plus_hello()
+    {
+        // The break means the agent stayed alive to the 48h absolute cap WITHOUT completing —
+        // despite both prerequisites being in, something blocked completion for two days.
+        // That is not a success; the honest verdict stays Incomplete.
+        var (status, _) = Classify(new[]
+        {
+            Esp(DeviceSetup44), Evt("desktop_arrived"), Evt("hello_provisioning_completed"),
+            Evt("agent_emergency_break"),
+        }, hoursSinceStart: 50);
+        Assert.Equal(SessionStatus.Incomplete, status);
     }
 
     [Fact]

@@ -100,12 +100,27 @@ Given a non-terminal session past the inactivity window:
 1. Explicit enrollment_failed / esp_failure present            → Failed          (real)
 2. AccountSetup rollup = ALL subcategories succeeded
    OR enrollment_complete / whiteglove_complete present         → Succeeded       (reconcile)
-3. DeviceSetup rollup = ALL subcategories succeeded (or 30s
+3. agent_emergency_break present (agent provably gone)          → Incomplete      (skip grace)
+4. desktop_arrived AND positive Hello terminal
+   (hello_provisioning_completed / hello_skipped) present       → Succeeded       (reconcile)
+5. DeviceSetup rollup = ALL subcategories succeeded (or 30s
    fallback) AND no failure event:
       a. within grace (now - StartedAt < SessionGraceHours)      → AwaitingUser    (non-terminal)
       b. grace expired                                           → Incomplete      (terminal, non-failure)
-4. else (silence before DeviceSetup complete, no failure)       → Incomplete
+6. else (silence before DeviceSetup complete, no failure)       → Incomplete
 ```
+
+Step 4 (added 2026-07-10, trigger session `294ab5b4`): desktop arrival **plus** a positive
+Hello terminal is exactly the agent's own Classic completion AND‑gate — once both are in,
+the only thing that can still block the agent's `enrollment_complete` is the RealmJoin
+completion gate, which self‑releases via a 60‑min hard timeout. A session silent long
+enough to reach the sweep is past every agent‑side wait: the enrollment succeeded and only
+the completion report never left the device (shutdown / process kill / egress cut).
+Labeling it `AwaitingUser` is factually wrong — the user was provably there. The reason
+string distinguishes "RealmJoin deployment never reported completion" (RJ detected but
+unresolved) from the generic "agent went silent before reporting completion". The failure
+snapshot (schema v3) carries the evidence: `helloResolved`, `realmJoinDetected`,
+`realmJoinResolved`.
 
 Rationale for each bucket sizing is in the Evidence table above.
 ⚠️ Gate step 2/3 on the **subcategory rollup**, not `categorySucceeded`.
@@ -197,7 +212,9 @@ Platform‑wide the same reclassification de‑noises every tenant's failure rat
 - **Agent heartbeat** — rejected: continuous client load + zombie risk; the completion
   truth is already persisted (registry/ESP tracking survives reboots) and the wait belongs
   in the backend.
-- **`desktop_arrived` as completion** — rejected: fires while the user phase is still running.
+- **`desktop_arrived` ALONE as completion** — rejected: fires while the user phase is still
+  running. (`desktop_arrived` **+ a positive Hello terminal** is accepted since 2026-07-10 —
+  that pair is the agent's own Classic completion AND‑gate, see classification step 4.)
 
 ## Acceptance criteria
 

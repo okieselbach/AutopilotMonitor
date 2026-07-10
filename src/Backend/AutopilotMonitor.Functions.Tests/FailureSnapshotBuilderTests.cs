@@ -311,6 +311,25 @@ public class FailureSnapshotBuilderTests
         Assert.DoesNotContain("hello_terminal", missing);
     }
 
+    [Fact]
+    public void Build_records_user_completion_evidence_for_reconcile_rule()
+    {
+        // Schema v3 (session 294ab5b4): helloResolved + realmJoin* are the evidence behind the
+        // "user completed setup" reconcile verdict — the snapshot must show operators the same
+        // facts the classifier used.
+        var json = FailureSnapshotBuilder.Build(new[]
+        {
+            Event("desktop_arrived", Now.AddHours(-5)),
+            Event("hello_provisioning_completed", Now.AddHours(-5).AddMinutes(6)),
+            Event("realmjoin_detected", Now.AddHours(-5).AddMinutes(1)),
+        }, Now);
+
+        var obj = JObject.Parse(json!);
+        Assert.True((bool)obj["helloResolved"]!);
+        Assert.True((bool)obj["realmJoinDetected"]!);
+        Assert.False((bool)obj["realmJoinResolved"]!);
+    }
+
     // ============================================================================
     // Timing / stale silence
     // ============================================================================

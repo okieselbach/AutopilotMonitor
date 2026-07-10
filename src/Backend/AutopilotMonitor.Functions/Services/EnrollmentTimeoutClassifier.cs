@@ -78,7 +78,11 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Distilled ESP lifecycle facts extracted from a session's event stream — the inputs
         /// to <see cref="ClassifyTimedOutSession"/>. Also embedded into the failure snapshot so
-        /// operators see the same evidence the classifier used.
+        /// operators see the same evidence the classifier used. Besides the ESP registry rollup
+        /// this carries the user-presence evidence (desktop arrival + positive Hello terminal —
+        /// the agent's Classic completion prerequisites) and the RealmJoin gate state, so the
+        /// classifier can tell "user was provably there" apart from "awaiting user" (session
+        /// 294ab5b4).
         /// </summary>
         public readonly record struct EspProvisioningRollup(
             bool DeviceSetupAllSucceeded,
@@ -87,7 +91,11 @@ namespace AutopilotMonitor.Functions.Services
             bool AccountSetupAllSucceeded,
             bool HasExplicitFailure,
             bool HasTerminalComplete,
-            bool HasAgentEmergencyBreak);
+            bool HasAgentEmergencyBreak,
+            bool DesktopArrived,
+            bool HelloResolved,
+            bool RealmJoinDetected,
+            bool RealmJoinResolved);
 
         /// <summary>
         /// Walk a session's events and distill the ESP rollup. Tolerant of missing/empty input
@@ -103,6 +111,8 @@ namespace AutopilotMonitor.Functions.Services
             int acctBestN = 0, acctBestM = 0;
             bool acctFallbackAll = false;
             bool hasFailure = false, hasComplete = false, hasEmergencyBreak = false;
+            bool desktopArrived = false, helloResolved = false;
+            bool realmJoinDetected = false, realmJoinResolved = false;
 
             foreach (var evt in events)
             {
@@ -114,6 +124,19 @@ namespace AutopilotMonitor.Functions.Services
                     hasComplete = true;
                 else if (Eq(type, "agent_emergency_break"))
                     hasEmergencyBreak = true;
+                else if (Eq(type, "desktop_arrived"))
+                    desktopArrived = true;
+                // Positive Hello terminals only (provisioned / skipped) — these are what raises
+                // the agent's HelloResolved completion fact. _failed / _blocked / _timeout leave
+                // the agent still waiting and must not count as "user finished setup".
+                else if (Eq(type, "hello_provisioning_completed") || Eq(type, "hello_skipped"))
+                    helloResolved = true;
+                else if (Eq(type, "realmjoin_detected"))
+                    realmJoinDetected = true;
+                // Either terminal opens the agent-side RealmJoin gate: phase 110 or the 60-min
+                // hard timeout (both dual-emitted to the timeline by the agent/engine).
+                else if (Eq(type, "realmjoin_resolved") || Eq(type, "realmjoin_timeout"))
+                    realmJoinResolved = true;
 
                 var msg = evt.Message;
                 if (string.IsNullOrEmpty(msg)) continue;
@@ -152,7 +175,11 @@ namespace AutopilotMonitor.Functions.Services
                 AccountSetupAllSucceeded: acctAll,
                 HasExplicitFailure: hasFailure,
                 HasTerminalComplete: hasComplete,
-                HasAgentEmergencyBreak: hasEmergencyBreak);
+                HasAgentEmergencyBreak: hasEmergencyBreak,
+                DesktopArrived: desktopArrived,
+                HelloResolved: helloResolved,
+                RealmJoinDetected: realmJoinDetected,
+                RealmJoinResolved: realmJoinResolved);
         }
 
         /// <summary>
@@ -184,7 +211,29 @@ namespace AutopilotMonitor.Functions.Services
                 return (SessionStatus.Incomplete,
                     "Agent emergency break fired (absolute session-age cap) — agent gone without completion");
 
-            // 4. Device Setup fully provisioned (device is AADJ + MDM-enrolled), user phase pending.
+            // 4. The user demonstrably finished setup: a real-user desktop was observed AND
+            //    Windows Hello reached a positive terminal (provisioned or skipped). Those are
+            //    exactly the agent's Classic completion prerequisites — the only thing that can
+            //    still block enrollment_complete on the device is the RealmJoin completion gate,
+            //    and that self-releases via a 60-min hard timeout. A session still silent by the
+            //    time this sweep runs is therefore past every agent-side wait: the enrollment
+            //    itself succeeded and only the final completion report never left the device
+            //    (shutdown / process kill / egress cut — session 294ab5b4). Labeling this
+            //    "AwaitingUser" would be factually wrong (the user was provably there), so
+            //    reconcile to Succeeded with the honest reason. Note desktop arrival ALONE
+            //    remains explicitly rejected as a completion signal (design doc) — it fires
+            //    while the user phase is still running; the Hello terminal is what proves the
+            //    user finished.
+            if (rollup.DesktopArrived && rollup.HelloResolved)
+            {
+                var detail = rollup.RealmJoinDetected && !rollup.RealmJoinResolved
+                    ? "RealmJoin deployment never reported completion before the agent went silent"
+                    : "agent went silent before reporting completion";
+                return (SessionStatus.Succeeded,
+                    $"Reconciled at timeout: user completed setup (desktop + Windows Hello) — {detail}");
+            }
+
+            // 5. Device Setup fully provisioned (device is AADJ + MDM-enrolled), user phase pending.
             if (rollup.DeviceSetupAllSucceeded)
             {
                 var elapsedHours = (nowUtc - startedAtUtc).TotalHours;
@@ -202,7 +251,7 @@ namespace AutopilotMonitor.Functions.Services
                     $"(last Account Setup {rollup.AccountSetupSucceededCount}/{rollup.AccountSetupTotal})");
             }
 
-            // 5. Silent before Device Setup completed, with no explicit failure → unknown, not a failure.
+            // 6. Silent before Device Setup completed, with no explicit failure → unknown, not a failure.
             return (SessionStatus.Incomplete,
                 "No Device Setup completion or explicit failure signal observed before timeout");
         }

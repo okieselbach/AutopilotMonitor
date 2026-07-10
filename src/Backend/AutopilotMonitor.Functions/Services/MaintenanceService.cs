@@ -369,6 +369,8 @@ namespace AutopilotMonitor.Functions.Services
                             // emits instead of blindly failing every silent session
                             // (docs/design/enrollment-status-reclassification.md): explicit failure → Failed;
                             // Account Setup all-succeeded / enrollment_complete → Succeeded (reconcile);
+                            // desktop + positive Hello terminal observed → Succeeded (user provably finished
+                            // setup; only the completion report never left the device — session 294ab5b4);
                             // Device Setup done + within grace → AwaitingUser, else Incomplete; silent before
                             // Device Setup → Incomplete. Never Failed without an explicit failure signal.
                             var rollup = EnrollmentTimeoutClassifier.ExtractRollup(sessionEvents);
