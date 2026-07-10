@@ -55,6 +55,37 @@ namespace AutopilotMonitor.DecisionCore.Tests.Scenarios
         }
 
         [Fact]
+        public void UserSessionEvidence_completesProactively_withHelloOutcomeSkipped()
+        {
+            // Session a4537c36 shape: guard-blocked normal ESP exit (registry gate unsatisfiable),
+            // desktop, then the IME user-session completion LAST — arm C completes at the IME
+            // signal instead of idling to the 30-min AdvisoryCompletion backstop.
+            var result = RunFixture(
+                fixtureFilename: "userdriven-user-session-evidence-v1.jsonl",
+                sessionId: "session-anon-a4537c36",
+                tenantId: "tenant-anon-a4537c36");
+
+            Assert.Equal(SessionStage.Completed, result.FinalState.Stage);
+            Assert.Equal(SessionOutcome.EnrollmentComplete, result.FinalState.Outcome);
+            Assert.Equal("Skipped", result.FinalState.HelloOutcome!.Value);
+            Assert.Null(result.FinalState.AccountSetupProvisioningSucceededUtc);
+            Assert.NotNull(result.FinalState.ImeUserSessionCompletedUtc);
+            Assert.NotNull(result.FinalState.DesktopArrivedUtc);
+            Assert.NotNull(result.FinalState.EspFinalExitUtc);
+            Assert.Empty(result.FinalState.Deadlines);
+
+            // The completing transition is the IME user-session signal (arm C), routed through
+            // the non-terminal Finalizing stage; the harness then flushes FinalizingGrace.
+            var penultimate = result.Transitions[^2];
+            Assert.Equal("ImeUserSessionCompleted:UserSessionEvidenceCompletion", penultimate.Trigger);
+            Assert.Equal(SessionStage.Finalizing, penultimate.ToStage);
+
+            var last = result.Transitions[^1];
+            Assert.EndsWith(DeadlineNames.FinalizingGrace, last.Trigger);
+            Assert.Equal(SessionStage.Completed, last.ToStage);
+        }
+
+        [Fact]
         public void UserDrivenHelloTimeout_completes_withHelloOutcomeTimeout()
         {
             var result = RunFixture(

@@ -700,7 +700,11 @@ namespace AutopilotMonitor.DecisionCore.Engine
         ///   <item>AccountSetup has already been entered (the post-Account-ESP final exit case), or</item>
         ///   <item><see cref="EnrollmentScenarioObservations.SkipUserEsp"/> is observed as
         ///         <c>true</c> (Account-ESP phase is skipped; first esp_exiting IS the final
-        ///         exit on device-only / full-skip flows).</item>
+        ///         exit on device-only / full-skip flows), or</item>
+        ///   <item>arm C (session a4537c36): the full post-ESP user-session evidence set holds —
+        ///         AccountSetup entered + normal ESP final exit + genuine IME user-session
+        ///         completion (at-or-after the AccountSetup anchor) + real-user desktop. See the
+        ///         inline arm-C comment for why all four are mandatory.</item>
         /// </list>
         /// Otherwise returns <c>false</c> — a FinalizingSetup / EspExiting signal arriving
         /// before AccountSetup on a non-SkipUser enrollment is either a collector bug or the
@@ -717,7 +721,10 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// pass. The raw half-fact mirrors the old <c>SkipUserEsp?.Value</c> behaviour exactly.
         /// </para>
         /// </summary>
-        private static bool ShouldTransitionToAwaitingHello(DecisionState state)
+        private static bool ShouldTransitionToAwaitingHello(
+            DecisionState state,
+            bool desktopArrivedInFlight = false,
+            bool espFinalExitInFlight = false)
         {
             // Session 330f73f3 fix (2026-05-18): entering AccountSetup is no longer sufficient.
             // Shell-Core event 62407 (CommercialOOBE_ESPProgress_Page_Exiting) fires at every
@@ -727,15 +734,59 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // timeout while ESP AccountSetup and app installs were still in progress, and
             // FinalizingGrace marked the session terminal mid-flight.
             //
-            // The strong post-AccountSetup gate is now <see cref="DecisionState.AccountSetupProvisioningSucceededUtc"/>,
+            // Arm A — the strong post-AccountSetup gate is <see cref="DecisionState.AccountSetupProvisioningSucceededUtc"/>,
             // posted by ProvisioningStatusTracker once <c>AccountSetupCategory.Status</c> resolves
             // to <c>categorySucceeded=true</c> (or the fallback fires — analog to DeviceSetup).
             if (state.AccountSetupProvisioningSucceededUtc != null) return true;
-            // SkipUser flow — no User-ESP page runs; the first esp_exiting IS the genuine final
-            // exit. Existing observation contract preserved.
+            // Arm B — SkipUser flow: no User-ESP page runs; the first esp_exiting IS the genuine
+            // final exit. Existing observation contract preserved.
             if (state.ScenarioObservations.SkipUserEsp?.Value == true) return true;
+            // Arm C (session a4537c36, 2026-07-10) — post-ESP user-session evidence. Windows can
+            // close the User-ESP page normally (EspFinalExitUtc is only ever stamped from an
+            // EspExiting signal, which ShellCoreTracker maps from 62407 exclusively for
+            // non-failure descriptions) without EVER writing categorySucceeded, so arm A is
+            // unsatisfiable by construction. This arm trusts the same conjunction the 30-min
+            // AdvisoryCompletion backstop already trusts (HandleAdvisoryCompletionDeadlineFired),
+            // applied eagerly: ALL FOUR facts are mandatory — AccountSetup entered, the normal
+            // final exit, a genuine (defaultuser0-guarded) IME user-session completion, and the
+            // DAD-validated real-user desktop. The in-flight flags cover the fact a caller is
+            // recording on its builder in the very step that evaluates this predicate (the
+            // predicate reads pre-mutation state).
+            if (state.AccountSetupEnteredUtc != null
+                && (espFinalExitInFlight || IsPostAccountSetupFinalExit(state))
+                && IsImeUserSessionGenuine(state)
+                && (desktopArrivedInFlight || state.DesktopArrivedUtc != null))
+            {
+                return true;
+            }
             return false;
         }
+
+        /// <summary>
+        /// Arm-C exit evidence: the recorded <see cref="DecisionState.EspFinalExitUtc"/> must be
+        /// a POST-AccountSetup exit, not the Device→Account handoff 62407 recorded before entry.
+        /// Compared by ingest ordinal, NOT by timestamp — replayed CMTrace / clamped-clock exits
+        /// carry backdated source timestamps (L5, delta review 2026-07-02) while the signal-log
+        /// sequence is canonical order. A caller processing the exit signal itself passes
+        /// <c>espFinalExitInFlight</c> instead (arriving now, after AccountSetup entry, is
+        /// post-entry by construction).
+        /// </summary>
+        private static bool IsPostAccountSetupFinalExit(DecisionState state) =>
+            state.EspFinalExitUtc != null
+            && state.AccountSetupEnteredUtc != null
+            && state.EspFinalExitUtc.SourceSignalOrdinal > state.AccountSetupEnteredUtc.SourceSignalOrdinal;
+
+        /// <summary>
+        /// The defaultuser0-ghost guard shared by arm C of <see cref="ShouldTransitionToAwaitingHello"/>
+        /// and the <c>AdvisoryCompletion</c> lazy conjunction (<c>HandleAdvisoryCompletionDeadlineFired</c>):
+        /// an OOBE/technician IME session completes in the pre-AccountSetup frame, so its
+        /// timestamp can never satisfy the at-or-after-anchor comparison, and flows that never
+        /// enter AccountSetup lack the anchor entirely.
+        /// </summary>
+        private static bool IsImeUserSessionGenuine(DecisionState state) =>
+            state.ImeUserSessionCompletedUtc != null
+            && state.AccountSetupEnteredUtc != null
+            && state.ImeUserSessionCompletedUtc.Value >= state.AccountSetupEnteredUtc.Value;
 
         /// <summary>
         /// Handle <see cref="DecisionSignalKind.AccountSetupProvisioningComplete"/>. Records

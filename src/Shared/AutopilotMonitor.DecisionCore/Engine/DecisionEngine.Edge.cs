@@ -522,10 +522,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
             var desktopArrived = state.DesktopArrivedUtc != null;
             var helloSatisfied = state.HelloResolvedUtc != null || state.HelloPolicyEnabled?.Value == false;
-            var imeUserSessionGenuine =
-                state.ImeUserSessionCompletedUtc != null
-                && state.AccountSetupEnteredUtc != null
-                && state.ImeUserSessionCompletedUtc.Value >= state.AccountSetupEnteredUtc.Value;
+            // Shared with ShouldTransitionToAwaitingHello's proactive arm C (session a4537c36).
+            var imeUserSessionGenuine = IsImeUserSessionGenuine(state);
 
             if (desktopArrived && helloSatisfied && imeUserSessionGenuine)
             {

@@ -152,7 +152,10 @@ namespace AutopilotMonitor.DecisionCore.Engine
         private DecisionStep HandleEspExitingV1(DecisionState state, DecisionSignal signal)
         {
             var nextStep = state.StepIndex + 1;
-            var shouldTransition = ShouldTransitionToAwaitingHello(state);
+            // espFinalExitInFlight: this very signal IS the final-exit fact (recorded on the
+            // builder below, invisible to the pre-mutation state the predicate reads) — arm C's
+            // "exit arrives last" ordering (session a4537c36) must count it.
+            var shouldTransition = ShouldTransitionToAwaitingHello(state, espFinalExitInFlight: true);
 
             var builder = state.ToBuilder()
                 .WithStepIndex(nextStep)
@@ -228,6 +231,40 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     nextStepIndex: nextStep,
                     trigger: nameof(DecisionSignalKind.EspExiting));
                 return new DecisionStep(builder.Build(), noopTransition, exitEffects);
+            }
+
+            // Deferred-completion parity (mirror of HandleAccountSetupProvisioningCompleteV1's
+            // caa6cf50 branch): when this final exit is the LAST missing prerequisite — desktop
+            // already arrived and Hello is resolved or explicitly disabled — complete through
+            // Finalizing directly instead of parking in AwaitingHello until HelloSafety stamps a
+            // misleading HelloOutcome="Timeout" 300 s later. Reached by arm C's "exit arrives
+            // last" ordering (session a4537c36); benign for arms A/B, whose completion normally
+            // already happened at DesktopArrived/HelloResolved. HelloPolicyEnabled == null keeps
+            // the pessimistic AwaitingHello promotion below.
+            if (state.DesktopArrivedUtc != null
+                && (state.HelloResolvedUtc != null || state.HelloPolicyEnabled?.Value == false))
+            {
+                if (state.HelloResolvedUtc == null)
+                {
+                    builder.HelloResolvedUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
+                    builder.HelloOutcome = new SignalFact<string>("Skipped", signal.SessionSignalOrdinal);
+                }
+
+                var helloSafetyCancelEffect = BuildHelloSafetyCancelEffectIfArmed(state);
+                if (helloSafetyCancelEffect != null)
+                {
+                    builder.CancelDeadline(DeadlineNames.HelloSafety);
+                }
+
+                return CompleteThroughFinalizingOrDefer(
+                    state: state,
+                    signal: signal,
+                    preparedBuilder: builder,
+                    nextStepIndex: nextStep,
+                    trigger: nameof(DecisionSignalKind.EspExiting) + ":DeferredCompletion",
+                    leadingEffects: helloSafetyCancelEffect != null
+                        ? new[] { helloSafetyCancelEffect }
+                        : null);
             }
 
             // Replay-safety: floor the 300-s Hello-safety window at AgentBootUtc so a replayed
@@ -403,7 +440,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
             //   1. HelloPolicyEnabled?.Value == false — policy reader confirmed no Hello wizard
             //   2. ShouldTransitionToAwaitingHello(state) — strong post-AccountSetup gate, identical
             //      to the one used by HandleEspExitingV1. Requires AccountSetupProvisioningSucceededUtc
-            //      to be set OR SkipUserEsp observed as true. The prior weak guard
+            //      to be set OR SkipUserEsp observed as true OR arm C's full 4-fact post-ESP
+            //      user-session evidence (session a4537c36). The prior weak guard
             //      (AccountSetupEnteredUtc != null) allowed completion when ESP "exited" via
             //      Shell-Core 62407 while AccountSetup categorySucceeded was still in_progress
             //      (session 08c99638).
@@ -411,7 +449,11 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // behaviour: keep waiting for Hello / HelloSafety.
             if (!helloAlreadyResolved
                 && state.HelloPolicyEnabled?.Value == false
-                && ShouldTransitionToAwaitingHello(state))
+                // desktopArrivedInFlight: the desktop fact was just recorded on the builder
+                // (line above) and is invisible to the pre-mutation state — arm C's "desktop
+                // arrives last" ordering (session a4537c36) must count it. Arms A/B ignore
+                // the flag entirely.
+                && ShouldTransitionToAwaitingHello(state, desktopArrivedInFlight: true))
             {
                 builder.HelloResolvedUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
                 builder.HelloOutcome = new SignalFact<string>("Skipped", signal.SessionSignalOrdinal);
@@ -513,11 +555,24 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// <para>
         /// Additionally records <see cref="DecisionState.ImeUserSessionCompletedUtc"/>
         /// (first post-AccountSetup observation wins — a pre-AccountSetup defaultuser0 stamp is
-        /// upgraded once by the first at-or-after-anchor observation, then frozen). The fact
-        /// is NOT a completion trigger here: the IME "user session" can run under
-        /// <c>defaultuser0</c>, so the raw signal proves nothing about the real user. The
+        /// upgraded once by the first at-or-after-anchor observation, then frozen). The raw
+        /// signal alone proves nothing about the real user (the IME "user session" can run
+        /// under <c>defaultuser0</c>) and is never a completion trigger by itself. The
         /// <c>AdvisoryCompletion</c> deadline handler consumes it lazily inside a correlation
         /// conjunction (see <c>HandleAdvisoryCompletionDeadlineFired</c>).
+        /// </para>
+        /// <para>
+        /// Session a4537c36 (2026-07-10) — proactive arm-C completion for the "IME user-session
+        /// signal arrives last" ordering: when this signal makes the full 4-fact evidence set
+        /// (AccountSetup entered + normal ESP final exit + genuine IME completion + real-user
+        /// desktop) whole while the session is still parked in an ESP stage, the handler now
+        /// attempts completion instead of idling 30 minutes to the AdvisoryCompletion backstop.
+        /// Hello semantics mirror the deferred-completion parity in
+        /// <see cref="HandleAccountSetupProvisioningCompleteV1"/>: resolved-or-disabled Hello
+        /// completes through Finalizing (synthesizing <c>HelloOutcome="Skipped"</c> when
+        /// unresolved); enabled-or-unknown Hello promotes to
+        /// <see cref="SessionStage.AwaitingHello"/> with the HelloSafety window armed at this
+        /// signal's instant.
         /// </para>
         /// </summary>
         private DecisionStep HandleImeUserSessionCompletedV1(DecisionState state, DecisionSignal signal)
@@ -560,6 +615,82 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // delegate to the updater for monotonicity.
             builder.ScenarioProfile = EnrollmentScenarioProfileUpdater.ApplyImeUserSessionCompleted(
                 builder.ScenarioProfile, signal);
+
+            // Arm-C completion attempt ("IME signal last", session a4537c36). Evaluated on the
+            // builder because the genuine IME fact may have been recorded in this very step; the
+            // remaining three facts must already sit on pre-mutation state. Only while the
+            // session is still parked pre-Hello (same stage guard as the deferred-promote path
+            // in HandleAccountSetupProvisioningCompleteV1) — AwaitingHello/AwaitingDesktop/
+            // Finalizing/terminal stages keep their existing rails untouched.
+            var armCSatisfied =
+                builder.ImeUserSessionCompletedUtc != null
+                && state.AccountSetupEnteredUtc != null
+                && builder.ImeUserSessionCompletedUtc.Value >= state.AccountSetupEnteredUtc.Value
+                && IsPostAccountSetupFinalExit(state)
+                && state.DesktopArrivedUtc != null;
+            var parkedPreHello = state.Stage == SessionStage.SessionStarted
+                || state.Stage == SessionStage.EspDeviceSetup
+                || state.Stage == SessionStage.EspAccountSetup;
+
+            if (armCSatisfied && parkedPreHello)
+            {
+                if (state.HelloResolvedUtc != null || state.HelloPolicyEnabled?.Value == false)
+                {
+                    if (state.HelloResolvedUtc == null)
+                    {
+                        builder.HelloResolvedUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
+                        builder.HelloOutcome = new SignalFact<string>("Skipped", signal.SessionSignalOrdinal);
+                    }
+
+                    var helloSafetyCancelEffect = BuildHelloSafetyCancelEffectIfArmed(state);
+                    if (helloSafetyCancelEffect != null)
+                    {
+                        builder.CancelDeadline(DeadlineNames.HelloSafety);
+                    }
+
+                    return CompleteThroughFinalizingOrDefer(
+                        state: state,
+                        signal: signal,
+                        preparedBuilder: builder,
+                        nextStepIndex: nextStep,
+                        trigger: nameof(DecisionSignalKind.ImeUserSessionCompleted) + ":UserSessionEvidenceCompletion",
+                        leadingEffects: helloSafetyCancelEffect != null
+                            ? new[] { helloSafetyCancelEffect }
+                            : null);
+                }
+
+                // Hello enabled or unknown + unresolved: promote to AwaitingHello with the
+                // HelloSafety window anchored at this signal (EffectiveDeadlineBase floors at
+                // AgentBootUtc for replay safety) — mirror of the deferred-promote tail in
+                // HandleAccountSetupProvisioningCompleteV1. A real HelloResolved then completes
+                // normally; a no-show resolves via HelloSafety's synthetic outcome.
+                var dueAtUtc = EffectiveDeadlineBase(state, signal).Add(s_helloSafetyWindow);
+                var helloSafety = new ActiveDeadline(
+                    name: DeadlineNames.HelloSafety,
+                    dueAtUtc: dueAtUtc,
+                    firesSignalKind: DecisionSignalKind.DeadlineFired,
+                    firesPayload: new Dictionary<string, string>
+                    {
+                        [SignalPayloadKeys.Deadline] = DeadlineNames.HelloSafety,
+                    });
+
+                builder = builder
+                    .WithStage(SessionStage.AwaitingHello)
+                    .AddDeadline(helloSafety);
+
+                var promotedState = builder.Build();
+                var promotedTransition = BuildTakenTransition(
+                    before: state,
+                    signal: signal,
+                    toStage: SessionStage.AwaitingHello,
+                    nextStepIndex: nextStep,
+                    trigger: nameof(DecisionSignalKind.ImeUserSessionCompleted) + ":UserSessionEvidencePromote");
+
+                return new DecisionStep(promotedState, promotedTransition, new[]
+                {
+                    new DecisionEffect(DecisionEffectKind.ScheduleDeadline, deadline: helloSafety),
+                });
+            }
 
             var newState = builder.Build();
 

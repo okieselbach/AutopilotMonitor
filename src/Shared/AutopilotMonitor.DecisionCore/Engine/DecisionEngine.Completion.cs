@@ -154,7 +154,34 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 helloResolved: state.HelloResolvedUtc != null,
                 helloPolicyDisabled: state.HelloPolicyEnabled?.Value == false,
                 desktopArrived: state.DesktopArrivedUtc != null,
-                realmJoinGateOpen: RealmJoinGateOpen(state));
+                realmJoinGateOpen: RealmJoinGateOpen(state),
+                postEspUserSessionEvidence: HasPostEspUserSessionEvidence(
+                    state.AccountSetupEnteredUtc,
+                    state.EspFinalExitUtc,
+                    state.ImeUserSessionCompletedUtc,
+                    state.DesktopArrivedUtc));
+
+        /// <summary>
+        /// Arm C of <c>ShouldTransitionToAwaitingHello</c> (session a4537c36) restated over raw
+        /// facts so the builder-based <see cref="BuildCompletionWaitingEffect"/> can evaluate
+        /// in-flight values: AccountSetup entered + normal ESP final exit + genuine
+        /// (at-or-after-anchor) IME user-session completion + real-user desktop. When this
+        /// holds, <c>account_setup_provisioning_complete</c> is no longer reported missing —
+        /// the registry gate is unsatisfiable by construction in exactly this shape.
+        /// </summary>
+        private static bool HasPostEspUserSessionEvidence(
+            SignalFact<DateTime>? accountSetupEntered,
+            SignalFact<DateTime>? espFinalExit,
+            SignalFact<DateTime>? imeUserSessionCompleted,
+            SignalFact<DateTime>? desktopArrived) =>
+            accountSetupEntered != null
+            && espFinalExit != null
+            // Ingest-ordinal comparison, not timestamps — see IsPostAccountSetupFinalExit
+            // (backdated CMTrace exits; sequence is the canonical order).
+            && espFinalExit.SourceSignalOrdinal > accountSetupEntered.SourceSignalOrdinal
+            && imeUserSessionCompleted != null
+            && imeUserSessionCompleted.Value >= accountSetupEntered.Value
+            && desktopArrived != null;
 
         private static List<string> BuildMissingCompletionPrerequisitesCore(
             bool accountSetupProvisioned,
@@ -162,10 +189,11 @@ namespace AutopilotMonitor.DecisionCore.Engine
             bool helloResolved,
             bool helloPolicyDisabled,
             bool desktopArrived,
-            bool realmJoinGateOpen)
+            bool realmJoinGateOpen,
+            bool postEspUserSessionEvidence = false)
         {
             var missing = new List<string>(4);
-            if (!accountSetupProvisioned && !skipUserEsp)
+            if (!accountSetupProvisioned && !skipUserEsp && !postEspUserSessionEvidence)
                 missing.Add(CompletionPrerequisites.AccountSetupProvisioningComplete);
             if (!helloResolved && !helloPolicyDisabled)
                 missing.Add(CompletionPrerequisites.HelloResolution);
@@ -202,7 +230,12 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 helloResolved: builder.HelloResolvedUtc != null,
                 helloPolicyDisabled: builder.HelloPolicyEnabled?.Value == false,
                 desktopArrived: builder.DesktopArrivedUtc != null,
-                realmJoinGateOpen: RealmJoinGateOpen(builder.RealmJoinFacts));
+                realmJoinGateOpen: RealmJoinGateOpen(builder.RealmJoinFacts),
+                postEspUserSessionEvidence: HasPostEspUserSessionEvidence(
+                    builder.AccountSetupEnteredUtc,
+                    builder.EspFinalExitUtc,
+                    builder.ImeUserSessionCompletedUtc,
+                    builder.DesktopArrivedUtc));
             if (missing.Count == 0) return null;
 
             var fingerprint = string.Join(",", missing);

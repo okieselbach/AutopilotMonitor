@@ -376,24 +376,27 @@ namespace AutopilotMonitor.DecisionCore.Tests
         }
 
         [Fact]
-        public void DeadlineFired_EspExitVariant_BackdatedExitTimestamp_StillResolves()
+        public void EspExitVariant_BackdatedExitTimestamp_CompletesImmediately_ViaUserSessionEvidence()
         {
             // L5 (delta review 2026-07-02): a guard-blocked post-AccountSetup exit whose SOURCE
             // timestamp predates AccountSetup entry (replayed CMTrace content / clamped clock)
-            // arms the window; the fire must resolve the session, not dead-end on
-            // advisory_completion_without_anchor (which re-opened the idle-until-max-lifetime
-            // dead-end this deadline exists to close).
+            // used to arm the 30-min AdvisoryCompletion window and resolve only at its fire.
+            // Arm C (session a4537c36, 2026-07-10) resolves the exact same shape eagerly: the
+            // exit arriving now is post-AccountSetup in INGEST order (which is canonical; the
+            // backdated source timestamp is irrelevant), completing the 4-fact evidence set
+            // (AccountSetup + final exit + genuine IME + desktop) — the session completes
+            // through Finalizing at the exit itself instead of idling 30 minutes.
             var engine = new DecisionEngine();
             var state = SetupAdvisoryEligibleSession(engine); // desktop + post-anchor IME evidence
 
-            var armStep = engine.Reduce(state, MakeSignal(50, DecisionSignalKind.EspExiting, T0.AddMinutes(16)));
-            Assert.NotNull(FindDeadline(armStep.NewState, DeadlineNames.AdvisoryCompletion));
-            Assert.True(armStep.NewState.EspFinalExitUtc!.Value < armStep.NewState.AccountSetupEnteredUtc!.Value);
-
-            var step = engine.Reduce(armStep.NewState, DeadlineFired(70, T0.AddMinutes(46), DeadlineNames.AdvisoryCompletion));
+            var step = engine.Reduce(state, MakeSignal(50, DecisionSignalKind.EspExiting, T0.AddMinutes(16)));
 
             Assert.True(step.Transition.Taken);
             Assert.Equal(SessionStage.Finalizing, step.NewState.Stage);
+            Assert.Equal(nameof(DecisionSignalKind.EspExiting) + ":DeferredCompletion", step.Transition.Trigger);
+            Assert.Equal("Skipped", step.NewState.HelloOutcome!.Value);
+            Assert.NotNull(FindDeadline(step.NewState, DeadlineNames.FinalizingGrace));
+            Assert.Null(FindDeadline(step.NewState, DeadlineNames.AdvisoryCompletion));
         }
 
         [Fact]
