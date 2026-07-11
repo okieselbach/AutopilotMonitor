@@ -75,5 +75,5 @@ Codex will review your output once you are done!
 
 - **Consume first**: start at `docs/index.md` for progressive disclosure before opening individual documents.
 - **When new durable technical knowledge emerges** (architecture decisions, flows, non-obvious mechanisms), capture it as an OKF concept document in `docs/` — markdown with YAML frontmatter: `type` (mandatory), plus `title`, `description`, `resource`, `tags`, `timestamp` (recommended).
-- **Maintain the bundle**: add every new document to `docs/index.md`, note changes in `docs/log.md` (grouped by ISO date), use bundle-relative links starting with `/`. `index.md` and `log.md` are reserved filenames.
+- **Maintain the bundle**: add every new document to `docs/index.md`, note changes in `docs/log.md` (grouped by ISO date). Use standard RELATIVE markdown links between docs — never the OKF `/`-prefixed bundle-absolute form (GitHub resolves those from the repo root and navigation breaks). `index.md` and `log.md` are reserved filenames.
 - Documents are English, structural markdown over prose (`# Schema`, `# Examples`, `# Citations` sections where applicable).

@@ -184,4 +184,4 @@ Wired by `EnrollmentOrchestrator.Start` (`src/Agent/AutopilotMonitor.Agent.V2.Co
   signals.
 - On restart, `RecoveryCoordinator` folds the persisted signal log through a transient
   `new DecisionEngine()` before the live pipeline starts — see
-  [logs & persistence](/agent/logs-and-persistence.md).
+  [logs & persistence](logs-and-persistence.md).

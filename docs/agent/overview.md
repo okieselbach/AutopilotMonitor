@@ -16,7 +16,7 @@ timestamp: 2026-07-11T00:00:00+02:00
 The agent is a .NET Framework 4.8 executable (`AutopilotMonitor.Agent.exe`) that runs as
 SYSTEM on Windows devices during Autopilot enrollment. It observes the enrollment
 (ESP phases, IME app installs, Hello, desktop arrival, …), streams telemetry to the
-backend, and decides locally — via the [decision engine](/agent/decision-engine.md) —
+backend, and decides locally — via the [decision engine](decision-engine.md) —
 when the enrollment is complete or failed. When it reaches a terminal decision it shows
 the optional summary dialog, uploads diagnostics, and removes itself.
 
@@ -135,8 +135,8 @@ Adapters post `DecisionSignal`s; the engine's terminal stage fires
 `Terminated` (off the worker thread) → termination sequence above. Engine *effects*
 (timeline events like `enrollment_complete`, deadline scheduling, classifier runs,
 snapshots) are executed by the `EffectRunner` — the reducer itself is pure. Details:
-[decision engine](/agent/decision-engine.md); durability and replay:
-[logs & persistence](/agent/logs-and-persistence.md).
+[decision engine](decision-engine.md); durability and replay:
+[logs & persistence](logs-and-persistence.md).
 
 # On-disk layout (`%ProgramData%\AutopilotMonitor\`)
 
@@ -150,4 +150,4 @@ snapshots) are executed by the `EffectRunner` — the reducer itself is pure. De
 | `\Config\` | `remote-config.json` cache |
 | `\Agent-Update\`, `\Updates\` | self-update staging/download |
 
-Per-file details and the recovery flow: [logs & persistence](/agent/logs-and-persistence.md).
+Per-file details and the recovery flow: [logs & persistence](logs-and-persistence.md).

@@ -137,5 +137,5 @@ diagnostics ZIPs while the agent restarts from clean state.
 
 # Related
 
-- Pipeline that produces these files: [runtime overview](/agent/overview.md)
-- What replay must reproduce deterministically: [decision engine](/agent/decision-engine.md)
+- Pipeline that produces these files: [runtime overview](overview.md)
+- What replay must reproduce deterministically: [decision engine](decision-engine.md)

@@ -25,6 +25,6 @@ https://docs.autopilotmonitor.com (separate repository).
 # Conventions for this bundle
 
 * Every concept document is a markdown file with YAML frontmatter; `type` is mandatory, `title`, `description`, `resource`, `tags`, and `timestamp` are recommended.
-* Prefer bundle-relative links starting with `/` (interpreted from `docs/`) so links survive moves.
+* Use standard **relative** markdown links between documents (e.g. `agent/overview.md`, `../architecture.md`). Do NOT use the spec's `/`-prefixed bundle-absolute form — GitHub resolves those against the repo root (missing `/docs`) and navigation breaks.
 * Record notable additions and changes in [log.md](log.md).
 * `index.md` and `log.md` are reserved names — never use them for concept documents.
