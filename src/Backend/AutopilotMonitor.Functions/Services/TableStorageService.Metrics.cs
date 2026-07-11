@@ -441,7 +441,60 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
-        private AppInstallSummary MapToAppInstallSummary(TableEntity entity)
+        /// <summary>
+        /// Columns the geographic aggregations consume: the session join key, the window filter
+        /// column, download throughput inputs and every field <see cref="DoAggregator"/> sums.
+        /// internal so GeoMetricsProjectionEquivalenceTests derives its keep-set from this array.
+        /// </summary>
+        internal static readonly string[] GeoAppInstallProjection =
+        {
+            "PartitionKey", "RowKey", "SessionId", "StartedAt",
+            "DownloadBytes", "DownloadDurationSeconds",
+            "DoDownloadMode", "DoTotalBytesDownloaded", "DoBytesFromPeers", "DoBytesFromHttp",
+            "DoBytesFromLanPeers", "DoBytesFromGroupPeers", "DoBytesFromInternetPeers",
+            "DoBytesFromLinkLocalPeers", "DoBytesFromCacheServer"
+        };
+
+        /// <summary>
+        /// Column-projected windowed AppInstallSummaries scan for the geographic endpoints. Returns
+        /// <see cref="AppInstallSummary"/> objects with ONLY the <see cref="GeoAppInstallProjection"/>
+        /// fields populated (everything else is defaults) — callers must not read fields outside the
+        /// projection. Same filter semantics as the full getters (server-side <c>StartedAt ge</c> +
+        /// optional tenant partition). <paramref name="sinceUtc"/> is server-derived, so
+        /// interpolating it is injection-safe.
+        /// </summary>
+        public async Task<List<AppInstallSummary>> GetGeoAppInstallSummariesAsync(DateTime sinceUtc, string? tenantId = null)
+        {
+            if (!string.IsNullOrEmpty(tenantId))
+                SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AppInstallSummaries);
+                var filter = $"StartedAt ge datetime'{sinceUtc:yyyy-MM-ddTHH:mm:ss}Z'";
+                if (!string.IsNullOrEmpty(tenantId))
+                    filter = $"PartitionKey eq '{tenantId}' and " + filter;
+
+                var query = tableClient.QueryAsync<TableEntity>(filter: filter, select: GeoAppInstallProjection);
+
+                var summaries = new List<AppInstallSummary>();
+                await foreach (var entity in query)
+                {
+                    summaries.Add(MapToAppInstallSummary(entity));
+                }
+
+                return summaries;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get geo app install summaries");
+                return new List<AppInstallSummary>();
+            }
+        }
+
+        // internal (not private) so GeoMetricsProjectionEquivalenceTests can pin that a row
+        // carrying only GeoAppInstallProjection maps to the same geo-relevant fields as a full row.
+        internal AppInstallSummary MapToAppInstallSummary(TableEntity entity)
         {
             return new AppInstallSummary
             {

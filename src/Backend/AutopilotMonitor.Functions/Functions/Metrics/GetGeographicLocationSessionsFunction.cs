@@ -63,15 +63,21 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 _logger.LogInformation("Fetching sessions for location '{LocationKey}' tenant {TenantId} ({Days}d, groupBy={GroupBy}, country={Country}, full={Full})",
                     locationKey ?? "(none)", tenantId, days, groupBy, country ?? "(none)", full);
 
-                var cutoff = DateTime.UtcNow.AddDays(-days);
-                var sessions = await _maintenanceRepo.GetSessionsByDateRangeAsync(cutoff, DateTime.UtcNow.AddDays(1), tenantId);
+                // Sessions need the full row (LocationSessionRow returns nearly every column); the
+                // app scan only feeds the per-session DO aggregate, so it uses the geo projection.
+                // Both scans are independent — run them concurrently (same cutoff window).
+                var now = DateTime.UtcNow;
+                var cutoff = now.AddDays(-days);
+                var sessionsTask = _maintenanceRepo.GetSessionsByDateRangeAsync(cutoff, now.AddDays(1), tenantId);
+                var appSummariesTask = _metricsRepo.GetGeoAppInstallSummariesAsync(cutoff, tenantId);
+                await Task.WhenAll(sessionsTask, appSummariesTask);
+
+                var sessions = await sessionsTask;
                 var filtered = !string.IsNullOrEmpty(locationKey)
                     ? FilterSessionsByLocation(sessions, locationKey, groupBy)
                     : FilterSessionsByFields(sessions, country!, query["region"], query["city"]);
 
-                // Same window as the sessions above (cutoff); BuildRows joins apps to those sessions.
-                var appSummaries = await _metricsRepo.GetAppInstallSummariesByTenantAsync(tenantId, cutoff);
-                var rows = BuildRows(filtered, appSummaries);
+                var rows = BuildRows(filtered, await appSummariesTask);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 if (full)

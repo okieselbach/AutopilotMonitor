@@ -12,6 +12,12 @@ import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 import { GlobalAdminBanner } from "@/components/GlobalAdminBanner";
 import { boundTenantToDelegatedScope } from "@/utils/delegatedScope";
 import { isHomeTenantTarget } from "@/utils/homeTenantScope";
+import { useFetchProgress } from "@/hooks/useFetchProgress";
+import { CalculatingCard } from "@/components/CalculatingCard";
+
+// A cross-tenant drilldown can take tens of seconds server-side; the default 30s fetch
+// timeout would abort it client-side while the server keeps computing.
+const GEO_FETCH_TIMEOUT_MS = 180_000;
 
 interface SessionSummary {
   sessionId: string;
@@ -112,16 +118,24 @@ function LocationSessionsContent() {
   // raw presence so it never falls back to the caller's own-tenant endpoint.
   const boundedTenantId = boundTenantToDelegatedScope(urlTenantId || undefined, isDelegatedScope, user?.delegatedTenantIds);
 
+  const progress = useFetchProgress("geoSessions.lastFetchMs");
+  const { begin: progressBegin, finish: progressFinish } = progress;
+
   const fetchSessions = useCallback(async () => {
     if (!locationKey) return;
+    let succeeded = false;
     try {
+      progressBegin();
       const endpoint = crossTenant
         ? api.metrics.globalGeographicSessions(Number(days), groupBy, locationKey, boundedTenantId)
         : api.metrics.geographicSessions(tenantId, Number(days), groupBy, locationKey);
-      const response = await authenticatedFetch(endpoint, getAccessToken);
+      const response = await authenticatedFetch(endpoint, getAccessToken, {
+        signal: AbortSignal.timeout(GEO_FETCH_TIMEOUT_MS),
+      });
       if (response.ok) {
         const result = await response.json();
         setData(result);
+        succeeded = true;
       }
     } catch (error) {
       if (error instanceof TokenExpiredError) {
@@ -130,9 +144,10 @@ function LocationSessionsContent() {
         console.error("Failed to fetch location sessions:", error);
       }
     } finally {
+      progressFinish(succeeded);
       setLoading(false);
     }
-  }, [crossTenant, boundedTenantId, tenantId, getAccessToken, days, groupBy, locationKey]);
+  }, [crossTenant, boundedTenantId, tenantId, getAccessToken, days, groupBy, locationKey, progressBegin, progressFinish]);
 
   useEffect(() => {
     if (!crossTenant && !tenantId) return;
@@ -168,9 +183,12 @@ function LocationSessionsContent() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-gray-600">Loading sessions for {locationKey}...</div>
-      </div>
+      <CalculatingCard
+        title={`Loading sessions for ${locationKey}…`}
+        subtitle="Collecting sessions and per-session Delivery Optimization data for this location."
+        elapsedMs={progress.elapsedMs}
+        estimateMs={progress.estimateMs}
+      />
     );
   }
 

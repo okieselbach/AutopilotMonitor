@@ -9,8 +9,14 @@ import { useAuth } from "../../contexts/AuthContext";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { useAggregatedAdminScope } from "@/hooks";
+import { useFetchProgress } from "@/hooks/useFetchProgress";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
+import { CalculatingCard } from "@/components/CalculatingCard";
+
+// A cross-tenant geo aggregation can take tens of seconds server-side; the default 30s fetch
+// timeout would abort it client-side while the server keeps computing.
+const GEO_FETCH_TIMEOUT_MS = 180_000;
 
 // Dynamically import the map component (Leaflet requires window/document)
 const GeoMap = dynamic(() => import("./GeoMap"), { ssr: false });
@@ -124,16 +130,24 @@ export default function GeographicPerformancePage() {
   const scope = useAggregatedAdminScope();
   const { isGlobalAdmin, routeGlobal, selectedTenantId, isAggregatedGlobalView, scopeInitialized, scopeKey } = scope;
 
+  const progress = useFetchProgress("geoPerf.lastFetchMs");
+  const { begin: progressBegin, finish: progressFinish } = progress;
+
   const fetchGeoMetrics = useCallback(async (range: TimeRange = timeRange, group: GroupBy = groupBy) => {
+    let succeeded = false;
     try {
+      progressBegin();
       const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
       const endpoint = routeGlobal
         ? api.metrics.globalGeographic(days, group, selectedTenantId || undefined)
         : api.metrics.geographic(tenantId, days, group);
-      const response = await authenticatedFetch(endpoint, getAccessToken);
+      const response = await authenticatedFetch(endpoint, getAccessToken, {
+        signal: AbortSignal.timeout(GEO_FETCH_TIMEOUT_MS),
+      });
       if (response.ok) {
         const data = await response.json();
         setGeoMetrics(data);
+        succeeded = true;
       }
     } catch (error) {
       if (error instanceof TokenExpiredError) {
@@ -142,9 +156,10 @@ export default function GeographicPerformancePage() {
         console.error("Failed to fetch geographic metrics:", error);
       }
     } finally {
+      progressFinish(succeeded);
       setLoading(false);
     }
-  }, [routeGlobal, selectedTenantId, tenantId, getAccessToken, timeRange, groupBy]);
+  }, [routeGlobal, selectedTenantId, tenantId, getAccessToken, timeRange, groupBy, progressBegin, progressFinish]);
 
   useEffect(() => {
     if (!scopeInitialized) return;
@@ -196,9 +211,12 @@ export default function GeographicPerformancePage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-gray-600">Loading geographic performance data...</div>
-      </div>
+      <CalculatingCard
+        title="Calculating geographic metrics…"
+        subtitle="Aggregating sessions, download throughput and Delivery Optimization data by location."
+        elapsedMs={progress.elapsedMs}
+        estimateMs={progress.estimateMs}
+      />
     );
   }
 

@@ -33,6 +33,14 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// for the cross-tenant scan.
         /// </summary>
         Task<List<SessionAppRef>> GetAppInstallRefsAsync(DateTime sinceUtc, string? tenantId = null);
+        /// <summary>
+        /// Column-projected windowed scan for the geographic endpoints: session join key, window
+        /// filter column, download throughput inputs and the Delivery Optimization counters. The
+        /// returned <see cref="AppInstallSummary"/> objects carry ONLY those fields — everything
+        /// else is defaults and must not be read. Omit <paramref name="tenantId"/> for the
+        /// cross-tenant scan.
+        /// </summary>
+        Task<List<AppInstallSummary>> GetGeoAppInstallSummariesAsync(DateTime sinceUtc, string? tenantId = null);
 
         // --- Platform Stats ---
         Task<PlatformStats?> GetPlatformStatsAsync();

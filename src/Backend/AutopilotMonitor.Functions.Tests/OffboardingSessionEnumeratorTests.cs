@@ -112,6 +112,7 @@ public class OffboardingSessionEnumeratorTests
         public Task<List<SessionSummary>> GetSessionsOlderThanAsync(string tenantId, DateTime cutoffDate, int maxResults = int.MaxValue, bool excludeInFlightDeletions = false) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetSessionsByDateRangeAsync(DateTime startDate, DateTime endDate, string? tenantId = null) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetUsageWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null) => throw new NotImplementedException();
+        public Task<List<SessionSummary>> GetGeoWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetStalledSessionsAsync(string tenantId, DateTime cutoffTime) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetAgentSilentSessionsAsync(string tenantId, DateTime silenceCutoff, DateTime hardCutoff) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetExcessiveDataSendersAsync(string tenantId, DateTime windowCutoff, int maxSessionWindowHours) => throw new NotImplementedException();

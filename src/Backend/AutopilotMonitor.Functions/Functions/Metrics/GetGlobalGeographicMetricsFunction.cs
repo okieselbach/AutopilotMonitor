@@ -43,16 +43,20 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var groupBy = query["groupBy"] ?? "city";
                 var tenantIdFilter = query["tenantId"];
 
-                var cutoff = DateTime.UtcNow.AddDays(-days);
-                var sessions = !string.IsNullOrWhiteSpace(tenantIdFilter)
-                    ? await _maintenanceRepo.GetSessionsByDateRangeAsync(cutoff, DateTime.UtcNow.AddDays(1), tenantIdFilter)
-                    : await _maintenanceRepo.GetSessionsByDateRangeAsync(cutoff, DateTime.UtcNow.AddDays(1));
-                // Push the window server-side so only in-window rows are deserialized. The in-memory
-                // Where below stays as the exact trim (the OData StartedAt filter is second-granular).
-                var allSummaries = !string.IsNullOrWhiteSpace(tenantIdFilter)
-                    ? await _metricsRepo.GetAppInstallSummariesByTenantAsync(tenantIdFilter, cutoff)
-                    : await _metricsRepo.GetAllAppInstallSummariesAsync(cutoff);
-                var summaries = allSummaries.Where(s => s.StartedAt >= cutoff).ToList();
+                // Both scans are independent — run them concurrently, and column-projected: the
+                // aggregation reads only Geo*/status/duration from sessions and join-key/throughput/
+                // DO counters from apps (see GeoMetricsSessionProjection / GeoAppInstallProjection).
+                var now = DateTime.UtcNow;
+                var cutoff = now.AddDays(-days);
+                var tenantFilter = string.IsNullOrWhiteSpace(tenantIdFilter) ? null : tenantIdFilter;
+                var sessionsTask = _maintenanceRepo.GetGeoWindowSessionsAsync(cutoff, now.AddDays(1), tenantFilter);
+                var summariesTask = _metricsRepo.GetGeoAppInstallSummariesAsync(cutoff, tenantFilter);
+                await Task.WhenAll(sessionsTask, summariesTask);
+
+                var sessions = await sessionsTask;
+                // The window is pushed server-side; the in-memory Where stays as the exact trim
+                // (the OData StartedAt filter is second-granular).
+                var summaries = (await summariesTask).Where(s => s.StartedAt >= cutoff).ToList();
 
                 var result = GetGeographicMetricsFunction.ComputeGeographicMetrics(sessions, summaries, groupBy);
 

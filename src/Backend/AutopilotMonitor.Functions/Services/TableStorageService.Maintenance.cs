@@ -543,6 +543,27 @@ namespace AutopilotMonitor.Functions.Services
         public Task<List<SessionSummary>> GetUsageWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null)
             => QuerySessionsByDateRangeAsync(startDate, endDate, tenantId, UsageMetricsSessionProjection);
 
+        /// <summary>
+        /// Columns the geographic-metrics aggregation (ComputeGeographicMetrics + location grouping)
+        /// consumes, plus the structural PartitionKey (TenantId) / RowKey (SessionId). CompletedAt /
+        /// IsPreProvisioned / ResumedAt stay in the set for ComputeEffectiveDuration parity (see
+        /// <see cref="UsageMetricsSessionProjection"/>). internal so
+        /// GeoMetricsProjectionEquivalenceTests derives its keep-set from this exact array.
+        /// </summary>
+        internal static readonly string[] GeoMetricsSessionProjection =
+        {
+            "PartitionKey", "RowKey", "StartedAt", "CompletedAt", "Status", "DurationSeconds",
+            "IsPreProvisioned", "ResumedAt", "GeoCountry", "GeoRegion", "GeoCity", "GeoLoc"
+        };
+
+        /// <summary>
+        /// Column-projected date-range query for the geographic-metrics aggregation (map view).
+        /// The drilldown endpoints keep the full-row query — their response shape returns nearly
+        /// every session column.
+        /// </summary>
+        public Task<List<SessionSummary>> GetGeoWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null)
+            => QuerySessionsByDateRangeAsync(startDate, endDate, tenantId, GeoMetricsSessionProjection);
+
         private async Task<List<SessionSummary>> QuerySessionsByDateRangeAsync(DateTime startDate, DateTime endDate, string? tenantId, string[]? select)
         {
             if (!string.IsNullOrEmpty(tenantId))

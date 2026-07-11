@@ -74,6 +74,12 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// the projection come back as defaults — callers must not read them.
         /// </summary>
         Task<List<SessionSummary>> GetUsageWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null);
+        /// <summary>
+        /// Column-projected variant of <see cref="GetSessionsByDateRangeAsync"/> for the
+        /// geographic-metrics aggregation (map view): Geo* fields + status/duration inputs only.
+        /// Fields outside the projection come back as defaults — callers must not read them.
+        /// </summary>
+        Task<List<SessionSummary>> GetGeoWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null);
         Task<List<SessionSummary>> GetStalledSessionsAsync(string tenantId, DateTime cutoffTime);
         Task<List<SessionSummary>> GetAgentSilentSessionsAsync(string tenantId, DateTime silenceCutoff, DateTime hardCutoff);
         Task<List<SessionSummary>> GetExcessiveDataSendersAsync(string tenantId, DateTime windowCutoff, int maxSessionWindowHours);

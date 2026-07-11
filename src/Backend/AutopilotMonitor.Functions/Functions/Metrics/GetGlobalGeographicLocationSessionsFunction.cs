@@ -59,19 +59,22 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 _logger.LogInformation("Fetching global sessions for location '{LocationKey}' ({Days}d, groupBy={GroupBy}, country={Country}, full={Full}, tenantFilter={Tenant}) (User: {UserEmail})",
                     locationKey ?? "(none)", days, groupBy, country ?? "(none)", full, filterTenantId ?? "(none)", userEmail);
 
-                var cutoff = DateTime.UtcNow.AddDays(-days);
-                var sessions = string.IsNullOrEmpty(filterTenantId)
-                    ? await _maintenanceRepo.GetSessionsByDateRangeAsync(cutoff, DateTime.UtcNow.AddDays(1))
-                    : await _maintenanceRepo.GetSessionsByDateRangeAsync(cutoff, DateTime.UtcNow.AddDays(1), filterTenantId);
+                // Sessions need the full row (LocationSessionRow returns nearly every column); the
+                // app scan only feeds the per-session DO aggregate, so it uses the geo projection.
+                // Both scans are independent — run them concurrently (same cutoff window).
+                var now = DateTime.UtcNow;
+                var cutoff = now.AddDays(-days);
+                var tenantFilter = string.IsNullOrEmpty(filterTenantId) ? null : filterTenantId;
+                var sessionsTask = _maintenanceRepo.GetSessionsByDateRangeAsync(cutoff, now.AddDays(1), tenantFilter);
+                var appSummariesTask = _metricsRepo.GetGeoAppInstallSummariesAsync(cutoff, tenantFilter);
+                await Task.WhenAll(sessionsTask, appSummariesTask);
+
+                var sessions = await sessionsTask;
                 var filtered = !string.IsNullOrEmpty(locationKey)
                     ? GetGeographicLocationSessionsFunction.FilterSessionsByLocation(sessions, locationKey, groupBy)
                     : GetGeographicLocationSessionsFunction.FilterSessionsByFields(sessions, country!, query["region"], query["city"]);
 
-                // Same window as the sessions above (cutoff); BuildRows joins apps to those sessions.
-                var appSummaries = string.IsNullOrEmpty(filterTenantId)
-                    ? await _metricsRepo.GetAllAppInstallSummariesAsync(cutoff)
-                    : await _metricsRepo.GetAppInstallSummariesByTenantAsync(filterTenantId, cutoff);
-                var rows = GetGeographicLocationSessionsFunction.BuildRows(filtered, appSummaries);
+                var rows = GetGeographicLocationSessionsFunction.BuildRows(filtered, await appSummariesTask);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 if (full)
