@@ -1,3 +1,16 @@
+---
+type: How-to Guide
+title: Optional Graph add-on permissions
+description: Opt-in tenant-side Graph permission grants for optional features via appRoleAssignment, without changing the published app manifest.
+resource: /scripts/CustomerSetup/Grant-AutopilotMonitorAddOn.ps1
+tags:
+  - graph
+  - permissions
+  - entra-id
+  - customer-setup
+timestamp: 2026-05-19T01:14:21+02:00
+---
+
 # Optional Graph add-on permissions
 
 Autopilot Monitor's default Microsoft Graph permissions are intentionally minimal — they cover the core Autopilot device + corporate identifier validation use cases and nothing more. Some optional features need additional permissions on the Autopilot Monitor service principal **in your tenant**. Examples:

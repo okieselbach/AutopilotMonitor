@@ -1,3 +1,16 @@
+---
+type: Reference
+title: MCP OAuth Flow — Who Authenticates Where
+description: How the two unrelated identities (AI-product account vs. Entra ID work account) and three parties interact when connecting an AI client to the Autopilot Monitor MCP server.
+resource: /src/McpServer/autopilot-monitor-mcp/src/oauth.ts
+tags:
+  - mcp
+  - oauth
+  - entra-id
+  - security
+timestamp: 2026-07-11T10:59:31+02:00
+---
+
 # MCP OAuth Flow — Who Authenticates Where
 
 **Status:** Reference · **Owner:** MCP Server · **Code:** [`src/McpServer/autopilot-monitor-mcp/src/oauth.ts`](../../src/McpServer/autopilot-monitor-mcp/src/oauth.ts)

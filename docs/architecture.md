@@ -1,3 +1,16 @@
+---
+type: Architecture Guide
+title: Autopilot Monitor – Architecture Guide
+description: High-level architecture overview and solution layout for contributors.
+tags:
+  - architecture
+  - agent
+  - backend
+  - web
+  - mcp
+timestamp: 2026-07-06T21:39:29+02:00
+---
+
 # Autopilot Monitor – Architecture Guide
 
 > High-level architecture overview and solution layout for contributors.

@@ -68,3 +68,12 @@ Codex will review your output once you are done!
 - **Simplicity First**: Make every change as simple as possible. Impact minimal code.
 - **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
 - **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
+
+## Technical Docs — OKF Knowledge Bundle (`docs/`)
+
+`docs/` is an [Open Knowledge Format (OKF) v0.1](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) knowledge bundle for contributor/AI-facing technical documentation (customer docs live in the separate autopilotmonitor-docs repo).
+
+- **Consume first**: start at `docs/index.md` for progressive disclosure before opening individual documents.
+- **When new durable technical knowledge emerges** (architecture decisions, flows, non-obvious mechanisms), capture it as an OKF concept document in `docs/` — markdown with YAML frontmatter: `type` (mandatory), plus `title`, `description`, `resource`, `tags`, `timestamp` (recommended).
+- **Maintain the bundle**: add every new document to `docs/index.md`, note changes in `docs/log.md` (grouped by ISO date), use bundle-relative links starting with `/`. `index.md` and `log.md` are reserved filenames.
+- Documents are English, structural markdown over prose (`# Schema`, `# Examples`, `# Citations` sections where applicable).
