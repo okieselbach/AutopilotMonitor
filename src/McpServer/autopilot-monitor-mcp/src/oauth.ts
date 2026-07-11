@@ -128,6 +128,19 @@ export const MAX_REDIRECT_URIS_PER_CLIENT = 10;
 export const MAX_REDIRECT_URI_LENGTH = 1024;
 export const MAX_CLIENT_NAME_LENGTH = 256;
 
+/**
+ * Makes a caller-controlled value safe for single-line text logs: strips
+ * control characters (CR/LF would let a hostile client_name or redirect_uri
+ * forge additional log lines) and caps the length. Everything user-supplied
+ * that reaches console.error in this module must pass through here.
+ */
+export function sanitizeForLog(value: unknown, maxLength = 200): string {
+  const s = String(value ?? '');
+  // eslint-disable-next-line no-control-regex
+  const cleaned = s.replace(/[\x00-\x1f\x7f]/g, '');
+  return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength)}...` : cleaned;
+}
+
 // ---- Client-id signing (HMAC) ---------------------------------------------
 //
 // The dynamic-registration client_id is a self-describing signed token rather
@@ -196,67 +209,84 @@ export function verifyClientId(clientId: string | undefined | null): ClientIdPay
 }
 
 /**
- * Strict allowlist of host patterns acceptable for OAuth redirect_uri.
- * Defense-in-depth on top of the per-client redirect_uri match: even if an
- * attacker calls the unauthenticated /oauth/register endpoint to register a
- * client with a hostile redirect_uri, the URI must still pass this filter.
+ * Strict allowlist of redirect_uri templates. Defense-in-depth on top of the
+ * per-client redirect_uri match: even if an attacker calls the unauthenticated
+ * /oauth/register endpoint to register a client with a hostile redirect_uri,
+ * the URI must still pass this filter.
  *
  * Loopback (localhost / 127.0.0.1 / [::1]) is always allowed for native CLI
- * flows (RFC 8252 §7.3). Hosted-AI-client hosts are configurable via the
- * MCP_ALLOWED_REDIRECT_HOSTS env var (comma-separated). When unset, a
- * baseline of widely-deployed AI vendors is used.
+ * flows (RFC 8252 §7.3). `localhost` is deliberately kept alongside the IP
+ * literals — Claude Code and Gemini CLI both register `http://localhost:...`
+ * callbacks, so an IP-literal-only rule would break real clients.
  *
- * Entry syntax: bare host (`claude.ai`) for exact match, or `*.example.com`
- * for any subdomain. The leading-dot suffix check anchors the match to a
- * real subdomain boundary so `evilclaude.ai` does not slip past `claude.ai`.
+ * Hosted-AI-client entries are configurable via the MCP_ALLOWED_REDIRECT_HOSTS
+ * env var (comma-separated). When unset, the baseline below allows exactly the
+ * documented callback URIs of widely-deployed AI vendors — full host+path, not
+ * whole domains. Scoping to the vendor's dedicated OAuth callback path keeps an
+ * open redirect elsewhere on the same domain (or a compromised sibling
+ * subdomain) from being usable to exfiltrate authorization codes; PKCE does not
+ * help in that scenario because the attacker runs the whole flow with their own
+ * verifier.
+ *
+ * Entry syntax: `host` (any path — operator escape hatch), `host/path`
+ * (exact path, trailing-slash tolerant), and `*.host` / `*.host/path` for
+ * subdomain wildcards. The dot-anchored suffix check keeps `evilclaude.ai`
+ * from slipping past `*.claude.ai`.
  */
 const DEFAULT_ALLOWED_HOSTS: readonly string[] = [
-  // Anthropic
-  'claude.ai',
-  '*.claude.ai',
-  '*.anthropic.com',
-  // OpenAI / ChatGPT
-  'chatgpt.com',
-  '*.chatgpt.com',
-  '*.openai.com',
-  // Google / Gemini
-  'gemini.google.com',
-  // Microsoft / VS Code (GitHub Copilot, Continue, etc.)
-  // Stable uses https://vscode.dev/redirect; Insiders uses
-  // https://insiders.vscode.dev/redirect. The loopback URI VS Code also
-  // registers (http://127.0.0.1:<port>) is already accepted by the
-  // RFC 8252 loopback rule below.
-  'vscode.dev',
-  '*.vscode.dev',
+  // Anthropic — Claude web / Desktop / mobile connector callback (both the
+  // claude.ai and claude.com front doors). Claude Code uses RFC 8252 loopback,
+  // which the loopback rule below already covers.
+  'claude.ai/api/mcp/auth_callback',
+  'claude.com/api/mcp/auth_callback',
+  // OpenAI — ChatGPT connector-platform callback.
+  'chatgpt.com/connector_platform_oauth_redirect',
+  // Microsoft / VS Code (GitHub Copilot, Continue, etc.) — Stable and Insiders
+  // web redirect endpoints. The loopback URI VS Code also registers
+  // (http://127.0.0.1:<port>) is accepted by the loopback rule below.
+  'vscode.dev/redirect',
+  'insiders.vscode.dev/redirect',
+  // Google Gemini has no documented hosted-web MCP callback; Gemini CLI uses
+  // loopback redirects, which are always allowed. No entry needed.
 ];
 
-export function parseAllowedHosts(envValue: string | undefined): { exact: Set<string>; suffixes: string[] } {
-  const exact = new Set<string>();
-  const suffixes: string[] = [];
-  const entries = envValue
+export interface AllowedRedirectEntry {
+  host: string; // lowercase, no leading `*.`
+  wildcard: boolean; // true → match any subdomain of host (dot-anchored)
+  path: string | null; // null → any path; else exact pathname (trailing-slash tolerant)
+}
+
+export function parseAllowedHosts(envValue: string | undefined): { entries: AllowedRedirectEntry[] } {
+  const entries: AllowedRedirectEntry[] = [];
+  const raw = envValue
     ? envValue.split(',').map((s) => s.trim()).filter(Boolean)
     : DEFAULT_ALLOWED_HOSTS;
-  for (const entry of entries) {
-    const lower = entry.toLowerCase();
-    if (lower.startsWith('*.')) {
-      // Store with the leading dot so the suffix check is anchored to a real
-      // subdomain boundary — `*.claude.ai` matches `api.claude.ai` but not
-      // `evilclaude.ai`.
-      suffixes.push(lower.slice(1));
-    } else {
-      exact.add(lower);
-    }
+  for (const item of raw) {
+    let rest = item.toLowerCase();
+    const wildcard = rest.startsWith('*.');
+    if (wildcard) rest = rest.slice(2);
+    const slash = rest.indexOf('/');
+    const host = slash >= 0 ? rest.slice(0, slash) : rest;
+    const path = slash >= 0 ? rest.slice(slash) : null;
+    if (!host) continue;
+    entries.push({ host, wildcard, path });
   }
-  return { exact, suffixes };
+  return { entries };
 }
 
 const ALLOWED_HOSTS = parseAllowedHosts(process.env.MCP_ALLOWED_REDIRECT_HOSTS);
 
 if (process.env.MCP_ALLOWED_REDIRECT_HOSTS) {
   console.error(
-    `[oauth] MCP_ALLOWED_REDIRECT_HOSTS set — using ${ALLOWED_HOSTS.exact.size} exact + ` +
-    `${ALLOWED_HOSTS.suffixes.length} wildcard host(s) (loopback always allowed)`,
+    `[oauth] MCP_ALLOWED_REDIRECT_HOSTS set — using ${ALLOWED_HOSTS.entries.length} ` +
+    'allowlist entrie(s) (loopback always allowed)',
   );
+}
+
+/** Exact pathname compare, tolerant of a single trailing slash on either side. */
+function pathMatchesTemplate(templatePath: string, pathname: string): boolean {
+  const norm = (p: string) => (p.length > 1 && p.endsWith('/') ? p.slice(0, -1) : p);
+  return norm(templatePath) === norm(pathname);
 }
 
 /**
@@ -266,7 +296,7 @@ if (process.env.MCP_ALLOWED_REDIRECT_HOSTS) {
  */
 export function isAllowedRedirectUriWith(
   uri: string | undefined | null,
-  allowed: { exact: Set<string>; suffixes: string[] },
+  allowed: { entries: AllowedRedirectEntry[] },
 ): boolean {
   if (!uri) return false;
   let parsed: URL;
@@ -277,6 +307,14 @@ export function isAllowedRedirectUriWith(
   }
   // Reject anything other than http/https. Blocks file:, javascript:, data:, etc.
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+
+  // Userinfo and fragments have no legitimate place in a redirect_uri
+  // (RFC 6749 §3.1.2 forbids fragments outright) and both are classic
+  // confusion primitives — `https://claude.ai@evil.tld/` reads as claude.ai
+  // to a human, and a fragment can smuggle state past server-side parsers.
+  // Applies to loopback URIs too.
+  if (parsed.username !== '' || parsed.password !== '') return false;
+  if (parsed.hash !== '') return false;
 
   const host = parsed.hostname.toLowerCase();
 
@@ -291,9 +329,17 @@ export function isAllowedRedirectUriWith(
   // tricks where an attacker gets the user to follow `http://claude.ai/...`.
   if (parsed.protocol !== 'https:') return false;
 
-  if (allowed.exact.has(host)) return true;
-  for (const suffix of allowed.suffixes) {
-    if (host.endsWith(suffix)) return true;
+  // Host must match (exact, or dot-anchored subdomain for wildcards) AND the
+  // pathname must match the entry's path template when one is set. `new URL()`
+  // has already collapsed dot-segments, so `/cb/../evil` cannot masquerade as
+  // a template path. Query strings are permitted — the host+path pair is what
+  // pins the vendor's callback handler.
+  for (const entry of allowed.entries) {
+    const hostMatches = entry.wildcard
+      ? host.endsWith(`.${entry.host}`)
+      : host === entry.host;
+    if (!hostMatches) continue;
+    if (entry.path === null || pathMatchesTemplate(entry.path, parsed.pathname)) return true;
   }
   return false;
 }
@@ -436,7 +482,7 @@ export function createOAuthRouter(): Router {
     const invalidUris = uris.filter((u: unknown) => typeof u !== 'string' || !isAllowedRedirectUri(u));
     if (invalidUris.length > 0) {
       console.error(
-        `[oauth/register] Rejected client ${client_name ?? 'unknown'}: ` +
+        `[oauth/register] Rejected client ${sanitizeForLog(client_name ?? 'unknown')}: ` +
         `${invalidUris.length} redirect_uri(s) outside allowlist`,
       );
       res.status(400).json({
@@ -454,7 +500,7 @@ export function createOAuthRouter(): Router {
     // on any replica (see signClientId).
     const clientId = signClientId(uris, client_name ?? 'unknown');
 
-    console.error(`[oauth/register] Registered dynamic client (${client_name ?? 'unknown'}), ${uris.length} redirect_uri(s)`);
+    console.error(`[oauth/register] Registered dynamic client (${sanitizeForLog(client_name ?? 'unknown')}), ${uris.length} redirect_uri(s)`);
 
     res.status(201).json({
       client_id: clientId,
@@ -512,7 +558,7 @@ export function createOAuthRouter(): Router {
       return;
     }
     if (!isAllowedRedirectUri(redirect_uri)) {
-      console.error(`[oauth/authorize] Rejected redirect_uri (host not in allowlist): ${redirect_uri}`);
+      console.error(`[oauth/authorize] Rejected redirect_uri (not in allowlist): ${sanitizeForLog(redirect_uri)}`);
       res.status(400).json({
         error: 'invalid_request',
         error_description: 'redirect_uri host is not in the allowlist',
@@ -547,7 +593,7 @@ export function createOAuthRouter(): Router {
     }
     if (!redirectUriMatches(registered.redirectUris, redirect_uri)) {
       console.error(
-        `[oauth/authorize] redirect_uri not registered for this client_id: ${redirect_uri}`,
+        `[oauth/authorize] redirect_uri not registered for this client_id: ${sanitizeForLog(redirect_uri)}`,
       );
       res.status(400).json({
         error: 'invalid_request',
@@ -628,7 +674,7 @@ export function createOAuthRouter(): Router {
     // /oauth/authorize already gated the URI, but the state value transits the
     // user-agent — re-running the host allowlist here closes any replay gap.
     if (!isAllowedRedirectUri(redirectUri)) {
-      console.error(`[oauth/callback] Rejected redirectUri from state (host not in allowlist): ${redirectUri}`);
+      console.error(`[oauth/callback] Rejected redirectUri from state (not in allowlist): ${sanitizeForLog(redirectUri)}`);
       res.status(400).json({
         error: 'invalid_request',
         error_description: 'redirect_uri host is not in the allowlist',
@@ -642,7 +688,7 @@ export function createOAuthRouter(): Router {
       // redirectUri. A forged client_id fails closed.
       const registered = verifyClientId(clientId);
       if (!registered || !redirectUriMatches(registered.redirectUris, redirectUri)) {
-        console.error(`[oauth/callback] client_id invalid or redirectUri not registered: ${redirectUri}`);
+        console.error(`[oauth/callback] client_id invalid or redirectUri not registered: ${sanitizeForLog(redirectUri)}`);
         res.status(400).json({
           error: 'invalid_request',
           error_description: 'redirect_uri does not match any URI registered for this client_id',
@@ -663,6 +709,13 @@ export function createOAuthRouter(): Router {
   // --- Token: proxy token exchange to Entra ID ---
   router.post('/oauth/token', oauthTokenRateLimit, async (req, res) => {
     const baseUrl = getPublicBaseUrl(req);
+
+    // RFC 6749 §5.1: responses carrying tokens MUST NOT be cached. Set on
+    // every response from this route (success, Entra error passthrough, our
+    // own 400s/502) — Entra sends these headers but the proxy's res.json()
+    // does not copy upstream headers.
+    res.set('Cache-Control', 'no-store');
+    res.set('Pragma', 'no-cache');
 
     const params = req.body as Record<string, string>;
 
@@ -723,7 +776,17 @@ export function createOAuthRouter(): Router {
 
       const data = await tokenResponse.json();
       if (tokenResponse.status !== 200) {
-        console.error(`[oauth/token] Entra error: status=${tokenResponse.status}`, JSON.stringify(data));
+        // Log only stable identifiers — never the full body. error_description
+        // can carry user/tenant details, and a full dump would also capture any
+        // token material Entra chooses to include in edge-case errors. The
+        // correlation_id is what Microsoft support needs to trace the request.
+        const err = (typeof data === 'object' && data !== null ? data : {}) as Record<string, unknown>;
+        const codes = Array.isArray(err.error_codes) ? err.error_codes.join(',') : err.error_codes;
+        console.error(
+          `[oauth/token] Entra error: status=${tokenResponse.status} ` +
+          `error=${sanitizeForLog(err.error)} error_codes=${sanitizeForLog(codes)} ` +
+          `correlation_id=${sanitizeForLog(err.correlation_id)}`,
+        );
       }
       res.status(tokenResponse.status).json(data);
     } catch (err) {

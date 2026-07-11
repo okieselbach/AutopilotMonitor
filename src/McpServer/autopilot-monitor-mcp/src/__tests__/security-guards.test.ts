@@ -14,6 +14,8 @@
  * These tests are pure functions; no live backend or token needed.
  */
 import { describe, it, expect } from 'vitest';
+import express from 'express';
+import type { AddressInfo } from 'node:net';
 import { followNextLink } from '../client.js';
 import { SessionIdSchema } from '../tools/shared.js';
 import { ApiError } from '../client.js';
@@ -38,6 +40,8 @@ const {
   isAllowedRedirectUri,
   isAllowedRedirectUriWith,
   parseAllowedHosts,
+  sanitizeForLog,
+  createOAuthRouter,
   signState,
   verifyState,
   MAX_REDIRECT_URIS_PER_CLIENT,
@@ -129,7 +133,7 @@ describe('M2 — SessionIdSchema UUID enforcement', () => {
   });
 });
 
-describe('H1 — OAuth redirect_uri allowlist (default Multi-Vendor)', () => {
+describe('H1 — OAuth redirect_uri allowlist (default = exact vendor callback URIs)', () => {
   it('accepts loopback over http with arbitrary port', () => {
     expect(isAllowedRedirectUri('http://localhost:1234/callback')).toBe(true);
     expect(isAllowedRedirectUri('http://127.0.0.1:54321/cb')).toBe(true);
@@ -139,27 +143,50 @@ describe('H1 — OAuth redirect_uri allowlist (default Multi-Vendor)', () => {
     expect(isAllowedRedirectUri('https://localhost:8443/cb')).toBe(true);
   });
 
-  it('accepts Anthropic hosts over https (claude.ai, *.claude.ai, *.anthropic.com)', () => {
-    expect(isAllowedRedirectUri('https://claude.ai/api/oauth/cb')).toBe(true);
-    expect(isAllowedRedirectUri('https://api.claude.ai/cb')).toBe(true);
-    expect(isAllowedRedirectUri('https://accounts.anthropic.com/cb')).toBe(true);
+  it('accepts the documented Claude web/desktop callback (claude.ai + claude.com)', () => {
+    expect(isAllowedRedirectUri('https://claude.ai/api/mcp/auth_callback')).toBe(true);
+    expect(isAllowedRedirectUri('https://claude.com/api/mcp/auth_callback')).toBe(true);
   });
 
-  it('accepts OpenAI/ChatGPT hosts over https', () => {
-    expect(isAllowedRedirectUri('https://chatgpt.com/connector/oauth/cb')).toBe(true);
-    expect(isAllowedRedirectUri('https://app.chatgpt.com/cb')).toBe(true);
-    expect(isAllowedRedirectUri('https://platform.openai.com/cb')).toBe(true);
-    expect(isAllowedRedirectUri('https://chat.openai.com/cb')).toBe(true);
+  it('accepts the documented ChatGPT connector callback', () => {
+    expect(isAllowedRedirectUri('https://chatgpt.com/connector_platform_oauth_redirect')).toBe(true);
   });
 
-  it('accepts Google Gemini host over https', () => {
-    expect(isAllowedRedirectUri('https://gemini.google.com/oauth/cb')).toBe(true);
+  it('accepts the documented VS Code stable/insiders callbacks', () => {
+    expect(isAllowedRedirectUri('https://vscode.dev/redirect')).toBe(true);
+    expect(isAllowedRedirectUri('https://insiders.vscode.dev/redirect')).toBe(true);
+  });
+
+  it('tolerates a trailing slash and a query string on a path-template match', () => {
+    expect(isAllowedRedirectUri('https://vscode.dev/redirect/')).toBe(true);
+    expect(isAllowedRedirectUri('https://vscode.dev/redirect?quality=stable')).toBe(true);
+  });
+
+  it('rejects other paths on allowlisted hosts (open-redirect containment)', () => {
+    expect(isAllowedRedirectUri('https://claude.ai/api/oauth/cb')).toBe(false);
+    expect(isAllowedRedirectUri('https://claude.ai/')).toBe(false);
+    expect(isAllowedRedirectUri('https://chatgpt.com/connector/oauth/cb')).toBe(false);
+    expect(isAllowedRedirectUri('https://vscode.dev/redirect/extra')).toBe(false);
+  });
+
+  it('rejects dot-segment traversal into a template path (URL normalizes it away)', () => {
+    // new URL() collapses "/api/mcp/auth_callback/../evil" to "/api/mcp/evil",
+    // which must then fail the exact-path compare.
+    expect(isAllowedRedirectUri('https://claude.ai/api/mcp/auth_callback/../evil')).toBe(false);
+  });
+
+  it('rejects subdomains and unrelated vendor hosts no longer in the defaults', () => {
+    expect(isAllowedRedirectUri('https://api.claude.ai/cb')).toBe(false);
+    expect(isAllowedRedirectUri('https://accounts.anthropic.com/cb')).toBe(false);
+    expect(isAllowedRedirectUri('https://app.chatgpt.com/cb')).toBe(false);
+    expect(isAllowedRedirectUri('https://platform.openai.com/cb')).toBe(false);
+    expect(isAllowedRedirectUri('https://chat.openai.com/cb')).toBe(false);
+    expect(isAllowedRedirectUri('https://gemini.google.com/oauth/cb')).toBe(false);
   });
 
   it('rejects allowed hosts over plain http (downgrade attempt)', () => {
-    expect(isAllowedRedirectUri('http://claude.ai/cb')).toBe(false);
-    expect(isAllowedRedirectUri('http://chatgpt.com/cb')).toBe(false);
-    expect(isAllowedRedirectUri('http://gemini.google.com/cb')).toBe(false);
+    expect(isAllowedRedirectUri('http://claude.ai/api/mcp/auth_callback')).toBe(false);
+    expect(isAllowedRedirectUri('http://chatgpt.com/connector_platform_oauth_redirect')).toBe(false);
   });
 
   it('rejects arbitrary hosts', () => {
@@ -167,17 +194,21 @@ describe('H1 — OAuth redirect_uri allowlist (default Multi-Vendor)', () => {
     expect(isAllowedRedirectUri('https://evil.example.com/cb')).toBe(false);
   });
 
-  it('rejects look-alike hosts (suffix match must be on the dot boundary)', () => {
-    // "evilclaude.ai" ends with "claude.ai" naïvely, but the suffix list
-    // stores ".claude.ai" with a leading dot, anchoring matches to a real
-    // subdomain boundary.
-    expect(isAllowedRedirectUri('https://evilclaude.ai/cb')).toBe(false);
-    expect(isAllowedRedirectUri('https://notanthropic.com/cb')).toBe(false);
-    expect(isAllowedRedirectUri('https://fakechatgpt.com/cb')).toBe(false);
-    expect(isAllowedRedirectUri('https://notopenai.com/cb')).toBe(false);
-    // gemini.google.com is exact-match only — google.com itself is NOT allowed.
+  it('rejects look-alike hosts', () => {
+    expect(isAllowedRedirectUri('https://evilclaude.ai/api/mcp/auth_callback')).toBe(false);
+    expect(isAllowedRedirectUri('https://fakechatgpt.com/connector_platform_oauth_redirect')).toBe(false);
     expect(isAllowedRedirectUri('https://google.com/cb')).toBe(false);
-    expect(isAllowedRedirectUri('https://accounts.google.com/cb')).toBe(false);
+  });
+
+  it('rejects userinfo in the URI (host-confusion primitive), including loopback', () => {
+    expect(isAllowedRedirectUri('https://user@claude.ai/api/mcp/auth_callback')).toBe(false);
+    expect(isAllowedRedirectUri('https://claude.ai:pw@evil.tld/cb')).toBe(false);
+    expect(isAllowedRedirectUri('http://user@localhost:1234/callback')).toBe(false);
+  });
+
+  it('rejects fragments (forbidden by RFC 6749 §3.1.2), including loopback', () => {
+    expect(isAllowedRedirectUri('https://claude.ai/api/mcp/auth_callback#frag')).toBe(false);
+    expect(isAllowedRedirectUri('http://localhost:1234/callback#frag')).toBe(false);
   });
 
   it('rejects javascript:, data:, file:, ftp: schemes', () => {
@@ -196,41 +227,68 @@ describe('H1 — OAuth redirect_uri allowlist (default Multi-Vendor)', () => {
 });
 
 describe('H1 — OAuth allowlist via MCP_ALLOWED_REDIRECT_HOSTS env override', () => {
+  const find = (r: { entries: { host: string; wildcard: boolean; path: string | null }[] }, host: string) =>
+    r.entries.find((e) => e.host === host);
+
   it('parseAllowedHosts splits exact hosts and *.wildcards', () => {
     const r = parseAllowedHosts('foo.example.com,*.bar.example.com,baz.org');
-    expect(r.exact.has('foo.example.com')).toBe(true);
-    expect(r.exact.has('baz.org')).toBe(true);
-    expect(r.exact.has('bar.example.com')).toBe(false); // wildcard, not exact
-    expect(r.suffixes).toContain('.bar.example.com');
+    expect(find(r, 'foo.example.com')).toMatchObject({ wildcard: false, path: null });
+    expect(find(r, 'baz.org')).toMatchObject({ wildcard: false, path: null });
+    expect(find(r, 'bar.example.com')).toMatchObject({ wildcard: true, path: null });
+  });
+
+  it('parseAllowedHosts parses optional path templates', () => {
+    const r = parseAllowedHosts('a.example.com/oauth/cb,*.b.example.com/redirect,c.example.com');
+    expect(find(r, 'a.example.com')).toMatchObject({ wildcard: false, path: '/oauth/cb' });
+    expect(find(r, 'b.example.com')).toMatchObject({ wildcard: true, path: '/redirect' });
+    expect(find(r, 'c.example.com')).toMatchObject({ wildcard: false, path: null });
   });
 
   it('parseAllowedHosts normalizes case', () => {
     const r = parseAllowedHosts('Foo.EXAMPLE.com');
-    expect(r.exact.has('foo.example.com')).toBe(true);
+    expect(find(r, 'foo.example.com')).toBeDefined();
   });
 
   it('parseAllowedHosts trims whitespace and drops empty entries', () => {
     const r = parseAllowedHosts(' a.com ,  , b.com ');
-    expect(r.exact.size).toBe(2);
-    expect(r.exact.has('a.com')).toBe(true);
-    expect(r.exact.has('b.com')).toBe(true);
+    expect(r.entries).toHaveLength(2);
+    expect(find(r, 'a.com')).toBeDefined();
+    expect(find(r, 'b.com')).toBeDefined();
   });
 
-  it('parseAllowedHosts falls back to defaults when env is undefined', () => {
+  it('parseAllowedHosts falls back to path-pinned defaults when env is undefined', () => {
     const r = parseAllowedHosts(undefined);
-    // Default baseline includes all three vendors.
-    expect(r.exact.has('claude.ai')).toBe(true);
-    expect(r.exact.has('chatgpt.com')).toBe(true);
-    expect(r.exact.has('gemini.google.com')).toBe(true);
+    expect(find(r, 'claude.ai')).toMatchObject({ path: '/api/mcp/auth_callback' });
+    expect(find(r, 'claude.com')).toMatchObject({ path: '/api/mcp/auth_callback' });
+    expect(find(r, 'chatgpt.com')).toMatchObject({ path: '/connector_platform_oauth_redirect' });
+    expect(find(r, 'vscode.dev')).toMatchObject({ path: '/redirect' });
+    expect(find(r, 'insiders.vscode.dev')).toMatchObject({ path: '/redirect' });
+    // No host-wide or wildcard entries remain in the defaults.
+    expect(r.entries.every((e) => e.path !== null && !e.wildcard)).toBe(true);
   });
 
-  it('custom allowlist accepts only the configured hosts (defaults are NOT additive)', () => {
+  it('custom allowlist accepts only the configured entries (defaults are NOT additive)', () => {
     const customOnly = parseAllowedHosts('mycompany.example.com,*.partner.example.org');
     expect(isAllowedRedirectUriWith('https://mycompany.example.com/cb', customOnly)).toBe(true);
     expect(isAllowedRedirectUriWith('https://api.partner.example.org/cb', customOnly)).toBe(true);
     // Defaults must NOT leak through — operator-supplied list fully replaces them.
-    expect(isAllowedRedirectUriWith('https://claude.ai/cb', customOnly)).toBe(false);
+    expect(isAllowedRedirectUriWith('https://claude.ai/api/mcp/auth_callback', customOnly)).toBe(false);
     expect(isAllowedRedirectUriWith('https://chatgpt.com/cb', customOnly)).toBe(false);
+  });
+
+  it('custom path-template entries pin the path; host-only entries allow any path', () => {
+    const r = parseAllowedHosts('pinned.example.com/oauth/cb,open.example.com');
+    expect(isAllowedRedirectUriWith('https://pinned.example.com/oauth/cb', r)).toBe(true);
+    expect(isAllowedRedirectUriWith('https://pinned.example.com/other', r)).toBe(false);
+    expect(isAllowedRedirectUriWith('https://open.example.com/anything/goes', r)).toBe(true);
+  });
+
+  it('wildcard entries match subdomains on the dot boundary only', () => {
+    const r = parseAllowedHosts('*.partner.example.org/cb');
+    expect(isAllowedRedirectUriWith('https://api.partner.example.org/cb', r)).toBe(true);
+    // Bare apex does not match a `*.` entry, and look-alikes stay out.
+    expect(isAllowedRedirectUriWith('https://partner.example.org/cb', r)).toBe(false);
+    expect(isAllowedRedirectUriWith('https://evilpartner.example.org.attacker.tld/cb', r)).toBe(false);
   });
 
   it('custom allowlist still requires HTTPS for non-loopback', () => {
@@ -239,11 +297,58 @@ describe('H1 — OAuth allowlist via MCP_ALLOWED_REDIRECT_HOSTS env override', (
   });
 
   it('loopback is always allowed even with empty allowlist', () => {
-    const empty = parseAllowedHosts('');
+    const empty = { entries: [] };
     expect(isAllowedRedirectUriWith('http://localhost:9000/cb', empty)).toBe(true);
     expect(isAllowedRedirectUriWith('http://127.0.0.1:9000/cb', empty)).toBe(true);
     // But arbitrary hosts are not.
     expect(isAllowedRedirectUriWith('https://anywhere.com/cb', empty)).toBe(false);
+  });
+});
+
+describe('sanitizeForLog — user-controlled log-field hygiene', () => {
+  it('strips CR/LF so a hostile value cannot forge log lines', () => {
+    expect(sanitizeForLog('evil\r\n[oauth] fake line')).toBe('evil[oauth] fake line');
+  });
+
+  it('strips other control characters', () => {
+    expect(sanitizeForLog('a\x00b\x1bc\x7fd')).toBe('abcd');
+  });
+
+  it('caps the length', () => {
+    const out = sanitizeForLog('x'.repeat(500), 200);
+    expect(out).toHaveLength(203); // 200 chars + '...'
+    expect(out.endsWith('...')).toBe(true);
+  });
+
+  it('stringifies null/undefined without throwing', () => {
+    expect(sanitizeForLog(undefined)).toBe('');
+    expect(sanitizeForLog(null)).toBe('');
+  });
+});
+
+describe('/oauth/token response hygiene', () => {
+  it('sets Cache-Control: no-store and Pragma: no-cache on token responses', async () => {
+    const app = express();
+    app.use(express.urlencoded({ extended: false }));
+    app.use(createOAuthRouter());
+    const server = app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const { port } = server.address() as AddressInfo;
+    try {
+      // Missing grant_type → the proxy's own 400, no outbound Entra call.
+      // The anti-caching headers are set route-wide at handler entry, so this
+      // cheap path proves they are present on every response shape.
+      const res = await fetch(`http://127.0.0.1:${port}/oauth/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: '',
+      });
+      expect(res.status).toBe(400);
+      expect(res.headers.get('cache-control')).toBe('no-store');
+      expect(res.headers.get('pragma')).toBe('no-cache');
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });
 
