@@ -41,6 +41,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<List<AppInstallSummary>> GetAllAppInstallSummariesAsync(DateTime? sinceUtc = null)
             => _storage.GetAllAppInstallSummariesAsync(sinceUtc);
 
+        public Task<List<SessionAppRef>> GetAppInstallRefsAsync(DateTime sinceUtc, string? tenantId = null)
+            => _storage.GetAppInstallRefsAsync(sinceUtc, tenantId);
+
         public Task<PlatformStats?> GetPlatformStatsAsync()
             => _storage.GetPlatformStatsAsync();
 

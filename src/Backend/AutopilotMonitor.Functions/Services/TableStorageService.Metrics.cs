@@ -395,6 +395,52 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
+        /// <summary>
+        /// Columns the (SessionId, AppName) pair projection transfers. The usage-metrics compute
+        /// only groups installs per session and counts distinct app names, so the full summary row
+        /// (DO telemetry, failure text, timestamps, …) is dead weight on this scan.
+        /// </summary>
+        internal static readonly string[] AppInstallRefProjection = { "PartitionKey", "RowKey", "SessionId", "AppName" };
+
+        /// <summary>
+        /// Lean windowed (SessionId, AppName) scan over AppInstallSummaries. Same filter semantics
+        /// as the summary getters (server-side <c>StartedAt ge</c> + optional tenant partition), but
+        /// column-projected to <see cref="AppInstallRefProjection"/>. <paramref name="sinceUtc"/> is
+        /// server-derived, so interpolating it is injection-safe.
+        /// </summary>
+        public async Task<List<SessionAppRef>> GetAppInstallRefsAsync(DateTime sinceUtc, string? tenantId = null)
+        {
+            if (!string.IsNullOrEmpty(tenantId))
+                SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AppInstallSummaries);
+                var filter = $"StartedAt ge datetime'{sinceUtc:yyyy-MM-ddTHH:mm:ss}Z'";
+                if (!string.IsNullOrEmpty(tenantId))
+                    filter = $"PartitionKey eq '{tenantId}' and " + filter;
+
+                var query = tableClient.QueryAsync<TableEntity>(filter: filter, select: AppInstallRefProjection);
+
+                var refs = new List<SessionAppRef>();
+                await foreach (var entity in query)
+                {
+                    refs.Add(new SessionAppRef
+                    {
+                        SessionId = entity.GetString("SessionId") ?? string.Empty,
+                        AppName = entity.GetString("AppName") ?? string.Empty
+                    });
+                }
+
+                return refs;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get app install refs");
+                return new List<SessionAppRef>();
+            }
+        }
+
         private AppInstallSummary MapToAppInstallSummary(TableEntity entity)
         {
             return new AppInstallSummary

@@ -2558,7 +2558,10 @@ namespace AutopilotMonitor.Functions.Services
         /// Maps a TableEntity from the primary Sessions table to SessionSummary.
         /// SessionId is the entity RowKey on the primary table.
         /// </summary>
-        private SessionSummary MapToSessionSummary(TableEntity entity)
+        // internal (not private) so UsageMetricsProjectionEquivalenceTests can pin that a Sessions
+        // row carrying only UsageMetricsSessionProjection maps to the same usage-relevant fields
+        // as a full row.
+        internal SessionSummary MapToSessionSummary(TableEntity entity)
             => MapToSessionSummary(entity, entity.RowKey);
 
         /// <summary>

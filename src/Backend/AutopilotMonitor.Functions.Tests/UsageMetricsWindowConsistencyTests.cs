@@ -31,15 +31,15 @@ public class UsageMetricsWindowConsistencyTests
 
         var maintenance = new Mock<IMaintenanceRepository>();
         maintenance
-            .Setup(m => m.GetSessionsByDateRangeAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<string?>()))
+            .Setup(m => m.GetUsageWindowSessionsAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<string?>()))
             .Callback<DateTime, DateTime, string?>((start, _, _) => sessionStart = start)
             .ReturnsAsync(new List<SessionSummary>());
 
         var metrics = new Mock<IMetricsRepository>();
         metrics
-            .Setup(m => m.GetAllAppInstallSummariesAsync(It.IsAny<DateTime?>()))
-            .Callback<DateTime?>(c => appCutoff = c)
-            .ReturnsAsync(new List<AppInstallSummary>());
+            .Setup(m => m.GetAppInstallRefsAsync(It.IsAny<DateTime>(), It.IsAny<string?>()))
+            .Callback<DateTime, string?>((c, _) => appCutoff = c)
+            .ReturnsAsync(new List<SessionAppRef>());
         metrics.Setup(m => m.GetAllUserActivityMetricsAsync()).ReturnsAsync(new UserActivityMetrics());
         metrics.Setup(m => m.GetPlatformStatsAsync()).ReturnsAsync((PlatformStats?)null);
 
@@ -61,15 +61,15 @@ public class UsageMetricsWindowConsistencyTests
 
         var maintenance = new Mock<IMaintenanceRepository>();
         maintenance
-            .Setup(m => m.GetSessionsByDateRangeAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<string?>()))
+            .Setup(m => m.GetUsageWindowSessionsAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<string?>()))
             .Callback<DateTime, DateTime, string?>((start, _, _) => sessionStart = start)
             .ReturnsAsync(new List<SessionSummary>());
 
         var metrics = new Mock<IMetricsRepository>();
         metrics
-            .Setup(m => m.GetAppInstallSummariesByTenantAsync(It.IsAny<string>(), It.IsAny<DateTime?>()))
-            .Callback<string, DateTime?>((_, c) => appCutoff = c)
-            .ReturnsAsync(new List<AppInstallSummary>());
+            .Setup(m => m.GetAppInstallRefsAsync(It.IsAny<DateTime>(), It.IsAny<string?>()))
+            .Callback<DateTime, string?>((c, _) => appCutoff = c)
+            .ReturnsAsync(new List<SessionAppRef>());
         metrics.Setup(m => m.GetUserActivityMetricsAsync(It.IsAny<string>())).ReturnsAsync(new UserActivityMetrics());
         metrics.Setup(m => m.GetPlatformStatsAsync()).ReturnsAsync((PlatformStats?)null);
 

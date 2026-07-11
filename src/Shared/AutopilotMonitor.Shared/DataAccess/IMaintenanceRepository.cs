@@ -67,6 +67,13 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// </summary>
         Task<List<SessionSummary>> GetSessionsOlderThanAsync(string tenantId, DateTime cutoffDate, int maxResults = int.MaxValue, bool excludeInFlightDeletions = false);
         Task<List<SessionSummary>> GetSessionsByDateRangeAsync(DateTime startDate, DateTime endDate, string? tenantId = null);
+        /// <summary>
+        /// Column-projected variant of <see cref="GetSessionsByDateRangeAsync"/> for the usage-metrics
+        /// compute: identical filter and result semantics, but only the columns that compute consumes
+        /// are transferred (drops FailureSnapshotJson and the rest of the wide row). Fields outside
+        /// the projection come back as defaults — callers must not read them.
+        /// </summary>
+        Task<List<SessionSummary>> GetUsageWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null);
         Task<List<SessionSummary>> GetStalledSessionsAsync(string tenantId, DateTime cutoffTime);
         Task<List<SessionSummary>> GetAgentSilentSessionsAsync(string tenantId, DateTime silenceCutoff, DateTime hardCutoff);
         Task<List<SessionSummary>> GetExcessiveDataSendersAsync(string tenantId, DateTime windowCutoff, int maxSessionWindowHours);

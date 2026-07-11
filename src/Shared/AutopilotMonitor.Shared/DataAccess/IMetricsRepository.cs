@@ -25,6 +25,14 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<List<AppInstallSummary>> GetAppInstallSummariesByTenantAsync(string tenantId, DateTime? sinceUtc = null);
         /// <summary>Gets all tenants' app install summaries. Pass <paramref name="sinceUtc"/> to scope the (otherwise full-table) scan to the window; null returns everything (legacy behaviour).</summary>
         Task<List<AppInstallSummary>> GetAllAppInstallSummariesAsync(DateTime? sinceUtc = null);
+        /// <summary>
+        /// Lean (SessionId, AppName) pairs for app-per-session aggregation. Same window/tenant scoping
+        /// as the summary getters above, but column-projected server-side — the usage-metrics compute
+        /// only groups by SessionId and counts distinct AppNames, so shipping the full summary rows
+        /// (DO telemetry, failure text, …) multiplied transfer for nothing. Omit <paramref name="tenantId"/>
+        /// for the cross-tenant scan.
+        /// </summary>
+        Task<List<SessionAppRef>> GetAppInstallRefsAsync(DateTime sinceUtc, string? tenantId = null);
 
         // --- Platform Stats ---
         Task<PlatformStats?> GetPlatformStatsAsync();
@@ -65,6 +73,16 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<List<RuleStatsEntry>> GetRuleStatsAsync(string? tenantId = null, string? startDate = null,
             string? endDate = null, string? ruleType = null, int maxResults = 500);
         Task<int> DeleteRuleStatsOlderThanAsync(DateTime cutoffDate);
+    }
+
+    /// <summary>
+    /// Minimal projection of an AppInstallSummaries row: just enough to group installs per session
+    /// and count distinct app names. Returned by <see cref="IMetricsRepository.GetAppInstallRefsAsync"/>.
+    /// </summary>
+    public class SessionAppRef
+    {
+        public string SessionId { get; set; } = string.Empty;
+        public string AppName { get; set; } = string.Empty;
     }
 
     public class UserActivityMetrics

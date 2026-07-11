@@ -19,10 +19,15 @@ namespace AutopilotMonitor.Functions.Services
         private readonly IMaintenanceRepository _maintenanceRepo;
         private readonly ILogger<UsageMetricsService> _logger;
 
-        // In-memory cache (per-window, since results differ by days)
-        private static readonly Dictionary<int, (PlatformUsageMetrics metrics, DateTime expiry)> _cachedByDays = new();
-        private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
-        private static readonly object _cacheLock = new object();
+        // In-memory cache (per-window, since results differ by days). Instance state: the service
+        // is registered as a singleton, so this behaves like the former statics but stays testable.
+        private readonly Dictionary<int, (PlatformUsageMetrics metrics, DateTime expiry)> _cachedByDays = new();
+        // In-flight computes per window (single-flight): a fresh compute takes tens of seconds on
+        // the platform scope, and impatient clients retry — without this, every retry started
+        // another concurrent full compute on top of the still-running one.
+        private readonly Dictionary<int, Task<PlatformUsageMetrics>> _inFlightByDays = new();
+        private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(15);
+        private readonly object _cacheLock = new object();
 
         private const int DefaultWindowDays = 90;
 
@@ -37,9 +42,10 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Computes platform usage metrics (with 5-minute per-window cache).
+        /// Computes platform usage metrics (with 15-minute per-window cache). Concurrent callers for
+        /// the same window join the in-flight compute instead of starting their own (single-flight).
         /// </summary>
-        public async Task<PlatformUsageMetrics> ComputeUsageMetricsAsync(int days = DefaultWindowDays)
+        public Task<PlatformUsageMetrics> ComputeUsageMetricsAsync(int days = DefaultWindowDays)
         {
             days = ClampDays(days);
 
@@ -50,29 +56,59 @@ namespace AutopilotMonitor.Functions.Services
                     _logger.LogInformation("Returning cached usage metrics for days={Days} (expires in {Seconds}s)",
                         days, (entry.expiry - DateTime.UtcNow).TotalSeconds);
                     entry.metrics.FromCache = true;
-                    return entry.metrics;
+                    return Task.FromResult(entry.metrics);
+                }
+
+                if (_inFlightByDays.TryGetValue(days, out var inFlight))
+                {
+                    _logger.LogInformation("Joining in-flight usage metrics compute for days={Days}", days);
+                    return inFlight;
+                }
+
+                var compute = ComputeAndCacheAsync(days);
+                _inFlightByDays[days] = compute;
+                return compute;
+            }
+        }
+
+        private async Task<PlatformUsageMetrics> ComputeAndCacheAsync(int days)
+        {
+            // Started under _cacheLock — yield first so the caller only holds the lock for the
+            // task creation, not for the synchronous prefix of the compute itself.
+            await Task.Yield();
+
+            try
+            {
+                _logger.LogInformation("Computing fresh usage metrics for days={Days}...", days);
+                var stopwatch = Stopwatch.StartNew();
+
+                var metrics = await ComputeUsageMetricsInternalAsync(days);
+
+                stopwatch.Stop();
+                metrics.ComputeDurationMs = (int)stopwatch.ElapsedMilliseconds;
+                metrics.ComputedAt = DateTime.UtcNow;
+                metrics.FromCache = false;
+                metrics.WindowDays = days;
+
+                _logger.LogInformation("Usage metrics computed in {Ms}ms (days={Days})", metrics.ComputeDurationMs, days);
+
+                lock (_cacheLock)
+                {
+                    _cachedByDays[days] = (metrics, DateTime.UtcNow.Add(CacheDuration));
+                }
+
+                return metrics;
+            }
+            finally
+            {
+                // Cache entry (on success) is written before this runs, so a caller arriving in
+                // between sees either the in-flight task or the fresh cache — never a gap. Failures
+                // are not cached: the next request starts a new compute.
+                lock (_cacheLock)
+                {
+                    _inFlightByDays.Remove(days);
                 }
             }
-
-            _logger.LogInformation("Computing fresh usage metrics for days={Days}...", days);
-            var stopwatch = Stopwatch.StartNew();
-
-            var metrics = await ComputeUsageMetricsInternalAsync(days);
-
-            stopwatch.Stop();
-            metrics.ComputeDurationMs = (int)stopwatch.ElapsedMilliseconds;
-            metrics.ComputedAt = DateTime.UtcNow;
-            metrics.FromCache = false;
-            metrics.WindowDays = days;
-
-            _logger.LogInformation("Usage metrics computed in {Ms}ms (days={Days})", metrics.ComputeDurationMs, days);
-
-            lock (_cacheLock)
-            {
-                _cachedByDays[days] = (metrics, DateTime.UtcNow.Add(CacheDuration));
-            }
-
-            return metrics;
         }
 
         /// <summary>
@@ -110,12 +146,23 @@ namespace AutopilotMonitor.Functions.Services
             // meaningful only when they fit inside the window; clients can read WindowDays to know
             // the actual scope. "Total" counters use PlatformStats (cumulative, tracked separately).
             // One UtcNow snapshot for the whole computation: the session window lower bound and the
-            // AppInstall cutoff (below) MUST share an identical windowStart. A fresh UtcNow for the
+            // AppInstall cutoff MUST share an identical windowStart. A fresh UtcNow for the
             // app query would sit milliseconds later and could drop a boundary session's app rows
             // (undercounting AvgAppsPerSession / TotalUniqueApps). Pinned by UsageMetricsWindowConsistencyTests.
             var now = DateTime.UtcNow;
             var windowStart = now.AddDays(-days);
-            var allSessions = await _maintenanceRepo.GetSessionsByDateRangeAsync(windowStart, now.AddDays(1));
+
+            // The four source queries are independent table scans — run them concurrently so the
+            // wall-clock cost is the slowest scan, not the sum. Both windowed scans are
+            // column-projected (see UsageMetricsSessionProjection / AppInstallRefProjection):
+            // the compute only aggregates a handful of columns, and shipping the wide rows
+            // (FailureSnapshotJson & co.) dominated the former 20-40s fresh-compute time.
+            var sessionsTask = _maintenanceRepo.GetUsageWindowSessionsAsync(windowStart, now.AddDays(1));
+            var userActivityTask = _metricsRepo.GetAllUserActivityMetricsAsync();
+            var appRefsTask = _metricsRepo.GetAppInstallRefsAsync(windowStart);
+            var platformStatsTask = _metricsRepo.GetPlatformStatsAsync();
+            await Task.WhenAll(sessionsTask, userActivityTask, appRefsTask, platformStatsTask);
+            var allSessions = await sessionsTask;
 
             var today = now.Date;
             var last7Days = now.AddDays(-7);
@@ -152,7 +199,7 @@ namespace AutopilotMonitor.Functions.Services
             };
 
             // User Metrics (from UserActivity table)
-            var userActivity = await _metricsRepo.GetAllUserActivityMetricsAsync();
+            var userActivity = await userActivityTask;
             var userMetrics = new UserMetrics
             {
                 Total = userActivity.TotalUniqueUsers,
@@ -223,13 +270,13 @@ namespace AutopilotMonitor.Functions.Services
             };
 
             // App & Script Metrics
-            // Reuse windowStart (NOT a fresh UtcNow) so the AppInstall lower bound is identical to the
-            // session window's — see the snapshot note above. relevantApps is filtered to sessionIdSet
-            // anyway, and an app installs during its session (StartedAt >= the session's), so bounding
-            // here only drops rows already outside the window instead of scanning the whole table.
-            var allAppSummaries = await _metricsRepo.GetAllAppInstallSummariesAsync(windowStart);
+            // appRefsTask was bounded by windowStart (NOT a fresh UtcNow) so the AppInstall lower
+            // bound is identical to the session window's — see the snapshot note above. relevantApps
+            // is filtered to sessionIdSet anyway, and an app installs during its session
+            // (StartedAt >= the session's), so bounding only drops rows already outside the window.
+            var allAppRefs = await appRefsTask;
             var sessionIdSet = new HashSet<string>(allSessions.Select(s => s.SessionId));
-            var relevantApps = allAppSummaries.Where(a => sessionIdSet.Contains(a.SessionId)).ToList();
+            var relevantApps = allAppRefs.Where(a => sessionIdSet.Contains(a.SessionId)).ToList();
             var appsPerSessionList = relevantApps.GroupBy(a => a.SessionId).Select(g => g.Count()).ToList();
 
             var appScriptMetrics = new AppScriptMetrics
@@ -243,7 +290,7 @@ namespace AutopilotMonitor.Functions.Services
             };
 
             // Platform Stats (cumulative since release)
-            var platformStats = await _metricsRepo.GetPlatformStatsAsync();
+            var platformStats = await platformStatsTask;
 
             return new PlatformUsageMetrics
             {
@@ -281,7 +328,15 @@ namespace AutopilotMonitor.Functions.Services
             // windowStart — see ComputeUsageMetricsInternalAsync for why this must not drift.
             var now = DateTime.UtcNow;
             var windowStart = now.AddDays(-days);
-            var tenantSessions = await _maintenanceRepo.GetSessionsByDateRangeAsync(windowStart, now.AddDays(1), tenantId);
+
+            // Same concurrency + projection scheme as the platform path (see there): four
+            // independent scans, windowStart shared between the session and app lower bounds.
+            var sessionsTask = _maintenanceRepo.GetUsageWindowSessionsAsync(windowStart, now.AddDays(1), tenantId);
+            var tenantStatsTask = _metricsRepo.GetTenantStatsAsync(tenantId);
+            var userActivityTask = _metricsRepo.GetUserActivityMetricsAsync(tenantId);
+            var appRefsTask = _metricsRepo.GetAppInstallRefsAsync(windowStart, tenantId);
+            await Task.WhenAll(sessionsTask, tenantStatsTask, userActivityTask, appRefsTask);
+            var tenantSessions = await sessionsTask;
 
             var today = now.Date;
             var last7Days = now.AddDays(-7);
@@ -304,7 +359,7 @@ namespace AutopilotMonitor.Functions.Services
             // Cumulative "since signup" counter — incremented at registration, seeded/self-healed
             // by the nightly maintenance recompute. The window count is a floor: before the first
             // maintenance seed the counter may lag behind sessions still within retention.
-            var tenantStats = await _metricsRepo.GetTenantStatsAsync(tenantId);
+            var tenantStats = await tenantStatsTask;
             sessionMetrics.TotalAllTime = Math.Max(tenantStats?.TotalEnrollments ?? 0, sessionMetrics.Total);
 
             // Tenant Metrics (always 1 for tenant-specific view)
@@ -316,7 +371,7 @@ namespace AutopilotMonitor.Functions.Services
             };
 
             // User Metrics (from UserActivity table)
-            var userActivity = await _metricsRepo.GetUserActivityMetricsAsync(tenantId);
+            var userActivity = await userActivityTask;
             var userMetrics = new UserMetrics
             {
                 Total = userActivity.TotalUniqueUsers,
@@ -386,10 +441,11 @@ namespace AutopilotMonitor.Functions.Services
             };
 
             // App & Script Metrics
-            // Reuse windowStart (identical to the session window lower bound) — joined to tenantSessionIdSet below.
-            var tenantAppSummaries = await _metricsRepo.GetAppInstallSummariesByTenantAsync(tenantId, windowStart);
+            // appRefsTask reused windowStart (identical to the session window lower bound) — joined
+            // to tenantSessionIdSet below.
+            var tenantAppRefs = await appRefsTask;
             var tenantSessionIdSet = new HashSet<string>(tenantSessions.Select(s => s.SessionId));
-            var relevantTenantApps = tenantAppSummaries.Where(a => tenantSessionIdSet.Contains(a.SessionId)).ToList();
+            var relevantTenantApps = tenantAppRefs.Where(a => tenantSessionIdSet.Contains(a.SessionId)).ToList();
             var tenantAppsPerSession = relevantTenantApps.GroupBy(a => a.SessionId).Select(g => g.Count()).ToList();
 
             var tenantAppScriptMetrics = new AppScriptMetrics

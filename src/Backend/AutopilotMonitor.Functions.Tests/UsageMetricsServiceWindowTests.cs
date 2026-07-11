@@ -17,7 +17,7 @@ public class UsageMetricsServiceWindowTests
     {
         var maintenanceRepo = new Mock<IMaintenanceRepository>();
         maintenanceRepo
-            .Setup(r => r.GetSessionsByDateRangeAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<string?>()))
+            .Setup(r => r.GetUsageWindowSessionsAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<string?>()))
             .ReturnsAsync(sessions ?? new List<SessionSummary>());
 
         var metricsRepo = new Mock<IMetricsRepository>();
@@ -27,10 +27,8 @@ public class UsageMetricsServiceWindowTests
             .ReturnsAsync(new UserActivityMetrics());
         metricsRepo.Setup(r => r.GetAllUserActivityMetricsAsync())
             .ReturnsAsync(new UserActivityMetrics());
-        metricsRepo.Setup(r => r.GetAllAppInstallSummariesAsync(It.IsAny<DateTime?>()))
-            .ReturnsAsync(new List<AppInstallSummary>());
-        metricsRepo.Setup(r => r.GetAppInstallSummariesByTenantAsync(It.IsAny<string>(), It.IsAny<DateTime?>()))
-            .ReturnsAsync(new List<AppInstallSummary>());
+        metricsRepo.Setup(r => r.GetAppInstallRefsAsync(It.IsAny<DateTime>(), It.IsAny<string?>()))
+            .ReturnsAsync(new List<SessionAppRef>());
         metricsRepo.Setup(r => r.GetPlatformStatsAsync())
             .ReturnsAsync((PlatformStats?)null);
 
@@ -50,7 +48,7 @@ public class UsageMetricsServiceWindowTests
         DateTime? capturedStart = null;
         DateTime? capturedEnd = null;
         maintenanceRepo
-            .Setup(r => r.GetSessionsByDateRangeAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), "tenant-x"))
+            .Setup(r => r.GetUsageWindowSessionsAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), "tenant-x"))
             .Callback<DateTime, DateTime, string?>((start, end, _) => { capturedStart = start; capturedEnd = end; })
             .ReturnsAsync(new List<SessionSummary>());
 
@@ -75,7 +73,7 @@ public class UsageMetricsServiceWindowTests
 
         DateTime? capturedStart = null;
         maintenanceRepo
-            .Setup(r => r.GetSessionsByDateRangeAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<string?>()))
+            .Setup(r => r.GetUsageWindowSessionsAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<string?>()))
             .Callback<DateTime, DateTime, string?>((start, _, _) => capturedStart = start)
             .ReturnsAsync(new List<SessionSummary>());
 
@@ -197,7 +195,7 @@ public class UsageMetricsServiceWindowTests
         var (service, maintenanceRepo) = CreateService();
         // Repo honours the cutoff like the real impl would: filter sessions by start date.
         maintenanceRepo
-            .Setup(r => r.GetSessionsByDateRangeAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<string?>()))
+            .Setup(r => r.GetUsageWindowSessionsAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<string?>()))
             .ReturnsAsync((DateTime start, DateTime _, string? _) => sessions.Where(s => s.StartedAt >= start).ToList());
 
         var r7  = await service.ComputeTenantUsageMetricsAsync("t1", 7);

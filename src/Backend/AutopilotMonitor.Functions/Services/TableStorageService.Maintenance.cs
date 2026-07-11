@@ -515,7 +515,35 @@ namespace AutopilotMonitor.Functions.Services
         /// Gets all sessions within a date range, optionally filtered by tenant.
         /// Uses server-side filtering to avoid loading all sessions into memory.
         /// </summary>
-        public async Task<List<SessionSummary>> GetSessionsByDateRangeAsync(DateTime startDate, DateTime endDate, string? tenantId = null)
+        public Task<List<SessionSummary>> GetSessionsByDateRangeAsync(DateTime startDate, DateTime endDate, string? tenantId = null)
+            => QuerySessionsByDateRangeAsync(startDate, endDate, tenantId, select: null);
+
+        /// <summary>
+        /// Columns the usage-metrics compute (UsageMetricsService) actually consumes, plus the
+        /// structural PartitionKey (TenantId) / RowKey (SessionId). CompletedAt / IsPreProvisioned /
+        /// ResumedAt must stay in the set for ComputeEffectiveDuration parity (WhiteGlove Part-2
+        /// branch and the completed-at fallback). Everything else on the wide Sessions row — most
+        /// notably FailureSnapshotJson — is never read by the compute, so the projected scan skips
+        /// it. Non-projected columns map to null/default via the Safe*/`?? ` getters in
+        /// MapToSessionSummary. internal so UsageMetricsProjectionEquivalenceTests derives its
+        /// keep-set from this exact array.
+        /// </summary>
+        internal static readonly string[] UsageMetricsSessionProjection =
+        {
+            "PartitionKey", "RowKey", "StartedAt", "CompletedAt", "Status", "DurationSeconds",
+            "Manufacturer", "Model", "IsUserDriven", "IsPreProvisioned", "ResumedAt",
+            "PlatformScriptCount", "RemediationScriptCount"
+        };
+
+        /// <summary>
+        /// Column-projected date-range query for the usage-metrics compute. Identical filter and
+        /// result semantics to <see cref="GetSessionsByDateRangeAsync"/>; only the transferred
+        /// column set differs (see <see cref="UsageMetricsSessionProjection"/>).
+        /// </summary>
+        public Task<List<SessionSummary>> GetUsageWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null)
+            => QuerySessionsByDateRangeAsync(startDate, endDate, tenantId, UsageMetricsSessionProjection);
+
+        private async Task<List<SessionSummary>> QuerySessionsByDateRangeAsync(DateTime startDate, DateTime endDate, string? tenantId, string[]? select)
         {
             if (!string.IsNullOrEmpty(tenantId))
                 SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
@@ -528,7 +556,7 @@ namespace AutopilotMonitor.Functions.Services
                     ? $"PartitionKey eq '{tenantId}' and StartedAt ge datetime'{startDate:yyyy-MM-ddTHH:mm:ss}Z' and StartedAt lt datetime'{endDate:yyyy-MM-ddTHH:mm:ss}Z'"
                     : $"StartedAt ge datetime'{startDate:yyyy-MM-ddTHH:mm:ss}Z' and StartedAt lt datetime'{endDate:yyyy-MM-ddTHH:mm:ss}Z'";
 
-                var query = tableClient.QueryAsync<TableEntity>(filter: filter);
+                var query = tableClient.QueryAsync<TableEntity>(filter: filter, select: select);
 
                 var sessions = new List<SessionSummary>();
                 await foreach (var entity in query)

@@ -24,7 +24,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
         /// <summary>
         /// GET /api/global/metrics/usage - Compute and return platform usage metrics
-        /// On-demand computation with 5-minute cache (Global Admin only)
+        /// On-demand computation with 15-minute cache (Global Admin only)
         /// </summary>
         [Function("GetPlatformUsageMetrics")]
         public async Task<HttpResponseData> Run(

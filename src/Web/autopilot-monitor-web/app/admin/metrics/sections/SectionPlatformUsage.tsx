@@ -6,6 +6,24 @@ import { api } from '@/lib/api';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 
+// A fresh cross-tenant compute takes tens of seconds server-side; the default 30s fetch timeout
+// aborted it client-side (HTTP 499 on the backend) while the server kept computing. Give this one
+// call generous headroom — the backend caches the result for 15 minutes afterwards.
+const FETCH_TIMEOUT_MS = 180_000;
+// Last observed fresh-compute fetch duration, used to size the progress bar. Only fresh computes
+// are recorded (a cache hit finishing in ~100ms would make the next cold load look stuck at 95%).
+const ESTIMATE_STORAGE_KEY = 'platformUsage.lastFreshFetchMs';
+const DEFAULT_ESTIMATE_MS = 45_000;
+
+function readFetchEstimateMs(): number {
+  try {
+    const v = Number(localStorage.getItem(ESTIMATE_STORAGE_KEY));
+    return Number.isFinite(v) && v > 1_000 ? v : DEFAULT_ESTIMATE_MS;
+  } catch {
+    return DEFAULT_ESTIMATE_MS;
+  }
+}
+
 interface SessionMetrics {
   total: number;
   today: number;
@@ -100,8 +118,21 @@ export function SectionPlatformUsage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadStartedAt, setLoadStartedAt] = useState<number | null>(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const [estimateMs, setEstimateMs] = useState(DEFAULT_ESTIMATE_MS);
+
+  // Tick the elapsed clock while a request is in flight so the calculating card can show
+  // progress instead of an opaque spinner.
+  useEffect(() => {
+    if (loadStartedAt === null) return;
+    setElapsedMs(0);
+    const id = setInterval(() => setElapsedMs(Date.now() - loadStartedAt), 500);
+    return () => clearInterval(id);
+  }, [loadStartedAt]);
 
   const fetchMetrics = async (showRefreshing = false) => {
+    const startedAt = Date.now();
     try {
       if (showRefreshing) {
         setRefreshing(true);
@@ -109,26 +140,38 @@ export function SectionPlatformUsage() {
         setLoading(true);
       }
       setError(null);
+      setEstimateMs(readFetchEstimateMs());
+      setLoadStartedAt(startedAt);
 
       // Platform-wide metrics - cross-tenant (Global Admin only)
-      const response = await authenticatedFetch(api.metrics.globalUsage(), getAccessToken);
+      const response = await authenticatedFetch(api.metrics.globalUsage(), getAccessToken, {
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
 
       if (!response.ok) {
         throw new Error(`Failed to fetch platform usage metrics: ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const data: PlatformUsageMetrics = await response.json();
       setMetrics(data);
+      if (!data.fromCache) {
+        try { localStorage.setItem(ESTIMATE_STORAGE_KEY, String(Date.now() - startedAt)); } catch { /* storage unavailable */ }
+      }
     } catch (err) {
       if (err instanceof TokenExpiredError) {
         console.error('Session expired:', err.message);
       } else {
         console.error('Error fetching platform usage metrics:', err);
       }
-      setError(err instanceof Error ? err.message : 'Failed to fetch platform usage metrics');
+      if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+        setError('The calculation is taking unusually long. It continues on the server and the result is cached once finished — please retry in a moment.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to fetch platform usage metrics');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setLoadStartedAt(null);
     }
   };
 
@@ -153,11 +196,34 @@ export function SectionPlatformUsage() {
   };
 
   if (loading) {
+    // Progress is an estimate from the last fresh compute — capped at 95% so it never claims
+    // "done" before the response actually lands.
+    const progressPercent = Math.min(95, (elapsedMs / estimateMs) * 100);
+    const elapsedSeconds = Math.floor(elapsedMs / 1000);
+    const overEstimate = elapsedMs > estimateMs;
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading platform usage metrics...</p>
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+            <h2 className="mt-4 text-xl font-semibold text-gray-900">Calculating platform metrics…</h2>
+            <p className="mt-2 text-sm text-gray-600">
+              Aggregating sessions, app installs and user activity across all tenants.
+              A fresh calculation can take a minute — the result is then cached for 15 minutes.
+            </p>
+            <div className="mt-6 w-full bg-gray-200 rounded-full h-2.5" role="progressbar" aria-valuenow={Math.round(progressPercent)} aria-valuemin={0} aria-valuemax={100}>
+              <div
+                className="bg-blue-600 h-2.5 rounded-full transition-all duration-500"
+                style={{ width: `${progressPercent}%` }}
+              ></div>
+            </div>
+            <p className="mt-2 text-xs text-gray-500">
+              {elapsedSeconds}s elapsed
+              {overEstimate
+                ? ' — taking a bit longer than usual…'
+                : ` · usually ~${Math.max(1, Math.round(estimateMs / 1000))}s`}
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -223,7 +289,7 @@ export function SectionPlatformUsage() {
               <svg className={`h-5 w-5 ${refreshing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              <span>{refreshing ? 'Refreshing...' : 'Refresh'}</span>
+              <span>{refreshing ? `Refreshing… ${Math.floor(elapsedMs / 1000)}s` : 'Refresh'}</span>
             </button>
           </div>
         </div>
