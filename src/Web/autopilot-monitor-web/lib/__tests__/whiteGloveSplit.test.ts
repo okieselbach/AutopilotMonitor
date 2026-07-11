@@ -108,6 +108,22 @@ describe("computeWhiteGloveSplitSequence", () => {
     expect(computeWhiteGloveSplitSequence(events)).toBe(5);
   });
 
+  it("keeps a lone collector straggler AFTER whiteglove_part1_complete in Part 1 (no phantom resume)", () => {
+    // Real field shape (session 1293f80e-...): the periodic StartupEnvironmentProbes collector
+    // flushes one last power_state_check AFTER whiteglove_part1_complete, still from the draining
+    // Part-1 agent. There is no whiteglove_resumed and no Part-2 agent_started, so this straggler
+    // must NOT open a "User Enrollment / Resumed" block — the split absorbs it into Pre-Provisioning.
+    const events: EnrollmentEvent[] = [
+      ev(1, "agent_started"),
+      ev(198, "whiteglove_complete"),
+      ev(199, "whiteglove_complete"),   // duplicate from DecisionEngine
+      ev(202, "agent_shutting_down"),
+      ev(204, "whiteglove_part1_complete"),
+      ev(205, "power_state_check"),     // straggler flushed after the completion marker
+    ];
+    expect(computeWhiteGloveSplitSequence(events)).toBe(205);
+  });
+
   it("returns whiteglove_complete.sequence when nothing follows it (Part 1 still wrapping up)", () => {
     const events: EnrollmentEvent[] = [
       ev(1, "agent_started"),
