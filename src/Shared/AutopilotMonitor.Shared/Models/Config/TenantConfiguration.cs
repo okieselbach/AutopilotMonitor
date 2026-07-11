@@ -178,7 +178,7 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>
         /// Session inactivity timeout in hours. Once an "InProgress" session is idle past this, the
         /// maintenance sweep reclassifies it out of "InProgress" (see
-        /// docs/design/enrollment-status-reclassification.md): if Device Setup already finished it
+        /// tasks/enrollment-status-reclassification.md): if Device Setup already finished it
         /// becomes AwaitingUser (non-terminal), otherwise it eventually settles as the terminal,
         /// non-failure Incomplete state once <see cref="SessionGraceHours"/> elapses — it is NOT
         /// counted as a failure. This prevents stalled sessions from running indefinitely and skewing statistics.
@@ -189,7 +189,7 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>
         /// Grace window in hours for a session that reached the inactivity timeout with Device Setup
-        /// already provisioned but no completion signal yet (docs/design/enrollment-status-reclassification.md).
+        /// already provisioned but no completion signal yet (tasks/enrollment-status-reclassification.md).
         /// At <see cref="SessionTimeoutHours"/> such a session becomes AwaitingUser (non-terminal) instead
         /// of Failed; only after this window elapses without a completion does it graduate to the terminal,
         /// non-failure Incomplete state.

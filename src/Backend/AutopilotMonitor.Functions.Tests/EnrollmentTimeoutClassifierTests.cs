@@ -6,7 +6,7 @@ using AutopilotMonitor.Shared.Models;
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Tests for the timeout reclassification (docs/design/enrollment-status-reclassification.md).
+/// Tests for the timeout reclassification (tasks/enrollment-status-reclassification.md).
 /// The maintenance sweep must stop labelling every silent session Failed: a session whose
 /// Account Setup rollup reached all-succeeded reconciles to Succeeded; one that finished
 /// Device Setup but whose user phase never completed is AwaitingUser (within grace) then

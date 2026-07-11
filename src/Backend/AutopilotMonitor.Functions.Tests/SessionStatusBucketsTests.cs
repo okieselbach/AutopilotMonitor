@@ -3,7 +3,7 @@ using AutopilotMonitor.Functions.Helpers;
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Pins the third-state stats bucketing (docs/design/enrollment-status-reclassification.md):
+/// Pins the third-state stats bucketing (tasks/enrollment-status-reclassification.md):
 /// AwaitingUser and Incomplete get their own buckets instead of hiding in Other, and the buckets
 /// always reconcile to Total by construction — so a session in either state can never be silently
 /// miscounted as a failure.

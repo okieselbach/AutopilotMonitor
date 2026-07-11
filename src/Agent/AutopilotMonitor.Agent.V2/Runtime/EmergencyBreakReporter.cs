@@ -14,7 +14,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
     /// (<c>ReportAgentErrorFunction</c>), closing the silent-48h blind spot and letting the timeout
     /// classifier terminalize the session instead of waiting out the grace. Fully swallowed — a send
     /// failure (no network, no cert) must never delay the cleanup/exit the break exists to perform.
-    /// See docs/design/enrollment-status-reclassification.md.
+    /// See tasks/enrollment-status-reclassification.md.
     /// </summary>
     internal static class EmergencyBreakReporter
     {

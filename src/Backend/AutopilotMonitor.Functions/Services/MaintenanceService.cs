@@ -367,7 +367,7 @@ namespace AutopilotMonitor.Functions.Services
 
                             // Timeout ≠ failure. Classify from the ESP subcategory rollup the agent already
                             // emits instead of blindly failing every silent session
-                            // (docs/design/enrollment-status-reclassification.md): explicit failure → Failed;
+                            // (tasks/enrollment-status-reclassification.md): explicit failure → Failed;
                             // Account Setup all-succeeded / enrollment_complete → Succeeded (reconcile);
                             // desktop + positive Hello terminal observed → Succeeded (user provably finished
                             // setup; only the completion report never left the device — session 294ab5b4);

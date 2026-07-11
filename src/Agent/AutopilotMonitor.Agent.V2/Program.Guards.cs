@@ -290,7 +290,7 @@ namespace AutopilotMonitor.Agent.V2
 
                 // Best-effort: tell the backend the agent is emergency-breaking so the otherwise-silent
                 // 48h absolute cap is no longer a blind spot in the timeline
-                // (docs/design/enrollment-status-reclassification.md). Fired BEFORE cleanup, while the
+                // (tasks/enrollment-status-reclassification.md). Fired BEFORE cleanup, while the
                 // session state and network are still intact. Never throws — a send failure (e.g. no
                 // network) must not block the cleanup/exit that is the whole point of this guard.
                 try { onBreakFired?.Invoke(); }

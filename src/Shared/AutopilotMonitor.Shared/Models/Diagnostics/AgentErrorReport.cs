@@ -35,7 +35,7 @@ namespace AutopilotMonitor.Shared.Models
         /// cleaning up and exiting. Best-effort report over the resilient emergency channel (may be
         /// lost if the device is fully offline) so the backend can materialize an
         /// <c>agent_emergency_break</c> timeline event and terminalize the session instead of waiting
-        /// out the silence grace. See docs/design/enrollment-status-reclassification.md.
+        /// out the silence grace. See tasks/enrollment-status-reclassification.md.
         /// </summary>
         SessionAgeEmergencyBreak = 4,
     }

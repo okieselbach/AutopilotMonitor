@@ -170,7 +170,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             });
 
             // Materialize the agent's silent 48h emergency break as a timeline event so it shows in the
-            // session and the timeout classifier can see it (docs/design/enrollment-status-reclassification.md).
+            // session and the timeout classifier can see it (tasks/enrollment-status-reclassification.md).
             // Best-effort — a failure here must never turn the always-200 emergency channel into a retry loop.
             if (report.ErrorType == AgentErrorType.SessionAgeEmergencyBreak
                 && !string.IsNullOrEmpty(report.SessionId))

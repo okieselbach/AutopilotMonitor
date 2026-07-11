@@ -26,7 +26,7 @@ namespace AutopilotMonitor.Functions.Services
     {
         // v2 (2026-07-08): added the ESP DeviceSetup/AccountSetup subcategory rollup fields
         // (deviceSetupAllSucceeded / accountSetup*) that the timeout reclassification uses —
-        // see docs/design/enrollment-status-reclassification.md.
+        // see tasks/enrollment-status-reclassification.md.
         // v3 (2026-07-10): added helloResolved + realmJoinDetected/realmJoinResolved +
         // skipUserEsp — the evidence behind the "user completed setup" reconcile rule
         // (session 294ab5b4: user reached desktop + finished Hello, only the RealmJoin gate

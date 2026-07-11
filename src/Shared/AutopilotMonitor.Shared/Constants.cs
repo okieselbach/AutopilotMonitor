@@ -306,7 +306,7 @@ namespace AutopilotMonitor.Shared
             public const string AgentStarted              = "agent_started";        // Lifecycle anchor — fired Seq=1 at agent boot. PR1: replaces hardcoded string-literals at emit sites.
             public const string AgentShuttingDown         = "agent_shutting_down";  // V2 single-rail plan §6.2 — terminate-hygiene acknowledgement emitted before CleanupService tears down
             // Backend-materialized from the agent's best-effort SessionAgeEmergencyBreak error report
-            // (docs/design/enrollment-status-reclassification.md). The agent's 48h absolute session-age
+            // (tasks/enrollment-status-reclassification.md). The agent's 48h absolute session-age
             // break (Program.Guards.CheckSessionAgeEmergencyBreak) is otherwise silent to the backend; this
             // event closes that blind spot in the timeline AND tells the timeout classifier the agent is
             // definitively gone, so the session is terminalized now (by ESP rollup) instead of waiting out grace.

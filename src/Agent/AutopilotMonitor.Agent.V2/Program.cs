@@ -464,7 +464,7 @@ namespace AutopilotMonitor.Agent.V2
         }
 
         // internal (not private) so AgentBootstrap can stamp the best-effort emergency-break report
-        // with the running agent version (docs/design/enrollment-status-reclassification.md).
+        // with the running agent version (tasks/enrollment-status-reclassification.md).
         internal static string GetAgentVersion()
         {
             try

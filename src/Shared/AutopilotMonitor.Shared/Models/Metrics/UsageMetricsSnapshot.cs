@@ -56,7 +56,7 @@ namespace AutopilotMonitor.Shared.Models
         /// Terminal, non-failure sessions (timeout reclassification): classified Incomplete rather
         /// than Failed. Tracked separately and excluded from <see cref="SessionsSuccessRate"/>
         /// (denominator = Succeeded + Failed). Historical rows written before this field existed
-        /// deserialize to 0. See docs/design/enrollment-status-reclassification.md §5.
+        /// deserialize to 0. See tasks/enrollment-status-reclassification.md §5.
         /// </summary>
         public int SessionsIncomplete { get; set; }
 

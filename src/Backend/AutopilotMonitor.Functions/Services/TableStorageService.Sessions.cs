@@ -1383,7 +1383,7 @@ namespace AutopilotMonitor.Functions.Services
         /// reflects when the session went silent rather than when the operator clicked the button.
         /// </param>
         /// <summary>
-        /// Pure gate for the terminal/reconcile status rules (docs/design/enrollment-status-reclassification.md).
+        /// Pure gate for the terminal/reconcile status rules (tasks/enrollment-status-reclassification.md).
         /// Returns whether a write to <paramref name="incoming"/> may proceed given the persisted
         /// <paramref name="existingStatus"/> string:
         /// <list type="bullet">
@@ -1427,7 +1427,7 @@ namespace AutopilotMonitor.Functions.Services
                     var entity = await tableClient.GetEntityAsync<TableEntity>(tenantId, sessionId);
                     var session = entity.Value;
 
-                    // Terminal / reconcile transition gate (docs/design/enrollment-status-reclassification.md):
+                    // Terminal / reconcile transition gate (tasks/enrollment-status-reclassification.md):
                     // a genuine completion (Succeeded) may UPGRADE a prior Failed/Incomplete/AwaitingUser
                     // verdict — a device that reached the desktop is enrolled regardless of an earlier timeout
                     // guess — but the silent-terminal verdicts (Failed/Incomplete) and AwaitingUser never

@@ -4,7 +4,7 @@ using AutopilotMonitor.Shared.Models;
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Pins the terminal/reconcile transition matrix (docs/design/enrollment-status-reclassification.md):
+/// Pins the terminal/reconcile transition matrix (tasks/enrollment-status-reclassification.md):
 /// a genuine completion may upgrade a prior Failed/Incomplete/AwaitingUser verdict (late reconcile),
 /// while the silent-terminal verdicts never overwrite an existing terminal. This is the pure core of
 /// PR3 — the reconcile that lets a device which completed after a sweep-timeout heal to Succeeded.

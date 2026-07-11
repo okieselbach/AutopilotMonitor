@@ -118,7 +118,7 @@ public class UsageMetricsServiceWindowTests
     [Fact]
     public async Task Incomplete_sessions_get_their_own_bucket_and_are_excluded_from_success_rate()
     {
-        // The reclassification shape (docs/design/enrollment-status-reclassification.md): timed-out
+        // The reclassification shape (tasks/enrollment-status-reclassification.md): timed-out
         // sessions become terminal Incomplete, not Failed. They must be counted in their own bucket
         // (previously invisible: in Total but no breakdown) and kept out of the failure-rate
         // denominator — Succeeded + Failed only. 1 succeeded, 1 failed, 8 incomplete -> 50%, not 10%.

@@ -8,7 +8,7 @@ namespace AutopilotMonitor.Functions.Tests;
 /// <summary>
 /// Pins <see cref="ReportAgentErrorFunction.BuildAgentEmergencyBreakEvent"/> — the backend-materialized
 /// timeline event synthesized from the agent's best-effort 48h emergency-break report
-/// (docs/design/enrollment-status-reclassification.md). The load-bearing bits are the Sequence assignment
+/// (tasks/enrollment-status-reclassification.md). The load-bearing bits are the Sequence assignment
 /// (must sort AFTER the session's last event) and that it is a Warning, non-terminal marker — the timeout
 /// classifier, not this event, decides the real verdict.
 /// </summary>

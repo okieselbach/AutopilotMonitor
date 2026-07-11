@@ -564,7 +564,7 @@ namespace AutopilotMonitor.Functions.Services
                 // At the 5h mark the session is reclassified rather than blindly failed — see
                 // EnrollmentTimeoutClassifier. AwaitingUser is included too so it keeps being
                 // re-evaluated each pass and graduates to Incomplete once SessionGraceHours elapses
-                // (docs/design/enrollment-status-reclassification.md).
+                // (tasks/enrollment-status-reclassification.md).
                 // IsPreProvisioned ne true → WhiteGlove sessions are intentionally long-lived and
                 // must never be timed out, even after months in storage.
                 var filter = $"PartitionKey eq '{tenantId}' " +

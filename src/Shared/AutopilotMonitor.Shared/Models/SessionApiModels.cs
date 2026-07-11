@@ -431,7 +431,7 @@ namespace AutopilotMonitor.Shared.Models
         Succeeded,
         Failed,
         Unknown,
-        // Appended 2026-07-08 (docs/design/enrollment-status-reclassification.md). New members
+        // Appended 2026-07-08 (tasks/enrollment-status-reclassification.md). New members
         // MUST stay appended so existing persisted ordinals never shift.
         AwaitingUser, // Device Setup (ESP DeviceSetup) fully succeeded but the user/Account-Setup
                       // phase has not completed and the agent went silent within the grace window.
@@ -464,7 +464,7 @@ namespace AutopilotMonitor.Shared.Models
         public int FailedLastNDays { get; set; }
 
         /// <summary>
-        /// Terminal, non-failure sessions in the window (docs/design/enrollment-status-reclassification.md):
+        /// Terminal, non-failure sessions in the window (tasks/enrollment-status-reclassification.md):
         /// the sweep saw no completion or explicit failure. Reported as the third headline bucket and
         /// deliberately excluded from <see cref="SuccessRatePct"/> (which is over Succeeded + Failed only).
         /// </summary>

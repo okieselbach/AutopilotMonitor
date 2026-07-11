@@ -7,7 +7,7 @@ namespace AutopilotMonitor.Functions.Services
 {
     /// <summary>
     /// Pure classification of a session that the maintenance sweep is about to terminalize
-    /// (docs/design/enrollment-status-reclassification.md). Instead of hard-coding every
+    /// (tasks/enrollment-status-reclassification.md). Instead of hard-coding every
     /// silent session to <see cref="SessionStatus.Failed"/>, we read the ESP subcategory
     /// rollup the agent already emits and decide the honest target state.
     ///
