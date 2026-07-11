@@ -337,17 +337,34 @@ namespace AutopilotMonitor.Functions.Services
         /// are deserialized and returned over the wire. <paramref name="sinceUtc"/> is a server-derived
         /// DateTime (never caller-supplied text), so interpolating it into the OData filter is injection-safe.
         /// </summary>
-        public async Task<List<AppInstallSummary>> GetAppInstallSummariesByTenantAsync(string tenantId, DateTime? sinceUtc = null)
+        public Task<List<AppInstallSummary>> GetAppInstallSummariesByTenantAsync(string tenantId, DateTime? sinceUtc = null)
         {
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+            return QueryAppInstallSummariesAsync(tenantId, sinceUtc, select: null);
+        }
+
+        /// <summary>
+        /// Shared core for every AppInstallSummaries scan: optional tenant partition, optional
+        /// server-side <c>StartedAt ge</c> window, optional column projection. All public variants
+        /// (full, geo, app-metrics, apps-dashboard) delegate here so filter semantics stay in
+        /// lockstep. sinceUtc is server-derived, so interpolating it is injection-safe.
+        /// </summary>
+        private async Task<List<AppInstallSummary>> QueryAppInstallSummariesAsync(string? tenantId, DateTime? sinceUtc, string[]? select)
+        {
+            if (!string.IsNullOrEmpty(tenantId))
+                SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
 
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AppInstallSummaries);
-                var filter = $"PartitionKey eq '{tenantId}'";
+                var filters = new List<string>();
+                if (!string.IsNullOrEmpty(tenantId))
+                    filters.Add($"PartitionKey eq '{tenantId}'");
                 if (sinceUtc.HasValue)
-                    filter += $" and StartedAt ge datetime'{sinceUtc.Value:yyyy-MM-ddTHH:mm:ss}Z'";
-                var query = tableClient.QueryAsync<TableEntity>(filter: filter);
+                    filters.Add($"StartedAt ge datetime'{sinceUtc.Value:yyyy-MM-ddTHH:mm:ss}Z'");
+                var filter = filters.Count > 0 ? string.Join(" and ", filters) : null;
+
+                var query = tableClient.QueryAsync<TableEntity>(filter: filter, select: select);
 
                 var summaries = new List<AppInstallSummary>();
                 await foreach (var entity in query)
@@ -359,7 +376,7 @@ namespace AutopilotMonitor.Functions.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Failed to get app install summaries for tenant {tenantId}");
+                _logger.LogError(ex, "Failed to query app install summaries (tenant={TenantId})", tenantId ?? "(all)");
                 return new List<AppInstallSummary>();
             }
         }
@@ -370,30 +387,51 @@ namespace AutopilotMonitor.Functions.Services
         /// (otherwise full-table) scan to the window so only in-window rows are deserialized.
         /// <paramref name="sinceUtc"/> is server-derived, so interpolating it is injection-safe.
         /// </summary>
-        public async Task<List<AppInstallSummary>> GetAllAppInstallSummariesAsync(DateTime? sinceUtc = null)
+        public Task<List<AppInstallSummary>> GetAllAppInstallSummariesAsync(DateTime? sinceUtc = null)
+            => QueryAppInstallSummariesAsync(tenantId: null, sinceUtc, select: null);
+
+        /// <summary>
+        /// Columns MetricsMath.BuildAppMetricsPayload consumes (slowest/failing ranking + DO rollup):
+        /// grouping key, status/duration/bytes, failure code and every counter DoAggregator sums.
+        /// internal so AppsProjectionEquivalenceTests derives its keep-set from this array.
+        /// </summary>
+        internal static readonly string[] AppMetricsProjection =
         {
-            try
-            {
-                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AppInstallSummaries);
-                var filter = sinceUtc.HasValue
-                    ? $"StartedAt ge datetime'{sinceUtc.Value:yyyy-MM-ddTHH:mm:ss}Z'"
-                    : null;
-                var query = tableClient.QueryAsync<TableEntity>(filter: filter);
+            "PartitionKey", "RowKey", "AppName", "Status", "StartedAt",
+            "DurationSeconds", "DownloadBytes", "FailureCode",
+            "DoDownloadMode", "DoTotalBytesDownloaded", "DoBytesFromPeers", "DoBytesFromHttp",
+            "DoBytesFromLanPeers", "DoBytesFromGroupPeers", "DoBytesFromInternetPeers",
+            "DoBytesFromLinkLocalPeers", "DoBytesFromCacheServer"
+        };
 
-                var summaries = new List<AppInstallSummary>();
-                await foreach (var entity in query)
-                {
-                    summaries.Add(MapToAppInstallSummary(entity));
-                }
+        /// <summary>
+        /// Column-projected windowed scan for the app-metrics endpoints (metrics/app +
+        /// global/metrics/app). Returned objects carry ONLY the <see cref="AppMetricsProjection"/>
+        /// fields — everything else is defaults and must not be read.
+        /// </summary>
+        public Task<List<AppInstallSummary>> GetAppMetricsSummariesAsync(DateTime sinceUtc, string? tenantId = null)
+            => QueryAppInstallSummariesAsync(tenantId, sinceUtc, AppMetricsProjection);
 
-                return summaries;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to get all app install summaries");
-                return new List<AppInstallSummary>();
-            }
-        }
+        /// <summary>
+        /// Columns the App Dashboard endpoints (AppsAnalyticsHelper: list / analytics / sessions)
+        /// consume — union of all three Build* methods. Drops the Delivery Optimization telemetry
+        /// block and DownloadDurationSeconds, which the dashboard never reads. internal so
+        /// AppsProjectionEquivalenceTests derives its keep-set from this array.
+        /// </summary>
+        internal static readonly string[] AppsDashboardProjection =
+        {
+            "PartitionKey", "RowKey", "TenantId", "SessionId", "AppName", "AppType", "AppVersion",
+            "Status", "StartedAt", "CompletedAt", "DurationSeconds", "DownloadBytes",
+            "AttemptNumber", "InstallerPhase", "FailureCode", "FailureMessage", "ExitCode", "DetectionResult"
+        };
+
+        /// <summary>
+        /// Column-projected windowed scan for the App Dashboard endpoints. Returned objects carry
+        /// ONLY the <see cref="AppsDashboardProjection"/> fields — everything else is defaults and
+        /// must not be read.
+        /// </summary>
+        public Task<List<AppInstallSummary>> GetAppsDashboardSummariesAsync(DateTime sinceUtc, string? tenantId = null)
+            => QueryAppInstallSummariesAsync(tenantId, sinceUtc, AppsDashboardProjection);
 
         /// <summary>
         /// Columns the (SessionId, AppName) pair projection transfers. The usage-metrics compute
@@ -463,34 +501,8 @@ namespace AutopilotMonitor.Functions.Services
         /// optional tenant partition). <paramref name="sinceUtc"/> is server-derived, so
         /// interpolating it is injection-safe.
         /// </summary>
-        public async Task<List<AppInstallSummary>> GetGeoAppInstallSummariesAsync(DateTime sinceUtc, string? tenantId = null)
-        {
-            if (!string.IsNullOrEmpty(tenantId))
-                SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
-
-            try
-            {
-                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AppInstallSummaries);
-                var filter = $"StartedAt ge datetime'{sinceUtc:yyyy-MM-ddTHH:mm:ss}Z'";
-                if (!string.IsNullOrEmpty(tenantId))
-                    filter = $"PartitionKey eq '{tenantId}' and " + filter;
-
-                var query = tableClient.QueryAsync<TableEntity>(filter: filter, select: GeoAppInstallProjection);
-
-                var summaries = new List<AppInstallSummary>();
-                await foreach (var entity in query)
-                {
-                    summaries.Add(MapToAppInstallSummary(entity));
-                }
-
-                return summaries;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to get geo app install summaries");
-                return new List<AppInstallSummary>();
-            }
-        }
+        public Task<List<AppInstallSummary>> GetGeoAppInstallSummariesAsync(DateTime sinceUtc, string? tenantId = null)
+            => QueryAppInstallSummariesAsync(tenantId, sinceUtc, GeoAppInstallProjection);
 
         // internal (not private) so GeoMetricsProjectionEquivalenceTests can pin that a row
         // carrying only GeoAppInstallProjection maps to the same geo-relevant fields as a full row.

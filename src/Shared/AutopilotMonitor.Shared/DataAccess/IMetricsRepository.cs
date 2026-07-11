@@ -41,6 +41,20 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// cross-tenant scan.
         /// </summary>
         Task<List<AppInstallSummary>> GetGeoAppInstallSummariesAsync(DateTime sinceUtc, string? tenantId = null);
+        /// <summary>
+        /// Column-projected windowed scan for the app-metrics endpoints (slowest/failing ranking +
+        /// DO rollup): grouping key, status/duration/bytes, failure code and the DO counters. The
+        /// returned objects carry ONLY those fields — everything else is defaults and must not be
+        /// read. Omit <paramref name="tenantId"/> for the cross-tenant scan.
+        /// </summary>
+        Task<List<AppInstallSummary>> GetAppMetricsSummariesAsync(DateTime sinceUtc, string? tenantId = null);
+        /// <summary>
+        /// Column-projected windowed scan for the App Dashboard endpoints (list / analytics /
+        /// sessions): everything those aggregations read, WITHOUT the Delivery Optimization
+        /// telemetry block. The returned objects carry ONLY the projected fields — everything else
+        /// is defaults and must not be read. Omit <paramref name="tenantId"/> for the cross-tenant scan.
+        /// </summary>
+        Task<List<AppInstallSummary>> GetAppsDashboardSummariesAsync(DateTime sinceUtc, string? tenantId = null);
 
         // --- Platform Stats ---
         Task<PlatformStats?> GetPlatformStatsAsync();

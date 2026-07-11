@@ -9,8 +9,14 @@ import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { formatBytes, formatDuration } from "@/lib/formatting";
 import DoBreakdownBar from "@/components/DoBreakdownBar";
+import { CalculatingInline } from "@/components/CalculatingCard";
+import { useFetchProgress } from "@/hooks/useFetchProgress";
 import type { SoftwareTabScope, TimeRange } from "./types";
 import { rangeToDays } from "./types";
+
+// A cross-tenant apps aggregation can take tens of seconds server-side; the default 30s fetch
+// timeout would abort it client-side while the server keeps computing.
+const APPS_FETCH_TIMEOUT_MS = 180_000;
 
 interface AppRow {
   appName: string;
@@ -81,6 +87,9 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(0);
 
+  const progress = useFetchProgress("appsInstalls.lastFetchMs");
+  const { begin: progressBegin, finish: progressFinish } = progress;
+
   useEffect(() => {
     if (!scopeInitialized) return;
     if (!isGlobalAdmin && !tenantId) return;
@@ -88,8 +97,10 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
     const days = rangeToDays(timeRange);
 
     const run = async () => {
+      let succeeded = false;
       try {
         setLoading(true);
+        progressBegin();
         const listUrl = routeGlobal
           ? api.apps.globalList(days, selectedTenantId || undefined)
           : api.apps.list(tenantId, days);
@@ -98,13 +109,14 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
           : api.metrics.app(tenantId, days);
 
         const [listRes, metricsRes] = await Promise.all([
-          authenticatedFetch(listUrl, getAccessToken),
-          authenticatedFetch(metricsUrl, getAccessToken),
+          authenticatedFetch(listUrl, getAccessToken, { signal: AbortSignal.timeout(APPS_FETCH_TIMEOUT_MS) }),
+          authenticatedFetch(metricsUrl, getAccessToken, { signal: AbortSignal.timeout(APPS_FETCH_TIMEOUT_MS) }),
         ]);
 
         if (cancelled) return;
         if (listRes.ok) {
           setData((await listRes.json()) as AppsListResponse);
+          succeeded = true;
         } else {
           addNotification("error", "Backend Error", `Failed to load apps: ${listRes.statusText}`, "apps-list-error");
         }
@@ -121,6 +133,7 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
           addNotification("error", "Backend Not Reachable", "Unable to load app dashboard data.", "apps-list-error");
         }
       } finally {
+        progressFinish(succeeded);
         if (!cancelled) setLoading(false);
       }
     };
@@ -241,7 +254,11 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
       {/* Table */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading…</div>
+          <CalculatingInline
+            label="Aggregating app installs…"
+            elapsedMs={progress.elapsedMs}
+            estimateMs={progress.estimateMs}
+          />
         ) : filteredAndSorted.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
             {search ? "No apps match your search." : "No app install data in this window."}

@@ -79,13 +79,13 @@ namespace AutopilotMonitor.Functions.Functions.Apps
         /// - tenantId != null → tenant-scoped (per-tenant endpoint or global admin viewing one tenant)
         /// - tenantId == null → all tenants (global admin aggregated view)
         /// </summary>
-        public static async Task<List<AppInstallSummary>> LoadSummariesAsync(
+        public static Task<List<AppInstallSummary>> LoadSummariesAsync(
             IMetricsRepository repo, string? tenantId, int days)
         {
             var sinceUtc = DateTime.UtcNow.AddDays(-days);
-            return string.IsNullOrEmpty(tenantId)
-                ? await repo.GetAllAppInstallSummariesAsync(sinceUtc)
-                : await repo.GetAppInstallSummariesByTenantAsync(tenantId, sinceUtc);
+            // Column-projected to what the Build* aggregations actually read — the DO telemetry
+            // block on the wide row is dashboard-irrelevant transfer (see AppsDashboardProjection).
+            return repo.GetAppsDashboardSummariesAsync(sinceUtc, string.IsNullOrEmpty(tenantId) ? null : tenantId);
         }
 
         /// <summary>

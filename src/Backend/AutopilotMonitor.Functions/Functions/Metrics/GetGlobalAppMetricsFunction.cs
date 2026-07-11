@@ -41,11 +41,11 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
                 var cutoff = DateTime.UtcNow.AddDays(-days);
 
-                // Push the window server-side so only in-window rows are deserialized. The in-memory
-                // Where below stays as the exact trim (the OData StartedAt filter is second-granular).
-                var allSummaries = !string.IsNullOrWhiteSpace(tenantIdFilter)
-                    ? await _metricsRepo.GetAppInstallSummariesByTenantAsync(tenantIdFilter, cutoff)
-                    : await _metricsRepo.GetAllAppInstallSummariesAsync(cutoff);
+                // Window pushed server-side and column-projected to what the payload aggregation
+                // reads (see AppMetricsProjection). The in-memory Where stays as the exact trim
+                // (the OData StartedAt filter is second-granular).
+                var allSummaries = await _metricsRepo.GetAppMetricsSummariesAsync(
+                    cutoff, string.IsNullOrWhiteSpace(tenantIdFilter) ? null : tenantIdFilter);
                 var summaries = allSummaries.Where(s => s.StartedAt >= cutoff).ToList();
 
                 // Aggregation (slowest/failing ranking + Delivery Optimization rollup) is shared

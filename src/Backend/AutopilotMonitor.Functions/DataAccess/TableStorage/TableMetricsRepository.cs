@@ -47,6 +47,12 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<List<AppInstallSummary>> GetGeoAppInstallSummariesAsync(DateTime sinceUtc, string? tenantId = null)
             => _storage.GetGeoAppInstallSummariesAsync(sinceUtc, tenantId);
 
+        public Task<List<AppInstallSummary>> GetAppMetricsSummariesAsync(DateTime sinceUtc, string? tenantId = null)
+            => _storage.GetAppMetricsSummariesAsync(sinceUtc, tenantId);
+
+        public Task<List<AppInstallSummary>> GetAppsDashboardSummariesAsync(DateTime sinceUtc, string? tenantId = null)
+            => _storage.GetAppsDashboardSummariesAsync(sinceUtc, tenantId);
+
         public Task<PlatformStats?> GetPlatformStatsAsync()
             => _storage.GetPlatformStatsAsync();
 

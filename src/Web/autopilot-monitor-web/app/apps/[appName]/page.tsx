@@ -13,7 +13,13 @@ import { getErrorCodeEntry, formatErrorCode } from "@/utils/errorCodeMap";
 import { useAggregatedAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
+import { CalculatingInline } from "@/components/CalculatingCard";
+import { useFetchProgress } from "@/hooks/useFetchProgress";
 import { chartColors } from "../../../components/charts/chartTheme";
+
+// A cross-tenant analytics aggregation can take tens of seconds server-side; the default 30s
+// fetch timeout would abort it client-side while the server keeps computing.
+const APPS_FETCH_TIMEOUT_MS = 180_000;
 
 // Lazy-load recharts on the detail page only — keeps the rest of the app's
 // initial bundle untouched.
@@ -181,6 +187,8 @@ export default function AppDetailPage() {
   const [days, setDays] = useState<7 | 30 | 90>(initialDays as 7 | 30 | 90);
   const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const progress = useFetchProgress("appAnalytics.lastFetchMs");
+  const { begin: progressBegin, finish: progressFinish } = progress;
 
   // Sessions panel state
   const [sessions, setSessions] = useState<SessionsResponse | null>(null);
@@ -275,14 +283,19 @@ export default function AppDetailPage() {
   const fetchAnalytics = async () => {
     if (!appName) return;
     if (!isGlobalAdmin && !tenantId) return;
+    let succeeded = false;
     try {
       setLoading(true);
+      progressBegin();
       const url = useGlobalEndpoint
         ? api.apps.globalAnalytics(appName, days, selectedTenantId || undefined)
         : api.apps.analytics(tenantId, appName, days);
-      const response = await authenticatedFetch(url, getAccessToken);
+      const response = await authenticatedFetch(url, getAccessToken, {
+        signal: AbortSignal.timeout(APPS_FETCH_TIMEOUT_MS),
+      });
       if (response.ok) {
         setAnalytics((await response.json()) as AnalyticsResponse);
+        succeeded = true;
       } else {
         addNotification(
           "error",
@@ -304,6 +317,7 @@ export default function AppDetailPage() {
         );
       }
     } finally {
+      progressFinish(succeeded);
       setLoading(false);
     }
   };
@@ -316,7 +330,9 @@ export default function AppDetailPage() {
       const url = useGlobalEndpoint
         ? api.apps.globalSessions(appName, days, status, offset, SESSIONS_PAGE_SIZE, selectedTenantId || undefined)
         : api.apps.sessions(tenantId, appName, days, status, offset, SESSIONS_PAGE_SIZE);
-      const response = await authenticatedFetch(url, getAccessToken);
+      const response = await authenticatedFetch(url, getAccessToken, {
+        signal: AbortSignal.timeout(APPS_FETCH_TIMEOUT_MS),
+      });
       if (response.ok) {
         setSessions((await response.json()) as SessionsResponse);
       }
@@ -410,7 +426,11 @@ export default function AppDetailPage() {
 
         <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
           {loading || !analytics ? (
-            <div className="text-center text-gray-500 p-8">Loading…</div>
+            <CalculatingInline
+              label="Aggregating app analytics…"
+              elapsedMs={progress.elapsedMs}
+              estimateMs={progress.estimateMs}
+            />
           ) : (
             <>
               {/* Summary cards */}
