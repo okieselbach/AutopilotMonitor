@@ -468,7 +468,9 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         (ga
           ? 'Get usage statistics. Omit tenantId for the cross-tenant platform overview (Global Admin), or pass tenantId to filter it to a single tenant. '
           : 'Get usage statistics for your tenant: session volumes, feature adoption, success rate, active users. ') +
-        'days accepts any value 1-365 (e.g. 5, 7, 12, 30, 90).',
+        'days accepts any value 1-365 (e.g. 5, 7, 12, 30, 90). ' +
+        'Tenant-scoped responses also carry sessions.totalAllTime — the cumulative enrollment count since the ' +
+        'tenant signed up (retention-independent, unaffected by days); all other session counts are window-bound.',
       inputSchema: {
         tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Filter the platform-wide view to a single tenant (Global Admin only). Omit for the whole platform.', 'Optional; ignored — usage is scoped to your tenant.')),
         days: z.coerce.number().int().min(1).max(365).optional().default(30)

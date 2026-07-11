@@ -166,16 +166,17 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 return new RegisterSessionOutput { HttpResponse = errorResponse };
             }
 
-            // Increment platform stats (fire-and-forget, non-blocking)
-            _ = _metricsRepo.IncrementPlatformStatAsync("TotalEnrollments")
-                .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException, "Fire-and-forget IncrementPlatformStatAsync failed"), TaskContinuationOptions.OnlyOnFaulted);
-
-            // Cumulative per-tenant enrollment counter ("since signup", retention-independent).
-            // Only first-time registrations count: agent restarts and WhiteGlove Part 2 resumes
-            // re-register the same session and must not inflate the counter — unlike the platform
-            // stat above there is no nightly recompute to correct overcounting, only a floor.
+            // Enrollment counters (fire-and-forget, non-blocking). Only first-time registrations
+            // count: agent restarts and WhiteGlove Part 2 resumes re-register the same session and
+            // must not inflate either counter. The platform stat previously incremented on every
+            // re-register — corrected daily by the recompute, but visibly overcounting in between.
+            // The per-tenant counter has no corrective recompute at all (only a raise-only floor),
+            // so gating on fresh registrations is load-bearing there.
             if (isFreshRegistration)
             {
+                _ = _metricsRepo.IncrementPlatformStatAsync("TotalEnrollments")
+                    .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException, "Fire-and-forget IncrementPlatformStatAsync failed"), TaskContinuationOptions.OnlyOnFaulted);
+
                 _ = _metricsRepo.IncrementTenantStatAsync(registration.TenantId, "TotalEnrollments")
                     .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException, "Fire-and-forget IncrementTenantStatAsync failed"), TaskContinuationOptions.OnlyOnFaulted);
             }
