@@ -13,6 +13,10 @@ https://docs.autopilotmonitor.com (separate repository).
 
 * [Architecture Guide](architecture.md) - High-level architecture overview and solution layout for contributors.
 
+# Agent
+
+* [V2 Agent](agent/index.md) - How the on-device agent works: [runtime overview](agent/overview.md), [decision engine](agent/decision-engine.md) (reducer, signals, completion arms), [logs & persistence](agent/logs-and-persistence.md) (signal log, snapshot, crash recovery).
+
 # Security & Identity
 
 * [MCP OAuth Flow](mcp-oauth-flow.md) - Who authenticates where when connecting an AI client to the MCP server; two identities, three parties plus Entra ID.
