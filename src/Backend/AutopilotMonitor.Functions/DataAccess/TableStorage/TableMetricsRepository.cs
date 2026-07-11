@@ -50,6 +50,15 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task IncrementPlatformStatAsync(string field, long amount = 1)
             => _storage.IncrementPlatformStatAsync(field, amount);
 
+        public Task<TenantStats?> GetTenantStatsAsync(string tenantId)
+            => _storage.GetTenantStatsAsync(tenantId);
+
+        public Task IncrementTenantStatAsync(string tenantId, string field, long amount = 1)
+            => _storage.IncrementTenantStatAsync(tenantId, field, amount);
+
+        public Task EnsureTenantStatFloorAsync(string tenantId, string field, long floor)
+            => _storage.EnsureTenantStatFloorAsync(tenantId, field, floor);
+
         public Task RecordUserLoginAsync(string tenantId, string upn, string? displayName, string? objectId)
             => _storage.RecordUserLoginAsync(tenantId, upn, displayName, objectId);
 

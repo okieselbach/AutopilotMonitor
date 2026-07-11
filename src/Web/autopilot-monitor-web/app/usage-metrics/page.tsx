@@ -13,6 +13,7 @@ import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 
 interface SessionMetrics {
   total: number;
+  totalAllTime?: number;
   today: number;
   last7Days: number;
   last30Days: number;
@@ -79,6 +80,7 @@ interface PlatformUsageMetrics {
   hardware: HardwareMetrics;
   deploymentTypes: DeploymentTypeMetrics;
   appScripts?: AppScriptMetrics;
+  windowDays?: number;
   computedAt: string;
   computeDurationMs: number;
   fromCache: boolean;
@@ -212,11 +214,22 @@ export default function UsageMetricsPage() {
 
         {/* Session Statistics */}
         <div className="mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Sessions</h2>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <h2 className="text-xl font-semibold text-gray-900 mb-1">Sessions</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            All counts cover the last {metrics.windowDays ?? 90} days &mdash; older sessions age out of this window and your plan&apos;s data retention. Only Total Enrollments is cumulative since signup.
+          </p>
+          <div className={`grid grid-cols-1 gap-4 ${metrics.sessions.totalAllTime != null ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
+            {metrics.sessions.totalAllTime != null && (
+              <div className="bg-white rounded-lg shadow p-6">
+                <div className="text-sm text-gray-500 mb-1" title="Cumulative count of all enrollment sessions since this tenant signed up — unaffected by the metrics window or data retention.">Total Enrollments</div>
+                <div className="text-3xl font-bold text-gray-900">{metrics.sessions.totalAllTime.toLocaleString()}</div>
+                <p className="text-xs text-gray-400 mt-1">since signup</p>
+              </div>
+            )}
             <div className="bg-white rounded-lg shadow p-6">
-              <div className="text-sm text-gray-500 mb-1">Total Sessions</div>
+              <div className="text-sm text-gray-500 mb-1" title={`Sessions started within the ${metrics.windowDays ?? 90}-day metrics window — not a cumulative count since signup.`}>Total Sessions</div>
               <div className="text-3xl font-bold text-gray-900">{metrics.sessions.total.toLocaleString()}</div>
+              <p className="text-xs text-gray-400 mt-1">last {metrics.windowDays ?? 90} days</p>
             </div>
             <div className="bg-white rounded-lg shadow p-6">
               <div className="text-sm text-gray-500 mb-1">Today</div>

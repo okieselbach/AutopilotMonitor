@@ -31,6 +31,14 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<bool> SavePlatformStatsAsync(PlatformStats stats);
         Task IncrementPlatformStatAsync(string field, long amount = 1);
 
+        // --- Tenant Stats (cumulative per-tenant counters, retention-independent) ---
+        /// <summary>Gets the cumulative per-tenant counters, or null if none were recorded yet.</summary>
+        Task<TenantStats?> GetTenantStatsAsync(string tenantId);
+        /// <summary>Increments a cumulative per-tenant counter (ETag CAS with retries; fail-soft).</summary>
+        Task IncrementTenantStatAsync(string tenantId, string field, long amount = 1);
+        /// <summary>Raises a cumulative per-tenant counter to at least <paramref name="floor"/> (seed/self-heal). Never lowers it.</summary>
+        Task EnsureTenantStatFloorAsync(string tenantId, string field, long floor);
+
         // --- User Activity ---
         Task RecordUserLoginAsync(string tenantId, string upn, string? displayName, string? objectId);
         Task<UserActivityMetrics> GetUserActivityMetricsAsync(string tenantId);

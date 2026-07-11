@@ -73,6 +73,12 @@ namespace AutopilotMonitor.Shared.Models
     public class SessionMetrics
     {
         public int Total { get; set; }
+        /// <summary>
+        /// Cumulative enrollment sessions since the tenant signed up (retention-independent
+        /// per-tenant counter, see <see cref="TenantStats"/>). Null on the platform-wide
+        /// (all-tenants) metrics, which carry the cumulative figure in PlatformStats instead.
+        /// </summary>
+        public long? TotalAllTime { get; set; }
         public int Today { get; set; }
         public int Last7Days { get; set; }
         public int Last30Days { get; set; }

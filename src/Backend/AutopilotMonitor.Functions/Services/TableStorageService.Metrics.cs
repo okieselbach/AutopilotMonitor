@@ -552,6 +552,126 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
+        // ===== TENANT STATS METHODS =====
+        // Cumulative per-tenant counters in the PlatformStats table (PartitionKey: tenantId,
+        // RowKey: "current"; the platform row's "global" partition can never collide with a
+        // tenant GUID). Unlike PlatformStats these counters are NEVER recomputed from live data
+        // (retention prunes sessions), so a lost increment is permanent — writes use ETag CAS
+        // with retries instead of the platform row's last-writer-wins upsert.
+
+        private const string TenantStatsRowKey = "current";
+        private const int TenantStatsCasRetries = 4;
+
+        /// <summary>
+        /// Gets the cumulative per-tenant counters, or null if none were recorded yet.
+        /// </summary>
+        public async Task<TenantStats?> GetTenantStatsAsync(string tenantId)
+        {
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.PlatformStats);
+                var response = await tableClient.GetEntityAsync<TableEntity>(tenantId, TenantStatsRowKey);
+                var entity = response.Value;
+
+                return new TenantStats
+                {
+                    TotalEnrollments = entity.GetInt64("TotalEnrollments") ?? 0,
+                    LastUpdated = entity.GetDateTimeOffset("LastUpdated")?.UtcDateTime ?? DateTime.MinValue
+                };
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get tenant stats for tenant {TenantId}", tenantId);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Increments a cumulative per-tenant counter. ETag CAS with retries; fail-soft
+        /// (registration must never break because a stats write failed).
+        /// </summary>
+        public async Task IncrementTenantStatAsync(string tenantId, string field, long amount = 1)
+        {
+            await MutateTenantStatAsync(tenantId, field,
+                current => current + amount,
+                missingRowValue: amount);
+        }
+
+        /// <summary>
+        /// Raises a cumulative per-tenant counter to at least <paramref name="floor"/> — used by the
+        /// maintenance recompute to seed pre-existing tenants and self-heal lost increments from the
+        /// live session count (a lower bound, since retention prunes). Never lowers the counter.
+        /// </summary>
+        public async Task EnsureTenantStatFloorAsync(string tenantId, string field, long floor)
+        {
+            await MutateTenantStatAsync(tenantId, field,
+                current => Math.Max(current, floor),
+                missingRowValue: floor);
+        }
+
+        private async Task MutateTenantStatAsync(string tenantId, string field, Func<long, long> mutate, long missingRowValue)
+        {
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.PlatformStats);
+
+                for (int attempt = 1; attempt <= TenantStatsCasRetries; attempt++)
+                {
+                    try
+                    {
+                        TableEntity entity;
+                        try
+                        {
+                            var response = await tableClient.GetEntityAsync<TableEntity>(tenantId, TenantStatsRowKey);
+                            entity = response.Value;
+                        }
+                        catch (RequestFailedException ex) when (ex.Status == 404)
+                        {
+                            // AddEntity (not upsert) so a concurrent creator surfaces as 409 → retry
+                            // lands in the update branch instead of clobbering the winner's value.
+                            var fresh = new TableEntity(tenantId, TenantStatsRowKey)
+                            {
+                                [field] = missingRowValue,
+                                ["LastUpdated"] = DateTime.UtcNow
+                            };
+                            await tableClient.AddEntityAsync(fresh);
+                            return;
+                        }
+
+                        var current = entity.GetInt64(field) ?? 0;
+                        var next = mutate(current);
+                        if (next == current)
+                            return;
+
+                        entity[field] = next;
+                        entity["LastUpdated"] = DateTime.UtcNow;
+                        await tableClient.UpdateEntityAsync(entity, entity.ETag, TableUpdateMode.Merge);
+                        return;
+                    }
+                    catch (RequestFailedException ex) when (ex.Status == 412 || ex.Status == 409)
+                    {
+                        if (attempt == TenantStatsCasRetries)
+                        {
+                            _logger.LogWarning(
+                                "Tenant stat {Field} update for tenant {TenantId} lost the CAS race {Retries} times — giving up (status {Status})",
+                                field, tenantId, TenantStatsCasRetries, ex.Status);
+                            return;
+                        }
+                        await Task.Delay(50 * attempt);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Non-fatal: don't break the caller if stats update fails
+                _logger.LogWarning(ex, "Failed to update tenant stat {Field} for tenant {TenantId}", field, tenantId);
+            }
+        }
+
         // ===== USER ACTIVITY METHODS =====
 
         /// <summary>

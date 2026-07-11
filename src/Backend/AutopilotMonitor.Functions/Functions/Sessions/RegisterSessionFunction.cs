@@ -170,6 +170,16 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             _ = _metricsRepo.IncrementPlatformStatAsync("TotalEnrollments")
                 .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException, "Fire-and-forget IncrementPlatformStatAsync failed"), TaskContinuationOptions.OnlyOnFaulted);
 
+            // Cumulative per-tenant enrollment counter ("since signup", retention-independent).
+            // Only first-time registrations count: agent restarts and WhiteGlove Part 2 resumes
+            // re-register the same session and must not inflate the counter — unlike the platform
+            // stat above there is no nightly recompute to correct overcounting, only a floor.
+            if (isFreshRegistration)
+            {
+                _ = _metricsRepo.IncrementTenantStatAsync(registration.TenantId, "TotalEnrollments")
+                    .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException, "Fire-and-forget IncrementTenantStatAsync failed"), TaskContinuationOptions.OnlyOnFaulted);
+            }
+
             // Retrieve the stored session to include full data in SignalR message
             var session = await _sessionRepo.GetSessionAsync(registration.TenantId, registration.SessionId);
 

@@ -370,6 +370,13 @@ namespace AutopilotMonitor.Functions.Services
 
                     var userMetrics = await _metricsRepo.GetUserActivityMetricsAsync(tid);
                     totalUsers += userMetrics.TotalUniqueUsers;
+
+                    // Seed / self-heal the cumulative per-tenant enrollment counter: the live
+                    // session count (within retention) is a lower bound for "since signup".
+                    // Raise-only — retention prunes sessions, so recomputing/overwriting would
+                    // regress the counter (same reasoning as the TotalUsers clamp below).
+                    if (sessions.Count > 0)
+                        await _metricsRepo.EnsureTenantStatFloorAsync(tid, "TotalEnrollments", sessions.Count);
                 }
 
                 var existingStats = await _metricsRepo.GetPlatformStatsAsync();

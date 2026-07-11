@@ -12,7 +12,8 @@ namespace AutopilotMonitor.Functions.Tests;
 /// </summary>
 public class UsageMetricsServiceWindowTests
 {
-    private static (UsageMetricsService Service, Mock<IMaintenanceRepository> MaintenanceRepo) CreateService(List<SessionSummary>? sessions = null)
+    private static (UsageMetricsService Service, Mock<IMaintenanceRepository> MaintenanceRepo) CreateService(
+        List<SessionSummary>? sessions = null, TenantStats? tenantStats = null)
     {
         var maintenanceRepo = new Mock<IMaintenanceRepository>();
         maintenanceRepo
@@ -20,6 +21,8 @@ public class UsageMetricsServiceWindowTests
             .ReturnsAsync(sessions ?? new List<SessionSummary>());
 
         var metricsRepo = new Mock<IMetricsRepository>();
+        metricsRepo.Setup(r => r.GetTenantStatsAsync(It.IsAny<string>()))
+            .ReturnsAsync(tenantStats);
         metricsRepo.Setup(r => r.GetUserActivityMetricsAsync(It.IsAny<string>()))
             .ReturnsAsync(new UserActivityMetrics());
         metricsRepo.Setup(r => r.GetAllUserActivityMetricsAsync())
@@ -139,6 +142,45 @@ public class UsageMetricsServiceWindowTests
         Assert.Equal(1, result.Sessions.Failed);
         Assert.Equal(8, result.Sessions.Incomplete);
         Assert.Equal(50.0, result.Sessions.SuccessRate);
+    }
+
+    [Fact]
+    public async Task TotalAllTime_comes_from_cumulative_tenant_counter()
+    {
+        // The retention-independent "since signup" counter must be surfaced verbatim when it
+        // exceeds the window count — that is its whole point (window shows 1, lifetime 1234).
+        var sessions = new List<SessionSummary>
+        {
+            new() { SessionId = "s1", TenantId = "t1", StartedAt = DateTime.UtcNow.AddDays(-1), Status = SessionStatus.Succeeded },
+        };
+        var (service, _) = CreateService(sessions, new TenantStats { TotalEnrollments = 1234 });
+
+        var result = await service.ComputeTenantUsageMetricsAsync("t1", 90);
+
+        Assert.Equal(1, result.Sessions.Total);
+        Assert.Equal(1234, result.Sessions.TotalAllTime);
+    }
+
+    [Fact]
+    public async Task TotalAllTime_is_floored_at_window_total_when_counter_missing_or_lagging()
+    {
+        // Before the first maintenance seed (or after lost increments) the counter can lag behind
+        // sessions still within retention. The window count is a guaranteed lower bound — the UI
+        // must never show a lifetime total smaller than the 90-day total on the same page.
+        var sessions = new List<SessionSummary>
+        {
+            new() { SessionId = "s1", TenantId = "t1", StartedAt = DateTime.UtcNow.AddDays(-1), Status = SessionStatus.Succeeded },
+            new() { SessionId = "s2", TenantId = "t1", StartedAt = DateTime.UtcNow.AddDays(-2), Status = SessionStatus.Failed },
+            new() { SessionId = "s3", TenantId = "t1", StartedAt = DateTime.UtcNow.AddDays(-3), Status = SessionStatus.Succeeded },
+        };
+
+        var (missingService, _) = CreateService(sessions, tenantStats: null);
+        var missing = await missingService.ComputeTenantUsageMetricsAsync("t1", 90);
+        Assert.Equal(3, missing.Sessions.TotalAllTime);
+
+        var (laggingService, _) = CreateService(sessions, new TenantStats { TotalEnrollments = 2 });
+        var lagging = await laggingService.ComputeTenantUsageMetricsAsync("t1", 90);
+        Assert.Equal(3, lagging.Sessions.TotalAllTime);
     }
 
     [Fact]

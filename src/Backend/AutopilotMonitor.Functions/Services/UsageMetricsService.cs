@@ -301,6 +301,12 @@ namespace AutopilotMonitor.Functions.Services
                 SuccessRate = CalculateSuccessRate(tenantSessions)
             };
 
+            // Cumulative "since signup" counter — incremented at registration, seeded/self-healed
+            // by the nightly maintenance recompute. The window count is a floor: before the first
+            // maintenance seed the counter may lag behind sessions still within retention.
+            var tenantStats = await _metricsRepo.GetTenantStatsAsync(tenantId);
+            sessionMetrics.TotalAllTime = Math.Max(tenantStats?.TotalEnrollments ?? 0, sessionMetrics.Total);
+
             // Tenant Metrics (always 1 for tenant-specific view)
             var tenantMetrics = new TenantMetrics
             {
