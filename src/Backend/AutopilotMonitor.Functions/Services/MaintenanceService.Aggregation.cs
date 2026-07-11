@@ -381,36 +381,66 @@ namespace AutopilotMonitor.Functions.Services
 
                 var existingStats = await _metricsRepo.GetPlatformStatsAsync();
 
-                // "Users Seen" is a cumulative, public-facing high-water-mark. UserActivity is pruned to
-                // 90 days, so the recomputed `totalUsers` only reflects recent loginers — clamp it to the
-                // previously-persisted value so the cumulative figure can never regress after a cleanup.
-                var cumulativeUsers = Math.Max(totalUsers, existingStats?.TotalUsers ?? 0);
-
-                var stats = new PlatformStats
-                {
-                    TotalEnrollments = totalEnrollments,
-                    TotalUsers = cumulativeUsers,
-                    TotalTenants = activeTenants,
-                    TotalSignedUpTenants = allConfigs.Count,
-                    UniqueDeviceModels = uniqueModels.Count,
-                    TotalEventsProcessed = totalEvents,
-                    SuccessfulEnrollments = successfulEnrollments,
-                    IssuesDetected = existingStats?.IssuesDetected ?? 0,
-                    LastFullCompute = DateTime.UtcNow,
-                    LastUpdated = DateTime.UtcNow
-                };
+                var stats = BuildMonotonicPlatformStats(
+                    recomputedEnrollments: totalEnrollments,
+                    recomputedSuccessful: successfulEnrollments,
+                    recomputedEvents: totalEvents,
+                    recomputedUsers: totalUsers,
+                    recomputedActiveTenants: activeTenants,
+                    recomputedUniqueModels: uniqueModels.Count,
+                    signedUpTenants: allConfigs.Count,
+                    existing: existingStats,
+                    nowUtc: DateTime.UtcNow);
 
                 await _metricsRepo.SavePlatformStatsAsync(stats);
                 await TryPublishPlatformStatsJsonAsync(stats);
 
                 sw.Stop();
                 _logger.LogInformation($"Platform stats recomputed in {sw.ElapsedMilliseconds}ms: " +
-                    $"{totalEnrollments} enrollments, {cumulativeUsers} users (cumulative), {tenantIds.Count} tenants, {uniqueModels.Count} models");
+                    $"{stats.TotalEnrollments} enrollments, {stats.TotalUsers} users, {tenantIds.Count} tenants, " +
+                    $"{stats.UniqueDeviceModels} models (all cumulative high-water-marks)");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to recompute platform stats");
             }
+        }
+
+        /// <summary>
+        /// Merges a fresh platform-stats recompute with the previously persisted row. Platform
+        /// stats are "since release" counters (public landing page): the tables the recompute
+        /// scans are pruned by session/user-activity retention, so a raw recompute can only see
+        /// the retention window and would regress the figures after every cleanup. Every
+        /// cumulative counter is therefore a monotonic high-water-mark — the recompute may raise
+        /// it (self-heal for lost increments), never lower it. IssuesDetected is increment-only
+        /// (no recompute source) and is carried over verbatim. TotalSignedUpTenants is the one
+        /// deliberate exception: the TenantConfiguration table is not retention-pruned, so its
+        /// count is authoritative current state and a drop reflects real offboarding, not data loss.
+        /// </summary>
+        internal static PlatformStats BuildMonotonicPlatformStats(
+            long recomputedEnrollments,
+            long recomputedSuccessful,
+            long recomputedEvents,
+            long recomputedUsers,
+            long recomputedActiveTenants,
+            long recomputedUniqueModels,
+            long signedUpTenants,
+            PlatformStats? existing,
+            DateTime nowUtc)
+        {
+            return new PlatformStats
+            {
+                TotalEnrollments = Math.Max(recomputedEnrollments, existing?.TotalEnrollments ?? 0),
+                SuccessfulEnrollments = Math.Max(recomputedSuccessful, existing?.SuccessfulEnrollments ?? 0),
+                TotalEventsProcessed = Math.Max(recomputedEvents, existing?.TotalEventsProcessed ?? 0),
+                TotalUsers = Math.Max(recomputedUsers, existing?.TotalUsers ?? 0),
+                TotalTenants = Math.Max(recomputedActiveTenants, existing?.TotalTenants ?? 0),
+                UniqueDeviceModels = Math.Max(recomputedUniqueModels, existing?.UniqueDeviceModels ?? 0),
+                TotalSignedUpTenants = signedUpTenants,
+                IssuesDetected = existing?.IssuesDetected ?? 0,
+                LastFullCompute = nowUtc,
+                LastUpdated = nowUtc
+            };
         }
 
         /// <summary>

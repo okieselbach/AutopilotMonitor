@@ -5,7 +5,11 @@ namespace AutopilotMonitor.Shared.Models
     /// <summary>
     /// Pre-computed platform-wide statistics for the public landing page.
     /// Stored as a single row (PartitionKey: "global", RowKey: "current").
-    /// Recomputed during daily maintenance; incremented during registration/login.
+    /// Incremented during registration/ingest/login; the daily maintenance recompute treats
+    /// every cumulative counter as a monotonic "since release" high-water-mark (raise-only —
+    /// the scanned tables are retention-pruned, so a raw recompute would regress the figures).
+    /// Only TotalSignedUpTenants is current-state (its source table is not retention-pruned).
+    /// See MaintenanceService.BuildMonotonicPlatformStats.
     /// </summary>
     public class PlatformStats
     {
