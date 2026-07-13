@@ -2,6 +2,8 @@
 
 ## 2026-07-13
 
+* **Removal**: Moved `customer-graph-add-on-permissions.md` out of this contributor bundle into the customer documentation repository (`reference/optional-graph-permissions.md`). It was customer-facing product content and did not belong in the tech-docs bundle; removed the entry from `index.md`.
+
 * **Creation**: Added `agent/hello-wizard-unskip.md` — session 772fe502 fix: the `HelloWizardStarted` decision signal (prevention veto + un-skip cure for the policy-disabled Hello shortcut) and the HelloTracker confirmation second read against flip-flopping WHfB CSP values.
 
 ## 2026-07-11

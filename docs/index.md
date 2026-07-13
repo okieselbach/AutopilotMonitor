@@ -20,7 +20,6 @@ https://docs.autopilotmonitor.com (separate repository).
 # Security & Identity
 
 * [MCP OAuth Flow](mcp-oauth-flow.md) - Who authenticates where when connecting an AI client to the MCP server; two identities, three parties plus Entra ID.
-* [Optional Graph add-on permissions](customer-graph-add-on-permissions.md) - Opt-in tenant-side Graph permission grants via appRoleAssignment, without changing the published app manifest.
 
 # Conventions for this bundle
 
