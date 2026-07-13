@@ -9,9 +9,11 @@ export function MetricsSidebar({ children }: { children: React.ReactNode }) {
           <p className="text-sm text-gray-500 mt-1">Platform-wide analytics</p>
         </div>
       </header>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        {children}
-      </div>
+      {/* Sections render full-bleed below the group header (like the standalone Geographic
+          Performance page) so their min-h-screen loading/error gradients fill the whole content
+          column instead of sitting boxed inside a max-w container. Each section owns its own
+          inner max-w-7xl container. */}
+      {children}
     </>
   );
 }

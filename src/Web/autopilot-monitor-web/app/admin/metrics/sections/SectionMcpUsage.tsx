@@ -124,7 +124,9 @@ export function SectionMcpUsage() {
   const maxDaily = Math.max(...sortedDaily.map(d => d.totalRequests), 1);
 
   return (
-    <div className="space-y-6">
+    // Self-provides the max-w container the metrics layout used to supply (the other sections
+    // self-wrap with their own min-h-screen layout; this one is a plain content block).
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
