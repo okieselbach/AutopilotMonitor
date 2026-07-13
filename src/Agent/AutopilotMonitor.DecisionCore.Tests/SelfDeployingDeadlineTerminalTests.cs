@@ -87,6 +87,29 @@ namespace AutopilotMonitor.DecisionCore.Tests
             Assert.Equal("enrollment_complete", terminalStep.Effects[2].Parameters!["eventType"]);
         }
 
+        // ============================================================== #1b phase_transition payload (observability)
+
+        [Fact]
+        public void PhaseTransition_carriesTriggerAndScenario_notEmptyData()
+        {
+            // Observability (session 62e603c9): phase_transition effects used to emit empty {}
+            // DataJson. They must now carry a structured typedPayload with the driving trigger +
+            // resolved scenario so the timeline is self-describing.
+            var engine = new DecisionEngine();
+            var state = PrimeDeviceSetup(engine, DecisionState.CreateInitial("sd-1b", "t", T0));
+            state = engine.Reduce(state, MakeSignal(2, DecisionSignalKind.DeviceSetupProvisioningComplete, T0.AddMinutes(3))).NewState;
+            var step = engine.Reduce(state, MakeSignal(3, DecisionSignalKind.DeadlineFired, T0.AddMinutes(8),
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.DeviceOnlyEspDetection }));
+
+            var finalizing = step.Effects[0];
+            Assert.Equal("phase_transition", finalizing.Parameters!["eventType"]);
+            var payload = Assert.IsType<Dictionary<string, object>>(finalizing.TypedPayload);
+            Assert.Equal("DecisionEngine", payload["decisionSource"]);
+            Assert.Equal($"DeadlineFired:{DeadlineNames.DeviceOnlyEspDetection}", payload["trigger"]);
+            Assert.Equal(nameof(EnrollmentMode.SelfDeploying), payload["scenarioMode"]);
+            Assert.Equal(nameof(ProfileConfidence.High), payload["scenarioConfidence"]);
+        }
+
         // ============================================================== #2 Race guard: Stage already terminal
 
         [Fact]
@@ -633,6 +656,89 @@ namespace AutopilotMonitor.DecisionCore.Tests
             // Deferred flag cleared, DeviceOnly hypothesis reset.
             Assert.Null(step.NewState.RealmJoinFacts.SelfDeployingDeferredCompletion);
             Assert.Equal(HypothesisLevel.Unknown, step.NewState.ClassifierOutcomes.DeviceOnlyDeployment.Level);
+        }
+
+        // ============================================================== #17 Race guard D: registry NOT self-deploying (session 62e603c9)
+
+        private static DecisionState SeedRegistryNotSelfDeploying(DecisionEngine engine, DecisionState state, long ordinal)
+            => engine.Reduce(state, MakeSignal(ordinal, DecisionSignalKind.EnrollmentFactsObserved, T0.AddSeconds(1),
+                new Dictionary<string, string>
+                {
+                    [SignalPayloadKeys.EnrollmentType] = "v1",
+                    [SignalPayloadKeys.IsHybridJoin] = "true",
+                    [SignalPayloadKeys.IsSelfDeployingProfile] = "false",
+                })).NewState;
+
+        [Fact]
+        public void EnrollmentFactsObserved_false_recordsRegistryObservation_withoutSelfDeployingSeed()
+        {
+            // The reducer records the raw registry fact for BOTH values. A `false` reading is
+            // stored as an observation but must NOT seed Mode=SelfDeploying (positive-only seed).
+            var engine = new DecisionEngine();
+            var state = PrimeDeviceSetup(engine, DecisionState.CreateInitial("sd-obs-1", "t", T0));
+            state = SeedRegistryNotSelfDeploying(engine, state, 2);
+
+            Assert.NotNull(state.ScenarioObservations.RegistrySelfDeployingProfile);
+            Assert.False(state.ScenarioObservations.RegistrySelfDeployingProfile!.Value);
+            Assert.NotEqual(EnrollmentMode.SelfDeploying, state.ScenarioProfile.Mode);
+        }
+
+        [Fact]
+        public void RaceGuardD_registrySaysNotSelfDeploying_deadEndsAndCancels()
+        {
+            // The device-only ESP-detection deadline fires, but the deterministic registry probe
+            // (CloudAssignedOobeConfig 0x20|0x40) explicitly read `false`. The weak behavioural
+            // deadline must NOT override that authoritative fact — dead-end + state-side cancel.
+            var engine = new DecisionEngine();
+            var state = PrimeDeviceSetup(engine, DecisionState.CreateInitial("sd-guardd-1", "t", T0));
+            state = SeedRegistryNotSelfDeploying(engine, state, 2);
+            state = engine.Reduce(state, MakeSignal(3, DecisionSignalKind.DeviceSetupProvisioningComplete, T0.AddMinutes(3))).NewState;
+            var deadline = state.Deadlines.Single(d => d.Name == DeadlineNames.DeviceOnlyEspDetection);
+
+            var step = engine.Reduce(state, MakeSignal(4, DecisionSignalKind.DeadlineFired, deadline.DueAtUtc,
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.DeviceOnlyEspDetection }));
+
+            Assert.False(step.Transition.Taken);
+            Assert.Equal("device_only_esp_detection_registry_not_self_deploying", step.Transition.DeadEndReason);
+            Assert.NotEqual(SessionStage.Completed, step.NewState.Stage);
+            Assert.NotEqual(EnrollmentMode.SelfDeploying, step.NewState.ScenarioProfile.Mode);
+            Assert.Empty(step.Effects);
+            // CRITICAL: past-due deadline cancelled state-side so a snapshot reload won't re-arm it.
+            Assert.DoesNotContain(step.NewState.Deadlines, d => d.Name == DeadlineNames.DeviceOnlyEspDetection);
+        }
+
+        [Fact]
+        public void RaceGuardD_registryTrue_completesNormally()
+        {
+            // Guard D must NOT interfere with a genuine self-deploying device: registry `true`
+            // (0x20|0x40 present) still reaches the terminal SelfDeploying branch.
+            var engine = new DecisionEngine();
+            var state = PrimeDeviceSetup(engine, DecisionState.CreateInitial("sd-guardd-2", "t", T0));
+            state = SeedSelfDeployingProfile(engine, state, 2);
+            state = engine.Reduce(state, MakeSignal(3, DecisionSignalKind.DeviceSetupProvisioningComplete, T0.AddMinutes(3))).NewState;
+
+            var step = engine.Reduce(state, MakeSignal(4, DecisionSignalKind.DeadlineFired, T0.AddMinutes(8),
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.DeviceOnlyEspDetection }));
+
+            Assert.Equal(SessionStage.Completed, step.NewState.Stage);
+            Assert.Equal(EnrollmentMode.SelfDeploying, step.NewState.ScenarioProfile.Mode);
+        }
+
+        [Fact]
+        public void RaceGuardD_registryUnobserved_completesNormally()
+        {
+            // Null (fact never observed) must NOT trip guard D — only an explicit `false` vetoes.
+            // Registry-blind sessions keep the legacy behavioural-deadline completion.
+            var engine = new DecisionEngine();
+            var state = PrimeDeviceSetup(engine, DecisionState.CreateInitial("sd-guardd-3", "t", T0));
+            Assert.Null(state.ScenarioObservations.RegistrySelfDeployingProfile);
+            state = engine.Reduce(state, MakeSignal(2, DecisionSignalKind.DeviceSetupProvisioningComplete, T0.AddMinutes(3))).NewState;
+
+            var step = engine.Reduce(state, MakeSignal(3, DecisionSignalKind.DeadlineFired, T0.AddMinutes(8),
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.DeviceOnlyEspDetection }));
+
+            Assert.Equal(SessionStage.Completed, step.NewState.Stage);
+            Assert.Equal(EnrollmentMode.SelfDeploying, step.NewState.ScenarioProfile.Mode);
         }
     }
 }

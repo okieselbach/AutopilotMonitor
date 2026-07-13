@@ -927,7 +927,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 effects.AddRange(extraLeadingEffects);
             }
             effects.Add(new DecisionEffect(DecisionEffectKind.ScheduleDeadline, deadline: deadline));
-            effects.Add(BuildPhaseTransitionEffect(EnrollmentPhase.FinalizingSetup));
+            effects.Add(BuildPhaseTransitionEffect(EnrollmentPhase.FinalizingSetup, newState, trigger));
 
             return new DecisionStep(newState, transition, effects.ToArray());
         }
@@ -966,7 +966,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // (Classic.cs:609) when this deadline was armed.
             var effects = new[]
             {
-                BuildPhaseTransitionEffect(EnrollmentPhase.Complete),
+                BuildPhaseTransitionEffect(EnrollmentPhase.Complete, newState, $"DeadlineFired:{DeadlineNames.FinalizingGrace}"),
                 BuildEnrollmentCompleteEffect(newState, $"DeadlineFired:{DeadlineNames.FinalizingGrace}"),
             };
 
@@ -984,7 +984,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// change within seconds, not at the next batch boundary.
         /// </para>
         /// </summary>
-        private static DecisionEffect BuildPhaseTransitionEffect(EnrollmentPhase phase) =>
+        private static DecisionEffect BuildPhaseTransitionEffect(
+            EnrollmentPhase phase, DecisionState state, string trigger) =>
             new DecisionEffect(
                 kind: DecisionEffectKind.EmitEventTimelineEntry,
                 parameters: new Dictionary<string, string>
@@ -993,6 +994,19 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     ["phase"] = phase.ToString(),
                     ["source"] = "DecisionEngine",
                     ["message"] = $"Phase: {phase}",
+                },
+                // Observability (session 62e603c9): phase declarations used to emit empty `{}`
+                // DataJson, so the timeline never explained WHY a transition happened — the
+                // reasoning lived only on the sibling enrollment_complete event. Attach a lean
+                // structured payload (routed verbatim to EnrollmentEvent.Data by
+                // EventTimelineEmitter.ResolveData) carrying the driving trigger + resolved
+                // scenario so each phase_transition is self-describing.
+                typedPayload: new Dictionary<string, object>
+                {
+                    ["decisionSource"] = "DecisionEngine",
+                    ["trigger"] = trigger,
+                    ["scenarioMode"] = state.ScenarioProfile.Mode.ToString(),
+                    ["scenarioConfidence"] = state.ScenarioProfile.Confidence.ToString(),
                 });
 
         /// <summary>

@@ -134,6 +134,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             var eventSequencePath = Path.Combine(stateDirectory, "event-sequence.json");
 
             var isWhiteGlovePart2 = false;
+            // A (session 62e603c9): the Part-1 scenario classification (Mode=WhiteGlove/High)
+            // captured off the archived snapshot BEFORE it is moved aside, so it can be
+            // re-seeded into the fresh Part-2 state below. Without this carry-forward Part 2
+            // starts at Mode=Unknown and the device-only ESP-detection deadline can wrongly
+            // reclassify a user-driven WhiteGlove flow as SelfDeploying and complete early.
+            EnrollmentScenarioProfile? preservedWhiteGloveProfile = null;
             var wasStartupQuarantine = false;
             var priorRunQuarantined = false;
             string? priorRunQuarantineReason = null;
@@ -243,6 +249,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 var rawSnapshot = SnapshotPersistence.TryReadRaw(snapshotPath);
                 if (rawSnapshot != null && rawSnapshot.Stage == SessionStage.WhiteGloveSealed)
                 {
+                    // Capture the Part-1 classification before ArchiveStateFolder moves the
+                    // snapshot aside — re-seeded into the fresh Part-2 state after the branch
+                    // dispatch below (A, session 62e603c9).
+                    preservedWhiteGloveProfile = rawSnapshot.ScenarioProfile;
                     StateArchiver.ArchiveStateFolder(
                         stateDirectory: stateDirectory,
                         reason: "wg_part1_resume_archive",
@@ -382,6 +392,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     wasStartupQuarantine = true;
                     branchTag = "c2-full-log-replay";
                 }
+            }
+
+            // A (session 62e603c9) — carry the Part-1 WhiteGlove classification into the fresh
+            // Part-2 seed. isWhiteGlovePart2 implies branch c1-fresh (the snapshot was archived,
+            // so Load returned null), meaning seed is CreateInitial with an Empty profile. We
+            // re-stamp Mode=WhiteGlove/High and flip PreProvisioningSide to the user side; the
+            // existing monotonic-mode guards (EnrollmentScenarioProfileUpdater +
+            // DecisionEngine.SelfDeploying race guard C) then prevent the device-only ESP
+            // deadline from reclassifying this user-driven flow as SelfDeploying. JoinMode /
+            // EspConfig from Part 1 ride along (e.g. HybridAzureAdJoin) — harmless and useful.
+            if (isWhiteGlovePart2 && preservedWhiteGloveProfile != null)
+            {
+                var part2Profile = preservedWhiteGloveProfile.With(
+                    mode: EnrollmentMode.WhiteGlove,
+                    confidence: ProfileConfidence.High,
+                    preProvisioningSide: PreProvisioningSide.User,
+                    reason: "whiteglove_part2_carryforward");
+                seed = seed.ToBuilder().WithScenarioProfile(part2Profile).Build();
+                logger.Info(
+                    "EnrollmentOrchestrator: WhiteGlove Part-2 seed carries forward Mode=WhiteGlove/High " +
+                    "(user side) from the archived Part-1 snapshot.");
             }
 
             // Align Journal AHEAD phantoms before replay. Engine semantics: a transition

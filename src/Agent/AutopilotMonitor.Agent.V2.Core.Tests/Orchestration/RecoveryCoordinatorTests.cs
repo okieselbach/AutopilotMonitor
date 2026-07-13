@@ -486,6 +486,43 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         }
 
         [Fact]
+        public void WhiteGloveSealed_snapshot_carries_forward_classification_to_part2_seed()
+        {
+            // A (session 62e603c9): the Part-1 WhiteGlove/High classification must survive the
+            // archive-and-reset so the fresh Part-2 seed starts at Mode=WhiteGlove/High. Without
+            // this the device-only ESP-detection deadline reclassifies the user-driven flow as
+            // SelfDeploying and completes early.
+            using var rig = new Rig();
+
+            var part1Profile = EnrollmentScenarioProfile.Empty.With(
+                mode: EnrollmentMode.WhiteGlove,
+                joinMode: EnrollmentJoinMode.HybridAzureAdJoin,
+                preProvisioningSide: PreProvisioningSide.Technician,
+                confidence: ProfileConfidence.High,
+                reason: "classifier_whiteglove_sealing_confirmed");
+            var sealedState = DecisionState.CreateInitial(SessionId, TenantId)
+                .ToBuilder()
+                .WithStage(SessionStage.WhiteGloveSealed)
+                .WithStepIndex(5)
+                .WithScenarioProfile(part1Profile)
+                .Build();
+            SeedSnapshot(rig, sealedState);
+
+            var result = rig.Recover();
+
+            Assert.True(result.IsWhiteGlovePart2);
+            // Fresh live state (StepIndex reset) but classification carried forward.
+            Assert.Equal(0, result.InitialState.StepIndex);
+            Assert.Equal(EnrollmentMode.WhiteGlove, result.InitialState.ScenarioProfile.Mode);
+            Assert.Equal(ProfileConfidence.High, result.InitialState.ScenarioProfile.Confidence);
+            // Part 2 is the user side — not the copied-over Technician value.
+            Assert.Equal(PreProvisioningSide.User, result.InitialState.ScenarioProfile.PreProvisioningSide);
+            // JoinMode rides along from Part 1.
+            Assert.Equal(EnrollmentJoinMode.HybridAzureAdJoin, result.InitialState.ScenarioProfile.JoinMode);
+            Assert.Equal("whiteglove_part2_carryforward", result.InitialState.ScenarioProfile.Reason);
+        }
+
+        [Fact]
         public void Non_whiteglove_snapshot_does_not_set_part2_flag_or_archive()
         {
             using var rig = new Rig();

@@ -319,6 +319,31 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 return new DecisionStep(raceCState, transition, Array.Empty<DecisionEffect>());
             }
 
+            // --- Race guard D: registry says NOT self-deploying (session 62e603c9) ---
+            // The deterministic CloudAssignedOobeConfig 0x20|0x40 probe (posted every run as
+            // EnrollmentFactsObserved isSelfDeployingProfile) explicitly read `false`. That is
+            // authoritative — validated platform-wide as zero-false-positive — so the weak
+            // behavioural 5-min deadline must not override it. Typical trigger: a user-driven
+            // Hybrid-Join WhiteGlove Part-2 with SkipUser=True where the user ESP is hidden and
+            // the end user has not signed in yet; completing here seals the session before the
+            // real Hello/desktop. Only an EXPLICIT false vetoes — an unobserved (null) fact
+            // leaves the legacy behaviour intact so registry-blind sessions still terminate.
+            if (state.ScenarioObservations.RegistrySelfDeployingProfile?.Value == false)
+            {
+                var raceDState = state.ToBuilder()
+                    .WithStepIndex(state.StepIndex + 1)
+                    .WithLastAppliedSignalOrdinal(signal.SessionSignalOrdinal)
+                    .CancelDeadline(DeadlineNames.DeviceOnlyEspDetection)
+                    .Build();
+                var transition = BuildDeadEndTransition(
+                    state: state,
+                    signal: signal,
+                    nextStepIndex: raceDState.StepIndex,
+                    trigger: $"DeadlineFired:{DeadlineNames.DeviceOnlyEspDetection}",
+                    deadEndReason: "device_only_esp_detection_registry_not_self_deploying");
+                return new DecisionStep(raceDState, transition, Array.Empty<DecisionEffect>());
+            }
+
             // All guards passed → this is a real SelfDeploying device.
 
             var nextStep = state.StepIndex + 1;
@@ -383,8 +408,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // both phase bars for SelfDeploying terminal sessions (was missing entirely before).
             var effects = new DecisionEffect[]
             {
-                BuildPhaseTransitionEffect(EnrollmentPhase.FinalizingSetup),
-                BuildPhaseTransitionEffect(EnrollmentPhase.Complete),
+                BuildPhaseTransitionEffect(EnrollmentPhase.FinalizingSetup, terminalState, $"DeadlineFired:{DeadlineNames.DeviceOnlyEspDetection}"),
+                BuildPhaseTransitionEffect(EnrollmentPhase.Complete, terminalState, $"DeadlineFired:{DeadlineNames.DeviceOnlyEspDetection}"),
                 BuildEnrollmentCompleteEffect(terminalState, $"DeadlineFired:{DeadlineNames.DeviceOnlyEspDetection}"),
             };
 

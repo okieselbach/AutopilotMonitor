@@ -286,8 +286,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
             var effects = new List<DecisionEffect>(capacity: 3);
             if (succeeded)
             {
-                effects.Add(BuildPhaseTransitionEffect(EnrollmentPhase.FinalizingSetup));
-                effects.Add(BuildPhaseTransitionEffect(EnrollmentPhase.Complete));
+                effects.Add(BuildPhaseTransitionEffect(EnrollmentPhase.FinalizingSetup, newState, $"AdminPreemption:{adminOutcome}"));
+                effects.Add(BuildPhaseTransitionEffect(EnrollmentPhase.Complete, newState, $"AdminPreemption:{adminOutcome}"));
             }
             var adminReason = $"Session {adminOutcome.ToLowerInvariant()} by administrator (detected on register-session).";
             effects.Add(new DecisionEffect(
@@ -531,6 +531,19 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
             builder.ScenarioProfile = EnrollmentScenarioProfileUpdater.ApplyEnrollmentFactsObserved(
                 builder.ScenarioProfile, signal);
+
+            // B (session 62e603c9) — record the raw registry self-deploying fact for BOTH
+            // true and false. The profile seed above only consumes `true` (positive
+            // classification); an explicit `false` is dropped there but is exactly what the
+            // device-only ESP-detection deadline needs as a veto. Set-once inside the
+            // observation, so a later re-post keeps the first sighting's ordinal.
+            if (signal.Payload != null
+                && signal.Payload.TryGetValue(SignalPayloadKeys.IsSelfDeployingProfile, out var rawSelfDeploying)
+                && bool.TryParse(rawSelfDeploying, out var isSelfDeploying))
+            {
+                builder.ScenarioObservations = builder.ScenarioObservations
+                    .WithRegistrySelfDeployingProfile(isSelfDeploying, signal.SessionSignalOrdinal);
+            }
 
             var newState = builder.Build();
             var transition = BuildTakenTransition(

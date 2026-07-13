@@ -423,8 +423,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     // for RJ-deferred-completion just like the direct SelfDeploying-terminal path.
                     var effects = new List<DecisionEffect>(capacity: 4);
                     if (leadingEffect != null) effects.Add(leadingEffect);
-                    effects.Add(BuildPhaseTransitionEffect(EnrollmentPhase.FinalizingSetup));
-                    effects.Add(BuildPhaseTransitionEffect(EnrollmentPhase.Complete));
+                    effects.Add(BuildPhaseTransitionEffect(EnrollmentPhase.FinalizingSetup, completedState, trigger + ":SelfDeployingDeferred"));
+                    effects.Add(BuildPhaseTransitionEffect(EnrollmentPhase.Complete, completedState, trigger + ":SelfDeployingDeferred"));
                     effects.Add(BuildEnrollmentCompleteEffect(completedState, trigger + ":SelfDeployingDeferred"));
 
                     return new DecisionStep(completedState, completedTransition, effects.ToArray());
