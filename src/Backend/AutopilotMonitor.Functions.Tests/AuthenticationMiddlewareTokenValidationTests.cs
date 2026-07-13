@@ -166,4 +166,97 @@ public class AuthenticationMiddlewareTokenValidationTests
             $"https://login.microsoftonline.com/{Tid}/v2.0",
             AuthenticationMiddleware.BuildTenantAuthority(V2Issuer, Tid));
     }
+
+    // ── Multi-audience: trust a second/rotated app registration alongside the primary ────
+    // Config seam (EntraId:AdditionalClientIds) for the tenant-move window. See the runbook.
+
+    private const string SecondaryClientId = "99998888-7777-6666-5555-444433332222";
+
+    private static ClaimsPrincipal ValidateWith(string jwt, params string?[] clientIds)
+    {
+        var tvp = AuthenticationMiddleware.BuildTokenValidationParameters(
+            new SecurityKey[] { RsaKey }, clientIds);
+        return new JwtSecurityTokenHandler().ValidateToken(jwt, tvp, out _);
+    }
+
+    [Fact]
+    public void SecondaryConfiguredAudience_is_accepted_alongside_primary()
+    {
+        var principal = ValidateWith(
+            Mint(RsaCreds, audience: $"api://{SecondaryClientId}"), ClientId, SecondaryClientId);
+
+        Assert.NotNull(principal);
+    }
+
+    [Fact]
+    public void PrimaryAudience_still_accepted_when_secondary_configured()
+    {
+        var principal = ValidateWith(Mint(RsaCreds, audience: ClientId), ClientId, SecondaryClientId);
+
+        Assert.NotNull(principal);
+    }
+
+    [Fact]
+    public void AudienceOutsideConfiguredSet_is_rejected_even_with_secondary()
+    {
+        Assert.Throws<SecurityTokenInvalidAudienceException>(() => ValidateWith(
+            Mint(RsaCreds, audience: "api://some-third-app"), ClientId, SecondaryClientId));
+    }
+
+    // ── BuildValidAudiences: id → {id, api://id}, deduped, empties dropped ────────────────
+
+    [Fact]
+    public void BuildValidAudiences_expands_each_id_to_bare_and_api_forms()
+    {
+        Assert.Equal(
+            new[] { "aaa", "api://aaa", "bbb", "api://bbb" },
+            AuthenticationMiddleware.BuildValidAudiences(new[] { "aaa", "bbb" }));
+    }
+
+    [Fact]
+    public void BuildValidAudiences_trims_dedupes_case_insensitively_and_drops_empties()
+    {
+        Assert.Equal(
+            new[] { "aaa", "api://aaa" },
+            AuthenticationMiddleware.BuildValidAudiences(new[] { "aaa", " aaa ", "", "  ", null, "AAA" }));
+    }
+
+    [Fact]
+    public void BuildValidAudiences_empty_or_null_input_is_empty_fail_closed()
+    {
+        Assert.Empty(AuthenticationMiddleware.BuildValidAudiences(null));
+        Assert.Empty(AuthenticationMiddleware.BuildValidAudiences(new string?[] { null, "  " }));
+    }
+
+    // ── ResolveConfiguredClientIds: primary + optional AdditionalClientIds parsing ────────
+
+    [Theory]
+    [InlineData("primary", null, new[] { "primary" })]                                   // unset ⇒ today's behaviour
+    [InlineData("primary", "", new[] { "primary" })]
+    [InlineData("primary", "   ", new[] { "primary" })]
+    [InlineData("primary", "second", new[] { "primary", "second" })]
+    [InlineData("primary", "second,third", new[] { "primary", "second", "third" })]
+    [InlineData("primary", "second; third ,  fourth", new[] { "primary", "second", "third", "fourth" })]
+    [InlineData("primary", "primary,second", new[] { "primary", "second" })]             // dedupe vs primary
+    public void ResolveConfiguredClientIds_parses_trims_and_dedupes(
+        string primary, string? additional, string[] expected)
+    {
+        Assert.Equal(expected, AuthenticationMiddleware.ResolveConfiguredClientIds(primary, additional));
+    }
+
+    [Fact]
+    public void ResolveConfiguredClientIds_dedupes_case_insensitively()
+    {
+        Assert.Equal(
+            new[] { "Primary", "second" },
+            AuthenticationMiddleware.ResolveConfiguredClientIds("Primary", "primary, second"));
+    }
+
+    [Fact]
+    public void ResolveConfiguredClientIds_null_primary_falls_back_to_additional_only()
+    {
+        Assert.Equal(
+            new[] { "second" },
+            AuthenticationMiddleware.ResolveConfiguredClientIds(null, "second"));
+    }
 }

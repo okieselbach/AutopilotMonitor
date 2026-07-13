@@ -158,8 +158,16 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
             // RS256/PS256 algorithm whitelist that hard-blocks alg:none and HS-family confusion).
             // Extracted to a pure seam so those rejects are unit-testable against locally-minted
             // tokens without a live OIDC ConfigurationManager.
+            //
+            // Audience = the primary app registration (EntraId:ClientId) PLUS any additional
+            // (secondary/rotated) client IDs from EntraId:AdditionalClientIds. That config is the
+            // seam that lets the API trust a SECOND app registration during a tenant-move window
+            // (see tasks/migration-cross-tenant-runbook.md). Unset today ⇒ exactly the primary id
+            // ⇒ zero behaviour change.
+            var clientIds = ResolveConfiguredClientIds(
+                _configuration["EntraId:ClientId"], _configuration["EntraId:AdditionalClientIds"]);
             var validationParameters = BuildTokenValidationParameters(
-                openIdConfig.SigningKeys, _configuration["EntraId:ClientId"]);
+                openIdConfig.SigningKeys, clientIds);
 
             var principal = _tokenHandler.ValidateToken(token, validationParameters, out var validatedToken);
 
@@ -251,13 +259,15 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
 
     /// <summary>
     /// Builds the token validation parameters the middleware validates against: multi-tenant issuer
-    /// format check, audience = <c>{clientId}</c> / <c>api://{clientId}</c>, lifetime, and — the
-    /// algorithm-confusion defence — <c>RequireSignedTokens</c> plus the RS256/PS256 whitelist that
-    /// hard-blocks alg:none and the HS family. Signing keys are supplied by the caller (the tenant's
-    /// OIDC config at runtime; a test key under unit test).
+    /// format check, audience = <c>{clientId}</c> / <c>api://{clientId}</c> for each accepted client
+    /// ID, lifetime, and — the algorithm-confusion defence — <c>RequireSignedTokens</c> plus the
+    /// RS256/PS256 whitelist that hard-blocks alg:none and the HS family. Signing keys are supplied by
+    /// the caller (the tenant's OIDC config at runtime; a test key under unit test). Accepts one or
+    /// more client IDs (<c>params</c>) so a second/rotated app registration can be trusted alongside
+    /// the primary — see <see cref="ResolveConfiguredClientIds"/>.
     /// </summary>
     internal static TokenValidationParameters BuildTokenValidationParameters(
-        IEnumerable<SecurityKey> signingKeys, string? clientId)
+        IEnumerable<SecurityKey> signingKeys, params string?[] clientIds)
     {
         var keys = signingKeys as ICollection<SecurityKey> ?? signingKeys?.ToList() ?? new List<SecurityKey>();
 
@@ -275,7 +285,7 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
                 throw new SecurityTokenInvalidIssuerException($"Invalid issuer: {iss}");
             },
             ValidateAudience = true,
-            ValidAudiences = new[] { clientId, $"api://{clientId}" },
+            ValidAudiences = BuildValidAudiences(clientIds),
             ValidateLifetime = true,
 
             // Signature validation enabled (token minted for api://<clientId>/access_as_user).
@@ -291,5 +301,44 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
             // Hard-blocks HS-family and "none" (algorithm-confusion defence).
             ValidAlgorithms = new[] { "RS256", "PS256" }
         };
+    }
+
+    /// <summary>
+    /// Expands a set of app (client) IDs into the accepted token audiences: for each id, both the
+    /// bare <c>{id}</c> and the <c>api://{id}</c> form. Empty/whitespace ids are dropped and the
+    /// result is de-duplicated case-insensitively (order preserved). An empty input yields an empty
+    /// audience set, which — with <c>ValidateAudience=true</c> — rejects every token (fail-closed).
+    /// </summary>
+    internal static string[] BuildValidAudiences(IEnumerable<string?>? clientIds)
+    {
+        return (clientIds ?? Array.Empty<string?>())
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .SelectMany(id => new[] { id, $"api://{id}" })
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Resolves the configured accepted app (client) IDs: the primary <c>EntraId:ClientId</c> plus an
+    /// optional comma/semicolon/whitespace-separated <c>EntraId:AdditionalClientIds</c>. Trimmed,
+    /// empties dropped, de-duplicated case-insensitively (primary first). When AdditionalClientIds is
+    /// unset the result is exactly the primary id — today's behaviour, zero change — so adding a
+    /// second app registration's client ID to that setting is the ONLY step needed to trust a second
+    /// app during a tenant-move window (tasks/migration-cross-tenant-runbook.md).
+    /// </summary>
+    internal static string[] ResolveConfiguredClientIds(string? primaryClientId, string? additionalClientIds)
+    {
+        var ids = new List<string?> { primaryClientId };
+        if (!string.IsNullOrWhiteSpace(additionalClientIds))
+        {
+            ids.AddRange(additionalClientIds.Split(
+                new[] { ',', ';', ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries));
+        }
+        return ids
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 }
