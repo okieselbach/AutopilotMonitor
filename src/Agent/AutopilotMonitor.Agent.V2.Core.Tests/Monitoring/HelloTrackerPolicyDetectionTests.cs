@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
@@ -239,6 +240,157 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
                 .Where(p => p.Payload!.TryGetValue(SignalPayloadKeys.EventType, out var v) && v == "hello_policy_detection_mismatch");
 
             Assert.Empty(mismatch);
+        }
+
+        // ---- Session 772fe502: confirmation second read before committing policy=disabled ----
+
+        [Fact]
+        public void ApplyPolicyRead_disabled_first_read_only_marks_pending()
+        {
+            using var f = new Fixture();
+            var invokes = 0;
+            f.Tracker.HelloPolicyDetected += (_, _) => invokes++;
+
+            f.Tracker.ApplyPolicyRead(isEnabled: false, source: "CSP/Intune (user-scoped)");
+
+            Assert.True(f.Tracker.IsPolicyDisabledPendingForTest);
+            Assert.False(f.Tracker.IsPolicyConfigured);
+            Assert.Equal(0, invokes);
+            Assert.Empty(PolicyEvents(f));
+        }
+
+        [Fact]
+        public void ApplyPolicyRead_disabled_confirmed_by_second_read_commits_disabled()
+        {
+            using var f = new Fixture();
+            var invoked = new List<(bool, string)>();
+            f.Tracker.HelloPolicyDetected += (enabled, source) => invoked.Add((enabled, source));
+
+            f.Tracker.ApplyPolicyRead(isEnabled: false, source: "CSP/Intune (user-scoped)");
+            f.Tracker.ApplyPolicyRead(isEnabled: false, source: "CSP/Intune (user-scoped)");
+
+            Assert.True(f.Tracker.IsPolicyConfigured);
+            Assert.False(f.Tracker.IsPolicyDisabledPendingForTest);
+            var invoke = Assert.Single(invoked);
+            Assert.False(invoke.Item1);
+
+            var evt = Assert.Single(PolicyEvents(f));
+            var data = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object>>(
+                ExtractEventData(evt));
+            Assert.Equal(false, data["helloEnabled"]);
+            Assert.Equal(2, data["confirmedReads"]);
+            Assert.False(data.ContainsKey("flipFlopDetected"));
+        }
+
+        [Fact]
+        public void ApplyPolicyRead_disabled_then_enabled_commits_enabled_and_flags_flipFlop()
+        {
+            // The exact session-772fe502 catch: the flip-flopping user-scoped CSP read
+            // "disabled" once; the confirmation read sees the real value.
+            using var f = new Fixture();
+            var invoked = new List<(bool, string)>();
+            f.Tracker.HelloPolicyDetected += (enabled, source) => invoked.Add((enabled, source));
+
+            f.Tracker.ApplyPolicyRead(isEnabled: false, source: "CSP/Intune (user-scoped)");
+            f.Tracker.ApplyPolicyRead(isEnabled: true, source: "CSP/Intune (user-scoped)");
+
+            Assert.True(f.Tracker.IsPolicyConfigured);
+            var invoke = Assert.Single(invoked);
+            Assert.True(invoke.Item1);
+
+            var evt = Assert.Single(PolicyEvents(f));
+            var data = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object>>(
+                ExtractEventData(evt));
+            Assert.Equal(true, data["helloEnabled"]);
+            Assert.Equal(1, data["confirmedReads"]);
+            Assert.Equal(true, data["flipFlopDetected"]);
+        }
+
+        [Fact]
+        public void ApplyPolicyRead_disabled_then_null_clears_pending_and_keeps_polling()
+        {
+            // A vanished value is itself flip-flop evidence — the confirmation chain restarts.
+            using var f = new Fixture();
+            f.Tracker.ApplyPolicyRead(isEnabled: false, source: "CSP/Intune (user-scoped)");
+            Assert.True(f.Tracker.IsPolicyDisabledPendingForTest);
+
+            f.Tracker.ApplyPolicyRead(isEnabled: null, source: null);
+            Assert.False(f.Tracker.IsPolicyDisabledPendingForTest);
+            Assert.False(f.Tracker.IsPolicyConfigured);
+            Assert.Empty(PolicyEvents(f));
+
+            // Re-established disabled chain commits on its own second read.
+            f.Tracker.ApplyPolicyRead(isEnabled: false, source: "CSP/Intune (user-scoped)");
+            f.Tracker.ApplyPolicyRead(isEnabled: false, source: "CSP/Intune (user-scoped)");
+            Assert.True(f.Tracker.IsPolicyConfigured);
+            Assert.Single(PolicyEvents(f));
+        }
+
+        [Fact]
+        public void ApplyPolicyRead_enabled_first_read_commits_immediately()
+        {
+            using var f = new Fixture();
+            var invokes = 0;
+            f.Tracker.HelloPolicyDetected += (_, _) => invokes++;
+
+            f.Tracker.ApplyPolicyRead(isEnabled: true, source: "GPO");
+
+            Assert.True(f.Tracker.IsPolicyConfigured);
+            Assert.Equal(1, invokes);
+            var evt = Assert.Single(PolicyEvents(f));
+            var data = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object>>(
+                ExtractEventData(evt));
+            Assert.Equal(1, data["confirmedReads"]);
+            Assert.False(data.ContainsKey("flipFlopDetected"));
+        }
+
+        [Fact]
+        public void ApplyPolicyRead_pending_disabled_keeps_unknown_wait_cadence()
+        {
+            // While the disabled read awaits confirmation, the tracker must behave as
+            // policy-UNKNOWN: the wait timeout grants the one-shot grace instead of resolving
+            // not_configured on the short disabled cadence.
+            using var f = new Fixture();
+            f.Tracker.ApplyPolicyRead(isEnabled: false, source: "CSP/Intune (user-scoped)");
+            f.Tracker.StartHelloWaitTimer();
+
+            f.Tracker.TriggerWaitTimeoutForTest();
+
+            Assert.False(f.Tracker.IsHelloCompleted);
+            Assert.Null(f.Tracker.HelloOutcome);
+            Assert.True(f.Tracker.IsWaitTimerActiveForTest);
+        }
+
+        [Fact]
+        public void ApplyPolicyRead_after_commit_is_noop()
+        {
+            using var f = new Fixture();
+            var invokes = 0;
+            f.Tracker.HelloPolicyDetected += (_, _) => invokes++;
+
+            f.Tracker.ApplyPolicyRead(isEnabled: true, source: "GPO");
+            f.Tracker.ApplyPolicyRead(isEnabled: false, source: "CSP/Intune (user-scoped)");
+            f.Tracker.ApplyPolicyRead(isEnabled: false, source: "CSP/Intune (user-scoped)");
+
+            Assert.Equal(1, invokes);
+            Assert.Single(PolicyEvents(f));
+            Assert.False(f.Tracker.IsPolicyDisabledPendingForTest);
+        }
+
+        private static List<FakeSignalIngressSink.PostedSignal> PolicyEvents(Fixture f) =>
+            f.Ingress.Posted
+                .Where(p => p.Kind == DecisionSignalKind.InformationalEvent && p.Payload != null)
+                .Where(p => p.Payload!.TryGetValue(SignalPayloadKeys.EventType, out var v) && v == "hello_policy_detected")
+                .ToList();
+
+        /// <summary>
+        /// The EnrollmentEvent.Data dictionary rides through InformationalEventPost as the
+        /// signal's typed payload — extract it for the confirmation-audit assertions.
+        /// </summary>
+        private static IReadOnlyDictionary<string, object> ExtractEventData(FakeSignalIngressSink.PostedSignal signal)
+        {
+            Assert.NotNull(signal.TypedPayload);
+            return Assert.IsAssignableFrom<IReadOnlyDictionary<string, object>>(signal.TypedPayload);
         }
 
         [Fact]

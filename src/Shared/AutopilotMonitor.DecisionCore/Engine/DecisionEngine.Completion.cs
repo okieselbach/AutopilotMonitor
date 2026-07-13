@@ -142,6 +142,73 @@ namespace AutopilotMonitor.DecisionCore.Engine
             public const string RealmJoinResolution = "realmjoin_resolution";
         }
 
+        // ====================================================== Hello-satisfied predicate
+        // Session 772fe502 (2026-07-13): a flip-flopping user-scoped WHfB CSP was read once
+        // as disabled, the engine synthesized HelloOutcome="Skipped" and completed while the
+        // Hello wizard — started 230 ms earlier — was still on screen. Every "may policy-
+        // disabled stand in for a Hello resolution?" decision now routes through the two
+        // predicates below so the wizard-started fact vetoes the shortcut in one place.
+
+        /// <summary>
+        /// Engine-synthesized Hello outcome written by the policy-disabled completion sites.
+        /// Deliberately distinct from the tracker vocabulary (all lowercase: "completed",
+        /// "skipped", "not_configured", "timeout", "wizard_not_started") so
+        /// <see cref="HasEngineSynthesizedHelloSkip"/> can discriminate a synthetic skip from
+        /// a real tracker-posted resolution by exact-case comparison.
+        /// </summary>
+        internal const string SyntheticHelloOutcomeSkipped = "Skipped";
+
+        /// <summary>
+        /// Engine-synthesized Hello outcome written by the HelloSafety timeout handler.
+        /// Same casing contract as <see cref="SyntheticHelloOutcomeSkipped"/>.
+        /// </summary>
+        internal const string SyntheticHelloOutcomeTimeout = "Timeout";
+
+        /// <summary>
+        /// True when an explicitly-disabled Hello policy may stand in for a Hello resolution:
+        /// the policy reader said disabled AND no Hello wizard launch has been observed. Once
+        /// Shell-Core 62404 (CXID AADHello/NGC) is on record the wizard is demonstrably
+        /// running — the policy read was stale or flip-flopped — and only a real
+        /// <c>HelloResolved</c> (or the HelloSafety timeout) may satisfy the Hello gate.
+        /// Fact-based signature so both state-based guards and the builder-based
+        /// <see cref="BuildCompletionWaitingEffect"/> share it.
+        /// </summary>
+        private static bool HelloPolicyDisabledWithoutWizard(
+            SignalFact<bool>? helloPolicyEnabled,
+            SignalFact<DateTime>? helloWizardStartedUtc) =>
+            helloPolicyEnabled?.Value == false && helloWizardStartedUtc == null;
+
+        /// <summary>
+        /// The completion-side Hello gate: an actual resolution, or the policy-disabled
+        /// stand-in (vetoed by an observed wizard start — see
+        /// <see cref="HelloPolicyDisabledWithoutWizard"/>).
+        /// </summary>
+        private static bool HelloSatisfiedForCompletion(DecisionState state) =>
+            state.HelloResolvedUtc != null
+            || HelloPolicyDisabledWithoutWizard(state.HelloPolicyEnabled, state.HelloWizardStartedUtc);
+
+        /// <summary>
+        /// True when the recorded Hello resolution is the engine-synthesized policy-disabled
+        /// skip (<see cref="SyntheticHelloOutcomeSkipped"/>, exact-case) — the only Hello fact
+        /// the <c>HandleHelloWizardStartedV1</c> cure is allowed to retract. Tracker-posted
+        /// outcomes (lowercase vocabulary) and the synthetic HelloSafety
+        /// <see cref="SyntheticHelloOutcomeTimeout"/> are never retracted.
+        /// </summary>
+        private static bool HasEngineSynthesizedHelloSkip(DecisionState state) =>
+            state.HelloResolvedUtc != null
+            && string.Equals(state.HelloOutcome?.Value, SyntheticHelloOutcomeSkipped, StringComparison.Ordinal);
+
+        /// <summary>
+        /// Record the engine-synthesized policy-disabled Hello skip on the builder. Single
+        /// synthesis point for the <see cref="SyntheticHelloOutcomeSkipped"/> literal so the
+        /// discriminator contract lives in one place.
+        /// </summary>
+        private static void SynthesizeHelloSkipped(DecisionStateBuilder builder, DecisionSignal signal)
+        {
+            builder.HelloResolvedUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
+            builder.HelloOutcome = new SignalFact<string>(SyntheticHelloOutcomeSkipped, signal.SessionSignalOrdinal);
+        }
+
         /// <summary>
         /// Compute the ordered list of completion prerequisites the engine is still waiting on
         /// for <paramref name="state"/>. Liveness plan PR2 — feeds the <c>completion_waiting</c>
@@ -152,7 +219,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 accountSetupProvisioned: state.AccountSetupProvisioningSucceededUtc != null,
                 skipUserEsp: state.ScenarioObservations.SkipUserEsp?.Value == true,
                 helloResolved: state.HelloResolvedUtc != null,
-                helloPolicyDisabled: state.HelloPolicyEnabled?.Value == false,
+                helloPolicyDisabled: HelloPolicyDisabledWithoutWizard(state.HelloPolicyEnabled, state.HelloWizardStartedUtc),
                 desktopArrived: state.DesktopArrivedUtc != null,
                 realmJoinGateOpen: RealmJoinGateOpen(state),
                 postEspUserSessionEvidence: HasPostEspUserSessionEvidence(
@@ -228,7 +295,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 accountSetupProvisioned: builder.AccountSetupProvisioningSucceededUtc != null,
                 skipUserEsp: builder.ScenarioObservations.SkipUserEsp?.Value == true,
                 helloResolved: builder.HelloResolvedUtc != null,
-                helloPolicyDisabled: builder.HelloPolicyEnabled?.Value == false,
+                helloPolicyDisabled: HelloPolicyDisabledWithoutWizard(builder.HelloPolicyEnabled, builder.HelloWizardStartedUtc),
                 desktopArrived: builder.DesktopArrivedUtc != null,
                 realmJoinGateOpen: RealmJoinGateOpen(builder.RealmJoinFacts),
                 postEspUserSessionEvidence: HasPostEspUserSessionEvidence(

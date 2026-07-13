@@ -126,6 +126,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         // guard distinguishes the genuine post-AccountSetup exit from intermediate ones.
         public event EventHandler<EspExitedEventArgs> EspExited;
 
+        // Coordinator-forwarded Hello-wizard launch (from <see cref="ShellCoreTracker.HelloWizardStarted"/>,
+        // Shell-Core 62404 CXID AADHello/NGC — session 772fe502). Carries the source-event
+        // timestamp on the args (live + backfill). Subscribed by EspAndHelloTrackerAdapter to
+        // post a <c>DecisionSignalKind.HelloWizardStarted</c> signal. The finalizing guard
+        // (IsIntermediateDeviceEspExit) deliberately does NOT apply — it only filters
+        // esp_exiting; this event bypasses OnFinalizingSetupPhaseTriggered entirely.
+        public event EventHandler<HelloWizardStartedEventArgs> HelloWizardStarted;
+
         /// <summary>
         /// UTC timestamp of the most recent sub-tracker event currently being raised
         /// (mirrored from <see cref="ShellCoreTracker.LastEventOccurredAtUtc"/> for ShellCore-
@@ -336,6 +344,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             _shellCoreTracker.WhiteGloveCompleted += OnWhiteGloveCompleted;
             _shellCoreTracker.EspFailureDetected += OnShellCoreEspFailureDetected;
             _shellCoreTracker.EspExited += OnEspExited;
+            _shellCoreTracker.HelloWizardStarted += OnHelloWizardStarted;
             _shellCoreTracker.Start();
 
             _provisioningTracker = new ProvisioningStatusTracker(
@@ -399,6 +408,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 _shellCoreTracker.WhiteGloveCompleted -= OnWhiteGloveCompleted;
                 _shellCoreTracker.EspFailureDetected -= OnShellCoreEspFailureDetected;
                 _shellCoreTracker.EspExited -= OnEspExited;
+                _shellCoreTracker.HelloWizardStarted -= OnHelloWizardStarted;
                 _shellCoreTracker.Stop();
             }
             catch (Exception ex) { _logger.Error("Error stopping Shell-Core tracker", ex); }
@@ -542,6 +552,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         internal void TriggerEspExitedForTest(DateTime occurredAtUtc) =>
             OnEspExited(this, new EspExitedEventArgs(occurredAtUtc));
 
+        // Test seam for HelloWizardStarted — same contract as TriggerEspExitedForTest.
+        internal void TriggerHelloWizardStartedForTest(DateTime occurredAtUtc) =>
+            OnHelloWizardStarted(this, new HelloWizardStartedEventArgs(occurredAtUtc));
+
         private void OnWhiteGloveCompleted(object sender, EventArgs e)
         {
             LastEventOccurredAtUtc = (sender as ShellCoreTracker)?.LastEventOccurredAtUtc;
@@ -615,6 +629,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             LastEventOccurredAtUtc = null;
             try { AccountSetupProvisioningComplete?.Invoke(this, EventArgs.Empty); }
             catch (Exception ex) { _logger.Error("Error forwarding AccountSetupProvisioningComplete", ex); }
+        }
+
+        // Coordinator forward for ShellCoreTracker.HelloWizardStarted (Shell-Core 62404,
+        // session 772fe502). Mirrors the source-event timestamp from the args (live + backfill)
+        // onto LastEventOccurredAtUtc for the adapter's ResolveOccurredAt, exactly like
+        // OnEspExited. Deliberately NOT routed through OnFinalizingSetupPhaseTriggered — the
+        // IsIntermediateDeviceEspExit guard only concerns esp_exiting.
+        private void OnHelloWizardStarted(object sender, HelloWizardStartedEventArgs args)
+        {
+            LastEventOccurredAtUtc = args?.OccurredAtUtc;
+            try { HelloWizardStarted?.Invoke(this, args); }
+            catch (Exception ex) { _logger.Error("Error forwarding HelloWizardStarted", ex); }
+            finally { LastEventOccurredAtUtc = null; }
         }
 
         private void OnEspExited(object sender, EspExitedEventArgs args)

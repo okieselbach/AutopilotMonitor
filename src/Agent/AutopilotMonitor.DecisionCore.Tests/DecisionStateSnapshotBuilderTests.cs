@@ -112,7 +112,9 @@ namespace AutopilotMonitor.DecisionCore.Tests
             // IME-evidence anchor for the AdvisoryCompletion conjunction → 16.
             // Liveness plan PR2 (2026-06-12) added `completionWaitingFingerprint` as the
             // state-change-only dedupe anchor for the completion_waiting event → 17.
-            Assert.Equal(17, facts.Count);
+            // Session 772fe502 (2026-07-13) added `helloWizardStartedUtc` — genuine
+            // Shell-Core 62404 wizard launch; vetoes the policy-disabled Hello skip → 18.
+            Assert.Equal(18, facts.Count);
             Assert.All(facts.Values, v => Assert.Null(v));
         }
 
@@ -232,10 +234,12 @@ namespace AutopilotMonitor.DecisionCore.Tests
             // added `imeUserSessionCompletedUtc` as the IME-evidence anchor for the
             // AdvisoryCompletion conjunction → 16. Liveness plan PR2 (2026-06-12) added
             // `completionWaitingFingerprint` as the state-change-only dedupe anchor for
-            // the completion_waiting event → 17. If this number ever changes, both
-            // the count expectation AND the actual snapshot output need to evolve in
-            // lockstep.
-            Assert.Equal(17, expectedFactKeys.Count);
+            // the completion_waiting event → 17. Session 772fe502 (2026-07-13) added
+            // `helloWizardStartedUtc` — the genuine Shell-Core 62404 wizard-launch fact
+            // that vetoes/retracts the policy-disabled Hello skip → 18. If this number
+            // ever changes, both the count expectation AND the actual snapshot output
+            // need to evolve in lockstep.
+            Assert.Equal(18, expectedFactKeys.Count);
 
             var snapshot = DecisionStateSnapshotBuilder.Build(DecisionState.CreateInitial("s", "t"));
             var facts = (Dictionary<string, object?>)snapshot["facts"]!;

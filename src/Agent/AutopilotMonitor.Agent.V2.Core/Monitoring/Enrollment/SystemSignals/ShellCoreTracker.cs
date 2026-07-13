@@ -46,6 +46,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private EventLogWatcher _watcher;
         private bool _espExitDetected;
         private bool _whiteGloveDetected;
+        private bool _helloWizardStartDetected;
         private readonly object _stateLock = new object();
 
         /// <summary>
@@ -69,6 +70,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         // not dedup live events. Backfill is single-shot under _espExitDetected.
         // Args carry the source-event timestamp (live = log time, backfill = record.TimeCreated).
         public event EventHandler<EspExitedEventArgs> EspExited;
+
+        // Hello wizard launch (Shell-Core 62404 with CXID AADHello/NGC). Session 772fe502:
+        // feeds the dedicated DecisionSignalKind.HelloWizardStarted rail (coordinator forward →
+        // EspAndHelloTrackerAdapter) so the engine can veto/retract the policy-disabled
+        // Hello-skip while the wizard is demonstrably running. Raised BEFORE
+        // FinalizingSetupPhaseTriggered so the engine records the wizard fact before the
+        // EspPhaseChanged(FinalizingSetup) signal lands. Backfill is single-shot under
+        // _helloWizardStartDetected. Args carry the source-event timestamp.
+        public event EventHandler<HelloWizardStartedEventArgs> HelloWizardStarted;
 
         public ShellCoreTracker(
             string sessionId,
@@ -166,6 +176,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             EventSeverity severity = EventSeverity.Info;
             string message;
             bool triggerFinalizingSetup = false;
+            bool raiseHelloWizardStarted = false;
             string finalizingSetupReason = null;
             string detectedFailureType = null;
 
@@ -177,8 +188,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         eventType = Constants.EventTypes.HelloWizardStarted;
                         message = "Windows Hello wizard started (CloudExperienceHost)";
                         triggerFinalizingSetup = true;
+                        raiseHelloWizardStarted = true;
                         finalizingSetupReason = "hello_wizard_started";
 
+                        lock (_stateLock)
+                        {
+                            _helloWizardStartDetected = true;
+                        }
                         _helloTracker?.NotifyHelloWizardStarted();
 
                         _logger.Info("Windows Hello wizard started - detected via Shell-Core event 62404");
@@ -277,6 +293,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             LastEventOccurredAtUtc = timestamp;
             try
             {
+                // Session 772fe502: raise HelloWizardStarted BEFORE FinalizingSetupPhaseTriggered
+                // so the engine records the wizard fact (and runs the un-skip cure) before the
+                // EspPhaseChanged(FinalizingSetup) signal is processed.
+                if (raiseHelloWizardStarted)
+                {
+                    try { HelloWizardStarted?.Invoke(this, new HelloWizardStartedEventArgs(timestamp)); }
+                    catch (Exception ex) { _logger.Error("HelloWizardStarted handler failed", ex); }
+                }
+
                 if (triggerFinalizingSetup)
                 {
                     try { FinalizingSetupPhaseTriggered?.Invoke(this, finalizingSetupReason); }
@@ -320,8 +345,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         // =====================================================================
 
         /// <summary>
-        /// Backfills recent ESP exit and failure events from Shell-Core log on startup.
-        /// Secondary recovery mechanism when state persistence is unavailable.
+        /// Backfills recent ESP exit, ESP failure and Hello-wizard-start events from the
+        /// Shell-Core log on startup. Secondary recovery mechanism when state persistence is
+        /// unavailable — an agent restart while the user sits inside the Hello wizard would
+        /// otherwise lose the wizard-start observation (session 772fe502).
         /// </summary>
         public void BackfillRecentEspExitEvents()
         {
@@ -331,7 +358,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 var query = new EventLogQuery(
                     ShellCoreEventLogChannel,
                     PathType.LogName,
-                    $"*[System[(EventID=62407) and TimeCreated[timediff(@SystemTime) <= {lookbackMs}]]]");
+                    $"*[System[(EventID=62404 or EventID=62407) and TimeCreated[timediff(@SystemTime) <= {lookbackMs}]]]");
 
                 using (var reader = new EventLogReader(query))
                 {
@@ -344,7 +371,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                             // (EspAndHelloTrackerAdapter) can stamp signals with the source time
                             // rather than collapsing to wall-clock-now.
                             var timestamp = (record.TimeCreated ?? DateTime.UtcNow).ToUniversalTime();
-                            HandleBackfillRecord(description, timestamp);
+                            HandleBackfillRecord(record.Id, description, timestamp);
                         }
                     }
                 }
@@ -362,8 +389,38 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// (<c>record.TimeCreated</c>); subscribers read it via
         /// <see cref="LastEventOccurredAtUtc"/> during their synchronous event handler.
         /// </summary>
-        internal void HandleBackfillRecord(string description, DateTime occurredAtUtc)
+        internal void HandleBackfillRecord(int eventId, string description, DateTime occurredAtUtc)
         {
+            if (eventId == EventId_ShellCore_WebAppStarted)
+            {
+                // 62404 — only the AADHello/NGC CXID is the Hello wizard; other web-app starts
+                // are unrelated. Fire-once so a replayed log tail cannot re-raise (downstream is
+                // idempotent anyway: HelloTracker once-guard, adapter dedup flag, engine
+                // set-once fact — this guard just keeps the noise down).
+                if (!description.Contains("AADHello") && !description.Contains("'NGC'")) return;
+
+                bool shouldRaiseWizard;
+                lock (_stateLock)
+                {
+                    shouldRaiseWizard = !_helloWizardStartDetected;
+                    _helloWizardStartDetected = true;
+                }
+                if (!shouldRaiseWizard) return;
+
+                _helloTracker?.NotifyHelloWizardStarted();
+                _logger.Info($"Backfill: Hello wizard start found in recent Shell-Core logs (originalAt={occurredAtUtc:o})");
+                LastEventOccurredAtUtc = occurredAtUtc;
+                try
+                {
+                    try { HelloWizardStarted?.Invoke(this, new HelloWizardStartedEventArgs(occurredAtUtc)); }
+                    catch (Exception ex) { _logger.Error("Backfill: HelloWizardStarted handler failed", ex); }
+                    try { FinalizingSetupPhaseTriggered?.Invoke(this, "hello_wizard_started"); }
+                    catch (Exception ex) { _logger.Error("Backfill: FinalizingSetupPhaseTriggered handler failed", ex); }
+                }
+                finally { LastEventOccurredAtUtc = null; }
+                return;
+            }
+
             if (EspExitingPattern.IsMatch(description))
             {
                 bool shouldNotify = false;

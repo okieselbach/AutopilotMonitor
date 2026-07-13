@@ -44,6 +44,19 @@ namespace AutopilotMonitor.DecisionCore.Signals
         // gate enrollment_complete — completion stays orthogonal to Hello policy.
         HelloPolicyDetected,
 
+        // Session 772fe502 fix (2026-07-13) — genuine Hello-wizard launch observed via
+        // Shell-Core event 62404 (CloudExperienceHost web-app started, CXID 'AADHello'/'NGC').
+        // Posted by EspAndHelloTrackerAdapter (live + startup backfill). Records the set-once
+        // DecisionState.HelloWizardStartedUtc fact. Two consumers:
+        //   * Prevention — the hello-satisfied completion predicate stops treating
+        //     HelloPolicyEnabled=false as Hello-satisfied once a wizard start is on record
+        //     (a flip-flopping user-scoped CSP can read "disabled" while the wizard launches).
+        //   * Cure — HandleHelloWizardStartedV1 un-skips an already-synthesized
+        //     HelloOutcome="Skipped" resolution: cancels FinalizingGrace, returns to
+        //     AwaitingHello and arms HelloSafety so a real HelloResolved (or its timeout)
+        //     decides the session.
+        HelloWizardStarted,
+
         // V2 race-fix (10c8e0bf debrief, 2026-04-26) — static enrollment facts read
         // from the Autopilot policy registry (EnrollmentRegistryDetector). Carries
         // { "enrollmentType": "v1|v2", "isHybridJoin": "true|false" }.

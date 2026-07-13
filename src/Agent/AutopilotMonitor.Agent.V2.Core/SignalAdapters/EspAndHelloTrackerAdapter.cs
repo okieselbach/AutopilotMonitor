@@ -47,6 +47,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private readonly IClock _clock;
 
         private bool _helloPosted;
+        private bool _helloWizardStartedPosted;
         private bool _finalizingPosted;
         private bool _whiteGloveSuccessPosted;
         private bool _espFailurePosted;
@@ -72,6 +73,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _coordinator.AccountSetupProvisioningComplete += OnAccountSetupComplete;
             _coordinator.HelloPolicyDetected += OnHelloPolicyDetected;
             _coordinator.EspExited += OnEspExited;
+            _coordinator.HelloWizardStarted += OnHelloWizardStarted;
         }
 
         public void Dispose()
@@ -84,6 +86,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _coordinator.AccountSetupProvisioningComplete -= OnAccountSetupComplete;
             _coordinator.HelloPolicyDetected -= OnHelloPolicyDetected;
             _coordinator.EspExited -= OnEspExited;
+            _coordinator.HelloWizardStarted -= OnHelloWizardStarted;
         }
 
         private void OnHelloCompleted(object sender, EventArgs e) => EmitHello(ReadHelloOutcome());
@@ -94,6 +97,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private void OnAccountSetupComplete(object sender, EventArgs e) => EmitAccountSetupComplete();
         private void OnHelloPolicyDetected(bool helloEnabled, string source) => EmitHelloPolicy(helloEnabled, source);
         private void OnEspExited(object sender, EspExitedEventArgs args) => EmitEspExiting();
+        private void OnHelloWizardStarted(object sender, HelloWizardStartedEventArgs args) => EmitHelloWizardStarted();
 
         internal void TriggerHelloFromTest(string? helloOutcome) => EmitHello(helloOutcome);
         internal void TriggerFinalizingFromTest(string reason) => EmitFinalizing(reason);
@@ -105,6 +109,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         internal void TriggerAccountSetupCompleteFromTest() => EmitAccountSetupComplete();
         internal void TriggerHelloPolicyDetectedFromTest(bool helloEnabled, string source) => EmitHelloPolicy(helloEnabled, source);
         internal void TriggerEspExitingFromTest() => EmitEspExiting();
+        internal void TriggerHelloWizardStartedFromTest() => EmitHelloWizardStarted();
 
         /// <summary>
         /// Reads <c>HelloOutcome</c> from the coordinator's forwarded property
@@ -339,6 +344,36 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                     kind: EvidenceKind.Derived,
                     identifier: DetectorId,
                     summary: "ESP exiting (coordinator-forwarded Shell-Core 62407)",
+                    derivationInputs: derivationInputs));
+        }
+
+        // Hello-wizard launch (Shell-Core 62404 CXID AADHello/NGC, session 772fe502). Fire-once —
+        // the engine fact is set-once anyway; the flag keeps duplicate 62404 occurrences
+        // (live re-fire + backfill overlap) off the SignalLog. Source-event timestamp is read
+        // from the coordinator's LastEventOccurredAtUtc mirror (set by OnHelloWizardStarted
+        // from the HelloWizardStartedEventArgs), with a clock fallback tagged in evidence.
+        private void EmitHelloWizardStarted()
+        {
+            if (_helloWizardStartedPosted) return;
+            _helloWizardStartedPosted = true;
+
+            var now = ResolveOccurredAt(out var derivedFromClock);
+            var derivationInputs = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["subSource"] = "ShellCoreTracker",
+                ["eventSource"] = "Microsoft-Windows-Shell-Core",
+                ["eventId"] = "62404",
+            };
+            TagDerivedTimestamp(derivationInputs, derivedFromClock);
+
+            _ingress.Post(
+                kind: DecisionSignalKind.HelloWizardStarted,
+                occurredAtUtc: now,
+                sourceOrigin: SourceOrigin,
+                evidence: new Evidence(
+                    kind: EvidenceKind.Derived,
+                    identifier: DetectorId,
+                    summary: "Windows Hello wizard started (coordinator-forwarded Shell-Core 62404)",
                     derivationInputs: derivationInputs));
         }
 

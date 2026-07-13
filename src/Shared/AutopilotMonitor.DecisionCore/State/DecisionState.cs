@@ -63,7 +63,8 @@ namespace AutopilotMonitor.DecisionCore.State
             string? schemaVersion = null,
             SignalFact<DateTime>? espAdvisoryFailureRecordedUtc = null,
             SignalFact<DateTime>? imeUserSessionCompletedUtc = null,
-            SignalFact<string>? completionWaitingFingerprint = null)
+            SignalFact<string>? completionWaitingFingerprint = null,
+            SignalFact<DateTime>? helloWizardStartedUtc = null)
         {
             if (string.IsNullOrEmpty(sessionId))
             {
@@ -106,6 +107,7 @@ namespace AutopilotMonitor.DecisionCore.State
             EspAdvisoryFailureRecordedUtc = espAdvisoryFailureRecordedUtc;
             ImeUserSessionCompletedUtc = imeUserSessionCompletedUtc;
             CompletionWaitingFingerprint = completionWaitingFingerprint;
+            HelloWizardStartedUtc = helloWizardStartedUtc;
         }
 
         public string SessionId { get; }
@@ -298,6 +300,25 @@ namespace AutopilotMonitor.DecisionCore.State
         /// completion attempt; additive-nullable, no snapshot-schema bump.
         /// </summary>
         public SignalFact<string>? CompletionWaitingFingerprint { get; }
+
+        /// <summary>
+        /// Set when Shell-Core event 62404 (CloudExperienceHost web-app started, CXID
+        /// <c>AADHello</c>/<c>NGC</c>) is observed — the Windows Hello wizard has genuinely
+        /// launched on this device (set-once; the first observation wins). Session 772fe502
+        /// (2026-07-13): a flip-flopping user-scoped WHfB CSP was read once as disabled, the
+        /// engine synthesized <c>HelloOutcome="Skipped"</c>, and the session completed while
+        /// the user sat inside the wizard that started 230 ms later.
+        /// <para>
+        /// Consumed by the hello-satisfied completion predicate
+        /// (<c>HelloPolicyDisabledWithoutWizard</c>): once a wizard start is on record,
+        /// "policy disabled" no longer satisfies the Hello gate — the wizard is running,
+        /// so a real <c>HelloResolved</c> (or the HelloSafety timeout) must decide. Also the
+        /// discriminant for the <c>HandleHelloWizardStartedV1</c> un-skip cure. Unlike the
+        /// unreliable <c>hello_provisioning_willlaunch</c> registry snapshot, event 62404 is
+        /// a genuine wizard-lifecycle observation. Additive-nullable, no snapshot-schema bump.
+        /// </para>
+        /// </summary>
+        public SignalFact<DateTime>? HelloWizardStartedUtc { get; }
 
         public string SchemaVersion { get; }
 

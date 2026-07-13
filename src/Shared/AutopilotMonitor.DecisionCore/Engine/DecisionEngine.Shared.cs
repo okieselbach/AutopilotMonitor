@@ -402,7 +402,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
             if (state.HelloResolvedUtc == null)
             {
                 builder.HelloResolvedUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
-                builder.HelloOutcome = new SignalFact<string>("Timeout", signal.SessionSignalOrdinal);
+                builder.HelloOutcome = new SignalFact<string>(SyntheticHelloOutcomeTimeout, signal.SessionSignalOrdinal);
             }
 
             var desktopAlreadyArrived = state.DesktopArrivedUtc != null;
@@ -880,15 +880,15 @@ namespace AutopilotMonitor.DecisionCore.Engine
             //   * Hello policy explicitly disabled → synthesise HelloOutcome="Skipped" → Finalizing
             //     (HandleDesktopArrivedV1 Hello-disabled fast-path; its strong-gate arm is satisfied
             //     by the very fact this signal records).
-            // HelloPolicyEnabled == null keeps the pessimistic AwaitingHello promotion below.
+            // HelloPolicyEnabled == null (and, session 772fe502, an observed wizard start
+            // vetoing the policy-disabled stand-in) keeps the pessimistic AwaitingHello
+            // promotion below.
             var desktopAlreadyArrived = state.DesktopArrivedUtc != null;
-            if (desktopAlreadyArrived
-                && (state.HelloResolvedUtc != null || state.HelloPolicyEnabled?.Value == false))
+            if (desktopAlreadyArrived && HelloSatisfiedForCompletion(state))
             {
                 if (state.HelloResolvedUtc == null)
                 {
-                    builder.HelloResolvedUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
-                    builder.HelloOutcome = new SignalFact<string>("Skipped", signal.SessionSignalOrdinal);
+                    SynthesizeHelloSkipped(builder, signal);
                 }
 
                 var helloSafetyCancelEffect = BuildHelloSafetyCancelEffectIfArmed(state);

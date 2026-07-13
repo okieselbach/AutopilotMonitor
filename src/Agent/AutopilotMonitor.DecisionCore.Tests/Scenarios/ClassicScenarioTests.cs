@@ -55,6 +55,42 @@ namespace AutopilotMonitor.DecisionCore.Tests.Scenarios
         }
 
         [Fact]
+        public void HelloWizardUnskip_completesWithRealHelloOutcome_notMidWizardSkip()
+        {
+            // Session 772fe502 (2026-07-13): a flip-flopping user-scoped WHfB CSP read
+            // "disabled" once, arm-C synthesized HelloOutcome="Skipped" + armed the 5s
+            // finalizing_grace, and the wizard demonstrably started 230 ms later. The
+            // HelloWizardStarted cure must retract the synthetic skip, return to AwaitingHello
+            // and complete only on the real HelloResolved(outcome=completed).
+            var result = RunFixture(
+                fixtureFilename: "userdriven-hello-wizard-unskip-v1.jsonl",
+                sessionId: "session-anon-772fe502",
+                tenantId: "tenant-anon-772fe502");
+
+            Assert.Equal(SessionStage.Completed, result.FinalState.Stage);
+            Assert.Equal(SessionOutcome.EnrollmentComplete, result.FinalState.Outcome);
+            // The real tracker-posted outcome — NOT the synthetic "Skipped" the production
+            // session recorded mid-wizard.
+            Assert.Equal("completed", result.FinalState.HelloOutcome!.Value);
+            Assert.NotNull(result.FinalState.HelloWizardStartedUtc);
+            Assert.False(result.FinalState.HelloPolicyEnabled!.Value);
+            Assert.Empty(result.FinalState.Deadlines);
+
+            // The arm-C completion fired first (synthetic skip → Finalizing), then the cure.
+            Assert.Contains(result.Transitions,
+                t => t.Trigger == "ImeUserSessionCompleted:UserSessionEvidenceCompletion"
+                     && t.ToStage == SessionStage.Finalizing);
+            Assert.Contains(result.Transitions,
+                t => t.Trigger == "HelloWizardStarted:UnSkip"
+                     && t.ToStage == SessionStage.AwaitingHello);
+
+            // Exactly one terminal enrollment_complete, driven by the real HelloResolved.
+            var last = result.Transitions[^1];
+            Assert.EndsWith(DeadlineNames.FinalizingGrace, last.Trigger);
+            Assert.Equal(SessionStage.Completed, last.ToStage);
+        }
+
+        [Fact]
         public void UserSessionEvidence_completesProactively_withHelloOutcomeSkipped()
         {
             // Session a4537c36 shape: guard-blocked normal ESP exit (registry gate unsatisfiable),

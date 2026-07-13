@@ -240,15 +240,14 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // Finalizing directly instead of parking in AwaitingHello until HelloSafety stamps a
             // misleading HelloOutcome="Timeout" 300 s later. Reached by arm C's "exit arrives
             // last" ordering (session a4537c36); benign for arms A/B, whose completion normally
-            // already happened at DesktopArrived/HelloResolved. HelloPolicyEnabled == null keeps
-            // the pessimistic AwaitingHello promotion below.
-            if (state.DesktopArrivedUtc != null
-                && (state.HelloResolvedUtc != null || state.HelloPolicyEnabled?.Value == false))
+            // already happened at DesktopArrived/HelloResolved. HelloPolicyEnabled == null (and,
+            // session 772fe502, an observed wizard start vetoing the policy-disabled stand-in)
+            // keeps the pessimistic AwaitingHello promotion below.
+            if (state.DesktopArrivedUtc != null && HelloSatisfiedForCompletion(state))
             {
                 if (state.HelloResolvedUtc == null)
                 {
-                    builder.HelloResolvedUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
-                    builder.HelloOutcome = new SignalFact<string>("Skipped", signal.SessionSignalOrdinal);
+                    SynthesizeHelloSkipped(builder, signal);
                 }
 
                 var helloSafetyCancelEffect = BuildHelloSafetyCancelEffectIfArmed(state);
@@ -385,18 +384,132 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// reducer-side <c>CancelDeadline(HelloSafety)</c> so the live timer is disposed
         /// before it can fire after a Completed transition.
         /// </summary>
-        private static DecisionEffect? BuildHelloSafetyCancelEffectIfArmed(DecisionState state)
+        private static DecisionEffect? BuildHelloSafetyCancelEffectIfArmed(DecisionState state) =>
+            BuildDeadlineCancelEffectIfArmed(state, DeadlineNames.HelloSafety);
+
+        /// <summary>
+        /// Generalized armed-check cancel-effect builder (extracted from the HelloSafety-only
+        /// 8b8d611d helper for the HelloWizardStarted cure's FinalizingGrace cancel). Returns
+        /// <c>null</c> when <paramref name="deadlineName"/> is not armed in
+        /// <paramref name="state"/> — avoids spurious cancel-noise on the scheduler.
+        /// </summary>
+        private static DecisionEffect? BuildDeadlineCancelEffectIfArmed(DecisionState state, string deadlineName)
         {
             foreach (var d in state.Deadlines)
             {
-                if (d.Name == DeadlineNames.HelloSafety)
+                if (d.Name == deadlineName)
                 {
                     return new DecisionEffect(
                         DecisionEffectKind.CancelDeadline,
-                        cancelDeadlineName: DeadlineNames.HelloSafety);
+                        cancelDeadlineName: deadlineName);
                 }
             }
             return null;
+        }
+
+        /// <summary>
+        /// Handle <see cref="DecisionSignalKind.HelloWizardStarted"/> — Shell-Core 62404 with
+        /// CXID <c>AADHello</c>/<c>NGC</c>: the Windows Hello wizard has genuinely launched.
+        /// Session 772fe502 (2026-07-13): a flip-flopping user-scoped WHfB CSP read "disabled"
+        /// once, the arm-C completion synthesized <c>HelloOutcome="Skipped"</c>, and the
+        /// session completed 5 s later while the user sat inside the wizard that had started
+        /// 230 ms before the grace window opened.
+        /// <para>
+        /// Always records the set-once <see cref="DecisionState.HelloWizardStartedUtc"/> fact —
+        /// prevention: the hello-satisfied completion predicate
+        /// (<c>HelloPolicyDisabledWithoutWizard</c>) stops accepting "policy disabled" as a
+        /// Hello resolution from this step on.
+        /// </para>
+        /// <para>
+        /// Cure — when the state already carries the engine-synthesized policy-disabled skip
+        /// (<c>HasEngineSynthesizedHelloSkip</c>): retract the synthetic
+        /// <see cref="DecisionState.HelloResolvedUtc"/>/<see cref="DecisionState.HelloOutcome"/>
+        /// facts, cancel a pending <see cref="DeadlineNames.FinalizingGrace"/>, return to
+        /// <see cref="SessionStage.AwaitingHello"/> and arm <see cref="DeadlineNames.HelloSafety"/>
+        /// so a real <see cref="DecisionSignalKind.HelloResolved"/> — or its timeout — decides.
+        /// This is the FIRST reducer that sets a previously-recorded fact back to <c>null</c>.
+        /// That is legal here and only here because the retracted resolution is provably
+        /// engine-synthesized (exact-case <c>"Skipped"</c> discriminator — tracker outcomes are
+        /// all-lowercase) and demonstrably wrong (the wizard it claimed would never appear is
+        /// running). Real tracker-posted resolutions and the synthetic HelloSafety
+        /// <c>"Timeout"</c> are never retracted. Applies stage-agnostically to every
+        /// non-terminal stage: besides Finalizing, a synthetic skip can also sit parked behind
+        /// a closed RealmJoin completion gate (the gate-release path completes on
+        /// <c>HelloResolvedUtc != null</c> — same mid-wizard bug through a different door).
+        /// Post-terminal signals are already dead-ended by the dispatch guard.
+        /// </para>
+        /// <para>
+        /// All other cases (wizard starts while properly waiting in AwaitingHello, SelfDeploying
+        /// profiles without Hello rails, early stages) are a fact-record-only step: stage
+        /// unchanged, no effects.
+        /// </para>
+        /// </summary>
+        private DecisionStep HandleHelloWizardStartedV1(DecisionState state, DecisionSignal signal)
+        {
+            var nextStep = state.StepIndex + 1;
+            var builder = state.ToBuilder()
+                .WithStepIndex(nextStep)
+                .WithLastAppliedSignalOrdinal(signal.SessionSignalOrdinal);
+
+            if (state.HelloWizardStartedUtc == null)
+            {
+                builder.HelloWizardStartedUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
+            }
+
+            if (HasEngineSynthesizedHelloSkip(state))
+            {
+                // Retract the synthetic policy-disabled skip (see method doc for why this
+                // fact-nulling is legal exactly here).
+                builder.HelloResolvedUtc = null;
+                builder.HelloOutcome = null;
+
+                var graceCancelEffect = BuildDeadlineCancelEffectIfArmed(state, DeadlineNames.FinalizingGrace);
+                if (graceCancelEffect != null)
+                {
+                    builder.CancelDeadline(DeadlineNames.FinalizingGrace);
+                }
+
+                var dueAtUtc = EffectiveDeadlineBase(state, signal).Add(s_helloSafetyWindow);
+                var helloSafety = new ActiveDeadline(
+                    name: DeadlineNames.HelloSafety,
+                    dueAtUtc: dueAtUtc,
+                    firesSignalKind: DecisionSignalKind.DeadlineFired,
+                    firesPayload: new Dictionary<string, string>
+                    {
+                        [SignalPayloadKeys.Deadline] = DeadlineNames.HelloSafety,
+                    });
+                builder = builder
+                    .WithStage(SessionStage.AwaitingHello)
+                    .AddDeadline(helloSafety);
+
+                var unSkipTrigger = nameof(DecisionSignalKind.HelloWizardStarted) + ":UnSkip";
+                var waitingEffect = BuildCompletionWaitingEffect(state, builder, signal, trigger: unSkipTrigger);
+
+                var curedState = builder.Build();
+                var curedTransition = BuildTakenTransition(
+                    before: state,
+                    signal: signal,
+                    toStage: SessionStage.AwaitingHello,
+                    nextStepIndex: nextStep,
+                    trigger: unSkipTrigger);
+
+                var curedEffects = new List<DecisionEffect>(3);
+                if (graceCancelEffect != null) curedEffects.Add(graceCancelEffect);
+                curedEffects.Add(new DecisionEffect(DecisionEffectKind.ScheduleDeadline, deadline: helloSafety));
+                if (waitingEffect != null) curedEffects.Add(waitingEffect);
+
+                return new DecisionStep(curedState, curedTransition, curedEffects.ToArray());
+            }
+
+            var newState = builder.Build();
+            var transition = BuildTakenTransition(
+                before: state,
+                signal: signal,
+                toStage: state.Stage,
+                nextStepIndex: nextStep,
+                trigger: nameof(DecisionSignalKind.HelloWizardStarted));
+
+            return new DecisionStep(newState, transition, Array.Empty<DecisionEffect>());
         }
 
         /// <summary>
@@ -447,17 +560,20 @@ namespace AutopilotMonitor.DecisionCore.Engine
             //      Shell-Core 62407 while AccountSetup categorySucceeded was still in_progress
             //      (session 08c99638).
             // Skipping unknown policy (HelloPolicyEnabled == null) preserves the prior pessimistic
-            // behaviour: keep waiting for Hello / HelloSafety.
+            // behaviour: keep waiting for Hello / HelloSafety. Session 772fe502: an observed
+            // wizard start likewise vetoes the fast-path — the fallthrough below keeps the stage
+            // and surfaces hello_resolution via completion_waiting; the wait is bounded by an
+            // already-armed HelloSafety, the tracker's Hello completion timer, or the
+            // AdvisoryCompletion backstop.
             if (!helloAlreadyResolved
-                && state.HelloPolicyEnabled?.Value == false
+                && HelloPolicyDisabledWithoutWizard(state.HelloPolicyEnabled, state.HelloWizardStartedUtc)
                 // desktopArrivedInFlight: the desktop fact was just recorded on the builder
                 // (line above) and is invisible to the pre-mutation state — arm C's "desktop
                 // arrives last" ordering (session a4537c36) must count it. Arms A/B ignore
                 // the flag entirely.
                 && ShouldTransitionToAwaitingHello(state, desktopArrivedInFlight: true))
             {
-                builder.HelloResolvedUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
-                builder.HelloOutcome = new SignalFact<string>("Skipped", signal.SessionSignalOrdinal);
+                SynthesizeHelloSkipped(builder, signal);
 
                 // Cancel HelloSafety if it was armed by an earlier EspExiting — both in the
                 // reducer state AND as a scheduler-visible CancelDeadline effect, so the
@@ -635,12 +751,15 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
             if (armCSatisfied && parkedPreHello)
             {
-                if (state.HelloResolvedUtc != null || state.HelloPolicyEnabled?.Value == false)
+                // Session 772fe502: this exact arm completed a session 230 ms after the Hello
+                // wizard launched, because a stale policy-disabled read stood in for the Hello
+                // resolution. HelloSatisfiedForCompletion vetoes the stand-in once a wizard
+                // start is observed — the session then takes the AwaitingHello promotion below.
+                if (HelloSatisfiedForCompletion(state))
                 {
                     if (state.HelloResolvedUtc == null)
                     {
-                        builder.HelloResolvedUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
-                        builder.HelloOutcome = new SignalFact<string>("Skipped", signal.SessionSignalOrdinal);
+                        SynthesizeHelloSkipped(builder, signal);
                     }
 
                     var helloSafetyCancelEffect = BuildHelloSafetyCancelEffectIfArmed(state);

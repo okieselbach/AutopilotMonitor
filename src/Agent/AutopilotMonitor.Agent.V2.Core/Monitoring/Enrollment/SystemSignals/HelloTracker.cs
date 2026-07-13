@@ -88,6 +88,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         // MON-C2 — one-shot guard so the "policy not yet detected" grace re-arm of the wait
         // timer can fire at most once before falling through to the not-configured resolution.
         private bool _helloUnknownGraceUsed;
+        // Session 772fe502 — a "disabled" read needs a CONFIRMATION second read (~10 s later
+        // via the poll timer) before it commits: user-scoped WHfB CSP values flip-flop during
+        // User-ESP while Intune policy sync is still writing, and a single stale "disabled"
+        // read let the engine skip Hello while the wizard launched. "Enabled" commits on the
+        // first read as before (the pessimistic direction needs no confirmation).
+        private bool _pendingDisabledPolicyRead;
         private readonly object _stateLock = new object();
 
         public event EventHandler HelloCompleted;
@@ -221,6 +227,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 // post-resume wait that hits an undetected policy would skip its grace re-arm and
                 // resolve straight to not_configured.
                 _helloUnknownGraceUsed = false;
+                // Session 772fe502 — a pre-reboot unconfirmed disabled read must not count as
+                // the first of two confirmation reads across an ESP resumption.
+                _pendingDisabledPolicyRead = false;
             }
             _logger.Info("HelloTracker: Reset for ESP resumption — Hello tracking restarted");
         }
@@ -316,77 +325,156 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             try
             {
                 var (isEnabled, source) = DetectHelloPolicy();
-
-                bool justDetected = false;
-                bool detectedValue = false;
-                string detectedSource = null;
-
-                lock (_stateLock)
-                {
-                    if (!_isPolicyConfigured && isEnabled.HasValue)
-                    {
-                        _isPolicyConfigured = true;
-                        _isHelloPolicyEnabled = isEnabled.Value;
-                        var status = isEnabled.Value ? "enabled" : "disabled";
-
-                        _post.Emit(new EnrollmentEvent
-                        {
-                            SessionId = _sessionId,
-                            TenantId = _tenantId,
-                            EventType = Constants.EventTypes.HelloPolicyDetected,
-                            Severity = EventSeverity.Info,
-                            Source = "EspAndHelloTracker",
-                            Phase = EnrollmentPhase.Unknown,
-                            Message = $"Windows Hello for Business policy detected: {status} (via {source})",
-                            Data = new Dictionary<string, object>
-                            {
-                                { "helloEnabled", isEnabled.Value },
-                                { "policySource", source }
-                            },
-                            // First lifecycle signal that pins down Hello policy — flush immediately
-                            // so the UI timeline reflects "WHfB enabled/disabled" within seconds.
-                            ImmediateUpload = true
-                        });
-
-                        _logger.Info($"WHfB policy detected: {status} (source: {source})");
-
-                        if (_policyCheckTimer != null)
-                        {
-                            _policyCheckTimer.Dispose();
-                            _policyCheckTimer = null;
-                            _logger.Debug("Stopped periodic Hello policy check - policy has been detected");
-                        }
-
-                        justDetected = true;
-                        detectedValue = isEnabled.Value;
-                        detectedSource = source;
-                    }
-                    else if (!_isPolicyConfigured && !isEnabled.HasValue)
-                    {
-                        _logger.Debug("Periodic Hello policy check: No WHfB policy found yet - will check again");
-                    }
-                }
-
-                // PR4 (882fef64 debrief) — invoke OUTSIDE the state lock so a subscriber that
-                // re-enters the tracker (or anything that already holds another lock) can't
-                // deadlock. Subscribers post a DecisionSignalKind.HelloPolicyDetected signal
-                // so DecisionState.HelloPolicyEnabled reflects the value across replays.
-                if (justDetected)
-                {
-                    var subscribers = HelloPolicyDetected;
-                    if (subscribers != null)
-                    {
-                        try { subscribers.Invoke(detectedValue, detectedSource); }
-                        catch (Exception ex)
-                        {
-                            _logger.Warning($"HelloPolicyDetected subscriber threw: {ex.Message}");
-                        }
-                    }
-                }
+                ApplyPolicyRead(isEnabled, source);
             }
             catch (Exception ex)
             {
                 _logger.Warning($"Error checking WHfB policy: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Pure policy-read state machine, extracted from <see cref="CheckHelloPolicy"/> so
+        /// tests can drive it with controlled read results (the registry read itself has no
+        /// seam). Session 772fe502 confirmation rule:
+        /// <list type="bullet">
+        ///   <item><c>enabled</c> — commits on the FIRST read (pessimistic direction: the
+        ///     tracker waits longer for Hello; no confirmation needed). When a pending
+        ///     disabled read was on record, the flip-flop was caught — tagged
+        ///     <c>flipFlopDetected=true</c> on the event.</item>
+        ///   <item><c>disabled</c> — first read only marks pending (poll timer stays alive);
+        ///     the NEXT read ~10 s later must also say disabled to commit
+        ///     (<c>confirmedReads=2</c>).</item>
+        ///   <item><c>null</c> (no policy found) — clears a pending disabled read and keeps
+        ///     polling; a vanished value is itself flip-flop evidence.</item>
+        /// </list>
+        /// While a disabled read is pending, <c>_isPolicyConfigured</c> stays <c>false</c>, so
+        /// <see cref="StartHelloWaitTimer"/>/<see cref="OnHelloWaitTimeout"/> use the longer
+        /// policy-unknown cadence — the safe direction. Post-commit reads are no-ops.
+        /// </summary>
+        internal void ApplyPolicyRead(bool? isEnabled, string source)
+        {
+            bool justDetected = false;
+            bool detectedValue = false;
+            string detectedSource = null;
+
+            lock (_stateLock)
+            {
+                if (_isPolicyConfigured) return;
+
+                if (isEnabled == true)
+                {
+                    var flipFlopDetected = _pendingDisabledPolicyRead;
+                    _pendingDisabledPolicyRead = false;
+                    CommitPolicyLocked(
+                        helloEnabled: true,
+                        source: source,
+                        confirmedReads: 1,
+                        flipFlopDetected: flipFlopDetected);
+                    justDetected = true;
+                    detectedValue = true;
+                    detectedSource = source;
+                }
+                else if (isEnabled == false)
+                {
+                    if (!_pendingDisabledPolicyRead)
+                    {
+                        _pendingDisabledPolicyRead = true;
+                        _logger.Info($"WHfB policy read disabled (source: {source}) - awaiting confirmation read before committing");
+                        return;
+                    }
+
+                    _pendingDisabledPolicyRead = false;
+                    CommitPolicyLocked(
+                        helloEnabled: false,
+                        source: source,
+                        confirmedReads: 2,
+                        flipFlopDetected: false);
+                    justDetected = true;
+                    detectedValue = false;
+                    detectedSource = source;
+                }
+                else
+                {
+                    if (_pendingDisabledPolicyRead)
+                    {
+                        // The value that read "disabled" 10 s ago is gone — flip-flop evidence.
+                        // Drop the pending read and keep polling from scratch.
+                        _pendingDisabledPolicyRead = false;
+                        _logger.Info("WHfB policy vanished after an unconfirmed disabled read - flip-flop suspected, continuing to poll");
+                    }
+                    else
+                    {
+                        _logger.Debug("Periodic Hello policy check: No WHfB policy found yet - will check again");
+                    }
+                }
+            }
+
+            // PR4 (882fef64 debrief) — invoke OUTSIDE the state lock so a subscriber that
+            // re-enters the tracker (or anything that already holds another lock) can't
+            // deadlock. Subscribers post a DecisionSignalKind.HelloPolicyDetected signal
+            // so DecisionState.HelloPolicyEnabled reflects the value across replays.
+            if (justDetected)
+            {
+                var subscribers = HelloPolicyDetected;
+                if (subscribers != null)
+                {
+                    try { subscribers.Invoke(detectedValue, detectedSource); }
+                    catch (Exception ex)
+                    {
+                        _logger.Warning($"HelloPolicyDetected subscriber threw: {ex.Message}");
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Commit a confirmed policy value: set the tracker facts, emit the
+        /// <c>hello_policy_detected</c> event (with the session-772fe502 confirmation audit
+        /// fields) and stop the poll timer. Caller holds <c>_stateLock</c> and fires the
+        /// <see cref="HelloPolicyDetected"/> subscribers outside the lock.
+        /// </summary>
+        private void CommitPolicyLocked(bool helloEnabled, string source, int confirmedReads, bool flipFlopDetected)
+        {
+            _isPolicyConfigured = true;
+            _isHelloPolicyEnabled = helloEnabled;
+            var status = helloEnabled ? "enabled" : "disabled";
+
+            var data = new Dictionary<string, object>
+            {
+                { "helloEnabled", helloEnabled },
+                { "policySource", source },
+                { "confirmedReads", confirmedReads }
+            };
+            if (flipFlopDetected)
+            {
+                data["flipFlopDetected"] = true;
+            }
+
+            _post.Emit(new EnrollmentEvent
+            {
+                SessionId = _sessionId,
+                TenantId = _tenantId,
+                EventType = Constants.EventTypes.HelloPolicyDetected,
+                Severity = EventSeverity.Info,
+                Source = "EspAndHelloTracker",
+                Phase = EnrollmentPhase.Unknown,
+                Message = $"Windows Hello for Business policy detected: {status} (via {source})",
+                Data = data,
+                // First lifecycle signal that pins down Hello policy — flush immediately
+                // so the UI timeline reflects "WHfB enabled/disabled" within seconds.
+                ImmediateUpload = true
+            });
+
+            _logger.Info(flipFlopDetected
+                ? $"WHfB policy detected: {status} (source: {source}) - earlier unconfirmed disabled read was a flip-flop"
+                : $"WHfB policy detected: {status} (source: {source})");
+
+            if (_policyCheckTimer != null)
+            {
+                _policyCheckTimer.Dispose();
+                _policyCheckTimer = null;
+                _logger.Debug("Stopped periodic Hello policy check - policy has been detected");
             }
         }
 
@@ -1155,6 +1243,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             {
                 _isPolicyConfigured = true;
                 _isHelloPolicyEnabled = helloEnabled;
+                _pendingDisabledPolicyRead = false;
 
                 _post.Emit(new EnrollmentEvent
                 {
@@ -1193,5 +1282,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         internal bool IsWaitTimerActiveForTest { get { lock (_stateLock) { return _helloWaitTimer != null; } } }
         internal bool IsCompletionTimerActiveForTest { get { lock (_stateLock) { return _helloCompletionTimer != null; } } }
         internal bool IsHelloWizardStartedForTest { get { lock (_stateLock) { return _helloWizardStarted; } } }
+        internal bool IsPolicyDisabledPendingForTest { get { lock (_stateLock) { return _pendingDisabledPolicyRead; } } }
     }
 }

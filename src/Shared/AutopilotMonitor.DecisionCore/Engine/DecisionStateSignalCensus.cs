@@ -110,6 +110,16 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 timestamps["imeUserSessionCompleted"] = FormatUtc(state.ImeUserSessionCompletedUtc.Value);
                 evidence["imeUserSessionCompleted"] = TimestampedEvidence(state.ImeUserSessionCompletedUtc);
             }
+            // Session 772fe502 — genuine Hello-wizard launch (Shell-Core 62404, CXID AADHello/
+            // NGC). Surfaced in the census so terminal audit trails show whether a wizard was
+            // observed — the discriminant between "Hello skipped by policy" and "Hello skipped
+            // while the wizard was actually running".
+            if (state.HelloWizardStartedUtc != null)
+            {
+                seen.Add("hello_wizard_started");
+                timestamps["helloWizardStarted"] = FormatUtc(state.HelloWizardStartedUtc.Value);
+                evidence["helloWizardStarted"] = TimestampedEvidence(state.HelloWizardStartedUtc);
+            }
 
             // WhiteGlove Part-1 sealing observations — engine-internal, no UTC fact.
             var obs = state.ScenarioObservations;

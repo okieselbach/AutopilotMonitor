@@ -1,0 +1,10 @@
+# HelloWizardStarted v1 — session 772fe502 fix (2026-07-13).
+# Posted by EspAndHelloTrackerAdapter (fire-once) when ShellCoreTracker observes Shell-Core
+# event 62404 (CloudExperienceHost web-app started) with CXID 'AADHello'/'NGC' — the Windows
+# Hello wizard has genuinely launched. Live path + startup backfill (5-min lookback).
+# Reducer: HandleHelloWizardStartedV1 → records the set-once DecisionState.HelloWizardStartedUtc
+# fact (prevention: HelloPolicyDisabledWithoutWizard stops accepting policy-disabled as a Hello
+# resolution). When the state already carries the engine-synthesized HelloOutcome="Skipped"
+# (policy-disabled fast paths), the cure retracts it: cancels FinalizingGrace, returns to
+# AwaitingHello and arms HelloSafety so a real HelloResolved (or its timeout) decides.
+{"SessionSignalOrdinal":1,"SessionTraceOrdinal":1,"Kind":"HelloWizardStarted","KindSchemaVersion":1,"OccurredAtUtc":"2026-07-13T06:33:32.3237658Z","SourceOrigin":"EspAndHelloTracker","Evidence":{"Kind":"Derived","Identifier":"esp-and-hello-tracker-v1","Summary":"Windows Hello wizard started (coordinator-forwarded Shell-Core 62404)","DerivationInputs":{"subSource":"ShellCoreTracker","eventSource":"Microsoft-Windows-Shell-Core","eventId":"62404"}}}

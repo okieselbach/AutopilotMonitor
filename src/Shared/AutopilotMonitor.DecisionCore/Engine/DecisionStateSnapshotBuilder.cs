@@ -65,6 +65,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 ["espAdvisoryFailureRecordedUtc"]  = SerializeFact(state.EspAdvisoryFailureRecordedUtc, FormatUtc),
                 ["imeUserSessionCompletedUtc"]     = SerializeFact(state.ImeUserSessionCompletedUtc, FormatUtc),
                 ["completionWaitingFingerprint"]   = SerializeFact(state.CompletionWaitingFingerprint, v => v),
+                ["helloWizardStartedUtc"]          = SerializeFact(state.HelloWizardStartedUtc, FormatUtc),
             };
 
             var scenario = new Dictionary<string, object?>(StringComparer.Ordinal)

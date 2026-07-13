@@ -105,6 +105,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 (DecisionSignalKind.EspPhaseChanged, 1)          => HandleEspPhaseChangedV1(state, signal),
                 (DecisionSignalKind.EspExiting, 1)               => HandleEspExitingV1(state, signal),
                 (DecisionSignalKind.HelloResolved, 1)            => HandleHelloResolvedV1(state, signal),
+                (DecisionSignalKind.HelloWizardStarted, 1)       => HandleHelloWizardStartedV1(state, signal),
                 (DecisionSignalKind.DesktopArrived, 1)           => HandleDesktopArrivedV1(state, signal),
                 (DecisionSignalKind.ImeUserSessionCompleted, 1)  => HandleImeUserSessionCompletedV1(state, signal),
                 (DecisionSignalKind.AadUserJoinedLate, 1)        => HandleAadUserJoinedLateV1(state, signal),

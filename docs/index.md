@@ -15,7 +15,7 @@ https://docs.autopilotmonitor.com (separate repository).
 
 # Agent
 
-* [V2 Agent](agent/index.md) - How the on-device agent works: [runtime overview](agent/overview.md), [decision engine](agent/decision-engine.md) (reducer, signals, completion arms), [logs & persistence](agent/logs-and-persistence.md) (signal log, snapshot, crash recovery).
+* [V2 Agent](agent/index.md) - How the on-device agent works: [runtime overview](agent/overview.md), [decision engine](agent/decision-engine.md) (reducer, signals, completion arms), [logs & persistence](agent/logs-and-persistence.md) (signal log, snapshot, crash recovery), [Hello wizard un-skip](agent/hello-wizard-unskip.md) (why a single "WHfB disabled" read never decides completion).
 
 # Security & Identity
 

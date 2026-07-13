@@ -57,7 +57,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Integration
             // Source time IS in the past relative to the clock — verify the tracker carries the
             // historical timestamp on the event rather than collapsing to Clock.UtcNow.
             var sourceTime = ClockNow.AddMinutes(-2);
-            tracker.HandleBackfillRecord(EspExitingDescription, sourceTime);
+            tracker.HandleBackfillRecord(ShellCoreTracker.EventId_ShellCore_WebAppEvent, EspExitingDescription, sourceTime);
 
             Assert.NotNull(captured);
             Assert.Equal(sourceTime, captured!.OccurredAtUtc);

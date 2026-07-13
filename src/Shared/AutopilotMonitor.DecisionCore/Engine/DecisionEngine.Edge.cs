@@ -551,7 +551,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 .CancelDeadline(DeadlineNames.AdvisoryCompletion);
 
             var desktopArrived = state.DesktopArrivedUtc != null;
-            var helloSatisfied = state.HelloResolvedUtc != null || state.HelloPolicyEnabled?.Value == false;
+            var helloSatisfied = HelloSatisfiedForCompletion(state);
             // Shared with ShouldTransitionToAwaitingHello's proactive arm C (session a4537c36).
             var imeUserSessionGenuine = IsImeUserSessionGenuine(state);
 
@@ -559,8 +559,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
             {
                 if (state.HelloResolvedUtc == null)
                 {
-                    builder.HelloResolvedUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
-                    builder.HelloOutcome = new SignalFact<string>("Skipped", signal.SessionSignalOrdinal);
+                    SynthesizeHelloSkipped(builder, signal);
                 }
 
                 // Dispose a still-armed HelloSafety scheduler timer (8b8d611d pattern) so it
@@ -580,6 +579,54 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     leadingEffects: helloSafetyCancelEffect != null
                         ? new[] { helloSafetyCancelEffect }
                         : null);
+            }
+
+            // Wizard-observed promote (session 772fe502, 2026-07-13). When the completion
+            // conjunction failed ONLY because an observed Hello-wizard start vetoed the
+            // policy-disabled stand-in (HelloSatisfiedForCompletion), this handler's
+            // fallthrough would otherwise FAIL a session whose user is demonstrably inside
+            // the Hello wizard right now. Promote to AwaitingHello and let a real
+            // HelloResolved — or the HelloSafety timeout — decide instead.
+            if (desktopArrived
+                && imeUserSessionGenuine
+                && state.HelloResolvedUtc == null
+                && state.HelloPolicyEnabled?.Value == false
+                && state.HelloWizardStartedUtc != null)
+            {
+                var wizardHelloSafetyDueAt = EffectiveDeadlineBase(state, signal).Add(s_helloSafetyWindow);
+                var wizardHelloSafety = new ActiveDeadline(
+                    name: DeadlineNames.HelloSafety,
+                    dueAtUtc: wizardHelloSafetyDueAt,
+                    firesSignalKind: DecisionSignalKind.DeadlineFired,
+                    firesPayload: new Dictionary<string, string>
+                    {
+                        [SignalPayloadKeys.Deadline] = DeadlineNames.HelloSafety,
+                    });
+
+                builder = builder
+                    .WithStage(SessionStage.AwaitingHello)
+                    .AddDeadline(wizardHelloSafety);
+
+                var wizardPromoteTrigger =
+                    $"DeadlineFired:{DeadlineNames.AdvisoryCompletion}:HelloWizardObservedPromote";
+                var wizardWaitingEffect = BuildCompletionWaitingEffect(
+                    state, builder, signal, trigger: wizardPromoteTrigger);
+
+                var wizardPromotedState = builder.Build();
+                var wizardPromotedTransition = BuildTakenTransition(
+                    before: state,
+                    signal: signal,
+                    toStage: SessionStage.AwaitingHello,
+                    nextStepIndex: nextStep,
+                    trigger: wizardPromoteTrigger);
+
+                var wizardPromotedEffects = new List<DecisionEffect>(2)
+                {
+                    new DecisionEffect(DecisionEffectKind.ScheduleDeadline, deadline: wizardHelloSafety),
+                };
+                if (wizardWaitingEffect != null) wizardPromotedEffects.Add(wizardWaitingEffect);
+
+                return new DecisionStep(wizardPromotedState, wizardPromotedTransition, wizardPromotedEffects.ToArray());
             }
 
             // Enforcement-progress guard (session 1924092e, 2026-07-10) — esp-exit variant

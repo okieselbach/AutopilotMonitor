@@ -50,6 +50,7 @@ namespace AutopilotMonitor.DecisionCore.State
             EspAdvisoryFailureRecordedUtc = source.EspAdvisoryFailureRecordedUtc;
             ImeUserSessionCompletedUtc = source.ImeUserSessionCompletedUtc;
             CompletionWaitingFingerprint = source.CompletionWaitingFingerprint;
+            HelloWizardStartedUtc = source.HelloWizardStartedUtc;
         }
 
         public string SessionId { get; set; }
@@ -82,6 +83,7 @@ namespace AutopilotMonitor.DecisionCore.State
         public SignalFact<DateTime>? EspAdvisoryFailureRecordedUtc { get; set; }
         public SignalFact<DateTime>? ImeUserSessionCompletedUtc { get; set; }
         public SignalFact<string>? CompletionWaitingFingerprint { get; set; }
+        public SignalFact<DateTime>? HelloWizardStartedUtc { get; set; }
         public string SchemaVersion { get; set; }
 
         // ---------- fluent helpers for the most common reducer operations ----------
@@ -233,6 +235,7 @@ namespace AutopilotMonitor.DecisionCore.State
                 schemaVersion: SchemaVersion,
                 espAdvisoryFailureRecordedUtc: EspAdvisoryFailureRecordedUtc,
                 imeUserSessionCompletedUtc: ImeUserSessionCompletedUtc,
-                completionWaitingFingerprint: CompletionWaitingFingerprint);
+                completionWaitingFingerprint: CompletionWaitingFingerprint,
+                helloWizardStartedUtc: HelloWizardStartedUtc);
     }
 }
