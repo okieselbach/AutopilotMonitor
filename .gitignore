@@ -112,6 +112,9 @@ tmpclaude-*-cwd
 # Deployment scripts (local only — contain tokens + SAS URLs)
 scripts/Deployment/
 
+# Migration tooling (local only, vorerst) — cross-tenant storage/cert migration scripts
+scripts/Migration/
+
 # Infra (local only)
 infra/
 
