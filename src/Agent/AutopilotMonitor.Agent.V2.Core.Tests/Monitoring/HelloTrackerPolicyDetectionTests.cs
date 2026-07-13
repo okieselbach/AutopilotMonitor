@@ -197,8 +197,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
         public void HelloTerminalEvent_after_policy_disabled_emits_mismatch_warning()
         {
             // PR4: a Hello terminal arriving while the tracker still believes policy=disabled
-            // is a detector bug indicator. The tracker emits hello_policy_detection_mismatch
-            // before forwarding HelloCompleted.
+            // means the policy value was stale or changed during enrollment (sessions
+            // 772fe502/1696e416 — flip-flopping user-scoped WHfB CSP). The tracker emits
+            // hello_policy_detection_mismatch before forwarding HelloCompleted.
             using var f = new Fixture();
             f.Tracker.SetPolicyForTest(helloEnabled: false, source: "CSP/Intune");
 
@@ -397,7 +398,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
         public void HelloTerminalEvent_when_policy_unknown_does_not_emit_mismatch()
         {
             // Policy never detected → mismatch must NOT fire (we don't know whether to expect
-            // Hello or not, so the arrival is not evidence of a detector bug).
+            // Hello or not, so the arrival proves nothing about the policy value).
             using var f = new Fixture();
             // Deliberately skip SetPolicyForTest so _isPolicyConfigured stays false.
 

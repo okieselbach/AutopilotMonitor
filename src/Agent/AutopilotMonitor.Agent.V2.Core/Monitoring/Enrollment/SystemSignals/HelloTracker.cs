@@ -703,9 +703,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         }
 
         // PR4 (882fef64 debrief) — emit a warning when a Hello-terminal event arrives while
-        // policy is explicitly disabled. This indicates a bug in the CSP/GPO detector — the
-        // device clearly DOES have Hello-for-Business in some form, despite our reader saying
-        // otherwise. Severity Warning + Phase Unknown so the event surfaces in dashboards but
+        // policy is explicitly disabled. Originally worded "detector bug suspected"; sessions
+        // 772fe502/1696e416 (2026-07-13) proved the real cause is usually the POLICY VALUE
+        // itself: the user-scoped WHfB CSP flip-flops during User-ESP while Intune sync is
+        // still writing, so even a twice-confirmed "disabled" read can be stale by the time
+        // the wizard launches. The message is written for customer admins — it explains that
+        // the live Hello events win and the enrollment is unaffected, without blaming our own
+        // detector. Severity Warning + Phase Unknown so the event surfaces in dashboards but
         // doesn't claim to be a lifecycle marker.
         private void EmitHelloPolicyDetectionMismatch(string actualEventType, int? windowsEventId, DateTime timestamp)
         {
@@ -723,6 +727,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     { "expected", "no_hello" },
                     { "actual", actualEventType ?? string.Empty },
                     { "policySource", "tracker_state" },
+                    { "likelyCause", "whfb_policy_value_stale_or_changed_during_enrollment" },
                 };
                 if (windowsEventId.HasValue) data["windowsEventId"] = windowsEventId.Value;
 
@@ -735,7 +740,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     Severity = EventSeverity.Warning,
                     Source = source,
                     Phase = EnrollmentPhase.Unknown,
-                    Message = $"Hello policy detected as DISABLED but Hello terminal event '{actualEventType}' arrived — detector bug suspected.",
+                    Message = $"Windows Hello activity ('{actualEventType}') observed although the WHfB policy on this device read 'disabled' — the policy value was stale or changed during enrollment. The actual Hello events take precedence; enrollment tracking is unaffected.",
                     Data = data,
                     ImmediateUpload = true,
                 });
