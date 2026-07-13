@@ -60,4 +60,55 @@ public class SessionStatusTransitionTests
         Assert.True(TableStorageService.IsTerminalTransitionAllowed("Failed", incoming));
         Assert.True(TableStorageService.IsTerminalTransitionAllowed("Succeeded", incoming));
     }
+
+    // ================= ComputeReconcileReason =================
+    // The reconcile hygiene clears FailureReason/FailureSnapshotJson on every Succeeded write;
+    // ReconcileReason is what keeps a backend-declared success explainable (session 294ab5b4).
+
+    // ---- The sweep reconcile passes its classifier verdict — persisted verbatim ----
+    [Theory]
+    [InlineData("InProgress")]
+    [InlineData("Stalled")]
+    [InlineData("AwaitingUser")]
+    [InlineData("Incomplete")]
+    public void Sweep_reconcile_reason_is_persisted_verbatim(string prior)
+    {
+        const string verdict = "Reconciled at timeout: user completed setup (desktop + Windows Hello) — agent went silent before reporting completion";
+        Assert.Equal(verdict, TableStorageService.ComputeReconcileReason(prior, verdict, adminMarkedAction: null));
+    }
+
+    // ---- Admin-marked successes are attributed via AdminMarkedAction, never ReconcileReason ----
+    [Theory]
+    [InlineData("InProgress", "Manually marked as succeeded by administrator")]
+    [InlineData("Failed", "Manually marked as succeeded by administrator")]
+    [InlineData("Failed", null)]
+    public void Admin_marked_success_never_gets_a_reconcile_reason(string prior, string? reason)
+    {
+        Assert.Null(TableStorageService.ComputeReconcileReason(prior, reason, adminMarkedAction: "Succeeded"));
+    }
+
+    // ---- Reason-less late-completion upgrade of a prior backend/failure verdict → synthesized text ----
+    [Theory]
+    [InlineData("Failed")]
+    [InlineData("Incomplete")]
+    [InlineData("AwaitingUser")]
+    public void Late_completion_upgrade_synthesizes_a_reason_naming_the_prior_verdict(string prior)
+    {
+        var reason = TableStorageService.ComputeReconcileReason(prior, reason: null, adminMarkedAction: null);
+        Assert.NotNull(reason);
+        Assert.Contains("Late completion report received", reason);
+        Assert.Contains($"'{prior}'", reason);
+    }
+
+    // ---- Normal agent completions stay unmarked ----
+    [Theory]
+    [InlineData("InProgress")]
+    [InlineData("Stalled")]
+    [InlineData("Pending")]
+    [InlineData(null)]
+    public void Normal_agent_completion_gets_no_reconcile_reason(string? prior)
+    {
+        Assert.Null(TableStorageService.ComputeReconcileReason(prior, reason: null, adminMarkedAction: null));
+        Assert.Null(TableStorageService.ComputeReconcileReason(prior, reason: "", adminMarkedAction: null));
+    }
 }

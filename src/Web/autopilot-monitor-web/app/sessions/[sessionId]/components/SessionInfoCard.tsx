@@ -59,10 +59,21 @@ export default function SessionInfoCard({ session, enrollmentDuration, displaySt
         <InfoItem label="Duration" value={enrollmentDuration ?? `${Math.round(session.durationSeconds / 60)} min`} tooltip={lastContactTooltip} />
         <InfoItem label="Events" value={session.eventCount.toString()} tooltip={lastContactTooltip} />
         <InfoItem label="Reboots" value={(session.rebootCount ?? 0).toString()} tooltip="System reboots observed during enrollment (V2 only)" />
-        <InfoItem label="Status" value={<StatusBadge status={displayStatus} failureReason={session.failureReason} failureSource={session.failureSource} adminMarkedAction={session.adminMarkedAction} />} />
+        <InfoItem label="Status" value={<StatusBadge status={displayStatus} failureReason={session.failureReason} failureSource={session.failureSource} adminMarkedAction={session.adminMarkedAction} reconcileReason={session.reconcileReason} />} />
         <InfoItem label="Enrollment Type" value={enrollmentTypeLabel(session, isGatherRulesSession)} />
         <InfoItem label="Join Type" value={joinTypeLabel(session)} />
       </div>
+      {displayStatus === "Succeeded" && !session.adminMarkedAction && session.reconcileReason && (
+        <div className="mt-4 flex items-start gap-2 px-3 py-2 rounded-lg bg-sky-50 border border-sky-200 text-sm text-sky-800 dark:bg-sky-900/30 dark:border-sky-800 dark:text-sky-200">
+          <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span>
+            <strong>Backend reconciled:</strong> {session.reconcileReason} — this success was declared
+            by the platform, not reported by the agent on the device.
+          </span>
+        </div>
+      )}
       {ntpOffset && Math.abs(ntpOffset.offsetSeconds) > 30 && (
         <div className="mt-4 flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
           <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -160,12 +171,12 @@ function InfoItem({ label, value, copyText, tooltip }: { label: string; value: R
   );
 }
 
-function StatusBadge({ status, failureReason, failureSource, adminMarkedAction }: { status: string; failureReason?: string; failureSource?: string; adminMarkedAction?: string }) {
-  // Delegate the status pill (+ timeout affordance + "manual" badge) to the shared, canonical
-  // SessionStatusBadge so this page picks up every status — incl. the AwaitingUser/Incomplete
+function StatusBadge({ status, failureReason, failureSource, adminMarkedAction, reconcileReason }: { status: string; failureReason?: string; failureSource?: string; adminMarkedAction?: string; reconcileReason?: string }) {
+  // Delegate the status pill (+ timeout affordance + "manual"/"reconciled" badges) to the shared,
+  // canonical SessionStatusBadge so this page picks up every status — incl. the AwaitingUser/Incomplete
   // reclassification states — from one source instead of a divergent local map.
   const badge = (
-    <SessionStatusBadge status={status} failureReason={failureReason} adminMarkedAction={adminMarkedAction} />
+    <SessionStatusBadge status={status} failureReason={failureReason} adminMarkedAction={adminMarkedAction} reconcileReason={reconcileReason} />
   );
 
   // Session-detail-only affordance: link a rule-attributed failure back to its analyze rule.

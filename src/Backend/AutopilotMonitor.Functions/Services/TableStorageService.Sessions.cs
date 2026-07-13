@@ -168,6 +168,12 @@ namespace AutopilotMonitor.Functions.Services
             if (!string.IsNullOrEmpty(failureSource))
                 indexEntity["FailureSource"] = failureSource;
 
+            // Backend-declared success justification — rendered as the "reconciled" badge in the
+            // index-served session list, so it must survive a StartedAt-shift full upsert.
+            var reconcileReason = sessionEntity.GetString("ReconcileReason");
+            if (!string.IsNullOrEmpty(reconcileReason))
+                indexEntity["ReconcileReason"] = reconcileReason;
+
             var failureSnapshotJson = sessionEntity.GetString("FailureSnapshotJson");
             if (!string.IsNullOrEmpty(failureSnapshotJson))
                 indexEntity["FailureSnapshotJson"] = failureSnapshotJson;
@@ -361,6 +367,7 @@ namespace AutopilotMonitor.Functions.Services
                 int rebootCount = 0;
                 DateTime? completedAt = null;
                 string failureReason = string.Empty;
+                string reconcileReason = string.Empty;
                 bool isPreProvisioned = registration.IsPreProvisioned;
                 bool isHybridJoin = registration.IsHybridJoin;
                 bool isSelfDeployingProfile = registration.IsSelfDeployingProfile;
@@ -398,6 +405,7 @@ namespace AutopilotMonitor.Functions.Services
                     rebootCount = existingEntity.GetInt32("RebootCount") ?? rebootCount;
                     completedAt = existingEntity.GetDateTimeOffset("CompletedAt")?.UtcDateTime;
                     failureReason = existingEntity.GetString("FailureReason") ?? string.Empty;
+                    reconcileReason = existingEntity.GetString("ReconcileReason") ?? string.Empty;
 
                     // Preserve fields set by Merge-mode updates (SetSessionPreProvisionedAsync,
                     // UpdateSessionStatusAsync, UpdateSessionDiagnosticsBlobAsync) that would
@@ -488,6 +496,9 @@ namespace AutopilotMonitor.Functions.Services
                 if (!string.IsNullOrWhiteSpace(failureReason))
                     entity["FailureReason"] = failureReason;
 
+                if (!string.IsNullOrWhiteSpace(reconcileReason))
+                    entity["ReconcileReason"] = reconcileReason;
+
                 if (lastEventAt.HasValue)
                     entity["LastEventAt"] = EnsureUtc(lastEventAt.Value);
 
@@ -544,7 +555,7 @@ namespace AutopilotMonitor.Functions.Services
                                 "DeletionState", "PendingDeletionManifestId",
                                 // Terminal tuple — re-read so a terminal verdict that landed in the
                                 // fresh-read window isn't reverted by the Replace below (see guard).
-                                "Status", "CurrentPhase", "CompletedAt", "FailureReason",
+                                "Status", "CurrentPhase", "CompletedAt", "FailureReason", "ReconcileReason",
                                 "FailureSnapshotJson", "FailureSource", "AdminMarkedAction", "DurationSeconds",
                             });
                         freshEtag = freshResponse.Value.ETag;
@@ -585,7 +596,7 @@ namespace AutopilotMonitor.Functions.Services
                         || freshStatus == SessionStatus.Incomplete.ToString())
                     {
                         entity["Status"] = freshStatus;
-                        foreach (var col in new[] { "CurrentPhase", "CompletedAt", "FailureReason", "FailureSnapshotJson", "FailureSource", "AdminMarkedAction", "DurationSeconds" })
+                        foreach (var col in new[] { "CurrentPhase", "CompletedAt", "FailureReason", "ReconcileReason", "FailureSnapshotJson", "FailureSource", "AdminMarkedAction", "DurationSeconds" })
                         {
                             if (freshEntity!.TryGetValue(col, out var val) && val is not null)
                                 entity[col] = val;
@@ -1409,6 +1420,38 @@ namespace AutopilotMonitor.Functions.Services
             };
         }
 
+        /// <summary>
+        /// Computes the <c>ReconcileReason</c> to persist for a Succeeded transition — the
+        /// operator-facing justification when the BACKEND (not the agent) declared the success.
+        /// The reconcile hygiene clears FailureReason/FailureSnapshotJson on every Succeeded
+        /// write, so without this field a sweep-reconciled session (session 294ab5b4) is
+        /// indistinguishable from an agent-reported completion.
+        /// <list type="bullet">
+        /// <item>Admin-marked successes return null: attribution lives in AdminMarkedAction ("manual" badge).</item>
+        /// <item>A caller-supplied reason (the maintenance sweep passes its classifier verdict) is persisted verbatim.</item>
+        /// <item>A reason-less upgrade of a prior Failed/Incomplete/AwaitingUser verdict (late completion
+        /// reconcile) synthesizes a text from the prior status.</item>
+        /// <item>Normal agent completions (prior InProgress/Stalled/Pending, no reason) return null — the
+        /// field stays absent.</item>
+        /// </list>
+        /// Static + pure so the matrix is unit-testable without Table Storage.
+        /// </summary>
+        internal static string? ComputeReconcileReason(string? existingStatus, string? reason, string? adminMarkedAction)
+        {
+            if (!string.IsNullOrEmpty(adminMarkedAction))
+                return null;
+
+            if (!string.IsNullOrEmpty(reason))
+                return reason;
+
+            bool priorWasBackendVerdictOrFailure = existingStatus == SessionStatus.Failed.ToString()
+                || existingStatus == SessionStatus.Incomplete.ToString()
+                || existingStatus == SessionStatus.AwaitingUser.ToString();
+            return priorWasBackendVerdictOrFailure
+                ? $"Late completion report received — upgraded prior '{existingStatus}' verdict"
+                : null;
+        }
+
         public async Task<bool> UpdateSessionStatusAsync(string tenantId, string sessionId, SessionStatus status, EnrollmentPhase? currentPhase = null, string? failureReason = null, DateTime? completedAt = null, DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null, bool? isPreProvisioned = null, bool? isUserDriven = null, DateTime? resumedAt = null, DateTime? stalledAt = null, bool clearStalledAt = false, bool clearFailureReason = false, string? failureSource = null, string? adminMarkedAction = null, string? failureSnapshotJson = null)
         {
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
@@ -1496,6 +1539,12 @@ namespace AutopilotMonitor.Functions.Services
                         // a late-completed device doesn't keep showing a stale "timed out" reason.
                         update["FailureReason"] = string.Empty;
                         update["FailureSnapshotJson"] = string.Empty;
+                        // Transparency: when the backend (not the agent) declares the success — sweep
+                        // reconcile or late-completion upgrade — the justification the hygiene above
+                        // just wiped must survive somewhere operators can see it.
+                        var reconcileReason = ComputeReconcileReason(existingStatusStr, failureReason, adminMarkedAction);
+                        if (reconcileReason != null)
+                            update["ReconcileReason"] = reconcileReason;
                     }
                     else if (status == SessionStatus.Failed)
                     {
@@ -1744,6 +1793,11 @@ namespace AutopilotMonitor.Functions.Services
                                 // AwaitingUser verdict so a late-completed device shows no stale reason.
                                 forceUpdate["FailureReason"] = string.Empty;
                                 forceUpdate["FailureSnapshotJson"] = string.Empty;
+                                // Mirror the normal path's backend-verdict transparency (computed against
+                                // the FRESH status so the synthesized upgrade text names the right prior).
+                                var forceReconcileReason = ComputeReconcileReason(freshStatusStr, failureReason, adminMarkedAction);
+                                if (forceReconcileReason != null)
+                                    forceUpdate["ReconcileReason"] = forceReconcileReason;
                             }
                             else if (status == SessionStatus.Failed)
                             {
@@ -2600,6 +2654,7 @@ namespace AutopilotMonitor.Functions.Services
                 Status = status,
                 FailureReason = entity.GetString("FailureReason") ?? string.Empty,
                 FailureSource = entity.GetString("FailureSource") ?? string.Empty,
+                ReconcileReason = entity.GetString("ReconcileReason") ?? string.Empty,
                 AdminMarkedAction = entity.GetString("AdminMarkedAction"),
                 PendingActionsJson = entity.GetString("PendingActionsJson") ?? string.Empty,
                 PendingActionsQueuedAt = SafeGetDateTime(entity, "PendingActionsQueuedAt"),

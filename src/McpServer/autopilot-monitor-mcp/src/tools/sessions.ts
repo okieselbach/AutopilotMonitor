@@ -449,6 +449,9 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           tenantId: s.tenantId ?? tenantId,
           status: s.status,
           failureReason: s.failureReason ?? null,
+          // Non-null when the BACKEND declared the success (timeout-sweep reconcile or
+          // late-completion upgrade) rather than the agent reporting enrollment_complete.
+          reconcileReason: s.reconcileReason || null,
           startedAt: s.startedAt,
           completedAt: s.completedAt ?? null,
           durationSeconds: s.durationSeconds ?? null,

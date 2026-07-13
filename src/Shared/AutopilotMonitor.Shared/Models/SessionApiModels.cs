@@ -220,6 +220,17 @@ namespace AutopilotMonitor.Shared.Models
         public string FailureSource { get; set; } = string.Empty;
 
         /// <summary>
+        /// Non-empty only when the BACKEND (not the agent) declared this session Succeeded:
+        /// either the maintenance timeout sweep reconciled it (e.g. "user completed setup —
+        /// desktop + Windows Hello observed") or a late completion report upgraded a prior
+        /// Failed/Incomplete/AwaitingUser verdict. Carries the human-readable justification so
+        /// operators can always tell a backend-declared success from an agent-reported one.
+        /// Admin-marked successes are attributed via <see cref="AdminMarkedAction"/> instead
+        /// and leave this empty.
+        /// </summary>
+        public string ReconcileReason { get; set; } = string.Empty;
+
+        /// <summary>
         /// Non-null only when an administrator explicitly flipped the session via the portal
         /// (MarkSessionSucceeded / MarkSessionFailed). Values: <c>null</c> (default, agent-driven),
         /// <c>"Succeeded"</c>, <c>"Failed"</c>.

@@ -940,7 +940,7 @@ function SessionCell({
           {/* Qualifier pills stack BELOW the status badge (flex-col) so extra badges
               (Hybrid / Self-Deploying / Blocked) never widen the status column. */}
           <div className="flex flex-col items-start gap-1">
-            <SessionStatusBadge status={session.status} failureReason={session.failureReason} adminMarkedAction={session.adminMarkedAction} />
+            <SessionStatusBadge status={session.status} failureReason={session.failureReason} adminMarkedAction={session.adminMarkedAction} reconcileReason={session.reconcileReason} />
             {session.isHybridJoin && (
               <span
                 className="px-2 inline-flex items-center gap-1 text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800"

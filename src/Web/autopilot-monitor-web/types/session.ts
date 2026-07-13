@@ -16,6 +16,8 @@ export interface Session {
   failureReason?: string;
   /** Origin of a Failed status — "" for agent-reported, "rule:<RuleId>" for rule-based, "manual" for portal. */
   failureSource?: string;
+  /** Non-empty only when the BACKEND declared this session Succeeded (timeout-sweep reconcile or late-completion upgrade) — carries the justification so operators can tell it apart from an agent-reported success. */
+  reconcileReason?: string;
   /** Non-null only when an administrator flipped the session manually via the portal. Values: "Succeeded" | "Failed". */
   adminMarkedAction?: string;
   enrollmentType?: string; // "v1" | "v2" — absent for sessions before this feature

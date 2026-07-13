@@ -3,7 +3,9 @@
  * SessionTable and the geographic-performance sessions page. Pure presentational — colors mirror the backend
  * SessionStatus enum (Succeeded/Failed/InProgress/Pending/Stalled; anything else → Unknown). A "timed out"
  * failure gets a small ⏱️ affordance. When {@link adminMarkedAction} is set (an administrator manually flipped
- * the terminal state), a small "manual" badge is appended — otherwise the bare pill is returned unchanged.
+ * the terminal state), a small "manual" badge is appended. When {@link reconcileReason} is set (the BACKEND
+ * declared the success — timeout-sweep reconcile or late-completion upgrade), a small "reconciled" badge is
+ * appended with the justification as tooltip — otherwise the bare pill is returned unchanged.
  */
 
 const STATUS_CONFIG: Record<string, { color: string; text: string }> = {
@@ -23,11 +25,14 @@ export function SessionStatusBadge({
   status,
   failureReason,
   adminMarkedAction,
+  reconcileReason,
 }: {
   status: string;
   failureReason?: string | null;
   /** Set when an admin manually marked the session ("Succeeded" | "Failed") — appends a "manual" badge. */
   adminMarkedAction?: string | null;
+  /** Set when the backend declared the success (sweep reconcile / late-completion upgrade) — appends a "reconciled" badge. */
+  reconcileReason?: string | null;
 }) {
   const config = STATUS_CONFIG[status] || STATUS_CONFIG.Unknown;
   // The ⏱️ affordance marks the silence/timeout family: a "timed out" Failed, or any Incomplete
@@ -46,17 +51,30 @@ export function SessionStatusBadge({
     </span>
   );
 
-  if (!adminMarkedAction) return pill;
+  // Backend-declared success: adminMarkedAction wins (the "manual" badge already attributes the
+  // flip); a reconciled badge on top would double-attribute the same verdict.
+  const showReconciled = !adminMarkedAction && status === "Succeeded" && !!reconcileReason;
+
+  if (!adminMarkedAction && !showReconciled) return pill;
 
   return (
     <span className="inline-flex items-center gap-1.5">
       {pill}
-      <span
-        className="px-1.5 py-0.5 text-[10px] leading-4 font-semibold rounded border border-gray-300 bg-gray-50 text-gray-600 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
-        title={`Manually marked as ${adminMarkedAction} by administrator`}
-      >
-        manual
-      </span>
+      {adminMarkedAction ? (
+        <span
+          className="px-1.5 py-0.5 text-[10px] leading-4 font-semibold rounded border border-gray-300 bg-gray-50 text-gray-600 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
+          title={`Manually marked as ${adminMarkedAction} by administrator`}
+        >
+          manual
+        </span>
+      ) : (
+        <span
+          className="px-1.5 py-0.5 text-[10px] leading-4 font-semibold rounded border border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-900/40 dark:text-sky-300"
+          title={reconcileReason || undefined}
+        >
+          reconciled
+        </span>
+      )}
     </span>
   );
 }
