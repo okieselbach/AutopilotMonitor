@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { MapContainer, TileLayer, CircleMarker, Tooltip, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -81,10 +81,15 @@ function FitBounds({ locations }: { locations: { coords: [number, number] }[] })
   useEffect(() => {
     if (locations.length === 0) return;
     const bounds = locations.map((l) => l.coords) as [number, number][];
+    // animate: false applies the camera move synchronously. An animated move schedules a
+    // deferred requestAnimationFrame/transitionend callback that reads the map pane's
+    // _leaflet_pos; if the component unmounts (client-side navigation) before it fires, the
+    // pane is already torn down and the callback throws "Cannot read properties of undefined
+    // (reading '_leaflet_pos')". A synchronous move leaves no such dangling callback.
     if (bounds.length === 1) {
-      map.setView(bounds[0], 6);
+      map.setView(bounds[0], 6, { animate: false });
     } else {
-      map.fitBounds(bounds, { padding: [30, 30], maxZoom: 10 });
+      map.fitBounds(bounds, { padding: [30, 30], maxZoom: 10, animate: false });
     }
   }, [locations, map]);
 
@@ -92,12 +97,19 @@ function FitBounds({ locations }: { locations: { coords: [number, number] }[] })
 }
 
 export default function GeoMap({ locations, globalAvgDuration, selectedLocation, onLocationSelect }: GeoMapProps) {
-  const mappableLocations = locations
-    .map((loc) => {
-      const coords = parseCoords(loc.loc);
-      return coords ? { ...loc, coords } : null;
-    })
-    .filter((l): l is NonNullable<typeof l> => l !== null);
+  // Memoize so the derived array keeps a stable identity across re-renders. FitBounds' effect
+  // depends on this list; a fresh array every render would re-run it (and re-fire the camera
+  // move) on every parent re-render, not just when the location data actually changes.
+  const mappableLocations = useMemo(
+    () =>
+      locations
+        .map((loc) => {
+          const coords = parseCoords(loc.loc);
+          return coords ? { ...loc, coords } : null;
+        })
+        .filter((l): l is NonNullable<typeof l> => l !== null),
+    [locations]
+  );
 
   if (mappableLocations.length === 0) {
     return (
