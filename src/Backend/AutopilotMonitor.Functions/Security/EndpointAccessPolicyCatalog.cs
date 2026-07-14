@@ -328,6 +328,8 @@ public static class EndpointAccessPolicyCatalog
         // Platform-operational (cascade-delete restore prep) — GA + read-only Reader only, NOT delegated.
         new("GET",    "global/tenants/{tenantId}/deletion-manifests",  EndpointPolicy.GlobalReadOrAdmin, TenantScoping.RouteParam, excludeDelegated: true),
         new("GET",    "global/session-deletions",                    EndpointPolicy.GlobalReadOrAdmin),
+        // Manual maintenance-run trigger (GC sweeps + retention fanout) — mutating, GA only.
+        new("POST",   "global/session-deletions/maintenance/trigger", EndpointPolicy.GlobalAdminOnly),
         new("GET",    "global/raw/sessions",                  EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/raw/events",                    EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         // Raw table/log access stays GlobalAdminOnly: query_table can dump arbitrary tables

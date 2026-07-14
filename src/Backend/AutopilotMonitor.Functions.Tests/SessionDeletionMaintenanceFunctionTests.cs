@@ -46,10 +46,10 @@ public class SessionDeletionMaintenanceFunctionTests
         harness.SeedSessionsByState(SessionDeletionState.Preparing); // no rows aged out in this scenario
         harness.SeedSessionsByState(SessionDeletionState.Queued);
 
-        await harness.Sut.RunCoreAsync(CancellationToken.None);
+        await harness.Sut.RunCoreAsync("Test", CancellationToken.None);
 
         harness.BlobMock.Verify(b => b.DeleteDeletionManifestPairAsync("t", "s", "m", It.IsAny<CancellationToken>()), Times.Once);
-        harness.Fanout.Verify(f => f.RunAsync(It.IsAny<CancellationToken>()), Times.Once);
+        harness.Fanout.Verify(f => f.RunAsync(It.IsAny<SessionRetentionFanoutService.FanoutResult>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
         // PR6 follow-up F3: lifecycle status now lives on OpsEvents, not AuditLogs (the latter
         // would silently fail because PartitionKey requires a non-null tenantId).
         Assert.Contains(harness.OpsEvents, e => e.EventName == "SessionDeletionMaintenanceCompleted");
@@ -62,12 +62,12 @@ public class SessionDeletionMaintenanceFunctionTests
         harness.SetKillSwitch(true);
         harness.SeedTtlBlobs(("t", "s", "m", DateTime.UtcNow.AddDays(-31)));
 
-        await harness.Sut.RunCoreAsync(CancellationToken.None);
+        await harness.Sut.RunCoreAsync("Test", CancellationToken.None);
 
         // GCs still ran — TTL sweep emitted the DeleteDeletionManifestPairAsync call.
         harness.BlobMock.Verify(b => b.DeleteDeletionManifestPairAsync("t", "s", "m", It.IsAny<CancellationToken>()), Times.Once);
         // Fanout was skipped.
-        harness.Fanout.Verify(f => f.RunAsync(It.IsAny<CancellationToken>()), Times.Never);
+        harness.Fanout.Verify(f => f.RunAsync(It.IsAny<SessionRetentionFanoutService.FanoutResult>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
         // PR6 follow-up F3: fanout-skip + completion now both live on OpsEvents.
         Assert.Contains(harness.OpsEvents, e => e.EventName == "SessionDeletionMaintenanceFanoutSkipped");
         Assert.Contains(harness.OpsEvents, e => e.EventName == "SessionDeletionMaintenanceCompleted");
@@ -82,17 +82,41 @@ public class SessionDeletionMaintenanceFunctionTests
         // but not severe.
         var harness = new Harness(watchdogWarn: TimeSpan.FromMilliseconds(50), watchdogSevere: TimeSpan.FromMilliseconds(500));
         harness.SetKillSwitch(false);
-        harness.Fanout.Setup(f => f.RunAsync(It.IsAny<CancellationToken>()))
-            .Returns(async (CancellationToken ct) =>
+        harness.Fanout.Setup(f => f.RunAsync(It.IsAny<SessionRetentionFanoutService.FanoutResult>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Returns(async (SessionRetentionFanoutService.FanoutResult r, DateTime _, CancellationToken ct) =>
             {
+                r.TenantsProcessed = 1;
                 await Task.Delay(150, ct);
-                return new SessionRetentionFanoutService.FanoutResult { TenantsProcessed = 1, SessionsEnqueued = 0 };
             });
 
-        await harness.Sut.RunCoreAsync(CancellationToken.None);
+        await harness.Sut.RunCoreAsync("Test", CancellationToken.None);
 
         Assert.Contains(harness.OpsEvents, e => e.EventName == "SessionDeletionMaintenanceLongRunning");
         Assert.DoesNotContain(harness.OpsEvents, e => e.EventName == "SessionDeletionMaintenanceLongRunningSevere");
+    }
+
+    [Fact]
+    public async Task RunCore_watchdog_reports_live_fanout_progress()
+    {
+        // Regression for the "tenants=0, enqueued=0" watchdog bug: the counters used to be
+        // assigned only AFTER the fanout returned, so every LongRunning warning showed zeros.
+        // The fanout now mutates the caller-supplied result incrementally; the watchdog snapshot
+        // must reflect that progress mid-run.
+        var harness = new Harness(watchdogWarn: TimeSpan.FromMilliseconds(50), watchdogSevere: TimeSpan.FromSeconds(5));
+        harness.SetKillSwitch(false);
+        harness.Fanout.Setup(f => f.RunAsync(It.IsAny<SessionRetentionFanoutService.FanoutResult>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Returns(async (SessionRetentionFanoutService.FanoutResult r, DateTime _, CancellationToken ct) =>
+            {
+                r.TenantsProcessed = 3;
+                r.SessionsEnqueued = 7;
+                await Task.Delay(200, ct); // long enough for the 50ms watchdog to fire mid-run
+            });
+
+        await harness.Sut.RunCoreAsync("Test", CancellationToken.None);
+
+        var warning = Assert.Single(harness.OpsEvents, e => e.EventName == "SessionDeletionMaintenanceLongRunning");
+        Assert.Contains("tenants=3", warning.Message);
+        Assert.Contains("enqueued=7", warning.Message);
     }
 
     [Fact]
@@ -100,14 +124,13 @@ public class SessionDeletionMaintenanceFunctionTests
     {
         var harness = new Harness(watchdogWarn: TimeSpan.FromMilliseconds(50), watchdogSevere: TimeSpan.FromMilliseconds(150));
         harness.SetKillSwitch(false);
-        harness.Fanout.Setup(f => f.RunAsync(It.IsAny<CancellationToken>()))
-            .Returns(async (CancellationToken ct) =>
+        harness.Fanout.Setup(f => f.RunAsync(It.IsAny<SessionRetentionFanoutService.FanoutResult>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Returns(async (SessionRetentionFanoutService.FanoutResult _, DateTime _, CancellationToken ct) =>
             {
                 await Task.Delay(300, ct);
-                return new SessionRetentionFanoutService.FanoutResult();
             });
 
-        await harness.Sut.RunCoreAsync(CancellationToken.None);
+        await harness.Sut.RunCoreAsync("Test", CancellationToken.None);
 
         // Both watchdogs fire: warning at 50ms, severe at 150ms.
         Assert.Contains(harness.OpsEvents, e => e.EventName == "SessionDeletionMaintenanceLongRunning");
@@ -126,7 +149,7 @@ public class SessionDeletionMaintenanceFunctionTests
             ("tenant-a", "session-y", "MANIFEST-2"),
             ("tenant-b", "session-z", "MANIFEST-3"));
 
-        await harness.Sut.RunCoreAsync(CancellationToken.None);
+        await harness.Sut.RunCoreAsync("Test", CancellationToken.None);
 
         harness.StorageMock.Verify(s => s.DeleteSessionTombstoneAsync("tenant-a", "session-x", It.IsAny<CancellationToken>()), Times.Once);
         harness.StorageMock.Verify(s => s.DeleteSessionTombstoneAsync("tenant-a", "session-y", It.IsAny<CancellationToken>()), Times.Once);
@@ -143,7 +166,7 @@ public class SessionDeletionMaintenanceFunctionTests
         harness.SetKillSwitch(true);
         harness.SeedExpiredTombstones(("tenant-a", "session-x", "M1"));
 
-        await harness.Sut.RunCoreAsync(CancellationToken.None);
+        await harness.Sut.RunCoreAsync("Test", CancellationToken.None);
 
         harness.StorageMock.Verify(s => s.DeleteSessionTombstoneAsync("tenant-a", "session-x", It.IsAny<CancellationToken>()),
             Times.Once);
@@ -155,10 +178,61 @@ public class SessionDeletionMaintenanceFunctionTests
         var harness = new Harness(watchdogWarn: TimeSpan.FromSeconds(5), watchdogSevere: TimeSpan.FromSeconds(10));
         harness.SetKillSwitch(false);
 
-        await harness.Sut.RunCoreAsync(CancellationToken.None);
+        await harness.Sut.RunCoreAsync("Test", CancellationToken.None);
 
         Assert.DoesNotContain(harness.OpsEvents, e => e.EventName == "SessionDeletionMaintenanceLongRunning");
         Assert.DoesNotContain(harness.OpsEvents, e => e.EventName == "SessionDeletionMaintenanceLongRunningSevere");
+    }
+
+    // ────────────────────────────────────────────────────────────────────────── Run budget + lease + lifecycle ─
+
+    [Fact]
+    public async Task RunCore_emits_BudgetExceeded_and_flags_Completed_when_fanout_hits_the_budget()
+    {
+        var harness = new Harness();
+        harness.SetKillSwitch(false);
+        harness.Fanout.Setup(f => f.RunAsync(It.IsAny<SessionRetentionFanoutService.FanoutResult>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Returns((SessionRetentionFanoutService.FanoutResult r, DateTime _, CancellationToken _) =>
+            {
+                r.TenantsProcessed = 12;
+                r.SessionsEnqueued = 40;
+                r.AbortedByBudget = true;
+                return Task.CompletedTask;
+            });
+
+        await harness.Sut.RunCoreAsync("Test", CancellationToken.None);
+
+        var budget = Assert.Single(harness.OpsEvents, e => e.EventName == "SessionDeletionMaintenanceBudgetExceeded");
+        Assert.Contains("tenants=12", budget.Message);
+        var completed = Assert.Single(harness.OpsEvents, e => e.EventName == "SessionDeletionMaintenanceCompleted");
+        Assert.Contains("abortedByBudget=True", completed.Message);
+    }
+
+    [Fact]
+    public async Task RunCore_emits_SkippedLocked_and_skips_everything_when_lease_is_held()
+    {
+        var harness = new Harness();
+        harness.LockStore.Setup(l => l.AcquireLeaseAsync(It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new AutopilotMonitor.Functions.Services.Backup.LeaseHeldException("held", new Exception("409")));
+
+        await harness.Sut.RunCoreAsync("Test", CancellationToken.None);
+
+        Assert.Contains(harness.OpsEvents, e => e.EventName == "SessionDeletionMaintenanceSkippedLocked");
+        Assert.DoesNotContain(harness.OpsEvents, e => e.EventName == "SessionDeletionMaintenanceStarted");
+        Assert.DoesNotContain(harness.OpsEvents, e => e.EventName == "SessionDeletionMaintenanceCompleted");
+        harness.Fanout.Verify(f => f.RunAsync(It.IsAny<SessionRetentionFanoutService.FanoutResult>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RunCore_emits_Started_event_with_triggeredBy()
+    {
+        var harness = new Harness();
+        harness.SetKillSwitch(false);
+
+        await harness.Sut.RunCoreAsync("admin@contoso.com", CancellationToken.None);
+
+        var started = Assert.Single(harness.OpsEvents, e => e.EventName == "SessionDeletionMaintenanceStarted");
+        Assert.Contains("admin@contoso.com", started.Message);
     }
 
     // ────────────────────────────────────────────────────────────────────────── Exception path ─
@@ -169,10 +243,10 @@ public class SessionDeletionMaintenanceFunctionTests
         var harness = new Harness();
         harness.SetKillSwitch(false);
         // Make the fanout throw.
-        harness.Fanout.Setup(f => f.RunAsync(It.IsAny<CancellationToken>()))
+        harness.Fanout.Setup(f => f.RunAsync(It.IsAny<SessionRetentionFanoutService.FanoutResult>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("fanout exploded"));
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Sut.RunCoreAsync(CancellationToken.None));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Sut.RunCoreAsync("Test", CancellationToken.None));
         Assert.Equal("fanout exploded", ex.Message);
 
         // PR6 follow-up F3: the SessionDeletionMaintenanceFailed OpsEvent IS the audit. The prior
@@ -192,7 +266,7 @@ public class SessionDeletionMaintenanceFunctionTests
             (TenantA, SessionA1, Manifest2, stuckSince),
             (TenantB, SessionB1, Manifest2, stuckSince));
 
-        await harness.Sut.RunCoreAsync(CancellationToken.None);
+        await harness.Sut.RunCoreAsync("Test", CancellationToken.None);
 
         var stranded = harness.OpsEvents.Where(e => e.EventName == "SessionDeletionStrandedQueued").ToList();
         Assert.Equal(2, stranded.Count);
@@ -206,7 +280,7 @@ public class SessionDeletionMaintenanceFunctionTests
         var freshly = DateTime.UtcNow.AddMinutes(-5); // well under 30min
         harness.SeedSessionsByState(SessionDeletionState.Queued, (TenantA, SessionA1, Manifest2, freshly));
 
-        await harness.Sut.RunCoreAsync(CancellationToken.None);
+        await harness.Sut.RunCoreAsync("Test", CancellationToken.None);
 
         Assert.DoesNotContain(harness.OpsEvents, e => e.EventName == "SessionDeletionStrandedQueued");
     }
@@ -234,7 +308,7 @@ public class SessionDeletionMaintenanceFunctionTests
             .Setup(s => s.RevertStalePreparingToNoneAsync(TenantA, SessionA1, Manifest1, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
-        await harness.Sut.RunCoreAsync(CancellationToken.None);
+        await harness.Sut.RunCoreAsync("Test", CancellationToken.None);
 
         harness.StorageMock.Verify(s => s.RevertStalePreparingToNoneAsync(TenantA, SessionA1, Manifest1, It.IsAny<CancellationToken>()), Times.Once);
         harness.StorageMock.Verify(s => s.RevertStalePreparingToNoneAsync(TenantA, SessionA2, Manifest1 + "X", It.IsAny<CancellationToken>()), Times.Never);
@@ -250,7 +324,7 @@ public class SessionDeletionMaintenanceFunctionTests
         var recent = DateTime.UtcNow.AddMinutes(-5);
         harness.SeedSessionsByState(SessionDeletionState.Preparing, (TenantA, SessionA1, Manifest1, recent));
 
-        await harness.Sut.RunCoreAsync(CancellationToken.None);
+        await harness.Sut.RunCoreAsync("Test", CancellationToken.None);
 
         harness.StorageMock.Verify(s => s.RevertStalePreparingToNoneAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -263,6 +337,7 @@ public class SessionDeletionMaintenanceFunctionTests
         public Mock<MaintenanceBlobStub> BlobMock { get; }
         public Mock<AdminConfigurationService> AdminConfig { get; }
         public Mock<SessionRetentionFanoutService> Fanout { get; }
+        public Mock<SessionDeletionMaintenanceLockStore> LockStore { get; }
         public List<CapturedOpsEvent> OpsEvents { get; } = new();
         public List<AuditEntry> AuditCalls { get; } = new();
         public SessionDeletionMaintenanceFunction Sut { get; }
@@ -328,14 +403,24 @@ public class SessionDeletionMaintenanceFunctionTests
                 Mock.Of<ISessionDeletionEnqueuer>(),
                 AdminConfig.Object,
                 NullLogger<SessionRetentionFanoutService>.Instance);
-            Fanout.Setup(f => f.RunAsync(It.IsAny<CancellationToken>()))
-                .ReturnsAsync(new SessionRetentionFanoutService.FanoutResult { TenantsProcessed = 0, SessionsEnqueued = 0 });
+            Fanout.Setup(f => f.RunAsync(It.IsAny<SessionRetentionFanoutService.FanoutResult>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            // Lease store: default acquire succeeds with a mocked lease client. The renewal loop
+            // never ticks inside these millisecond-scale tests; DisposeAsync's release failure on
+            // the bare mock is swallowed by the holder's try/catch.
+            LockStore = new Mock<SessionDeletionMaintenanceLockStore>(
+                BlobMock.Object, NullLogger<SessionDeletionMaintenanceLockStore>.Instance);
+            LockStore.Setup(l => l.AcquireLeaseAsync(It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new Mock<Azure.Storage.Blobs.Specialized.BlobLeaseClient>().Object);
 
             Sut = new SessionDeletionMaintenanceFunction(
                 StorageMock.Object, BlobMock.Object, AdminConfig.Object, opsService, maintRepo.Object, Fanout.Object,
+                LockStore.Object,
                 NullLogger<SessionDeletionMaintenanceFunction>.Instance,
                 watchdogWarning: watchdogWarn ?? TimeSpan.FromSeconds(30),
-                watchdogSevere:  watchdogSevere ?? TimeSpan.FromMinutes(1));
+                watchdogSevere:  watchdogSevere ?? TimeSpan.FromMinutes(1),
+                runBudget: TimeSpan.FromMinutes(50));
         }
 
         public void SetKillSwitch(bool active) =>

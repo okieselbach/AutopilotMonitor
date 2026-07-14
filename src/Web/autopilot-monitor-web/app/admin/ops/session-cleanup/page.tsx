@@ -7,6 +7,7 @@ import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch"
 import { useAdminConfig } from "../../AdminConfigContext";
 import { AdminNotifications } from "../../AdminNotifications";
 import { DeletionPreviewModal } from "./components/DeletionPreviewModal";
+import { MaintenanceStatusBanner } from "./components/MaintenanceStatusBanner";
 import { RestoreBrowserTab } from "./components/RestoreBrowserTab";
 import { RestoreConfirmDialog } from "./components/RestoreConfirmDialog";
 
@@ -52,6 +53,12 @@ export default function SessionCleanupPage() {
       </header>
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         <AdminNotifications />
+
+        <MaintenanceStatusBanner
+          getAccessToken={getAccessToken}
+          setError={setError}
+          setSuccessMessage={setSuccessMessage}
+        />
 
         {/* Tab bar */}
         <div className="border-b border-gray-200 dark:border-gray-700">

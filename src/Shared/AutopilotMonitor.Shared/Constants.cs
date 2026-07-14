@@ -1154,6 +1154,20 @@ namespace AutopilotMonitor.Shared
 
             /// <summary>Poison sibling of <see cref="CriticalTableBackup"/>.</summary>
             public const string CriticalTableBackupPoison = "critical-table-backup-jobs-poison";
+
+            /// <summary>
+            /// Manual-trigger queue for the session-deletion maintenance run. Producer = HTTP
+            /// trigger <c>/api/global/session-deletions/maintenance/trigger</c> (fail-hard);
+            /// consumer = <c>SessionDeletionMaintenanceQueueWorker</c> (BackgroundService,
+            /// BatchSize=1, VisibilityTimeout=60min — the run budget is 50min plus cushion).
+            /// Carries a tiny envelope <c>{ triggeredBy }</c>; concurrency against the 12h timer
+            /// is serialized by the session-deletion maintenance blob lease, not the queue.
+            /// Poison-suffix <c>-poison</c>, max-dequeue 5.
+            /// </summary>
+            public const string SessionDeletionMaintenance = "session-deletion-maintenance";
+
+            /// <summary>Poison sibling of <see cref="SessionDeletionMaintenance"/>.</summary>
+            public const string SessionDeletionMaintenancePoison = "session-deletion-maintenance-poison";
         }
 
         /// <summary>

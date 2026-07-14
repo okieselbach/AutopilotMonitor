@@ -393,6 +393,12 @@ export const api = {
     // data" checkbox so the dropdown can hide tenants that have nothing to restore.
     tenantsWithManifests: () =>
       `${API_BASE_URL}/api/global/tenants-with-deletion-manifests`,
+
+    // Manual maintenance-run trigger (POST, GA-only): queues a one-off GC + retention-fanout
+    // run. 202 = queued, 409 = a run is already active. Progress surfaces as
+    // SessionDeletionMaintenance* ops events (MaintenanceStatusBanner reads those).
+    triggerMaintenance: () =>
+      `${API_BASE_URL}/api/global/session-deletions/maintenance/trigger`,
   },
 
   // ── Hardware Rejection Insights (tenant-scoped, from distress data) ──────

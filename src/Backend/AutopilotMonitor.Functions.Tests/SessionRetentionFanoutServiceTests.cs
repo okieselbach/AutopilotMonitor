@@ -29,7 +29,7 @@ public class SessionRetentionFanoutServiceTests
         harness.WithTenant(TenantA, retentionDays: 30,
             sessions: new[] { Old("s1", 60), Old("s2", 45) });
 
-        var result = await harness.Sut.RunAsync(CancellationToken.None);
+        var result = await harness.RunAsync();
 
         Assert.Equal(2, result.SessionsEnqueued);
         harness.Enqueuer.Verify(
@@ -56,7 +56,7 @@ public class SessionRetentionFanoutServiceTests
         harness.MaintenanceRepo.Setup(m => m.GetSessionsOlderThanAsync(TenantB, It.Is<DateTime>(d => d <= DateTime.UtcNow.AddDays(-120)), It.IsAny<int>(), It.IsAny<bool>()))
             .ReturnsAsync(new List<SessionSummary> { Summary(TenantB, "b2") });
 
-        var result = await harness.Sut.RunAsync(CancellationToken.None);
+        var result = await harness.RunAsync();
 
         Assert.Equal(2, result.TenantsProcessed);
         Assert.Equal(2, result.SessionsEnqueued);
@@ -75,7 +75,7 @@ public class SessionRetentionFanoutServiceTests
             many.Add(Summary(TenantA, $"s{i:000}"));
         harness.WithTenantOverride(TenantA, retentionDays: 30, sessions: many);
 
-        var result = await harness.Sut.RunAsync(CancellationToken.None);
+        var result = await harness.RunAsync();
 
         Assert.Equal(SessionRetentionFanoutService.MaxEnqueuesPerTenantPerRun, result.SessionsEnqueued);
         Assert.Equal(1, result.RateLimitedTenants);
@@ -94,7 +94,7 @@ public class SessionRetentionFanoutServiceTests
         var harness = new Harness();
         harness.WithTenant(TenantA, retentionDays: 30, sessions: new[] { Old("s1", 60) });
 
-        await harness.Sut.RunAsync(CancellationToken.None);
+        await harness.RunAsync();
 
         harness.MaintenanceRepo.Verify(
             m => m.GetSessionsOlderThanAsync(
@@ -113,7 +113,7 @@ public class SessionRetentionFanoutServiceTests
         var harness = new Harness();
         harness.WithTenant(TenantA, retentionDays: 0, sessions: new[] { Old("s1", 365) });
 
-        var result = await harness.Sut.RunAsync(CancellationToken.None);
+        var result = await harness.RunAsync();
 
         Assert.Equal(0, result.SessionsEnqueued);
         // GetSessionsOlderThanAsync must not have been called for that tenant.
@@ -129,7 +129,7 @@ public class SessionRetentionFanoutServiceTests
         var harness = new Harness();
         harness.WithTenant(TenantA, retentionDays: 180, sessions: new[] { Old("s1", 100) });
 
-        await harness.Sut.RunAsync(CancellationToken.None);
+        await harness.RunAsync();
 
         harness.MaintenanceRepo.Verify(m => m.GetSessionsOlderThanAsync(
             TenantA,
@@ -143,7 +143,7 @@ public class SessionRetentionFanoutServiceTests
         var harness = new Harness();
         harness.WithTenant(TenantA, retentionDays: 180, sessions: new[] { Old("s1", 200) }, planTier: "enterprise");
 
-        await harness.Sut.RunAsync(CancellationToken.None);
+        await harness.RunAsync();
 
         harness.MaintenanceRepo.Verify(m => m.GetSessionsOlderThanAsync(
             TenantA,
@@ -174,7 +174,7 @@ public class SessionRetentionFanoutServiceTests
                 return Task.FromResult(calls >= 4);
             });
 
-        var result = await harness.Sut.RunAsync(CancellationToken.None);
+        var result = await harness.RunAsync();
 
         Assert.True(result.AbortedByKillSwitch);
         Assert.Equal(2, result.SessionsEnqueued); // only sessions 0 and 1 made it through
@@ -203,7 +203,7 @@ public class SessionRetentionFanoutServiceTests
                 return Task.FromResult(calls >= 3);
             });
 
-        var result = await harness.Sut.RunAsync(CancellationToken.None);
+        var result = await harness.RunAsync();
 
         Assert.True(result.AbortedByKillSwitch);
         Assert.Equal(1, result.TenantsProcessed);
@@ -235,7 +235,7 @@ public class SessionRetentionFanoutServiceTests
                     : new SessionDeletionEnqueueResult { Outcome = SessionDeletionEnqueueOutcome.KillSwitchActive };
             });
 
-        var result = await harness.Sut.RunAsync(CancellationToken.None);
+        var result = await harness.RunAsync();
 
         Assert.True(result.AbortedByKillSwitch);
         Assert.Equal(1, result.SessionsEnqueued);
@@ -272,7 +272,7 @@ public class SessionRetentionFanoutServiceTests
                     : new SessionDeletionEnqueueResult { Outcome = SessionDeletionEnqueueOutcome.KillSwitchActive };
             });
 
-        var result = await harness.Sut.RunAsync(CancellationToken.None);
+        var result = await harness.RunAsync();
 
         Assert.True(result.AbortedByKillSwitch);
         Assert.Equal(1, result.TenantsProcessed); // tenant A completed its RunForTenantAsync; B never started
@@ -301,10 +301,77 @@ public class SessionRetentionFanoutServiceTests
                 ExistingState = SessionDeletionState.Running,
             });
 
-        var result = await harness.Sut.RunAsync(CancellationToken.None);
+        var result = await harness.RunAsync();
 
         Assert.Equal(0, result.SessionsEnqueued);
         Assert.Equal(1, result.SessionsSkipped);
+    }
+
+    // ────────────────────────────────────────────────────────────────────────── Run budget ─
+
+    [Fact]
+    public async Task RunAsync_aborts_immediately_when_deadline_already_passed()
+    {
+        var harness = new Harness();
+        harness.WithTenant(TenantA, retentionDays: 30, sessions: new[] { Old("s1", 60) });
+
+        var result = await harness.RunAsync(deadlineUtc: DateTime.UtcNow.AddMinutes(-1));
+
+        Assert.True(result.AbortedByBudget);
+        Assert.Equal(0, result.TenantsProcessed);
+        Assert.Equal(0, result.SessionsEnqueued);
+        harness.MaintenanceRepo.Verify(m => m.GetSessionsOlderThanAsync(TenantA, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<bool>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RunAsync_aborts_mid_tenant_when_budget_deadline_crosses()
+    {
+        // Scripted clock: the deadline crosses between session 1 and session 2 of tenant A —
+        // the remaining sessions of A and all of tenant B must be left untouched.
+        var baseTime = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var deadline = baseTime.AddMinutes(50);
+        var clockCalls = 0;
+        // Call sequence: tenant-A boundary (1), session s0 (2), session s1 (3), session s2 (4 → past deadline).
+        var harness = new Harness(utcNow: () => ++clockCalls >= 4 ? deadline.AddMinutes(1) : baseTime);
+
+        var sessions = new List<SessionSummary>();
+        for (int i = 0; i < 4; i++) sessions.Add(Summary(TenantA, $"s{i}"));
+        harness.WithTenantOverride(TenantA, retentionDays: 30, sessions: sessions);
+        harness.WithTenant(TenantB, retentionDays: 30, sessions: new[] { Old("b1", 60) });
+
+        var result = await harness.RunAsync(deadlineUtc: deadline);
+
+        Assert.True(result.AbortedByBudget);
+        Assert.Equal(2, result.SessionsEnqueued); // only s0 and s1 made it through
+        Assert.Equal(1, result.TenantsProcessed); // tenant A returned normally, B never started
+        harness.Enqueuer.Verify(e => e.EnqueueAsync(TenantA, "s2", It.IsAny<string>(), It.IsAny<DeletionActor>(), It.IsAny<DeletionRetentionContext?>(), It.IsAny<CancellationToken>()), Times.Never);
+        harness.Enqueuer.Verify(e => e.EnqueueAsync(TenantB, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DeletionActor>(), It.IsAny<DeletionRetentionContext?>(), It.IsAny<CancellationToken>()), Times.Never);
+        harness.MaintenanceRepo.Verify(m => m.GetSessionsOlderThanAsync(TenantB, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<bool>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RunAsync_mutates_the_shared_result_incrementally_during_the_run()
+    {
+        // Watchdog-progress contract: the caller-supplied FanoutResult must be bumped per
+        // session (not once at the end), so mid-run snapshots show real progress. The injected
+        // throttle runs between sessions — snapshot the counter there.
+        var snapshots = new List<int>();
+        var result = new SessionRetentionFanoutService.FanoutResult();
+        var harness = new Harness(throttle: (_, _) =>
+        {
+            snapshots.Add(result.SessionsEnqueued);
+            return Task.CompletedTask;
+        });
+        var sessions = new List<SessionSummary>();
+        for (int i = 0; i < 3; i++) sessions.Add(Summary(TenantA, $"s{i}"));
+        harness.WithTenantOverride(TenantA, retentionDays: 30, sessions: sessions);
+
+        await harness.Sut.RunAsync(result, DateTime.UtcNow.AddMinutes(50), CancellationToken.None);
+
+        Assert.Equal(3, result.SessionsEnqueued);
+        // Throttle fires after s0 and s1 (not after the last session) — each snapshot must
+        // already reflect the enqueues so far.
+        Assert.Equal(new[] { 1, 2 }, snapshots);
     }
 
     // ============================================================ Helpers ====
@@ -333,7 +400,7 @@ public class SessionRetentionFanoutServiceTests
 
         private readonly List<string> _tenantIds = new();
 
-        public Harness()
+        public Harness(Func<TimeSpan, CancellationToken, Task>? throttle = null, Func<DateTime>? utcNow = null)
         {
             MaintenanceRepo = new Mock<IMaintenanceRepository>();
             var memCache = new MemoryCache(new MemoryCacheOptions());
@@ -363,12 +430,24 @@ public class SessionRetentionFanoutServiceTests
                 .ReturnsAsync(true);
 
             // Use internal ctor to inject a no-op throttle so the rate-limit test runs in real-time
-            // (50ms × 100 = 5s otherwise).
+            // (50ms × 100 = 5s otherwise) and an optional scripted clock for the budget tests.
             Sut = new SessionRetentionFanoutService(
                 MaintenanceRepo.Object, TenantConfig.Object, Enqueuer.Object,
                 AdminConfig.Object,
                 NullLogger<SessionRetentionFanoutService>.Instance,
-                throttle: (_, _) => Task.CompletedTask);
+                throttle: throttle ?? ((_, _) => Task.CompletedTask),
+                utcNow: utcNow);
+        }
+
+        /// <summary>
+        /// Drives <see cref="SessionRetentionFanoutService.RunAsync"/> with a fresh result object
+        /// and a far-away default deadline (the budget is exercised by dedicated tests).
+        /// </summary>
+        public async Task<SessionRetentionFanoutService.FanoutResult> RunAsync(DateTime? deadlineUtc = null)
+        {
+            var result = new SessionRetentionFanoutService.FanoutResult();
+            await Sut.RunAsync(result, deadlineUtc ?? DateTime.UtcNow.AddMinutes(50), CancellationToken.None);
+            return result;
         }
 
         public void WithTenant(string tenantId, int retentionDays, SessionSummary[] sessions, string planTier = "free")

@@ -34,6 +34,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         private readonly AdminConfigurationService _adminConfig;
         private readonly ILogger<SessionRetentionFanoutService> _logger;
         private readonly Func<TimeSpan, CancellationToken, Task> _throttle;
+        private readonly Func<DateTime> _utcNow;
 
         public SessionRetentionFanoutService(
             IMaintenanceRepository maintenanceRepo,
@@ -41,13 +42,14 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             ISessionDeletionEnqueuer enqueuer,
             AdminConfigurationService adminConfig,
             ILogger<SessionRetentionFanoutService> logger)
-            : this(maintenanceRepo, tenantConfig, enqueuer, adminConfig, logger, throttle: Task.Delay)
+            : this(maintenanceRepo, tenantConfig, enqueuer, adminConfig, logger, throttle: Task.Delay, utcNow: () => DateTime.UtcNow)
         {
         }
 
         /// <summary>
         /// Test seam — tests inject a no-op throttle to make the rate-limit loop exercise its
-        /// counter without waiting 50ms × N in real time.
+        /// counter without waiting 50ms × N in real time, and a scripted clock so the run-budget
+        /// deadline can be crossed deterministically.
         /// </summary>
         internal SessionRetentionFanoutService(
             IMaintenanceRepository maintenanceRepo,
@@ -55,7 +57,8 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             ISessionDeletionEnqueuer enqueuer,
             AdminConfigurationService adminConfig,
             ILogger<SessionRetentionFanoutService> logger,
-            Func<TimeSpan, CancellationToken, Task> throttle)
+            Func<TimeSpan, CancellationToken, Task> throttle,
+            Func<DateTime>? utcNow = null)
         {
             _maintenanceRepo = maintenanceRepo;
             _tenantConfig = tenantConfig;
@@ -63,11 +66,14 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             _adminConfig = adminConfig;
             _logger = logger;
             _throttle = throttle;
+            _utcNow = utcNow ?? (() => DateTime.UtcNow);
         }
 
         /// <summary>
         /// Aggregate result of a single fanout invocation; used for the per-tenant audit + the
-        /// completion summary OpsEvent.
+        /// completion summary OpsEvent. The caller allocates it and <see cref="RunAsync"/> mutates
+        /// it incrementally (per tenant / per session), so watchdog snapshots taken while the
+        /// fanout is still running read real progress instead of zeros.
         /// </summary>
         public sealed class FanoutResult
         {
@@ -76,6 +82,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             public int SessionsSkipped { get; set; }       // already locked / poisoned / kill-switch / etc.
             public int RateLimitedTenants { get; set; }    // tenants that hit MaxEnqueuesPerTenantPerRun
             public bool AbortedByKillSwitch { get; set; }  // kill-switch flipped mid-run
+            public bool AbortedByBudget { get; set; }      // run-budget deadline crossed mid-run
         }
 
         /// <summary>
@@ -83,15 +90,31 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         /// Each tenant is processed independently; an exception on tenant A is logged and the loop
         /// continues with tenant B (matches the existing maintenance behaviour: per-tenant
         /// failures must not cascade).
+        /// <para>
+        /// <paramref name="deadlineUtc"/> is the run-budget cutoff: once crossed, the fanout stops
+        /// cleanly at the next tenant/session boundary and sets <see cref="FanoutResult.AbortedByBudget"/>
+        /// — the remaining backlog is picked up by the next run. This keeps the maintenance
+        /// function comfortably inside the Flex Consumption 60min <c>functionTimeout</c> instead of
+        /// being hard-aborted by the host mid-tenant.
+        /// </para>
         /// </summary>
-        public virtual async Task<FanoutResult> RunAsync(CancellationToken cancellationToken)
+        public virtual async Task RunAsync(FanoutResult result, DateTime deadlineUtc, CancellationToken cancellationToken)
         {
-            var result = new FanoutResult();
             var tenantIds = await _maintenanceRepo.GetAllTenantIdsAsync().ConfigureAwait(false);
 
             foreach (var tenantId in tenantIds)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+
+                // Run-budget check at the tenant boundary — cheapest clean stopping point.
+                if (_utcNow() >= deadlineUtc)
+                {
+                    _logger.LogWarning(
+                        "SessionRetentionFanout: run budget exhausted — halting before tenant {TenantId} (deadline {Deadline:o})",
+                        tenantId, deadlineUtc);
+                    result.AbortedByBudget = true;
+                    break;
+                }
 
                 // Per-tenant kill-switch check so a flip-ON mid-run halts the remaining tenants.
                 // The maintenance function gates entry; this gates iteration.
@@ -106,7 +129,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
 
                 try
                 {
-                    await RunForTenantAsync(tenantId, result, cancellationToken).ConfigureAwait(false);
+                    await RunForTenantAsync(tenantId, deadlineUtc, result, cancellationToken).ConfigureAwait(false);
                     result.TenantsProcessed++;
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -118,22 +141,20 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                     _logger.LogError(ex, "SessionRetentionFanout failed for tenant {TenantId} — continuing with next tenant", tenantId);
                 }
 
-                // The inner loop sets this when the producer's Step 0 reports KillSwitchActive
-                // mid-tenant. That's the authoritative fail-closed outcome — stop touching the
-                // remaining tenants instead of relying on the next pre-check to catch the flip.
-                if (result.AbortedByKillSwitch)
+                // The inner loop sets these when the producer's Step 0 reports KillSwitchActive
+                // mid-tenant, or when the budget deadline is crossed mid-tenant. Both are
+                // authoritative stop signals — don't touch the remaining tenants.
+                if (result.AbortedByKillSwitch || result.AbortedByBudget)
                 {
                     _logger.LogWarning(
-                        "SessionRetentionFanout: aborting outer loop after tenant {TenantId} reported KillSwitchActive from producer",
-                        tenantId);
+                        "SessionRetentionFanout: aborting outer loop after tenant {TenantId} (killSwitch={KillSwitch}, budget={Budget})",
+                        tenantId, result.AbortedByKillSwitch, result.AbortedByBudget);
                     break;
                 }
             }
-
-            return result;
         }
 
-        private async Task RunForTenantAsync(string tenantId, FanoutResult result, CancellationToken cancellationToken)
+        private async Task RunForTenantAsync(string tenantId, DateTime deadlineUtc, FanoutResult result, CancellationToken cancellationToken)
         {
             var config = await _tenantConfig.GetConfigurationAsync(tenantId).ConfigureAwait(false);
             // Edition retention cap (fail-closed backstop): the stored value is clamped to the
@@ -200,6 +221,18 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                     break;
                 }
 
+                // Run-budget check per session — a single tenant's batch can take tens of
+                // minutes (manifest build ~7-25s per session), so the tenant-boundary check
+                // alone would not stop a run drifting into the host's hard functionTimeout.
+                if (_utcNow() >= deadlineUtc)
+                {
+                    _logger.LogWarning(
+                        "SessionRetentionFanout: run budget exhausted mid-tenant — halting at session {SessionId} of {TenantId}",
+                        session.SessionId, tenantId);
+                    result.AbortedByBudget = true;
+                    break;
+                }
+
                 // Per-session kill-switch check so an emergency flip-ON halts immediately instead
                 // of after the rest of this tenant's backlog. Uncached read — uniform behaviour
                 // across scaled-out instances within seconds.
@@ -224,12 +257,15 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                         "SessionRetentionFanout: producer reported KillSwitchActive — aborting at session {SessionId} of {TenantId}",
                         session.SessionId, tenantId);
                     skipped++;
+                    result.SessionsSkipped++;
                     result.AbortedByKillSwitch = true;
                     break;
                 }
 
-                if (outcome == SessionDeletionEnqueueOutcome.Enqueued) enqueued++;
-                else skipped++;
+                // Live counters on the shared result (in addition to the per-tenant locals used
+                // for the audit entry) so the maintenance watchdog reports real progress.
+                if (outcome == SessionDeletionEnqueueOutcome.Enqueued) { enqueued++; result.SessionsEnqueued++; }
+                else { skipped++; result.SessionsSkipped++; }
 
                 processed++;
 
@@ -252,9 +288,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                     tenantId, processed, skipped);
             }
 
-            result.SessionsEnqueued += enqueued;
-            result.SessionsSkipped += skipped;
-
+            // result.SessionsEnqueued / SessionsSkipped are already bumped live inside the loop.
             await _maintenanceRepo.LogAuditEntryAsync(
                 tenantId,
                 "SessionDeletionMaintenanceFanout",
@@ -272,6 +306,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                     { "Enqueued", enqueued.ToString() },
                     { "Skipped", skipped.ToString() },
                     { "AbortedByKillSwitch", result.AbortedByKillSwitch.ToString() },
+                    { "AbortedByBudget", result.AbortedByBudget.ToString() },
                 }).ConfigureAwait(false);
 
             _logger.LogInformation(

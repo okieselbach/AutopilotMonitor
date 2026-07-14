@@ -189,6 +189,17 @@ builder.Services.AddHostedService<AutopilotMonitor.Functions.Services.Deletion.S
 // retention fanout (V2 + legacy), manifest-blob TTL sweep, stale-Preparing GC, and stranded-
 // Queued detection. Independent cadence + kill-switch from the generic 2h Maintenance timer.
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Deletion.SessionRetentionFanoutService>();
+// Manual-trigger path: blob-lease lock store (serializes timer vs manual runs), fail-hard
+// queue producer for POST /api/global/session-deletions/maintenance/trigger, and the
+// BackgroundService worker that consumes trigger envelopes. The maintenance Function class is
+// registered explicitly so the worker can invoke the same RunCoreAsync body the timer uses.
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Deletion.SessionDeletionMaintenanceLockStore>();
+builder.Services.AddSingleton<
+    AutopilotMonitor.Functions.Services.Deletion.ISessionDeletionMaintenanceTriggerProducer,
+    AutopilotMonitor.Functions.Services.Deletion.AzureQueueSessionDeletionMaintenanceTriggerProducer>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Functions.Maintenance.SessionDeletionMaintenanceFunction>();
+builder.Services.AddHostedService<
+    AutopilotMonitor.Functions.Services.Deletion.SessionDeletionMaintenanceQueueWorker>();
 
 // Tenant-offboarding cascade worker (Plan Rev 9). Consumes per-tenant envelopes off
 // `tenant-offboarding`, drives the §3 Phase 2 sequence (cascade enqueue → drain → SafeWipe →

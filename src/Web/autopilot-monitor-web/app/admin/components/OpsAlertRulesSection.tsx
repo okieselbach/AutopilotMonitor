@@ -27,6 +27,13 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     "SessionDeletionMaintenanceLongRunningSevere",
     "SessionDeletionMaintenanceFailed",
     "SessionDeletionMaintenanceFanoutSkipped",
+    // Run lifecycle + 50min run budget + lease serialization (manual-trigger feature):
+    // Started marks run begin (timer or manual, details.triggeredBy), BudgetExceeded is the
+    // clean self-stop at the 50min budget (Warning), SkippedLocked means another run held the
+    // maintenance lease. Backend helpers RecordSessionDeletionMaintenance{Started,BudgetExceeded,SkippedLocked}Async.
+    "SessionDeletionMaintenanceStarted",
+    "SessionDeletionMaintenanceBudgetExceeded",
+    "SessionDeletionMaintenanceSkippedLocked",
     "SessionDeletionStrandedQueued",
     // PR-B audit consolidation: the per-session deletion_poisoned tenant-audit moved here so
     // tenant admins see only the lifecycle endpoints (deletion_started/completed/restored).

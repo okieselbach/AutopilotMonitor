@@ -112,8 +112,39 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         // ── Cascade-Delete Maintenance (Plan §5 PR6 / §16 R14) ─────────────────
-        // Four event types dispatched by SessionDeletionMaintenanceFunction. Each is also
+        // Event types dispatched by SessionDeletionMaintenanceFunction: Started, LongRunning,
+        // LongRunningSevere, BudgetExceeded, SkippedLocked, Failed, Completed, FanoutSkipped
+        // (+ StrandedQueued / Poisoned from the GCs and the cascade worker). Each is also
         // listed in OpsAlertRulesSection.tsx OPS_EVENT_TYPES (memory feedback_ops_event_types_dual_register).
+
+        /// <summary>
+        /// Run started (timer tick or manual trigger). Emitted after the maintenance lease was
+        /// acquired, so a lease-skip never masquerades as an active run — the Session Cleanup
+        /// UI banner treats "latest Started newer than latest Completed/Failed" as run-active.
+        /// </summary>
+        public Task RecordSessionDeletionMaintenanceStartedAsync(string triggeredBy)
+            => WriteAsync(OpsEventCategory.Maintenance, "SessionDeletionMaintenanceStarted", OpsEventSeverity.Info,
+                $"SessionDeletionMaintenance run started (triggered by {triggeredBy})",
+                null, "System.Maintenance", new { triggeredBy });
+
+        /// <summary>
+        /// The retention fanout stopped cleanly at the run-budget deadline. Not an error: the
+        /// remaining backlog is picked up by the next run (12h cadence) or a manual trigger.
+        /// Paired with a Completed event whose details carry <c>abortedByBudget=true</c>.
+        /// </summary>
+        public Task RecordSessionDeletionMaintenanceBudgetExceededAsync(int budgetMinutes, int tenantsProcessed, int sessionsEnqueued)
+            => WriteAsync(OpsEventCategory.Maintenance, "SessionDeletionMaintenanceBudgetExceeded", OpsEventSeverity.Warning,
+                $"SessionDeletionMaintenance stopped at the {budgetMinutes}min run budget — tenants={tenantsProcessed} enqueued={sessionsEnqueued}; remaining backlog resumes on the next run",
+                null, "System.Maintenance", new { budgetMinutes, tenantsProcessed, sessionsEnqueued });
+
+        /// <summary>
+        /// A run (timer or manual) was skipped because another run holds the session-deletion
+        /// maintenance lease. Mirrors <c>RecordCriticalTableBackupSkippedLockedAsync</c>.
+        /// </summary>
+        public Task RecordSessionDeletionMaintenanceSkippedLockedAsync(string triggeredBy)
+            => WriteAsync(OpsEventCategory.Maintenance, "SessionDeletionMaintenanceSkippedLocked", OpsEventSeverity.Info,
+                $"SessionDeletionMaintenance skipped — another run holds the maintenance lease (triggeredBy={triggeredBy})",
+                null, "System.Maintenance", new { reason = "lease held by another run", triggeredBy });
 
         /// <summary>Watchdog: maintenance run still in flight 30 minutes after start. Warning-level early signal.</summary>
         public Task RecordSessionDeletionMaintenanceLongRunningAsync(int elapsedMinutes, int tenantsProcessed, int sessionsEnqueued)
@@ -196,13 +227,13 @@ namespace AutopilotMonitor.Functions.Services
         public Task RecordSessionDeletionMaintenanceCompletedAsync(
             bool killSwitchActive, int tenantsProcessed, int sessionsEnqueued,
             int sessionsSkipped, int rateLimitedTenants, int blobsTtlGced, int preparingRowsCleared,
-            int strandedQueuedDetected, int durationMs, bool abortedByKillSwitch)
+            int strandedQueuedDetected, int durationMs, bool abortedByKillSwitch, bool abortedByBudget)
             => WriteAsync(OpsEventCategory.Maintenance, "SessionDeletionMaintenanceCompleted", OpsEventSeverity.Info,
-                $"SessionDeletionMaintenance completed in {durationMs}ms — tenants={tenantsProcessed} enqueued={sessionsEnqueued} skipped={sessionsSkipped} blobsTtlGced={blobsTtlGced} preparingCleared={preparingRowsCleared} stranded={strandedQueuedDetected} killSwitch={killSwitchActive}",
+                $"SessionDeletionMaintenance completed in {durationMs}ms — tenants={tenantsProcessed} enqueued={sessionsEnqueued} skipped={sessionsSkipped} blobsTtlGced={blobsTtlGced} preparingCleared={preparingRowsCleared} stranded={strandedQueuedDetected} killSwitch={killSwitchActive} abortedByBudget={abortedByBudget}",
                 null, "System.Maintenance", new {
                     killSwitchActive, tenantsProcessed, sessionsEnqueued,
                     sessionsSkipped, rateLimitedTenants, blobsTtlGced, preparingRowsCleared,
-                    strandedQueuedDetected, durationMs, abortedByKillSwitch,
+                    strandedQueuedDetected, durationMs, abortedByKillSwitch, abortedByBudget,
                 });
 
         /// <summary>

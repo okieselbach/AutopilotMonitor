@@ -4,10 +4,12 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Functions.Services.Backup;
 using AutopilotMonitor.Functions.Services.Deletion;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models.Deletion;
+using Azure.Storage.Blobs.Specialized;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 
@@ -32,9 +34,18 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance
     /// <para>
     /// 30-minute watchdog emits a Warning OpsEvent; 60-minute watchdog escalates to Error. The
     /// 60-minute mark matches the Flex Consumption hard <c>functionTimeout</c> (host.json) so the
-    /// operator gets a Telegram alert before the Azure runtime abort. Cron <c>0 0 */12 * * *</c>
-    /// (every 12h at 00:00 / 12:00 UTC) — const per repo convention; change-and-redeploy if you
-    /// need a different cadence.
+    /// operator gets a Telegram alert before the Azure runtime abort. The retention fanout stops
+    /// itself at the <see cref="RunBudget"/> (50min) deadline so a growing backlog degrades into
+    /// a clean <c>BudgetExceeded</c> + partial sweep instead of a host abort. Cron
+    /// <c>0 0 */12 * * *</c> (every 12h at 00:00 / 12:00 UTC) — const per repo convention;
+    /// change-and-redeploy if you need a different cadence.
+    /// </para>
+    /// <para>
+    /// Runs are serialized by a blob lease (<see cref="SessionDeletionMaintenanceLockStore"/>):
+    /// the timer and the manual trigger (<c>POST /api/global/session-deletions/maintenance/trigger</c>
+    /// → <see cref="SessionDeletionMaintenanceQueueWorker"/>) both enter through
+    /// <see cref="RunCoreAsync"/>, which acquires the lease first and emits
+    /// <c>SkippedLocked</c> when another run is active.
     /// </para>
     /// </summary>
     public sealed class SessionDeletionMaintenanceFunction
@@ -58,15 +69,21 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance
         internal static readonly TimeSpan WatchdogWarning = TimeSpan.FromMinutes(30);
         internal static readonly TimeSpan WatchdogSevere  = TimeSpan.FromMinutes(60);
 
+        // Run budget for the retention fanout (matches the critical-table backup convention):
+        // stop cleanly at 50min so the 60min host functionTimeout never aborts us mid-tenant.
+        internal static readonly TimeSpan RunBudget = TimeSpan.FromMinutes(50);
+
         private readonly TableStorageService _storage;
         private readonly BlobStorageService _blob;
         private readonly AdminConfigurationService _adminConfig;
         private readonly OpsEventService _opsEvents;
         private readonly IMaintenanceRepository _maintenanceRepo;
         private readonly SessionRetentionFanoutService _fanout;
+        private readonly SessionDeletionMaintenanceLockStore _lockStore;
         private readonly ILogger<SessionDeletionMaintenanceFunction> _logger;
         private readonly TimeSpan _watchdogWarning;
         private readonly TimeSpan _watchdogSevere;
+        private readonly TimeSpan _runBudget;
 
         public SessionDeletionMaintenanceFunction(
             TableStorageService storage,
@@ -75,14 +92,16 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance
             OpsEventService opsEvents,
             IMaintenanceRepository maintenanceRepo,
             SessionRetentionFanoutService fanout,
+            SessionDeletionMaintenanceLockStore lockStore,
             ILogger<SessionDeletionMaintenanceFunction> logger)
-            : this(storage, blob, adminConfig, opsEvents, maintenanceRepo, fanout, logger, WatchdogWarning, WatchdogSevere)
+            : this(storage, blob, adminConfig, opsEvents, maintenanceRepo, fanout, lockStore, logger, WatchdogWarning, WatchdogSevere, RunBudget)
         {
         }
 
         /// <summary>
-        /// Test seam: lets unit tests inject sub-second watchdog thresholds so the function can be
-        /// driven end-to-end in milliseconds. Production code uses the static defaults (30min / 60min).
+        /// Test seam: lets unit tests inject sub-second watchdog thresholds and run budget so the
+        /// function can be driven end-to-end in milliseconds. Production code uses the static
+        /// defaults (30min / 60min / 50min).
         /// </summary>
         internal SessionDeletionMaintenanceFunction(
             TableStorageService storage,
@@ -91,9 +110,11 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance
             OpsEventService opsEvents,
             IMaintenanceRepository maintenanceRepo,
             SessionRetentionFanoutService fanout,
+            SessionDeletionMaintenanceLockStore lockStore,
             ILogger<SessionDeletionMaintenanceFunction> logger,
             TimeSpan watchdogWarning,
-            TimeSpan watchdogSevere)
+            TimeSpan watchdogSevere,
+            TimeSpan runBudget)
         {
             _storage = storage;
             _blob = blob;
@@ -101,63 +122,95 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance
             _opsEvents = opsEvents;
             _maintenanceRepo = maintenanceRepo;
             _fanout = fanout;
+            _lockStore = lockStore;
             _logger = logger;
             _watchdogWarning = watchdogWarning;
             _watchdogSevere = watchdogSevere;
+            _runBudget = runBudget;
         }
 
         [Function("SessionDeletionMaintenance")]
         public async Task Run([TimerTrigger(Cron)] object timer, CancellationToken cancellationToken)
         {
-            await RunCoreAsync(cancellationToken);
+            await RunCoreAsync("Timer", cancellationToken);
         }
 
         /// <summary>
         /// Testable core. Separated from the TimerTrigger entry so unit tests can drive it
-        /// directly without a TimerInfo / FunctionContext.
+        /// directly without a TimerInfo / FunctionContext, and shared with the manual-trigger
+        /// queue worker. <paramref name="triggeredBy"/> is <c>"Timer"</c> for the cron path and
+        /// the requesting Global Admin's identifier for manual runs.
         /// </summary>
-        internal async Task RunCoreAsync(CancellationToken cancellationToken)
+        internal async Task RunCoreAsync(string triggeredBy, CancellationToken cancellationToken)
         {
-            _logger.LogInformation("SessionDeletionMaintenance: tick started at {Now:o}", DateTime.UtcNow);
-            var sw = Stopwatch.StartNew();
+            _logger.LogInformation("SessionDeletionMaintenance: tick started at {Now:o} (triggeredBy={TriggeredBy})", DateTime.UtcNow, triggeredBy);
 
-            using var watchdogCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            int sessionsEnqueuedSoFar = 0;
-            int tenantsProcessedSoFar = 0;
+            // Serialize timer vs manual trigger vs second host instance. Acquired BEFORE the
+            // Started OpsEvent so a lease-skip never masquerades as an active run to the UI.
+            BlobLeaseClient lease;
+            try
+            {
+                lease = await _lockStore.AcquireLeaseAsync(ct: cancellationToken);
+            }
+            catch (LeaseHeldException)
+            {
+                _logger.LogWarning(
+                    "SessionDeletionMaintenance: lease held by another run — skipping (triggeredBy={TriggeredBy})",
+                    triggeredBy);
+                await _opsEvents.RecordSessionDeletionMaintenanceSkippedLockedAsync(triggeredBy);
+                return;
+            }
+
+            var sw = Stopwatch.StartNew();
+            var deadlineUtc = DateTime.UtcNow + _runBudget;
+
+            // handlerCts: cancelled by the lease holder on renewal failure so the run never
+            // continues rogue under an expired lease. The body + watchdogs run off this token.
+            using var handlerCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var leaseHolder = new MaintenanceLeaseHolder(lease, handlerCts, _logger);
+            using var watchdogCts = CancellationTokenSource.CreateLinkedTokenSource(handlerCts.Token);
+
+            // Live progress object: the fanout mutates it per tenant / per session, so the
+            // watchdog snapshots below report real progress mid-run (previously the counters
+            // were only assigned after the fanout returned — every warning showed 0/0).
+            var fanoutResult = new SessionRetentionFanoutService.FanoutResult();
 
             // Watchdogs: each one auto-cancels when the body completes (we cancel watchdogCts in
             // the finally). The await Task.WhenAny inside RunWatchdogAsync only emits if the body
             // is still running at the threshold.
-            var watchdogWarn = RunWatchdogAsync(_watchdogWarning, severe: false, () => (tenantsProcessedSoFar, sessionsEnqueuedSoFar), watchdogCts.Token);
-            var watchdogSevere = RunWatchdogAsync(_watchdogSevere, severe: true, () => (tenantsProcessedSoFar, sessionsEnqueuedSoFar), watchdogCts.Token);
+            var watchdogWarn = RunWatchdogAsync(_watchdogWarning, severe: false, () => (fanoutResult.TenantsProcessed, fanoutResult.SessionsEnqueued), watchdogCts.Token);
+            var watchdogSevere = RunWatchdogAsync(_watchdogSevere, severe: true, () => (fanoutResult.TenantsProcessed, fanoutResult.SessionsEnqueued), watchdogCts.Token);
 
             try
             {
+                await _opsEvents.RecordSessionDeletionMaintenanceStartedAsync(triggeredBy);
+
+                var ct = handlerCts.Token;
+
                 // PR5 finding 1: uncached, fail-closed read so a flip-ON is honored within seconds
                 // across all Function-host instances.
                 var killSwitchActive = await _adminConfig.IsSessionDeletionKillSwitchActiveAsync();
 
                 // (1) Manifest-Blob-TTL sweep — runs even when kill-switch=true (Plan PR6 step 3).
-                var blobsTtlGced = await SweepManifestBlobsAsync(cancellationToken);
+                var blobsTtlGced = await SweepManifestBlobsAsync(ct);
 
                 // (2) Stale-Preparing GC — runs even when kill-switch=true.
-                var preparingRowsCleared = await GcStalePreparingAsync(cancellationToken);
+                var preparingRowsCleared = await GcStalePreparingAsync(ct);
 
                 // (3) Stranded-Queued detection (alert-only) — runs even when kill-switch=true.
-                var strandedQueuedDetected = await DetectStrandedQueuedAsync(cancellationToken);
+                var strandedQueuedDetected = await DetectStrandedQueuedAsync(ct);
 
                 // (3b) Tombstone-marker pruning — physically remove rows past their ExpiresAt
                 // (Codex F3). Runs even when kill-switch=true: these markers are short-lived
                 // race-shields, not policy-bound deletion artefacts. Failures are non-fatal
                 // because the in-flight Guard already treats expired markers as absent.
-                var tombstonesPruned = await PruneExpiredTombstonesAsync(cancellationToken);
+                var tombstonesPruned = await PruneExpiredTombstonesAsync(ct);
 
                 // (4) Retention fanout — skipped when kill-switch=true. Emit a Fanout-Skipped
                 // OpsEvent so the operator can fold the skip into the OpsEvents dashboard alongside
                 // the 30/60min watchdogs. PR6 follow-up F3: previously a LogAuditEntryAsync(null!)
                 // call that silently failed because the AuditLogs schema requires a non-null
                 // PartitionKey — OpsEvents tolerates null TenantId, so global-scope events live there.
-                SessionRetentionFanoutService.FanoutResult? fanoutResult = null;
                 if (killSwitchActive)
                 {
                     await _opsEvents.RecordSessionDeletionMaintenanceFanoutSkippedAsync(
@@ -165,32 +218,38 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance
                 }
                 else
                 {
-                    fanoutResult = await _fanout.RunAsync(cancellationToken);
-                    tenantsProcessedSoFar = fanoutResult.TenantsProcessed;
-                    sessionsEnqueuedSoFar = fanoutResult.SessionsEnqueued;
+                    await _fanout.RunAsync(fanoutResult, deadlineUtc, ct);
+
+                    if (fanoutResult.AbortedByBudget)
+                    {
+                        await _opsEvents.RecordSessionDeletionMaintenanceBudgetExceededAsync(
+                            (int)_runBudget.TotalMinutes, fanoutResult.TenantsProcessed, fanoutResult.SessionsEnqueued);
+                    }
                 }
 
                 // (5) Completion OpsEvent — same shape regardless of kill-switch state, so dashboards
                 // can fold both paths together. PR6 follow-up F3.
                 await _opsEvents.RecordSessionDeletionMaintenanceCompletedAsync(
                     killSwitchActive: killSwitchActive,
-                    tenantsProcessed: fanoutResult?.TenantsProcessed ?? 0,
-                    sessionsEnqueued: fanoutResult?.SessionsEnqueued ?? 0,
-                    sessionsSkipped: fanoutResult?.SessionsSkipped ?? 0,
-                    rateLimitedTenants: fanoutResult?.RateLimitedTenants ?? 0,
+                    tenantsProcessed: fanoutResult.TenantsProcessed,
+                    sessionsEnqueued: fanoutResult.SessionsEnqueued,
+                    sessionsSkipped: fanoutResult.SessionsSkipped,
+                    rateLimitedTenants: fanoutResult.RateLimitedTenants,
                     blobsTtlGced: blobsTtlGced,
                     preparingRowsCleared: preparingRowsCleared,
                     strandedQueuedDetected: strandedQueuedDetected,
                     durationMs: (int)sw.ElapsedMilliseconds,
-                    abortedByKillSwitch: fanoutResult?.AbortedByKillSwitch ?? false);
+                    abortedByKillSwitch: fanoutResult.AbortedByKillSwitch,
+                    abortedByBudget: fanoutResult.AbortedByBudget);
 
                 _logger.LogInformation(
-                    "SessionDeletionMaintenance: completed in {Ms}ms — killSwitch={KillSwitch} tenants={Tenants} enqueued={Enqueued} skipped={Skipped} blobs={Blobs} preparing={Preparing} stranded={Stranded} tombstones={Tombstones}",
+                    "SessionDeletionMaintenance: completed in {Ms}ms — killSwitch={KillSwitch} tenants={Tenants} enqueued={Enqueued} skipped={Skipped} blobs={Blobs} preparing={Preparing} stranded={Stranded} tombstones={Tombstones} abortedByBudget={Budget}",
                     sw.ElapsedMilliseconds, killSwitchActive,
-                    fanoutResult?.TenantsProcessed ?? 0,
-                    fanoutResult?.SessionsEnqueued ?? 0,
-                    fanoutResult?.SessionsSkipped ?? 0,
-                    blobsTtlGced, preparingRowsCleared, strandedQueuedDetected, tombstonesPruned);
+                    fanoutResult.TenantsProcessed,
+                    fanoutResult.SessionsEnqueued,
+                    fanoutResult.SessionsSkipped,
+                    blobsTtlGced, preparingRowsCleared, strandedQueuedDetected, tombstonesPruned,
+                    fanoutResult.AbortedByBudget);
             }
             catch (Exception ex)
             {
@@ -209,6 +268,10 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance
                 // Observe the watchdog tasks so the OperationCanceledException doesn't get
                 // surfaced as an unhandled exception in the host log.
                 try { await Task.WhenAll(watchdogWarn, watchdogSevere); } catch (OperationCanceledException) { /* expected */ }
+
+                // Release the lease LAST — the Failed/Completed OpsEvents above are written while
+                // the run is still exclusive, matching the backup worker's ordering.
+                await leaseHolder.DisposeAsync();
             }
         }
 
