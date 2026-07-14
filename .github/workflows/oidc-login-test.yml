@@ -1,0 +1,28 @@
+# TEMPORARY: proves the secret-less OIDC federated login works end-to-end.
+# Delete after the cross-tenant migration is verified (or keep as a cheap smoke test).
+name: OIDC Login Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  login-test:
+    runs-on: ubuntu-latest
+    name: Federated login + read check
+    steps:
+      - name: Login to Azure (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Prove identity and RBAC scope
+        run: |
+          az account show --query "{subscription:name, subscriptionId:id, tenantId:tenantId, user:user.name}" -o json
+          echo "--- function app visible with Contributor scope? ---"
+          az functionapp list --query "[].name" -o json
