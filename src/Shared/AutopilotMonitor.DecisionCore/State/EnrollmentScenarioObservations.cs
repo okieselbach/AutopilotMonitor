@@ -23,43 +23,15 @@ namespace AutopilotMonitor.DecisionCore.State
     /// </list>
     /// </para>
     /// </summary>
-    public sealed class EnrollmentScenarioObservations
+    public sealed record EnrollmentScenarioObservations
     {
-        public static readonly EnrollmentScenarioObservations Empty = new EnrollmentScenarioObservations(
-            shellCoreWhiteGloveSuccessSeen: null,
-            whiteGloveSealingPatternSeen: null,
-            aadUserJoinWithUserObserved: null,
-            skipUserEsp: null,
-            skipDeviceEsp: null,
-            espSyncFailureTimeoutMinutes: null,
-            espAllowContinueAnyway: null,
-            registrySelfDeployingProfile: null);
-
-        public EnrollmentScenarioObservations(
-            SignalFact<bool>? shellCoreWhiteGloveSuccessSeen,
-            SignalFact<bool>? whiteGloveSealingPatternSeen,
-            SignalFact<bool>? aadUserJoinWithUserObserved,
-            SignalFact<bool>? skipUserEsp,
-            SignalFact<bool>? skipDeviceEsp,
-            SignalFact<int>? espSyncFailureTimeoutMinutes,
-            SignalFact<bool>? espAllowContinueAnyway,
-            SignalFact<bool>? registrySelfDeployingProfile)
-        {
-            ShellCoreWhiteGloveSuccessSeen = shellCoreWhiteGloveSuccessSeen;
-            WhiteGloveSealingPatternSeen = whiteGloveSealingPatternSeen;
-            AadUserJoinWithUserObserved = aadUserJoinWithUserObserved;
-            SkipUserEsp = skipUserEsp;
-            SkipDeviceEsp = skipDeviceEsp;
-            EspSyncFailureTimeoutMinutes = espSyncFailureTimeoutMinutes;
-            EspAllowContinueAnyway = espAllowContinueAnyway;
-            RegistrySelfDeployingProfile = registrySelfDeployingProfile;
-        }
+        public static readonly EnrollmentScenarioObservations Empty = new EnrollmentScenarioObservations();
 
         /// <summary>True once <see cref="Signals.DecisionSignalKind.WhiteGloveShellCoreSuccess"/> has fired.</summary>
-        public SignalFact<bool>? ShellCoreWhiteGloveSuccessSeen { get; }
+        public SignalFact<bool>? ShellCoreWhiteGloveSuccessSeen { get; init; }
 
         /// <summary>True once <see cref="Signals.DecisionSignalKind.WhiteGloveSealingPatternDetected"/> has fired.</summary>
-        public SignalFact<bool>? WhiteGloveSealingPatternSeen { get; }
+        public SignalFact<bool>? WhiteGloveSealingPatternSeen { get; init; }
 
         /// <summary>
         /// Payload-carrying observation from <see cref="Signals.DecisionSignalKind.AadUserJoinedLate"/>.
@@ -68,13 +40,13 @@ namespace AutopilotMonitor.DecisionCore.State
         /// Independent of <see cref="EnrollmentJoinMode"/>, which reflects the
         /// <c>SessionStarted</c> registry hint.
         /// </summary>
-        public SignalFact<bool>? AadUserJoinWithUserObserved { get; }
+        public SignalFact<bool>? AadUserJoinWithUserObserved { get; init; }
 
         /// <summary>Raw payload half-fact from <see cref="Signals.DecisionSignalKind.EspConfigDetected"/>.</summary>
-        public SignalFact<bool>? SkipUserEsp { get; }
+        public SignalFact<bool>? SkipUserEsp { get; init; }
 
         /// <summary>Raw payload half-fact from <see cref="Signals.DecisionSignalKind.EspConfigDetected"/>.</summary>
-        public SignalFact<bool>? SkipDeviceEsp { get; }
+        public SignalFact<bool>? SkipDeviceEsp { get; init; }
 
         /// <summary>
         /// FirstSync <c>SyncFailureTimeout</c> in minutes — Intune ESP setting
@@ -83,7 +55,7 @@ namespace AutopilotMonitor.DecisionCore.State
         /// with the actual timeout instead of a generic "ESP timed out" string.
         /// Set-once from <see cref="Signals.DecisionSignalKind.EspConfigDetected"/>.
         /// </summary>
-        public SignalFact<int>? EspSyncFailureTimeoutMinutes { get; }
+        public SignalFact<int>? EspSyncFailureTimeoutMinutes { get; init; }
 
         /// <summary>
         /// Decoded bit 4 of the FirstSync <c>BlockInStatusPage</c> bitmask — Intune ESP
@@ -94,7 +66,7 @@ namespace AutopilotMonitor.DecisionCore.State
         /// reaching the desktop. Set-once from
         /// <see cref="Signals.DecisionSignalKind.EspConfigDetected"/>.
         /// </summary>
-        public SignalFact<bool>? EspAllowContinueAnyway { get; }
+        public SignalFact<bool>? EspAllowContinueAnyway { get; init; }
 
         /// <summary>
         /// Raw registry fact from <see cref="Signals.DecisionSignalKind.EnrollmentFactsObserved"/>
@@ -106,110 +78,46 @@ namespace AutopilotMonitor.DecisionCore.State
         /// behavioural <c>device_only_esp_detection</c> deadline (session 62e603c9). <c>null</c>
         /// means the fact was never observed and must NOT be treated as a veto.
         /// </summary>
-        public SignalFact<bool>? RegistrySelfDeployingProfile { get; }
+        public SignalFact<bool>? RegistrySelfDeployingProfile { get; init; }
 
         public EnrollmentScenarioObservations WithShellCoreWhiteGloveSuccessSeen(long sourceSignalOrdinal) =>
             ShellCoreWhiteGloveSuccessSeen != null
                 ? this
-                : new EnrollmentScenarioObservations(
-                    new SignalFact<bool>(true, sourceSignalOrdinal),
-                    WhiteGloveSealingPatternSeen,
-                    AadUserJoinWithUserObserved,
-                    SkipUserEsp,
-                    SkipDeviceEsp,
-                    EspSyncFailureTimeoutMinutes,
-                    EspAllowContinueAnyway,
-                    RegistrySelfDeployingProfile);
+                : this with { ShellCoreWhiteGloveSuccessSeen = new SignalFact<bool>(true, sourceSignalOrdinal) };
 
         public EnrollmentScenarioObservations WithWhiteGloveSealingPatternSeen(long sourceSignalOrdinal) =>
             WhiteGloveSealingPatternSeen != null
                 ? this
-                : new EnrollmentScenarioObservations(
-                    ShellCoreWhiteGloveSuccessSeen,
-                    new SignalFact<bool>(true, sourceSignalOrdinal),
-                    AadUserJoinWithUserObserved,
-                    SkipUserEsp,
-                    SkipDeviceEsp,
-                    EspSyncFailureTimeoutMinutes,
-                    EspAllowContinueAnyway,
-                    RegistrySelfDeployingProfile);
+                : this with { WhiteGloveSealingPatternSeen = new SignalFact<bool>(true, sourceSignalOrdinal) };
 
         public EnrollmentScenarioObservations WithAadUserJoinWithUserObserved(bool value, long sourceSignalOrdinal) =>
             AadUserJoinWithUserObserved != null
                 ? this
-                : new EnrollmentScenarioObservations(
-                    ShellCoreWhiteGloveSuccessSeen,
-                    WhiteGloveSealingPatternSeen,
-                    new SignalFact<bool>(value, sourceSignalOrdinal),
-                    SkipUserEsp,
-                    SkipDeviceEsp,
-                    EspSyncFailureTimeoutMinutes,
-                    EspAllowContinueAnyway,
-                    RegistrySelfDeployingProfile);
+                : this with { AadUserJoinWithUserObserved = new SignalFact<bool>(value, sourceSignalOrdinal) };
 
         public EnrollmentScenarioObservations WithSkipUserEsp(bool value, long sourceSignalOrdinal) =>
             SkipUserEsp != null
                 ? this
-                : new EnrollmentScenarioObservations(
-                    ShellCoreWhiteGloveSuccessSeen,
-                    WhiteGloveSealingPatternSeen,
-                    AadUserJoinWithUserObserved,
-                    new SignalFact<bool>(value, sourceSignalOrdinal),
-                    SkipDeviceEsp,
-                    EspSyncFailureTimeoutMinutes,
-                    EspAllowContinueAnyway,
-                    RegistrySelfDeployingProfile);
+                : this with { SkipUserEsp = new SignalFact<bool>(value, sourceSignalOrdinal) };
 
         public EnrollmentScenarioObservations WithSkipDeviceEsp(bool value, long sourceSignalOrdinal) =>
             SkipDeviceEsp != null
                 ? this
-                : new EnrollmentScenarioObservations(
-                    ShellCoreWhiteGloveSuccessSeen,
-                    WhiteGloveSealingPatternSeen,
-                    AadUserJoinWithUserObserved,
-                    SkipUserEsp,
-                    new SignalFact<bool>(value, sourceSignalOrdinal),
-                    EspSyncFailureTimeoutMinutes,
-                    EspAllowContinueAnyway,
-                    RegistrySelfDeployingProfile);
+                : this with { SkipDeviceEsp = new SignalFact<bool>(value, sourceSignalOrdinal) };
 
         public EnrollmentScenarioObservations WithEspSyncFailureTimeoutMinutes(int value, long sourceSignalOrdinal) =>
             EspSyncFailureTimeoutMinutes != null
                 ? this
-                : new EnrollmentScenarioObservations(
-                    ShellCoreWhiteGloveSuccessSeen,
-                    WhiteGloveSealingPatternSeen,
-                    AadUserJoinWithUserObserved,
-                    SkipUserEsp,
-                    SkipDeviceEsp,
-                    new SignalFact<int>(value, sourceSignalOrdinal),
-                    EspAllowContinueAnyway,
-                    RegistrySelfDeployingProfile);
+                : this with { EspSyncFailureTimeoutMinutes = new SignalFact<int>(value, sourceSignalOrdinal) };
 
         public EnrollmentScenarioObservations WithEspAllowContinueAnyway(bool value, long sourceSignalOrdinal) =>
             EspAllowContinueAnyway != null
                 ? this
-                : new EnrollmentScenarioObservations(
-                    ShellCoreWhiteGloveSuccessSeen,
-                    WhiteGloveSealingPatternSeen,
-                    AadUserJoinWithUserObserved,
-                    SkipUserEsp,
-                    SkipDeviceEsp,
-                    EspSyncFailureTimeoutMinutes,
-                    new SignalFact<bool>(value, sourceSignalOrdinal),
-                    RegistrySelfDeployingProfile);
+                : this with { EspAllowContinueAnyway = new SignalFact<bool>(value, sourceSignalOrdinal) };
 
         public EnrollmentScenarioObservations WithRegistrySelfDeployingProfile(bool value, long sourceSignalOrdinal) =>
             RegistrySelfDeployingProfile != null
                 ? this
-                : new EnrollmentScenarioObservations(
-                    ShellCoreWhiteGloveSuccessSeen,
-                    WhiteGloveSealingPatternSeen,
-                    AadUserJoinWithUserObserved,
-                    SkipUserEsp,
-                    SkipDeviceEsp,
-                    EspSyncFailureTimeoutMinutes,
-                    EspAllowContinueAnyway,
-                    new SignalFact<bool>(value, sourceSignalOrdinal));
+                : this with { RegistrySelfDeployingProfile = new SignalFact<bool>(value, sourceSignalOrdinal) };
     }
 }

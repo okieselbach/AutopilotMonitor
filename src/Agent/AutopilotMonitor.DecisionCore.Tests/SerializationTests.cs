@@ -474,6 +474,43 @@ namespace AutopilotMonitor.DecisionCore.Tests
             Assert.Equal(7, p.EvidenceOrdinal);
             Assert.Equal("test_round_trip", p.Reason);
         }
+
+        [Fact]
+        public void ScenarioObservations_stateRoundtripsThroughStateSerializer()
+        {
+            // Snapshot-compat pin for the record conversion (2026-07-14): observations were a
+            // ctor-based class before; the record deserializes via init setters instead. The
+            // persisted JSON shape (property names + SignalFact {Value, SourceSignalOrdinal})
+            // is identical, so on-disk snapshots written by either shape must rehydrate — this
+            // round-trip guards facts, ordinals, and unset-stays-null across that seam.
+            var initial = DecisionState.CreateInitial("s", "t");
+            var state = initial
+                .ToBuilder()
+                .Apply(b => b.ScenarioObservations = b.ScenarioObservations
+                    .WithShellCoreWhiteGloveSuccessSeen(sourceSignalOrdinal: 3)
+                    .WithSkipUserEsp(value: true, sourceSignalOrdinal: 4)
+                    .WithEspSyncFailureTimeoutMinutes(value: 90, sourceSignalOrdinal: 5)
+                    .WithRegistrySelfDeployingProfile(value: false, sourceSignalOrdinal: 6))
+                .Build();
+
+            var json = StateSerializer.Serialize(state);
+            var o = StateSerializer.Deserialize(json).ScenarioObservations;
+
+            Assert.True(o.ShellCoreWhiteGloveSuccessSeen!.Value);
+            Assert.Equal(3, o.ShellCoreWhiteGloveSuccessSeen!.SourceSignalOrdinal);
+            Assert.True(o.SkipUserEsp!.Value);
+            Assert.Equal(4, o.SkipUserEsp!.SourceSignalOrdinal);
+            Assert.Equal(90, o.EspSyncFailureTimeoutMinutes!.Value);
+            Assert.Equal(5, o.EspSyncFailureTimeoutMinutes!.SourceSignalOrdinal);
+            Assert.False(o.RegistrySelfDeployingProfile!.Value);
+            Assert.Equal(6, o.RegistrySelfDeployingProfile!.SourceSignalOrdinal);
+
+            // Never-observed facts must rehydrate as null (null ≠ veto — session 62e603c9).
+            Assert.Null(o.WhiteGloveSealingPatternSeen);
+            Assert.Null(o.AadUserJoinWithUserObserved);
+            Assert.Null(o.SkipDeviceEsp);
+            Assert.Null(o.EspAllowContinueAnyway);
+        }
     }
 
     internal static class DecisionStateBuilderTestExtensions
