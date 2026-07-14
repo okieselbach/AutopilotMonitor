@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <AzureFunctionsVersion>V4</AzureFunctionsVersion>
     <OutputType>Exe</OutputType>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -46,14 +46,9 @@
     <PackageReference Include="Azure.Storage.Queues" Version="12.25.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="Microsoft.Identity.Web" Version="4.3.0" />
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.11" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Http.Polly" Version="8.0.25" />
     <PackageReference Include="Resend" Version="0.2.1" />
-    <!-- Pin to override transitive 8.0.0 / 8.0.1 with HIGH severity advisories
-         (GHSA-447r-wph3-92pm in System.Formats.Asn1; GHSA-37gx-xxp4-5rgx +
-         GHSA-w3x6-4m5h-cxqf in System.Security.Cryptography.Xml). -->
-    <PackageReference Include="System.Formats.Asn1" Version="8.0.2" />
-    <PackageReference Include="System.Security.Cryptography.Xml" Version="8.0.3" />
   </ItemGroup>
 
   <ItemGroup>
