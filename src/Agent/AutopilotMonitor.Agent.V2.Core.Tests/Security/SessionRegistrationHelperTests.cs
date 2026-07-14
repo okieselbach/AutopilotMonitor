@@ -139,6 +139,30 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
             Assert.True(captured.IsUserDriven);
         }
 
+        [Fact]
+        public async Task Uses_supplied_device_hardware_instead_of_querying_wmi()
+        {
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp);
+            var config = NewConfig();
+
+            SessionRegistration captured = null!;
+            var apiClient = new FakeApiClient(
+                _ => new RegisterSessionResponse { Success = true, SessionId = config.SessionId },
+                onRegister: reg => captured = reg);
+
+            // Simulates the auth bundle's already-hardened hardware read being passed through.
+            // The body must carry these verbatim rather than re-reading WMI on the test host.
+            await SessionRegistrationHelper.RegisterWithRetryAsync(
+                apiClient, config, agentVersion: "9.9.9", logger: logger,
+                deviceHardware: ("Contoso Devices", "Contoso Book 3", "SN-TEST-12345"));
+
+            Assert.NotNull(captured);
+            Assert.Equal("Contoso Devices", captured.Manufacturer);
+            Assert.Equal("Contoso Book 3", captured.Model);
+            Assert.Equal("SN-TEST-12345", captured.SerialNumber);
+        }
+
         // Subclasses the real BackendApiClient so we inherit its public API but intercept the
         // single virtual entry point that matters. BackendApiClient's ctor is protected-less in
         // V2 (`public BackendApiClient(string baseUrl, ...)` + `protected BackendApiClient()`);

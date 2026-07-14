@@ -40,7 +40,10 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 logger: logger,
                 authFailureTracker: auth.AuthFailureTracker,
                 emergencyReporter: auth.EmergencyReporter,
-                onTerminalTransportFailure: ex => DiagnoseTerminalTransportFailure(ex, auth, logger))
+                onTerminalTransportFailure: ex => DiagnoseTerminalTransportFailure(ex, auth, logger),
+                // Reuse the single hardened hardware read from the auth bundle so the session row
+                // matches the security headers the backend validated against (no second WMI query).
+                deviceHardware: (auth.Manufacturer, auth.Model, auth.SerialNumber))
                 .GetAwaiter().GetResult();
 
             if (registrationResult.Outcome != SessionRegistrationOutcome.Succeeded)

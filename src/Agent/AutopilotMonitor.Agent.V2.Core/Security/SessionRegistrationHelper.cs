@@ -55,14 +55,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             AuthFailureTracker authFailureTracker = null,
             EmergencyReporter emergencyReporter = null,
             Func<int, Task> backoffDelay = null,
-            Func<Exception, Task> onTerminalTransportFailure = null)
+            Func<Exception, Task> onTerminalTransportFailure = null,
+            (string Manufacturer, string Model, string SerialNumber)? deviceHardware = null)
         {
             if (apiClient == null) throw new ArgumentNullException(nameof(apiClient));
             if (agentConfig == null) throw new ArgumentNullException(nameof(agentConfig));
             if (logger == null) throw new ArgumentNullException(nameof(logger));
 
             backoffDelay ??= DefaultBackoffDelay;
-            var registration = BuildRegistration(agentConfig, agentVersion);
+            var registration = BuildRegistration(agentConfig, agentVersion, deviceHardware);
             string lastError = null;
             Exception lastException = null;
 
@@ -142,15 +143,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         private static Task DefaultBackoffDelay(int attempt)
             => Task.Delay(((int)Math.Pow(2, attempt)) * 1000);
 
-        private static SessionRegistration BuildRegistration(AgentConfiguration agentConfig, string agentVersion)
+        private static SessionRegistration BuildRegistration(
+            AgentConfiguration agentConfig,
+            string agentVersion,
+            (string Manufacturer, string Model, string SerialNumber)? deviceHardware = null)
         {
+            // Reuse the single hardened hardware read (HardwareInfo.GetHardwareInfo) that already
+            // populated the security headers instead of re-querying WMI here. This saves a WMI
+            // round-trip AND — because that read retries on transient WMI unavailability during
+            // OOBE — keeps the session row's Manufacturer/Model/SerialNumber consistent with the
+            // headers the backend validated against. Falls back to a fresh DeviceInfoProvider read
+            // only when no hardware was supplied (e.g. unit tests exercising the helper directly).
+            string manufacturer = deviceHardware?.Manufacturer ?? DeviceInfoProvider.GetManufacturer() ?? string.Empty;
+            string model = deviceHardware?.Model ?? DeviceInfoProvider.GetModel() ?? string.Empty;
+            string serialNumber = deviceHardware?.SerialNumber ?? DeviceInfoProvider.GetSerialNumber() ?? string.Empty;
+
             return new SessionRegistration
             {
                 SessionId = agentConfig.SessionId,
                 TenantId = agentConfig.TenantId,
-                SerialNumber = DeviceInfoProvider.GetSerialNumber() ?? string.Empty,
-                Manufacturer = DeviceInfoProvider.GetManufacturer() ?? string.Empty,
-                Model = DeviceInfoProvider.GetModel() ?? string.Empty,
+                SerialNumber = serialNumber,
+                Manufacturer = manufacturer,
+                Model = model,
                 DeviceName = Environment.MachineName,
                 OsName = DeviceInfoProvider.GetOsName() ?? string.Empty,
                 OsBuild = DeviceInfoProvider.GetOsBuild() ?? string.Empty,
