@@ -68,10 +68,13 @@ export default function SessionInfoCard({ session, enrollmentDuration, displaySt
           <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <span>
-            <strong>Backend reconciled:</strong> {session.reconcileReason} — this success was declared
-            by the platform, not reported by the agent on the device.
-          </span>
+          <div>
+            <span>
+              <strong>Backend reconciled:</strong> {session.reconcileReason} — this success was declared
+              by the platform, not reported by the agent on the device.
+            </span>
+            <ReconcileTimingFacts session={session} />
+          </div>
         </div>
       )}
       {ntpOffset && Math.abs(ntpOffset.offsetSeconds) > 30 && (
@@ -168,6 +171,56 @@ function InfoItem({ label, value, copyText, tooltip }: { label: string; value: R
         )}
       </div>
     </div>
+  );
+}
+
+// Compact human silence duration ("5h 6m", "45m", "2d 3h") from milliseconds.
+function formatSilence(ms: number): string {
+  const totalMin = Math.max(0, Math.round(ms / 60000));
+  const d = Math.floor(totalMin / 1440);
+  const h = Math.floor((totalMin % 1440) / 60);
+  const m = totalMin % 60;
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+// Structured, scannable timing facts under the "Backend reconciled" banner: the reconcile
+// reason names the full silence-to-declaration window in prose; these chips give the customer
+// the raw UTC anchors — last agent contact and when the sweep first flagged the silence — so
+// "user finished and powered off" is distinguishable from "declared too early" (session efbc17ff).
+function ReconcileTimingFacts({ session }: { session: Session }) {
+  const fmtUtc = (iso?: string) =>
+    iso
+      ? `${new Date(iso).toLocaleString([], { dateStyle: "short", timeStyle: "short", timeZone: "UTC" })} UTC`
+      : null;
+  const lastContact = fmtUtc(session.lastEventAt);
+  const flaggedSilent = fmtUtc(session.stalledAt);
+  const silenceGap =
+    session.lastEventAt && session.stalledAt
+      ? formatSilence(new Date(session.stalledAt).getTime() - new Date(session.lastEventAt).getTime())
+      : null;
+
+  if (!lastContact && !flaggedSilent) return null;
+
+  return (
+    <dl className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-sky-700 dark:text-sky-300">
+      {lastContact && (
+        <div className="flex gap-1.5">
+          <dt className="font-medium">Last agent contact:</dt>
+          <dd>{lastContact}</dd>
+        </div>
+      )}
+      {flaggedSilent && (
+        <div className="flex gap-1.5">
+          <dt className="font-medium">First flagged silent:</dt>
+          <dd>
+            {flaggedSilent}
+            {silenceGap && <span className="opacity-80"> ({silenceGap} of silence)</span>}
+          </dd>
+        </div>
+      )}
+    </dl>
   );
 }
 

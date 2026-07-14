@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using AutopilotMonitor.Shared.Models;
 
@@ -216,10 +217,18 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         /// <param name="rollup">Facts from <see cref="ExtractRollup"/>.</param>
         /// <param name="startedAtUtc">Session start (grace is measured from here).</param>
-        /// <param name="nowUtc">Sweep timestamp.</param>
+        /// <param name="nowUtc">Sweep timestamp — also the moment the platform declares the verdict.</param>
         /// <param name="graceHours">Grace window before AwaitingUser graduates to Incomplete.</param>
+        /// <param name="lastEventAtUtc">
+        /// Last event the agent reported (last backend contact). Used only to make the two
+        /// Succeeded-reconcile reasons transparent about the silence: without it operators (and
+        /// customers) cannot tell "user finished and powered the device off" apart from "the
+        /// mechanism declared success too early" — session efbc17ff. Falls back to
+        /// <paramref name="startedAtUtc"/> when unknown (same fallback the stalled-marker uses).
+        /// </param>
         public static (SessionStatus Status, string Reason) ClassifyTimedOutSession(
-            EspProvisioningRollup rollup, DateTime startedAtUtc, DateTime nowUtc, int graceHours)
+            EspProvisioningRollup rollup, DateTime startedAtUtc, DateTime nowUtc, int graceHours,
+            DateTime? lastEventAtUtc = null)
         {
             // 1. An explicit terminal failure event is a real failure (defensive — such a session
             //    would normally already be terminal via ingest and not reach the sweep).
@@ -228,8 +237,9 @@ namespace AutopilotMonitor.Functions.Services
 
             // 2. Account Setup fully succeeded (or a terminal completion event) → reconcile to success.
             if (rollup.AccountSetupAllSucceeded || rollup.HasTerminalComplete)
-                return (SessionStatus.Succeeded,
-                    "Reconciled at timeout: Account Setup completed (all subcategories succeeded / enrollment_complete observed)");
+                return (SessionStatus.Succeeded, AppendReconcileTiming(
+                    "Reconciled at timeout: Account Setup completed (all subcategories succeeded / enrollment_complete observed)",
+                    startedAtUtc, nowUtc, lastEventAtUtc));
 
             // 3. The agent's absolute-age emergency break fired — the agent has cleaned up and exited, so
             //    nothing more will ever arrive for this session. Terminalize NOW (skip the AwaitingUser grace):
@@ -269,8 +279,9 @@ namespace AutopilotMonitor.Functions.Services
                 var detail = rollup.RealmJoinDetected && !rollup.RealmJoinResolved
                     ? "RealmJoin deployment never reported completion before the agent went silent"
                     : "agent went silent before reporting completion";
-                return (SessionStatus.Succeeded,
-                    $"Reconciled at timeout: user completed setup ({evidence}) — {detail}");
+                return (SessionStatus.Succeeded, AppendReconcileTiming(
+                    $"Reconciled at timeout: user completed setup ({evidence}) — {detail}",
+                    startedAtUtc, nowUtc, lastEventAtUtc));
             }
 
             // 5. Device Setup fully provisioned (device is AADJ + MDM-enrolled), user phase pending.
@@ -294,6 +305,35 @@ namespace AutopilotMonitor.Functions.Services
             // 6. Silent before Device Setup completed, with no explicit failure → unknown, not a failure.
             return (SessionStatus.Incomplete,
                 "No Device Setup completion or explicit failure signal observed before timeout");
+        }
+
+        /// <summary>
+        /// Append the silence-transparency clause to a Succeeded-reconcile reason. Names the last
+        /// agent contact, how long the session was silent, and the exact moment the platform
+        /// declared the verdict (<paramref name="nowUtc"/> = the sweep timestamp). This is the one
+        /// field that survives the reconcile hygiene (which wipes FailureReason on a Succeeded
+        /// write), so the numbers must live here to reach the badge / MCP / exports — see
+        /// session efbc17ff. Anchors to <paramref name="lastEventAtUtc"/>, falling back to
+        /// <paramref name="startedAtUtc"/> when the last-contact time is unknown.
+        /// </summary>
+        private static string AppendReconcileTiming(
+            string reason, DateTime startedAtUtc, DateTime nowUtc, DateTime? lastEventAtUtc)
+        {
+            var lastSeen = lastEventAtUtc ?? startedAtUtc;
+            var silence = HumanizeDuration(nowUtc - lastSeen);
+            return $"{reason}. Agent last reported {lastSeen.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)} UTC; " +
+                   $"silent ~{silence} before the platform declared this success at " +
+                   $"{nowUtc.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)} UTC.";
+        }
+
+        /// <summary>Compact human duration ("5h 6m", "45m", "2d 3h"). Negative/zero → "0m".</summary>
+        private static string HumanizeDuration(TimeSpan d)
+        {
+            if (d <= TimeSpan.Zero) return "0m";
+            int days = d.Days, hours = d.Hours, minutes = d.Minutes;
+            if (days > 0) return $"{days}d {hours}h";
+            if (hours > 0) return $"{hours}h {minutes}m";
+            return $"{minutes}m";
         }
 
         private static bool Eq(string a, string b) =>

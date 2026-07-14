@@ -206,6 +206,41 @@ public class EnrollmentTimeoutClassifierTests
     }
 
     [Fact]
+    public void Classify_reconcile_reason_carries_silence_timing_transparency()
+    {
+        // Transparency (session efbc17ff): the reconcile reason must name the last agent
+        // contact, the silence duration, and the exact moment the platform declared success —
+        // so a customer can tell "user powered the device off" apart from "declared too early".
+        var lastEvent = Start.AddMinutes(37);      // agent last reported 37 min after start
+        var now = Start.AddHours(5);               // sweep declared success 5h after start
+        var rollup = EnrollmentTimeoutClassifier.ExtractRollup(new[]
+        {
+            Esp(DeviceSetup44), Esp(AccountSetup15),
+            Evt("desktop_arrived"), Evt("hello_provisioning_completed"), Evt("realmjoin_detected"),
+        });
+        var (status, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
+            rollup, Start, now, graceHours: 72, lastEventAtUtc: lastEvent);
+
+        Assert.Equal(SessionStatus.Succeeded, status);
+        Assert.Contains("RealmJoin", reason);                                   // core verdict preserved
+        Assert.Contains($"Agent last reported {lastEvent:yyyy-MM-dd HH:mm} UTC", reason);
+        Assert.Contains("silent ~4h 23m", reason);                             // 5h - 37m
+        Assert.Contains($"declared this success at {now:yyyy-MM-dd HH:mm} UTC", reason);
+    }
+
+    [Fact]
+    public void Classify_reconcile_reason_timing_falls_back_to_start_when_last_event_unknown()
+    {
+        // No last-contact time → anchor on StartedAt (same fallback the stalled-marker uses),
+        // and the suffix is still emitted so the badge is never left timestamp-less.
+        var now = Start.AddHours(6);
+        var (_, reason) = Classify(new[] { Esp(DeviceSetup44), Esp(AccountSetup55) }, hoursSinceStart: 6);
+        Assert.Contains($"Agent last reported {Start:yyyy-MM-dd HH:mm} UTC", reason);
+        Assert.Contains("silent ~6h 0m", reason);
+        Assert.Contains($"declared this success at {now:yyyy-MM-dd HH:mm} UTC", reason);
+    }
+
+    [Fact]
     public void Classify_desktop_plus_hello_without_realmjoin_reconciles_to_Succeeded()
     {
         // Both Classic completion prerequisites in and no gate pending: the agent died in the

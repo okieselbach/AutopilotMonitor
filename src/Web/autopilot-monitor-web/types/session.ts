@@ -23,6 +23,8 @@ export interface Session {
   enrollmentType?: string; // "v1" | "v2" — absent for sessions before this feature
   diagnosticsBlobName?: string;
   lastEventAt?: string;
+  /** Set when the maintenance sweep first observed the agent had gone silent (2h+ no events). Surfaced in the reconcile banner so the silence window is transparent. */
+  stalledAt?: string;
   isPreProvisioned?: boolean;
   isHybridJoin?: boolean;
   isUserDriven?: boolean;

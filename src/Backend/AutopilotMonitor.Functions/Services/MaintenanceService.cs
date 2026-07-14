@@ -375,7 +375,7 @@ namespace AutopilotMonitor.Functions.Services
                             // Device Setup → Incomplete. Never Failed without an explicit failure signal.
                             var rollup = EnrollmentTimeoutClassifier.ExtractRollup(sessionEvents);
                             var (targetStatus, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
-                                rollup, session.StartedAt, now, graceHours);
+                                rollup, session.StartedAt, now, graceHours, session.LastEventAt);
 
                             // No-op if the verdict equals the current (non-terminal) state.
                             if (targetStatus == session.Status)
