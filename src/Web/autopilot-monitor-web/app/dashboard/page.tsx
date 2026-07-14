@@ -275,6 +275,32 @@ function HomeContent() {
       {/* Main content */}
       <main className={mainClassName}>
         <div className="px-4 sm:px-0">
+          {/* Scheduled maintenance banner — TEMPORARY, remove after 2026-07-20 */}
+          <div className="mb-4 bg-amber-50 border border-amber-300 rounded-lg px-4 py-3 flex items-start gap-3 dark:bg-amber-950/30 dark:border-amber-700/50">
+            <svg className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p className="text-sm text-amber-800 dark:text-amber-300">
+              <span className="font-semibold">Scheduled infrastructure maintenance.</span>{" "}
+              The platform is <span className="font-medium">not available</span> this weekend, from{" "}
+              <span className="font-medium">Sat 18 Jul, 00:00</span> until{" "}
+              <span className="font-medium">Mon 20 Jul, 00:00 CEST (UTC+2)</span> (expected).{" "}
+              The portal cannot be reached and the ingestion API is offline. Agents continue collecting
+              locally and re-sync once the platform is back online — no enrollment data is lost.
+              If the work finishes early, the platform will come back sooner; the completion will be
+              announced here and in the{" "}
+              <a
+                href="https://docs.autopilotmonitor.com/troubleshooting/service-announcements"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline font-medium hover:text-amber-600 dark:hover:text-amber-200"
+              >
+                Service Announcements
+              </a>
+              .
+            </p>
+          </div>
+
           {/* Feedback & bug report banner */}
           <div className="mb-4 bg-blue-50 border border-blue-300 rounded-lg px-4 py-3 flex items-start gap-3 dark:bg-blue-950/30 dark:border-blue-700/50">
             <svg className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
