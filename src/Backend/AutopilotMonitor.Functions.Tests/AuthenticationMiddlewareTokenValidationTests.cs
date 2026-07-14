@@ -229,34 +229,92 @@ public class AuthenticationMiddlewareTokenValidationTests
     }
 
     // ── ResolveConfiguredClientIds: primary + optional AdditionalClientIds parsing ────────
+    // Additional entries must be GUIDs (client IDs always are); the primary stays verbatim.
+
+    private const string SecondId = "11111111-2222-3333-4444-555555555555";
+    private const string ThirdId = "66666666-7777-8888-9999-aaaaaaaaaaaa";
+    private const string FourthId = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff";
 
     [Theory]
     [InlineData("primary", null, new[] { "primary" })]                                   // unset ⇒ today's behaviour
     [InlineData("primary", "", new[] { "primary" })]
     [InlineData("primary", "   ", new[] { "primary" })]
-    [InlineData("primary", "second", new[] { "primary", "second" })]
-    [InlineData("primary", "second,third", new[] { "primary", "second", "third" })]
-    [InlineData("primary", "second; third ,  fourth", new[] { "primary", "second", "third", "fourth" })]
-    [InlineData("primary", "primary,second", new[] { "primary", "second" })]             // dedupe vs primary
+    [InlineData("primary", SecondId, new[] { "primary", SecondId })]
+    [InlineData("primary", SecondId + "," + ThirdId, new[] { "primary", SecondId, ThirdId })]
+    [InlineData("primary", SecondId + "; " + ThirdId + " ,  " + FourthId, new[] { "primary", SecondId, ThirdId, FourthId })]
+    [InlineData(SecondId, SecondId + "," + ThirdId, new[] { SecondId, ThirdId })]        // dedupe vs primary
     public void ResolveConfiguredClientIds_parses_trims_and_dedupes(
         string primary, string? additional, string[] expected)
     {
-        Assert.Equal(expected, AuthenticationMiddleware.ResolveConfiguredClientIds(primary, additional));
+        Assert.Equal(expected, AuthenticationMiddleware.ResolveConfiguredClientIds(primary, additional, out var rejected));
+        Assert.Empty(rejected);
     }
 
     [Fact]
-    public void ResolveConfiguredClientIds_dedupes_case_insensitively()
+    public void ResolveConfiguredClientIds_dedupes_case_insensitively_primary_form_wins()
     {
+        // Uppercase primary (verbatim) vs the same id lowercase in AdditionalClientIds:
+        // one entry survives, in the primary's original casing.
+        var primaryUpper = SecondId.ToUpperInvariant();
+
         Assert.Equal(
-            new[] { "Primary", "second" },
-            AuthenticationMiddleware.ResolveConfiguredClientIds("Primary", "primary, second"));
+            new[] { primaryUpper, ThirdId },
+            AuthenticationMiddleware.ResolveConfiguredClientIds(primaryUpper, $"{SecondId}, {ThirdId}", out var rejected));
+        Assert.Empty(rejected);
     }
 
     [Fact]
     public void ResolveConfiguredClientIds_null_primary_falls_back_to_additional_only()
     {
         Assert.Equal(
-            new[] { "second" },
-            AuthenticationMiddleware.ResolveConfiguredClientIds(null, "second"));
+            new[] { SecondId },
+            AuthenticationMiddleware.ResolveConfiguredClientIds(null, SecondId, out var rejected));
+        Assert.Empty(rejected);
+    }
+
+    [Fact]
+    public void ResolveConfiguredClientIds_drops_and_reports_malformed_additional_entries()
+    {
+        // A typo'd/garbage entry could never match a token's aud claim — it is dropped
+        // (fail-closed) and surfaced via the out param so the middleware can log it.
+        var ids = AuthenticationMiddleware.ResolveConfiguredClientIds(
+            "primary", $"not-a-guid,{SecondId};11111111-2222", out var rejected);
+
+        Assert.Equal(new[] { "primary", SecondId }, ids);
+        Assert.Equal(new[] { "not-a-guid", "11111111-2222" }, rejected);
+    }
+
+    [Fact]
+    public void ResolveConfiguredClientIds_malformed_primary_is_kept_verbatim_not_rejected()
+    {
+        // The primary's handling is deliberately unchanged — validation covers ONLY the
+        // AdditionalClientIds seam. A broken primary breaks every login loudly on its own.
+        var ids = AuthenticationMiddleware.ResolveConfiguredClientIds("oops", SecondId, out var rejected);
+
+        Assert.Equal(new[] { "oops", SecondId }, ids);
+        Assert.Empty(rejected);
+    }
+
+    [Fact]
+    public void ResolveConfiguredClientIds_normalizes_additional_entries_to_canonical_guid_form()
+    {
+        // Entra aud claims are lowercase dashed GUIDs and audience comparison is ordinal —
+        // brace/uppercase variants an operator might paste must still match after resolve.
+        var ids = AuthenticationMiddleware.ResolveConfiguredClientIds(
+            "primary", $"{{{SecondId}}};{ThirdId.ToUpperInvariant()}", out var rejected);
+
+        Assert.Equal(new[] { "primary", SecondId, ThirdId }, ids);
+        Assert.Empty(rejected);
+    }
+
+    // ── TruncateForLog: rejected config entries are never logged in full ──────────────────
+
+    [Theory]
+    [InlineData("short", "short")]
+    [InlineData("12345678", "12345678")]
+    [InlineData("not-a-guid-but-long", "not-a-gu…(19 chars)")]
+    public void TruncateForLog_caps_entry_at_eight_chars_plus_length(string entry, string expected)
+    {
+        Assert.Equal(expected, AuthenticationMiddleware.TruncateForLog(entry));
     }
 }

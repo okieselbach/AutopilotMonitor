@@ -164,8 +164,10 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
             // seam that lets the API trust a SECOND app registration during a tenant-move window
             // (see tasks/migration-cross-tenant-runbook.md). Unset today ⇒ exactly the primary id
             // ⇒ zero behaviour change.
+            var additionalClientIdsRaw = _configuration["EntraId:AdditionalClientIds"];
             var clientIds = ResolveConfiguredClientIds(
-                _configuration["EntraId:ClientId"], _configuration["EntraId:AdditionalClientIds"]);
+                _configuration["EntraId:ClientId"], additionalClientIdsRaw, out var rejectedAdditionalEntries);
+            AuditClientIdTrustSet(additionalClientIdsRaw, clientIds, rejectedAdditionalEntries);
             var validationParameters = BuildTokenValidationParameters(
                 openIdConfig.SigningKeys, clientIds);
 
@@ -321,24 +323,94 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
 
     /// <summary>
     /// Resolves the configured accepted app (client) IDs: the primary <c>EntraId:ClientId</c> plus an
-    /// optional comma/semicolon/whitespace-separated <c>EntraId:AdditionalClientIds</c>. Trimmed,
-    /// empties dropped, de-duplicated case-insensitively (primary first). When AdditionalClientIds is
-    /// unset the result is exactly the primary id — today's behaviour, zero change — so adding a
-    /// second app registration's client ID to that setting is the ONLY step needed to trust a second
-    /// app during a tenant-move window (tasks/migration-cross-tenant-runbook.md).
+    /// optional comma/semicolon/whitespace-separated <c>EntraId:AdditionalClientIds</c>. Additional
+    /// entries must be GUIDs (a client ID is always a GUID); non-GUID entries are dropped —
+    /// fail-closed, they could never match a token's <c>aud</c> anyway — and reported via
+    /// <paramref name="rejectedAdditionalEntries"/> so <see cref="AuditClientIdTrustSet"/> can make
+    /// the misconfiguration operator-visible. Accepted entries are normalized to the canonical
+    /// lowercase dashed GUID form (Entra <c>aud</c> claims are lowercase; audience comparison is
+    /// ordinal), so brace/case/no-dash variants an operator might paste still match. The result is
+    /// de-duplicated case-insensitively (primary first, verbatim — its handling is unchanged). When
+    /// AdditionalClientIds is unset the result is exactly the primary id — today's behaviour, zero
+    /// change — so adding a second app registration's client ID to that setting is the ONLY step
+    /// needed to trust a second app during a tenant-move window
+    /// (tasks/migration-cross-tenant-runbook.md).
     /// </summary>
-    internal static string[] ResolveConfiguredClientIds(string? primaryClientId, string? additionalClientIds)
+    internal static string[] ResolveConfiguredClientIds(
+        string? primaryClientId, string? additionalClientIds, out string[] rejectedAdditionalEntries)
     {
         var ids = new List<string?> { primaryClientId };
+        var rejected = new List<string>();
         if (!string.IsNullOrWhiteSpace(additionalClientIds))
         {
-            ids.AddRange(additionalClientIds.Split(
-                new[] { ',', ';', ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries));
+            foreach (var entry in additionalClientIds.Split(
+                new[] { ',', ';', ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (Guid.TryParse(entry.Trim(), out var clientId))
+                {
+                    ids.Add(clientId.ToString("D"));
+                }
+                else
+                {
+                    rejected.Add(entry.Trim());
+                }
+            }
         }
+        rejectedAdditionalEntries = rejected.ToArray();
         return ids
             .Where(id => !string.IsNullOrWhiteSpace(id))
             .Select(id => id!.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
     }
+
+    /// <summary>
+    /// Sentinel-free "already audited" marker: the last <c>EntraId:AdditionalClientIds</c> raw value
+    /// this instance logged about. Initial <c>null</c> intentionally equals the unset-config case —
+    /// an unset seam has nothing to report, so skipping it is correct, and the first non-null value
+    /// (or any change) triggers a fresh audit.
+    /// </summary>
+    private string? _auditedAdditionalClientIds;
+
+    /// <summary>
+    /// Operator-visible audit of the audience trust set (daily-review follow-up, 2026-07-14):
+    /// expanding the set of trusted app registrations via <c>EntraId:AdditionalClientIds</c> is
+    /// security-relevant and used to be completely silent — a typo'd GUID was indistinguishable
+    /// from "the new app registration doesn't work" during a tenant-move window. Logs once per
+    /// distinct config value per instance, at Warning because nothing below Warning reaches
+    /// App Insights from the worker. Rejected entries are truncated before logging in case an
+    /// operator accidentally pastes a secret into the setting.
+    /// </summary>
+    private void AuditClientIdTrustSet(
+        string? rawAdditionalClientIds, string[] clientIds, string[] rejectedAdditionalEntries)
+    {
+        if (string.Equals(_auditedAdditionalClientIds, rawAdditionalClientIds, StringComparison.Ordinal))
+        {
+            return;
+        }
+        // Benign race on concurrent first requests: at worst a duplicate audit line.
+        _auditedAdditionalClientIds = rawAdditionalClientIds;
+
+        if (rejectedAdditionalEntries.Length > 0)
+        {
+            _logger.LogWarning(
+                "[Auth Middleware] EntraId:AdditionalClientIds contains {Count} malformed (non-GUID) entries — ignored: {Entries}",
+                rejectedAdditionalEntries.Length,
+                string.Join(", ", rejectedAdditionalEntries.Select(TruncateForLog)));
+        }
+        if (clientIds.Length > 1)
+        {
+            _logger.LogWarning(
+                "[Auth Middleware] Token audience trust set expanded to {Count} client IDs via EntraId:AdditionalClientIds: {ClientIds}",
+                clientIds.Length,
+                string.Join(", ", clientIds));
+        }
+    }
+
+    /// <summary>
+    /// Truncates a rejected config entry for logging: enough to identify the typo, never the full
+    /// value (an operator could accidentally paste a client secret into the setting).
+    /// </summary>
+    internal static string TruncateForLog(string entry) =>
+        entry.Length <= 8 ? entry : $"{entry.Substring(0, 8)}…({entry.Length} chars)";
 }
