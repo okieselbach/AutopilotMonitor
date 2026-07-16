@@ -396,6 +396,9 @@ public static class EndpointAccessPolicyCatalog
         new("POST",   "versions/block",             EndpointPolicy.GlobalAdminOnly),
         new("DELETE", "versions/block/{encodedPattern}", EndpointPolicy.GlobalAdminOnly),
         new("POST",   "maintenance/trigger",        EndpointPolicy.GlobalAdminOnly),
+        // One-time retro-reconcile of misclassified historical sessions (audit 2026-07-16) —
+        // mutating, dry-run by default, GA only.
+        new("POST",   "maintenance/reclassify-legacy", EndpointPolicy.GlobalAdminOnly),
 
         // ── Critical-Table Backup (plan §PR1+§PR2) ─────────────────────────────
         new("POST",   "global/backups/trigger",       EndpointPolicy.GlobalAdminOnly),

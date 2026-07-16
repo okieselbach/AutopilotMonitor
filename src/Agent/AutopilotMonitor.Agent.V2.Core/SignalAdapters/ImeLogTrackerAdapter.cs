@@ -953,7 +953,17 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             var exitSuffix = script.ExitCode.HasValue
                 ? $" (exit: {script.ExitCode.Value.ToString(culture)})"
                 : string.Empty;
-            var msg = $"{label} {shortId}: {messageCore}{exitSuffix}";
+            // stderr is the only rule that can classify a Success/exit-0 script as script_failed
+            // (rule 2 above). Without naming that in the message, the event reads as a
+            // contradiction — "script_failed: Success (exit: 0)" (misclassification audit
+            // 2026-07-16). Keep the visibility rule, make the message say why.
+            var stderrSuffix = isFailure
+                && hasStderr
+                && !string.Equals(script.Result, "Failed", StringComparison.OrdinalIgnoreCase)
+                && (!script.ExitCode.HasValue || script.ExitCode.Value == 0)
+                ? " — stderr output detected"
+                : string.Empty;
+            var msg = $"{label} {shortId}: {messageCore}{exitSuffix}{stderrSuffix}";
 
             _post.Emit(
                 eventType: eventType,

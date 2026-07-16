@@ -1354,6 +1354,46 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Open (non-terminal) sessions of the same physical device within one tenant: Pending,
+        /// InProgress, Stalled or AwaitingUser rows matching the SerialNumber. Server-side
+        /// filtered partition query with a narrow projection — SerialNumber is not a key column,
+        /// so this scans the tenant partition, which is acceptable for the once-per-registration
+        /// supersede pass (misclassification audit 2026-07-16). Fail-soft: returns an empty list
+        /// on storage errors so registration is never blocked.
+        /// </summary>
+        public async Task<List<SessionSummary>> GetOpenSessionsForDeviceAsync(string tenantId, string serialNumber)
+        {
+            SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+            if (string.IsNullOrWhiteSpace(serialNumber))
+                return new List<SessionSummary>();
+
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
+                var filter = $"PartitionKey eq '{tenantId}' " +
+                             $"and SerialNumber eq '{ODataSanitizer.EscapeValue(serialNumber)}' " +
+                             $"and (Status eq 'Pending' or Status eq 'InProgress' or Status eq 'Stalled' or Status eq 'AwaitingUser')";
+                var select = new[]
+                {
+                    "PartitionKey", "RowKey", "Status", "StartedAt", "ResumedAt", "LastEventAt",
+                    "SerialNumber", "DeviceName", "IsPreProvisioned", "Model"
+                };
+
+                var sessions = new List<SessionSummary>();
+                await foreach (var entity in tableClient.QueryAsync<TableEntity>(filter: filter, select: select))
+                {
+                    sessions.Add(MapToSessionSummary(entity));
+                }
+                return sessions;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Failed to get open sessions for device serial in tenant {tenantId}");
+                return new List<SessionSummary>();
+            }
+        }
+
+        /// <summary>
         /// Finds the tenantId for a session by scanning SessionsIndex.
         /// Used for Global Admin cross-tenant session lookup when tenantId is unknown.
         /// </summary>
@@ -1452,7 +1492,7 @@ namespace AutopilotMonitor.Functions.Services
                 : null;
         }
 
-        public async Task<bool> UpdateSessionStatusAsync(string tenantId, string sessionId, SessionStatus status, EnrollmentPhase? currentPhase = null, string? failureReason = null, DateTime? completedAt = null, DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null, bool? isPreProvisioned = null, bool? isUserDriven = null, DateTime? resumedAt = null, DateTime? stalledAt = null, bool clearStalledAt = false, bool clearFailureReason = false, string? failureSource = null, string? adminMarkedAction = null, string? failureSnapshotJson = null)
+        public async Task<bool> UpdateSessionStatusAsync(string tenantId, string sessionId, SessionStatus status, EnrollmentPhase? currentPhase = null, string? failureReason = null, DateTime? completedAt = null, DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null, bool? isPreProvisioned = null, bool? isUserDriven = null, DateTime? resumedAt = null, DateTime? stalledAt = null, bool clearStalledAt = false, bool clearFailureReason = false, string? failureSource = null, string? adminMarkedAction = null, string? failureSnapshotJson = null, bool allowTerminalReclassification = false)
         {
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
             SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
@@ -1477,7 +1517,25 @@ namespace AutopilotMonitor.Functions.Services
                     // overwrite an existing terminal. Non-terminal incoming statuses fall through to their
                     // own guards below.
                     var existingStatusStr = session.GetString("Status");
-                    if (!IsTerminalTransitionAllowed(existingStatusStr, status))
+                    // allowTerminalReclassification (admin retro-reconcile ONLY, misclassification
+                    // audit 2026-07-16): permits rewriting an existing terminal verdict — e.g. a
+                    // legacy pre-classifier "Session timed out" Failed graduating to Incomplete.
+                    // Hand-marked sessions stay untouchable (checked below), and an idempotent
+                    // same-status write is still refused.
+                    if (allowTerminalReclassification)
+                    {
+                        if (existingStatusStr == status.ToString())
+                        {
+                            _logger.LogInformation($"Session {sessionId}: reclassification to identical status '{status}' — no-op");
+                            return false;
+                        }
+                        if (!string.IsNullOrEmpty(session.GetString("AdminMarkedAction")))
+                        {
+                            _logger.LogInformation($"Session {sessionId}: admin-marked terminal — reclassification refused");
+                            return false;
+                        }
+                    }
+                    else if (!IsTerminalTransitionAllowed(existingStatusStr, status))
                     {
                         _logger.LogInformation($"Session {sessionId}: transition '{existingStatusStr}' → '{status}' not allowed (terminal/reconcile guard), skipping");
                         return false;
@@ -1753,7 +1811,18 @@ namespace AutopilotMonitor.Functions.Services
                             // our retries (e.g. an Incomplete verdict stomping a concurrently-written
                             // Succeeded/Failed, or a second Incomplete overwriting the first).
                             var freshStatusStr = freshSession.GetString("Status");
-                            if (!IsTerminalTransitionAllowed(freshStatusStr, status))
+                            // Mirror the normal path's override semantics (admin retro-reconcile):
+                            // same-status and admin-marked rows stay refused even under override.
+                            if (allowTerminalReclassification)
+                            {
+                                if (freshStatusStr == status.ToString()
+                                    || !string.IsNullOrEmpty(freshSession.GetString("AdminMarkedAction")))
+                                {
+                                    _logger.LogInformation($"Session {sessionId}: reclassification force write refused (same status or admin-marked)");
+                                    return false;
+                                }
+                            }
+                            else if (!IsTerminalTransitionAllowed(freshStatusStr, status))
                             {
                                 _logger.LogInformation($"Session {sessionId}: transition '{freshStatusStr}' → '{status}' not allowed (terminal/reconcile guard), skipping force write");
                                 return false;

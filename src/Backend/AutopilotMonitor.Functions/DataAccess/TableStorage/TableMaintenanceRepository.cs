@@ -72,6 +72,12 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<List<SessionSummary>> GetExcessiveDataSendersAsync(string tenantId, DateTime windowCutoff, int maxSessionWindowHours)
             => _storage.GetExcessiveDataSendersAsync(tenantId, windowCutoff, maxSessionWindowHours);
 
+        public Task<List<SessionSummary>> GetLegacyTimeoutFailedSessionsAsync(string tenantId, int maxResults)
+            => _storage.GetLegacyTimeoutFailedSessionsAsync(tenantId, maxResults);
+
+        public Task<List<SessionSummary>> GetSessionsLeanAsync(string tenantId)
+            => _storage.GetSessionsLeanAsync(tenantId);
+
         public Task<List<string>> GetAllTenantIdsAsync()
             => _storage.GetAllTenantIdsAsync();
 

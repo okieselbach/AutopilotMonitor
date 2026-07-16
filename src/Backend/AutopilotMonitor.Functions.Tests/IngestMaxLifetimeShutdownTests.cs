@@ -78,4 +78,66 @@ public class IngestMaxLifetimeShutdownTests
     {
         Assert.False(EventIngestProcessor.IsMaxLifetimeAgentShutdown(null));
     }
+
+    // -------- IsAgentTimeoutFailure (misclassification audit 2026-07-16) --------
+    // The V1-parity companion: enrollment_failed(failureType=agent_timeout) emitted by
+    // LifecycleEmitters.CreateMaxLifetimeEmitter. Same semantics as the shutdown shape —
+    // detected events route through the honest classifier instead of a hard Failed.
+
+    private static EnrollmentEvent Failure(string? failureType, string eventType = "enrollment_failed")
+    {
+        var evt = new EnrollmentEvent
+        {
+            EventType = eventType,
+            Message = "Agent max lifetime expired (360 min) — enrollment did not complete in time",
+        };
+        if (failureType != null)
+        {
+            evt.Data = new Dictionary<string, object>
+            {
+                ["failureType"] = failureType,
+                ["failureSource"] = "max_lifetime_timer",
+            };
+        }
+        return evt;
+    }
+
+    [Fact]
+    public void AgentTimeoutFailure_IsDetected()
+    {
+        Assert.True(EventIngestProcessor.IsAgentTimeoutFailure(Failure("agent_timeout")));
+    }
+
+    [Fact]
+    public void AgentTimeoutFailure_IsDetected_CaseInsensitively()
+    {
+        Assert.True(EventIngestProcessor.IsAgentTimeoutFailure(Failure("Agent_Timeout")));
+    }
+
+    [Theory]
+    [InlineData("esp_terminal")]
+    [InlineData("app_install_failed")]
+    public void OtherFailureTypes_AreNotDetected(string failureType)
+    {
+        Assert.False(EventIngestProcessor.IsAgentTimeoutFailure(Failure(failureType)));
+    }
+
+    [Fact]
+    public void MissingFailureTypeData_IsNotDetected()
+    {
+        Assert.False(EventIngestProcessor.IsAgentTimeoutFailure(Failure(failureType: null)));
+    }
+
+    [Fact]
+    public void OtherEventTypes_AreNotDetected_EvenWithAgentTimeoutType()
+    {
+        Assert.False(EventIngestProcessor.IsAgentTimeoutFailure(
+            Failure("agent_timeout", eventType: "agent_shutting_down")));
+    }
+
+    [Fact]
+    public void NullEvent_IsNotDetected_ForAgentTimeout()
+    {
+        Assert.False(EventIngestProcessor.IsAgentTimeoutFailure(null));
+    }
 }

@@ -256,9 +256,11 @@ namespace AutopilotMonitor.Functions.Services
         /// Two-stage sweep for stuck sessions:
         /// 1. **Agent-silent Stalled marker** (2h fixed): Sessions still InProgress but with no events
         ///    for more than 2h are marked as Stalled (non-terminal). Picks up agents that cannot emit
-        ///    session_stalled themselves (bluescreen, network loss, power off). Excludes WhiteGlove.
-        /// 2. **Session timeout Failed** (5h default): Sessions that exceed the full SessionTimeoutHours
-        ///    window (InProgress or Stalled) graduate to terminal Failed state.
+        ///    session_stalled themselves (bluescreen, network loss, power off). Sealed WhiteGlove
+        ///    devices are protected by their Pending status; resumed Part-2 runs participate normally
+        ///    with their window anchored to ResumedAt (misclassification audit 2026-07-16).
+        /// 2. **Session timeout** (5h default): Sessions that exceed the full SessionTimeoutHours
+        ///    window (InProgress or Stalled) are reclassified honestly via EnrollmentTimeoutClassifier.
         /// Both stages run in the same 2h maintenance pass so no new timers are introduced
         /// (preserving Container App scale-to-zero).
         /// </summary>
@@ -341,10 +343,27 @@ namespace AutopilotMonitor.Functions.Services
 
                         foreach (var session in stalledSessions)
                         {
+                            // WhiteGlove Part 2: the sweep window is measured from the resume, not from
+                            // the weeks-old Part-1 StartedAt — otherwise a freshly resumed Part 2 would
+                            // be instantly "past every window" and terminalized while still live
+                            // (misclassification audit 2026-07-16). ResumedAt > StartedAt always holds
+                            // when set; plain non-WG sessions have no ResumedAt and keep StartedAt.
+                            var effectiveStart = session.ResumedAt ?? session.StartedAt;
+                            if (effectiveStart > cutoffTime)
+                                continue; // resumed run not yet past the timeout window — stage 1 owns it
+
+                            // Silence guard: this is a *silent-session* sweep. A session whose agent
+                            // reported within the silence window is provably alive (long enrollments can
+                            // legitimately exceed SessionTimeoutHours) and must never be terminalized here
+                            // — without this, an actively-installing 6h enrollment could be classified
+                            // Incomplete mid-run purely because it outlived the 5h window.
+                            if (session.LastEventAt.HasValue && session.LastEventAt.Value > silenceCutoff)
+                                continue;
+
                             // Fast path: an AwaitingUser session still inside the grace window needs no
                             // work and — crucially — no event read (grace is purely time-based). A late
                             // completion is picked up by the ingest path, so we don't re-scan every pass.
-                            var elapsedHours = (now - session.StartedAt).TotalHours;
+                            var elapsedHours = (now - effectiveStart).TotalHours;
                             if (session.Status == SessionStatus.AwaitingUser && elapsedHours < graceHours)
                                 continue;
 
@@ -375,7 +394,7 @@ namespace AutopilotMonitor.Functions.Services
                             // Device Setup → Incomplete. Never Failed without an explicit failure signal.
                             var rollup = EnrollmentTimeoutClassifier.ExtractRollup(sessionEvents);
                             var (targetStatus, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
-                                rollup, session.StartedAt, now, graceHours, session.LastEventAt);
+                                rollup, effectiveStart, now, graceHours, session.LastEventAt);
 
                             // No-op if the verdict equals the current (non-terminal) state.
                             if (targetStatus == session.Status)

@@ -368,6 +368,63 @@ public class EnrollmentTimeoutClassifierTests
         Assert.Equal(SessionStatus.Incomplete, status);
     }
 
+    // -------- Misclassification audit 2026-07-16 --------
+
+    [Fact]
+    public void ExtractRollup_agent_timeout_enrollment_failed_is_not_explicit_failure()
+    {
+        // The max-lifetime watchdog's enrollment_failed(failureType=agent_timeout) is "the agent
+        // gave up waiting", not a failure verdict — it must not poison rule 1 (tenant a53e67ec).
+        var timeout = Evt("enrollment_failed",
+            data: new Dictionary<string, object> { ["failureType"] = "agent_timeout" });
+        Assert.False(EnrollmentTimeoutClassifier.ExtractRollup(new[] { timeout }).HasExplicitFailure);
+
+        // Any OTHER failureType stays an explicit failure.
+        var genuine = Evt("enrollment_failed",
+            data: new Dictionary<string, object> { ["failureType"] = "esp_terminal" });
+        Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { genuine }).HasExplicitFailure);
+    }
+
+    [Fact]
+    public void Classify_agent_timeout_failed_session_classifies_honestly()
+    {
+        // WG Part-2 shape (session 1506ce9f): DeviceSetup 4/4, no user phase, watchdog fired at
+        // 6h — honest verdict is AwaitingUser (within grace), never Failed.
+        var timeout = Evt("enrollment_failed",
+            data: new Dictionary<string, object> { ["failureType"] = "agent_timeout" });
+        var (status, _) = Classify(new[] { Esp(DeviceSetup44), timeout }, hoursSinceStart: 6);
+        Assert.Equal(SessionStatus.AwaitingUser, status);
+    }
+
+    [Fact]
+    public void ExtractRollup_account_0ofN_observation_records_total()
+    {
+        // A "0 of 5" rollup was previously dropped entirely (the strongest-observation fold only
+        // kept n > 0), making the Incomplete reason read "0/0" — session 08ddbeec.
+        var r = EnrollmentTimeoutClassifier.ExtractRollup(new[] { Esp(DeviceSetup44), Esp(AccountSetup05) });
+        Assert.Equal(0, r.AccountSetupSucceededCount);
+        Assert.Equal(5, r.AccountSetupTotal);
+        Assert.False(r.AccountSetupAllSucceeded);
+    }
+
+    [Fact]
+    public void Classify_incomplete_reason_shows_observed_account_rollup()
+    {
+        var (status, reason) = Classify(new[] { Esp(DeviceSetup44), Esp(AccountSetup05) }, hoursSinceStart: 80, grace: 72);
+        Assert.Equal(SessionStatus.Incomplete, status);
+        Assert.Contains("0/5", reason);
+        Assert.DoesNotContain("0/0", reason);
+    }
+
+    [Fact]
+    public void Classify_incomplete_reason_names_never_observed_account_rollup()
+    {
+        // No AccountSetup rollup at all — the reason must say so instead of a fabricated "0/0".
+        var (status, reason) = Classify(new[] { Esp(DeviceSetup44) }, hoursSinceStart: 80, grace: 72);
+        Assert.Equal(SessionStatus.Incomplete, status);
+        Assert.Contains("Account Setup progress never observed", reason);
+    }
+
     // -------- ResolveGraceHours --------
 
     [Theory]

@@ -614,12 +614,15 @@ namespace AutopilotMonitor.Functions.Services
                 // EnrollmentTimeoutClassifier. AwaitingUser is included too so it keeps being
                 // re-evaluated each pass and graduates to Incomplete once SessionGraceHours elapses
                 // (tasks/enrollment-status-reclassification.md).
-                // IsPreProvisioned ne true → WhiteGlove sessions are intentionally long-lived and
-                // must never be timed out, even after months in storage.
+                // WhiteGlove: sealed devices are protected by STATUS (Pending is not in this set),
+                // not by IsPreProvisioned — a resumed Part-2 session is InProgress and must be
+                // sweepable like any other run, otherwise it lingers as InProgress forever when the
+                // agent dies mid-Part-2 (misclassification audit 2026-07-16). The caller anchors the
+                // timeout window to ResumedAt for these rows so a freshly resumed Part 2 with a
+                // weeks-old StartedAt is not terminalized while it is still live.
                 var filter = $"PartitionKey eq '{tenantId}' " +
                              $"and (Status eq 'InProgress' or Status eq 'Stalled' or Status eq 'AwaitingUser') " +
-                             $"and StartedAt lt datetime'{cutoffTime:yyyy-MM-ddTHH:mm:ss}Z' " +
-                             $"and IsPreProvisioned ne true";
+                             $"and StartedAt lt datetime'{cutoffTime:yyyy-MM-ddTHH:mm:ss}Z'";
                 var query = tableClient.QueryAsync<TableEntity>(filter: filter);
 
                 var sessions = new List<SessionSummary>();
@@ -644,10 +647,15 @@ namespace AutopilotMonitor.Functions.Services
         /// themselves (bluescreen, network loss, power off).
         ///
         /// Filter criteria:
-        /// - Status eq 'InProgress' — do not re-mark already-Stalled sessions
+        /// - Status eq 'InProgress' — do not re-mark already-Stalled sessions; sealed WhiteGlove
+        ///   sessions are Pending and therefore never match (the former extra
+        ///   "IsPreProvisioned ne true" clause also excluded resumed Part-2 runs, which then could
+        ///   never be marked Stalled — misclassification audit 2026-07-16)
         /// - LastEventAt &lt; silenceCutoff — at least the configured window of agent silence
-        /// - StartedAt ge hardCutoff — do not catch sessions that will be picked up by the 5h timeout sweep
-        /// - IsPreProvisioned ne true — exclude sealed WhiteGlove sessions (intentionally long-lived)
+        /// - StartedAt ge hardCutoff OR ResumedAt ge hardCutoff — do not catch sessions that will
+        ///   be picked up by the 5h timeout sweep. The ResumedAt alternative keeps a WhiteGlove
+        ///   Part-2 run (weeks-old StartedAt, fresh ResumedAt) in THIS stage instead of stage 2;
+        ///   rows without ResumedAt fail that comparison server-side and fall back to StartedAt.
         /// </summary>
         public async Task<List<SessionSummary>> GetAgentSilentSessionsAsync(string tenantId, DateTime silenceCutoff, DateTime hardCutoff)
         {
@@ -662,8 +670,7 @@ namespace AutopilotMonitor.Functions.Services
                 var filter = $"PartitionKey eq '{tenantId}' " +
                              $"and Status eq 'InProgress' " +
                              $"and LastEventAt lt datetime'{silenceCutoffStr}Z' " +
-                             $"and StartedAt ge datetime'{hardCutoffStr}Z' " +
-                             $"and IsPreProvisioned ne true";
+                             $"and (StartedAt ge datetime'{hardCutoffStr}Z' or ResumedAt ge datetime'{hardCutoffStr}Z')";
 
                 var query = tableClient.QueryAsync<TableEntity>(filter: filter);
 
@@ -678,6 +685,76 @@ namespace AutopilotMonitor.Functions.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Failed to get agent-silent sessions for tenant {tenantId}");
+                return new List<SessionSummary>();
+            }
+        }
+
+        /// <summary>
+        /// Failed sessions carrying the pre-classifier blanket "Session timed out after ..."
+        /// FailureReason — candidates for the one-time admin retro-reconcile
+        /// (misclassification audit 2026-07-16). The prefix is matched server-side via an
+        /// OData string range (ge prefix, lt prefix-with-last-char-incremented).
+        /// </summary>
+        public async Task<List<SessionSummary>> GetLegacyTimeoutFailedSessionsAsync(string tenantId, int maxResults)
+        {
+            SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
+                // Prefix range for "Session timed out after": upper bound increments the final
+                // 'r' to 's'. Matches exactly the legacy sweep's reason format
+                // "Session timed out after {N} hours (started at ... UTC)".
+                var filter = $"PartitionKey eq '{tenantId}' " +
+                             $"and Status eq 'Failed' " +
+                             $"and FailureReason ge 'Session timed out after' " +
+                             $"and FailureReason lt 'Session timed out aftes'";
+
+                var sessions = new List<SessionSummary>();
+                await foreach (var entity in tableClient.QueryAsync<TableEntity>(filter: filter))
+                {
+                    sessions.Add(MapToSessionSummary(entity));
+                    if (sessions.Count >= maxResults)
+                        break;
+                }
+                return sessions;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Failed to get legacy timeout-failed sessions for tenant {tenantId}");
+                return new List<SessionSummary>();
+            }
+        }
+
+        /// <summary>
+        /// Narrow projection of every session row in the tenant partition — one scan feeding the
+        /// in-memory Pending-orphan matching (misclassification audit 2026-07-16). Fields outside
+        /// the projection come back as defaults; callers must not read them.
+        /// </summary>
+        public async Task<List<SessionSummary>> GetSessionsLeanAsync(string tenantId)
+        {
+            SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
+                var select = new[]
+                {
+                    "PartitionKey", "RowKey", "Status", "StartedAt", "ResumedAt", "LastEventAt",
+                    "SerialNumber", "IsPreProvisioned"
+                };
+
+                var sessions = new List<SessionSummary>();
+                await foreach (var entity in tableClient.QueryAsync<TableEntity>(
+                    filter: $"PartitionKey eq '{tenantId}'", select: select))
+                {
+                    sessions.Add(MapToSessionSummary(entity));
+                }
+                return sessions;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Failed to get lean session projection for tenant {tenantId}");
                 return new List<SessionSummary>();
             }
         }

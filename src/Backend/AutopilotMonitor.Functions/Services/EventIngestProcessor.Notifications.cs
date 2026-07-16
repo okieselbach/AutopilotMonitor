@@ -38,7 +38,12 @@ namespace AutopilotMonitor.Functions.Services
                 ? $"https://portal.autopilotmonitor.com/sessions/{request.SessionId}"
                 : null;
 
-            if (statusTransitioned && (c.CompletionEvent != null || c.FailureEvent != null))
+            // A failure alert requires an actual failure-ish verdict: an agent_timeout
+            // enrollment_failed can honestly classify to AwaitingUser or even Succeeded
+            // (ApplyMaxLifetimeVerdictAsync), in which case failureReason stays null and no
+            // failure notification must go out for a session that did not fail.
+            var failureVerdictApplies = c.FailureEvent != null && failureReason != null;
+            if (statusTransitioned && (c.CompletionEvent != null || failureVerdictApplies))
             {
                 var isSuccess = c.CompletionEvent != null;
                 var targets = isSuccess ? successChannels : failureChannels;

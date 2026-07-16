@@ -62,6 +62,14 @@ namespace AutopilotMonitor.Functions.Services
                     case "session_stalled":
                         classification.SessionStalledEvent = evt;
                         break;
+                    case "esp_provisioning_status":
+                    case "desktop_arrived":
+                    case "hello_provisioning_completed":
+                    case "hello_skipped":
+                        // Completion-evidence kinds the EnrollmentTimeoutClassifier feeds on —
+                        // gate for the late-telemetry reconcile of Incomplete/AwaitingUser sessions.
+                        classification.HasCompletionEvidenceCandidate = true;
+                        break;
                     case "agent_shutting_down":
                         if (IsMaxLifetimeAgentShutdown(evt))
                             classification.AgentMaxLifetimeShutdownEvent = evt;
@@ -111,6 +119,176 @@ namespace AutopilotMonitor.Functions.Services
             return string.Equals(reason, "max_lifetime", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// True for an <c>enrollment_failed</c> event whose <c>Data.failureType</c> is
+        /// <c>agent_timeout</c> — the V1-parity companion of the max-lifetime watchdog shutdown
+        /// (LifecycleEmitters.CreateMaxLifetimeEmitter). Semantically identical to
+        /// <see cref="IsMaxLifetimeAgentShutdown"/>: "the agent gave up waiting", not a failure
+        /// verdict, so it must be classified honestly instead of hard-failed.
+        /// </summary>
+        internal static bool IsAgentTimeoutFailure(EnrollmentEvent? evt)
+        {
+            if (evt == null || !string.Equals(evt.EventType, "enrollment_failed", StringComparison.Ordinal))
+                return false;
+            var failureType = evt.Data != null && evt.Data.ContainsKey("failureType")
+                ? evt.Data["failureType"]?.ToString()
+                : null;
+            return string.Equals(failureType, "agent_timeout", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Shared verdict path for both max-lifetime shapes (enrollment_failed/agent_timeout and
+        /// agent_shutting_down/max_lifetime): classify the session honestly via
+        /// <see cref="EnrollmentTimeoutClassifier"/> instead of hard-failing it. The watchdog
+        /// firing only proves the agent stopped waiting — the enrollment itself may be fully
+        /// provisioned with the user simply absent (AwaitingUser), silently dead (Incomplete),
+        /// or even provably finished (Succeeded reconcile). Mirrors the maintenance sweep's
+        /// stage-2 classification (misclassification audit 2026-07-16).
+        /// Returns (transitioned, failureReason) where failureReason is only set for the
+        /// terminal non-success outcomes so downstream failure notifications stay accurate.
+        /// </summary>
+        private async Task<(bool transitioned, string? failureReason)> ApplyMaxLifetimeVerdictAsync(
+            IngestEventsRequest request, string sessionPrefix, EventClassification c,
+            EnrollmentEvent triggerEvent, SessionStatus? preFetchedStatus)
+        {
+            var session = await _sessionRepo.GetSessionAsync(request.TenantId, request.SessionId);
+            var currentStatus = session?.Status ?? preFetchedStatus;
+
+            // Pending (WhiteGlove sealed) sessions are deliberately long-lived and resume via
+            // re-registration — a watchdog artifact must never terminalize them.
+            if (currentStatus == SessionStatus.Pending)
+            {
+                _logger.LogInformation(
+                    "{SessionPrefix} max_lifetime verdict skipped — session is Pending (WhiteGlove)", sessionPrefix);
+                return (false, null);
+            }
+
+            // Full event read (not just this batch): the ESP rollups / desktop / Hello facts the
+            // classifier needs usually predate the final watchdog batch. Rare path (once per
+            // max-lifetime session), so the extra read is acceptable. Best-effort — with no
+            // events the classifier degrades to rule 6 (Incomplete), still more honest than Failed.
+            List<EnrollmentEvent> sessionEvents = new();
+            try
+            {
+                sessionEvents = await _sessionRepo.GetSessionEventsAsync(
+                    request.TenantId, request.SessionId, maxResults: 1000);
+            }
+            catch (Exception readEx)
+            {
+                _logger.LogWarning(readEx,
+                    "{SessionPrefix} failed to read events for max_lifetime classification; proceeding with batch only", sessionPrefix);
+                sessionEvents = new List<EnrollmentEvent>();
+            }
+
+            int? tenantGraceHours = null, absoluteMaxHours = null;
+            try
+            {
+                var config = await _configService.GetConfigurationAsync(request.TenantId);
+                tenantGraceHours = config?.SessionGraceHours;
+                absoluteMaxHours = config?.AbsoluteMaxSessionHours;
+            }
+            catch (Exception cfgEx)
+            {
+                _logger.LogWarning(cfgEx, "{SessionPrefix} failed to read tenant config for max_lifetime classification; using defaults", sessionPrefix);
+            }
+            var graceHours = EnrollmentTimeoutClassifier.ResolveGraceHours(tenantGraceHours, absoluteMaxHours);
+
+            var now = DateTime.UtcNow;
+            // WhiteGlove Part 2: measure the grace window from the resume, not the weeks-old
+            // Part-1 start (same anchor the maintenance sweep uses).
+            var effectiveStart = session?.ResumedAt ?? session?.StartedAt ?? triggerEvent.Timestamp;
+
+            var rollup = EnrollmentTimeoutClassifier.ExtractRollup(sessionEvents);
+            var (targetStatus, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
+                rollup, effectiveStart, now, graceHours, session?.LastEventAt ?? c.LatestEventTimestamp);
+
+            // Keep the max-lifetime trigger visible: the Succeeded reasons already carry their own
+            // silence-transparency clause, everything else gets the watchdog context appended.
+            if (targetStatus != SessionStatus.Succeeded)
+                reason += " Verdict triggered by the agent's max-lifetime watchdog shutdown.";
+
+            if (targetStatus == currentStatus)
+            {
+                _logger.LogInformation("{SessionPrefix} max_lifetime verdict {Status} equals current status — no transition", sessionPrefix, targetStatus);
+                return (false, null);
+            }
+
+            var isTerminalNonSuccess = targetStatus == SessionStatus.Failed || targetStatus == SessionStatus.Incomplete;
+
+            string? snapshotJson = null;
+            if (isTerminalNonSuccess)
+            {
+                try { snapshotJson = FailureSnapshotBuilder.Build(sessionEvents, now); }
+                catch (Exception snapEx)
+                {
+                    _logger.LogWarning(snapEx, "{SessionPrefix} failed to build failure snapshot for max_lifetime verdict", sessionPrefix);
+                }
+            }
+
+            var transitioned = await _sessionRepo.UpdateSessionStatusAsync(
+                request.TenantId, request.SessionId, targetStatus, triggerEvent.Phase, reason,
+                completedAt: isTerminalNonSuccess ? triggerEvent.Timestamp : (DateTime?)null,
+                earliestEventTimestamp: c.EarliestEventTimestamp, latestEventTimestamp: c.LatestEventTimestamp,
+                failureSource: isTerminalNonSuccess ? "max_lifetime_watchdog" : null,
+                failureSnapshotJson: snapshotJson);
+
+            _logger.LogWarning("{SessionPrefix} Status: {Status} via max_lifetime honest classification - {Reason} (transitioned={Transitioned})",
+                sessionPrefix, targetStatus, reason, transitioned);
+
+            return (transitioned, isTerminalNonSuccess ? reason : null);
+        }
+
+        /// <summary>
+        /// Re-runs the honest timeout classification for an Incomplete/AwaitingUser session after
+        /// straggler telemetry arrived, applying ONLY a Succeeded verdict (heal). Everything else
+        /// is a no-op: the existing verdict stands until evidence proves success. Best-effort —
+        /// a failure here must never break the ingest.
+        /// </summary>
+        private async Task TryLateTelemetryReconcileAsync(
+            IngestEventsRequest request, string sessionPrefix, EventClassification c)
+        {
+            try
+            {
+                var sessionEvents = await _sessionRepo.GetSessionEventsAsync(
+                    request.TenantId, request.SessionId, maxResults: 1000);
+                var rollup = EnrollmentTimeoutClassifier.ExtractRollup(sessionEvents);
+
+                var session = await _sessionRepo.GetSessionAsync(request.TenantId, request.SessionId);
+                if (session == null) return;
+
+                int? tenantGraceHours = null, absoluteMaxHours = null;
+                try
+                {
+                    var config = await _configService.GetConfigurationAsync(request.TenantId);
+                    tenantGraceHours = config?.SessionGraceHours;
+                    absoluteMaxHours = config?.AbsoluteMaxSessionHours;
+                }
+                catch { /* defaults below */ }
+                var graceHours = EnrollmentTimeoutClassifier.ResolveGraceHours(tenantGraceHours, absoluteMaxHours);
+
+                var now = DateTime.UtcNow;
+                var effectiveStart = session.ResumedAt ?? session.StartedAt;
+                var (targetStatus, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
+                    rollup, effectiveStart, now, graceHours, session.LastEventAt ?? c.LatestEventTimestamp);
+
+                if (targetStatus != SessionStatus.Succeeded)
+                    return;
+
+                var healed = await _sessionRepo.UpdateSessionStatusAsync(
+                    request.TenantId, request.SessionId, SessionStatus.Succeeded,
+                    failureReason: reason,
+                    earliestEventTimestamp: c.EarliestEventTimestamp, latestEventTimestamp: c.LatestEventTimestamp);
+                if (healed)
+                    _logger.LogInformation(
+                        "{SessionPrefix} Status: Succeeded (late-telemetry reconcile healed {Previous}) - {Reason}",
+                        sessionPrefix, session.Status, reason);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "{SessionPrefix} late-telemetry reconcile failed; existing verdict stands", sessionPrefix);
+            }
+        }
+
         private static bool IsPeriodicOrStallEvent(string? eventType) => eventType switch
         {
             "performance_snapshot" => true,
@@ -142,15 +320,29 @@ namespace AutopilotMonitor.Functions.Services
             }
             else if (c.FailureEvent != null)
             {
-                failureReason = c.FailureEvent.Data?.ContainsKey("errorCode") == true
-                    ? $"{c.FailureEvent.Message} ({c.FailureEvent.Data["errorCode"]})"
-                    : c.FailureEvent.Message;
+                if (IsAgentTimeoutFailure(c.FailureEvent))
+                {
+                    // enrollment_failed(failureType=agent_timeout) is the max-lifetime watchdog
+                    // giving up, NOT an enrollment failure verdict. Hard-failing here misdeclared
+                    // fully provisioned WhiteGlove Part-2 sessions whose user simply never logged
+                    // in (misclassification audit 2026-07-16, tenant a53e67ec: honest verdict
+                    // AwaitingUser). Route through the same honest classification the maintenance
+                    // sweep uses instead.
+                    (statusTransitioned, failureReason) = await ApplyMaxLifetimeVerdictAsync(
+                        request, sessionPrefix, c, c.FailureEvent, preFetchedStatus);
+                }
+                else
+                {
+                    failureReason = c.FailureEvent.Data?.ContainsKey("errorCode") == true
+                        ? $"{c.FailureEvent.Message} ({c.FailureEvent.Data["errorCode"]})"
+                        : c.FailureEvent.Message;
 
-                statusTransitioned = await _sessionRepo.UpdateSessionStatusAsync(
-                    request.TenantId, request.SessionId, SessionStatus.Failed, c.FailureEvent.Phase, failureReason,
-                    completedAt: c.FailureEvent.Timestamp,
-                    earliestEventTimestamp: c.EarliestEventTimestamp, latestEventTimestamp: c.LatestEventTimestamp);
-                _logger.LogWarning("{SessionPrefix} Status: Failed - {FailureReason} (transitioned={Transitioned})", sessionPrefix, failureReason, statusTransitioned);
+                    statusTransitioned = await _sessionRepo.UpdateSessionStatusAsync(
+                        request.TenantId, request.SessionId, SessionStatus.Failed, c.FailureEvent.Phase, failureReason,
+                        completedAt: c.FailureEvent.Timestamp,
+                        earliestEventTimestamp: c.EarliestEventTimestamp, latestEventTimestamp: c.LatestEventTimestamp);
+                    _logger.LogWarning("{SessionPrefix} Status: Failed - {FailureReason} (transitioned={Transitioned})", sessionPrefix, failureReason, statusTransitioned);
+                }
             }
             else if (c.EspFailureEvent != null)
             {
@@ -217,32 +409,14 @@ namespace AutopilotMonitor.Functions.Services
                 // shutdown event is the last one the session ever sends, so without this
                 // mapping the session stays InProgress forever. Any genuine terminal event
                 // in the same batch wins via the else-if chain above; an already-terminal
-                // session is protected by the repository's idempotency guard. Pending
-                // (WhiteGlove) sessions are skipped — they are deliberately long-lived and
-                // resume via re-registration.
-                var currentStatus = preFetchedStatus
-                    ?? (await _sessionRepo.GetSessionAsync(request.TenantId, request.SessionId))?.Status;
-                if (currentStatus == SessionStatus.Pending)
-                {
-                    _logger.LogInformation(
-                        "{SessionPrefix} max_lifetime shutdown ignored — session is Pending (WhiteGlove)", sessionPrefix);
-                }
-                else
-                {
-                    var uptimeMinutes = c.AgentMaxLifetimeShutdownEvent.Data?.ContainsKey("uptimeMinutes") == true
-                        ? c.AgentMaxLifetimeShutdownEvent.Data["uptimeMinutes"]?.ToString() : null;
-                    failureReason = string.IsNullOrEmpty(uptimeMinutes)
-                        ? "Agent reached its maximum lifetime without a terminal enrollment verdict (max_lifetime watchdog shutdown)."
-                        : $"Agent reached its maximum lifetime ({uptimeMinutes} min) without a terminal enrollment verdict (max_lifetime watchdog shutdown).";
-
-                    statusTransitioned = await _sessionRepo.UpdateSessionStatusAsync(
-                        request.TenantId, request.SessionId, SessionStatus.Failed, c.AgentMaxLifetimeShutdownEvent.Phase, failureReason,
-                        completedAt: c.AgentMaxLifetimeShutdownEvent.Timestamp,
-                        earliestEventTimestamp: c.EarliestEventTimestamp, latestEventTimestamp: c.LatestEventTimestamp,
-                        failureSource: "max_lifetime_watchdog");
-                    _logger.LogWarning("{SessionPrefix} Status: Failed via max_lifetime shutdown mapping (transitioned={Transitioned})",
-                        sessionPrefix, statusTransitioned);
-                }
+                // session is protected by the repository's idempotency guard. Instead of
+                // hard-failing, the session is classified honestly (AwaitingUser/Incomplete/
+                // Succeeded/Failed) — the watchdog giving up is not an enrollment failure
+                // verdict (misclassification audit 2026-07-16). Pending (WhiteGlove) sessions
+                // are skipped inside the helper — they are deliberately long-lived and resume
+                // via re-registration.
+                (statusTransitioned, failureReason) = await ApplyMaxLifetimeVerdictAsync(
+                    request, sessionPrefix, c, c.AgentMaxLifetimeShutdownEvent, preFetchedStatus);
             }
 
             if (c.WhiteGloveStartedEvent != null)
@@ -282,6 +456,19 @@ namespace AutopilotMonitor.Functions.Services
                         clearStalledAt: true, clearFailureReason: true);
                     if (healed)
                         _logger.LogInformation("{SessionPrefix} Status: InProgress (healed from Stalled by new real event)", sessionPrefix);
+                }
+                else if (c.HasCompletionEvidenceCandidate
+                    && (currentStatus == SessionStatus.Incomplete || currentStatus == SessionStatus.AwaitingUser))
+                {
+                    // Late-telemetry reconcile (misclassification audit 2026-07-16, session
+                    // 357cefe7): a sweep verdict is based on the events known AT THAT TIME. When a
+                    // straggler upload later delivers completion evidence (ESP rollups, desktop
+                    // arrival, a positive Hello terminal) for an Incomplete/AwaitingUser session,
+                    // re-run the honest classifier and heal to Succeeded if the evidence now proves
+                    // it. Only the Succeeded verdict is applied — the transition guard allows
+                    // Incomplete→Succeeded, and re-terminalizing with a different reason is noise.
+                    // The batch pre-scan flag keeps this off the hot path for unrelated uploads.
+                    await TryLateTelemetryReconcileAsync(request, sessionPrefix, c);
                 }
             }
 
@@ -326,5 +513,14 @@ namespace AutopilotMonitor.Functions.Services
         /// with an authoritative distinct count at the terminal transition.
         /// </summary>
         public int RebootCount { get; set; }
+
+        /// <summary>
+        /// True when this batch carries at least one event kind the
+        /// <see cref="EnrollmentTimeoutClassifier"/> feeds on (ESP rollups, desktop arrival,
+        /// positive Hello terminals). Gates the late-telemetry reconcile for
+        /// Incomplete/AwaitingUser sessions so unrelated straggler uploads never trigger a
+        /// full event read (misclassification audit 2026-07-16).
+        /// </summary>
+        public bool HasCompletionEvidenceCandidate { get; set; }
     }
 }

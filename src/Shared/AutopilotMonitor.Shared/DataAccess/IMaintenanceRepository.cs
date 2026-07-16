@@ -84,6 +84,22 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<List<SessionSummary>> GetAgentSilentSessionsAsync(string tenantId, DateTime silenceCutoff, DateTime hardCutoff);
         Task<List<SessionSummary>> GetExcessiveDataSendersAsync(string tenantId, DateTime windowCutoff, int maxSessionWindowHours);
 
+        // --- Legacy Reclassification (misclassification audit 2026-07-16) ---
+        /// <summary>
+        /// Failed sessions whose FailureReason carries the pre-classifier blanket
+        /// "Session timed out after ..." verdict — candidates for the one-time admin
+        /// retro-reconcile through <c>EnrollmentTimeoutClassifier</c>. Server-side prefix
+        /// range filter, capped at <paramref name="maxResults"/>.
+        /// </summary>
+        Task<List<SessionSummary>> GetLegacyTimeoutFailedSessionsAsync(string tenantId, int maxResults);
+
+        /// <summary>
+        /// Narrow projection of every session row in the tenant partition (id, status, timing,
+        /// serial). Used by the Pending-orphan resolution to match superseding sessions of the
+        /// same device in memory with one scan instead of one scan per Pending row.
+        /// </summary>
+        Task<List<SessionSummary>> GetSessionsLeanAsync(string tenantId);
+
         // --- Tenant Discovery ---
         Task<List<string>> GetAllTenantIdsAsync();
 

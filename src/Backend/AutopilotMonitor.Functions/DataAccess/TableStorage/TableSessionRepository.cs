@@ -36,6 +36,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<string?> FindSessionTenantIdAsync(string sessionId)
             => _storage.FindSessionTenantIdAsync(sessionId);
 
+        public Task<List<SessionSummary>> GetOpenSessionsForDeviceAsync(string tenantId, string serialNumber)
+            => _storage.GetOpenSessionsForDeviceAsync(tenantId, serialNumber);
+
         public Task<List<SessionSummary>> GetSessionsAsync(string tenantId, int? days = null)
             => _storage.GetSessionsAsync(tenantId, days);
 
@@ -62,13 +65,13 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             bool? isUserDriven = null, DateTime? resumedAt = null,
             DateTime? stalledAt = null, bool clearStalledAt = false, bool clearFailureReason = false,
             string? failureSource = null, string? adminMarkedAction = null,
-            string? failureSnapshotJson = null)
+            string? failureSnapshotJson = null, bool allowTerminalReclassification = false)
         {
             var transitioned = await _storage.UpdateSessionStatusAsync(tenantId, sessionId, status,
                 currentPhase, failureReason, completedAt, earliestEventTimestamp,
                 latestEventTimestamp, isPreProvisioned, isUserDriven, resumedAt,
                 stalledAt, clearStalledAt, clearFailureReason, failureSource, adminMarkedAction,
-                failureSnapshotJson);
+                failureSnapshotJson, allowTerminalReclassification);
 
             // Reconcile the authoritative EventCount + RebootCount whenever a session actually
             // transitions to a terminal state through ANY caller — ingest, admin mark

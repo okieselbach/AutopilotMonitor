@@ -676,6 +676,64 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 return new DecisionStep(rearmedState, rearmedTransition, rearmedEffects);
             }
 
+            // Hello-never-observed promote (misclassification audit 2026-07-16, sessions
+            // 2dac8298/7635ab18) — esp-exit variant only. When the Hello policy read never
+            // committed (HelloPolicyEnabled == null: no PassportForWork value ever appeared,
+            // so the tracker never emitted hello_policy_detected) AND no wizard was ever
+            // seen, the hello_resolution prerequisite is STRUCTURALLY unresolvable: no
+            // policy fact activates the disabled stand-in, and hello_safety was never armed
+            // because the AwaitingHello promotion path was never taken. The DAD-validated
+            // real-user desktop has been up for the whole 30-min window with no wizard and
+            // no enforcement progress (the re-arm guard above ran first) — failing now would
+            // declare a provably finished enrollment failed. Promote to AwaitingHello with
+            // the safety deadline instead of completing outright: a genuinely late wizard
+            // start still blocks completion (HelloWizardStarted re-arms the wait), otherwise
+            // the safety timeout resolves Hello synthetically and the session completes
+            // through Finalizing. Deliberately does NOT require the IME user-session gate —
+            // the FP sessions never saw an IME user-session completion (that gate guards
+            // completion evidence, not user presence; presence is the DAD-validated desktop).
+            if (!hasAdvisoryAnchor
+                && desktopArrived
+                && state.HelloResolvedUtc == null
+                && state.HelloPolicyEnabled == null
+                && state.HelloWizardStartedUtc == null)
+            {
+                var neverObservedSafetyDueAt = EffectiveDeadlineBase(state, signal).Add(s_helloSafetyWindow);
+                var neverObservedSafety = new ActiveDeadline(
+                    name: DeadlineNames.HelloSafety,
+                    dueAtUtc: neverObservedSafetyDueAt,
+                    firesSignalKind: DecisionSignalKind.DeadlineFired,
+                    firesPayload: new Dictionary<string, string>
+                    {
+                        [SignalPayloadKeys.Deadline] = DeadlineNames.HelloSafety,
+                    });
+
+                builder = builder
+                    .WithStage(SessionStage.AwaitingHello)
+                    .AddDeadline(neverObservedSafety);
+
+                var neverObservedTrigger =
+                    $"DeadlineFired:{DeadlineNames.AdvisoryCompletion}:HelloNeverObservedPromote";
+                var neverObservedWaitingEffect = BuildCompletionWaitingEffect(
+                    state, builder, signal, trigger: neverObservedTrigger);
+
+                var neverObservedState = builder.Build();
+                var neverObservedTransition = BuildTakenTransition(
+                    before: state,
+                    signal: signal,
+                    toStage: SessionStage.AwaitingHello,
+                    nextStepIndex: nextStep,
+                    trigger: neverObservedTrigger);
+
+                var neverObservedEffects = new List<DecisionEffect>(2)
+                {
+                    new DecisionEffect(DecisionEffectKind.ScheduleDeadline, deadline: neverObservedSafety),
+                };
+                if (neverObservedWaitingEffect != null) neverObservedEffects.Add(neverObservedWaitingEffect);
+
+                return new DecisionStep(neverObservedState, neverObservedTransition, neverObservedEffects.ToArray());
+            }
+
             // Conjunction not met — the session is failed. The two arming variants carry
             // distinct context (see method doc): the advisory variant un-defangs the original
             // ESP failure; the esp-exit variant never had an ESP failure, so it gets its own

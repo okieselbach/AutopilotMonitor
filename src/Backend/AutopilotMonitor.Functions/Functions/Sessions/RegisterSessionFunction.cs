@@ -184,6 +184,16 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             // Retrieve the stored session to include full data in SignalR message
             var session = await _sessionRepo.GetSessionAsync(registration.TenantId, registration.SessionId);
 
+            // Supersede pass (misclassification audit 2026-07-16): when a device registers a FRESH
+            // session while older non-terminal sessions of the same device still exist (e.g.
+            // WhiteGlove Part 2 running under a new session id leaves the Part-1 row Pending
+            // forever, or a wiped/re-enrolled device abandons its old InProgress run), resolve
+            // those predecessors as Incomplete("Superseded by ..."). One physical device can only
+            // ever run one enrollment. Best-effort — never blocks the registration.
+            var supersededMessages = isFreshRegistration
+                ? await SupersedeOrphanedPredecessorsAsync(registration)
+                : Array.Empty<SignalRMessageAction>();
+
             // AdminAction on re-register is only the portal button signal. SessionSummary.AdminMarkedAction
             // is set exclusively by MarkSessionSucceededFunction / MarkSessionFailedFunction. An
             // agent that restarts after its own completion must NOT receive a phantom AdminAction —
@@ -246,7 +256,77 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             {
                 HttpResponse = response,
                 SignalRMessages = new[] { tenantMessage, globalAdminMessage }
+                    .Concat(supersededMessages)
+                    .ToArray()
             };
+        }
+
+        /// <summary>
+        /// Resolves older non-terminal sessions (Pending/InProgress/Stalled/AwaitingUser) of the
+        /// same device to Incomplete("Superseded by session …") when a fresh registration proves
+        /// the device has moved on. Returns portal-live SignalR updates for each resolved row
+        /// (same "newevents" sessionUpdate shape the ingest path uses). Fail-soft: any error
+        /// returns an empty array and the registration proceeds untouched.
+        /// </summary>
+        private async Task<SignalRMessageAction[]> SupersedeOrphanedPredecessorsAsync(SessionRegistration registration)
+        {
+            try
+            {
+                if (!Helpers.SerialNumberHeuristics.IsUsableSerialNumber(registration.SerialNumber))
+                    return Array.Empty<SignalRMessageAction>();
+
+                var openSessions = await _sessionRepo.GetOpenSessionsForDeviceAsync(
+                    registration.TenantId, registration.SerialNumber.Trim());
+                if (openSessions.Count == 0)
+                    return Array.Empty<SignalRMessageAction>();
+
+                var messages = new List<SignalRMessageAction>();
+                foreach (var stale in openSessions)
+                {
+                    if (string.Equals(stale.SessionId, registration.SessionId, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    // Only strictly older runs — a clock-skewed or concurrent row is left alone.
+                    if (stale.StartedAt >= registration.StartedAt)
+                        continue;
+
+                    var reason = $"Superseded by session {registration.SessionId}: the device registered a new " +
+                                 $"enrollment session at {registration.StartedAt:yyyy-MM-dd HH:mm} UTC before this one " +
+                                 "reached a terminal state.";
+                    var transitioned = await _sessionRepo.UpdateSessionStatusAsync(
+                        registration.TenantId, stale.SessionId, SessionStatus.Incomplete,
+                        failureReason: reason, failureSource: "superseded_by_reregistration");
+                    if (!transitioned)
+                        continue;
+
+                    _logger.LogInformation(
+                        "Superseded stale {StaleStatus} session {StaleSessionId} (started {StaleStartedAt:yyyy-MM-dd}) with new session {SessionId} for device serial (tenant {TenantId})",
+                        stale.Status, stale.SessionId, stale.StartedAt, registration.SessionId, registration.TenantId);
+
+                    messages.Add(new SignalRMessageAction("newevents")
+                    {
+                        GroupName = $"tenant-{registration.TenantId}",
+                        Arguments = new object[] { new {
+                            sessionId = stale.SessionId,
+                            tenantId = registration.TenantId,
+                            eventCount = 0,
+                            sessionUpdate = new
+                            {
+                                Status = SessionStatus.Incomplete,
+                                FailureReason = reason,
+                            }
+                        } }
+                    });
+                }
+
+                return messages.ToArray();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Supersede pass failed for tenant {TenantId} session {SessionId}; registration proceeds",
+                    registration.TenantId, registration.SessionId);
+                return Array.Empty<SignalRMessageAction>();
+            }
         }
 
         /// <summary>

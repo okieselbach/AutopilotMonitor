@@ -81,7 +81,7 @@ namespace AutopilotMonitor.Shared.DataAccess
             bool? isUserDriven = null, DateTime? resumedAt = null,
             DateTime? stalledAt = null, bool clearStalledAt = false, bool clearFailureReason = false,
             string? failureSource = null, string? adminMarkedAction = null,
-            string? failureSnapshotJson = null);
+            string? failureSnapshotJson = null, bool allowTerminalReclassification = false);
         /// <summary>
         /// Increments per-session counters via read-modify-write. Returns the post-merge session
         /// snapshot (the RMW read with the applied increments) so hot-path callers can skip a
@@ -139,6 +139,16 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// device once per runaway session. Independent of <see cref="MarkExcessiveEventsAlertedAsync"/>.
         /// </summary>
         Task MarkExcessiveEventsAutoActionedAsync(string tenantId, string sessionId);
+
+        /// <summary>
+        /// Open (non-terminal: Pending / InProgress / Stalled / AwaitingUser) sessions of the same
+        /// physical device, identified by SerialNumber within the tenant partition. Narrow
+        /// projection — used by the registration supersede pass to resolve orphaned predecessor
+        /// sessions when a device re-registers under a new session id
+        /// (misclassification audit 2026-07-16: WhiteGlove Part 2 under a fresh id left the
+        /// Part-1 row Pending forever).
+        /// </summary>
+        Task<List<SessionSummary>> GetOpenSessionsForDeviceAsync(string tenantId, string serialNumber);
 
         // --- IME Version History ---
         Task<bool> RecordImeVersionAsync(string version, string tenantId, string sessionId);

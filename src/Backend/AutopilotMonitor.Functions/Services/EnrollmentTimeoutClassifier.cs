@@ -124,7 +124,16 @@ namespace AutopilotMonitor.Functions.Services
                 var type = evt.EventType ?? string.Empty;
 
                 if (Eq(type, "enrollment_failed") || Eq(type, "esp_failure"))
-                    hasFailure = true;
+                {
+                    // The agent's max-lifetime watchdog emits enrollment_failed with
+                    // failureType=agent_timeout — that is "the agent gave up waiting", not an
+                    // enrollment failure verdict. Counting it as an explicit failure would send
+                    // every timed-out-but-actually-provisioned session through rule 1 straight to
+                    // Failed, defeating the honest classification this class exists for
+                    // (misclassification audit 2026-07-16, tenant a53e67ec cluster).
+                    if (!Eq(TryGetDataString(evt, "failureType") ?? string.Empty, "agent_timeout"))
+                        hasFailure = true;
+                }
                 else if (Eq(type, "enrollment_complete") || Eq(type, "whiteglove_complete"))
                     hasComplete = true;
                 else if (Eq(type, "agent_emergency_break"))
@@ -189,7 +198,11 @@ namespace AutopilotMonitor.Functions.Services
                 else if (Eq(cat, AccountSetup))
                 {
                     // Keep the strongest AccountSetup observation (highest completion count).
+                    // A "0 of M" observation must still record the total — dropping it entirely
+                    // made the Incomplete reason read "0/0" although a rollup WAS observed
+                    // (misclassification audit 2026-07-16, session 08ddbeec).
                     if (n > acctBestN) { acctBestN = n; acctBestM = total; }
+                    else if (acctBestM == 0 && total > 0) { acctBestM = total; }
                 }
             }
 
@@ -297,9 +310,13 @@ namespace AutopilotMonitor.Functions.Services
                         $"Device Setup completed; awaiting user / Account Setup phase — agent silent, within {graceHours}h grace{acct}");
                 }
 
+                // "0/0" would suggest a parsed rollup that never existed — when no Account Setup
+                // rollup was ever observed, say so instead (misclassification audit 2026-07-16).
+                var acctDetail = rollup.AccountSetupTotal > 0
+                    ? $"last Account Setup {rollup.AccountSetupSucceededCount}/{rollup.AccountSetupTotal}"
+                    : "Account Setup progress never observed";
                 return (SessionStatus.Incomplete,
-                    $"No completion signal within {graceHours}h grace after Device Setup completed " +
-                    $"(last Account Setup {rollup.AccountSetupSucceededCount}/{rollup.AccountSetupTotal})");
+                    $"No completion signal within {graceHours}h grace after Device Setup completed ({acctDetail})");
             }
 
             // 6. Silent before Device Setup completed, with no explicit failure → unknown, not a failure.

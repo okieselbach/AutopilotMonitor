@@ -102,6 +102,7 @@ function formatDuration(seconds: number): string {
 
 const statusLabels: Record<number, string> = {
   0: "InProgress", 1: "Pending", 2: "Stalled", 3: "Succeeded", 4: "Failed", 5: "Unknown",
+  6: "AwaitingUser", 7: "Incomplete", // appended 2026-07-08 — ordinals must match SessionStatus
 };
 
 export default function SlaPage() {
