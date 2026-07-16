@@ -20,6 +20,8 @@ export interface Session {
   reconcileReason?: string;
   /** Non-null only when an administrator flipped the session manually via the portal. Values: "Succeeded" | "Failed". */
   adminMarkedAction?: string;
+  /** Backend device-validation path that accepted the device at registration: "AutopilotV1" | "CorporateIdentifier" | "DeviceAssociation" | "Bootstrap" — absent for sessions before this feature or tenants with device validation off. */
+  validatedBy?: string;
   enrollmentType?: string; // "v1" | "v2" — absent for sessions before this feature
   diagnosticsBlobName?: string;
   lastEventAt?: string;

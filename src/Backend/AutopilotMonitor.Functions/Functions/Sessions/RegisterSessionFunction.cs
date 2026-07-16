@@ -126,6 +126,12 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         {
             _logger.LogInformation($"Registering session {registration.SessionId} for tenant {registration.TenantId} (Device: {validation.CertificateThumbprint})");
 
+            // Server-populated: record which device-validation path accepted this request
+            // (AutopilotV1 / CorporateIdentifier / DeviceAssociation / Bootstrap) so the
+            // session row shows HOW the backend admitted the device. Overwrites any
+            // agent-sent value unconditionally — this is the server's verdict, not input.
+            registration.ValidatedBy = validation.ValidatedBy;
+
             // Cascade-delete guard (Codex F2/F3 + bootstrap follow-up): live HERE in the shared
             // core so BOTH the cert-auth /agent/register-session entry AND the bootstrap wrapper
             // (BootstrapRegisterSessionFunction) hit it before the StoreSessionAsync below.

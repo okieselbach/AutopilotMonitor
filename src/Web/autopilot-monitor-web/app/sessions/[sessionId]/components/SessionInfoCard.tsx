@@ -62,6 +62,13 @@ export default function SessionInfoCard({ session, enrollmentDuration, displaySt
         <InfoItem label="Status" value={<StatusBadge status={displayStatus} failureReason={session.failureReason} failureSource={session.failureSource} adminMarkedAction={session.adminMarkedAction} reconcileReason={session.reconcileReason} />} />
         <InfoItem label="Enrollment Type" value={enrollmentTypeLabel(session, isGatherRulesSession)} />
         <InfoItem label="Join Type" value={joinTypeLabel(session)} />
+        {validatedByLabel(session) && (
+          <InfoItem
+            label="Device Validation"
+            value={validatedByLabel(session)!}
+            tooltip="How the backend verified this device against the Intune tenant when the session was registered"
+          />
+        )}
       </div>
       {displayStatus === "Succeeded" && !session.adminMarkedAction && session.reconcileReason && (
         <div className="mt-4 flex items-start gap-2 px-3 py-2 rounded-lg bg-sky-50 border border-sky-200 text-sm text-sky-800 dark:bg-sky-900/30 dark:border-sky-800 dark:text-sky-200">
@@ -128,6 +135,22 @@ function enrollmentTypeLabel(session: Session, isGatherRulesSession: boolean): s
 /** Entra (Azure AD) vs Hybrid Azure AD join, from the session's stored profile-derived flag. */
 function joinTypeLabel(session: Session): string {
   return session.isHybridJoin ? "Hybrid Join" : "Entra Join";
+}
+
+/**
+ * Which backend device-validation path admitted the device at session registration
+ * (SecurityValidator: Autopilot S/N lookup → Corporate Identifier fallback; Bootstrap
+ * token for pre-MDM sessions; Device Association once DevPrep becomes a hard gate).
+ * Null (item hidden) for legacy sessions or tenants with device validation disabled.
+ */
+function validatedByLabel(session: Session): string | null {
+  switch (session.validatedBy) {
+    case "AutopilotV1": return "Autopilot Registration";
+    case "CorporateIdentifier": return "Corporate Identifier";
+    case "DeviceAssociation": return "Device Association";
+    case "Bootstrap": return "Bootstrap Token (pre-MDM)";
+    default: return null;
+  }
 }
 
 function InfoItem({ label, value, copyText, tooltip }: { label: string; value: React.ReactNode; copyText?: string; tooltip?: string }) {

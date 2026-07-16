@@ -461,6 +461,10 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           isHybridJoin: s.isHybridJoin ?? false,
           isUserDriven: s.isUserDriven ?? false,
           isSelfDeployingProfile: s.isSelfDeployingProfile ?? false,
+          // Backend device-validation path that admitted the device at registration:
+          // "AutopilotV1" | "CorporateIdentifier" | "DeviceAssociation" | "Bootstrap".
+          // Null for sessions predating the field or tenants with device validation off.
+          validatedBy: s.validatedBy || null,
           device: {
             name: s.deviceName,
             serialNumber: s.serialNumber,

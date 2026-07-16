@@ -174,6 +174,12 @@ namespace AutopilotMonitor.Functions.Services
             if (!string.IsNullOrEmpty(reconcileReason))
                 indexEntity["ReconcileReason"] = reconcileReason;
 
+            // Device-validation path recorded at registration (AutopilotV1 / CorporateIdentifier /
+            // DeviceAssociation / Bootstrap) — index-served session reads must carry it too.
+            var validatedBy = sessionEntity.GetString("ValidatedBy");
+            if (!string.IsNullOrEmpty(validatedBy))
+                indexEntity["ValidatedBy"] = validatedBy;
+
             var failureSnapshotJson = sessionEntity.GetString("FailureSnapshotJson");
             if (!string.IsNullOrEmpty(failureSnapshotJson))
                 indexEntity["FailureSnapshotJson"] = failureSnapshotJson;
@@ -368,6 +374,7 @@ namespace AutopilotMonitor.Functions.Services
                 DateTime? completedAt = null;
                 string failureReason = string.Empty;
                 string reconcileReason = string.Empty;
+                string validatedBy = string.Empty;
                 bool isPreProvisioned = registration.IsPreProvisioned;
                 bool isHybridJoin = registration.IsHybridJoin;
                 bool isSelfDeployingProfile = registration.IsSelfDeployingProfile;
@@ -406,6 +413,7 @@ namespace AutopilotMonitor.Functions.Services
                     completedAt = existingEntity.GetDateTimeOffset("CompletedAt")?.UtcDateTime;
                     failureReason = existingEntity.GetString("FailureReason") ?? string.Empty;
                     reconcileReason = existingEntity.GetString("ReconcileReason") ?? string.Empty;
+                    validatedBy = existingEntity.GetString("ValidatedBy") ?? string.Empty;
 
                     // Preserve fields set by Merge-mode updates (SetSessionPreProvisionedAsync,
                     // UpdateSessionStatusAsync, UpdateSessionDiagnosticsBlobAsync) that would
@@ -498,6 +506,15 @@ namespace AutopilotMonitor.Functions.Services
 
                 if (!string.IsNullOrWhiteSpace(reconcileReason))
                     entity["ReconcileReason"] = reconcileReason;
+
+                // Latest non-Unknown validation wins: a Bootstrap-registered session that later
+                // re-registers under cert auth upgrades to the cert-path validator; an Unknown
+                // result (device validation disabled for the tenant) preserves whatever an
+                // earlier registration recorded.
+                if (registration.ValidatedBy != ValidatorType.Unknown)
+                    validatedBy = registration.ValidatedBy.ToString();
+                if (!string.IsNullOrWhiteSpace(validatedBy))
+                    entity["ValidatedBy"] = validatedBy;
 
                 if (lastEventAt.HasValue)
                     entity["LastEventAt"] = EnsureUtc(lastEventAt.Value);
@@ -2725,6 +2742,7 @@ namespace AutopilotMonitor.Functions.Services
                 FailureSource = entity.GetString("FailureSource") ?? string.Empty,
                 ReconcileReason = entity.GetString("ReconcileReason") ?? string.Empty,
                 AdminMarkedAction = entity.GetString("AdminMarkedAction"),
+                ValidatedBy = entity.GetString("ValidatedBy") ?? string.Empty,
                 PendingActionsJson = entity.GetString("PendingActionsJson") ?? string.Empty,
                 PendingActionsQueuedAt = SafeGetDateTime(entity, "PendingActionsQueuedAt"),
                 EventCount = SafeGetInt32(entity, "EventCount") ?? 0,

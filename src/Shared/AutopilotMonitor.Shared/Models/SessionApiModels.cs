@@ -244,6 +244,16 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public string? AdminMarkedAction { get; set; }
 
+        /// <summary>
+        /// Which backend device-validation path accepted this device at session registration —
+        /// <see cref="ValidatorType"/> name as string: "AutopilotV1" (Autopilot S/N lookup),
+        /// "CorporateIdentifier", "DeviceAssociation" (DevPrep, future hard gate), or
+        /// "Bootstrap" (pre-MDM token). Latest non-Unknown validation wins (a Bootstrap
+        /// session re-registering under cert auth upgrades to the cert-path validator).
+        /// Empty for sessions that predate this field or tenants with device validation off.
+        /// </summary>
+        public string ValidatedBy { get; set; } = string.Empty;
+
         public int EventCount { get; set; }
         public int? DurationSeconds { get; set; }
 

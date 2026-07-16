@@ -43,6 +43,8 @@ public class SessionIndexProjectionTests
             ["ExcessiveEventsAutoActioned"] = true,
             // Self-deploying/kiosk profile marker (session 320b3bf7) — search-filterable.
             ["IsSelfDeployingProfile"] = true,
+            // Device-validation path recorded at registration — shown on the session detail page.
+            ["ValidatedBy"] = "AutopilotV1",
         };
 
         var idx = TableStorageService.BuildSessionIndexEntity(session, IndexRowKey, StartedAt);
@@ -64,6 +66,7 @@ public class SessionIndexProjectionTests
         Assert.True(idx.GetBoolean("ExcessiveEventsAlerted"));
         Assert.True(idx.GetBoolean("ExcessiveEventsAutoActioned"));
         Assert.True(idx.GetBoolean("IsSelfDeployingProfile"));
+        Assert.Equal("AutopilotV1", idx.GetString("ValidatedBy"));
     }
 
     [Fact]
@@ -82,6 +85,7 @@ public class SessionIndexProjectionTests
         Assert.False(idx.ContainsKey("AdminMarkedAction"));
         Assert.False(idx.ContainsKey("FailureSource"));
         Assert.False(idx.ContainsKey("StalledAt"));
+        Assert.False(idx.ContainsKey("ValidatedBy"));
         // Always-present counts/flags mirror the Sessions defaults.
         Assert.Equal(0, idx.GetInt32("PlatformScriptCount"));
         Assert.Equal(0, idx.GetInt32("RemediationScriptCount"));
