@@ -46,6 +46,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         internal const string WhiteGloveBackfillStateFileName = "whiteglove-backfill.json";
 
         /// <summary>
+        /// Error-record backfill for the Autopilot channel: TPM attestation and ZTD
+        /// registration/assignment errors (171/172, 807/809/815/908, all Level 1-2) happen
+        /// BEFORE the agent is installed in the normal IME deployment model — a failed
+        /// attempt that was resolved by a retry would stay invisible without replaying the
+        /// channel history at startup. See docs/agent/autopilot-ztd-diagnostics.md
+        /// (Observability section). Fixed 4h lookback: OOBE start → agent install is
+        /// normally well under that, and the RecordId watermark below prevents replays
+        /// from re-emitting on every agent restart.
+        /// </summary>
+        internal const int ErrorBackfillLookbackMinutes = 240;
+
+        /// <summary>
+        /// Hard cap of records processed per backfill scan (newest first). A pathological
+        /// error storm before agent start must not flood the session timeline — the newest
+        /// records carry the diagnosis; anything beyond the cap is summarized in the log.
+        /// </summary>
+        internal const int ErrorBackfillMaxRecords = 25;
+
+        internal const string AutopilotErrorBackfillStateFileName = "autopilot-error-backfill.json";
+
+        /// <summary>
         /// Per-EventId emission caps for harmless-downgraded events (session 8bc1180f,
         /// 2026-06-12). Windows can dump hundreds of identical EventID-100 "Autopilot policy
         /// not found" records in a single minute (observed: 689/min → signal-ingress queue
@@ -77,6 +98,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private EventLogWatcher _managementWatcher;
         private bool _whiteGloveStartDetected;
         private readonly object _stateLock = new object();
+
+        // Highest Autopilot-channel error RecordId already forwarded (backfill or live).
+        // Persisted so a restart's backfill scan never re-emits records a previous run
+        // already sent. Guarded by _errorWatermarkLock.
+        private long _autopilotErrorMaxRecordId;
+        private readonly object _errorWatermarkLock = new object();
 
         // Cumulative per-EventId occurrence counters for harmless-downgraded events.
         // EventRecordWritten callbacks can run concurrently → guarded by its own lock.
@@ -130,11 +157,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         public void Start()
         {
+            // Load the error watermark BEFORE arming the watchers so live records that race
+            // the backfill scan still advance a correctly-initialized watermark.
+            _autopilotErrorMaxRecordId = LoadAutopilotErrorBackfillState()?.MaxRecordId ?? 0;
+
             StartWatchers();
 
             if (_backfillEnabled)
             {
                 BackfillTargetedEvents();
+                BackfillAutopilotErrors();
             }
             else
             {
@@ -236,6 +268,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             try
             {
                 ProcessRecord(e.EventRecord, shortName, channelName, isBackfill: false);
+
+                // Advance the persisted error watermark for live Autopilot-channel errors so a
+                // later restart's backfill scan does not re-emit them (errors are rare — the
+                // per-record disk write is negligible).
+                if (channelName == AutopilotChannel
+                    && (e.EventRecord.Level ?? 4) <= 2
+                    && e.EventRecord.RecordId.HasValue)
+                {
+                    AdvanceAutopilotErrorWatermark(e.EventRecord.RecordId.Value);
+                }
             }
             catch (Exception ex)
             {
@@ -569,6 +611,161 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             {
                 _logger.Warning($"ModernDeployment backfill failed: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// XPath for the Autopilot-channel error backfill: Level 1-2 (Critical/Error) only —
+        /// this deliberately excludes the Warning-level 100 heartbeat storm; the harmless-ID
+        /// downgrade + rollup still applies to whatever the scan forwards.
+        /// </summary>
+        internal static string BuildErrorBackfillXPath(int lookbackMinutes)
+        {
+            long lookbackMs = (long)lookbackMinutes * 60_000L;
+            return $"*[System[(Level >= 1 and Level <= 2) and TimeCreated[timediff(@SystemTime) <= {lookbackMs}]]]";
+        }
+
+        /// <summary>
+        /// Replays Autopilot-channel error records written BEFORE the agent started (normal IME
+        /// deployment: TPM attestation / ZTD errors precede our install — a retry-then-success
+        /// attempt leaves them in the log with no live watcher to see them). Records flow through
+        /// the regular <see cref="ProcessRecord"/> pipeline with isBackfill=true, so they arrive
+        /// as modern_deployment_error events carrying backfilled=true plus the original
+        /// timeCreated; the event's own timestamp is emission time, so session StartedAt is not
+        /// dragged backwards. Newest-first, capped, watermark-deduped across restarts.
+        /// </summary>
+        private void BackfillAutopilotErrors()
+        {
+            try
+            {
+                long watermark;
+                lock (_errorWatermarkLock) { watermark = _autopilotErrorMaxRecordId; }
+
+                var xpath = BuildErrorBackfillXPath(ErrorBackfillLookbackMinutes);
+                _logger.Info($"ModernDeployment error backfill: scanning {AutopilotChannel} " +
+                    $"(lookback={ErrorBackfillLookbackMinutes}min, watermark={watermark}, cap={ErrorBackfillMaxRecords})");
+
+                var query = new EventLogQuery(AutopilotChannel, PathType.LogName, xpath)
+                {
+                    ReverseDirection = true
+                };
+
+                int processed = 0, skippedWatermark = 0, droppedOverCap = 0;
+                long maxSeen = watermark;
+
+                using (var reader = new EventLogReader(query))
+                {
+                    EventRecord record;
+                    while ((record = reader.ReadEvent()) != null)
+                    {
+                        using (record)
+                        {
+                            var recordId = record.RecordId ?? 0;
+                            if (recordId > maxSeen) maxSeen = recordId;
+
+                            if (recordId != 0 && recordId <= watermark)
+                            {
+                                skippedWatermark++;
+                                continue;
+                            }
+
+                            if (processed >= ErrorBackfillMaxRecords)
+                            {
+                                droppedOverCap++;
+                                continue;
+                            }
+
+                            processed++;
+                            ProcessRecord(record, "Autopilot", AutopilotChannel, isBackfill: true);
+                        }
+                    }
+                }
+
+                if (maxSeen > watermark)
+                    AdvanceAutopilotErrorWatermark(maxSeen);
+
+                if (processed == 0 && droppedOverCap == 0)
+                    _logger.Debug($"ModernDeployment error backfill: nothing new (skippedByWatermark={skippedWatermark})");
+                else
+                    _logger.Info($"ModernDeployment error backfill: forwarded {processed} record(s) " +
+                        $"(skippedByWatermark={skippedWatermark}, droppedOverCap={droppedOverCap})");
+            }
+            catch (EventLogNotFoundException)
+            {
+                _logger.Warning($"ModernDeployment event log not found during error backfill: {AutopilotChannel} (normal on non-Windows 10/11 test environments)");
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger.Warning($"ModernDeployment error backfill access denied: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"ModernDeployment error backfill failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Raises the persisted error watermark to <paramref name="recordId"/> (monotonic —
+        /// lower values are ignored). Called from both the backfill scan and the live watcher.
+        /// </summary>
+        internal void AdvanceAutopilotErrorWatermark(long recordId)
+        {
+            lock (_errorWatermarkLock)
+            {
+                if (recordId <= _autopilotErrorMaxRecordId) return;
+                _autopilotErrorMaxRecordId = recordId;
+            }
+
+            PersistAutopilotErrorBackfillState(recordId);
+        }
+
+        private void PersistAutopilotErrorBackfillState(long maxRecordId)
+        {
+            if (string.IsNullOrEmpty(_stateDirectory)) return;
+
+            try
+            {
+                Directory.CreateDirectory(_stateDirectory);
+                var filePath = Path.Combine(_stateDirectory, AutopilotErrorBackfillStateFileName);
+                var state = new AutopilotErrorBackfillState
+                {
+                    MaxRecordId = maxRecordId,
+                    PersistedUtc = DateTime.UtcNow
+                };
+                var json = JsonConvert.SerializeObject(state, Formatting.Indented);
+                var tempPath = filePath + ".tmp";
+                File.WriteAllText(tempPath, json);
+                File.Copy(tempPath, filePath, overwrite: true);
+                try { File.Delete(tempPath); } catch { }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"Failed to persist Autopilot error backfill state: {ex.Message}");
+            }
+        }
+
+        internal AutopilotErrorBackfillState LoadAutopilotErrorBackfillState()
+        {
+            if (string.IsNullOrEmpty(_stateDirectory)) return null;
+
+            var filePath = Path.Combine(_stateDirectory, AutopilotErrorBackfillStateFileName);
+            if (!File.Exists(filePath)) return null;
+
+            try
+            {
+                var json = File.ReadAllText(filePath);
+                return JsonConvert.DeserializeObject<AutopilotErrorBackfillState>(json);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"Failed to load Autopilot error backfill state: {ex.Message}");
+                return null;
+            }
+        }
+
+        internal class AutopilotErrorBackfillState
+        {
+            public long MaxRecordId { get; set; }
+            public DateTime PersistedUtc { get; set; }
         }
 
         // -----------------------------------------------------------------------

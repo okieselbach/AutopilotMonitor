@@ -95,16 +95,29 @@ handshake itself) is over before our process exists.
 | Failure class | Normal flow (IME install) | Bootstrap token mode | Await-enrollment mode |
 | --- | --- | --- | --- |
 | Enrollment blocked (0x80180014/18, 0xC1036501, 0x801C03F3 → ANALYZE-ENRL-004) | **Invisible** — no enrollment ⇒ no agent, no session. | **Visible** — the bootstrap token exists precisely to report pre-MDM (as of 2026-07: one customer piloting). | **Invisible to the backend** — the agent binary is present but only polls for the MDM certificate; without the cert it cannot authenticate, and monitoring starts only after the cert appears. A hard blocker ends in the await timeout (default 480 min) with nothing uploaded. |
-| TPM attestation (ANALYZE-ENRL-003) | **Almost never live** — attestation precedes enrollment. Retry-then-success leaves the earlier errors in the Autopilot channel, but the continuous watcher is live-only and the startup backfill targets ManagementService 509 only, so they are not forwarded. | Visible. | Same limits as normal flow once monitoring starts. |
+| TPM attestation (ANALYZE-ENRL-003) | **Visible via error backfill** — attestation precedes enrollment, but the startup error backfill (below) replays Autopilot-channel Level 1-2 records from the last 4h, so retry-then-success attempts surface as `backfilled=true` events. | Visible. | Visible via error backfill once monitoring starts. |
 | Hybrid-join 0x80004005 (ANALYZE-ENRL-005) | **Visible** — the ODJ/hybrid phase runs during device ESP while the agent is active. | Visible. | Visible after cert arrival. |
 | Clock skew (ANALYZE-DEV-007) | **Always** — ntp_time_check is our own event. | Always. | Always. |
 
 The rules stay enabled despite the narrow normal-flow windows: they are evidence-gated
 (zero cost when the codes never appear) and they future-proof the bootstrap and
-await-enrollment paths. Known follow-up option: extend the ModernDeploymentTracker
-startup backfill to also replay Autopilot-channel Error-level records (807/809/815/908,
-171/172) from before agent start — that would make the retry-then-success TPM case and
-late-visible ZTD errors observable in the normal flow too.
+await-enrollment paths.
+
+## Startup error backfill (ModernDeploymentTracker)
+
+At agent start (backfill enabled), the tracker replays Autopilot-channel **Level 1-2**
+records from the last **4 hours** through the normal emission pipeline — this is what makes
+pre-install errors (TPM attestation retries, ZTD errors 807/809/815/908) visible in the
+normal IME deployment flow. Spam containment, in order:
+
+1. **Errors only** — the Warning-level 100 heartbeat storm is excluded by the XPath.
+2. **Harmless-ID downgrade + burst rollup** still applies to backfilled records.
+3. **Cap** of 25 records per scan (newest first; the tail is logged, not emitted).
+4. **RecordId watermark** (`autopilot-error-backfill.json`, advanced by both the backfill
+   scan and the live watcher) — restarts never re-emit records a previous run forwarded.
+5. Backfilled events carry `backfilled: true` plus the original `timeCreated` in their
+   payload; the event's own timestamp is the emission time, so the session's `StartedAt`
+   (which the backend aligns to the earliest event) is not dragged backwards.
 
 # Schema — Error codes (backend known-issue map)
 
