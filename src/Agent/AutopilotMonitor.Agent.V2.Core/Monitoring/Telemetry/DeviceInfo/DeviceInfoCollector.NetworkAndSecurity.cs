@@ -286,6 +286,32 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
 
                 EmitDeviceInfoEvent(Constants.EventTypes.AutopilotProfile, "Autopilot profile configuration", data);
 
+                // ProfileAvailable=0 means the ZTD service returned no profile for this device
+                // during OOBE (not Autopilot-registered, profile assignment not propagated yet,
+                // or device deleted from Autopilot). Such a device still enrolls via manual
+                // Entra join + MDM auto-enrollment and would otherwise look like a regular
+                // Autopilot session — surface the edge case explicitly.
+                if (IsAutopilotProfileMissing(data))
+                {
+                    var missingData = new Dictionary<string, object>
+                    {
+                        { "profileAvailable", "0" },
+                        { "likelyCauses", "not_registered_in_autopilot,profile_assignment_not_propagated,deleted_from_autopilot" }
+                    };
+                    if (TryExtractZeroTouchTenantDomain(data, out var ztdTenantDomain))
+                    {
+                        missingData["zeroTouchTenantDomain"] = ztdTenantDomain ?? "";
+                        missingData["zeroTouchTenantDomainEmpty"] = string.IsNullOrEmpty(ztdTenantDomain);
+                    }
+
+                    EmitDeviceInfoEvent(Constants.EventTypes.AutopilotProfileMissing,
+                        "No Autopilot profile cached on this device (ProfileAvailable=0) — the device was likely not Autopilot-registered when OOBE ran; this enrollment appears to be a manual Entra ID join, not an Autopilot deployment.",
+                        missingData,
+                        EventSeverity.Warning);
+
+                    _logger.Warning("EnrollmentTracker: no Autopilot profile cached (ProfileAvailable=0) — non-Autopilot OOBE enrollment suspected");
+                }
+
                 // Emit dedicated enrollment_type_detected event for easy filtering. Routed through
                 // EmitDeviceInfoEvent (same Severity/Source/Phase) so the restart dedup applies.
                 EmitDeviceInfoEvent(Constants.EventTypes.EnrollmentTypeDetected,
@@ -312,6 +338,77 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
             }
 
             return (detectedType, isHybridJoin, detectedAutopilotMode);
+        }
+
+        /// <summary>
+        /// True when the AutopilotPolicyCache explicitly recorded that no Autopilot profile
+        /// is available (ProfileAvailable=0). Windows writes this when the ZTD service
+        /// returned no profile for the device's hardware hash during OOBE. An absent
+        /// ProfileAvailable value is NOT treated as missing (no evidence either way).
+        /// </summary>
+        internal static bool IsAutopilotProfileMissing(Dictionary<string, object> data)
+        {
+            return data != null
+                && data.TryGetValue("ProfileAvailable", out var profileAvailable)
+                && profileAvailable?.ToString() == "0";
+        }
+
+        /// <summary>
+        /// Extracts ZeroTouchConfig.CloudAssignedTenantDomain from the cached profile data.
+        /// The value lives in the CloudAssignedAadServerData JSON — either as a top-level
+        /// registry value or embedded as a string property inside PolicyJsonCache.
+        /// Returns false when it cannot be located (missing values, malformed JSON).
+        /// </summary>
+        internal static bool TryExtractZeroTouchTenantDomain(Dictionary<string, object> data, out string tenantDomain)
+        {
+            tenantDomain = null;
+            if (data == null) return false;
+
+            try
+            {
+                string serverDataJson = null;
+                if (data.TryGetValue("CloudAssignedAadServerData", out var topLevel))
+                {
+                    serverDataJson = topLevel?.ToString();
+                }
+                else if (data.TryGetValue("PolicyJsonCache", out var policyCache))
+                {
+                    var policyRaw = policyCache?.ToString();
+                    if (!string.IsNullOrWhiteSpace(policyRaw))
+                    {
+                        using (var pDoc = System.Text.Json.JsonDocument.Parse(policyRaw))
+                        {
+                            if (pDoc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                                pDoc.RootElement.TryGetProperty("CloudAssignedAadServerData", out var serverDataProp) &&
+                                serverDataProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                            {
+                                serverDataJson = serverDataProp.GetString();
+                            }
+                        }
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(serverDataJson)) return false;
+
+                using (var doc = System.Text.Json.JsonDocument.Parse(serverDataJson))
+                {
+                    if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                        doc.RootElement.TryGetProperty("ZeroTouchConfig", out var ztc) &&
+                        ztc.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                        ztc.TryGetProperty("CloudAssignedTenantDomain", out var domainProp) &&
+                        domainProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        tenantDomain = domainProp.GetString();
+                        return true;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // Malformed cache JSON — treat as not extractable.
+            }
+
+            return false;
         }
 
         private void CollectSecureBootStatus()
@@ -768,7 +865,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
             }
         }
 
-        private void EmitDeviceInfoEvent(string eventType, string message, Dictionary<string, object> data)
+        private void EmitDeviceInfoEvent(string eventType, string message, Dictionary<string, object> data,
+            EventSeverity severity = EventSeverity.Info)
         {
             if (!ShouldEmitDeviceInfoEvent(eventType, data)) return;
 
@@ -777,7 +875,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                 SessionId = _sessionId,
                 TenantId = _tenantId,
                 EventType = eventType,
-                Severity = EventSeverity.Info,
+                Severity = severity,
                 Source = "EnrollmentTracker",
                 Phase = EnrollmentPhase.Unknown,
                 Message = message,

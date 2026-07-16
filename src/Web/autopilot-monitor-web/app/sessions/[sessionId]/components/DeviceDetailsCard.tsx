@@ -147,6 +147,11 @@ export default function DeviceDetailsCard({ events, latestAgentVersion }: { even
   const networkInterfaceInfo = getEventData("network_interface_info");
   const wifiSignalInfo = getEventData("wifi_signal_info");
   const autopilotProfile = normalizeAutopilotProfile(getEventData("autopilot_profile"));
+  // Explicit agent signal (new sessions) OR ProfileAvailable=0 in the cached profile
+  // (also covers sessions recorded before autopilot_profile_missing existed).
+  const autopilotProfileMissing =
+    getEventData("autopilot_profile_missing") !== null ||
+    (autopilotProfile !== null && `${autopilotProfile.ProfileAvailable}` === "0");
   const aadJoinStatus = getEventData("aad_join_status");
   const imeVersion = getEventData("ime_agent_version");
   const realmJoinInfo = getEventData("realmjoin_detected");
@@ -379,6 +384,21 @@ export default function DeviceDetailsCard({ events, latestAgentVersion }: { even
             {/* Autopilot Profile */}
             {autopilotProfile && (
               <DetailSection title="Autopilot Profile">
+                {autopilotProfileMissing && (
+                  <div className="my-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
+                    <div className="flex items-start gap-1.5">
+                      <svg className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                      </svg>
+                      <span>
+                        <span className="font-semibold">No Autopilot profile found on this device.</span>{" "}
+                        It was likely not registered for Windows Autopilot when OOBE ran — this
+                        enrollment appears to be a manual Entra ID join during OOBE, not an
+                        Autopilot deployment.
+                      </span>
+                    </div>
+                  </div>
+                )}
                 {hasValue(autopilotProfile.CloudAssignedTenantDomain) && <DetailRow label="Tenant Domain" value={`${autopilotProfile.CloudAssignedTenantDomain}`} />}
                 {hasValue(autopilotProfile.DeploymentProfileName) && <DetailRow label="Profile Name" value={`${autopilotProfile.DeploymentProfileName}`} />}
                 {hasValue(autopilotProfile.CloudAssignedTenantId) && <DetailRow label="Tenant ID" value={`${autopilotProfile.CloudAssignedTenantId}`} />}
@@ -428,7 +448,7 @@ export default function DeviceDetailsCard({ events, latestAgentVersion }: { even
                 )}
                 {hasValue(autopilotProfile.AutopilotCreationDate) && <DetailRow label="Autopilot Created" value={new Date(autopilotProfile.AutopilotCreationDate).toLocaleString()} />}
                 {hasValue(autopilotProfile.ProfileAvailable) && (
-                  <DetailRow label="Profile Available" value={`${autopilotProfile.ProfileAvailable}` === "1" ? "Yes" : `${autopilotProfile.ProfileAvailable}`} />
+                  <DetailRow label="Profile Available" value={`${autopilotProfile.ProfileAvailable}` === "1" ? "Yes" : `${autopilotProfile.ProfileAvailable}` === "0" ? "No" : `${autopilotProfile.ProfileAvailable}`} />
                 )}
               </DetailSection>
             )}

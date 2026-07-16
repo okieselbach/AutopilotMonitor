@@ -436,6 +436,7 @@ namespace AutopilotMonitor.Shared
             public const string DnsConfiguration          = "dns_configuration";
             public const string ProxyConfiguration        = "proxy_configuration";
             public const string AutopilotProfile          = "autopilot_profile";
+            public const string AutopilotProfileMissing   = "autopilot_profile_missing";
             public const string EnrollmentTypeDetected    = "enrollment_type_detected";
             public const string SecureBootStatus          = "secureboot_status";
             public const string BitLockerStatus           = "bitlocker_status";

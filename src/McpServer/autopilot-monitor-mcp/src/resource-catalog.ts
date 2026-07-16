@@ -94,6 +94,7 @@ export const EVENT_TYPES_CATALOG = {
     'secureboot_status',
     'bitlocker_status',
     'autopilot_profile',
+    'autopilot_profile_missing',
     'enrollment_type_detected',
     'aad_join_status',
     'cert_validation',
@@ -256,6 +257,11 @@ export const DEVICE_PROPERTIES_CATALOG = {
     'autopilot_profile.CloudAssignedEspEnabled': { type: 'boolean', description: 'ESP enabled in Autopilot profile' },
     'autopilot_profile.CloudAssignedDeviceName': { type: 'string', description: 'Cloud-assigned device name template' },
     'autopilot_profile.CloudAssignedLanguage': { type: 'string', description: 'Cloud-assigned language/locale' },
+  },
+  autopilot_profile_missing: {
+    'autopilot_profile_missing.profileAvailable': { type: 'string', description: 'Always "0" — Windows recorded that no Autopilot profile was available during OOBE' },
+    'autopilot_profile_missing.zeroTouchTenantDomain': { type: 'string', description: 'CloudAssignedTenantDomain from the cached ZeroTouchConfig (empty when no profile was downloaded)' },
+    'autopilot_profile_missing.likelyCauses': { type: 'string', description: 'Comma-separated candidate causes (not_registered_in_autopilot, profile_assignment_not_propagated, deleted_from_autopilot)' },
   },
   hardware_spec: {
     'hardware_spec.cpuName': { type: 'string', description: 'CPU model name (e.g. "Intel Core i7-1265U")' },
