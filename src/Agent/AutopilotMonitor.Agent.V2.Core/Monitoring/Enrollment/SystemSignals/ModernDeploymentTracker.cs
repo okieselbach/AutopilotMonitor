@@ -18,6 +18,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
     ///
     /// Additionally detects WhiteGlove (Pre-Provisioning) initiation via
     /// ManagementService Event 509 with cross-restart dedup via disk persistence.
+    ///
+    /// The Autopilot channel's documented event-ID semantics (100 waiting-for-profile,
+    /// 153/160/161/163/164 profile-download flow, 171/172 TPM attestation, 807/809/815/908
+    /// ZTD registration/assignment errors) are catalogued with sources in
+    /// docs/agent/autopilot-ztd-diagnostics.md — re-check that doc's sources periodically.
+    /// The continuous watcher here filters to Level ≤ 3; <see cref="Telemetry.DeviceInfo.ZtdEvidence"/>
+    /// runs a targeted all-level one-shot query on the profile-missing path instead.
     /// </summary>
     internal sealed class ModernDeploymentTracker : IDisposable
     {

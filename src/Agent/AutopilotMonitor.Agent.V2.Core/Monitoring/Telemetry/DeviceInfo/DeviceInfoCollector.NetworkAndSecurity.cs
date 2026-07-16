@@ -284,6 +284,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                 // Include enrollment type in autopilot_profile event data
                 data["enrollmentType"] = detectedType;
 
+                // Second diagnostic surface (independent of AutopilotPolicyCache): Microsoft's
+                // documented Diagnostics\Autopilot key (IsAutopilotDisabled, TenantMatched,
+                // CloudAssignedTenantDomain/Id, ...). See docs/agent/autopilot-ztd-diagnostics.md.
+                var diagnosticsRegistry = ZtdEvidence.ReadDiagnosticsRegistry(_logger);
+                if (diagnosticsRegistry != null)
+                    data["diagnosticsRegistry"] = diagnosticsRegistry;
+
                 EmitDeviceInfoEvent(Constants.EventTypes.AutopilotProfile, "Autopilot profile configuration", data);
 
                 // ProfileAvailable=0 means the ZTD service returned no profile for this device
@@ -292,7 +299,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                 // what was missing is the deployment-profile ASSIGNMENT (not assigned, or
                 // still propagating/'assigning' when the user went through OOBE). OOBE then
                 // runs as a standard Entra join and would otherwise look like a regular
-                // Autopilot session — surface the edge case explicitly.
+                // Autopilot session — surface the edge case explicitly, with a ZTD verdict
+                // backed by the ModernDeployment Autopilot event log plus an endpoint probe
+                // (see docs/agent/autopilot-ztd-diagnostics.md for the evidence model).
                 if (IsAutopilotProfileMissing(data))
                 {
                     var missingData = new Dictionary<string, object>
@@ -306,12 +315,43 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                         missingData["zeroTouchTenantDomainEmpty"] = string.IsNullOrEmpty(ztdTenantDomain);
                     }
 
+                    // Evidence 1 — Windows' own ZTD verdict from the Autopilot event channel
+                    // (807 not registered / 815 no profile assigned / 164-without-161 download
+                    // came back empty / ...). One-shot targeted query; the continuous watcher
+                    // can't supply this because it filters out Info-level events.
+                    var eventEvidence = ZtdEvidence.QueryEventEvidence(_logger);
+                    missingData["ztdVerdict"] = ZtdEvidence.ComputeZtdVerdict(eventEvidence?.EventIdCounts);
+                    if (eventEvidence != null)
+                    {
+                        missingData["ztdEventIdCounts"] = eventEvidence.EventIdCounts;
+                        if (eventEvidence.Truncated)
+                            missingData["ztdEventQueryTruncated"] = true;
+                    }
+
+                    // Evidence 2 — the documented diagnostic registry values, surfaced flat for
+                    // easy rule/UI consumption (full dump travels on the autopilot_profile event).
+                    if (diagnosticsRegistry != null)
+                    {
+                        if (diagnosticsRegistry.TryGetValue("IsAutopilotDisabled", out var isDisabled))
+                            missingData["isAutopilotDisabled"] = isDisabled;
+                        if (diagnosticsRegistry.TryGetValue("TenantMatched", out var tenantMatched))
+                            missingData["tenantMatched"] = tenantMatched;
+                    }
+
+                    // Evidence 3 — deployment-service reachability from THIS network, now. Rules
+                    // out (or confirms) the firewall cause; event 164 remains the authoritative
+                    // witness for reachability at the actual OOBE check time.
+                    var probe = ZtdEvidence.ProbeZtdEndpoint(_logger);
+                    missingData["ztdEndpointReachable"] = probe.Reachable;
+                    missingData["ztdEndpointLatencyMs"] = probe.LatencyMs;
+                    missingData["ztdEndpointDetail"] = probe.Detail;
+
                     EmitDeviceInfoEvent(Constants.EventTypes.AutopilotProfileMissing,
                         "No Autopilot profile was available during OOBE (ProfileAvailable=0) — most likely no deployment profile was assigned to the device, or the assignment had not finished propagating when OOBE ran. OOBE proceeded as a standard Entra ID join instead of an Autopilot deployment.",
                         missingData,
                         EventSeverity.Warning);
 
-                    _logger.Warning("EnrollmentTracker: no Autopilot profile available during OOBE (ProfileAvailable=0) — deployment profile not assigned or assignment not yet propagated");
+                    _logger.Warning($"EnrollmentTracker: no Autopilot profile available during OOBE (ProfileAvailable=0) — ztdVerdict={missingData["ztdVerdict"]}, endpointReachable={probe.Reachable}");
                 }
 
                 // Emit dedicated enrollment_type_detected event for easy filtering. Routed through

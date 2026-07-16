@@ -1,0 +1,87 @@
+{
+  "$schema": "../schema/analyze-rule.schema.json",
+  "ruleId": "ANALYZE-ENRL-005",
+  "title": "Hybrid Join Timeout 0x80004005 — Fixed by Windows Update",
+  "description": "A Microsoft Entra hybrid join Autopilot deployment hit error 0x80004005 — a documented build-dependent known issue, resolved by KB5065789 (25H2, build >= 26200.6725), KB5065426 (24H2, build >= 26100.6584), and KB5070312 (23H2, build >= 22631.6276). Knowledge source: docs/agent/autopilot-ztd-diagnostics.md (error-code map).",
+  "severity": "high",
+  "category": "enrollment",
+  "version": "1.0.0",
+  "author": "Autopilot Monitor",
+  "enabled": true,
+  "trigger": "correlation",
+  "baseConfidence": 25,
+  "confidenceThreshold": 60,
+  "conditions": [
+    {
+      "signal": "hybrid_join_profile",
+      "source": "event_data",
+      "eventType": "autopilot_profile",
+      "dataField": "isHybridJoin",
+      "operator": "equals",
+      "value": "true",
+      "required": true
+    },
+    {
+      "signal": "e_fail_esp_failure",
+      "source": "event_data",
+      "eventType": "esp_failure",
+      "dataField": "errorCode",
+      "operator": "contains",
+      "value": "80004005",
+      "required": false
+    },
+    {
+      "signal": "e_fail_esp_advisory",
+      "source": "event_data",
+      "eventType": "esp_failure_advisory",
+      "dataField": "errorCode",
+      "operator": "contains",
+      "value": "80004005",
+      "required": false
+    },
+    {
+      "signal": "e_fail_modern_deployment",
+      "source": "event_type",
+      "eventType": "modern_deployment_error",
+      "dataField": "message",
+      "operator": "contains",
+      "value": "80004005",
+      "required": false
+    },
+    {
+      "signal": "e_fail_error_detected",
+      "source": "event_type",
+      "eventType": "error_detected",
+      "dataField": "message",
+      "operator": "contains",
+      "value": "80004005",
+      "required": false
+    }
+  ],
+  "confidenceFactors": [
+    { "signal": "e_fail_esp_failure", "condition": "exists", "weight": 40 },
+    { "signal": "e_fail_esp_advisory", "condition": "exists", "weight": 35 },
+    { "signal": "e_fail_modern_deployment", "condition": "exists", "weight": 40 },
+    { "signal": "e_fail_error_detected", "condition": "exists", "weight": 35 }
+  ],
+  "explanation": "This is a **Microsoft Entra hybrid join** deployment that hit error **0x80004005** — a documented, build-dependent Autopilot known issue where hybrid deployments time out.\n\nThe issue is fixed by Windows cumulative updates:\n\n- Windows 11 **25H2**: KB5065789 — fixed from build **26200.6725**\n- Windows 11 **24H2**: KB5065426 — fixed from build **26100.6584**\n- Windows 11 **23H2**: KB5070312 — fixed from build **22631.6276**\n\nCompare this session's OS build (see the Session Info card / os_info event) against the fixed-build threshold for its version. If the device booted with an older build, updating the deployment image (or installing quality updates during OOBE) resolves the timeout. Note that 0x80004005 is a generic failure code (E_FAIL) — if the build is already at or above the fixed threshold, investigate the Intune Connector for Active Directory and domain-controller connectivity instead.",
+  "remediation": [
+    {
+      "title": "Update the image to the fixed build",
+      "steps": [
+        "Determine the session's OS build from the Session Info card (e.g. 26100.4500).",
+        "25H2: ensure build >= 26200.6725 (KB5065789). 24H2: ensure build >= 26100.6584 (KB5065426). 23H2: ensure build >= 22631.6276 (KB5070312).",
+        "Refresh the deployment image with the current cumulative update, or enable quality updates during OOBE in the ESP profile.",
+        "If the build already contains the fix: check Intune Connector for AD health, domain-controller reachability from the client network, and hybrid-join prerequisites."
+      ]
+    }
+  ],
+  "relatedDocs": [
+    {
+      "title": "Microsoft Learn: Windows Autopilot known issues — hybrid join 0x80004005",
+      "url": "https://learn.microsoft.com/en-us/autopilot/known-issues"
+    }
+  ],
+  "markSessionAsFailedDefault": false,
+  "tags": ["enrollment", "hybrid-join", "known-issue", "windows-update", "esp"]
+}

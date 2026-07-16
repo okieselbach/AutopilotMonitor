@@ -52,6 +52,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
         private static readonly Dictionary<string, string[]> GateFingerprintExcludedFields = new Dictionary<string, string[]>(StringComparer.Ordinal)
         {
             { Constants.EventTypes.NetworkInterfaceInfo, new[] { "linkSpeedMbps" } },
+            // Probe latency/detail vary per run and per-ID event counts grow monotonically (the
+            // 100 "waiting for profile" heartbeat) without the SITUATION changing — only a flipped
+            // ztdVerdict / reachability / registry evidence justifies a re-emission after restart.
+            { Constants.EventTypes.AutopilotProfileMissing, new[] { "ztdEndpointLatencyMs", "ztdEndpointDetail", "ztdEventIdCounts" } },
         };
 
         public DeviceInfoCollector(

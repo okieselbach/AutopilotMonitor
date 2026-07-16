@@ -1,0 +1,59 @@
+{
+  "$schema": "../schema/analyze-rule.schema.json",
+  "ruleId": "ANALYZE-DEV-007",
+  "title": "System Clock Skew — TPM Attestation and ESP Timeout Risk",
+  "description": "The device's real-time clock deviates from NTP by more than two minutes. Microsoft documents that a clock off by several minutes causes TPM attestation errors (self-deploying/pre-provisioning) and ESP timeouts. Knowledge source: docs/agent/autopilot-ztd-diagnostics.md.",
+  "severity": "warning",
+  "category": "device",
+  "version": "1.0.0",
+  "author": "Autopilot Monitor",
+  "enabled": true,
+  "trigger": "single",
+  "baseConfidence": 55,
+  "confidenceThreshold": 50,
+  "conditions": [
+    {
+      "signal": "clock_ahead",
+      "source": "event_data",
+      "eventType": "ntp_time_check",
+      "dataField": "offsetSeconds",
+      "operator": "gt",
+      "value": "120",
+      "required": false
+    },
+    {
+      "signal": "clock_behind",
+      "source": "event_data",
+      "eventType": "ntp_time_check",
+      "dataField": "offsetSeconds",
+      "operator": "lt",
+      "value": "-120",
+      "required": false
+    }
+  ],
+  "confidenceFactors": [],
+  "explanation": "The device's system clock is off by **{{offsetSeconds}} seconds** relative to the NTP reference (time.windows.com). Microsoft documents that Autopilot provisioning can fail with TPM attestation errors or ESP timeouts when the real-time clock is off by several minutes — certificate and token validation are time-sensitive.\n\nThis is especially critical for **self-deploying and pre-provisioning** deployments (TPM attestation) and can also skew all client-side timestamps in this session's timeline.",
+  "remediation": [
+    {
+      "title": "Sync the clock before provisioning",
+      "steps": [
+        "Boot the device to the start of OOBE and establish a network connection.",
+        "Run 'w32tm /resync /force' (Shift+F10 command prompt) to sync with time.windows.com.",
+        "Ensure UDP port 123 to time.windows.com is open in the deployment network.",
+        "Check the BIOS/RTC battery and firmware clock if the skew recurs on the same hardware."
+      ]
+    }
+  ],
+  "relatedDocs": [
+    {
+      "title": "Microsoft Learn: Windows Autopilot known issues — device provisioning can fail (clock skew)",
+      "url": "https://learn.microsoft.com/en-us/autopilot/known-issues"
+    },
+    {
+      "title": "Microsoft Learn: Windows Autopilot requirements — Networking (NTP)",
+      "url": "https://learn.microsoft.com/en-us/autopilot/requirements?tabs=networking"
+    }
+  ],
+  "markSessionAsFailedDefault": false,
+  "tags": ["device", "ntp", "clock-skew", "tpm", "esp", "known-issue"]
+}

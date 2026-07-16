@@ -6,5 +6,6 @@ How the on-device agent works:
 * [Decision Engine](decision-engine.md) - the pure-reducer state machine (DecisionCore): signals, state, effects, the A/B/C completion arms, invariants, threading.
 * [Logs, Persistence & Crash Recovery](logs-and-persistence.md) - every persisted file and why it exists; signal log vs spool; snapshot/journal; the replay-based recovery flow and quarantine.
 * [Hello Wizard Un-Skip](hello-wizard-unskip.md) - why a single "WHfB disabled" policy read never decides completion: the HelloWizardStarted signal (prevention + cure) and the HelloTracker confirmation second read.
+* [Autopilot ZTD Diagnostics](autopilot-ztd-diagnostics.md) - Windows' own diagnostic surfaces for the profile-download flow: ModernDeployment event IDs (807/815/164/...), the Diagnostics\Autopilot registry key, deployment-service endpoints, and the known-issue error-code map.
 
 Reading order for newcomers: overview → decision engine → persistence.

@@ -1,0 +1,79 @@
+{
+  "$schema": "../schema/analyze-rule.schema.json",
+  "ruleId": "ANALYZE-ENRL-003",
+  "title": "TPM Attestation Failure — Known Error Code",
+  "description": "A TPM-attestation-related error code documented in the Microsoft Autopilot known-issues list was observed (0x800705B4, 0x801C03EA, 0x81039001, 0x81039023, 0x81039024, 0x80070490). These block self-deploying and pre-provisioning deployments during 'Securing your hardware'. Knowledge source: docs/agent/autopilot-ztd-diagnostics.md (error-code map).",
+  "severity": "high",
+  "category": "enrollment",
+  "version": "1.0.0",
+  "author": "Autopilot Monitor",
+  "enabled": true,
+  "trigger": "single",
+  "baseConfidence": 60,
+  "confidenceThreshold": 55,
+  "conditions": [
+    {
+      "signal": "tpm_hresult_esp_failure",
+      "source": "event_data",
+      "eventType": "esp_failure",
+      "dataField": "errorCode",
+      "operator": "regex",
+      "value": "(0x)?(800705B4|801C03EA|81039001|81039023|81039024|80070490)",
+      "required": false
+    },
+    {
+      "signal": "tpm_hresult_esp_advisory",
+      "source": "event_data",
+      "eventType": "esp_failure_advisory",
+      "dataField": "errorCode",
+      "operator": "regex",
+      "value": "(0x)?(800705B4|801C03EA|81039001|81039023|81039024|80070490)",
+      "required": false
+    },
+    {
+      "signal": "tpm_hresult_modern_deployment",
+      "source": "event_type",
+      "eventType": "modern_deployment_error",
+      "dataField": "message",
+      "operator": "regex",
+      "value": "(0x)?(800705B4|801C03EA|81039001|81039023|81039024|80070490)",
+      "required": false
+    },
+    {
+      "signal": "tpm_hresult_error_detected",
+      "source": "event_type",
+      "eventType": "error_detected",
+      "dataField": "message",
+      "operator": "regex",
+      "value": "(0x)?(800705B4|801C03EA|81039001|81039023|81039024|80070490)",
+      "required": false
+    }
+  ],
+  "confidenceFactors": [],
+  "explanation": "A TPM attestation error code from Microsoft's Autopilot known-issues list was observed. These codes block self-deploying mode and pre-provisioning during the **Securing your hardware** step.\n\nCode meanings:\n\n- **0x800705B4** — timeout; the most common cause in self-deploying mode is hardware that is not TPM 2.0 capable (e.g. a virtual machine). Self-deploying mode cannot be used on such devices.\n- **0x801C03EA** — TPM attestation failed, so the Microsoft Entra join with a device token failed.\n- **0x81039001** — E_AUTOPILOT_CLIENT_TPM_MAX_ATTESTATION_RETRY_EXCEEDED; intermittent — a retry of the deployment often succeeds.\n- **0x81039023** — Windows 11 attestation failure; fixed by cumulative update KB5013943 (21H2) or later.\n- **0x81039024** — the TPM firmware has known vulnerabilities; attestation is refused until the firmware is updated.\n- **0x80070490** — AMD platforms with ASP firmware TPM; fixed in later AMD firmware releases.\n\nTPM attestation additionally requires access to `*.microsoftaik.azure.net` and, for firmware TPMs, the vendor EK-certificate endpoints. A real-time clock that is off by several minutes also causes attestation failures (see the session's ntp_time_check event).",
+  "remediation": [
+    {
+      "title": "Match the code to its documented fix",
+      "steps": [
+        "0x800705B4: verify the device has TPM 2.0 (self-deploying/pre-provisioning is unsupported on VMs).",
+        "0x81039001: retry the deployment — this code is documented as intermittent.",
+        "0x81039023: install KB5013943 (Windows 11 21H2) or a later cumulative update into the image.",
+        "0x81039024 / 0x80070490: update the TPM/system firmware from the OEM.",
+        "Verify network access to *.microsoftaik.azure.net and the TPM vendor EK-certificate URL (Intel/Qualcomm/AMD).",
+        "Check the session's ntp_time_check event — a clock offset of minutes breaks attestation (w32tm /resync /force)."
+      ]
+    }
+  ],
+  "relatedDocs": [
+    {
+      "title": "Microsoft Learn: Windows Autopilot known issues",
+      "url": "https://learn.microsoft.com/en-us/autopilot/known-issues"
+    },
+    {
+      "title": "Microsoft Learn: Windows Autopilot requirements — Networking (TPM attestation endpoints)",
+      "url": "https://learn.microsoft.com/en-us/autopilot/requirements?tabs=networking"
+    }
+  ],
+  "markSessionAsFailedDefault": false,
+  "tags": ["enrollment", "tpm", "attestation", "self-deploying", "pre-provisioning", "known-issue"]
+}

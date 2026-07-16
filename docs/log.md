@@ -1,5 +1,9 @@
 # Log
 
+## 2026-07-16
+
+* **Creation**: Added `agent/autopilot-ztd-diagnostics.md` — reference for Windows' own ZTD diagnostic surfaces (ModernDeployment Autopilot event IDs incl. 807/809/815/908, the `Diagnostics\Autopilot` registry key, deployment-service endpoints, known-issue error-code map with KB fixes). Backs the agent's `ZtdEvidence` collector (`ztdVerdict` on `autopilot_profile_missing`) and the backend known-issue rules; sources carry a re-check RSS feed.
+
 ## 2026-07-13
 
 * **Removal**: Moved `customer-graph-add-on-permissions.md` out of this contributor bundle into the customer documentation repository (`reference/optional-graph-permissions.md`). It was customer-facing product content and did not belong in the tech-docs bundle; removed the entry from `index.md`.

@@ -1116,6 +1116,71 @@
       ]
     },
     {
+      "ruleId": "ANALYZE-DEV-007",
+      "title": "System Clock Skew — TPM Attestation and ESP Timeout Risk",
+      "description": "The device's real-time clock deviates from NTP by more than two minutes. Microsoft documents that a clock off by several minutes causes TPM attestation errors (self-deploying/pre-provisioning) and ESP timeouts. Knowledge source: docs/agent/autopilot-ztd-diagnostics.md.",
+      "severity": "warning",
+      "category": "device",
+      "version": "1.0.0",
+      "author": "Autopilot Monitor",
+      "enabled": true,
+      "trigger": "single",
+      "baseConfidence": 55,
+      "confidenceThreshold": 50,
+      "conditions": [
+        {
+          "signal": "clock_ahead",
+          "source": "event_data",
+          "eventType": "ntp_time_check",
+          "dataField": "offsetSeconds",
+          "operator": "gt",
+          "value": "120",
+          "required": false
+        },
+        {
+          "signal": "clock_behind",
+          "source": "event_data",
+          "eventType": "ntp_time_check",
+          "dataField": "offsetSeconds",
+          "operator": "lt",
+          "value": "-120",
+          "required": false
+        }
+      ],
+      "confidenceFactors": [],
+      "explanation": "The device's system clock is off by **{{offsetSeconds}} seconds** relative to the NTP reference (time.windows.com). Microsoft documents that Autopilot provisioning can fail with TPM attestation errors or ESP timeouts when the real-time clock is off by several minutes — certificate and token validation are time-sensitive.\n\nThis is especially critical for **self-deploying and pre-provisioning** deployments (TPM attestation) and can also skew all client-side timestamps in this session's timeline.",
+      "remediation": [
+        {
+          "title": "Sync the clock before provisioning",
+          "steps": [
+            "Boot the device to the start of OOBE and establish a network connection.",
+            "Run 'w32tm /resync /force' (Shift+F10 command prompt) to sync with time.windows.com.",
+            "Ensure UDP port 123 to time.windows.com is open in the deployment network.",
+            "Check the BIOS/RTC battery and firmware clock if the skew recurs on the same hardware."
+          ]
+        }
+      ],
+      "relatedDocs": [
+        {
+          "title": "Microsoft Learn: Windows Autopilot known issues — device provisioning can fail (clock skew)",
+          "url": "https://learn.microsoft.com/en-us/autopilot/known-issues"
+        },
+        {
+          "title": "Microsoft Learn: Windows Autopilot requirements — Networking (NTP)",
+          "url": "https://learn.microsoft.com/en-us/autopilot/requirements?tabs=networking"
+        }
+      ],
+      "markSessionAsFailedDefault": false,
+      "tags": [
+        "device",
+        "ntp",
+        "clock-skew",
+        "tpm",
+        "esp",
+        "known-issue"
+      ]
+    },
+    {
       "ruleId": "ANALYZE-ENRL-001",
       "title": "Enrollment Failed",
       "description": "Detects when the Autopilot enrollment has explicitly failed.",
@@ -1247,6 +1312,282 @@
         "enrollment",
         "timeout",
         "stalled"
+      ]
+    },
+    {
+      "ruleId": "ANALYZE-ENRL-003",
+      "title": "TPM Attestation Failure — Known Error Code",
+      "description": "A TPM-attestation-related error code documented in the Microsoft Autopilot known-issues list was observed (0x800705B4, 0x801C03EA, 0x81039001, 0x81039023, 0x81039024, 0x80070490). These block self-deploying and pre-provisioning deployments during 'Securing your hardware'. Knowledge source: docs/agent/autopilot-ztd-diagnostics.md (error-code map).",
+      "severity": "high",
+      "category": "enrollment",
+      "version": "1.0.0",
+      "author": "Autopilot Monitor",
+      "enabled": true,
+      "trigger": "single",
+      "baseConfidence": 60,
+      "confidenceThreshold": 55,
+      "conditions": [
+        {
+          "signal": "tpm_hresult_esp_failure",
+          "source": "event_data",
+          "eventType": "esp_failure",
+          "dataField": "errorCode",
+          "operator": "regex",
+          "value": "(0x)?(800705B4|801C03EA|81039001|81039023|81039024|80070490)",
+          "required": false
+        },
+        {
+          "signal": "tpm_hresult_esp_advisory",
+          "source": "event_data",
+          "eventType": "esp_failure_advisory",
+          "dataField": "errorCode",
+          "operator": "regex",
+          "value": "(0x)?(800705B4|801C03EA|81039001|81039023|81039024|80070490)",
+          "required": false
+        },
+        {
+          "signal": "tpm_hresult_modern_deployment",
+          "source": "event_type",
+          "eventType": "modern_deployment_error",
+          "dataField": "message",
+          "operator": "regex",
+          "value": "(0x)?(800705B4|801C03EA|81039001|81039023|81039024|80070490)",
+          "required": false
+        },
+        {
+          "signal": "tpm_hresult_error_detected",
+          "source": "event_type",
+          "eventType": "error_detected",
+          "dataField": "message",
+          "operator": "regex",
+          "value": "(0x)?(800705B4|801C03EA|81039001|81039023|81039024|80070490)",
+          "required": false
+        }
+      ],
+      "confidenceFactors": [],
+      "explanation": "A TPM attestation error code from Microsoft's Autopilot known-issues list was observed. These codes block self-deploying mode and pre-provisioning during the **Securing your hardware** step.\n\nCode meanings:\n\n- **0x800705B4** — timeout; the most common cause in self-deploying mode is hardware that is not TPM 2.0 capable (e.g. a virtual machine). Self-deploying mode cannot be used on such devices.\n- **0x801C03EA** — TPM attestation failed, so the Microsoft Entra join with a device token failed.\n- **0x81039001** — E_AUTOPILOT_CLIENT_TPM_MAX_ATTESTATION_RETRY_EXCEEDED; intermittent — a retry of the deployment often succeeds.\n- **0x81039023** — Windows 11 attestation failure; fixed by cumulative update KB5013943 (21H2) or later.\n- **0x81039024** — the TPM firmware has known vulnerabilities; attestation is refused until the firmware is updated.\n- **0x80070490** — AMD platforms with ASP firmware TPM; fixed in later AMD firmware releases.\n\nTPM attestation additionally requires access to `*.microsoftaik.azure.net` and, for firmware TPMs, the vendor EK-certificate endpoints. A real-time clock that is off by several minutes also causes attestation failures (see the session's ntp_time_check event).",
+      "remediation": [
+        {
+          "title": "Match the code to its documented fix",
+          "steps": [
+            "0x800705B4: verify the device has TPM 2.0 (self-deploying/pre-provisioning is unsupported on VMs).",
+            "0x81039001: retry the deployment — this code is documented as intermittent.",
+            "0x81039023: install KB5013943 (Windows 11 21H2) or a later cumulative update into the image.",
+            "0x81039024 / 0x80070490: update the TPM/system firmware from the OEM.",
+            "Verify network access to *.microsoftaik.azure.net and the TPM vendor EK-certificate URL (Intel/Qualcomm/AMD).",
+            "Check the session's ntp_time_check event — a clock offset of minutes breaks attestation (w32tm /resync /force)."
+          ]
+        }
+      ],
+      "relatedDocs": [
+        {
+          "title": "Microsoft Learn: Windows Autopilot known issues",
+          "url": "https://learn.microsoft.com/en-us/autopilot/known-issues"
+        },
+        {
+          "title": "Microsoft Learn: Windows Autopilot requirements — Networking (TPM attestation endpoints)",
+          "url": "https://learn.microsoft.com/en-us/autopilot/requirements?tabs=networking"
+        }
+      ],
+      "markSessionAsFailedDefault": false,
+      "tags": [
+        "enrollment",
+        "tpm",
+        "attestation",
+        "self-deploying",
+        "pre-provisioning",
+        "known-issue"
+      ]
+    },
+    {
+      "ruleId": "ANALYZE-ENRL-004",
+      "title": "MDM Enrollment Blocked — Known Error Code",
+      "description": "An enrollment-blocking error code documented in the Microsoft Autopilot known-issues/troubleshooting pages was observed (0x80180014, 0x80180018, 0xC1036501, 0x801C03F3, 0x80070774). Each has a specific, documented cause and fix. Knowledge source: docs/agent/autopilot-ztd-diagnostics.md (error-code map).",
+      "severity": "high",
+      "category": "enrollment",
+      "version": "1.0.0",
+      "author": "Autopilot Monitor",
+      "enabled": true,
+      "trigger": "single",
+      "baseConfidence": 60,
+      "confidenceThreshold": 55,
+      "conditions": [
+        {
+          "signal": "enrl_hresult_esp_failure",
+          "source": "event_data",
+          "eventType": "esp_failure",
+          "dataField": "errorCode",
+          "operator": "regex",
+          "value": "(0x)?(80180014|80180018|C1036501|801C03F3|80070774)",
+          "required": false
+        },
+        {
+          "signal": "enrl_hresult_esp_advisory",
+          "source": "event_data",
+          "eventType": "esp_failure_advisory",
+          "dataField": "errorCode",
+          "operator": "regex",
+          "value": "(0x)?(80180014|80180018|C1036501|801C03F3|80070774)",
+          "required": false
+        },
+        {
+          "signal": "enrl_hresult_modern_deployment",
+          "source": "event_type",
+          "eventType": "modern_deployment_error",
+          "dataField": "message",
+          "operator": "regex",
+          "value": "(0x)?(80180014|80180018|C1036501|801C03F3|80070774)",
+          "required": false
+        },
+        {
+          "signal": "enrl_hresult_error_detected",
+          "source": "event_type",
+          "eventType": "error_detected",
+          "dataField": "message",
+          "operator": "regex",
+          "value": "(0x)?(80180014|80180018|C1036501|801C03F3|80070774)",
+          "required": false
+        }
+      ],
+      "confidenceFactors": [],
+      "explanation": "An enrollment-blocking error code from Microsoft's Autopilot known-issues list was observed.\n\nCode meanings:\n\n- **0x80180014** — either the device is being reused in self-deploying/pre-provisioning mode and its Intune-created device record still exists (documented ETW companion error: \"Enrollment blocked for AP device by SDM One Time Limit Check\"), or Windows (MDM) enrollment is disabled by an enrollment restriction.\n- **0x80180018** — MDM enrollment refused for the user: missing/incorrect Intune, EMS, or Microsoft 365 license, or the user exceeded the device enrollment limit.\n- **0xC1036501** — automatic MDM enrollment is impossible because multiple MDM configurations exist in Microsoft Entra ID.\n- **0x801C03F3** — the Microsoft Entra device object for this Autopilot device was deleted (logged in the Microsoft-Windows-User Device Registration/Admin channel). The object is Autopilot's anchor for group membership and profile targeting.\n- **0x80070774** — hybrid-join ESP failure caused by a domain mismatch: the Intune Connector for Active Directory is installed in a different AD domain than the one the device is targeted at.",
+      "remediation": [
+        {
+          "title": "Match the code to its documented fix",
+          "steps": [
+            "0x80180014 (reuse): Intune → Devices → Enrollment → Windows Autopilot → Devices → select the device → 'Unblock device', then redeploy. Alternatively verify Windows (MDM) is set to Allow in the enrollment restrictions.",
+            "0x80180018: verify the signing-in user has a valid Intune/EMS/M365 license and has not hit the device enrollment limit.",
+            "0xC1036501: consolidate to a single MDM configuration in Microsoft Entra ID.",
+            "0x801C03F3: deregister the device from Intune, Entra ID, and Autopilot, then re-register it — this recreates the Entra device object.",
+            "0x80070774: install/configure the Intune Connector for Active Directory in the AD domain that matches the device targeting."
+          ]
+        }
+      ],
+      "relatedDocs": [
+        {
+          "title": "Microsoft Learn: Windows Autopilot troubleshooting FAQ",
+          "url": "https://learn.microsoft.com/en-us/autopilot/troubleshooting-faq"
+        },
+        {
+          "title": "Microsoft Learn: Windows Autopilot known issues",
+          "url": "https://learn.microsoft.com/en-us/autopilot/known-issues"
+        }
+      ],
+      "markSessionAsFailedDefault": false,
+      "tags": [
+        "enrollment",
+        "mdm",
+        "known-issue",
+        "entra-id",
+        "hybrid-join"
+      ]
+    },
+    {
+      "ruleId": "ANALYZE-ENRL-005",
+      "title": "Hybrid Join Timeout 0x80004005 — Fixed by Windows Update",
+      "description": "A Microsoft Entra hybrid join Autopilot deployment hit error 0x80004005 — a documented build-dependent known issue, resolved by KB5065789 (25H2, build >= 26200.6725), KB5065426 (24H2, build >= 26100.6584), and KB5070312 (23H2, build >= 22631.6276). Knowledge source: docs/agent/autopilot-ztd-diagnostics.md (error-code map).",
+      "severity": "high",
+      "category": "enrollment",
+      "version": "1.0.0",
+      "author": "Autopilot Monitor",
+      "enabled": true,
+      "trigger": "correlation",
+      "baseConfidence": 25,
+      "confidenceThreshold": 60,
+      "conditions": [
+        {
+          "signal": "hybrid_join_profile",
+          "source": "event_data",
+          "eventType": "autopilot_profile",
+          "dataField": "isHybridJoin",
+          "operator": "equals",
+          "value": "true",
+          "required": true
+        },
+        {
+          "signal": "e_fail_esp_failure",
+          "source": "event_data",
+          "eventType": "esp_failure",
+          "dataField": "errorCode",
+          "operator": "contains",
+          "value": "80004005",
+          "required": false
+        },
+        {
+          "signal": "e_fail_esp_advisory",
+          "source": "event_data",
+          "eventType": "esp_failure_advisory",
+          "dataField": "errorCode",
+          "operator": "contains",
+          "value": "80004005",
+          "required": false
+        },
+        {
+          "signal": "e_fail_modern_deployment",
+          "source": "event_type",
+          "eventType": "modern_deployment_error",
+          "dataField": "message",
+          "operator": "contains",
+          "value": "80004005",
+          "required": false
+        },
+        {
+          "signal": "e_fail_error_detected",
+          "source": "event_type",
+          "eventType": "error_detected",
+          "dataField": "message",
+          "operator": "contains",
+          "value": "80004005",
+          "required": false
+        }
+      ],
+      "confidenceFactors": [
+        {
+          "signal": "e_fail_esp_failure",
+          "condition": "exists",
+          "weight": 40
+        },
+        {
+          "signal": "e_fail_esp_advisory",
+          "condition": "exists",
+          "weight": 35
+        },
+        {
+          "signal": "e_fail_modern_deployment",
+          "condition": "exists",
+          "weight": 40
+        },
+        {
+          "signal": "e_fail_error_detected",
+          "condition": "exists",
+          "weight": 35
+        }
+      ],
+      "explanation": "This is a **Microsoft Entra hybrid join** deployment that hit error **0x80004005** — a documented, build-dependent Autopilot known issue where hybrid deployments time out.\n\nThe issue is fixed by Windows cumulative updates:\n\n- Windows 11 **25H2**: KB5065789 — fixed from build **26200.6725**\n- Windows 11 **24H2**: KB5065426 — fixed from build **26100.6584**\n- Windows 11 **23H2**: KB5070312 — fixed from build **22631.6276**\n\nCompare this session's OS build (see the Session Info card / os_info event) against the fixed-build threshold for its version. If the device booted with an older build, updating the deployment image (or installing quality updates during OOBE) resolves the timeout. Note that 0x80004005 is a generic failure code (E_FAIL) — if the build is already at or above the fixed threshold, investigate the Intune Connector for Active Directory and domain-controller connectivity instead.",
+      "remediation": [
+        {
+          "title": "Update the image to the fixed build",
+          "steps": [
+            "Determine the session's OS build from the Session Info card (e.g. 26100.4500).",
+            "25H2: ensure build >= 26200.6725 (KB5065789). 24H2: ensure build >= 26100.6584 (KB5065426). 23H2: ensure build >= 22631.6276 (KB5070312).",
+            "Refresh the deployment image with the current cumulative update, or enable quality updates during OOBE in the ESP profile.",
+            "If the build already contains the fix: check Intune Connector for AD health, domain-controller reachability from the client network, and hybrid-join prerequisites."
+          ]
+        }
+      ],
+      "relatedDocs": [
+        {
+          "title": "Microsoft Learn: Windows Autopilot known issues — hybrid join 0x80004005",
+          "url": "https://learn.microsoft.com/en-us/autopilot/known-issues"
+        }
+      ],
+      "markSessionAsFailedDefault": false,
+      "tags": [
+        "enrollment",
+        "hybrid-join",
+        "known-issue",
+        "windows-update",
+        "esp"
       ]
     },
     {
