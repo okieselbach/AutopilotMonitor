@@ -12,6 +12,7 @@ import { useNotifications } from "../../contexts/NotificationContext";
 import { StatsCard } from "./components/StatsCards";
 import { WelcomeMessage } from "./components/WelcomeMessage";
 import { SessionTable } from "./components/SessionTable";
+import { TenantFilterBar } from "./components/TenantFilterBar";
 import { DeleteConfirmModal, BlockConfirmModal } from "./components/ConfirmationModals";
 import TipOfTheDay from "./components/TipOfTheDay";
 import { useAdminMode } from "@/hooks/useAdminMode";
@@ -249,6 +250,14 @@ function HomeContent() {
 
   const applyTenantIdFilter = (value: string) => {
     setTenantIdFilter(value);
+    // Emptying the input while a filter is submitted acts as an implicit clear:
+    // without this, deleting the text only widens the client-side view over the
+    // already-loaded (filtered) sessions — the backend scope would stay on the
+    // old tenant until the user hits Filter again on an empty box.
+    if (!value.trim() && submittedTenantIdFilter.trim()) {
+      setSubmittedTenantIdFilter("");
+      refetchWith("");
+    }
   };
 
   const submitTenantIdFilter = () => {
@@ -416,6 +425,27 @@ function HomeContent() {
           </div>
 
           <TipOfTheDay />
+
+          {/* Zero sessions in a cross-tenant view: keep the tenant filter on screen so a
+              GA/MSP admin drilling through tenants can clear it or type the next tenant
+              without leaving the page (the SessionTable — which normally hosts this bar —
+              is not rendered when the filtered fetch came back empty). */}
+          {!loading && sessions.length === 0 && crossTenant && (
+            <div className="mt-4 bg-white shadow rounded-lg p-6">
+              <TenantFilterBar
+                tenantIdFilter={tenantIdFilter}
+                onChange={applyTenantIdFilter}
+                onSubmit={submitTenantIdFilter}
+                onClear={clearTenantIdFilter}
+                tenantList={tenantList}
+              />
+              {submittedTenantIdFilter.trim() && (
+                <p className="text-sm text-gray-500">
+                  No sessions found for this tenant yet. Clear the filter or enter another tenant to continue.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Welcome message - only show when no sessions */}
           {!loading && sessions.length === 0 && <WelcomeMessage />}

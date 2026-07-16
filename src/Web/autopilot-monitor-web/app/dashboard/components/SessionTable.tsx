@@ -7,6 +7,7 @@ import { trackEvent } from "@/lib/appInsights";
 import { fuzzyContains } from "@/utils/fuzzy";
 import { buildUniqueValuesByField } from "./uniqueValuesByField";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
+import { TenantFilterBar } from "./TenantFilterBar";
 
 // Column definition for the session table
 interface ColumnDef {
@@ -150,9 +151,6 @@ export function SessionTable({
   const [openFilterColumn, setOpenFilterColumn] = useState<string | null>(null);
   const columnSelectorRef = useRef<HTMLDivElement>(null);
   const filterDropdownRef = useRef<HTMLDivElement>(null);
-  const tenantDropdownRef = useRef<HTMLDivElement>(null);
-  const [showTenantSuggestions, setShowTenantSuggestions] = useState(false);
-  const [tenantSelectedIndex, setTenantSelectedIndex] = useState(-1);
   const searchDropdownRef = useRef<HTMLDivElement>(null);
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
   const [searchSelectedIndex, setSearchSelectedIndex] = useState(-1);
@@ -184,7 +182,6 @@ export function SessionTable({
 
   // Defer expensive suggestion scans so rapid typing keeps the input responsive.
   const deferredSearchQuery = useDeferredValue(searchQuery);
-  const deferredTenantIdFilter = useDeferredValue(tenantIdFilter);
 
   const searchSuggestions = useMemo<SearchSuggestion[]>(() => {
     const q = deferredSearchQuery.trim().toLowerCase();
@@ -231,15 +228,6 @@ export function SessionTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deferredSearchQuery, sessions]);
 
-  // Fuzzy-match tenants by domain name or tenant ID
-  const tenantSuggestions = useMemo(() => {
-    const q = deferredTenantIdFilter.trim().toLowerCase();
-    if (q.length < 2 || tenantList.length === 0) return [];
-    return tenantList
-      .filter((t) => t.domainName.toLowerCase().includes(q) || t.tenantId.toLowerCase().includes(q))
-      .slice(0, 8);
-  }, [deferredTenantIdFilter, tenantList]);
-
   const tenantDomainById = useMemo(
     () => new Map(tenantList.map((t) => [t.tenantId, t.domainName])),
     [tenantList],
@@ -259,18 +247,15 @@ export function SessionTable({
       if (filterDropdownRef.current && !filterDropdownRef.current.contains(e.target as Node)) {
         setOpenFilterColumn(null);
       }
-      if (tenantDropdownRef.current && !tenantDropdownRef.current.contains(e.target as Node)) {
-        setShowTenantSuggestions(false);
-      }
       if (searchDropdownRef.current && !searchDropdownRef.current.contains(e.target as Node)) {
         setShowSearchSuggestions(false);
       }
     }
-    if (showColumnSelector || openFilterColumn || showTenantSuggestions || showSearchSuggestions) {
+    if (showColumnSelector || openFilterColumn || showSearchSuggestions) {
       document.addEventListener("mousedown", handleClickOutside);
       return () => document.removeEventListener("mousedown", handleClickOutside);
     }
-  }, [showColumnSelector, openFilterColumn, showTenantSuggestions, showSearchSuggestions]);
+  }, [showColumnSelector, openFilterColumn, showSearchSuggestions]);
 
   // Compute unique values for every filterable field in a single pass over sessions.
   // Memoized so that header re-renders pay only a map lookup, not N × O(sessions).
@@ -425,100 +410,13 @@ export function SessionTable({
 
       {/* Tenant ID Filter (Global Admin only) */}
       {globalAdminMode && (
-        <div className="mb-3 flex items-center gap-2">
-          <div className="relative flex-1" ref={tenantDropdownRef}>
-            <input
-              type="text"
-              placeholder="Filter by Tenant ID or domain name"
-              value={tenantIdFilter}
-              onChange={(e) => {
-                onTenantIdFilterChange(e.target.value);
-                setShowTenantSuggestions(true);
-                setTenantSelectedIndex(-1);
-              }}
-              onFocus={() => {
-                if (tenantSuggestions.length > 0) setShowTenantSuggestions(true);
-              }}
-              onKeyDown={(e) => {
-                if (showTenantSuggestions && tenantSuggestions.length > 0) {
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    setTenantSelectedIndex((i) => Math.min(i + 1, tenantSuggestions.length - 1));
-                    return;
-                  }
-                  if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    setTenantSelectedIndex((i) => Math.max(i - 1, -1));
-                    return;
-                  }
-                  if (e.key === "Enter" && tenantSelectedIndex >= 0) {
-                    e.preventDefault();
-                    const selected = tenantSuggestions[tenantSelectedIndex];
-                    onTenantIdFilterChange(selected.tenantId);
-                    setShowTenantSuggestions(false);
-                    setTenantSelectedIndex(-1);
-                    return;
-                  }
-                  if (e.key === "Escape") {
-                    setShowTenantSuggestions(false);
-                    return;
-                  }
-                }
-                if (e.key === "Enter") {
-                  setShowTenantSuggestions(false);
-                  onTenantIdFilterSubmit();
-                }
-              }}
-              className="w-full px-4 py-2 pr-10 border border-purple-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors font-mono text-sm"
-            />
-            {tenantIdFilter && (
-              <button
-                onClick={() => {
-                  onTenantIdFilterClear();
-                  setShowTenantSuggestions(false);
-                }}
-                className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 transition-colors"
-                title="Clear tenant filter"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
-            {/* Tenant suggestions dropdown */}
-            {showTenantSuggestions && tenantSuggestions.length > 0 && (
-              <div className="absolute z-50 mt-1 w-full bg-white border border-purple-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
-                {tenantSuggestions.map((t, idx) => (
-                  <button
-                    key={t.tenantId}
-                    onClick={() => {
-                      onTenantIdFilterChange(t.tenantId);
-                      setShowTenantSuggestions(false);
-                      setTenantSelectedIndex(-1);
-                    }}
-                    className={`w-full text-left px-4 py-2.5 flex flex-col gap-0.5 transition-colors ${
-                      idx === tenantSelectedIndex
-                        ? "bg-purple-100"
-                        : "hover:bg-purple-50"
-                    }`}
-                  >
-                    <span className="text-sm font-medium text-gray-900">{t.domainName}</span>
-                    <span className="text-xs text-gray-500 font-mono">{t.tenantId}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <button
-            onClick={() => {
-              setShowTenantSuggestions(false);
-              onTenantIdFilterSubmit();
-            }}
-            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium shrink-0"
-          >
-            Filter
-          </button>
-        </div>
+        <TenantFilterBar
+          tenantIdFilter={tenantIdFilter}
+          onChange={onTenantIdFilterChange}
+          onSubmit={onTenantIdFilterSubmit}
+          onClear={onTenantIdFilterClear}
+          tenantList={tenantList}
+        />
       )}
 
       {/* Search Input with Fuzzy Suggestions */}
