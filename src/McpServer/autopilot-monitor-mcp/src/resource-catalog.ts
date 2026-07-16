@@ -261,7 +261,7 @@ export const DEVICE_PROPERTIES_CATALOG = {
   autopilot_profile_missing: {
     'autopilot_profile_missing.profileAvailable': { type: 'string', description: 'Always "0" — Windows recorded that no Autopilot profile was available during OOBE' },
     'autopilot_profile_missing.zeroTouchTenantDomain': { type: 'string', description: 'CloudAssignedTenantDomain from the cached ZeroTouchConfig (empty when no profile was downloaded)' },
-    'autopilot_profile_missing.likelyCauses': { type: 'string', description: 'Comma-separated candidate causes (not_registered_in_autopilot, profile_assignment_not_propagated, deleted_from_autopilot)' },
+    'autopilot_profile_missing.likelyCauses': { type: 'string', description: 'Comma-separated candidate causes (profile_not_assigned, profile_assignment_not_propagated) — the device itself passed backend device-registration validation, so the gap is the profile assignment, not the registration' },
   },
   hardware_spec: {
     'hardware_spec.cpuName': { type: 'string', description: 'CPU model name (e.g. "Intel Core i7-1265U")' },

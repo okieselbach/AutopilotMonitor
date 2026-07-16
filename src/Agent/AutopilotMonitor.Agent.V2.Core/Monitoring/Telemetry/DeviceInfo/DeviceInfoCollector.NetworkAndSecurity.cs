@@ -287,16 +287,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                 EmitDeviceInfoEvent(Constants.EventTypes.AutopilotProfile, "Autopilot profile configuration", data);
 
                 // ProfileAvailable=0 means the ZTD service returned no profile for this device
-                // during OOBE (not Autopilot-registered, profile assignment not propagated yet,
-                // or device deleted from Autopilot). Such a device still enrolls via manual
-                // Entra join + MDM auto-enrollment and would otherwise look like a regular
+                // during OOBE. Sessions only exist after the backend's device-registration
+                // validation passed, so the device itself is typically known to the tenant —
+                // what was missing is the deployment-profile ASSIGNMENT (not assigned, or
+                // still propagating/'assigning' when the user went through OOBE). OOBE then
+                // runs as a standard Entra join and would otherwise look like a regular
                 // Autopilot session — surface the edge case explicitly.
                 if (IsAutopilotProfileMissing(data))
                 {
                     var missingData = new Dictionary<string, object>
                     {
                         { "profileAvailable", "0" },
-                        { "likelyCauses", "not_registered_in_autopilot,profile_assignment_not_propagated,deleted_from_autopilot" }
+                        { "likelyCauses", "profile_not_assigned,profile_assignment_not_propagated" }
                     };
                     if (TryExtractZeroTouchTenantDomain(data, out var ztdTenantDomain))
                     {
@@ -305,11 +307,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                     }
 
                     EmitDeviceInfoEvent(Constants.EventTypes.AutopilotProfileMissing,
-                        "No Autopilot profile cached on this device (ProfileAvailable=0) — the device was likely not Autopilot-registered when OOBE ran; this enrollment appears to be a manual Entra ID join, not an Autopilot deployment.",
+                        "No Autopilot profile was available during OOBE (ProfileAvailable=0) — most likely no deployment profile was assigned to the device, or the assignment had not finished propagating when OOBE ran. OOBE proceeded as a standard Entra ID join instead of an Autopilot deployment.",
                         missingData,
                         EventSeverity.Warning);
 
-                    _logger.Warning("EnrollmentTracker: no Autopilot profile cached (ProfileAvailable=0) — non-Autopilot OOBE enrollment suspected");
+                    _logger.Warning("EnrollmentTracker: no Autopilot profile available during OOBE (ProfileAvailable=0) — deployment profile not assigned or assignment not yet propagated");
                 }
 
                 // Emit dedicated enrollment_type_detected event for easy filtering. Routed through

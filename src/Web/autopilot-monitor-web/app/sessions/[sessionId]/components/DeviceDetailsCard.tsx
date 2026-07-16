@@ -391,10 +391,12 @@ export default function DeviceDetailsCard({ events, latestAgentVersion }: { even
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
                       </svg>
                       <span>
-                        <span className="font-semibold">No Autopilot profile found on this device.</span>{" "}
-                        It was likely not registered for Windows Autopilot when OOBE ran — this
-                        enrollment appears to be a manual Entra ID join during OOBE, not an
-                        Autopilot deployment.
+                        <span className="font-semibold">No Autopilot profile was applied during OOBE.</span>{" "}
+                        The Autopilot service returned no profile for this device when OOBE ran —
+                        most likely no deployment profile was assigned to the device, or the
+                        assignment was still propagating (&quot;assigning&quot;) and the user went
+                        through OOBE before it arrived. The enrollment therefore ran as a standard
+                        Entra ID join instead of an Autopilot deployment.
                       </span>
                     </div>
                   </div>
