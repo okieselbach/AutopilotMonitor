@@ -42,6 +42,42 @@ export function extractTenantList(data: unknown): Record<string, unknown>[] {
 }
 
 /**
+ * In-tool filtering for list_tenants. Applied AFTER extractTenantList (and, for a
+ * delegated caller, AFTER delegatedTenantListView) so it can never widen the
+ * security boundary — it only removes rows the caller was already allowed to see.
+ *
+ * Precedence: an exact `tenantId` wins (case-insensitive equality); otherwise a
+ * `query` is a case-insensitive substring match against `domainName` — the only
+ * human-readable label in TENANT_SAFE_FIELDS (there is no displayName) — and,
+ * forgivingly, against `tenantId` too so a pasted partial GUID resolves. Whitespace
+ * is trimmed; a blank filter is a no-op (returns the list unchanged). Pure + testable.
+ */
+export function filterTenantList(
+  tenants: Record<string, unknown>[],
+  filter: { tenantId?: string; query?: string },
+): Record<string, unknown>[] {
+  const tid = filter.tenantId?.trim().toLowerCase();
+  if (tid) {
+    return tenants.filter((t) => String(t.tenantId ?? '').toLowerCase() === tid);
+  }
+  const q = filter.query?.trim().toLowerCase();
+  if (!q) return tenants;
+  return tenants.filter((t) =>
+    String(t.domainName ?? '').toLowerCase().includes(q)
+    || String(t.tenantId ?? '').toLowerCase().includes(q));
+}
+
+/**
+ * When list_tenants runs in filter mode it auto-paginates internally so the model
+ * gets its answer in ONE tool call. A large page size collapses the current tenant
+ * population (a few hundred) into a single backend round-trip; the page budget is a
+ * runaway guard, not an expected limit. If the budget is ever hit before the scan
+ * drains, the tool flags `truncated` rather than silently dropping matches.
+ */
+const TENANT_FILTER_PAGE_SIZE = 1000;
+const TENANT_FILTER_MAX_PAGES = 10;
+
+/**
  * Delegated (MSP) view of the list_tenants result — the web analog is delegatedScopedTenantList in
  * utils/homeTenantScope.ts. The backend already bounds config/all to the caller's managed subset
  * (GlobalReadOrDelegatedSubset), so the intersect here is defense-in-depth, not the security boundary.
@@ -518,27 +554,92 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'server-side. Tenants are sorted by tenantId and returned in pages (default 100). For lean ID discovery pass ' +
         '`fields=tenantId,domainName` — the projection is applied server-side and is echoed in nextLink, so it carries ' +
         'across every page automatically. ' +
-        'Pagination: when "nextLink" is present, more tenants are available — call again and pass that whole string ' +
-        'back as "continuation". Stop when nextLink is absent.',
+        'RESOLVE A TENANT DIRECTLY (no manual paging): pass `query` to substring-match a name — e.g. query="rewe" ' +
+        'returns rewe-group.com with its tenantId in one call — or pass `tenantId` to fetch that exact entry. In either ' +
+        'filter mode the tool auto-paginates internally and returns only the matches (no "continuation" needed). ' +
+        'Pagination (only when NEITHER filter is set): when "nextLink" is present, more tenants are available — call ' +
+        'again and pass that whole string back as "continuation". Stop when nextLink is absent.',
       inputSchema: {
+        query: z.string().optional()
+          .describe('Resolve a tenant by name: case-insensitive substring match against domainName (the human-readable ' +
+                    'label — there is no separate displayName) and, forgivingly, against tenantId. e.g. "rewe" → rewe-group.com. ' +
+                    'Auto-paginates internally and returns every match in one call. Ignored if tenantId is also set.'),
+        tenantId: z.string().optional()
+          .describe('Fetch exactly one tenant by its (case-insensitive) tenantId. Returns that single entry, or an empty ' +
+                    'list if no such tenant exists. Takes precedence over query.'),
         fields: z.string().optional()
           .describe('Comma-separated subset of safe fields to return (e.g. "tenantId,domainName" for lean ID discovery). ' +
                     'tenantId is always included. Default: all safe fields. Applied server-side; unknown/secret keys are ignored.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional().default(100)
-          .describe('Page size (1-1000, default 100). Tenants are sorted by tenantId; follow nextLink to fetch more.'),
+          .describe('Page size (1-1000, default 100) for the unfiltered listing. Ignored in filter mode (query/tenantId), ' +
+                    'which scans with a large internal page size. Tenants are sorted by tenantId; follow nextLink to fetch more.'),
         continuation: z.string().optional()
-          .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params (pageSize, fields) round-trip correctly.'),
+          .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params (pageSize, fields) round-trip correctly. Ignored in filter mode.'),
       },
       annotations: READ_ONLY,
     },
     async (args) => withToolTelemetry('list_tenants', async () => {
       try {
-        const { fields, pageSize, continuation } = args;
-        // /api/config/all supports opt-in pagination: passing pageSize switches the
-        // backend from its legacy unpaginated bare array to a secret-stripped
-        // { count, tenants, nextLink } envelope, with fields= projected server-side
-        // and echoed in nextLink. extractTenantList re-applies the keep-list as
-        // defense-in-depth (harmless pass-through once the backend has projected).
+        const { query, tenantId, fields, pageSize, continuation } = args;
+
+        // Filter mode (query or tenantId): resolve a tenant to its id in ONE tool call
+        // instead of making the model page and eyeball. The tool exhausts /api/config/all
+        // itself with a large internal page size (the whole tenant population collapses to
+        // ~one backend round-trip), then filters in memory. Filtering runs AFTER the same
+        // extractTenantList (+ delegatedTenantListView) path the unfiltered listing uses, so
+        // it can only ever narrow what the caller was already entitled to see. A query needs
+        // domainName to match against, so ensure it survives an otherwise-narrow projection.
+        if (query || tenantId) {
+          const scanFields = (query && fields
+            && !fields.split(',').map((f) => f.trim()).includes('domainName'))
+            ? `${fields},domainName`
+            : fields;
+
+          const collected: Record<string, unknown>[] = [];
+          let nextLink: string | undefined;
+          let scannedPages = 0;
+          let truncated = false;
+          for (;;) {
+            const path = followNextLink(
+              '/api/config/all', { pageSize: TENANT_FILTER_PAGE_SIZE, fields: scanFields }, nextLink);
+            const data = await apiFetch(path) as { tenants?: unknown[]; nextLink?: string | null };
+            let pageTenants = extractTenantList({ tenants: data?.tenants ?? [] });
+            if (delegated) {
+              pageTenants = delegatedTenantListView(
+                pageTenants, getDelegatedTenantIds(), getHomeTenantId(), getCallerUpnDomain(),
+                scannedPages === 0);
+            }
+            collected.push(...pageTenants);
+            scannedPages++;
+            nextLink = typeof data?.nextLink === 'string' ? data.nextLink : undefined;
+            if (!nextLink) break;
+            if (scannedPages >= TENANT_FILTER_MAX_PAGES) { truncated = true; break; }
+          }
+
+          const matches = filterTenantList(collected, { tenantId, query });
+          return toolResultText(
+            {
+              count: matches.length,
+              tenants: matches,
+              nextLink: null,
+              scannedPages,
+              ...(truncated
+                ? {
+                  truncated: true,
+                  recallNote:
+                    `Reached the ${scannedPages}-page scan budget before draining every tenant, so a ` +
+                    'match on an unscanned page could be missing. Narrow the query or list without a filter.',
+                }
+                : {}),
+            },
+            MAX_RESULT_SIZE_CHARS.adminStream);
+        }
+
+        // Unfiltered listing. /api/config/all supports opt-in pagination: passing pageSize
+        // switches the backend from its legacy unpaginated bare array to a secret-stripped
+        // { count, tenants, nextLink } envelope, with fields= projected server-side and echoed
+        // in nextLink. extractTenantList re-applies the keep-list as defense-in-depth (harmless
+        // pass-through once the backend has projected).
         const path = followNextLink('/api/config/all', { pageSize, fields }, continuation);
         const data = await apiFetch(path) as { count?: number; tenants?: unknown[]; nextLink?: string | null };
         let tenants = extractTenantList({ tenants: data?.tenants ?? [] });
