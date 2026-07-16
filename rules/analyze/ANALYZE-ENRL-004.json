@@ -2,7 +2,7 @@
   "$schema": "../schema/analyze-rule.schema.json",
   "ruleId": "ANALYZE-ENRL-004",
   "title": "MDM Enrollment Blocked — Known Error Code",
-  "description": "An enrollment-blocking error code documented in the Microsoft Autopilot known-issues/troubleshooting pages was observed (0x80180014, 0x80180018, 0xC1036501, 0x801C03F3, 0x80070774). Each has a specific, documented cause and fix. Knowledge source: docs/agent/autopilot-ztd-diagnostics.md (error-code map).",
+  "description": "An enrollment-blocking error code documented in the Microsoft Autopilot known-issues/troubleshooting pages was observed (0x80180014, 0x80180018, 0xC1036501, 0x801C03F3, 0x80070774). Each has a specific, documented cause and fix. Observability: a blocked MDM enrollment normally means no agent gets installed at all (IME install happens after enrollment) — this rule can realistically only fire for bootstrap-token deployments (pre-MDM reporting) or mixed retry scenarios. See docs/agent/autopilot-ztd-diagnostics.md (Observability section).",
   "severity": "high",
   "category": "enrollment",
   "version": "1.0.0",

@@ -2,7 +2,7 @@
   "$schema": "../schema/analyze-rule.schema.json",
   "ruleId": "ANALYZE-ENRL-003",
   "title": "TPM Attestation Failure — Known Error Code",
-  "description": "A TPM-attestation-related error code documented in the Microsoft Autopilot known-issues list was observed (0x800705B4, 0x801C03EA, 0x81039001, 0x81039023, 0x81039024, 0x80070490). These block self-deploying and pre-provisioning deployments during 'Securing your hardware'. Knowledge source: docs/agent/autopilot-ztd-diagnostics.md (error-code map).",
+  "description": "A TPM-attestation-related error code documented in the Microsoft Autopilot known-issues list was observed (0x800705B4, 0x801C03EA, 0x81039001, 0x81039023, 0x81039024, 0x80070490). These block self-deploying and pre-provisioning deployments during 'Securing your hardware'. Observability: attestation precedes MDM enrollment, so in the normal deployment model (agent installed via IME after enrollment) these codes are rarely visible — the rule primarily serves bootstrap-token deployments. See docs/agent/autopilot-ztd-diagnostics.md (Observability section).",
   "severity": "high",
   "category": "enrollment",
   "version": "1.0.0",
