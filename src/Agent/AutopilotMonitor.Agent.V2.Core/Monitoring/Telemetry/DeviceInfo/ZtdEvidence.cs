@@ -158,7 +158,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                         return null;
                     }
 
-                    var values = new Dictionary<string, object>();
+                    // Case-insensitive: registry value names are case-insensitive by contract,
+                    // and real-world casing differs from the docs (observed 2026-07-16, session
+                    // e7dbac7a: Windows writes "IsAutoPilotDisabled" — capital P — while the
+                    // troubleshooting FAQ documents "IsAutopilotDisabled"). Downstream lookups
+                    // like the missing-event evidence extraction must not depend on it.
+                    var values = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
                     foreach (var valueName in key.GetValueNames())
                     {
                         var value = key.GetValue(valueName);

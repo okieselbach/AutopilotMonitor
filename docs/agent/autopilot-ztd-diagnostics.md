@@ -65,7 +65,7 @@ dumped verbatim by the agent into the `autopilot_profile` event (`diagnosticsReg
 | `AadTenantId` | GUID of the tenant the user signed into. |
 | `CloudAssignedTenantDomain` | Tenant the device is registered with; **blank = not registered with Autopilot**. |
 | `CloudAssignedTenantId` | GUID matching `CloudAssignedTenantDomain`; blank when not registered. |
-| `IsAutopilotDisabled` | 1 = device not registered **or** profile download failed (network/firewall/timeout) — Microsoft's own catch-all indicator. |
+| `IsAutopilotDisabled` | 1 = device not registered **or** profile download failed (network/firewall/timeout) — Microsoft's own catch-all indicator. **Casing caveat:** Windows actually writes `IsAutoPilotDisabled` (capital P; observed session e7dbac7a, 24H2) while the FAQ documents `IsAutopilotDisabled` — all agent lookups are case-insensitive for this reason. |
 | `TenantMatched` | 0 = user's tenant ≠ registration tenant → the "username belongs to another organization" OOBE error. |
 | `CloudAssignedOobeConfig` | Bitmap of configured OOBE settings (SkipCortanaOptIn=1, OobeUserNotLocalAdmin=2, SkipExpressSettings=4, SkipOemRegistration=8, SkipEula=16). |
 
