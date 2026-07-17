@@ -330,7 +330,7 @@ jobs:
       # Sigstore keyless provenance: binds the ZIP digest to this workflow run (repo, ref,
       # commit, workflow file) in a public transparency log. The digest covers the identical
       # bytes uploaded to blob (versioned AND stable), so one attestation covers all copies.
-      # Verify: gh attestation verify <zip> --repo okieselbach/Autopilot-Monitor
+      # Verify: gh attestation verify <zip> --repo okieselbach/AutopilotMonitor
       - name: Attest build provenance (ZIP)
         uses: actions/attest-build-provenance@v4
         with:
@@ -375,9 +375,9 @@ jobs:
             - **Published as stable:** ${{ inputs.publish_as_stable }}
 
             ### Provenance
-            This ZIP carries a [GitHub Artifact Attestation](https://github.com/okieselbach/Autopilot-Monitor/attestations) (Sigstore keyless). Verify:
+            This ZIP carries a [GitHub Artifact Attestation](https://github.com/okieselbach/AutopilotMonitor/attestations) (Sigstore keyless). Verify:
             ```
-            gh attestation verify AutopilotMonitor-Agent-v${{ steps.version.outputs.version }}.zip --repo okieselbach/Autopilot-Monitor
+            gh attestation verify AutopilotMonitor-Agent-v${{ steps.version.outputs.version }}.zip --repo okieselbach/AutopilotMonitor
             ```
           draft: false
           prerelease: ${{ inputs.prerelease }}

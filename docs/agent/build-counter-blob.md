@@ -57,7 +57,7 @@ attestation on top.
   `actions/attest-build-provenance` (Sigstore keyless, bound to the workflow OIDC
   identity). The digest covers the identical bytes uploaded to blob, so one
   attestation covers all copies. Verify:
-  `gh attestation verify <zip> --repo okieselbach/Autopilot-Monitor`. Local builds
+  `gh attestation verify <zip> --repo okieselbach/AutopilotMonitor`. Local builds
   cannot produce this attestation — provenance is a CI-only property.
 
 # Citations
