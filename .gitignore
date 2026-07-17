@@ -14,8 +14,10 @@ bld/
 [Ll]og/
 [Ll]ogs/
 
-# Build counter files (auto-incremented on each build) if ignored every dev has its own buildcounter, but I keep a global one.
-#buildcounter.txt
+# Build counter files: the authoritative counter is the shared blob
+# (agent container, buildcounter-v{N}.txt, ETag-CAS — see docs/agent/build-counter-blob.md).
+# The local file is only an offline fallback for -SkipUpload/bare-dotnet smoke builds.
+buildcounter.txt
 
 # Visual Studio cache/options
 .vs/

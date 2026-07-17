@@ -30,6 +30,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write      # keyless Sigstore signing (artifact attestation)
+  attestations: write  # store the provenance attestation
 
 env:
   LINE_MAJOR: 2
@@ -37,7 +39,6 @@ env:
   DIALOG_PROJECT: src/Agent/AutopilotMonitor.SummaryDialog/AutopilotMonitor.SummaryDialog.csproj
   TEST_PROJECT: src/Agent/AutopilotMonitor.DecisionCore.Tests/AutopilotMonitor.DecisionCore.Tests.csproj
   CSPROJ_PATH: src/Agent/AutopilotMonitor.Agent.V2/AutopilotMonitor.Agent.V2.csproj
-  COUNTER_FILE: src/Agent/AutopilotMonitor.Agent.V2/buildcounter.txt
   BOOTSTRAP_SOURCE: scripts/Bootstrap/Install-AutopilotMonitor.ps1
   AGENT_OUTPUT: src/Agent/AutopilotMonitor.Agent.V2/bin/Release/net48
   DIALOG_OUTPUT: src/Agent/AutopilotMonitor.SummaryDialog/bin/Release/net48
@@ -62,18 +63,68 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Determine build number
+      # Build numbers come from the shared counter blob (single source of truth for CI
+      # AND local build.ps1). Reserve-before-build with ETag-CAS: concurrent builds can
+      # never mint the same number; a failed build burns a number, which is harmless.
+      # The blob is public-read (like the rest of the container); writes need the SAS.
+      - name: Reserve build number (counter blob CAS)
         id: version
         shell: pwsh
         run: |
-          $inputBuildNumber = "${{ inputs.build_number }}"
-          if ($inputBuildNumber -ne "") {
-            $buildNumber = [int]$inputBuildNumber
-            Write-Host "Using manual build number: $buildNumber"
-          } else {
-            $current = [int](Get-Content $env:COUNTER_FILE).Trim()
-            $buildNumber = $current + 1
-            Write-Host "Auto-incremented build number: $current -> $buildNumber"
+          $counterBlob = "buildcounter-v$env:LINE_MAJOR.txt"
+          $counterUrl = "https://autopilotmonitor.blob.core.windows.net/agent/$counterBlob"
+          $sasToken = "${{ secrets.AZURE_BLOB_AGENT_SAS_TOKEN }}"
+          $override = "${{ inputs.build_number }}"
+
+          function Get-Counter {
+            try {
+              $resp = Invoke-WebRequest -Uri $counterUrl -Method Get
+              $raw = if ($resp.Content -is [byte[]]) { [System.Text.Encoding]::UTF8.GetString($resp.Content) } else { [string]$resp.Content }
+              # If-Match requires the quoted ETag form; pwsh strips the quotes on read.
+              $etag = '"' + ([string]($resp.Headers['ETag'] | Select-Object -First 1)).Trim('"') + '"'
+              return @{ Value = [int]$raw.Trim(); ETag = $etag }
+            } catch {
+              $status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 0 }
+              if ($status -eq 404) {
+                Write-Error "Counter blob '$counterBlob' not found. Seed it once with the last used build number (see docs/agent/build-counter-blob.md) -- do NOT seed from the repo's buildcounter.txt, it is a stale offline fallback."
+              }
+              throw
+            }
+          }
+
+          $buildNumber = $null
+          for ($attempt = 1; $attempt -le 5; $attempt++) {
+            $counter = Get-Counter
+            if ($override -ne '') {
+              $target = [int]$override
+              if ($target -le $counter.Value) {
+                # Re-build of an already-reserved number: counter stays monotonic, no write.
+                Write-Host "Manual build number $target <= counter $($counter.Value) -- counter blob unchanged"
+                $buildNumber = $target
+                break
+              }
+              Write-Host "Manual build number $target > counter $($counter.Value) -- advancing counter"
+            } else {
+              $target = $counter.Value + 1
+            }
+            try {
+              $headers = @{ 'x-ms-blob-type' = 'BlockBlob'; 'If-Match' = $counter.ETag }
+              Invoke-RestMethod -Uri "$counterUrl`?$sasToken" -Method Put -Headers $headers -Body "$target" -ContentType 'text/plain' | Out-Null
+              $buildNumber = $target
+              Write-Host "Reserved build number ${target} (CAS write ok, attempt $attempt)"
+              break
+            } catch {
+              $status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 0 }
+              if ($status -eq 412) {
+                Write-Host "CAS conflict on attempt $attempt (another build reserved concurrently) -- retrying"
+                Start-Sleep -Seconds ($attempt * 2)
+              } else {
+                throw
+              }
+            }
+          }
+          if ($null -eq $buildNumber) {
+            Write-Error "Could not reserve a build number after 5 CAS attempts"
           }
 
           $csproj = Get-Content $env:CSPROJ_PATH -Raw
@@ -107,18 +158,6 @@ jobs:
       - name: Run Agent unit tests
         run: dotnet test ${{ env.TEST_PROJECT }} --configuration Release --no-restore --verbosity quiet
 
-      - name: Update buildcounter.txt
-        if: inputs.build_number == ''
-        shell: pwsh
-        run: |
-          $buildNumber = "${{ steps.version.outputs.build_number }}"
-          Set-Content -Path $env:COUNTER_FILE -Value $buildNumber -NoNewline
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add $env:COUNTER_FILE
-          git commit -m "chore(v$env:LINE_MAJOR): bump build counter to $buildNumber"
-          git push
-
       - name: Create release artifact
         id: artifact
         shell: pwsh
@@ -134,11 +173,36 @@ jobs:
             Write-Error "SummaryDialog build output not found at $env:DIALOG_OUTPUT"
             exit 1
           }
+          # The .exe.config is functionally REQUIRED: it carries the WPF AppContextSwitchOverrides
+          # that allow rendering when spawned from SYSTEM during enrollment (else 0x8007045A).
+          if (-not (Test-Path "$env:DIALOG_OUTPUT/AutopilotMonitor.SummaryDialog.exe.config")) {
+            Write-Error "SummaryDialog.exe.config not found at $env:DIALOG_OUTPUT -- ZIP would be functionally broken"
+            exit 1
+          }
 
           New-Item -Path $stagingDir -ItemType Directory -Force | Out-Null
           Copy-Item -Path "$env:AGENT_OUTPUT/*" -Destination $stagingDir -Recurse -Force
           Copy-Item -Path "$env:DIALOG_OUTPUT/AutopilotMonitor.SummaryDialog.exe" -Destination $stagingDir -Force
-          Copy-Item -Path "$env:DIALOG_OUTPUT/AutopilotMonitor.SummaryDialog.pdb" -Destination $stagingDir -Force -ErrorAction SilentlyContinue
+          Copy-Item -Path "$env:DIALOG_OUTPUT/AutopilotMonitor.SummaryDialog.exe.config" -Destination $stagingDir -Force
+
+          # Verify EXE version matches the MSBuild-generated manifest AND the reserved build
+          # number (parity with build.ps1 -- catches MSBuild property timing bugs).
+          $manifestPath = "$env:AGENT_OUTPUT/$env:MANIFEST_NAME"
+          if (-not (Test-Path $manifestPath)) {
+            Write-Error "$env:MANIFEST_NAME not found at $manifestPath -- MSBuild GenerateVersionJson target may have failed"
+            exit 1
+          }
+          $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+          $exeVersion = ([System.Diagnostics.FileVersionInfo]::GetVersionInfo("$stagingDir/AutopilotMonitor.Agent.exe").ProductVersion -replace '\+.*$', '')
+          if ($exeVersion -ne $manifest.version) {
+            Write-Error "VERSION MISMATCH: EXE='$exeVersion' but $env:MANIFEST_NAME='$($manifest.version)'"
+            exit 1
+          }
+          if ($manifest.version -ne $version) {
+            Write-Error "VERSION MISMATCH: $env:MANIFEST_NAME='$($manifest.version)' but reserved version='$version'"
+            exit 1
+          }
+          Write-Host "Version check passed: EXE = manifest = reserved = $version"
 
           $versionedZip = "AutopilotMonitor-Agent-v$version.zip"
           Compress-Archive -Path "$stagingDir/*" -DestinationPath $versionedZip
@@ -162,13 +226,7 @@ jobs:
             Write-Warning "Could not parse bootstrap `$ScriptVersion from $env:BOOTSTRAP_SOURCE"
           }
 
-          # Enrich the per-line manifest emitted by MSBuild (version-v2.json)
-          $manifestPath = "$env:AGENT_OUTPUT/$env:MANIFEST_NAME"
-          if (-not (Test-Path $manifestPath)) {
-            Write-Error "$env:MANIFEST_NAME not found at $manifestPath -- MSBuild GenerateVersionJson target may have failed"
-            exit 1
-          }
-          $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+          # Enrich the per-line manifest emitted by MSBuild (version-v2.json, read above)
           $manifest | Add-Member -NotePropertyName "sha256" -NotePropertyValue $sha256Hash -Force
           if ($bootstrapVersion) {
             $manifest | Add-Member -NotePropertyName "bootstrapVersion" -NotePropertyValue $bootstrapVersion -Force
@@ -239,9 +297,12 @@ jobs:
             }
           }
 
-          # Update AdminConfiguration LatestAgentV2* (always when uploading)
+          # Update AdminConfiguration LatestAgentV2* -- ONLY on stable cutover. The hash-oracle
+          # must never point at a build that is not actually in the stable namespace.
           $tableSasToken = "${{ secrets.AZURE_TABLE_ADMIN_SAS_TOKEN }}"
-          if ([string]::IsNullOrEmpty($tableSasToken) -or $tableSasToken -eq "XXX") {
+          if ('${{ inputs.publish_as_stable }}' -ne 'true') {
+            Write-Host "SKIPPED: AdminConfiguration update (versioned-only run -- stable namespace unchanged)"
+          } elseif ([string]::IsNullOrEmpty($tableSasToken) -or $tableSasToken -eq "XXX") {
             Write-Host "SKIPPED: Table SAS token not configured -- set AZURE_TABLE_ADMIN_SAS_TOKEN secret to enable backend hash-oracle"
           } else {
             $sha256 = "${{ steps.artifact.outputs.sha256 }}"
@@ -264,6 +325,15 @@ jobs:
             } -Body ($tableBody | ConvertTo-Json)
             Write-Host "AdminConfiguration updated: V2 version=$agentVersion, sha256=$sha256, exeSha256=$exeSha256, bootstrapVersion=$bootstrapVersion"
           }
+
+      # Sigstore keyless provenance: binds the ZIP digest to this workflow run (repo, ref,
+      # commit, workflow file) in a public transparency log. The digest covers the identical
+      # bytes uploaded to blob (versioned AND stable), so one attestation covers all copies.
+      # Verify: gh attestation verify <zip> --repo okieselbach/Autopilot-Monitor
+      - name: Attest build provenance (ZIP)
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: ${{ steps.artifact.outputs.versioned_zip_release }}
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v6
@@ -302,6 +372,12 @@ jobs:
             - **SHA-256:** `${{ steps.artifact.outputs.sha256 }}`
             - **Built from:** ${{ github.sha }}
             - **Published as stable:** ${{ inputs.publish_as_stable }}
+
+            ### Provenance
+            This ZIP carries a [GitHub Artifact Attestation](https://github.com/okieselbach/Autopilot-Monitor/attestations) (Sigstore keyless). Verify:
+            ```
+            gh attestation verify AutopilotMonitor-Agent-v${{ steps.version.outputs.version }}.zip --repo okieselbach/Autopilot-Monitor
+            ```
           draft: false
           prerelease: ${{ inputs.prerelease }}
           files: |

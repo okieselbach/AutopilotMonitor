@@ -1,5 +1,9 @@
 # Log
 
+## 2026-07-17
+
+* **Creation**: Added `agent/build-counter-blob.md` — agent build numbers now come from a shared public counter blob (`buildcounter-v{N}.txt`, reserve-before-build with ETag-CAS) so local `build.ps1` and CI `build-agent.yml` builds can never mint the same number. Documents the CI parity fixes (SummaryDialog.exe.config in the ZIP, EXE-vs-manifest version check, hash-oracle update gated on stable cutover) and the Sigstore provenance attestation on CI-built ZIPs.
+
 ## 2026-07-16
 
 * **Creation**: Added `agent/autopilot-ztd-diagnostics.md` — reference for Windows' own ZTD diagnostic surfaces (ModernDeployment Autopilot event IDs incl. 807/809/815/908, the `Diagnostics\Autopilot` registry key, deployment-service endpoints, known-issue error-code map with KB fixes). Backs the agent's `ZtdEvidence` collector (`ztdVerdict` on `autopilot_profile_missing`) and the backend known-issue rules; sources carry a re-check RSS feed.

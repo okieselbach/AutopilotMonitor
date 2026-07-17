@@ -16,6 +16,7 @@ https://docs.autopilotmonitor.com (separate repository).
 # Agent
 
 * [V2 Agent](agent/index.md) - How the on-device agent works: [runtime overview](agent/overview.md), [decision engine](agent/decision-engine.md) (reducer, signals, completion arms), [logs & persistence](agent/logs-and-persistence.md) (signal log, snapshot, crash recovery), [Hello wizard un-skip](agent/hello-wizard-unskip.md) (why a single "WHfB disabled" read never decides completion), [Autopilot ZTD diagnostics](agent/autopilot-ztd-diagnostics.md) (event IDs, diagnostic registry, endpoints, error-code map).
+* [Build Counter Blob](agent/build-counter-blob.md) - How agent build numbers are minted: shared counter blob with ETag-CAS so local and CI builds never collide; CI additionally attests build provenance (Sigstore).
 
 # Security & Identity
 
