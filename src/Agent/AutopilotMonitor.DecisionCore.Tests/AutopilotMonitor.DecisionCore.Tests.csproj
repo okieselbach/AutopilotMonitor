@@ -2,11 +2,11 @@
 
   <PropertyGroup>
     <!--
-      Plan §4 M2: xUnit, .NET-8-Testrunner gegen netstandard2.0-Lib.
-      DecisionCore itself targets netstandard2.0, but the test runner uses .NET 8
-      so we benefit from modern xUnit + coverlet tooling.
+      Plan §4 M2: xUnit test runner against the netstandard2.0 lib.
+      DecisionCore itself targets netstandard2.0; the runner tracks the
+      repo-wide .NET version (global.json) for modern xUnit + coverlet tooling.
     -->
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>

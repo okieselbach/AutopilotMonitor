@@ -58,14 +58,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      # SDK 10 = build toolchain (parity with local build.ps1 / global.json);
-      # 8.0.x additionally provides the net8.0 runtime for DecisionCore.Tests.
+      # SDK 10 = single build toolchain (parity with local build.ps1 / global.json).
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: |
-            8.0.x
-            10.0.x
+          dotnet-version: '10.0.x'
 
       # Build numbers come from the shared counter blob (single source of truth for CI
       # AND local build.ps1). Reserve-before-build with ETag-CAS: concurrent builds can
