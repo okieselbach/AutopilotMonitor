@@ -58,10 +58,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      # SDK 10 = build toolchain (parity with local build.ps1 / global.json);
+      # 8.0.x additionally provides the net8.0 runtime for DecisionCore.Tests.
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: |
+            8.0.x
+            10.0.x
 
       # Build numbers come from the shared counter blob (single source of truth for CI
       # AND local build.ps1). Reserve-before-build with ETag-CAS: concurrent builds can
@@ -265,6 +269,12 @@ jobs:
         run: |
           $containerUrl = "https://autopilotmonitoreu.blob.core.windows.net/agent"
           $sasToken = "${{ secrets.AZURE_BLOB_AGENT_SAS_TOKEN }}".TrimStart('?')
+          # Legacy mirror (transition until customers moved to the download.-alias):
+          # blobs are ALSO pushed to the old account so the bootstrap URL baked into
+          # customers' Intune scripts keeps serving current bits. Fail-soft -- a
+          # legacy hiccup must never fail a release. Counter lives ONLY on eu.
+          $legacyContainerUrl = "https://autopilotmonitor.blob.core.windows.net/agent"
+          $legacySasToken = "${{ secrets.AZURE_BLOB_AGENT_LEGACY_SAS_TOKEN }}".TrimStart('?')
 
           function Send-Blob {
             param([string]$Local, [string]$BlobName, [string]$ContentType)
@@ -279,6 +289,14 @@ jobs:
             Write-Host "Uploading $BlobName ($([math]::Round($bytes.Length / 1MB, 2)) MB)..."
             Invoke-RestMethod -Uri $url -Method Put -Headers $headers -Body $bytes
             Write-Host "  uploaded $BlobName"
+            if (-not [string]::IsNullOrEmpty($legacySasToken)) {
+              try {
+                Invoke-RestMethod -Uri "$legacyContainerUrl/$BlobName`?$legacySasToken" -Method Put -Headers $headers -Body $bytes
+                Write-Host "  mirrored $BlobName to legacy storage"
+              } catch {
+                Write-Host "::warning::legacy mirror failed for $BlobName -- $($_.Exception.Message)"
+              }
+            }
           }
 
           # Versioned namespace (always)
