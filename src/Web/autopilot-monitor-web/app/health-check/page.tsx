@@ -302,7 +302,7 @@ export default function HealthCheckPage() {
                       </div>
                       <div>
                         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Live Updates</h3>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Real-time event hub (Private Preview: 20 concurrent clients)</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Real-time event hub</p>
                       </div>
                     </div>
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors.badge}`}>
@@ -341,7 +341,7 @@ export default function HealthCheckPage() {
                     )}
                     {groupJoinTest === 'failed' && (
                       <p className="mt-2 text-xs text-red-600">
-                        Group join failed — likely hit the 20 concurrent client limit
+                        Group join failed — check your connection and try again
                       </p>
                     )}
                   </div>
