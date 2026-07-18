@@ -14,7 +14,7 @@ const tips = [
   "Share the Progress Portal link with your team \u2014 anyone can check enrollment status by serial number.",
   "Missing an event in your sessions? Use Gather Rules to collect it.",
   "Analyze Rules are continuously refined \u2014 analysis results may shift as rules improve. This is normal.",
-  "Check Known Issues in the docs for external changes (e.g.\u00a0Microsoft updates) that may affect your data.",
+  "Check Service Announcements in the docs for external changes (e.g.\u00a0Microsoft updates) that may affect your data.",
   "Check the Intune bootstrap script (Install-AutopilotMonitor.ps1) from time to time \u2014 a newer version may be available in the repository.",
   "Spotted a session with the wrong status? Use Report Session to flag it to the team.",
 ];

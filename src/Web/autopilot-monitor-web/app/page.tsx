@@ -111,26 +111,6 @@ export default function LandingPage() {
 
       <PublicSiteNavbar showSectionLinks={true} />
 
-      {/* Scheduled maintenance notice — TEMPORARY, remove after 2026-07-20 */}
-      <div className="border-b border-amber-300 bg-amber-100/80 px-4 py-2 text-center">
-        <p className="inline-flex flex-wrap items-center justify-center gap-1.5 text-xs text-amber-900 sm:text-sm">
-          <svg className="h-4 w-4 shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <span>
-            <span className="font-semibold">Scheduled infrastructure maintenance:</span> platform not available Sat 18 Jul – Mon 20 Jul, 00:00 CEST (UTC+2).{" "}
-            <a
-              href="https://docs.autopilotmonitor.com/troubleshooting/service-announcements"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline font-medium hover:text-amber-700"
-            >
-              Details
-            </a>
-          </span>
-        </p>
-      </div>
-
       {/* Hero Section */}
       <div className="pt-20 pb-20 px-6">
         <div className="max-w-7xl mx-auto">
