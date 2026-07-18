@@ -310,7 +310,7 @@ jobs:
             $exeSha256 = "${{ steps.artifact.outputs.exe_sha256 }}"
             $agentVersion = "${{ steps.version.outputs.version }}"
             $bootstrapVersion = "${{ steps.artifact.outputs.bootstrap_version }}"
-            $tableUrl = "https://autopilotmonitor.table.core.windows.net/AdminConfiguration(PartitionKey='GlobalConfig',RowKey='config')?$tableSasToken"
+            $tableUrl = "https://autopilotmonitoreu.table.core.windows.net/AdminConfiguration(PartitionKey='GlobalConfig',RowKey='config')?$tableSasToken"
             $tableBody = @{
               LatestAgentV2Version    = $agentVersion
               LatestAgentV2Sha256     = $sha256
