@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 env:
-  ACR_NAME: autopilotmonitoracr
+  ACR_NAME: autopilotmonitoreuacr
   CONTAINER_APP_NAME: autopilotmonitor-mcp
   RESOURCE_GROUP: ${{ secrets.AZURE_MCP_RESOURCE_GROUP }}
   IMAGE_TAG: ${{ github.sha }}

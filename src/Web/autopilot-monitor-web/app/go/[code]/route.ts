@@ -3,7 +3,7 @@ import { validateBootstrapResponse } from "@/utils/bootstrapValidation";
 export const runtime = "nodejs";
 
 const BACKEND_API_URL =
-  process.env.BACKEND_API_URL ?? "https://autopilotmonitor-api.azurewebsites.net";
+  process.env.BACKEND_API_URL ?? "https://autopilotmonitor-api-eu.azurewebsites.net";
 
 export async function GET(
   _req: Request,

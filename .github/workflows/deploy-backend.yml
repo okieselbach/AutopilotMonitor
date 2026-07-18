@@ -39,5 +39,5 @@ jobs:
       - name: Deploy to Azure Functions
         uses: Azure/functions-action@v1
         with:
-          app-name: autopilotmonitor-api
+          app-name: autopilotmonitor-api-eu
           package: ./publish

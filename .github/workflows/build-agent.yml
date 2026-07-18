@@ -72,7 +72,7 @@ jobs:
         shell: pwsh
         run: |
           $counterBlob = "buildcounter-v$env:LINE_MAJOR.txt"
-          $counterUrl = "https://autopilotmonitor.blob.core.windows.net/agent/$counterBlob"
+          $counterUrl = "https://autopilotmonitoreu.blob.core.windows.net/agent/$counterBlob"
           # Tolerate both secret formats ("sp=cw&..." and "?sp=cw&...") -- the URL below adds the '?'.
           $sasToken = "${{ secrets.AZURE_BLOB_AGENT_SAS_TOKEN }}".TrimStart('?')
           $override = "${{ inputs.build_number }}"
@@ -263,7 +263,7 @@ jobs:
         if: inputs.upload_blob
         shell: pwsh
         run: |
-          $containerUrl = "https://autopilotmonitor.blob.core.windows.net/agent"
+          $containerUrl = "https://autopilotmonitoreu.blob.core.windows.net/agent"
           $sasToken = "${{ secrets.AZURE_BLOB_AGENT_SAS_TOKEN }}".TrimStart('?')
 
           function Send-Blob {

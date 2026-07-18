@@ -70,7 +70,7 @@ namespace AutopilotMonitor.Shared
         /// <summary>
         /// Default backend API base URL (overridable via AUTOPILOT_MONITOR_API env var or --api-url CLI arg)
         /// </summary>
-        public const string ApiBaseUrl = "https://autopilotmonitor-api.azurewebsites.net";
+        public const string ApiBaseUrl = "https://autopilotmonitor-api-eu.azurewebsites.net";
 
         /// <summary>
         /// Public base URL of the MCP server Container App (no trailing slash, no /mcp suffix).

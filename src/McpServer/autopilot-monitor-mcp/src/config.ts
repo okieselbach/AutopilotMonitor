@@ -11,7 +11,7 @@
  */
 import type { Request } from 'express';
 
-const DEFAULT_API_BASE_URL = 'https://autopilotmonitor-api.azurewebsites.net';
+const DEFAULT_API_BASE_URL = 'https://autopilotmonitor-api-eu.azurewebsites.net';
 
 function resolveApiBaseUrl(): string {
   const fromEnv = process.env.AUTOPILOT_API_URL?.trim();

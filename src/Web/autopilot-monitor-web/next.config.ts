@@ -81,7 +81,7 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https://*.tile.openstreetmap.org",
               "font-src 'self'",
-              "connect-src 'self' https://autopilotmonitor-api.azurewebsites.net https://autopilotmonitor.blob.core.windows.net https://login.microsoftonline.com https://*.service.signalr.net wss://*.service.signalr.net https://js.monitor.azure.com https://*.in.applicationinsights.azure.com",
+              "connect-src 'self' https://autopilotmonitor-api-eu.azurewebsites.net https://autopilotmonitoreu.blob.core.windows.net https://login.microsoftonline.com https://*.service.signalr.net wss://*.service.signalr.net https://js.monitor.azure.com https://*.in.applicationinsights.azure.com",
               "frame-ancestors 'none'",
             ].join("; "),
           },
