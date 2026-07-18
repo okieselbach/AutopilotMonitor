@@ -53,7 +53,7 @@ try {
     Write-Host "  ✓ .NET SDK version: $dotnetVersion" -ForegroundColor Green
 }
 catch {
-    Write-Host "  ✗ .NET SDK not found. Please install .NET 8 SDK." -ForegroundColor Red
+    Write-Host "  ✗ .NET SDK not found. Please install .NET 10 SDK." -ForegroundColor Red
     exit 1
 }
 
@@ -145,7 +145,7 @@ Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Output locations:" -ForegroundColor White
 Write-Host "  Agent:     src\Agent\AutopilotMonitor.Agent.V2\bin\$Configuration\net48\" -ForegroundColor Gray
-Write-Host "  Functions: src\Backend\AutopilotMonitor.Functions\bin\$Configuration\net8.0\" -ForegroundColor Gray
+Write-Host "  Functions: src\Backend\AutopilotMonitor.Functions\bin\$Configuration\net10.0\" -ForegroundColor Gray
 
 if ($IncludeWeb) {
     Write-Host "  Web UI:    src\Web\autopilot-monitor-web\.next\" -ForegroundColor Gray
