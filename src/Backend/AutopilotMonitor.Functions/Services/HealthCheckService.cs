@@ -290,7 +290,7 @@ public class HealthCheckService
         var check = new HealthCheck
         {
             Name = "SignalR Quota",
-            Description = "Free-tier connection + daily message usage"
+            Description = "Connection + daily message usage vs. plan limits"
         };
 
         var resourceId = _configuration["SignalRResourceId"];
@@ -302,9 +302,9 @@ public class HealthCheckService
         }
 
         var connectionLimit = ParsePositiveInt(
-            "SignalRFreeTierConnectionLimit", MaintenanceService.DefaultSignalRConnectionLimit);
+            "SignalRConnectionLimit", MaintenanceService.DefaultSignalRConnectionLimit);
         var messageLimit = ParsePositiveLong(
-            "SignalRFreeTierDailyMessageLimit", MaintenanceService.DefaultSignalRDailyMessageLimit);
+            "SignalRDailyMessageLimit", MaintenanceService.DefaultSignalRDailyMessageLimit);
 
         var nowUtc = DateTimeOffset.UtcNow;
         var startOfDayUtc = new DateTimeOffset(nowUtc.UtcDateTime.Date, TimeSpan.Zero);
@@ -372,9 +372,9 @@ public class HealthCheckService
 
         check.Message = worstTier switch
         {
-            MaintenanceService.SignalRQuotaTier.Critical => "Free-tier limit nearly saturated — scale to Standard before clients get 429'd",
-            MaintenanceService.SignalRQuotaTier.Warning => "Approaching free-tier limit — consider scaling to Standard",
-            _ => "Within free-tier limits"
+            MaintenanceService.SignalRQuotaTier.Critical => "Plan limit nearly saturated — add SignalR units before clients get 429'd",
+            MaintenanceService.SignalRQuotaTier.Warning => "Approaching plan limit — consider adding SignalR units",
+            _ => "Within plan limits"
         };
         check.Details = details;
         return check;

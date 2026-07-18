@@ -3,7 +3,7 @@ using AutopilotMonitor.Functions.Services;
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Tier-boundary + percent-math tests for the SignalR free-tier quota watcher.
+/// Tier-boundary + percent-math tests for the SignalR quota watcher.
 /// Mirrors the cert-expiry tests' approach: pure-function coverage of the
 /// boundary risks (off-by-one, floor vs ceil, zero-division). Full-service
 /// smoke tests would require constructing 16 dependencies; the percent +

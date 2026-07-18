@@ -9,11 +9,13 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Services
 {
     /// <summary>
-    /// SignalR Free-tier quota watcher. Reads ConnectionCount (max over the last
-    /// hour) and MessageCount (total since UTC midnight) from Azure Monitor and
-    /// emits tiered OpsEvents when either approaches the documented Free-tier
-    /// caps - 20 concurrent connections and 20,000 messages per day. The
-    /// operator can then scale to Standard before clients get 429'd.
+    /// SignalR quota watcher. Reads ConnectionCount (max over the last hour)
+    /// and MessageCount (total since UTC midnight) from Azure Monitor and
+    /// emits tiered OpsEvents when either approaches the plan caps - on
+    /// Standard S1 that is 1,000 concurrent connections per unit (hard limit,
+    /// excess connections are rejected) and 1M messages per unit per day
+    /// (included quota; overage is billed, not throttled). The operator can
+    /// then add units before clients get 429'd or overage costs accumulate.
     ///
     /// Globally scoped (TenantId = null) - SignalR is one shared resource for
     /// the whole Function App, not a per-tenant concern.
@@ -25,12 +27,12 @@ namespace AutopilotMonitor.Functions.Services
         internal const int SignalRQuotaCriticalPercent = 95;
         internal const int SignalRQuotaWarningPercent = 80;
 
-        // Default Free-tier caps as documented by Microsoft. Overridable via
-        // app settings so an operator who has scaled to a paid tier can re-target
-        // the watcher without a code change (or disable it by setting the cap
-        // very high).
-        internal const int DefaultSignalRConnectionLimit = 20;
-        internal const long DefaultSignalRDailyMessageLimit = 20_000;
+        // Default caps for Standard S1 with one unit, as documented by Microsoft.
+        // Overridable via app settings so an operator who adds units or changes
+        // tier can re-target the watcher without a code change (or disable it by
+        // setting the cap very high).
+        internal const int DefaultSignalRConnectionLimit = 1_000;
+        internal const long DefaultSignalRDailyMessageLimit = 1_000_000;
 
         // Dedup prefix - all SignalR EventTypes start with this, so the seen-index
         // can be built with a single Security-category read.
@@ -59,7 +61,7 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>
         /// Reads SignalR ConnectionCount + MessageCount metrics from Azure Monitor
-        /// and emits Warning/Error OpsEvents when the Free-tier limits are
+        /// and emits Warning/Error OpsEvents when the plan limits are
         /// approached. Dedup: one event per EventType per UTC day. Fail-soft -
         /// missing config or Azure Monitor errors yield a single log line, never
         /// a thrown exception.
@@ -75,9 +77,9 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             var connectionLimit = ParseIntSetting(
-                "SignalRFreeTierConnectionLimit", DefaultSignalRConnectionLimit);
+                "SignalRConnectionLimit", DefaultSignalRConnectionLimit);
             var messageLimit = ParseLongSetting(
-                "SignalRFreeTierDailyMessageLimit", DefaultSignalRDailyMessageLimit);
+                "SignalRDailyMessageLimit", DefaultSignalRDailyMessageLimit);
 
             var seenToday = await BuildSignalRQuotaSeenIndexAsync();
 

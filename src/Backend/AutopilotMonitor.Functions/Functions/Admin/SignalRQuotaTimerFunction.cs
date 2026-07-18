@@ -7,10 +7,11 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Functions.Admin
 {
     /// <summary>
-    /// Timer-triggered watcher for the Azure SignalR Free-tier limits (20
-    /// concurrent connections / 20,000 messages per UTC day). Runs every full
-    /// hour and emits OpsEvents when the configured thresholds are crossed so
-    /// operators get a Telegram ping before clients start getting 429'd.
+    /// Timer-triggered watcher for the Azure SignalR plan limits (Standard S1
+    /// x1 unit: 1,000 concurrent connections / 1M messages per UTC day). Runs
+    /// every full hour and emits OpsEvents when the configured thresholds are
+    /// crossed so operators get a Telegram ping before clients start getting
+    /// 429'd or message overage is billed.
     ///
     /// Separate from the 2h MaintenanceFunction: the SignalR limits can be
     /// breached by a brief connection spike, so the cadence is tighter. Cost

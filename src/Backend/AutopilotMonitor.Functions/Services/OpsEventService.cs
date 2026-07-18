@@ -310,25 +310,25 @@ namespace AutopilotMonitor.Functions.Services
 
         public Task RecordSignalRConnectionsHighAsync(int observed, int limit, int percent, string resourceId)
             => WriteAsync(OpsEventCategory.Security, "SignalRConnectionsHigh", OpsEventSeverity.Warning,
-                $"SignalR concurrent connections at {percent}% of free-tier limit ({observed}/{limit}) - watch for 429s; consider scaling to Standard before saturation",
+                $"SignalR concurrent connections at {percent}% of plan limit ({observed}/{limit}) - watch for 429s; consider adding units before saturation",
                 null, "System.Monitoring",
                 new { metric = "ConnectionCount", aggregation = "Maximum", windowMinutes = 60, observed, limit, percent, resourceId });
 
         public Task RecordSignalRConnectionsCriticalAsync(int observed, int limit, int percent, string resourceId)
             => WriteAsync(OpsEventCategory.Security, "SignalRConnectionsCritical", OpsEventSeverity.Error,
-                $"CRITICAL: SignalR concurrent connections at {percent}% of free-tier limit ({observed}/{limit}) - new client connections will be 429'd at 100%; scale to Standard now",
+                $"CRITICAL: SignalR concurrent connections at {percent}% of plan limit ({observed}/{limit}) - new client connections will be 429'd at 100%; add units now",
                 null, "System.Monitoring",
                 new { metric = "ConnectionCount", aggregation = "Maximum", windowMinutes = 60, observed, limit, percent, resourceId });
 
         public Task RecordSignalRMessagesHighAsync(long observed, long limit, int percent, string resourceId)
             => WriteAsync(OpsEventCategory.Security, "SignalRMessagesHigh", OpsEventSeverity.Warning,
-                $"SignalR daily message count at {percent}% of free-tier limit ({observed}/{limit}) - quota resets at 00:00 UTC; consider scaling if pattern persists",
+                $"SignalR daily message count at {percent}% of included plan quota ({observed}/{limit}) - resets at 00:00 UTC; overage is billed per extra million messages",
                 null, "System.Monitoring",
                 new { metric = "MessageCount", aggregation = "Total", windowDay = "UTC", observed, limit, percent, resourceId });
 
         public Task RecordSignalRMessagesCriticalAsync(long observed, long limit, int percent, string resourceId)
             => WriteAsync(OpsEventCategory.Security, "SignalRMessagesCritical", OpsEventSeverity.Error,
-                $"CRITICAL: SignalR daily message count at {percent}% of free-tier limit ({observed}/{limit}) - hub will throttle at 100% until 00:00 UTC reset; scale to Standard now",
+                $"CRITICAL: SignalR daily message count at {percent}% of included plan quota ({observed}/{limit}) - overage beyond 100% is billed per extra million messages; review traffic or add units",
                 null, "System.Monitoring",
                 new { metric = "MessageCount", aggregation = "Total", windowDay = "UTC", observed, limit, percent, resourceId });
 
