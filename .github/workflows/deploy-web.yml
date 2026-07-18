@@ -1,4 +1,4 @@
-name: Azure Static Web Apps CI/CD
+name: Deploy Web (Static Web App)
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - 'src/Web/autopilot-monitor-web/**'
-      - '.github/workflows/azure-static-web-apps-brave-grass-0070b5703.yml'
+      - '.github/workflows/deploy-web.yml'
   workflow_dispatch:
   pull_request:
     types: [opened, synchronize, reopened, closed]
@@ -14,7 +14,7 @@ on:
       - main
     paths:
       - 'src/Web/autopilot-monitor-web/**'
-      - '.github/workflows/azure-static-web-apps-brave-grass-0070b5703.yml'
+      - '.github/workflows/deploy-web.yml'
 
 jobs:
   build_and_deploy_job:
@@ -37,7 +37,7 @@ jobs:
           NEXT_PUBLIC_PLATFORM_STATS_MANIFEST_URL: ${{ vars.NEXT_PUBLIC_PLATFORM_STATS_MANIFEST_URL }}
           NEXT_PUBLIC_APPINSIGHTS_CONNECTION_STRING: ${{ secrets.NEXT_PUBLIC_APPINSIGHTS_CONNECTION_STRING }}
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_BRAVE_GRASS_0070B5703 }}
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_DEPLOY_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }} # Used for Github integrations (i.e. PR comments)
           action: "upload"
           ###### Repository/Build Configurations - These values can be configured to match your app requirements. ######
@@ -56,7 +56,7 @@ jobs:
         id: closepullrequest
         uses: Azure/static-web-apps-deploy@v1
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_BRAVE_GRASS_0070B5703 }}
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_DEPLOY_TOKEN }}
           action: "close"
 
 
