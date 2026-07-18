@@ -582,7 +582,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 { "FeedbackMinTenantAgeDays", config.FeedbackMinTenantAgeDays },
                 { "FeedbackCooldownDays", config.FeedbackCooldownDays },
                 // MCP access control
-                { "McpAccessPolicy", config.McpAccessPolicy ?? "WhitelistOnly" }
+                { "McpAccessPolicy", config.McpAccessPolicy ?? "WhitelistOnly" },
+                // Agent endpoint migration (config-channel re-home)
+                { "AgentMigrateApiBaseUrl", config.AgentMigrateApiBaseUrl ?? string.Empty },
+                { "AgentMigrateTenantOverridesJson", config.AgentMigrateTenantOverridesJson ?? string.Empty }
             };
 
             return entity;
@@ -643,7 +646,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 FeedbackMinTenantAgeDays = entity.GetInt32("FeedbackMinTenantAgeDays") ?? 14,
                 FeedbackCooldownDays = entity.GetInt32("FeedbackCooldownDays") ?? 60,
                 // MCP access control
-                McpAccessPolicy = entity.GetString("McpAccessPolicy") ?? "WhitelistOnly"
+                McpAccessPolicy = entity.GetString("McpAccessPolicy") ?? "WhitelistOnly",
+                // Agent endpoint migration (config-channel re-home)
+                AgentMigrateApiBaseUrl = entity.GetString("AgentMigrateApiBaseUrl") ?? string.Empty,
+                AgentMigrateTenantOverridesJson = entity.GetString("AgentMigrateTenantOverridesJson") ?? string.Empty
             };
         }
 

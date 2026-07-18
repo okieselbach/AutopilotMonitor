@@ -213,6 +213,8 @@ namespace AutopilotMonitor.Agent.V2
             // Control-channel kill-switch: a live-fetch DeviceKillSignal terminates the agent
             // BEFORE mTLS/registration spin-up. Covers agents the telemetry-channel kill can
             // never reach (paused drain, empty spool) at their next process start / boot.
+            // Checked BEFORE any endpoint migration — a kill from the current backend is
+            // terminal, not re-homed.
             if (CheckConfigKillSignal(
                     runtimeConfig.RemoteConfig,
                     runtimeConfig.RemoteConfigService.LastFetchOutcome,
@@ -221,6 +223,37 @@ namespace AutopilotMonitor.Agent.V2
                     logger, consoleMode))
             {
                 return 0;
+            }
+
+            // Endpoint migration (config-channel re-home): the backend served a validated
+            // MigrateToApiBaseUrl on a live fetch. Rebuild Phase 3 clients against the new base
+            // URL and re-run Phase 4 there (single hop — the second Resolve cannot migrate
+            // again), then re-check the kill signal against the NEW backend's config.
+            if (runtimeConfig.PendingMigrationTarget != null)
+            {
+                logger.Warning(
+                    $"Endpoint migration: backend re-homed this agent from {bootstrap.AgentConfig.ApiBaseUrl} " +
+                    $"to {runtimeConfig.PendingMigrationTarget} — rebuilding backend clients.");
+
+                bootstrap.AgentConfig.ApiBaseUrl = runtimeConfig.PendingMigrationTarget;
+
+                // Best-effort disposal of the old-URL client stack before it goes out of scope.
+                try { auth.BackendApiClient?.Dispose(); } catch { }
+
+                auth = Runtime.BackendClientFactory.BuildAuthClients(bootstrap.AgentConfig, GetAgentVersion(), logger);
+                runtimeConfig = Runtime.AgentRuntimeConfig.Resolve(
+                    bootstrap.AgentConfig, auth, GetAgentVersion(), consoleMode, logger,
+                    allowEndpointMigration: false);
+
+                if (CheckConfigKillSignal(
+                        runtimeConfig.RemoteConfig,
+                        runtimeConfig.RemoteConfigService.LastFetchOutcome,
+                        dataDirectory, stateSubdir,
+                        () => new CleanupService(bootstrap.AgentConfig, logger),
+                        logger, consoleMode))
+                {
+                    return 0;
+                }
             }
 
             // Phase 5 (mTLS HttpClient + BackendTelemetryUploader) is encapsulated in

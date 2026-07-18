@@ -62,6 +62,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
                 DeviceBlocked = true,
                 DeviceKillSignal = true,
                 UnblockAt = new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                MigrateToApiBaseUrl = "https://attacker.azurewebsites.net",
             };
 
             probe.DoCache(config);
@@ -76,9 +77,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             Assert.False(persisted.DeviceBlocked);
             Assert.False(persisted.DeviceKillSignal);
             Assert.Null(persisted.UnblockAt);
+            Assert.Null(persisted.MigrateToApiBaseUrl);
 
-            // The attacker EXE hash must not appear anywhere in the persisted bytes.
+            // The attacker EXE hash / re-home host must not appear anywhere in the persisted bytes.
             Assert.DoesNotContain("deadbeef", raw);
+            Assert.DoesNotContain("attacker.azurewebsites.net", raw);
 
             // Benign fields survive the strip.
             Assert.Equal(77, persisted.ConfigVersion);
@@ -92,6 +95,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             Assert.True(config.DeviceBlocked);
             Assert.True(config.DeviceKillSignal);
             Assert.Equal(new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc), config.UnblockAt);
+            Assert.Equal("https://attacker.azurewebsites.net", config.MigrateToApiBaseUrl);
         }
 
         // ── Read path: LoadCachedConfig strips a planted (attacker) cache file ─
@@ -103,6 +107,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
         [InlineData("DeviceBlocked")]
         [InlineData("DeviceKillSignal")]
         [InlineData("UnblockAt")]
+        [InlineData("MigrateToApiBaseUrl")]
         public void LoadCachedConfig_strips_planted_security_sensitive_field(string field)
         {
             var probe = NewProbe();
@@ -119,6 +124,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
                 DeviceBlocked = true,
                 DeviceKillSignal = true,
                 UnblockAt = new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                MigrateToApiBaseUrl = "https://attacker.azurewebsites.net",
             };
             File.WriteAllText(_cachePath, JsonConvert.SerializeObject(attacker, Formatting.Indented));
 
@@ -144,6 +150,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
                     break;
                 case "UnblockAt":
                     Assert.Null(loaded.UnblockAt);
+                    break;
+                case "MigrateToApiBaseUrl":
+                    Assert.Null(loaded.MigrateToApiBaseUrl);
                     break;
                 default:
                     throw new InvalidOperationException($"unknown field {field}");

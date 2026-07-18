@@ -249,18 +249,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
                 //   - DeviceBlocked/DeviceKillSignal/UnblockAt: kill is only honoured from a
                 //     live fetch — a planted cached kill would self-destruct every future
                 //     session, a stale cached kill would outlive the admin removing the rule
+                //   - MigrateToApiBaseUrl: endpoint re-home is only honoured from a live
+                //     fetch — a planted cached URL would silently redirect every future
+                //     session's telemetry to an attacker-chosen host
                 var liveUnrestricted = config.UnrestrictedMode;
                 var liveAllowDowngrade = config.AllowAgentDowngrade;
                 var liveExeHash = config.LatestAgentExeSha256;
                 var liveBlocked = config.DeviceBlocked;
                 var liveKill = config.DeviceKillSignal;
                 var liveUnblockAt = config.UnblockAt;
+                var liveMigrateUrl = config.MigrateToApiBaseUrl;
                 config.UnrestrictedMode = false;
                 config.AllowAgentDowngrade = false;
                 config.LatestAgentExeSha256 = null;
                 config.DeviceBlocked = false;
                 config.DeviceKillSignal = false;
                 config.UnblockAt = null;
+                config.MigrateToApiBaseUrl = null;
                 var json = JsonConvert.SerializeObject(config, Formatting.Indented);
                 config.UnrestrictedMode = liveUnrestricted;
                 config.AllowAgentDowngrade = liveAllowDowngrade;
@@ -268,6 +273,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
                 config.DeviceBlocked = liveBlocked;
                 config.DeviceKillSignal = liveKill;
                 config.UnblockAt = liveUnblockAt;
+                config.MigrateToApiBaseUrl = liveMigrateUrl;
 
                 File.WriteAllText(_cacheFilePath, json);
                 _logger.Debug("Remote config cached to disk");
@@ -299,6 +305,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
                         config.DeviceBlocked = false;
                         config.DeviceKillSignal = false;
                         config.UnblockAt = null;
+                        config.MigrateToApiBaseUrl = null;
                     }
                     return config;
                 }

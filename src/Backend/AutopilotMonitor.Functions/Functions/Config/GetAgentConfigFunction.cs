@@ -158,6 +158,39 @@ namespace AutopilotMonitor.Functions.Functions.Config
         }
 
         /// <summary>
+        /// Resolves the endpoint-migration target for a tenant: per-tenant override wins over
+        /// the global value; an override entry with an empty value pins the tenant (no
+        /// migration even while the global target is set — staged rollout). The winning value
+        /// is validated against <see cref="AutopilotMonitor.Shared.Services.AgentEndpointMigrationRules"/>;
+        /// invalid values resolve to null (fail-safe: better to strand an agent on the old
+        /// backend than to serve a broken or non-allowlisted URL).
+        /// </summary>
+        internal static string? ResolveMigrateTarget(
+            AutopilotMonitor.Shared.Models.AdminConfiguration adminConfig,
+            string tenantId,
+            out string? rejectedCandidate)
+        {
+            rejectedCandidate = null;
+            string? candidate = adminConfig.AgentMigrateApiBaseUrl;
+
+            var overrides = adminConfig.GetAgentMigrateTenantOverrides();
+            if (!string.IsNullOrEmpty(tenantId) && overrides.TryGetValue(tenantId, out var tenantTarget))
+                candidate = tenantTarget; // empty string = pinned, handled below
+
+            if (string.IsNullOrWhiteSpace(candidate))
+                return null;
+
+            if (AutopilotMonitor.Shared.Services.AgentEndpointMigrationRules
+                .TryNormalizeTarget(candidate, out var normalized))
+            {
+                return normalized;
+            }
+
+            rejectedCandidate = candidate;
+            return null;
+        }
+
+        /// <summary>
         /// Core config logic: fetch tenant + admin config, gather rules, IME patterns.
         /// Called by both the cert-auth Run() method and the bootstrap wrapper.
         /// </summary>
@@ -215,10 +248,29 @@ namespace AutopilotMonitor.Functions.Functions.Config
             // so agent code is unchanged across all major lines.
             var (latestAgentSha256, latestAgentExeSha256) = SelectAgentHashesForClient(req, adminConfig);
 
+            // Endpoint migration on the control channel: serve the (validated) re-home target
+            // so agents still bound to this backend's compiled-in URL move themselves to the
+            // new deployment at their next start. LogWarning (not Information) because worker
+            // logs below Warning never reach App Insights — this line is the delivery evidence
+            // during a migration window.
+            var migrateTarget = ResolveMigrateTarget(adminConfig, tenantId, out var rejectedMigrateCandidate);
+            if (migrateTarget != null)
+            {
+                _logger.LogWarning(
+                    "AgentMigrateServed: tenant={TenantId} serial={Serial} agentVersion={AgentVersion} target={Target}",
+                    tenantId, serialNumberHeader, agentVersionHeader, migrateTarget);
+            }
+            else if (rejectedMigrateCandidate != null)
+            {
+                _logger.LogWarning(
+                    "AgentMigrateRejected: configured migration target failed validation and is NOT served. tenant={TenantId} candidate={Candidate}",
+                    tenantId, rejectedMigrateCandidate);
+            }
+
             var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(new AgentConfigResponse
             {
-                ConfigVersion = 32, // V2 OOBE-console / Shift+F10 detection portal toggle (EnableConsoleBypassDetection; tenant-scoped, default ON / opt-out; gates ConsoleBypass host + ConsolePrefetchScanner)
+                ConfigVersion = 33, // Agent endpoint migration on the config channel (MigrateToApiBaseUrl; live-fetch-only, allowlist-validated, one hop, kill wins)
                 UploadIntervalSeconds = 10,
                 SelfDestructOnComplete = tenantConfig.SelfDestructOnComplete ?? true,
                 KeepLogFile = tenantConfig.KeepLogFile ?? false,
@@ -262,6 +314,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 DeviceBlocked = killVerdict.IsBlocked,
                 DeviceKillSignal = killVerdict.IsKill,
                 UnblockAt = killVerdict.UnblockAt,
+                MigrateToApiBaseUrl = migrateTarget!,
             });
 
             return response;

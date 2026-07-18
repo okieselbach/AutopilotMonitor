@@ -231,6 +231,18 @@ namespace AutopilotMonitor.Shared.Models
         /// null = indefinite (or kill).
         /// </summary>
         public System.DateTime? UnblockAt { get; set; }
+
+        /// <summary>
+        /// Endpoint migration on the control channel: when set, the agent abandons its
+        /// compiled-in API base URL and re-runs backend-client construction + config fetch
+        /// against this URL (backend move without a custom domain in front of the API, or a
+        /// per-tenant region move). Honoured only from a LIVE fetch (the on-disk cache strips
+        /// the field on write and read), validated against
+        /// <c>AgentEndpointMigrationRules</c> on both sides, single hop (the re-fetched
+        /// config cannot chain another migration), and a kill signal always wins over it.
+        /// Old binaries ignore the field. null = no migration.
+        /// </summary>
+        public string MigrateToApiBaseUrl { get; set; }
     }
 
     /// <summary>

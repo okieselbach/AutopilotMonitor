@@ -324,6 +324,57 @@ namespace AutopilotMonitor.Shared.Models
             }
         }
 
+        // ===== AGENT ENDPOINT MIGRATION (config-channel re-home) =====
+        // The agent's API base URL is compiled into the binary (no custom domain possible in
+        // front of the API — mTLS breaks behind a proxy, Flex custom-domain TLS is broken).
+        // These settings let the OLD backend re-home agents to a NEW base URL via the
+        // agent/config response during a backend or per-tenant region move. Values are
+        // validated against AgentEndpointMigrationRules before being served; invalid values
+        // are logged and ignored (fail-safe: no migration).
+
+        /// <summary>
+        /// Global migration target served to ALL agents as
+        /// <c>AgentConfigResponse.MigrateToApiBaseUrl</c> (e.g.
+        /// "https://autopilotmonitor-api-us.azurewebsites.net"). Empty = no global migration.
+        /// Set this on the backend being ABANDONED; clear it once the migration window closes.
+        /// Per-tenant overrides in <see cref="AgentMigrateTenantOverridesJson"/> win over this.
+        /// </summary>
+        public string AgentMigrateApiBaseUrl { get; set; } = string.Empty;
+
+        /// <summary>
+        /// JSON object mapping tenantId → migration target URL for per-tenant moves (e.g. one
+        /// tenant relocating EU→US). An entry with an EMPTY string value pins that tenant to
+        /// the current backend even while <see cref="AgentMigrateApiBaseUrl"/> is set (staged
+        /// rollout). Example:
+        /// <c>{"11111111-...": "https://autopilotmonitor-api-us.azurewebsites.net", "22222222-...": ""}</c>
+        /// </summary>
+        public string AgentMigrateTenantOverridesJson { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Returns the deserialized per-tenant migration overrides (case-insensitive tenant
+        /// keys). Falls back to an empty map for null/empty/invalid JSON so a malformed value
+        /// degrades to "global setting applies" instead of failing config serving.
+        /// </summary>
+        public Dictionary<string, string> GetAgentMigrateTenantOverrides()
+        {
+            var empty = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(AgentMigrateTenantOverridesJson))
+                return empty;
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(
+                    AgentMigrateTenantOverridesJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                return parsed == null
+                    ? empty
+                    : new Dictionary<string, string>(parsed, StringComparer.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return empty;
+            }
+        }
+
         // ===== MODERN DEPLOYMENT NOISE SUPPRESSION =====
 
         /// <summary>

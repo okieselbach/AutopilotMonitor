@@ -1,5 +1,9 @@
 # Log
 
+## 2026-07-18
+
+* **Creation**: Added `agent/endpoint-migration.md` — config-channel agent re-home (`MigrateToApiBaseUrl` on `GET agent/config`, ConfigVersion 33): backend or per-tenant API-URL moves without DNS indirection (impossible due to mTLS/Flex-TLS). Live-fetch-only with cache strip, `AgentEndpointMigrationRules` allowlist validated on both sides, one hop, kill-switch wins. Built as the lesson from the 2026-07-18 WEU→GWC cutover, which hard-cut all in-flight agents.
+
 ## 2026-07-17
 
 * **Creation**: Added `agent/build-counter-blob.md` — agent build numbers now come from a shared public counter blob (`buildcounter-v{N}.txt`, reserve-before-build with ETag-CAS) so local `build.ps1` and CI `build-agent.yml` builds can never mint the same number. Documents the CI parity fixes (SummaryDialog.exe.config in the ZIP, EXE-vs-manifest version check, hash-oracle update gated on stable cutover) and the Sigstore provenance attestation on CI-built ZIPs.

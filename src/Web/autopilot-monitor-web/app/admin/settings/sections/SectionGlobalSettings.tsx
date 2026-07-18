@@ -11,6 +11,8 @@ export function SectionGlobalSettings() {
     userRateLimit, setUserRateLimit,
     globalAdminRateLimit, setGlobalAdminRateLimit,
     platformStatsBlobSasUrl, setPlatformStatsBlobSasUrl,
+    agentMigrateApiBaseUrl, setAgentMigrateApiBaseUrl,
+    agentMigrateTenantOverridesJson, setAgentMigrateTenantOverridesJson,
     collectorIdleTimeoutMinutes, setCollectorIdleTimeoutMinutes,
     desktopDetectorNoCandidateTimeoutMinutes, setDesktopDetectorNoCandidateTimeoutMinutes,
     slaNotificationCooldownHours, setSlaNotificationCooldownHours,
@@ -36,6 +38,10 @@ export function SectionGlobalSettings() {
         setGlobalAdminRateLimit={setGlobalAdminRateLimit}
         platformStatsBlobSasUrl={platformStatsBlobSasUrl}
         setPlatformStatsBlobSasUrl={setPlatformStatsBlobSasUrl}
+        agentMigrateApiBaseUrl={agentMigrateApiBaseUrl}
+        setAgentMigrateApiBaseUrl={setAgentMigrateApiBaseUrl}
+        agentMigrateTenantOverridesJson={agentMigrateTenantOverridesJson}
+        setAgentMigrateTenantOverridesJson={setAgentMigrateTenantOverridesJson}
         collectorIdleTimeoutMinutes={collectorIdleTimeoutMinutes}
         setCollectorIdleTimeoutMinutes={setCollectorIdleTimeoutMinutes}
         desktopDetectorNoCandidateTimeoutMinutes={desktopDetectorNoCandidateTimeoutMinutes}

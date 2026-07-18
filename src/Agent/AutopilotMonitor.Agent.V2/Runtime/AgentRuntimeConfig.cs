@@ -32,7 +32,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             BackendAuthBundle auth,
             string agentVersion,
             bool consoleMode,
-            AgentLogger logger)
+            AgentLogger logger,
+            bool allowEndpointMigration = true)
         {
             if (agentConfig == null) throw new ArgumentNullException(nameof(agentConfig));
             if (auth == null) throw new ArgumentNullException(nameof(auth));
@@ -48,6 +49,25 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             var remoteConfig = remoteConfigService
                 .FetchConfigAsync(retryOnTransientErrors: true)
                 .GetAwaiter().GetResult();
+
+            // Endpoint migration (config-channel re-home): decided BEFORE merge / binary-
+            // integrity / bootstrap-cleanup so none of those side effects run against a config
+            // from the backend being abandoned — a migration stub may advertise stale agent
+            // hashes, and a spurious IntegrityCheckFailed + force-update against them would be
+            // actively harmful. RunAgent rebuilds Phase 3 clients on the new base URL and calls
+            // Resolve again with allowEndpointMigration:false (single hop — the new backend's
+            // config cannot chain another migration).
+            if (allowEndpointMigration)
+            {
+                var migrationTarget = EndpointMigration.ResolveTarget(
+                    remoteConfig, remoteConfigService.LastFetchOutcome, agentConfig.ApiBaseUrl, logger);
+                if (migrationTarget != null)
+                {
+                    return new RuntimeConfigBundle(
+                        remoteConfigService, remoteConfig, mergeResult: null,
+                        pendingMigrationTarget: migrationTarget);
+                }
+            }
 
             // Project remote tenant-controlled knobs onto the runtime AgentConfiguration so that
             // downstream consumers (CleanupService, SummaryDialogLauncher, StartupEnvironmentProbes,
@@ -71,7 +91,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
 
             TryCleanupBootstrapConfig(agentConfig, agentVersion, logger);
 
-            return new RuntimeConfigBundle(remoteConfigService, remoteConfig, configMergeResult);
+            return new RuntimeConfigBundle(remoteConfigService, remoteConfig, configMergeResult, pendingMigrationTarget: null);
         }
 
         /// <summary>
@@ -145,21 +165,30 @@ namespace AutopilotMonitor.Agent.V2.Runtime
     /// <c>rotate_config</c> ServerAction callback), the fetched <see cref="AgentConfigResponse"/>
     /// and the <see cref="RemoteConfigMergeResult"/> diff snapshot (used by the
     /// <c>EmitUnrestrictedModeAuditIfChanged</c> lifecycle hook).
+    /// <para>
+    /// When <see cref="PendingMigrationTarget"/> is non-null the bundle is a partial result:
+    /// the fetch found a live endpoint-migration signal and Resolve returned before merge /
+    /// integrity / bootstrap-cleanup (<see cref="MergeResult"/> is null). RunAgent must
+    /// rebuild the backend clients on the target URL and Resolve again.
+    /// </para>
     /// </summary>
     internal sealed class RuntimeConfigBundle
     {
         public RemoteConfigService RemoteConfigService { get; }
         public AgentConfigResponse RemoteConfig { get; }
         public RemoteConfigMergeResult MergeResult { get; }
+        public string PendingMigrationTarget { get; }
 
         public RuntimeConfigBundle(
             RemoteConfigService remoteConfigService,
             AgentConfigResponse remoteConfig,
-            RemoteConfigMergeResult mergeResult)
+            RemoteConfigMergeResult mergeResult,
+            string pendingMigrationTarget = null)
         {
             RemoteConfigService = remoteConfigService;
             RemoteConfig = remoteConfig;
             MergeResult = mergeResult;
+            PendingMigrationTarget = pendingMigrationTarget;
         }
     }
 }

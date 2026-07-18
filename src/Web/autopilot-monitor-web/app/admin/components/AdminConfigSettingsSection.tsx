@@ -14,6 +14,10 @@ interface AdminConfigSettingsSectionProps {
   setGlobalAdminRateLimit: (value: number) => void;
   platformStatsBlobSasUrl: string;
   setPlatformStatsBlobSasUrl: (value: string) => void;
+  agentMigrateApiBaseUrl: string;
+  setAgentMigrateApiBaseUrl: (value: string) => void;
+  agentMigrateTenantOverridesJson: string;
+  setAgentMigrateTenantOverridesJson: (value: string) => void;
   collectorIdleTimeoutMinutes: number;
   setCollectorIdleTimeoutMinutes: (value: number) => void;
   desktopDetectorNoCandidateTimeoutMinutes: number;
@@ -44,6 +48,10 @@ export function AdminConfigSettingsSection({
   setGlobalAdminRateLimit,
   platformStatsBlobSasUrl,
   setPlatformStatsBlobSasUrl,
+  agentMigrateApiBaseUrl,
+  setAgentMigrateApiBaseUrl,
+  agentMigrateTenantOverridesJson,
+  setAgentMigrateTenantOverridesJson,
   collectorIdleTimeoutMinutes,
   setCollectorIdleTimeoutMinutes,
   desktopDetectorNoCandidateTimeoutMinutes,
@@ -150,6 +158,43 @@ export function AdminConfigSettingsSection({
                   value={platformStatsBlobSasUrl}
                   onChange={(e) => setPlatformStatsBlobSasUrl(e.target.value)}
                   placeholder="https://storageaccount.blob.core.windows.net/publicstats?sv=...&sig=..."
+                  className="mt-1 block w-full px-4 py-2 border border-indigo-300 dark:border-indigo-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors font-mono text-sm"
+                />
+              </label>
+            </div>
+
+            <div>
+              <label className="block">
+                <span className="text-indigo-900 dark:text-indigo-100 font-medium">Agent Endpoint Migration Target (Global)</span>
+                <p className="text-sm text-indigo-800 dark:text-gray-300 mb-2">
+                  When set, this backend serves the URL as <code className="text-xs bg-indigo-100 dark:bg-indigo-900 dark:text-indigo-200 px-1 rounded">MigrateToApiBaseUrl</code> on
+                  the agent config channel and agents re-home themselves to the new API at their next start.
+                  Only <code className="text-xs bg-indigo-100 dark:bg-indigo-900 dark:text-indigo-200 px-1 rounded">https://*.azurewebsites.net</code> base
+                  URLs are accepted (validated server- AND agent-side). Set this on the backend being <strong>abandoned</strong>; clear it after the migration window.
+                </p>
+                <input
+                  type="url"
+                  value={agentMigrateApiBaseUrl}
+                  onChange={(e) => setAgentMigrateApiBaseUrl(e.target.value)}
+                  placeholder="https://autopilotmonitor-api-us.azurewebsites.net"
+                  className="mt-1 block w-full px-4 py-2 border border-indigo-300 dark:border-indigo-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors font-mono text-sm"
+                />
+              </label>
+            </div>
+
+            <div>
+              <label className="block">
+                <span className="text-indigo-900 dark:text-indigo-100 font-medium">Agent Endpoint Migration &mdash; Per-Tenant Overrides (JSON)</span>
+                <p className="text-sm text-indigo-800 dark:text-gray-300 mb-2">
+                  JSON object mapping tenantId to a target URL for per-tenant region moves (e.g. one tenant EU&rarr;US).
+                  An entry with an <strong>empty string</strong> value pins that tenant to this backend even while the global target above is set (staged rollout).
+                  Overrides win over the global target.
+                </p>
+                <textarea
+                  value={agentMigrateTenantOverridesJson}
+                  onChange={(e) => setAgentMigrateTenantOverridesJson(e.target.value)}
+                  placeholder='{"11111111-2222-3333-4444-555555555555": "https://autopilotmonitor-api-us.azurewebsites.net", "66666666-7777-8888-9999-000000000000": ""}'
+                  rows={3}
                   className="mt-1 block w-full px-4 py-2 border border-indigo-300 dark:border-indigo-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors font-mono text-sm"
                 />
               </label>

@@ -9,6 +9,17 @@ export interface AdminConfiguration {
   /** Per-user (portal/JWT) rate limit for Global Admins. Default 600. */
   globalAdminRateLimitRequestsPerMinute?: number;
   platformStatsBlobSasUrl?: string;
+  /**
+   * Agent endpoint migration: global re-home target served to agents as
+   * `MigrateToApiBaseUrl` on the config channel (e.g. "https://autopilotmonitor-api-us.azurewebsites.net").
+   * Empty = no migration. Set on the backend being ABANDONED during a move.
+   */
+  agentMigrateApiBaseUrl?: string;
+  /**
+   * JSON object tenantId → target URL for per-tenant moves; an empty-string value
+   * pins that tenant (no migration) even while the global target is set.
+   */
+  agentMigrateTenantOverridesJson?: string;
   collectorIdleTimeoutMinutes?: number;
   desktopDetectorNoCandidateTimeoutMinutes?: number;
   excessiveEventCountThreshold?: number;
