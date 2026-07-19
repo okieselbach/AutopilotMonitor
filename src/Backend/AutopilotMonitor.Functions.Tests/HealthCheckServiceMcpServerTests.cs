@@ -54,6 +54,29 @@ public class HealthCheckServiceMcpServerTests
     }
 
     [Fact]
+    public async Task Check_WithEndpointUrl_SurfacesServerUrlAlongsideVersion()
+    {
+        var svc = BuildService(HttpStatusCode.OK, "{\"status\":\"healthy\",\"version\":\"1.4.0\"}");
+
+        var check = await svc.CheckMcpServerAsync(includeEndpointUrl: true);
+
+        // The Version detail must merge into — not replace — the Server URL detail.
+        Assert.Equal("https://mcp.example.test", check.Details!["Server URL"]);
+        Assert.Equal("1.4.0", check.Details["Version"]);
+    }
+
+    [Fact]
+    public async Task Check_WithEndpointUrl_SurfacesServerUrlEvenWhenUnhealthy()
+    {
+        var svc = BuildService(HttpStatusCode.ServiceUnavailable, "");
+
+        var check = await svc.CheckMcpServerAsync(includeEndpointUrl: true);
+
+        Assert.Equal("unhealthy", check.Status);
+        Assert.Equal("https://mcp.example.test", check.Details!["Server URL"]);
+    }
+
+    [Fact]
     public async Task Check_TimeoutOrConnectionFailure_ReportsWarningForColdStart()
     {
         var svc = BuildServiceWithFactory(

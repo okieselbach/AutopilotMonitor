@@ -554,52 +554,53 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Verifies that agent binaries and bootstrap script are available on blob storage.
+        /// Verifies that agent binaries and bootstrap script are available on the canonical
+        /// download alias (Front Door → current blob origin) AND on the legacy blob keepalive
+        /// account that already-deployed customer bootstrap scripts still use.
         /// Records an OpsEvent for each missing item so Global Admins see it in the dashboard.
         /// </summary>
         private async Task CheckAgentBlobStorageAsync()
         {
-            _logger.LogInformation("Checking agent blob storage availability...");
+            _logger.LogInformation("Checking agent download endpoint availability...");
 
-            var zipUrl = $"{AutopilotMonitor.Shared.Constants.AgentBlobBaseUrl}/{AutopilotMonitor.Shared.Constants.AgentZipFileName}";
-            var ps1Url = $"{AutopilotMonitor.Shared.Constants.AgentBlobBaseUrl}/Install-AutopilotMonitor.ps1";
+            var probes = new (string Label, string Url)[]
+            {
+                ($"Agent ZIP ({AutopilotMonitor.Shared.Constants.AgentZipFileName}, download alias)",
+                    $"{AutopilotMonitor.Shared.Constants.AgentDownloadBaseUrl}/{AutopilotMonitor.Shared.Constants.AgentZipFileName}"),
+                ($"Bootstrap script ({AutopilotMonitor.Shared.Constants.BootstrapScriptName}, download alias)",
+                    $"{AutopilotMonitor.Shared.Constants.AgentDownloadBaseUrl}/{AutopilotMonitor.Shared.Constants.BootstrapScriptName}"),
+                ($"Agent ZIP ({AutopilotMonitor.Shared.Constants.AgentZipFileName}, legacy blob keepalive)",
+                    $"{AutopilotMonitor.Shared.Constants.AgentBlobBaseUrl}/{AutopilotMonitor.Shared.Constants.AgentZipFileName}"),
+                ($"Bootstrap script ({AutopilotMonitor.Shared.Constants.BootstrapScriptName}, legacy blob keepalive)",
+                    $"{AutopilotMonitor.Shared.Constants.AgentBlobBaseUrl}/{AutopilotMonitor.Shared.Constants.BootstrapScriptName}")
+            };
 
             try
             {
                 var client = _httpClientFactory.CreateClient();
                 client.Timeout = TimeSpan.FromSeconds(15);
 
-                var zipRequest = new HttpRequestMessage(HttpMethod.Head, zipUrl);
-                var ps1Request = new HttpRequestMessage(HttpMethod.Head, ps1Url);
-
                 var results = await Task.WhenAll(
-                    client.SendAsync(zipRequest),
-                    client.SendAsync(ps1Request)
+                    probes.Select(p => client.SendAsync(new HttpRequestMessage(HttpMethod.Head, p.Url)))
                 );
 
-                var zipResponse = results[0];
-                var ps1Response = results[1];
-
-                if (!zipResponse.IsSuccessStatusCode)
+                var allOk = true;
+                for (var i = 0; i < probes.Length; i++)
                 {
-                    _logger.LogError("Agent ZIP not available on blob storage: HTTP {StatusCode}", (int)zipResponse.StatusCode);
-                    await _opsEventService.RecordBlobStorageMissingAsync("Agent ZIP (AutopilotMonitor-Agent.zip)", (int)zipResponse.StatusCode);
+                    if (results[i].IsSuccessStatusCode) continue;
+                    allOk = false;
+                    _logger.LogError("{Item} not available: HTTP {StatusCode}", probes[i].Label, (int)results[i].StatusCode);
+                    await _opsEventService.RecordBlobStorageMissingAsync(probes[i].Label, (int)results[i].StatusCode);
                 }
 
-                if (!ps1Response.IsSuccessStatusCode)
+                if (allOk)
                 {
-                    _logger.LogError("Bootstrap script not available on blob storage: HTTP {StatusCode}", (int)ps1Response.StatusCode);
-                    await _opsEventService.RecordBlobStorageMissingAsync("Bootstrap script (Install-AutopilotMonitor.ps1)", (int)ps1Response.StatusCode);
-                }
-
-                if (zipResponse.IsSuccessStatusCode && ps1Response.IsSuccessStatusCode)
-                {
-                    _logger.LogInformation("Agent blob storage check passed: all binaries available");
+                    _logger.LogInformation("Agent download endpoint check passed: all binaries available on alias + legacy blob");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Agent blob storage check failed — storage unreachable");
+                _logger.LogError(ex, "Agent download endpoint check failed — endpoints unreachable");
                 await _opsEventService.RecordBlobStorageUnreachableAsync(ex.Message);
             }
         }

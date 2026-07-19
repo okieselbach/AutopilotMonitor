@@ -73,19 +73,32 @@ namespace AutopilotMonitor.Shared
         public const string ApiBaseUrl = "https://autopilotmonitor-api-eu.azurewebsites.net";
 
         /// <summary>
-        /// Public base URL of the MCP server Container App (no trailing slash, no /mcp suffix).
-        /// Used by the backend health check to probe <c>{McpServerBaseUrl}/health</c>. The
-        /// Container App runs with minReplicas=0, so the first probe after idle may incur a
-        /// cold start. Overridable via the <c>McpServerUrl</c> app setting (e.g. for dev).
+        /// Public base URL of the MCP server (no trailing slash, no /mcp suffix). Stable custom
+        /// domain in front of the Container App — survives region/environment moves, unlike the
+        /// generated *.azurecontainerapps.io FQDN. Used by the backend health check to probe
+        /// <c>{McpServerBaseUrl}/health</c>. The Container App runs with minReplicas=0, so the
+        /// first probe after idle may incur a cold start. Overridable via the
+        /// <c>McpServerUrl</c> app setting (e.g. for dev).
         /// </summary>
-        public const string McpServerBaseUrl = "https://autopilotmonitor-mcp.kindwave-58b4b547.westeurope.azurecontainerapps.io";
+        public const string McpServerBaseUrl = "https://mcp.autopilotmonitor.com";
 
         // -----------------------------------------------------------------------
         // Agent self-update
         // -----------------------------------------------------------------------
 
         /// <summary>
-        /// Base URL for agent binaries in Azure Blob Storage (public read)
+        /// Canonical public base URL for agent binaries: Front Door alias in front of the
+        /// current blob origin (autopilotmonitoreu, container "agent"). Storage-account moves
+        /// happen behind this name without touching customers. New bootstrap scripts and all
+        /// availability probes use this URL.
+        /// </summary>
+        public const string AgentDownloadBaseUrl = "https://download.autopilotmonitor.com/agent";
+
+        /// <summary>
+        /// LEGACY base URL for agent binaries: the pre-migration storage account, kept alive
+        /// (dual-push on every release) because bootstrap scripts already deployed in customer
+        /// Intune tenants still download from it. Remove only after the customer migration to
+        /// <see cref="AgentDownloadBaseUrl"/> is complete and the legacy account is torn down.
         /// </summary>
         public const string AgentBlobBaseUrl = "https://autopilotmonitor.blob.core.windows.net/agent";
 

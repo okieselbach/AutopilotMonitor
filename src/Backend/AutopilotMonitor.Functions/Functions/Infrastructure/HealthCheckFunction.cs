@@ -102,17 +102,19 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
 
             // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware
 
-            // Perform comprehensive health checks
-            var healthCheckResult = await _healthCheckService.PerformAllChecksAsync();
-
-            // SignalR Quota check exposes the subscription/resource-group path of the
-            // backing SignalR resource, and Poison Queues exposes internal async-worker
-            // queue topology — restrict both to Global Admins. Non-GA callers
-            // (Tenant Admins, Operators) get the rest of the report unchanged.
+            // SignalR Quota exposes the subscription/resource-group path of the backing
+            // SignalR resource, Poison Queues exposes internal async-worker queue topology,
+            // and endpoint URLs in the check details expose infrastructure hostnames —
+            // restrict all of that to Global Admins. Non-GA callers (Tenant Admins,
+            // Operators) get the rest of the report unchanged.
             // The route is registered as AuthenticatedUser, so PolicyEnforcementMiddleware
             // does NOT compute IsGlobalAdmin; resolve it directly via GlobalAdminService.
             var requestCtx = context.GetRequestContext();
             var isGlobalAdmin = await _globalAdminService.IsGlobalAdminAsync(requestCtx.UserPrincipalName);
+
+            // Perform comprehensive health checks (endpoint URLs only for Global Admins)
+            var healthCheckResult = await _healthCheckService.PerformAllChecksAsync(includeEndpointUrls: isGlobalAdmin);
+
             var visibleChecks = isGlobalAdmin
                 ? healthCheckResult.Checks
                 : healthCheckResult.Checks
@@ -146,10 +148,14 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
         /// </summary>
         [Function("McpHealthCheck")]
         public async Task<HttpResponseData> GetMcpHealthCheck(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "health/mcp")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "health/mcp")] HttpRequestData req,
+            FunctionContext context)
         {
             // Authentication enforced by PolicyEnforcementMiddleware (AuthenticatedUser).
-            var check = await _healthCheckService.CheckMcpServerAsync();
+            // The MCP server URL is infrastructure topology — include it only for Global Admins.
+            var requestCtx = context.GetRequestContext();
+            var isGlobalAdmin = await _globalAdminService.IsGlobalAdminAsync(requestCtx.UserPrincipalName);
+            var check = await _healthCheckService.CheckMcpServerAsync(includeEndpointUrl: isGlobalAdmin);
 
             var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(new

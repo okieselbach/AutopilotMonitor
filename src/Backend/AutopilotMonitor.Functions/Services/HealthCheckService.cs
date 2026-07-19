@@ -34,9 +34,12 @@ public class HealthCheckService
     }
 
     /// <summary>
-    /// Performs all health checks and returns the results
+    /// Performs all health checks and returns the results.
+    /// <paramref name="includeEndpointUrls"/> adds the probed/backing endpoint URLs to the
+    /// per-check details — infrastructure topology, so callers must only enable it for
+    /// Global Admins.
     /// </summary>
-    public async Task<HealthCheckResult> PerformAllChecksAsync()
+    public async Task<HealthCheckResult> PerformAllChecksAsync(bool includeEndpointUrls = false)
     {
         var result = new HealthCheckResult
         {
@@ -50,9 +53,9 @@ public class HealthCheckService
         // one slow check. It is exposed via its own endpoint (GET health/mcp) that the
         // frontend fetches independently and folds into the card grid incrementally.
         var checks = await Task.WhenAll(
-            CheckStorageBackendAsync(),
-            CheckProcessingBackendAsync(),
-            CheckAgentBinariesAsync(),
+            CheckStorageBackendAsync(includeEndpointUrls),
+            CheckProcessingBackendAsync(includeEndpointUrls),
+            CheckAgentBinariesAsync(includeEndpointUrls),
             CheckSignalRQuotaAsync(),
             CheckPoisonQueuesAsync()
         );
@@ -73,7 +76,7 @@ public class HealthCheckService
     /// <summary>
     /// Checks Azure Table Storage connectivity by querying the admin configuration table
     /// </summary>
-    private async Task<HealthCheck> CheckStorageBackendAsync()
+    private async Task<HealthCheck> CheckStorageBackendAsync(bool includeEndpointUrls)
     {
         var check = new HealthCheck
         {
@@ -97,29 +100,62 @@ public class HealthCheckService
             _logger.LogError(ex, "Storage backend health check failed");
         }
 
+        if (includeEndpointUrls)
+        {
+            // Same resolution order as TableStorageService: account name (Managed Identity)
+            // is the production path, connection string is the local-dev fallback.
+            var accountName = _configuration["AzureStorageAccountName"];
+            check.Details = new Dictionary<string, object>
+            {
+                ["Table endpoint"] = string.IsNullOrWhiteSpace(accountName)
+                    ? "connection string (local dev)"
+                    : $"https://{accountName}.table.core.windows.net"
+            };
+        }
+
         return check;
     }
 
     /// <summary>
     /// Checks that the Azure Functions host is running
     /// </summary>
-    private static Task<HealthCheck> CheckProcessingBackendAsync()
+    private static Task<HealthCheck> CheckProcessingBackendAsync(bool includeEndpointUrls)
     {
         var uptime = DateTime.UtcNow - System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime();
 
-        return Task.FromResult(new HealthCheck
+        var check = new HealthCheck
         {
             Name = "Processing Backend",
             Description = "Application host process",
             Status = "healthy",
             Message = $"Host running (uptime: {(int)uptime.TotalMinutes}m {uptime.Seconds}s)"
-        });
+        };
+
+        if (includeEndpointUrls)
+        {
+            // WEBSITE_HOSTNAME is stamped by App Service and reflects the host actually
+            // serving this process — no hardcoded URL to go stale after a migration.
+            var hostname = Environment.GetEnvironmentVariable("WEBSITE_HOSTNAME");
+            if (!string.IsNullOrWhiteSpace(hostname))
+            {
+                check.Details = new Dictionary<string, object>
+                {
+                    ["API endpoint"] = $"https://{hostname}"
+                };
+            }
+        }
+
+        return Task.FromResult(check);
     }
 
     /// <summary>
-    /// Checks that the agent binaries (ZIP) and bootstrap script (PS1) are reachable in blob storage
+    /// Checks that the agent binaries (ZIP) and bootstrap script (PS1) are reachable on the
+    /// canonical download alias (Front Door → current blob origin) AND on the legacy blob
+    /// keepalive account that already-deployed customer bootstrap scripts still use.
+    /// Alias failure is unhealthy (new installs break); legacy failure is a warning
+    /// (existing customers break until they migrate to the alias).
     /// </summary>
-    private async Task<HealthCheck> CheckAgentBinariesAsync()
+    internal async Task<HealthCheck> CheckAgentBinariesAsync(bool includeEndpointUrls)
     {
         var check = new HealthCheck
         {
@@ -127,8 +163,20 @@ public class HealthCheckService
             Description = "Agent download package availability"
         };
 
-        var zipUrl = $"{Constants.AgentBlobBaseUrl}/{Constants.AgentZipFileName}";
-        var ps1Url = $"{Constants.AgentBlobBaseUrl}/Install-AutopilotMonitor.ps1";
+        var aliasZipUrl = $"{Constants.AgentDownloadBaseUrl}/{Constants.AgentZipFileName}";
+        var aliasPs1Url = $"{Constants.AgentDownloadBaseUrl}/{Constants.BootstrapScriptName}";
+        var legacyZipUrl = $"{Constants.AgentBlobBaseUrl}/{Constants.AgentZipFileName}";
+        var legacyPs1Url = $"{Constants.AgentBlobBaseUrl}/{Constants.BootstrapScriptName}";
+
+        if (includeEndpointUrls)
+        {
+            check.Details = new Dictionary<string, object>
+            {
+                ["Agent ZIP"] = aliasZipUrl,
+                ["Bootstrap script"] = aliasPs1Url,
+                ["Legacy blob (keepalive)"] = Constants.AgentBlobBaseUrl
+            };
+        }
 
         try
         {
@@ -138,40 +186,48 @@ public class HealthCheckService
             var sw = System.Diagnostics.Stopwatch.StartNew();
 
             // HEAD requests to check availability without downloading
-            var zipRequest = new HttpRequestMessage(HttpMethod.Head, zipUrl);
-            var ps1Request = new HttpRequestMessage(HttpMethod.Head, ps1Url);
-
             var results = await Task.WhenAll(
-                client.SendAsync(zipRequest),
-                client.SendAsync(ps1Request)
+                client.SendAsync(new HttpRequestMessage(HttpMethod.Head, aliasZipUrl)),
+                client.SendAsync(new HttpRequestMessage(HttpMethod.Head, aliasPs1Url)),
+                client.SendAsync(new HttpRequestMessage(HttpMethod.Head, legacyZipUrl)),
+                client.SendAsync(new HttpRequestMessage(HttpMethod.Head, legacyPs1Url))
             );
 
             sw.Stop();
 
-            var zipResponse = results[0];
-            var ps1Response = results[1];
+            var aliasZipOk = results[0].IsSuccessStatusCode;
+            var aliasPs1Ok = results[1].IsSuccessStatusCode;
+            var legacyZipOk = results[2].IsSuccessStatusCode;
+            var legacyPs1Ok = results[3].IsSuccessStatusCode;
 
-            var zipOk = zipResponse.IsSuccessStatusCode;
-            var ps1Ok = ps1Response.IsSuccessStatusCode;
+            var issues = new List<string>();
+            if (!aliasZipOk) issues.Add($"Agent ZIP (download alias): {(int)results[0].StatusCode}");
+            if (!aliasPs1Ok) issues.Add($"Bootstrap script (download alias): {(int)results[1].StatusCode}");
+            if (!legacyZipOk) issues.Add($"Agent ZIP (legacy blob): {(int)results[2].StatusCode}");
+            if (!legacyPs1Ok) issues.Add($"Bootstrap script (legacy blob): {(int)results[3].StatusCode}");
 
-            if (zipOk && ps1Ok)
+            if (issues.Count == 0)
             {
                 check.Status = "healthy";
-                check.Message = $"Agent package and bootstrap script available ({sw.ElapsedMilliseconds}ms)";
+                check.Message = $"Agent package and bootstrap script available via download alias + legacy blob ({sw.ElapsedMilliseconds}ms)";
+            }
+            else if (aliasZipOk && aliasPs1Ok)
+            {
+                // Alias intact, legacy keepalive degraded — existing customer bootstrap
+                // scripts still download from the legacy account until they migrate.
+                check.Status = "warning";
+                check.Message = $"Download alias OK, but legacy keepalive degraded — {string.Join(", ", issues)}";
             }
             else
             {
                 check.Status = "unhealthy";
-                var issues = new List<string>();
-                if (!zipOk) issues.Add($"Agent ZIP: {(int)zipResponse.StatusCode}");
-                if (!ps1Ok) issues.Add($"Bootstrap script: {(int)ps1Response.StatusCode}");
                 check.Message = $"Missing: {string.Join(", ", issues)}";
             }
         }
         catch (Exception ex)
         {
             check.Status = "unhealthy";
-            check.Message = $"Blob storage unreachable: {ex.Message}";
+            check.Message = $"Agent download endpoints unreachable: {ex.Message}";
             _logger.LogError(ex, "Agent binaries health check failed");
         }
 
@@ -182,7 +238,8 @@ public class HealthCheckService
     /// Probes the MCP server's public <c>/health</c> endpoint (which sits in front of the
     /// <c>/mcp</c> access guard, so no auth is required) and surfaces reachability + the
     /// deployed MCP build version. Visible to all authenticated users, so the server URL is
-    /// deliberately NOT included in the message or details.
+    /// only included in the details when <paramref name="includeEndpointUrl"/> is set —
+    /// callers must only enable it for Global Admins.
     /// <para>
     /// The Container App runs with minReplicas=0 and scales to zero on idle. Azure Container
     /// Apps holds an inbound request while it activates a cold replica, so this probe doubles
@@ -193,7 +250,7 @@ public class HealthCheckService
     /// the blocking all-checks batch, so the dashboard never waits on the wake.
     /// </para>
     /// </summary>
-    internal async Task<HealthCheck> CheckMcpServerAsync()
+    internal async Task<HealthCheck> CheckMcpServerAsync(bool includeEndpointUrl = false)
     {
         var check = new HealthCheck
         {
@@ -203,6 +260,11 @@ public class HealthCheckService
 
         var baseUrl = (_configuration["McpServerUrl"] ?? Constants.McpServerBaseUrl).TrimEnd('/');
         var healthUrl = $"{baseUrl}/health";
+
+        if (includeEndpointUrl)
+        {
+            check.Details = new Dictionary<string, object> { ["Server URL"] = baseUrl };
+        }
         var timeoutSeconds = ParsePositiveInt("McpServerHealthTimeoutSeconds", 30);
 
         // A cold start that takes longer than this is treated as a successful wake rather
@@ -233,7 +295,8 @@ public class HealthCheckService
                 : $"MCP server reachable ({sw.ElapsedMilliseconds}ms)";
             if (!string.IsNullOrWhiteSpace(version))
             {
-                check.Details = new Dictionary<string, object> { ["Version"] = version };
+                check.Details ??= new Dictionary<string, object>();
+                check.Details["Version"] = version;
             }
         }
         catch (Exception ex) when (ex is TaskCanceledException or OperationCanceledException or HttpRequestException)
