@@ -242,7 +242,7 @@ namespace AutopilotMonitor.Shared.Models
         /// config cannot chain another migration), and a kill signal always wins over it.
         /// Old binaries ignore the field. null = no migration.
         /// </summary>
-        public string MigrateToApiBaseUrl { get; set; }
+        public string? MigrateToApiBaseUrl { get; set; }
     }
 
     /// <summary>

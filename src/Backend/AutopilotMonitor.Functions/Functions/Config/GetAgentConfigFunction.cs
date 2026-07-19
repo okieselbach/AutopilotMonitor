@@ -314,7 +314,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 DeviceBlocked = killVerdict.IsBlocked,
                 DeviceKillSignal = killVerdict.IsKill,
                 UnblockAt = killVerdict.UnblockAt,
-                MigrateToApiBaseUrl = migrateTarget!,
+                MigrateToApiBaseUrl = migrateTarget,
             });
 
             return response;
