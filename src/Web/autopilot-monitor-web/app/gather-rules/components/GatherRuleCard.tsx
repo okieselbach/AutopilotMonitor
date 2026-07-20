@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { GatherRule, NewRuleForm, CATEGORY_COLORS, COLLECTOR_TYPE_LABELS, EMPTY_FORM, formatTrigger } from "../types";
+import { GatherRule, NewRuleForm, CATEGORY_COLORS, COLLECTOR_TYPE_LABELS, EMPTY_FORM, formatTrigger, formatGatherPhase, withDerivedScopeMode } from "../types";
 import { GatherRuleFormFields } from "./GatherRuleFormFields";
 import { FormJsonToggle, JsonModeToggleButtons, ReadOnlyJsonView } from "@/components/rules/FormJsonToggle";
 import { validateGatherRuleTarget } from "@/utils/guardValidation";
@@ -301,6 +301,19 @@ export function GatherRuleCard({
                     on event: <code className="px-1 bg-gray-200 rounded text-xs">{rule.triggerEventType}</code>
                   </span>
                 )}
+                {rule.activePhases && rule.activePhases.length > 0 && (
+                  <span className="text-gray-500">
+                    · during {rule.activePhases.map(formatGatherPhase).join(", ")}
+                  </span>
+                )}
+                {!rule.activePhases?.length && rule.activeFromPhase && (
+                  <span className="text-gray-500">
+                    · from {formatGatherPhase(rule.activeFromPhase)}
+                  </span>
+                )}
+                {rule.emitMode === "on_change" && (
+                  <span className="text-gray-500">· emit on change</span>
+                )}
               </div>
             </div>
           </div>
@@ -430,7 +443,7 @@ export function GatherRuleCard({
                 if (jsonModeEdit) {
                   try {
                     const parsed = JSON.parse(jsonText) as NewRuleForm;
-                    onSaveEdit(rule, { ...editForm, ...parsed });
+                    onSaveEdit(rule, withDerivedScopeMode({ ...editForm, ...parsed }));
                   } catch (e) {
                     // jsonError is handled by parent
                   }

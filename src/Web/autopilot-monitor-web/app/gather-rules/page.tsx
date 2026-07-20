@@ -16,7 +16,7 @@ import { FormJsonToggle, JsonModeToggleButtons } from "@/components/rules/FormJs
 import { useAuthenticatedFetch, useNotificationMessages, useGlobalAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
-import { GatherRule, NewRuleForm, EMPTY_FORM, CATEGORY_COLORS } from "./types";
+import { GatherRule, NewRuleForm, EMPTY_FORM, CATEGORY_COLORS, withDerivedScopeMode } from "./types";
 import { GatherRuleFormFields } from "./components/GatherRuleFormFields";
 import { GatherRuleCard } from "./components/GatherRuleCard";
 
@@ -211,6 +211,9 @@ export default function GatherRulesPage() {
       intervalSeconds: form.trigger === "interval" ? form.intervalSeconds : null,
       triggerPhase: form.trigger === "phase_change" ? form.triggerPhase : null,
       triggerEventType: form.trigger === "on_event" ? form.triggerEventType : null,
+      activePhases: form.scopeMode === "during" && form.activePhases.length > 0 ? form.activePhases : null,
+      activeFromPhase: form.scopeMode === "from" && form.activeFromPhase ? form.activeFromPhase : null,
+      emitMode: form.emitMode || null,
       outputEventType: form.outputEventType,
       outputSeverity: form.outputSeverity,
     };
@@ -265,6 +268,12 @@ export default function GatherRulesPage() {
       intervalSeconds: rule.intervalSeconds || 60,
       triggerPhase: rule.triggerPhase || "",
       triggerEventType: rule.triggerEventType || "",
+      scopeMode: rule.activePhases?.length ? "during" : rule.activeFromPhase ? "from" : "always",
+      activePhases: rule.activePhases || [],
+      activeFromPhase: rule.activeFromPhase || "",
+      // Existing rules without the field keep today's behavior ("always") — the on_change
+      // default applies to NEW rules only.
+      emitMode: rule.emitMode === "on_change" ? "on_change" : "always",
       outputEventType: rule.outputEventType,
       outputSeverity: rule.outputSeverity,
     });
@@ -289,12 +298,17 @@ export default function GatherRulesPage() {
       intervalSeconds: form.trigger === "interval" ? form.intervalSeconds : null,
       triggerPhase: form.trigger === "phase_change" ? form.triggerPhase : null,
       triggerEventType: form.trigger === "on_event" ? form.triggerEventType : null,
+      activePhases: form.scopeMode === "during" && form.activePhases.length > 0 ? form.activePhases : null,
+      activeFromPhase: form.scopeMode === "from" && form.activeFromPhase ? form.activeFromPhase : null,
+      emitMode: form.emitMode || null,
       outputEventType: form.outputEventType,
       outputSeverity: form.outputSeverity,
       version: bumpVersion(rule.version),
       enabled: rule.enabled,
       author: rule.author,
       createdAt: rule.createdAt,
+      // Same wipe class as the toggle bug: the full-replace PUT must carry tags or they vanish.
+      tags: rule.tags ?? [],
       isBuiltIn: rule.isBuiltIn ?? false,
       isCommunity: rule.isCommunity ?? false,
     };
@@ -505,7 +519,9 @@ export default function GatherRulesPage() {
                         try {
                           const parsed = JSON.parse(jsonText) as NewRuleForm;
                           if (!parsed.ruleId && !parsed.title) throw new Error("JSON must include at least ruleId and title");
-                          setNewRule({ ...EMPTY_FORM, ...parsed });
+                          // Rule-shaped JSON carries activePhases/activeFromPhase but no scopeMode
+                          // — derive it so the scope fields survive into the create payload.
+                          setNewRule(withDerivedScopeMode({ ...EMPTY_FORM, ...parsed }));
                           setJsonModeCreate(false);
                           setJsonError(null);
                         } catch (e) {
@@ -538,7 +554,7 @@ export default function GatherRulesPage() {
                             try {
                               const parsed = JSON.parse(jsonText) as NewRuleForm;
                               setJsonError(null);
-                              handleCreateRule({ ...EMPTY_FORM, ...parsed });
+                              handleCreateRule(withDerivedScopeMode({ ...EMPTY_FORM, ...parsed }));
                             } catch (e) {
                               setJsonError(e instanceof Error ? e.message : "Invalid JSON");
                             }
@@ -619,7 +635,7 @@ export default function GatherRulesPage() {
                         try {
                           const parsed = JSON.parse(jsonText) as NewRuleForm;
                           if (!parsed.title) throw new Error("JSON must include title");
-                          setEditForm({ ...editForm, ...parsed });
+                          setEditForm(withDerivedScopeMode({ ...editForm, ...parsed }));
                           setJsonModeEdit(false);
                           setJsonError(null);
                         } catch (e) {

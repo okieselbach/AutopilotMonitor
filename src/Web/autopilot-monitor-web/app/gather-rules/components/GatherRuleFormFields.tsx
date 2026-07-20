@@ -10,6 +10,8 @@ import {
   SEVERITIES,
   TARGET_PLACEHOLDERS,
   TARGET_HINTS,
+  GATHER_PHASES,
+  EMIT_MODES,
   formatTrigger,
 } from "../types";
 import { KNOWN_EVENT_TYPES, findEventType } from "../eventTypes";
@@ -426,14 +428,20 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
       {form.trigger === "phase_change" && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Trigger Phase</label>
-          <input
-            type="text"
+          <select
             value={form.triggerPhase}
             onChange={(e) => setForm({ ...form, triggerPhase: e.target.value })}
-            placeholder="e.g., DeviceESP, AccountESP, DevicePreparation"
-            autoComplete="off"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
-          />
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+          >
+            <option value="">Any phase change</option>
+            {form.triggerPhase && !GATHER_PHASES.some((p) => p.value === form.triggerPhase) && (
+              <option value={form.triggerPhase}>{form.triggerPhase} (legacy value)</option>
+            )}
+            {GATHER_PHASES.map((p) => (
+              <option key={p.value} value={p.value}>{p.label}</option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-400 mt-1">Run this rule when the enrollment reaches this phase. &quot;Any phase change&quot; fires once per phase transition.</p>
         </div>
       )}
 
@@ -469,6 +477,89 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
               Custom event type — make sure the agent actually emits this value.
             </p>
           )}
+        </div>
+      )}
+
+      {/* Row: Active During (phase scope) + Emit Mode */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Active During</label>
+          <select
+            value={form.scopeMode}
+            onChange={(e) => {
+              const scopeMode = e.target.value as NewRuleForm["scopeMode"];
+              // Keep the form state consistent: only the fields of the selected mode survive.
+              setForm({
+                ...form,
+                scopeMode,
+                activePhases: scopeMode === "during" ? form.activePhases : [],
+                activeFromPhase: scopeMode === "from" ? form.activeFromPhase : "",
+              });
+            }}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+          >
+            <option value="always">All phases (always)</option>
+            <option value="during">Only during specific phases</option>
+            <option value="from">From a phase onwards</option>
+          </select>
+          <p className="text-xs text-gray-400 mt-1">Restrict when this rule runs. Outside its scope the rule is idle — interval rules stop polling, triggers are ignored.</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Emit Mode</label>
+          <select
+            value={form.emitMode}
+            onChange={(e) => setForm({ ...form, emitMode: e.target.value })}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+          >
+            {EMIT_MODES.map((m) => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-400 mt-1">On change: polls on the trigger cadence but only emits an event when the collected result changes. The first collection always emits.</p>
+        </div>
+      </div>
+
+      {form.scopeMode === "during" && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Active Phases</label>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {GATHER_PHASES.map((p) => (
+              <label key={p.value} className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.activePhases.includes(p.value)}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      activePhases: e.target.checked
+                        ? [...form.activePhases, p.value]
+                        : form.activePhases.filter((x) => x !== p.value),
+                    })
+                  }
+                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span>{p.label}</span>
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 mt-1">The rule runs only while the enrollment is in one of the selected phases. No selection = all phases.</p>
+        </div>
+      )}
+
+      {form.scopeMode === "from" && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Active From Phase</label>
+          <select
+            value={form.activeFromPhase}
+            onChange={(e) => setForm({ ...form, activeFromPhase: e.target.value })}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+          >
+            <option value="">Select a phase…</option>
+            {GATHER_PHASES.map((p) => (
+              <option key={p.value} value={p.value}>{p.label}</option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-400 mt-1">Once the enrollment reaches this phase the rule activates and stays active for the rest of the session. No selection = all phases.</p>
         </div>
       )}
 
