@@ -19,6 +19,10 @@ https://docs.autopilotmonitor.com (separate repository).
 * [Build Counter Blob](agent/build-counter-blob.md) - How agent build numbers are minted: shared counter blob with ETag-CAS so local and CI builds never collide; CI additionally attests build provenance (Sigstore).
 * [Agent Endpoint Migration](agent/endpoint-migration.md) - How the backend re-homes agents to a new API base URL via the config channel (backend move or per-tenant region move): live-fetch-only, allowlist-validated on both sides, one hop, kill wins.
 
+# Rules
+
+* [Gather Rule Phase Scoping & Emit-on-Change](rules/gather-rule-phase-scoping.md) - Restricting gather rules to enrollment phases (activePhases / activeFromPhase sticky latch) and emitMode "on_change" result-dedup — the anti-spam pair for interval rules.
+
 # Security & Identity
 
 * [MCP OAuth Flow](mcp-oauth-flow.md) - Who authenticates where when connecting an AI client to the MCP server; two identities, three parties plus Entra ID.

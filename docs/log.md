@@ -1,5 +1,9 @@
 # Log
 
+## 2026-07-20
+
+* **Creation**: Added `rules/gather-rule-phase-scoping.md` (new `rules/` section) — gather rules gain `activePhases` (run only during listed phases), `activeFromPhase` (sticky latch from a phase onwards, never via Failed) and `emitMode: "on_change"` (canonical-hash result dedup with `suppressedPolls` observability), ConfigVersion 34. Includes the prerequisite backend fix: the custom-rule toggle PUT no longer wipes the stored rule definition (partial-merge in `GatherRuleService.UpdateRuleAsync`).
+
 ## 2026-07-18
 
 * **Creation**: Added `agent/endpoint-migration.md` — config-channel agent re-home (`MigrateToApiBaseUrl` on `GET agent/config`, ConfigVersion 33): backend or per-tenant API-URL moves without DNS indirection (impossible due to mTLS/Flex-TLS). Live-fetch-only with cache strip, `AgentEndpointMigrationRules` allowlist validated on both sides, one hop, kill-switch wins. Built as the lesson from the 2026-07-18 WEU→GWC cutover, which hard-cut all in-flight agents.
