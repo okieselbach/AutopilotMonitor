@@ -4,6 +4,7 @@ using System.Diagnostics.Eventing.Reader;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Xml.Linq;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
@@ -15,31 +16,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 {
     /// <summary>
     /// Watches <c>Microsoft-Windows-DeviceManagement-Enterprise-Diagnostics-Provider/Admin</c> for
-    /// EventID 2800 — logged once per device-assigned MDM policy whose CSP URI matches the OS
-    /// reboot-required catalog — and forwards each as a <c>mdm_policy_reboot_required</c> event
-    /// carrying the reboot-forcing URI.
+    /// EventID 2800 — logged once per MDM policy URI that matches the OS reboot-required catalog —
+    /// and emits ONE aggregated <c>mdm_policy_reboot_required</c> event per burst carrying the URI
+    /// list (<c>rebootUris</c>, <c>uriCount</c>, <c>firstRebootUri</c>).
     /// <para>
-    /// This attributes the "unexpected reboot + second sign-in screen" pattern (PMPC research):
-    /// device-assigned policies applied during ESP DeviceSetup can demand a reboot; Windows
-    /// coalesces them into one restart at the end of DeviceSetup, forcing the user through a second
-    /// sign-in before AccountSetup. Admins are blind to this in the Intune console — the attributed
-    /// URIs make it actionable (reassign the profiles to user groups and the reboot disappears).
+    /// Verified against session b2e890c1 (2026-07-20): the 2800 description reads
+    /// <c>The following URI has triggered a reboot: (./Device/...).</c> and records arrive in
+    /// sub-second bursts during policy sync — hence the debounce aggregation instead of per-record
+    /// events. CRITICAL semantics: only URIs applied DURING ESP DeviceSetup cause the coalesced
+    /// mid-ESP reboot ("second sign-in", PMPC research); later syncs (AccountSetup and beyond)
+    /// merely flag the requirement with no forced reboot. The event is therefore a NEUTRAL
+    /// observation (Info) — the reboot claim lives in ANALYZE-ESP-005, which requires an
+    /// actually-observed <c>system_reboot_detected</c> before attributing anything.
     /// </para>
     /// <para>
-    /// <b>Backfill.</b> Device policies can apply before the agent starts, so a startup backfill
-    /// scans the lookback window. The .evtx persists across the coalesced reboot, so the
-    /// post-reboot agent restart re-reads the same records — which is why the
-    /// <b>cross-restart RecordId watermark</b> (WindowsUpdateTracker pattern) is mandatory here:
-    /// without it every reboot-forcing URI would be re-emitted after the very reboot it caused.
-    /// </para>
-    /// <para>
-    /// <b>Tolerant matching.</b> The exact 2800 message text is unverified (validated post-deploy on
-    /// the E2E VM): emission is gated on the EventID only, never on message wording. URI extraction
-    /// prefers structured EventData values that look like an OMA-DM URI (<c>./…</c>) and falls back
-    /// to a permissive regex over the formatted description. Events with an unparseable URI are
-    /// still emitted (with the captured description) so the timeline shows them and the captured
-    /// text tells us how to fix the extraction — the analyze rule keys on <c>rebootUri exists</c>
-    /// and simply stays silent for those.
+    /// <b>Backfill + watermark.</b> Device policies can apply before the agent starts, and a
+    /// genuine coalesced reboot kills the agent BEFORE the debounced emit — in both cases the
+    /// post-(re)start backfill re-reads the .evtx and emits the aggregate then (historical
+    /// timestamps). The cross-restart RecordId watermark is persisted only at successful flush, so
+    /// a pre-emit death loses nothing and a completed emit is never repeated.
     /// </para>
     /// </summary>
     internal sealed class MdmRebootPolicyTracker : IDisposable
@@ -49,12 +44,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         internal const string WatermarkStateFileName = "mdm-reboot-watermark.json";
 
+        /// <summary>Cap for the emitted <c>rebootUris</c> list — <c>uriCount</c> always carries the uncapped distinct total.</summary>
+        internal const int MaxUrisPerEvent = 20;
+
+        /// <summary>Default quiet-period before a burst of 2800 records is flushed as one event.</summary>
+        internal const int DefaultDebounceMilliseconds = 10000;
+
         /// <summary>Registry key whose <c>RebootRequired</c> value/subkey flags a pending OMA-DM coalesced reboot.</summary>
         internal const string OmadmSyncMlKeyPath = @"SOFTWARE\Microsoft\Provisioning\OMADM\SyncML";
 
-        // Permissive OMA-DM URI shape: "./Device/Vendor/MSFT/...", "./User/...", "./Vendor/...".
-        // Kept deliberately broad — the exact 2800 text is unverified; post-deploy E2E validates
-        // and tightens this against real records if needed.
+        // Permissive OMA-DM URI shape ("./Device/Vendor/MSFT/...", "./User/..."). The verified 2800
+        // text wraps the URI in parentheses — ')' is deliberately outside the class so the match
+        // stops cleanly; trailing sentence punctuation is trimmed after the match.
         private static readonly Regex UriPattern = new Regex(
             @"\./[A-Za-z0-9_\-./\[\]{}%~+]+", RegexOptions.Compiled);
 
@@ -65,16 +66,30 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private readonly bool _backfillEnabled;
         private readonly int _backfillLookbackMinutes;
         private readonly string _stateDirectory;
+        private readonly int _debounceMilliseconds;
 
         private EventLogWatcher _watcher;
+        private Timer _debounceTimer;
 
-        // Dedup — same contract as WindowsUpdateTracker (see its field docs): immutable
-        // cross-restart boundary from disk + intra-run HashSet (NOT a high-water mark, because the
-        // live watcher is armed before the backfill scan and can deliver higher RecordIds first).
+        private sealed class PendingRecord
+        {
+            public long RecordId;
+            public DateTime TimeUtc;
+            public string Uri;          // null when extraction failed
+            public string Description;  // may be null
+            public bool IsBackfill;
+        }
+
+        // Pending burst buffer + dedup state, all guarded by _stateLock. Same claim contract as
+        // WindowsUpdateTracker (immutable cross-restart boundary + intra-run HashSet), with ONE
+        // deliberate difference: the watermark is persisted at FLUSH time, not at claim time —
+        // records buffered but never flushed (process killed by the very reboot they announce)
+        // must be re-read and emitted by the post-restart backfill.
+        private readonly List<PendingRecord> _pending = new List<PendingRecord>();
         private long _restartWatermark = -1;
         private readonly HashSet<long> _seenThisRun = new HashSet<long>();
-        private long _maxEmittedRecordId = -1;
-        private readonly object _watermarkLock = new object();
+        private long _maxPersistedRecordId = -1;
+        private readonly object _stateLock = new object();
 
         /// <summary>
         /// Fail-soft corroboration probe for the OMA-DM RebootRequired flag — null = unknown
@@ -89,7 +104,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             AgentLogger logger,
             bool backfillEnabled = true,
             int backfillLookbackMinutes = 60,
-            string stateDirectory = null)
+            string stateDirectory = null,
+            int debounceMilliseconds = DefaultDebounceMilliseconds)
         {
             _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
             _tenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId));
@@ -98,6 +114,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             _backfillEnabled = backfillEnabled;
             _backfillLookbackMinutes = backfillLookbackMinutes;
             _stateDirectory = stateDirectory != null ? Environment.ExpandEnvironmentVariables(stateDirectory) : null;
+            _debounceMilliseconds = debounceMilliseconds;
         }
 
         public void Start()
@@ -106,13 +123,30 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             StartWatcher();
 
             if (_backfillEnabled && _backfillLookbackMinutes > 0)
+            {
                 BackfillRecentEvents();
+                // The backfill batch is complete — flush immediately instead of waiting out the
+                // debounce (live records that raced in are simply included).
+                FlushPending();
+            }
             else
+            {
                 _logger.Info("MdmRebootPolicy backfill disabled by config");
+            }
         }
 
         public void Stop()
         {
+            // Flush any un-emitted burst before tearing down (normal agent shutdown path).
+            try { FlushPending(); }
+            catch (Exception ex) { _logger.Warning($"MdmRebootPolicy flush on stop failed: {ex.Message}"); }
+
+            var timer = Interlocked.Exchange(ref _debounceTimer, null);
+            if (timer != null)
+            {
+                try { timer.Dispose(); } catch { }
+            }
+
             if (_watcher == null) return;
             try
             {
@@ -168,7 +202,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             $"*[System[(EventID={EventId_PolicyRebootRequired})]]";
 
         // -----------------------------------------------------------------------
-        // Event processing
+        // Event processing — buffer + debounce
         // -----------------------------------------------------------------------
 
         private void OnEventRecordWritten(object sender, EventRecordWrittenEventArgs e)
@@ -212,9 +246,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         }
 
         /// <summary>
-        /// Core processing extracted to primitive inputs so tests can drive it without synthesizing
-        /// an abstract, Windows-only <see cref="EventRecord"/>. Mirrors the WindowsUpdateTracker
-        /// test-seam pattern.
+        /// Buffers one 2800 record into the pending burst (primitive-input test seam, mirroring the
+        /// WindowsUpdateTracker pattern). The aggregated event is emitted by <see cref="FlushPending"/>
+        /// — after the debounce quiet-period, at backfill completion, or at <see cref="Stop"/>.
         /// </summary>
         internal void ProcessEvent(
             int eventId,
@@ -224,53 +258,155 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             string formattedDescription,
             bool isBackfill)
         {
-            if (!MarkProcessed(recordId))
-                return; // already emitted (cross-restart or duplicate delivery)
+            lock (_stateLock)
+            {
+                if (recordId >= 0)
+                {
+                    // Already emitted in a prior run, or already buffered/emitted this run.
+                    if (recordId <= _restartWatermark || !_seenThisRun.Add(recordId))
+                        return;
+                }
+
+                _pending.Add(new PendingRecord
+                {
+                    RecordId = recordId,
+                    TimeUtc = timeCreatedUtc ?? DateTime.UtcNow,
+                    Uri = string.IsNullOrEmpty(rebootUri) ? null : rebootUri,
+                    Description = formattedDescription,
+                    IsBackfill = isBackfill,
+                });
+            }
+
+            ArmDebounce();
+        }
+
+        private void ArmDebounce()
+        {
+            if (_debounceMilliseconds <= 0) return; // manual-flush mode (tests; backfill/Stop flush explicitly)
+
+            var timer = _debounceTimer;
+            if (timer == null)
+            {
+                var created = new Timer(_ =>
+                {
+                    try { FlushPending(); }
+                    catch (Exception ex) { _logger.Warning($"MdmRebootPolicy debounce flush failed: {ex.Message}"); }
+                }, null, Timeout.Infinite, Timeout.Infinite);
+
+                timer = Interlocked.CompareExchange(ref _debounceTimer, created, null) ?? created;
+                if (!ReferenceEquals(timer, created))
+                {
+                    try { created.Dispose(); } catch { }
+                }
+            }
+
+            try { timer.Change(_debounceMilliseconds, Timeout.Infinite); }
+            catch (ObjectDisposedException) { /* raced Stop() — Stop's flush covers the buffer */ }
+        }
+
+        /// <summary>
+        /// Emits the pending burst as ONE aggregated <c>mdm_policy_reboot_required</c> event and
+        /// persists the watermark. No-op when nothing is pending. Internal for tests.
+        /// </summary>
+        internal void FlushPending()
+        {
+            List<PendingRecord> batch;
+            long watermarkToPersist = -1;
+
+            lock (_stateLock)
+            {
+                if (_pending.Count == 0) return;
+                batch = new List<PendingRecord>(_pending);
+                _pending.Clear();
+
+                foreach (var r in batch)
+                {
+                    if (r.RecordId > _maxPersistedRecordId)
+                        _maxPersistedRecordId = r.RecordId;
+                }
+                watermarkToPersist = _maxPersistedRecordId;
+            }
+
+            if (watermarkToPersist >= 0) PersistWatermark(watermarkToPersist);
+
+            batch.Sort((a, b) => a.TimeUtc.CompareTo(b.TimeUtc));
+
+            var distinctUris = batch
+                .Where(r => r.Uri != null)
+                .Select(r => r.Uri)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var firstUri = batch.FirstOrDefault(r => r.Uri != null)?.Uri;
+            var unparsedCount = batch.Count(r => r.Uri == null);
+            var allBackfill = batch.All(r => r.IsBackfill);
+            var earliest = batch[0].TimeUtc;
 
             var data = new Dictionary<string, object>
             {
-                { "windowsEventId", eventId },
-                { "backfilled", isBackfill },
+                { "windowsEventId", EventId_PolicyRebootRequired },
                 { "eventLogChannel", Channel },
+                { "recordCount", batch.Count },
+                { "uriCount", distinctUris.Count },
+                { "backfilled", allBackfill },
             };
-            if (recordId >= 0) data["recordId"] = recordId;
-            if (timeCreatedUtc.HasValue) data["eventTime"] = timeCreatedUtc.Value.ToString("o");
-            if (!string.IsNullOrEmpty(rebootUri)) data["rebootUri"] = rebootUri;
-            if (!string.IsNullOrEmpty(formattedDescription))
+            if (distinctUris.Count > 0)
             {
-                data["description"] = formattedDescription.Length > 1000
-                    ? formattedDescription.Substring(0, 1000) + "…"
-                    : formattedDescription;
+                data["rebootUris"] = distinctUris
+                    .OrderBy(u => u, StringComparer.OrdinalIgnoreCase)
+                    .Take(MaxUrisPerEvent)
+                    .ToList();
+                data["firstRebootUri"] = firstUri;
+            }
+            if (unparsedCount > 0)
+            {
+                data["unparsedCount"] = unparsedCount;
+                var sample = batch.FirstOrDefault(r => r.Uri == null && !string.IsNullOrEmpty(r.Description))?.Description;
+                if (sample != null)
+                    data["sampleDescription"] = sample.Length > 500 ? sample.Substring(0, 500) + "…" : sample;
             }
 
             var flag = SafeProbeRebootRequiredFlag();
             if (flag.HasValue) data["omadmRebootRequiredFlag"] = flag.Value;
 
+            string message;
+            if (distinctUris.Count == 1)
+                message = $"Windows flagged an MDM policy URI as reboot-required: {firstUri}";
+            else if (distinctUris.Count > 1)
+                message = $"Windows flagged {distinctUris.Count} MDM policy URIs as reboot-required: {firstUri} (+{distinctUris.Count - 1} more)";
+            else
+                message = $"Windows flagged {batch.Count} MDM policy record(s) as reboot-required (URI not parsed — see sampleDescription)";
+
             _post.Emit(new EnrollmentEvent
             {
                 SessionId = _sessionId,
                 TenantId = _tenantId,
-                // The record's own time, not UtcNow: backfilled pre-agent (and post-reboot re-read)
-                // records must land on the timeline at when the policy actually demanded the reboot.
-                Timestamp = timeCreatedUtc ?? DateTime.UtcNow,
+                // Earliest record time, not UtcNow: backfilled (and post-reboot re-read) bursts
+                // must land on the timeline at when the policies were actually flagged.
+                Timestamp = earliest,
                 EventType = Constants.EventTypes.MdmPolicyRebootRequired,
-                Severity = EventSeverity.Warning,
+                // Neutral observation — reboot-required flags outside ESP DeviceSetup have no
+                // immediate effect. The reboot CLAIM is ANALYZE-ESP-005's job, gated on an
+                // actually-observed system_reboot_detected.
+                Severity = EventSeverity.Info,
                 Source = "MdmRebootPolicyWatcher",
                 Phase = EnrollmentPhase.Unknown,
-                Message = !string.IsNullOrEmpty(rebootUri)
-                    ? $"MDM policy requires a reboot during ESP: {rebootUri}"
-                    : "MDM policy requires a reboot during ESP (URI not parsed from event — see description)",
+                Message = message,
                 Data = data,
-                // The reboot this event announces will kill the agent — flush now.
+                // Cheap (one event per burst) and still time-critical: a burst DURING DeviceSetup
+                // precedes a coalesced reboot that kills the agent.
                 ImmediateUpload = true,
             });
+
+            _logger.Info($"MdmRebootPolicy: flushed {batch.Count} record(s) as one event " +
+                $"(uris={distinctUris.Count}, unparsed={unparsedCount}, backfilled={allBackfill})");
         }
 
         /// <summary>
         /// Extracts the reboot-forcing OMA-DM URI. Preference order: (1) a structured EventData
-        /// value that starts with <c>./</c> (the CSP-URI shape), (2) a permissive regex over the
-        /// formatted description. Returns null when nothing URI-like is found — the caller still
-        /// emits, just without the <c>rebootUri</c> field.
+        /// value that starts with <c>./</c>, (2) a permissive regex over the formatted description
+        /// (verified shape: <c>The following URI has triggered a reboot: (./Device/...).</c>).
+        /// Returns null when nothing URI-like is found — the record still counts into the
+        /// aggregate (<c>unparsedCount</c> + <c>sampleDescription</c>).
         /// </summary>
         internal static string ExtractRebootUri(Dictionary<string, string> eventData, string description)
         {
@@ -289,8 +425,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 var match = UriPattern.Match(description);
                 if (match.Success)
                 {
-                    // The permissive pattern can swallow sentence punctuation trailing the URI
-                    // ("...Security."). OMA-DM URI segments never end in punctuation — trim it.
+                    // The permissive pattern can swallow sentence punctuation trailing the URI.
+                    // OMA-DM URI segments never end in punctuation — trim it.
                     var candidate = match.Value.TrimEnd('.', ',', ';', ':', '\'', '"', ')');
                     if (candidate.Length > 2) return candidate;
                 }
@@ -349,8 +485,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         }
 
         /// <summary>
-        /// Reads the pending-reboot flag under <see cref="OmadmSyncMlKeyPath"/>. The exact shape is
-        /// unverified (PMPC research names the key, not the value type), so both a value and a
+        /// Reads the pending-reboot flag under <see cref="OmadmSyncMlKeyPath"/>. Both a value and a
         /// subkey named <c>RebootRequired</c> count as "pending". Fail-soft: null = unknown
         /// (key absent / unreadable), matching the EspSkipConfigurationProbe convention.
         /// </summary>
@@ -424,42 +559,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         }
 
         // -----------------------------------------------------------------------
-        // Watermark dedup (cross-restart) — WindowsUpdateTracker pattern verbatim
+        // Watermark dedup (cross-restart) — persisted at flush, not at claim
         // -----------------------------------------------------------------------
 
         private bool IsAlreadyProcessed(long recordId)
         {
             if (recordId < 0) return false; // no RecordId → cannot dedup, let it through
-            lock (_watermarkLock)
+            lock (_stateLock)
             {
                 return recordId <= _restartWatermark || _seenThisRun.Contains(recordId);
             }
-        }
-
-        /// <summary>
-        /// Atomically claims <paramref name="recordId"/>. Returns true if this is the first time we
-        /// see it (caller should emit), false if it was already processed — either in a PRIOR run
-        /// (at/below the restart watermark) or already this run (in the seen-set). Records without
-        /// a RecordId (-1) are always emitted, never tracked or persisted.
-        /// </summary>
-        private bool MarkProcessed(long recordId)
-        {
-            if (recordId < 0) return true;
-
-            long toPersist = -1;
-            lock (_watermarkLock)
-            {
-                if (recordId <= _restartWatermark || !_seenThisRun.Add(recordId))
-                    return false;
-
-                if (recordId > _maxEmittedRecordId)
-                {
-                    _maxEmittedRecordId = recordId;
-                    toPersist = _maxEmittedRecordId;
-                }
-            }
-            if (toPersist >= 0) PersistWatermark(toPersist);
-            return true;
         }
 
         internal void LoadWatermark()
@@ -475,10 +584,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 var state = JsonConvert.DeserializeObject<WatermarkState>(json);
                 if (state != null)
                 {
-                    lock (_watermarkLock)
+                    lock (_stateLock)
                     {
                         _restartWatermark = state.LastRecordId;
-                        _maxEmittedRecordId = state.LastRecordId;
+                        _maxPersistedRecordId = state.LastRecordId;
                     }
                     _logger.Info($"MdmRebootPolicy watermark loaded: lastRecordId={state.LastRecordId} (persisted {state.PersistedUtc:O})");
                 }

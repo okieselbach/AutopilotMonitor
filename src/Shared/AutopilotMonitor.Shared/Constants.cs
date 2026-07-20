@@ -405,17 +405,17 @@ namespace AutopilotMonitor.Shared
             public const string OsBuildChanged             = "os_build_changed";               // OS build (CurrentBuild.UBR) differs across an agent restart — an update was installed during enrollment
             public const string WindowsUpdateChannelCensus = "windows_update_channel_census";  // One-shot EventID histogram of WU Client + UpdateOrchestrator channels when os_build_changed but zero targeted WU events captured
 
-            // MDM-policy-forced coalesced reboot during ESP (MdmRebootPolicyTracker + ShellCoreTracker;
-            // PMPC "unexpected reboot / second sign-in" research). Device-assigned policies whose CSP
-            // URIs match the OS reboot-required catalog force a coalesced reboot at the end of
-            // DeviceSetup — the user sees an unexpected restart and a second sign-in screen before
-            // AccountSetup. 2800 (DeviceManagement-Enterprise-Diagnostics-Provider/Admin) fires once
-            // per reboot-forcing URI; Shell-Core 62407 "RebootCoalescing" records ESP initiating the
-            // reboot. Deliberately DISTINCT from system_reboot_detected: the backend RebootCount
-            // matches that string exactly (EventIngestProcessor.Classification + terminal recount) —
-            // these attribution events must never inflate the reboot count.
-            public const string MdmPolicyRebootRequired    = "mdm_policy_reboot_required";     // DM-Enterprise EventID 2800 — Data.rebootUri = CSP URI that demands the reboot (one event per URI)
-            public const string EspRebootCoalescing        = "esp_reboot_coalescing";          // Shell-Core 62407 "RebootCoalescing" — ESP-initiated coalesced reboot imminent (second sign-in follows)
+            // MDM reboot-required policy flags (MdmRebootPolicyTracker; PMPC "unexpected reboot /
+            // second sign-in" research). DM-Enterprise EventID 2800 fires once per policy URI that
+            // matches the OS reboot-required catalog ("The following URI has triggered a reboot:
+            // (./Device/...)."; verified session b2e890c1). Only URIs applied DURING ESP DeviceSetup
+            // cause the coalesced mid-ESP reboot — later syncs (AccountSetup+) merely flag, no forced
+            // reboot. The tracker therefore emits ONE aggregated Info event per burst with the URI
+            // list; the reboot CLAIM lives in ANALYZE-ESP-005, gated on an actually-observed
+            // system_reboot_detected. Deliberately DISTINCT from system_reboot_detected: the backend
+            // RebootCount matches that string exactly (EventIngestProcessor.Classification + terminal
+            // recount) — this attribution event must never inflate the reboot count.
+            public const string MdmPolicyRebootRequired    = "mdm_policy_reboot_required";     // Aggregated per burst — Data.rebootUris[] + uriCount + firstRebootUri
 
             // TEMPORARY: shadow SM rollout verification — remove when CompletionStateMachine is promoted to primary
             public const string ShadowDiscrepancy         = "shadow_discrepancy";

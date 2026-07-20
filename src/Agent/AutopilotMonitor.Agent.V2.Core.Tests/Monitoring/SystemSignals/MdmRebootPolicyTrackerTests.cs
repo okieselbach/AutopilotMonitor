@@ -15,16 +15,22 @@ using Xunit;
 namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
 {
     /// <summary>
-    /// MdmRebootPolicyTracker — attributes the "unexpected reboot + second sign-in" pattern to the
-    /// device-assigned policy URIs that forced the coalesced reboot (DM-Enterprise EventID 2800).
-    /// Drives the primitive <see cref="MdmRebootPolicyTracker.ProcessEvent"/> test seam (no real
-    /// EventRecord, which is abstract + Windows-only), mirroring the WindowsUpdateTracker pattern.
+    /// MdmRebootPolicyTracker — aggregates DM-Enterprise EventID 2800 bursts into ONE neutral
+    /// <c>mdm_policy_reboot_required</c> event (session b2e890c1 rework: per-record events were
+    /// spam, and the raw event must not CLAIM a reboot — ANALYZE-ESP-005 does, gated on an
+    /// observed system_reboot_detected). Drives the primitive ProcessEvent seam + explicit
+    /// FlushPending (debounce 0 = manual-flush mode; no timers, no SerialThreading needed).
     /// The registry probe is always overridden — tests never touch the live registry.
     /// </summary>
     public sealed class MdmRebootPolicyTrackerTests : IDisposable
     {
-        private static readonly DateTime At = new DateTime(2026, 7, 20, 9, 30, 0, DateTimeKind.Utc);
-        private const string SampleUri = "./Device/Vendor/MSFT/Policy/Config/DeviceGuard/EnableVirtualizationBasedSecurity";
+        private static readonly DateTime At = new DateTime(2026, 7, 20, 16, 20, 57, DateTimeKind.Utc);
+        private const string UriSvchost = "./Device/Vendor/MSFT/Policy/Config/ServiceControlManager/SvchostProcessMitigation";
+        private const string UriSystemGuard = "./Device/Vendor/MSFT/Policy/Config/DeviceGuard/ConfigureSystemGuardLaunch";
+
+        // Verified real 2800 description shape (session b2e890c1, 2026-07-20).
+        private const string RealDescription =
+            "The following URI has triggered a reboot: (./Device/Vendor/MSFT/Policy/Config/ServiceControlManager/SvchostProcessMitigation).";
 
         private readonly TempDirectory _tmp = new TempDirectory();
         private readonly FakeSignalIngressSink _sink;
@@ -34,21 +40,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
         public MdmRebootPolicyTrackerTests()
         {
             _sink = new FakeSignalIngressSink();
+            _tracker = MakeTracker(stateDirectory: null);
+        }
+
+        public void Dispose() => _tmp.Dispose();
+
+        private MdmRebootPolicyTracker MakeTracker(string? stateDirectory)
+        {
             var post = new InformationalEventPost(_sink, new VirtualClock(At));
             var logger = new AgentLogger(_tmp.Path, AgentLogLevel.Info);
-            _tracker = new MdmRebootPolicyTracker(
+            var tracker = new MdmRebootPolicyTracker(
                 sessionId: "sess-mdm",
                 tenantId: "tenant-mdm",
                 post: post,
                 logger: logger,
                 backfillEnabled: false,
-                stateDirectory: null); // in-memory dedup for most tests
-            _tracker.RebootRequiredFlagProbe = () => null; // registry untouched by default
+                stateDirectory: stateDirectory,
+                debounceMilliseconds: 0); // manual-flush mode — tests call FlushPending explicitly
+            tracker.RebootRequiredFlagProbe = () => null; // registry untouched by default
+            return tracker;
         }
 
-        public void Dispose() => _tmp.Dispose();
-
-        private void Emit(string? rebootUri = SampleUri, string? description = null, long? recordId = null, bool isBackfill = false, DateTime? timeCreatedUtc = null)
+        private void Buffer(string? rebootUri, long? recordId = null, bool isBackfill = false, DateTime? timeCreatedUtc = null, string? description = null)
         {
             _tracker.ProcessEvent(
                 eventId: MdmRebootPolicyTracker.EventId_PolicyRebootRequired,
@@ -70,104 +83,192 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             (IReadOnlyDictionary<string, object>)s.TypedPayload!;
 
         [Fact]
-        public void ProcessEvent_EmitsWarning_WithUri_AndImmediateUpload()
+        public void Burst_FlushesAsOneAggregatedEvent_InfoSeverity_ImmediateUpload()
         {
-            Emit();
+            Buffer(UriSvchost, timeCreatedUtc: At);
+            Buffer(UriSystemGuard, timeCreatedUtc: At.AddMilliseconds(120));
+            _tracker.FlushPending();
 
             var s = Assert.Single(Emitted());
-            Assert.Equal("Warning", s.Payload![SignalPayloadKeys.Severity]);
+            Assert.Equal("Info", s.Payload![SignalPayloadKeys.Severity]);
             Assert.Equal("true", s.Payload![SignalPayloadKeys.ImmediateUpload]);
 
             var data = Data(s);
-            Assert.Equal(SampleUri, data["rebootUri"]);
-            Assert.Equal(MdmRebootPolicyTracker.EventId_PolicyRebootRequired, data["windowsEventId"]);
-            Assert.Equal(MdmRebootPolicyTracker.Channel, data["eventLogChannel"]);
+            Assert.Equal(2, data["uriCount"]);
+            Assert.Equal(2, data["recordCount"]);
+            Assert.Equal(UriSvchost, data["firstRebootUri"]);
+            var uris = Assert.IsType<List<string>>(data["rebootUris"]);
+            Assert.Equal(2, uris.Count);
+            Assert.Contains(UriSvchost, uris);
+            Assert.Contains(UriSystemGuard, uris);
         }
 
         [Fact]
-        public void ProcessEvent_NoUri_StillEmits_WithoutRebootUriField()
+        public void Message_IsNeutralObservation_NoRebootClaim()
         {
-            // Tolerant contract: an unparsed URI must stay timeline-visible (with the captured
-            // description telling us how to fix the extraction) — the analyze rule keys on
-            // "rebootUri exists" and simply stays silent.
-            Emit(rebootUri: null, description: "Some unexpected 2800 wording");
+            // Session b2e890c1: flags raised during AccountSetup have no effect — the raw event
+            // must state the observation only, never a future consequence.
+            Buffer(UriSvchost);
+            _tracker.FlushPending();
+
+            var s = Assert.Single(Emitted());
+            var message = s.Payload![SignalPayloadKeys.Message];
+            Assert.Contains("flagged", message);
+            Assert.DoesNotContain("will restart", message);
+            Assert.DoesNotContain("second sign-in", message);
+        }
+
+        [Fact]
+        public void FlushPending_Empty_EmitsNothing()
+        {
+            _tracker.FlushPending();
+            Assert.Empty(Emitted());
+        }
+
+        [Fact]
+        public void AggregateTimestamp_IsEarliestRecordTime()
+        {
+            var early = At.AddMinutes(-30);
+            Buffer(UriSystemGuard, timeCreatedUtc: At, isBackfill: true);
+            Buffer(UriSvchost, timeCreatedUtc: early, isBackfill: true);
+            _tracker.FlushPending();
+
+            var s = Assert.Single(Emitted());
+            Assert.Equal(early, s.OccurredAtUtc);
+            Assert.Equal(true, Data(s)["backfilled"]);
+            // firstRebootUri follows record-time order, not buffer order.
+            Assert.Equal(UriSvchost, Data(s)["firstRebootUri"]);
+        }
+
+        [Fact]
+        public void Backfilled_False_WhenAnyRecordIsLive()
+        {
+            Buffer(UriSvchost, isBackfill: true);
+            Buffer(UriSystemGuard, isBackfill: false);
+            _tracker.FlushPending();
+
+            Assert.Equal(false, Data(Assert.Single(Emitted()))["backfilled"]);
+        }
+
+        [Fact]
+        public void DuplicateUris_AreDistinctInAggregate()
+        {
+            Buffer(UriSvchost);
+            Buffer(UriSvchost);
+            _tracker.FlushPending();
+
+            var data = Data(Assert.Single(Emitted()));
+            Assert.Equal(1, data["uriCount"]);
+            Assert.Equal(2, data["recordCount"]);
+        }
+
+        [Fact]
+        public void UnparsedRecords_CountedWithSampleDescription_StillEmitted()
+        {
+            Buffer(rebootUri: null, description: "Some unexpected 2800 wording");
+            _tracker.FlushPending();
 
             var s = Assert.Single(Emitted());
             var data = Data(s);
-            Assert.False(data.ContainsKey("rebootUri"));
-            Assert.Equal("Some unexpected 2800 wording", data["description"]);
+            Assert.False(data.ContainsKey("rebootUris"));
+            Assert.False(data.ContainsKey("firstRebootUri"));
+            Assert.Equal(0, data["uriCount"]);
+            Assert.Equal(1, data["unparsedCount"]);
+            Assert.Equal("Some unexpected 2800 wording", data["sampleDescription"]);
         }
 
         [Fact]
-        public void BackfilledEvent_UsesEventTimeForTimelineTimestamp_AndMarksBackfilled()
+        public void SameRecordId_BufferedTwice_CountsOnce()
         {
-            var eventTime = At.AddMinutes(-25); // policy applied well before agent start
-            Emit(isBackfill: true, timeCreatedUtc: eventTime);
+            Buffer(UriSvchost, recordId: 42);
+            Buffer(UriSvchost, recordId: 42);
+            _tracker.FlushPending();
 
-            var s = Assert.Single(Emitted());
-            Assert.Equal(eventTime, s.OccurredAtUtc);
-            Assert.Equal(true, Data(s)["backfilled"]);
+            Assert.Equal(1, Data(Assert.Single(Emitted()))["recordCount"]);
         }
 
         [Fact]
-        public void SameRecordId_ProcessedTwice_EmitsOnce()
+        public void RecordAfterFlush_GoesIntoNextAggregate()
         {
-            Emit(recordId: 42);
-            Emit(recordId: 42);
-
-            Assert.Single(Emitted());
-        }
-
-        [Fact]
-        public void BackfillEventWithLowerRecordId_AfterLiveEvent_IsStillEmitted()
-        {
-            // Same contract as WindowsUpdateTracker: the live watcher is armed BEFORE the backfill
-            // scan, so a live record with a higher RecordId can arrive first — the older,
-            // never-emitted backfill record must not be suppressed by a high-water mark.
-            Emit(recordId: 100);
-            Emit(recordId: 50, isBackfill: true);
+            Buffer(UriSvchost, recordId: 10);
+            _tracker.FlushPending();
+            Buffer(UriSystemGuard, recordId: 11);
+            _tracker.FlushPending();
 
             Assert.Equal(2, Emitted().Count);
+        }
+
+        [Fact]
+        public void BackfillRecordWithLowerRecordId_AfterLiveRecord_IsStillBuffered()
+        {
+            // Live watcher is armed BEFORE the backfill scan — an older, never-seen backfill
+            // record must not be suppressed by a high-water mark.
+            Buffer(UriSvchost, recordId: 100);
+            Buffer(UriSystemGuard, recordId: 50, isBackfill: true);
+            _tracker.FlushPending();
+
+            Assert.Equal(2, Data(Assert.Single(Emitted()))["recordCount"]);
         }
 
         [Fact]
         public void NegativeRecordId_IsNeverDeduped()
         {
-            Emit(recordId: -1);
-            Emit(recordId: -1);
+            Buffer(UriSvchost, recordId: -1);
+            Buffer(UriSvchost, recordId: -1);
+            _tracker.FlushPending();
 
-            Assert.Equal(2, Emitted().Count);
+            Assert.Equal(2, Data(Assert.Single(Emitted()))["recordCount"]);
         }
 
         [Fact]
-        public void Watermark_PersistsAcrossTrackerInstances()
+        public void Watermark_PersistedAtFlush_SkipsReReadAcrossInstances()
         {
-            // The coalesced reboot restarts the agent and the post-reboot backfill re-reads the
-            // same 2800 records — the persisted watermark must make that re-read a no-op.
-            var post = new InformationalEventPost(_sink, new VirtualClock(At));
-            var logger = new AgentLogger(_tmp.Path, AgentLogLevel.Info);
-
-            var first = new MdmRebootPolicyTracker("s", "t", post, logger, backfillEnabled: false, stateDirectory: _tmp.Path);
-            first.RebootRequiredFlagProbe = () => null;
+            // The coalesced reboot restarts the agent; the post-reboot backfill re-reads the same
+            // records — a FLUSHED record must be skipped by the next instance.
+            var first = MakeTracker(stateDirectory: _tmp.Path);
             first.ProcessEvent(MdmRebootPolicyTracker.EventId_PolicyRebootRequired, recordId: 500,
-                timeCreatedUtc: At, rebootUri: SampleUri, formattedDescription: null, isBackfill: false);
+                timeCreatedUtc: At, rebootUri: UriSvchost, formattedDescription: null, isBackfill: false);
+            first.FlushPending();
 
-            var second = new MdmRebootPolicyTracker("s", "t", post, logger, backfillEnabled: false, stateDirectory: _tmp.Path);
-            second.RebootRequiredFlagProbe = () => null;
+            var second = MakeTracker(stateDirectory: _tmp.Path);
             second.LoadWatermark();
             second.ProcessEvent(MdmRebootPolicyTracker.EventId_PolicyRebootRequired, recordId: 500,
-                timeCreatedUtc: At, rebootUri: SampleUri, formattedDescription: null, isBackfill: true);
+                timeCreatedUtc: At, rebootUri: UriSvchost, formattedDescription: null, isBackfill: true);
+            second.FlushPending();
 
             Assert.Single(Emitted());
+        }
+
+        [Fact]
+        public void Watermark_NotPersisted_WhenBufferedButNeverFlushed()
+        {
+            // Process killed by the very reboot the records announce: nothing was flushed, so the
+            // next instance must re-read and emit the records.
+            var first = MakeTracker(stateDirectory: _tmp.Path);
+            first.ProcessEvent(MdmRebootPolicyTracker.EventId_PolicyRebootRequired, recordId: 500,
+                timeCreatedUtc: At, rebootUri: UriSvchost, formattedDescription: null, isBackfill: false);
+            // no FlushPending — simulated reboot kill
+
+            var second = MakeTracker(stateDirectory: _tmp.Path);
+            second.LoadWatermark();
+            second.ProcessEvent(MdmRebootPolicyTracker.EventId_PolicyRebootRequired, recordId: 500,
+                timeCreatedUtc: At, rebootUri: UriSvchost, formattedDescription: null, isBackfill: true);
+            second.FlushPending();
+
+            var s = Assert.Single(Emitted());
+            Assert.Equal(true, Data(s)["backfilled"]);
         }
 
         [Fact]
         public void RebootRequiredFlagProbe_True_AddsField_Null_OmitsIt()
         {
             _tracker.RebootRequiredFlagProbe = () => true;
-            Emit(recordId: 1);
+            Buffer(UriSvchost, recordId: 1);
+            _tracker.FlushPending();
+
             _tracker.RebootRequiredFlagProbe = () => null;
-            Emit(recordId: 2);
+            Buffer(UriSystemGuard, recordId: 2);
+            _tracker.FlushPending();
 
             var emitted = Emitted();
             Assert.Equal(2, emitted.Count);
@@ -179,10 +280,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
         public void RebootRequiredFlagProbe_Throwing_IsFailSoft()
         {
             _tracker.RebootRequiredFlagProbe = () => throw new InvalidOperationException("boom");
-            Emit();
+            Buffer(UriSvchost);
+            _tracker.FlushPending();
 
-            var s = Assert.Single(Emitted());
-            Assert.False(Data(s).ContainsKey("omadmRebootRequiredFlag"));
+            Assert.False(Data(Assert.Single(Emitted())).ContainsKey("omadmRebootRequiredFlag"));
         }
 
         [Fact]
@@ -194,20 +295,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
         // ------------------------------------------------------------------ URI extraction
 
         [Fact]
-        public void ExtractRebootUri_PrefersEventDataValue_OverDescription()
+        public void ExtractRebootUri_FromVerifiedRealDescription()
         {
-            var eventData = new Dictionary<string, string> { ["Data0"] = " " + SampleUri + " " };
-            var uri = MdmRebootPolicyTracker.ExtractRebootUri(eventData, "unrelated ./Other/Uri text");
-            Assert.Equal(SampleUri, uri);
+            // Real 2800 text wraps the URI in parentheses and ends with a period — both must be
+            // excluded from the extracted URI.
+            var uri = MdmRebootPolicyTracker.ExtractRebootUri(null, RealDescription);
+            Assert.Equal(UriSvchost, uri);
         }
 
         [Fact]
-        public void ExtractRebootUri_RegexFallback_FromDescription()
+        public void ExtractRebootUri_PrefersEventDataValue_OverDescription()
         {
-            var uri = MdmRebootPolicyTracker.ExtractRebootUri(
-                new Dictionary<string, string> { ["Data0"] = "not a uri" },
-                $"The following URI has triggered a reboot: {SampleUri}.");
-            Assert.Equal(SampleUri, uri);
+            var eventData = new Dictionary<string, string> { ["Data0"] = " " + UriSystemGuard + " " };
+            var uri = MdmRebootPolicyTracker.ExtractRebootUri(eventData, RealDescription);
+            Assert.Equal(UriSystemGuard, uri);
         }
 
         [Fact]

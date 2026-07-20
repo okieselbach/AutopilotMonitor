@@ -24,7 +24,6 @@ export const EVENT_TYPES_CATALOG = {
     'esp_failure_settle_started',
     'esp_failure_settle_recovered',
     'esp_exiting',
-    'esp_reboot_coalescing',
     'mdm_policy_reboot_required',
     'esp_config_detected',
     'completion_check',

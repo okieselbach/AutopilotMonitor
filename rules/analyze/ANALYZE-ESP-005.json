@@ -2,10 +2,10 @@
   "$schema": "../schema/analyze-rule.schema.json",
   "ruleId": "ANALYZE-ESP-005",
   "title": "MDM Policy Forced a Mid-ESP Reboot (Second Sign-In)",
-  "description": "Detects the 'unexpected reboot + second sign-in screen' pattern: one or more device-assigned MDM policies matched the OS reboot-required catalog during ESP DeviceSetup, and Windows coalesced them into a restart at the end of DeviceSetup — forcing the user through a second sign-in before AccountSetup. Attributes the reboot to the specific CSP policy URIs so the profiles can be reassigned.",
+  "description": "Attributes an observed enrollment reboot to device-assigned MDM policies that Windows flagged as reboot-required. Fires ONLY when both facts are present in the session: at least one actually-observed reboot (system_reboot_detected) AND reboot-required policy flags (mdm_policy_reboot_required). Policy flags alone — e.g. from a user-policy sync during AccountSetup — force no reboot and stay advisory-silent.",
   "severity": "warning",
   "category": "esp",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Autopilot Monitor",
   "enabled": true,
   "trigger": "single",
@@ -15,37 +15,48 @@
       "signal": "reboot_forcing_policy_uri",
       "source": "event_data",
       "eventType": "mdm_policy_reboot_required",
-      "dataField": "rebootUri",
+      "dataField": "firstRebootUri",
       "operator": "exists",
       "required": true
     },
     {
-      "signal": "reboot_uri_count",
+      "signal": "reboot_observed",
       "source": "event_count",
-      "eventType": "mdm_policy_reboot_required",
+      "eventType": "system_reboot_detected",
       "operator": "count_gte",
       "value": "1",
+      "required": true
+    },
+    {
+      "signal": "multiple_reboot_uris",
+      "source": "event_data",
+      "eventType": "mdm_policy_reboot_required",
+      "dataField": "uriCount",
+      "operator": "gte",
+      "value": "2",
       "required": false
     },
     {
-      "signal": "esp_coalesced_reboot_observed",
-      "source": "event_type",
-      "eventType": "esp_reboot_coalescing",
-      "operator": "exists",
+      "signal": "omadm_reboot_flag_set",
+      "source": "event_data",
+      "eventType": "mdm_policy_reboot_required",
+      "dataField": "omadmRebootRequiredFlag",
+      "operator": "equals",
+      "value": "true",
       "required": false
     }
   ],
   "confidenceFactors": [
-    { "signal": "esp_coalesced_reboot_observed", "condition": "exists", "weight": 20 },
-    { "signal": "mdm_policy_reboot_required", "condition": "count >= 2", "weight": 10 }
+    { "signal": "multiple_reboot_uris", "condition": "exists", "weight": 10 },
+    { "signal": "omadm_reboot_flag_set", "condition": "exists", "weight": 15 }
   ],
   "confidenceThreshold": 70,
-  "explanation": "During ESP DeviceSetup, a device-assigned MDM policy matched the OS reboot-required catalog and Windows scheduled a **coalesced reboot** at the end of DeviceSetup — the user saw an unexpected restart and a **second sign-in screen** before AccountSetup continued.\n\nFirst reboot-forcing policy URI: `{{rebootUri}}`\n\nWhen several policies force a reboot they are coalesced into one restart; **each** reboot-forcing policy appears as its own `mdm_policy_reboot_required` event on the session timeline — check the timeline for the complete URI list.\n\nThis is expected OS behavior, not a failure — but it degrades the enrollment experience, confuses users, and is invisible in the Intune console.",
+  "explanation": "This session **rebooted during enrollment**, and Windows flagged one or more device-assigned MDM policies as **reboot-required** — the classic cause of the coalesced mid-ESP restart and the unexpected **second sign-in screen** before AccountSetup.\n\nFirst reboot-forcing policy URI: `{{firstRebootUri}}`\n\nThe complete URI list is in the `mdm_policy_reboot_required` timeline event (`rebootUris`). Policies applied DURING ESP DeviceSetup are coalesced into one forced restart at the end of DeviceSetup; the same flags raised later (e.g. user-policy sync in AccountSetup) have no immediate effect — this advisory only fires when a reboot was actually observed.\n\nThis is expected OS behavior, not a failure — but it degrades the enrollment experience, confuses users, and is invisible in the Intune console.",
   "remediation": [
     {
       "title": "Reassign the reboot-forcing policies to user groups",
       "steps": [
-        "Open each `mdm_policy_reboot_required` timeline event and note the CSP URI (e.g. `./Device/Vendor/MSFT/...`)",
+        "Open the `mdm_policy_reboot_required` timeline event and note the CSP URIs in `rebootUris` (e.g. `./Device/Vendor/MSFT/...`)",
         "Map each URI to its Intune profile (Settings Catalog / configuration profile) — the URI path names the CSP area",
         "Reassign those profiles from device groups to user groups so they apply during/after AccountSetup instead of DeviceSetup",
         "Alternatively, exclude the Autopilot device group from the profile and deliver the setting post-enrollment"
