@@ -16,6 +16,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
     ///             CommercialOOBE_ESPProgress_Page_Exiting       — normal ESP exit
     ///             CommercialOOBE_ESPProgress_WhiteGlove_Success — WhiteGlove complete
     ///             CommercialOOBE_ESPProgress_Failure/_Timeout/_Abort/WhiteGlove_Failed — ESP failure
+    ///             "RebootCoalescing" (DeviceSetup)              — ESP-initiated coalesced reboot
+    ///                 (MDM policies forced a mid-ESP restart → second sign-in; corroborates the
+    ///                 MdmRebootPolicyTracker's per-URI 2800 attribution events)
     ///
     /// Raises <see cref="FinalizingSetupPhaseTriggered"/>, <see cref="WhiteGloveCompleted"/>,
     /// and <see cref="EspFailureDetected"/>. Cross-notifies the <see cref="HelloTracker"/>
@@ -47,6 +50,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private bool _espExitDetected;
         private bool _whiteGloveDetected;
         private bool _helloWizardStartDetected;
+        private bool _rebootCoalescingDetected;
         private readonly object _stateLock = new object();
 
         /// <summary>
@@ -247,6 +251,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
                         _logger.Info("ESP phase exit detected - detected via Shell-Core event 62407");
                     }
+                    else if (description.IndexOf("RebootCoalescing", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        // ESP-initiated coalesced reboot (end of DeviceSetup): MDM policies forced a
+                        // restart, the user will see a second sign-in screen. Checked AFTER the
+                        // WhiteGlove/failure/exiting patterns so their semantics stay untouched even
+                        // if a description ever carried both tokens. Fire-once per process run — the
+                        // reboot restarts the agent, and the fresh run re-observes it via backfill.
+                        lock (_stateLock)
+                        {
+                            if (_rebootCoalescingDetected) return;
+                            _rebootCoalescingDetected = true;
+                        }
+
+                        eventType = Constants.EventTypes.EspRebootCoalescing;
+                        severity = EventSeverity.Warning;
+                        message = "ESP initiated a coalesced reboot (RebootCoalescing) — device will restart and show a second sign-in";
+                        // No FinalizingSetup transition, no C# event raise — pure informational
+                        // corroboration for the MdmRebootPolicyTracker's per-URI attribution.
+
+                        _logger.Warning("ESP coalesced reboot detected via Shell-Core event 62407 (RebootCoalescing)");
+                    }
                     else
                     {
                         return;
@@ -421,6 +446,29 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 return;
             }
 
+            if (description.IndexOf("RebootCoalescing", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                // DELIBERATE deviation from the other 62407 backfill branches (which only raise C#
+                // events): this is a pure informational type with no reducer/subscriber — the
+                // emission IS the signal, and the live emit races the very reboot that kills the
+                // process. Re-emitting after the restart is the only reliable delivery path. A
+                // live+backfill cross-process duplicate is possible (no watermark here); accepted:
+                // the analyze rule uses exists-semantics, both copies carry the identical historical
+                // timestamp, and the backfill copy is marked backfilled:true.
+                bool shouldEmit;
+                lock (_stateLock)
+                {
+                    shouldEmit = !_rebootCoalescingDetected;
+                    _rebootCoalescingDetected = true;
+                }
+                if (shouldEmit)
+                {
+                    _logger.Info($"Backfill: ESP coalesced reboot (RebootCoalescing) found in recent Shell-Core logs (originalAt={occurredAtUtc:o})");
+                    EmitRebootCoalescing(description, occurredAtUtc, isBackfill: true);
+                }
+                return; // a RebootCoalescing record is not an ESP exit/failure — stop here
+            }
+
             if (EspExitingPattern.IsMatch(description))
             {
                 bool shouldNotify = false;
@@ -457,6 +505,39 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 catch (Exception ex) { _logger.Error($"Backfill: EspFailureDetected handler failed for '{failureType}'", ex); }
                 finally { LastEventOccurredAtUtc = null; }
             }
+        }
+
+        /// <summary>
+        /// Emits the <c>esp_reboot_coalescing</c> event with the standard Shell-Core eventData
+        /// shape. Used by the backfill path (the live path flows through the shared emit tail in
+        /// <see cref="ProcessEvent"/>); <paramref name="isBackfill"/> adds the
+        /// <c>backfilled</c> marker that distinguishes an accepted post-restart re-emission.
+        /// </summary>
+        private void EmitRebootCoalescing(string description, DateTime occurredAtUtc, bool isBackfill)
+        {
+            var eventData = new Dictionary<string, object>
+            {
+                { "windowsEventId", EventId_ShellCore_WebAppEvent },
+                { "providerName", "" },
+                { "description", description },
+                { "eventLogChannel", ShellCoreEventLogChannel },
+                { "eventTime", occurredAtUtc.ToString("o") },
+                { "backfilled", isBackfill }
+            };
+
+            _post.Emit(new EnrollmentEvent
+            {
+                SessionId = _sessionId,
+                TenantId = _tenantId,
+                Timestamp = occurredAtUtc,
+                EventType = Constants.EventTypes.EspRebootCoalescing,
+                Severity = EventSeverity.Warning,
+                Source = "EspAndHelloTracker",
+                Phase = EnrollmentPhase.Unknown,
+                Message = "ESP initiated a coalesced reboot (RebootCoalescing) — device will restart and show a second sign-in",
+                Data = eventData,
+                ImmediateUpload = true
+            });
         }
 
         // =====================================================================

@@ -335,6 +335,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     osBuildChangedProvider: () => osBuildChangeHost.BuildChanged));
             }
 
+            // MDM reboot-policy watcher — subscribes to DeviceManagement-Enterprise-Diagnostics-
+            // Provider/Admin EventID 2800 and attributes the "unexpected reboot + second sign-in"
+            // pattern to the device-assigned policy URIs that forced the coalesced reboot.
+            // Agent-native collector (NOT an IAgentAnalyzer); the config flag is an internal
+            // steering lever only.
+            if (collectors.MdmRebootPolicyWatcherEnabled)
+            {
+                hosts.Add(new MdmRebootPolicyWatcherHost(
+                    sessionId: sessionId,
+                    tenantId: tenantId,
+                    logger: logger,
+                    ingress: ingress,
+                    clock: clock,
+                    backfillLookbackMinutes: collectors.MdmRebootPolicyBackfillLookbackMinutes,
+                    stateDirectory: _stateDirectory));
+            }
+
             // ----- Peripheral hosts (event-only; driven by remote-config toggles) --------------
 
             // V1 parity (PeriodicCollectorManager) — combine Performance + AgentSelfMetrics under

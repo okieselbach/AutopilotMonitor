@@ -270,7 +270,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(new AgentConfigResponse
             {
-                ConfigVersion = 34, // Gather rule phase scoping (ActivePhases/ActiveFromPhase) + EmitMode on_change anti-spam
+                ConfigVersion = 35, // MDM reboot-policy watcher (mdm_policy_reboot_required / esp_reboot_coalescing)
                 UploadIntervalSeconds = 10,
                 SelfDestructOnComplete = tenantConfig.SelfDestructOnComplete ?? true,
                 KeepLogFile = tenantConfig.KeepLogFile ?? false,

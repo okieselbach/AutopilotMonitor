@@ -482,6 +482,28 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public bool WindowsUpdateChannelCensusEnabled { get; set; } = true;
 
+        // -----------------------------------------------------------------------
+        // MDM reboot-policy watcher (DeviceManagement-Enterprise-Diagnostics-Provider/Admin)
+        // -----------------------------------------------------------------------
+
+        /// <summary>
+        /// Master switch for the MDM reboot-policy watcher. When enabled the agent subscribes to
+        /// <c>Microsoft-Windows-DeviceManagement-Enterprise-Diagnostics-Provider/Admin</c> EventID
+        /// 2800 and emits one <c>mdm_policy_reboot_required</c> event per device-assigned policy
+        /// URI that forces a coalesced reboot during ESP DeviceSetup (the "unexpected reboot +
+        /// second sign-in" pattern). Internal steering lever only — not surfaced in any admin UI;
+        /// disable by pushing config server-side. Default: true.
+        /// </summary>
+        public bool MdmRebootPolicyWatcherEnabled { get; set; } = true;
+
+        /// <summary>
+        /// Lookback window in minutes for the MDM reboot-policy backfill scan on startup. Device
+        /// policies can apply before the agent starts, and after the coalesced reboot the restarted
+        /// agent must re-scan past the reboot gap (the cross-restart watermark keeps re-reads from
+        /// re-emitting). 0 = backfill disabled. Default: 60 minutes.
+        /// </summary>
+        public int MdmRebootPolicyBackfillLookbackMinutes { get; set; } = 60;
+
         /// <summary>
         /// Creates default collector configuration
         /// </summary>
