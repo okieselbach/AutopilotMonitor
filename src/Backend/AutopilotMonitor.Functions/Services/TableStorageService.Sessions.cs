@@ -681,7 +681,10 @@ namespace AutopilotMonitor.Functions.Services
                     ["EventId"] = evt.EventId,
                     ["SessionId"] = evt.SessionId,
                     ["TenantId"] = evt.TenantId,
-                    ["Timestamp"] = evt.Timestamp,
+                    // "Timestamp" is a reserved system property — supplied values are ignored
+                    // and any row rewrite (storage migration) resets it. The sanitized agent
+                    // event time therefore lives in its own column.
+                    [BusinessTimestamp.OccurredUtcColumn] = EnsureUtc(evt.Timestamp),
                     ["EventType"] = evt.EventType ?? string.Empty,
                     ["Severity"] = (int)evt.Severity,
                     ["Source"] = evt.Source ?? string.Empty,
@@ -777,7 +780,8 @@ namespace AutopilotMonitor.Functions.Services
                                 ["EventId"] = evt.EventId,
                                 ["SessionId"] = evt.SessionId,
                                 ["TenantId"] = evt.TenantId,
-                                ["Timestamp"] = evt.Timestamp,
+                                // Reserved-name caveat: see StoreEventAsync.
+                                [BusinessTimestamp.OccurredUtcColumn] = EnsureUtc(evt.Timestamp),
                                 ["EventType"] = evt.EventType ?? string.Empty,
                                 ["Severity"] = (int)evt.Severity,
                                 ["Source"] = evt.Source ?? string.Empty,
@@ -2673,10 +2677,7 @@ namespace AutopilotMonitor.Functions.Services
                 EventId = entity.GetString("EventId") ?? string.Empty,
                 SessionId = entity.GetString("SessionId") ?? string.Empty,
                 TenantId = tenantId ?? partitionKey,
-                Timestamp = DateTime.SpecifyKind(
-                    entity.GetDateTimeOffset("Timestamp")?.UtcDateTime
-                    ?? entity.GetDateTime("Timestamp")
-                    ?? DateTime.UtcNow, DateTimeKind.Utc),
+                Timestamp = DateTime.SpecifyKind(ResolveEventTimestamp(entity), DateTimeKind.Utc),
                 EventType = entity.GetString("EventType") ?? string.Empty,
                 Severity = (EventSeverity)(entity.GetInt32("Severity") ?? 0),
                 Source = entity.GetString("Source") ?? string.Empty,
@@ -2827,7 +2828,10 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Returns the earliest event timestamp persisted for a session, if any.
         /// Events are written with RowKey "{Timestamp}_{Sequence}", so querying the partition
-        /// and taking the first row yields the earliest event.
+        /// and taking the first row yields the earliest event. Resolution must NOT rely on
+        /// the system Timestamp: it is reset by storage migrations, and this value feeds the
+        /// StartedAt/Duration reconciliation — a migration-reset read would rewrite those
+        /// session fields with the migration date.
         /// </summary>
         private async Task<DateTime?> GetEarliestSessionEventTimestampAsync(string tenantId, string sessionId)
         {
@@ -2838,13 +2842,12 @@ namespace AutopilotMonitor.Functions.Services
                 var query = tableClient.QueryAsync<TableEntity>(
                     filter: $"PartitionKey eq '{partitionKey}'",
                     maxPerPage: 1,
-                    select: new[] { "Timestamp", "RowKey" }
+                    select: new[] { "RowKey", BusinessTimestamp.OccurredUtcColumn, "Timestamp" }
                 );
 
                 await foreach (var entity in query)
                 {
-                    return entity.GetDateTimeOffset("Timestamp")?.UtcDateTime
-                           ?? entity.GetDateTime("Timestamp");
+                    return ResolveEventTimestampOrNull(entity);
                 }
             }
             catch (Exception ex)
@@ -2853,6 +2856,26 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Business time of an event row: OccurredUtc column → agent time decoded from the
+        /// "{yyyyMMddHHmmssfff}_{seq}" RowKey → system Timestamp (last resort — reset by any
+        /// row rewrite, e.g. a storage migration; for migrated rows it holds the migration
+        /// moment). Event rows are deliberately never backfilled, so the RowKey decode is the
+        /// primary path for all pre-OccurredUtc rows.
+        /// </summary>
+        internal static DateTime ResolveEventTimestamp(TableEntity entity)
+            => ResolveEventTimestampOrNull(entity) ?? DateTime.UtcNow;
+
+        internal static DateTime? ResolveEventTimestampOrNull(TableEntity entity)
+        {
+            var occurred = BusinessTimestamp.GetUtcDateTime(entity, BusinessTimestamp.OccurredUtcColumn);
+            if (occurred.HasValue)
+                return occurred.Value;
+            if (BusinessTimestamp.TryDecodeEventRowKeyPrefix(entity.RowKey, out var decoded))
+                return decoded;
+            return BusinessTimestamp.GetUtcDateTime(entity, "Timestamp");
         }
 
         /// <summary>

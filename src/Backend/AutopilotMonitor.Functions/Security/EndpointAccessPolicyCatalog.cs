@@ -399,6 +399,9 @@ public static class EndpointAccessPolicyCatalog
         // One-time retro-reconcile of misclassified historical sessions (audit 2026-07-16) —
         // mutating, dry-run by default, GA only.
         new("POST",   "maintenance/reclassify-legacy", EndpointPolicy.GlobalAdminOnly),
+        // One-time OccurredUtc backfill on AuditLogs/OpsEvents (2026-07-18 migration reset
+        // the system Timestamps) — mutating, dry-run by default, GA only.
+        new("POST",   "maintenance/backfill-occurred-utc", EndpointPolicy.GlobalAdminOnly),
 
         // ── Critical-Table Backup (plan §PR1+§PR2) ─────────────────────────────
         new("POST",   "global/backups/trigger",       EndpointPolicy.GlobalAdminOnly),

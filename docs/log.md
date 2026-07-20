@@ -2,6 +2,7 @@
 
 ## 2026-07-20
 
+* **Creation**: Added `backend/business-timestamps.md` (new `backend/` section) — the 2026-07-18 migration reset every row's system Timestamp, exposing that AuditLogs/OpsEvents/Events had (unknowingly) displayed and filtered on it all along; documents the `OccurredUtc` column, the RowKey decoders and RowKey-range date/retention clauses in `BusinessTimestamp`, the GUID-guard trap, the audit/ops backfill endpoint, and the "system Timestamp is never authoritative" migration rule.
 * **Creation**: Added `rules/gather-rule-phase-scoping.md` (new `rules/` section) — gather rules gain `activePhases` (run only during listed phases), `activeFromPhase` (sticky latch from a phase onwards, never via Failed) and `emitMode: "on_change"` (canonical-hash result dedup with `suppressedPolls` observability), ConfigVersion 34. Includes the prerequisite backend fix: the custom-rule toggle PUT no longer wipes the stored rule definition (partial-merge in `GatherRuleService.UpdateRuleAsync`).
 
 ## 2026-07-18

@@ -1,5 +1,6 @@
 using Azure;
 using Azure.Data.Tables;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Shared;
@@ -55,7 +56,10 @@ namespace AutopilotMonitor.Functions.Services
                     { "EntityType", entityType },
                     { "EntityId", entityId },
                     { "PerformedBy", performedBy },
-                    { "Timestamp", timestamp },
+                    // Business event time. "Timestamp" is a reserved system property (server
+                    // ignores supplied values and resets it on every row rewrite), so the
+                    // event time must live in a regular custom column to survive migrations.
+                    { BusinessTimestamp.OccurredUtcColumn, timestamp },
                     { "Details", details != null ? JsonConvert.SerializeObject(details) : string.Empty }
                 };
 
@@ -71,32 +75,26 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Retention cleanup: deletes audit log entries whose Timestamp is older than the cutoff.
-        /// The AuditLogs table is append-only (one row per admin action) and is otherwise only
-        /// wiped on tenant offboarding, so without this it grows unbounded. Filters server-side on
-        /// the per-row "Timestamp" property and selects only PK/RK to keep the scan cheap.
+        /// Retention cleanup: deletes audit log entries whose business time is older than the
+        /// cutoff. The AuditLogs table is append-only (one row per admin action) and is otherwise
+        /// only wiped on tenant offboarding, so without this it grows unbounded.
+        /// Two passes: (1) time-encoded '!'-rows via an index-backed RowKey range — the system
+        /// Timestamp cannot be used because storage migrations reset it (post-migration it would
+        /// delete nothing for a retention period, then the whole pre-migration corpus at once);
+        /// (2) legacy bare-GUID rows (true event time unrecoverable) via their frozen system
+        /// Timestamp — they all age out ~180d after the 2026-07-18 migration.
+        /// TODO: Remove pass 2 after 2027-03-01 (no bare-GUID rows can remain by then).
         /// </summary>
         public async Task<int> DeleteAuditLogsOlderThanAsync(DateTime cutoffUtc)
         {
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AuditLogs);
-                var filter = $"Timestamp lt datetime'{cutoffUtc:yyyy-MM-ddTHH:mm:ss}Z'";
-                var query = tableClient.QueryAsync<TableEntity>(filter: filter, select: new[] { "PartitionKey", "RowKey" });
-
-                int deleted = 0;
-                await foreach (var entity in query)
-                {
-                    try
-                    {
-                        await tableClient.DeleteEntityAsync(entity.PartitionKey, entity.RowKey);
-                        deleted++;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to delete audit log {PK}/{RK}", entity.PartitionKey, entity.RowKey);
-                    }
-                }
+                var deleted = 0;
+                deleted += await DeleteAuditLogsByFilterAsync(tableClient, BusinessTimestamp.AuditRetentionClause(cutoffUtc));
+                // 'RowKey ge '0'' cannot match any '!'-row (0x21 < 0x30), only legacy GUIDs.
+                deleted += await DeleteAuditLogsByFilterAsync(tableClient,
+                    $"RowKey ge '0' and Timestamp lt datetime'{cutoffUtc:yyyy-MM-ddTHH:mm:ss}Z'");
 
                 if (deleted > 0)
                     _logger.LogInformation("Deleted {Count} audit log entries older than {Cutoff:yyyy-MM-dd}", deleted, cutoffUtc);
@@ -108,6 +106,25 @@ namespace AutopilotMonitor.Functions.Services
                 _logger.LogError(ex, "Failed to delete old audit log entries");
                 return 0;
             }
+        }
+
+        private async Task<int> DeleteAuditLogsByFilterAsync(TableClient tableClient, string filter)
+        {
+            var query = tableClient.QueryAsync<TableEntity>(filter: filter, select: new[] { "PartitionKey", "RowKey" });
+            int deleted = 0;
+            await foreach (var entity in query)
+            {
+                try
+                {
+                    await tableClient.DeleteEntityAsync(entity.PartitionKey, entity.RowKey);
+                    deleted++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to delete audit log {PK}/{RK}", entity.PartitionKey, entity.RowKey);
+                }
+            }
+            return deleted;
         }
 
         /// <summary>
@@ -384,9 +401,9 @@ namespace AutopilotMonitor.Functions.Services
             if (!string.IsNullOrEmpty(lastRowKey))
                 clauses.Add($"RowKey gt '{lastRowKey!.Replace("'", "''")}'");
             if (dateFrom.HasValue)
-                clauses.Add($"Timestamp ge datetime'{ToUtc(dateFrom.Value):o}'");
+                clauses.Add(BusinessTimestamp.AuditDateFromClause(ToUtc(dateFrom.Value)));
             if (dateTo.HasValue)
-                clauses.Add($"Timestamp le datetime'{ToUtc(dateTo.Value):o}'");
+                clauses.Add(BusinessTimestamp.AuditDateToClause(ToUtc(dateTo.Value)));
             return string.Join(" and ", clauses);
         }
 
@@ -398,14 +415,30 @@ namespace AutopilotMonitor.Functions.Services
             EntityType = entity.GetString("EntityType") ?? string.Empty,
             EntityId = entity.GetString("EntityId") ?? string.Empty,
             PerformedBy = entity.GetString("PerformedBy") ?? string.Empty,
-            Timestamp = entity.GetDateTimeOffset("Timestamp")?.UtcDateTime ?? DateTime.UtcNow,
+            Timestamp = ResolveAuditTimestamp(entity),
             Details = entity.GetString("Details") ?? string.Empty,
         };
 
-        // The system Timestamp is auto-managed by Azure on insert and reliably
-        // sortable; the user-defined "Timestamp" property is set by LogAuditEntry
-        // for parity with the model. We filter on the system Timestamp since it
-        // is always indexed.
+        /// <summary>
+        /// Business time of an audit row: OccurredUtc column → time decoded from the
+        /// reverse-tick RowKey → system Timestamp. The system Timestamp is only a last
+        /// resort (legacy bare-GUID rows): it is reset by any row rewrite, so for rows
+        /// migrated between storage accounts it holds the migration moment, not the
+        /// event time.
+        /// </summary>
+        internal static DateTime ResolveAuditTimestamp(TableEntity entity)
+        {
+            var occurred = BusinessTimestamp.GetUtcDateTime(entity, BusinessTimestamp.OccurredUtcColumn);
+            if (occurred.HasValue)
+                return occurred.Value;
+            if (BusinessTimestamp.TryDecodeAuditRowKey(entity.RowKey, out var decoded))
+                return decoded;
+            return BusinessTimestamp.GetUtcDateTime(entity, "Timestamp") ?? DateTime.UtcNow;
+        }
+
+        // Date windows filter on the RowKey (reverse-tick, index-backed) rather than any
+        // timestamp property: the system Timestamp is reset by migrations, and an
+        // OccurredUtc property filter would exclude rows that lack the column.
         internal static string? BuildAuditLogFilter(string? tenantId, DateTime? dateFrom, DateTime? dateTo,
             bool excludeDeletions = false, AuditLogQueryFilters? filters = null)
         {
@@ -424,11 +457,11 @@ namespace AutopilotMonitor.Functions.Services
             }
             if (dateFrom.HasValue)
             {
-                clauses.Add($"Timestamp ge datetime'{ToUtc(dateFrom.Value):o}'");
+                clauses.Add(BusinessTimestamp.AuditDateFromClause(ToUtc(dateFrom.Value)));
             }
             if (dateTo.HasValue)
             {
-                clauses.Add($"Timestamp le datetime'{ToUtc(dateTo.Value):o}'");
+                clauses.Add(BusinessTimestamp.AuditDateToClause(ToUtc(dateTo.Value)));
             }
             return string.Join(" and ", clauses);
         }

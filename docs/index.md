@@ -23,6 +23,10 @@ https://docs.autopilotmonitor.com (separate repository).
 
 * [Gather Rule Phase Scoping & Emit-on-Change](rules/gather-rule-phase-scoping.md) - Restricting gather rules to enrollment phases (activePhases / activeFromPhase sticky latch) and emitMode "on_change" result-dedup — the anti-spam pair for interval rules.
 
+# Backend
+
+* [Business Timestamps](backend/business-timestamps.md) - Why the Azure Tables system Timestamp is never authoritative (migrations reset it), and the OccurredUtc + RowKey-decode compensation for AuditLogs/OpsEvents/Events after the 2026-07-18 migration.
+
 # Security & Identity
 
 * [MCP OAuth Flow](mcp-oauth-flow.md) - Who authenticates where when connecting an AI client to the MCP server; two identities, three parties plus Entra ID.

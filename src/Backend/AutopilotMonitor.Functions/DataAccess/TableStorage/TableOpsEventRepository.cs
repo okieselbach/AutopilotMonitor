@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Azure.Data.Tables;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
@@ -43,7 +44,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 ["UserId"]    = Truncate(entry.UserId, 128),
                 ["Message"]   = Truncate(entry.Message, 512),
                 ["Details"]   = Truncate(entry.Details, 4096),
-                ["Timestamp"] = entry.Timestamp,
+                // "Timestamp" is a reserved system property (supplied values are ignored and
+                // any row rewrite resets it), so the event time needs its own column.
+                [BusinessTimestamp.OccurredUtcColumn] = entry.Timestamp,
             };
 
             await _table.UpsertEntityAsync(entity);
@@ -168,15 +171,16 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             if (!string.IsNullOrEmpty(lastRowKey))
                 clauses.Add($"RowKey gt '{lastRowKey!.Replace("'", "''")}'");
             if (dateFrom.HasValue)
-                clauses.Add($"Timestamp ge datetime'{ToUtc(dateFrom.Value):o}'");
+                clauses.Add(BusinessTimestamp.OpsDateFromClause(ToUtc(dateFrom.Value)));
             if (dateTo.HasValue)
-                clauses.Add($"Timestamp le datetime'{ToUtc(dateTo.Value):o}'");
+                clauses.Add(BusinessTimestamp.OpsDateToClause(ToUtc(dateTo.Value)));
             return string.Join(" and ", clauses);
         }
 
-        // Filters on the system-managed Timestamp; user-defined "Timestamp" property
-        // mirrors it on insert via SaveOpsEventAsync.
-        private static string? BuildFilter(string? category, DateTime? dateFrom, DateTime? dateTo)
+        // Date windows filter on the RowKey (reverse-tick, index-backed): the system
+        // Timestamp is reset by storage migrations, and an OccurredUtc property filter
+        // would exclude rows written before that column existed.
+        internal static string? BuildFilter(string? category, DateTime? dateFrom, DateTime? dateTo)
         {
             var clauses = new List<string>();
             if (!string.IsNullOrEmpty(category))
@@ -185,11 +189,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
             if (dateFrom.HasValue)
             {
-                clauses.Add($"Timestamp ge datetime'{ToUtc(dateFrom.Value):o}'");
+                clauses.Add(BusinessTimestamp.OpsDateFromClause(ToUtc(dateFrom.Value)));
             }
             if (dateTo.HasValue)
             {
-                clauses.Add($"Timestamp le datetime'{ToUtc(dateTo.Value):o}'");
+                clauses.Add(BusinessTimestamp.OpsDateToClause(ToUtc(dateTo.Value)));
             }
             return clauses.Count == 0 ? null : string.Join(" and ", clauses);
         }
@@ -201,27 +205,30 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         {
             var deleted = 0;
 
-            await foreach (var entity in _table.QueryAsync<TableEntity>())
+            // Server-side RowKey range instead of a full-table scan over the system
+            // Timestamp: every ops RowKey is a reverse-tick, so age is index-derivable,
+            // and the system Timestamp lies after storage migrations (it would freeze
+            // deletions for one retention period, then drop the whole pre-migration
+            // corpus in a single run).
+            var filter = BusinessTimestamp.OpsRetentionClause(cutoff);
+            await foreach (var entity in _table.QueryAsync<TableEntity>(
+                filter: filter, select: new[] { "PartitionKey", "RowKey" }))
             {
-                var timestamp = entity.GetDateTimeOffset("Timestamp")?.UtcDateTime ?? DateTime.MinValue;
-                if (timestamp < cutoff)
+                try
                 {
-                    try
-                    {
-                        await _table.DeleteEntityAsync(entity.PartitionKey, entity.RowKey);
-                        deleted++;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to delete ops event {PK}/{RK}", entity.PartitionKey, entity.RowKey);
-                    }
+                    await _table.DeleteEntityAsync(entity.PartitionKey, entity.RowKey);
+                    deleted++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to delete ops event {PK}/{RK}", entity.PartitionKey, entity.RowKey);
                 }
             }
 
             return deleted;
         }
 
-        private static OpsEventEntry MapToEntry(TableEntity entity)
+        internal static OpsEventEntry MapToEntry(TableEntity entity)
         {
             return new OpsEventEntry
             {
@@ -233,8 +240,20 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 UserId    = entity.GetString("UserId"),
                 Message   = entity.GetString("Message") ?? string.Empty,
                 Details   = entity.GetString("Details"),
-                Timestamp = entity.GetDateTimeOffset("Timestamp")?.UtcDateTime ?? DateTime.MinValue,
+                Timestamp = ResolveTimestamp(entity),
             };
+        }
+
+        // Business time: OccurredUtc column → reverse-tick RowKey decode → system
+        // Timestamp (last resort; a row rewrite — e.g. storage migration — resets it).
+        internal static DateTime ResolveTimestamp(TableEntity entity)
+        {
+            var occurred = BusinessTimestamp.GetUtcDateTime(entity, BusinessTimestamp.OccurredUtcColumn);
+            if (occurred.HasValue)
+                return occurred.Value;
+            if (BusinessTimestamp.TryDecodeOpsRowKey(entity.RowKey, out var decoded))
+                return decoded;
+            return BusinessTimestamp.GetUtcDateTime(entity, "Timestamp") ?? DateTime.MinValue;
         }
 
         private static string? Truncate(string? value, int maxLength)

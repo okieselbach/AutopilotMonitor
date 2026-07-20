@@ -252,6 +252,7 @@ builder.Services.AddHttpClient<GitHubRuleRepository>()
     .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().ExternalDataApi);
 builder.Services.AddSingleton<MaintenanceService>();
 builder.Services.AddSingleton<LegacyReclassificationService>();
+builder.Services.AddSingleton<OccurredUtcBackfillService>();
 builder.Services.AddSingleton<
     AutopilotMonitor.Functions.Services.Monitoring.IAzureMonitorMetricsReader,
     AutopilotMonitor.Functions.Services.Monitoring.AzureMonitorMetricsReader>();
