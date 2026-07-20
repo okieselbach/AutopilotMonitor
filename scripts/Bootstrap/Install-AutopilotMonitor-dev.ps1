@@ -56,6 +56,10 @@
       PowerShell 5.1 (IME) reads scripts without BOM as ANSI, corrupting multi-byte chars.
 
 .CHANGELOG
+    2026-07-20  v2.2  Switched default download endpoint from the legacy blob
+                      (autopilotmonitor.blob.core.windows.net) to the Front Door alias
+                      https://download.autopilotmonitor.com/agent/ (route /agent/*).
+                      version.json is still derived from the same container.
     2026-06-25  v2.1  OOBE-relax: detect genuine OOBE via WinRT
                       SystemSetupInfo.OutOfBoxExperienceState and exempt guards 2+3 when a
                       single freshly-created profile appears in OOBE (Windows Backup for
@@ -80,7 +84,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]
-    [string]$AgentDownloadUrl = "https://autopilotmonitor.blob.core.windows.net/agent/AutopilotMonitor-Agent.zip",
+    [string]$AgentDownloadUrl = "https://download.autopilotmonitor.com/agent/AutopilotMonitor-Agent.zip",
 
     [Parameter(Mandatory = $false)]
     [string]$VersionJsonName = "version.json",
@@ -93,7 +97,7 @@ param(
 )
 
 # Script version (bump on meaningful changes; see .CHANGELOG above)
-$ScriptVersion = "2.1"
+$ScriptVersion = "2.2"
 
 # Configuration - Everything in ProgramData for easy cleanup
 $AgentBasePath = "$env:ProgramData\AutopilotMonitor"
