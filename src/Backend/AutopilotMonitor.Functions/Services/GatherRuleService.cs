@@ -151,10 +151,38 @@ namespace AutopilotMonitor.Functions.Services
                 return await _ruleRepo.StoreRuleStateAsync(tenantId, rule.RuleId, new RuleState { Enabled = rule.Enabled });
             }
 
+            // Custom rule. The portal toggle PUTs only { enabled, isBuiltIn, isCommunity } —
+            // full-storing that payload would wipe Title/Target/Trigger/Parameters. Merge
+            // toggle-style partials into the existing row; full payloads (edit flow) replace
+            // the row but keep the original CreatedAt.
+            var existing = (await _ruleRepo.GetGatherRulesAsync(tenantId))
+                .FirstOrDefault(r => r.RuleId == rule.RuleId && !r.IsBuiltIn && !r.IsCommunity);
+
+            var isTogglePartial = string.IsNullOrEmpty(rule.Title)
+                && string.IsNullOrEmpty(rule.CollectorType)
+                && string.IsNullOrEmpty(rule.Target);
+
+            if (isTogglePartial)
+            {
+                if (existing == null)
+                {
+                    _logger.LogWarning(
+                        "Toggle-style partial update for unknown custom gather rule {RuleId} (tenant {TenantId}); nothing to update",
+                        rule.RuleId, tenantId);
+                    return false;
+                }
+
+                existing.Enabled = rule.Enabled;
+                existing.UpdatedAt = DateTime.UtcNow;
+                return await _ruleRepo.StoreGatherRuleAsync(existing, tenantId);
+            }
+
             // Ensure custom rules keep correct flags (the incoming payload may
             // omit them, causing them to default to IsBuiltIn=true in the model).
             rule.IsBuiltIn = false;
             rule.IsCommunity = false;
+            if (existing != null)
+                rule.CreatedAt = existing.CreatedAt;
             rule.UpdatedAt = DateTime.UtcNow;
             return await _ruleRepo.StoreGatherRuleAsync(rule, tenantId);
         }
@@ -413,7 +441,22 @@ namespace AutopilotMonitor.Functions.Services
                 && a.Title == b.Title
                 && a.CollectorType == b.CollectorType
                 && a.Trigger == b.Trigger
-                && a.TriggerPhase == b.TriggerPhase;
+                && a.TriggerPhase == b.TriggerPhase
+                && ActivePhasesEquivalent(a.ActivePhases, b.ActivePhases)
+                && a.ActiveFromPhase == b.ActiveFromPhase
+                && a.EmitMode == b.EmitMode;
+        }
+
+        /// <summary>
+        /// Null-tolerant ordered comparison for <see cref="GatherRule.ActivePhases"/>:
+        /// null and empty are both "unrestricted" and therefore equivalent, so pre-existing
+        /// DB rows (absent column → null) never diff against seeds (also null) — no reseed churn.
+        /// </summary>
+        private static bool ActivePhasesEquivalent(List<string>? a, List<string>? b)
+        {
+            var left = a ?? new List<string>();
+            var right = b ?? new List<string>();
+            return left.SequenceEqual(right, StringComparer.Ordinal);
         }
     }
 }

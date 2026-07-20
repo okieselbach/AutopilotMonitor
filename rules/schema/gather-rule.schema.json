@@ -96,6 +96,24 @@
           "type": "string",
           "description": "Event type to trigger on (only used when trigger = \"on_event\")."
         },
+        "activePhases": {
+          "type": "array",
+          "description": "Run the rule only while the current enrollment phase is one of these phases (EnrollmentPhase enum names). Empty/absent = unrestricted. Mutually exclusive with activeFromPhase.",
+          "items": {
+            "type": "string",
+            "enum": ["Start", "DevicePreparation", "DeviceSetup", "AppsDevice", "AccountSetup", "AppsUser", "FinalizingSetup", "Complete"]
+          }
+        },
+        "activeFromPhase": {
+          "type": "string",
+          "description": "Activate the rule once the enrollment phase first reaches this phase, then keep it active for the rest of the session (sticky latch). Absent = unrestricted. Mutually exclusive with activePhases.",
+          "enum": ["Start", "DevicePreparation", "DeviceSetup", "AppsDevice", "AccountSetup", "AppsUser", "FinalizingSetup", "Complete"]
+        },
+        "emitMode": {
+          "type": "string",
+          "description": "Emit behavior: \"always\" (default — emit on every collection) or \"on_change\" (poll on the trigger cadence but emit only when the collected result changes; the first in-scope result always emits).",
+          "enum": ["always", "on_change"]
+        },
         "outputEventType": {
           "type": "string",
           "description": "EventType for the emitted event (e.g., \"gather_proxy_settings\")."

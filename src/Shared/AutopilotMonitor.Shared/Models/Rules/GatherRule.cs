@@ -128,6 +128,38 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public string TriggerEventType { get; set; } = default!;
 
+        /// <summary>
+        /// Restricts the rule to run only while the current enrollment phase is one of these
+        /// phases. Canonical tokens are the <see cref="EnrollmentPhase"/> enum names
+        /// ("Start", "DevicePreparation", "DeviceSetup", "AppsDevice", "AccountSetup",
+        /// "AppsUser", "FinalizingSetup", "Complete"); "Unknown" and "Failed" are rejected
+        /// by backend validation. Null or empty = unrestricted (runs in every phase —
+        /// legacy behavior). Mutually exclusive with <see cref="ActiveFromPhase"/>;
+        /// if both are set the agent defensively prefers this list.
+        /// Applies to ALL trigger types. Before the first phase signal of a session,
+        /// scoped rules are inactive.
+        /// </summary>
+        public List<string>? ActivePhases { get; set; }
+
+        /// <summary>
+        /// Activates the rule once the enrollment phase first reaches this phase
+        /// (ordinal comparison on <see cref="EnrollmentPhase"/>, ignoring Unknown/Failed),
+        /// then keeps it active for the rest of the session (sticky latch — including
+        /// through Failed). Canonical tokens as in <see cref="ActivePhases"/>.
+        /// Null = unrestricted. Mutually exclusive with <see cref="ActivePhases"/>.
+        /// </summary>
+        public string? ActiveFromPhase { get; set; }
+
+        /// <summary>
+        /// Emit behavior for collected results:
+        /// null / "always" = emit on every collection (legacy behavior);
+        /// "on_change" = poll on the trigger cadence but emit only when the collected
+        /// result differs from the last emitted one. The first in-scope result always
+        /// emits; the suppressed poll count is carried on the next emitted event
+        /// (suppressedPolls / suppressedSinceUtc in the event data).
+        /// </summary>
+        public string? EmitMode { get; set; }
+
         // ===== OUTPUT =====
 
         /// <summary>

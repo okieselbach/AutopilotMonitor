@@ -158,6 +158,9 @@ namespace AutopilotMonitor.Functions.Services
                     ["IntervalSeconds"] = rule.IntervalSeconds,
                     ["TriggerPhase"] = rule.TriggerPhase ?? string.Empty,
                     ["TriggerEventType"] = rule.TriggerEventType ?? string.Empty,
+                    ["ActivePhasesJson"] = JsonConvert.SerializeObject(rule.ActivePhases ?? new List<string>()),
+                    ["ActiveFromPhase"] = rule.ActiveFromPhase ?? string.Empty,
+                    ["EmitMode"] = rule.EmitMode ?? string.Empty,
                     ["OutputEventType"] = rule.OutputEventType ?? string.Empty,
                     ["OutputSeverity"] = rule.OutputSeverity ?? "Info",
                     ["TagsJson"] = JsonConvert.SerializeObject(rule.Tags ?? new string[0]),
@@ -222,7 +225,9 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
-        private GatherRule MapToGatherRule(TableEntity entity)
+        // Internal (not private) so the Store↔Map roundtrip is testable per the
+        // table-serialization rule: every model field must appear in BOTH directions.
+        internal GatherRule MapToGatherRule(TableEntity entity)
         {
             return new GatherRule
             {
@@ -244,12 +249,26 @@ namespace AutopilotMonitor.Functions.Services
                 IntervalSeconds = entity.GetInt32("IntervalSeconds"),
                 TriggerPhase = entity.GetString("TriggerPhase") ?? string.Empty,
                 TriggerEventType = entity.GetString("TriggerEventType") ?? string.Empty,
+                ActivePhases = MapActivePhases(entity.GetString("ActivePhasesJson")),
+                ActiveFromPhase = string.IsNullOrEmpty(entity.GetString("ActiveFromPhase")) ? null : entity.GetString("ActiveFromPhase"),
+                EmitMode = string.IsNullOrEmpty(entity.GetString("EmitMode")) ? null : entity.GetString("EmitMode"),
                 OutputEventType = entity.GetString("OutputEventType") ?? string.Empty,
                 OutputSeverity = entity.GetString("OutputSeverity") ?? "Info",
                 Tags = DeserializeJsonArray(entity.GetString("TagsJson")),
                 CreatedAt = entity.GetDateTimeOffset("CreatedAt")?.UtcDateTime ?? DateTime.UtcNow,
                 UpdatedAt = entity.GetDateTimeOffset("UpdatedAt")?.UtcDateTime ?? DateTime.UtcNow
             };
+        }
+
+        /// <summary>
+        /// Absent column (pre-existing rows) and the stored-empty "[]" both map to null —
+        /// null and empty are the same "unrestricted" state on <see cref="GatherRule.ActivePhases"/>,
+        /// and null keeps <see cref="GatherRuleService.ContentEquivalent"/> reseed-stable.
+        /// </summary>
+        private List<string>? MapActivePhases(string? json)
+        {
+            var phases = DeserializeJson<List<string>>(json);
+            return phases.Count == 0 ? null : phases;
         }
 
         // ===== RULE STATES METHODS =====

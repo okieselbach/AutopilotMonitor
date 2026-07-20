@@ -270,7 +270,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(new AgentConfigResponse
             {
-                ConfigVersion = 33, // Agent endpoint migration on the config channel (MigrateToApiBaseUrl; live-fetch-only, allowlist-validated, one hop, kill wins)
+                ConfigVersion = 34, // Gather rule phase scoping (ActivePhases/ActiveFromPhase) + EmitMode on_change anti-spam
                 UploadIntervalSeconds = 10,
                 SelfDestructOnComplete = tenantConfig.SelfDestructOnComplete ?? true,
                 KeepLogFile = tenantConfig.KeepLogFile ?? false,

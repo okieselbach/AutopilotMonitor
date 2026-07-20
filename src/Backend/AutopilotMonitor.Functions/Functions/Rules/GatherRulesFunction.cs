@@ -64,6 +64,14 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                 return badRequest;
             }
 
+            var scopeError = ValidateScopeAndEmitMode(rule);
+            if (scopeError != null)
+            {
+                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
+                await badRequest.WriteAsJsonAsync(new { success = false, message = scopeError });
+                return badRequest;
+            }
+
             try
             {
                 var success = await _ruleService.CreateRuleAsync(tenantId, rule);
@@ -108,10 +116,69 @@ namespace AutopilotMonitor.Functions.Functions.Rules
 
             rule.RuleId = ruleId;
 
+            var scopeError = ValidateScopeAndEmitMode(rule);
+            if (scopeError != null)
+            {
+                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
+                await badRequest.WriteAsJsonAsync(new { success = false, message = scopeError });
+                return badRequest;
+            }
+
             var success = await _ruleService.UpdateRuleAsync(tenantId, rule);
             var response = req.CreateResponse(success ? HttpStatusCode.OK : HttpStatusCode.InternalServerError);
             await response.WriteAsJsonAsync(new { success, message = success ? "Rule updated" : "Failed to update rule" });
             return response;
+        }
+
+        /// <summary>
+        /// Selectable phase-scope tokens: the <see cref="EnrollmentPhase"/> enum NAMES from
+        /// Start(0) through Complete(7). Explicit name list (not Enum.TryParse) so numeric
+        /// tokens ("4") and the non-selectable Unknown/Failed members are rejected — the
+        /// canonical vocabulary the agent, schema, and portal share.
+        /// </summary>
+        private static readonly HashSet<string> ValidScopePhases = new(StringComparer.OrdinalIgnoreCase)
+        {
+            nameof(EnrollmentPhase.Start),
+            nameof(EnrollmentPhase.DevicePreparation),
+            nameof(EnrollmentPhase.DeviceSetup),
+            nameof(EnrollmentPhase.AppsDevice),
+            nameof(EnrollmentPhase.AccountSetup),
+            nameof(EnrollmentPhase.AppsUser),
+            nameof(EnrollmentPhase.FinalizingSetup),
+            nameof(EnrollmentPhase.Complete),
+        };
+
+        /// <summary>
+        /// Validates the phase-scope + emit-mode fields on create/update.
+        /// Returns an error message for a 400 response, or null when valid.
+        /// Toggle-style partial payloads carry none of these fields and pass through.
+        /// </summary>
+        internal static string? ValidateScopeAndEmitMode(GatherRule rule)
+        {
+            var hasActivePhases = rule.ActivePhases != null && rule.ActivePhases.Count > 0;
+            var hasFromPhase = !string.IsNullOrEmpty(rule.ActiveFromPhase);
+
+            if (hasActivePhases && hasFromPhase)
+                return "activePhases and activeFromPhase are mutually exclusive — set only one.";
+
+            if (hasActivePhases)
+            {
+                foreach (var phase in rule.ActivePhases!)
+                {
+                    if (string.IsNullOrEmpty(phase) || !ValidScopePhases.Contains(phase))
+                        return $"Invalid phase '{phase}' in activePhases. Valid phases: {string.Join(", ", ValidScopePhases)}.";
+                }
+            }
+
+            if (hasFromPhase && !ValidScopePhases.Contains(rule.ActiveFromPhase!))
+                return $"Invalid activeFromPhase '{rule.ActiveFromPhase}'. Valid phases: {string.Join(", ", ValidScopePhases)}.";
+
+            if (!string.IsNullOrEmpty(rule.EmitMode)
+                && !string.Equals(rule.EmitMode, "always", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(rule.EmitMode, "on_change", StringComparison.OrdinalIgnoreCase))
+                return "emitMode must be \"always\" or \"on_change\".";
+
+            return null;
         }
 
         [Function("DeleteGatherRule")]
