@@ -34,7 +34,7 @@ For detailed information about the system architecture, components, and data flo
 
 ## Documentation
 
-Full documentation is available at **[autopilotmonitor.com/docs](https://www.autopilotmonitor.com/docs)**
+Full admin documentation is available at **[docs.autopilotmonitor.com](https://docs.autopilotmonitor.com)**
 
 ## License
 
