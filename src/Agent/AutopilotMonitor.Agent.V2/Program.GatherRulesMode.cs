@@ -224,6 +224,11 @@ namespace AutopilotMonitor.Agent.V2
                     // Step 4 — run the executor and wait.
                     using (var executor = new GatherRuleExecutor(sessionId, tenantId, emitEvent, logger, config.ImeLogPathOverride))
                     {
+                        // Diagnostic mode has no enrollment phase context — scoped rules
+                        // (activePhases / activeFromPhase) execute unconditionally here.
+                        executor.IgnorePhaseScope = true;
+                        logger.Info("--run-gather-rules: phase scoping bypassed (no phase context in diagnostic mode).");
+
                         executor.UpdateRules(rules);
 
                         if (consoleMode) Console.WriteLine($"Running {startupRules.Count} rule(s)...");

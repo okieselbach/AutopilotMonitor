@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors;
@@ -27,6 +30,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
         private readonly HashSet<string> _startupRulesExecuted = new HashSet<string>();
         private readonly HashSet<string> _phaseRulesExecuted = new HashSet<string>();
         private CountdownEvent _startupRulesLatch;   // non-null only while startup rules are pending
+
+        // Phase-scope + emit-mode state (ActivePhases / ActiveFromPhase / EmitMode on GatherRule).
+        // Guarded by _scopeLock; collector work always runs outside the lock. The state deliberately
+        // survives UpdateRules config refreshes — an agent restart causes at most one re-emit per
+        // on_change rule (acceptable under the per-enrollment lifecycle).
+        private readonly object _scopeLock = new object();
+        private EnrollmentPhase _currentPhase = EnrollmentPhase.Unknown;
+        private readonly HashSet<string> _fromPhaseLatched = new HashSet<string>();
+        private readonly Dictionary<string, string> _lastEmittedHash = new Dictionary<string, string>();
+        private readonly Dictionary<string, (int Count, DateTime SinceUtc)> _suppressed =
+            new Dictionary<string, (int Count, DateTime SinceUtc)>();
+        private readonly HashSet<string> _scopeBypassLogged = new HashSet<string>();
+
+        /// <summary>
+        /// When true, phase scoping (ActivePhases / ActiveFromPhase) is bypassed and scoped rules
+        /// execute unconditionally. Used by the standalone <c>--run-gather-rules</c> diagnostic
+        /// mode, which has no enrollment phase context. EmitMode is unaffected.
+        /// </summary>
+        public bool IgnorePhaseScope { get; set; }
 
         /// <summary>
         /// When true, guardrails are relaxed: all registry, WMI, and command targets are allowed.
@@ -89,10 +111,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
 
             _activeRules = rules.Where(r => r.Enabled).ToList();
 
-            // Execute startup rules — track completion via CountdownEvent so callers can wait
-            var pendingStartup = _activeRules
-                .Where(r => r.Trigger == "startup" && !_startupRulesExecuted.Contains(r.RuleId))
-                .ToList();
+            // Execute startup rules — track completion via CountdownEvent so callers can wait.
+            // Scoped startup rules that are not yet in scope are deferred: they run once from
+            // OnPhaseChanged when their scope activates (same _startupRulesExecuted dedup — a
+            // rule runs either here or there, never both). Unscoped rules behave as before.
+            List<GatherRule> pendingStartup;
+            lock (_scopeLock)
+            {
+                // A config refresh may deliver new from-phase rules after their phase was
+                // already reached — evaluate latches against the current phase first.
+                EvaluateFromPhaseLatchesLocked();
+
+                pendingStartup = _activeRules
+                    .Where(r => r.Trigger == "startup" && !_startupRulesExecuted.Contains(r.RuleId))
+                    .Where(r => IsRuleInScopeLocked(r))
+                    .ToList();
+
+                foreach (var rule in pendingStartup)
+                {
+                    _startupRulesExecuted.Add(rule.RuleId);
+                }
+            }
 
             if (pendingStartup.Count > 0)
             {
@@ -101,7 +140,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
 
                 foreach (var rule in pendingStartup)
                 {
-                    _startupRulesExecuted.Add(rule.RuleId);
                     ThreadPool.QueueUserWorkItem(_ =>
                     {
                         try   { ExecuteRule(rule); }
@@ -110,18 +148,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                 }
             }
 
-            // Set up interval timers
+            // Set up interval timers. Timers for scoped rules keep running while out of scope —
+            // the tick gate makes an out-of-scope tick a free no-op, avoiding start/stop
+            // lifecycle races on phase transitions.
             foreach (var rule in _activeRules.Where(r => r.Trigger == "interval" && r.IntervalSeconds.HasValue))
             {
-                var interval = TimeSpan.FromSeconds(rule.IntervalSeconds.Value);
+                var intervalRule = rule;
+                var interval = TimeSpan.FromSeconds(intervalRule.IntervalSeconds.Value);
                 var timer = new Timer(
-                    _ => ExecuteRule(rule),
+                    _ =>
+                    {
+                        if (!IsRuleInScope(intervalRule))
+                            return;
+                        ExecuteRule(intervalRule);
+                    },
                     null,
                     interval, // Initial delay = one interval
                     interval
                 );
-                _intervalTimers[rule.RuleId] = timer;
-                _logger.Info($"  Interval rule {rule.RuleId} scheduled every {rule.IntervalSeconds}s");
+                _intervalTimers[intervalRule.RuleId] = timer;
+                _logger.Info($"  Interval rule {intervalRule.RuleId} scheduled every {intervalRule.IntervalSeconds}s");
             }
 
             _logger.Info($"GatherRuleExecutor: {_activeRules.Count(r => r.Trigger == "startup")} startup, " +
@@ -135,11 +181,43 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
         {
             var phaseName = newPhase.ToString();
 
+            // Update the phase + from-phase latches FIRST so deferred startup activation and
+            // the phase_change rules below all evaluate against the NEW phase.
+            List<GatherRule> deferredStartup;
+            lock (_scopeLock)
+            {
+                _currentPhase = newPhase;
+                EvaluateFromPhaseLatchesLocked();
+
+                deferredStartup = _activeRules
+                    .Where(r => r.Trigger == "startup" && HasPhaseScope(r)
+                                && !_startupRulesExecuted.Contains(r.RuleId)
+                                && IsRuleInScopeLocked(r))
+                    .ToList();
+
+                foreach (var rule in deferredStartup)
+                {
+                    _startupRulesExecuted.Add(rule.RuleId);
+                }
+            }
+
+            foreach (var rule in deferredStartup)
+            {
+                var deferredRule = rule;
+                _logger.Info($"Phase {phaseName} activated deferred startup rule {deferredRule.RuleId}");
+                ThreadPool.QueueUserWorkItem(_ => ExecuteRule(deferredRule));
+            }
+
             foreach (var rule in _activeRules.Where(r => r.Trigger == "phase_change"))
             {
                 if (string.IsNullOrEmpty(rule.TriggerPhase) ||
                     string.Equals(rule.TriggerPhase, phaseName, StringComparison.OrdinalIgnoreCase))
                 {
+                    // Scope gate BEFORE the dedup add — an out-of-scope pass must not consume
+                    // the once-per-(rule, phase) execution slot.
+                    if (!IsRuleInScope(rule))
+                        continue;
+
                     // Deduplicate: only fire once per (ruleId, phase) combination
                     var deduplicationKey = $"{rule.RuleId}|{phaseName}";
                     if (!_phaseRulesExecuted.Add(deduplicationKey))
@@ -163,6 +241,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             {
                 if (string.Equals(rule.TriggerEventType, eventType, StringComparison.OrdinalIgnoreCase))
                 {
+                    if (!IsRuleInScope(rule))
+                        continue;
+
                     _logger.Info($"Event triggered rule {rule.RuleId} (event: {eventType})");
                     ThreadPool.QueueUserWorkItem(_ => ExecuteRule(rule));
                 }
@@ -192,6 +273,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
 
                 if (result.Count > 0)
                 {
+                    // EmitMode "on_change": hash the raw collector result (before ruleId/title
+                    // injection) and only emit when it differs from the last emitted one. An
+                    // empty result never reaches this point, so an emitOnlyIfExists miss neither
+                    // emits nor updates the hash — composing to "one event on appearance, then
+                    // only on change".
+                    if (IsOnChangeMode(rule) && !ShouldEmitOnChange(rule, result))
+                        return;
+
                     result["ruleId"] = rule.RuleId;
                     result["ruleTitle"] = rule.Title;
 
@@ -229,6 +318,199 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             }
         }
 
+        // ===== Phase scope (ActivePhases / ActiveFromPhase) =====
+
+        private static bool HasPhaseScope(GatherRule rule)
+        {
+            return (rule.ActivePhases != null && rule.ActivePhases.Count > 0)
+                || !string.IsNullOrEmpty(rule.ActiveFromPhase);
+        }
+
+        // Internal so the scope matrix is testable synchronously (no timer/ThreadPool races).
+        internal bool IsRuleInScope(GatherRule rule)
+        {
+            lock (_scopeLock)
+            {
+                return IsRuleInScopeLocked(rule);
+            }
+        }
+
+        private bool IsRuleInScopeLocked(GatherRule rule)
+        {
+            if (!HasPhaseScope(rule))
+                return true; // unscoped — legacy behavior
+
+            if (IgnorePhaseScope)
+            {
+                if (_scopeBypassLogged.Add(rule.RuleId))
+                    _logger.Info($"Gather rule {rule.RuleId}: phase scope ignored (diagnostic mode)");
+                return true;
+            }
+
+            // Both fields set is rejected by backend validation; defensively prefer ActivePhases.
+            if (rule.ActivePhases != null && rule.ActivePhases.Count > 0)
+            {
+                // No phase signal yet (or scope tokens that never match, e.g. "Unknown"):
+                // scoped rules stay inactive.
+                if (_currentPhase == EnrollmentPhase.Unknown)
+                    return false;
+
+                var phaseName = _currentPhase.ToString();
+                foreach (var phase in rule.ActivePhases)
+                {
+                    if (string.Equals(phase, phaseName, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+                return false;
+            }
+
+            return _fromPhaseLatched.Contains(rule.RuleId);
+        }
+
+        /// <summary>
+        /// Latches every from-phase rule whose threshold the current phase has reached.
+        /// Never latches on Unknown/Failed (Failed=99 would ordinal-satisfy every threshold);
+        /// once latched a rule stays active for the session — including through Failed.
+        /// Caller must hold <see cref="_scopeLock"/>.
+        /// </summary>
+        private void EvaluateFromPhaseLatchesLocked()
+        {
+            if (_currentPhase == EnrollmentPhase.Unknown || _currentPhase == EnrollmentPhase.Failed)
+                return;
+
+            foreach (var rule in _activeRules)
+            {
+                if (string.IsNullOrEmpty(rule.ActiveFromPhase)) continue;
+                if (rule.ActivePhases != null && rule.ActivePhases.Count > 0) continue; // ActivePhases wins
+                if (_fromPhaseLatched.Contains(rule.RuleId)) continue;
+
+                if (Enum.TryParse<EnrollmentPhase>(rule.ActiveFromPhase, ignoreCase: true, out var fromPhase)
+                    && fromPhase != EnrollmentPhase.Unknown
+                    && fromPhase != EnrollmentPhase.Failed
+                    && (int)_currentPhase >= (int)fromPhase)
+                {
+                    _fromPhaseLatched.Add(rule.RuleId);
+                    _logger.Info($"Gather rule {rule.RuleId}: from-phase scope latched at {_currentPhase} (activeFromPhase={rule.ActiveFromPhase})");
+                }
+            }
+        }
+
+        // ===== Emit mode (on_change) =====
+
+        private static bool IsOnChangeMode(GatherRule rule)
+        {
+            return string.Equals(rule.EmitMode, "on_change", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// on_change decision for a non-empty collector result: true = emit (first result for the
+        /// rule, or the result changed), false = suppress. Hashes the result BEFORE ruleId/title
+        /// injection. On emit after a suppression streak, injects <c>suppressedPolls</c> and
+        /// <c>suppressedSinceUtc</c> into the result so the gap is observable.
+        /// Internal so the state machine is testable synchronously (no timer/ThreadPool races).
+        /// </summary>
+        internal bool ShouldEmitOnChange(GatherRule rule, Dictionary<string, object> result)
+        {
+            var hash = ComputeCanonicalHash(result);
+            bool emit;
+            lock (_scopeLock)
+            {
+                string lastHash;
+                if (_lastEmittedHash.TryGetValue(rule.RuleId, out lastHash) && lastHash == hash)
+                {
+                    (int Count, DateTime SinceUtc) streak;
+                    _suppressed[rule.RuleId] = _suppressed.TryGetValue(rule.RuleId, out streak)
+                        ? (streak.Count + 1, streak.SinceUtc)
+                        : (1, DateTime.UtcNow);
+                    emit = false;
+                }
+                else
+                {
+                    _lastEmittedHash[rule.RuleId] = hash;
+                    (int Count, DateTime SinceUtc) streak;
+                    if (_suppressed.TryGetValue(rule.RuleId, out streak) && streak.Count > 0)
+                    {
+                        result["suppressedPolls"] = streak.Count;
+                        result["suppressedSinceUtc"] = streak.SinceUtc.ToString("o", CultureInfo.InvariantCulture);
+                    }
+                    _suppressed.Remove(rule.RuleId);
+                    emit = true;
+                }
+            }
+
+            if (!emit)
+                _logger.Debug($"Gather rule {rule.RuleId}: result unchanged, emit suppressed (on_change)");
+            return emit;
+        }
+
+        /// <summary>
+        /// Canonical hash of a collector result: keys ordinal-sorted at every dictionary level,
+        /// values rendered with invariant formatting, then SHA-256. Internal for direct test
+        /// coverage of the canonicalization.
+        /// </summary>
+        internal static string ComputeCanonicalHash(Dictionary<string, object> result)
+        {
+            var sb = new StringBuilder();
+            AppendCanonicalValue(sb, result);
+            using (var sha = SHA256.Create())
+            {
+                var hashBytes = sha.ComputeHash(Encoding.UTF8.GetBytes(sb.ToString()));
+                return Convert.ToBase64String(hashBytes);
+            }
+        }
+
+        private static void AppendCanonicalValue(StringBuilder sb, object value)
+        {
+            if (value == null)
+            {
+                sb.Append("<null>");
+                return;
+            }
+
+            // string first — it is IEnumerable and must not be treated as a sequence
+            if (value is string str)
+            {
+                sb.Append('"').Append(str).Append('"');
+                return;
+            }
+
+            if (value is System.Collections.IDictionary dict)
+            {
+                sb.Append('{');
+                var keys = dict.Keys.Cast<object>()
+                    .Select(k => k?.ToString() ?? string.Empty)
+                    .OrderBy(k => k, StringComparer.Ordinal);
+                foreach (var key in keys)
+                {
+                    sb.Append(key).Append('=');
+                    AppendCanonicalValue(sb, dict[key]);
+                    sb.Append(';');
+                }
+                sb.Append('}');
+                return;
+            }
+
+            if (value is System.Collections.IEnumerable sequence)
+            {
+                sb.Append('[');
+                foreach (var item in sequence)
+                {
+                    AppendCanonicalValue(sb, item);
+                    sb.Append(';');
+                }
+                sb.Append(']');
+                return;
+            }
+
+            if (value is IFormattable formattable)
+            {
+                sb.Append(formattable.ToString(null, CultureInfo.InvariantCulture));
+                return;
+            }
+
+            sb.Append(value);
+        }
+
         private EventSeverity ParseSeverity(string severity)
         {
             return GatherRuleContext.ParseSeverity(severity);
@@ -245,7 +527,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
 
         /// <summary>
         /// Blocks until all startup rules that were queued by the most recent <see cref="UpdateRules"/>
-        /// call have finished executing, or the timeout elapses.
+        /// call have finished executing, or the timeout elapses. Deferred scoped startup rules
+        /// (waiting for their phase scope) are not part of the latch.
         /// Returns true if all rules completed within the timeout; false if timed out.
         /// </summary>
         public bool WaitForStartupRules(int timeoutSeconds = 120)
