@@ -129,4 +129,30 @@ public class GetAllTenantConfigurationsFunctionTests
     [Fact]
     public void DelegatedBareArrayView_Empty_Empty()
         => Assert.Empty(GetAllTenantConfigurationsFunction.DelegatedBareArrayView(new TenantConfiguration[0]));
+
+    [Fact]
+    public void MissingManagedIds_ReturnsOnlyIdsWithoutConfig_CaseInsensitive()
+    {
+        var configs = new List<TenantConfiguration>
+        {
+            new() { TenantId = TenantB.ToUpperInvariant() }, // case variant still counts as present
+        };
+
+        var missing = GetAllTenantConfigurationsFunction.MissingManagedIds(new[] { TenantB, TenantC }, configs);
+
+        var only = Assert.Single(missing);
+        Assert.Equal(TenantC, only);
+    }
+
+    [Fact]
+    public void MissingManagedIds_AllPresent_Empty()
+        => Assert.Empty(GetAllTenantConfigurationsFunction.MissingManagedIds(
+            new[] { TenantB },
+            new List<TenantConfiguration> { new() { TenantId = TenantB } }));
+
+    [Fact]
+    public void MissingConfigCacheKey_LowercasesId_SoCaseVariantsShareOneVerdict()
+        => Assert.Equal(
+            GetAllTenantConfigurationsFunction.MissingConfigCacheKey(TenantB),
+            GetAllTenantConfigurationsFunction.MissingConfigCacheKey(TenantB.ToUpperInvariant()));
 }

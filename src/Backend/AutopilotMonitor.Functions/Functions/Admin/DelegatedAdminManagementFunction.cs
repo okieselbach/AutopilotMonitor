@@ -64,19 +64,9 @@ public class DelegatedAdminManagementFunction
         var currentUpn = context.GetRequestContext().UserPrincipalName;
 
         var body = await req.ReadFromJsonAsync<GrantDelegatedAdminRequest>();
-        if (body == null || string.IsNullOrWhiteSpace(body.Upn) || string.IsNullOrWhiteSpace(body.TenantId))
-            return await Bad(req, "upn and tenantId are required");
-
-        // Mirror the tenant-group path: a mistyped tenantId must not create a garbage scope entry
-        // that pollutes the allow-list and seeds a per-tenant audit trail keyed on the typo.
-        if (!Guid.TryParse(body.TenantId, out _))
-            return await Bad(req, "a valid tenantId (GUID) is required");
-
-        // Default to the least-privileged role; reject anything we don't recognize (fail-closed) so a typo
-        // can never silently widen access.
-        var role = string.IsNullOrWhiteSpace(body.Role) ? Constants.DelegatedRoles.DelegatedReader : body.Role;
-        if (role != Constants.DelegatedRoles.DelegatedReader && role != Constants.DelegatedRoles.DelegatedAdmin)
-            return await Bad(req, $"role must be '{Constants.DelegatedRoles.DelegatedReader}' or '{Constants.DelegatedRoles.DelegatedAdmin}'");
+        var validationError = ValidateGrantRequest(body, out var role);
+        if (validationError != null)
+            return await Bad(req, validationError);
 
         // Edition note: TARGET tenants may be any edition — an MSP on Enterprise may manage Community
         // customers. The Enterprise requirement applies to the delegated admin's HOME tenant and is
@@ -84,7 +74,7 @@ public class DelegatedAdminManagementFunction
         // be checked here: at grant time only the UPN is known, and UPN-domain → tenant mapping is not
         // reliable (multi-domain tenants). Grants to non-Enterprise-homed admins are simply inert.
         var entry = await _delegatedAdminService.UpsertAsync(
-            body.Upn, body.TenantId, role,
+            body!.Upn, body.TenantId, role,
             Constants.DelegatedStatus.Active, Constants.DelegatedSource.OperatorGranted, currentUpn ?? "");
 
         await _maintenanceRepo.LogAuditEntryAsync(
@@ -112,10 +102,7 @@ public class DelegatedAdminManagementFunction
         string upn, string tenantId, FunctionContext context)
     {
         var currentUpn = context.GetRequestContext().UserPrincipalName;
-        // The service reports whether a row was actually deleted — a mistyped upn/tenantId must not
-        // 200 and write a false customer-visible "access removed" audit row while the real grant
-        // stays live (mirrors the tenant-group revoke semantics).
-        var removed = await _delegatedAdminService.RemoveAsync(upn, tenantId);
+        var removed = await RevokeCoreAsync(upn, tenantId, currentUpn);
         if (!removed)
         {
             var notFound = req.CreateResponse(HttpStatusCode.NotFound);
@@ -123,18 +110,32 @@ public class DelegatedAdminManagementFunction
             return notFound;
         }
 
-        await _maintenanceRepo.LogAuditEntryAsync(
-            tenantId.ToLowerInvariant(), "DELETE", "DelegatedAdmin", upn.ToLowerInvariant(), currentUpn ?? "");
-
-        // Enforcement: cut the revoked caller's already-joined live streams — group authorization is
-        // join-time only, so without this they keep receiving tenant telemetry until the connection drops.
-        await _signalRService.DisconnectUserAsync(upn.ToLowerInvariant());
-
-        _logger.LogInformation("Delegated revoke: {Upn} -> {TenantId} by {By}", upn, tenantId, currentUpn);
-
         var response = req.CreateResponse(HttpStatusCode.OK);
         await response.WriteAsJsonAsync(new { message = "Delegated assignment revoked" });
         return response;
+    }
+
+    /// <summary>
+    /// Testable core of the revoke flow (no HTTP plumbing — see GetAllBlockedDevicesFunctionTests for the
+    /// convention). Returns false when no assignment row existed (caller 404s): a mistyped upn/tenantId
+    /// must not 200 and write a false customer-visible "access removed" audit row while the real grant
+    /// stays live (mirrors the tenant-group revoke semantics). On a real removal writes the audit entry
+    /// and cuts the revoked UPN's live streams — group authorization is join-time only, so without the
+    /// kick they keep receiving tenant telemetry until the connection drops.
+    /// </summary>
+    internal async Task<bool> RevokeCoreAsync(string upn, string tenantId, string? currentUpn)
+    {
+        var removed = await _delegatedAdminService.RemoveAsync(upn, tenantId);
+        if (!removed)
+            return false;
+
+        await _maintenanceRepo.LogAuditEntryAsync(
+            tenantId.ToLowerInvariant(), "DELETE", "DelegatedAdmin", upn.ToLowerInvariant(), currentUpn ?? "");
+
+        await _signalRService.DisconnectUserAsync(upn.ToLowerInvariant());
+
+        _logger.LogInformation("Delegated revoke: {Upn} -> {TenantId} by {By}", upn, tenantId, currentUpn);
+        return true;
     }
 
     /// <summary>PATCH /api/global/delegated-admins/{upn}/{tenantId}/enable — re-enable a disabled assignment. GlobalAdminOnly.</summary>
@@ -157,7 +158,7 @@ public class DelegatedAdminManagementFunction
         HttpRequestData req, string upn, string tenantId, bool isEnabled, FunctionContext context)
     {
         var currentUpn = context.GetRequestContext().UserPrincipalName;
-        var ok = await _delegatedAdminService.SetEnabledAsync(upn, tenantId, isEnabled);
+        var ok = await SetEnabledCoreAsync(upn, tenantId, isEnabled, currentUpn);
         if (!ok)
         {
             var notFound = req.CreateResponse(HttpStatusCode.NotFound);
@@ -165,20 +166,56 @@ public class DelegatedAdminManagementFunction
             return notFound;
         }
 
+        var response = req.CreateResponse(HttpStatusCode.OK);
+        await response.WriteAsJsonAsync(new { message = isEnabled ? "Delegated assignment enabled" : "Delegated assignment disabled" });
+        return response;
+    }
+
+    /// <summary>
+    /// Testable core of enable/disable (no HTTP plumbing). Returns false when no assignment row
+    /// existed (caller 404s — no audit, no disconnect). Disable is a revocation too, so it cuts the
+    /// UPN's already-joined live streams (see <see cref="RevokeCoreAsync"/>); enable never disconnects.
+    /// </summary>
+    internal async Task<bool> SetEnabledCoreAsync(string upn, string tenantId, bool isEnabled, string? currentUpn)
+    {
+        var ok = await _delegatedAdminService.SetEnabledAsync(upn, tenantId, isEnabled);
+        if (!ok)
+            return false;
+
         await _maintenanceRepo.LogAuditEntryAsync(
             tenantId.ToLowerInvariant(), "UPDATE", "DelegatedAdmin", upn.ToLowerInvariant(), currentUpn ?? "",
             new Dictionary<string, string> { { "IsEnabled", isEnabled.ToString() } });
 
-        // Disable is a revocation too — cut already-joined live streams (see RevokeDelegatedAdmin).
         if (!isEnabled)
             await _signalRService.DisconnectUserAsync(upn.ToLowerInvariant());
 
         _logger.LogInformation("Delegated {Action}: {Upn} -> {TenantId} by {By}",
             isEnabled ? "enable" : "disable", upn, tenantId, currentUpn);
+        return true;
+    }
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = isEnabled ? "Delegated assignment enabled" : "Delegated assignment disabled" });
-        return response;
+    /// <summary>
+    /// Pure grant-request validation (testable seam). Returns the 400 error message, or null when valid —
+    /// then <paramref name="role"/> carries the effective role. A mistyped tenantId must not create a
+    /// garbage scope entry that pollutes the allow-list and seeds a per-tenant audit trail keyed on the
+    /// typo; the role defaults to least-privileged and unknown roles are rejected (fail-closed) so a typo
+    /// can never silently widen access.
+    /// </summary>
+    internal static string? ValidateGrantRequest(GrantDelegatedAdminRequest? body, out string role)
+    {
+        role = Constants.DelegatedRoles.DelegatedReader;
+
+        if (body == null || string.IsNullOrWhiteSpace(body.Upn) || string.IsNullOrWhiteSpace(body.TenantId))
+            return "upn and tenantId are required";
+
+        if (!Guid.TryParse(body.TenantId, out _))
+            return "a valid tenantId (GUID) is required";
+
+        role = string.IsNullOrWhiteSpace(body.Role) ? Constants.DelegatedRoles.DelegatedReader : body.Role!;
+        if (role != Constants.DelegatedRoles.DelegatedReader && role != Constants.DelegatedRoles.DelegatedAdmin)
+            return $"role must be '{Constants.DelegatedRoles.DelegatedReader}' or '{Constants.DelegatedRoles.DelegatedAdmin}'";
+
+        return null;
     }
 
     private static async Task<HttpResponseData> Bad(HttpRequestData req, string error)

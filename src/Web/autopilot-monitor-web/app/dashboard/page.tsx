@@ -1,7 +1,6 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
 import { GlobalAdminBanner } from "@/components/GlobalAdminBanner";

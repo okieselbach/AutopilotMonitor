@@ -31,6 +31,9 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
   const [joinedGroups, setJoinedGroups] = useState<string[]>([]);
   const retryCountRef = useRef(0);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Collapses rapid successive accessRevoked pushes (one per revoked grant) into a single
+  // restart — a second start() on a non-Disconnected connection throws and burns the retry budget.
+  const revokeRestartInFlightRef = useRef(false);
   // Set in onreconnecting, read in onreconnected so we can report downtime as a measurement.
   const disconnectStartedAtRef = useRef<number | null>(null);
   const maxRetries = 3;
@@ -157,12 +160,20 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
     // the next Connected transition — through the join endpoint, which re-runs authorization
     // against the fresh scope. Revoked groups 403; still-authorized streams recover automatically.
     newConnection.on('accessRevoked', async () => {
+      // Dropping an event that arrives mid-restart is safe: the rejoin after start() re-runs
+      // authorization against the CURRENT scope, which already reflects that later revoke.
+      if (revokeRestartInFlightRef.current) return;
+      revokeRestartInFlightRef.current = true;
       console.warn('[SignalR] accessRevoked received — restarting connection to re-authorize group memberships');
       trackEvent('signalr_access_revoked');
       try {
         await newConnection.stop();
       } catch { /* proceed to restart regardless */ }
-      startConnection();
+      try {
+        await startConnection();
+      } finally {
+        revokeRestartInFlightRef.current = false;
+      }
     });
 
     // Start as soon as the user is authenticated. The previous 2s setTimeout

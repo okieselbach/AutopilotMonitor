@@ -136,6 +136,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
                 }
 
                 watcher.Start();
+
+                // Re-check after arming: Dispose() may have run between the lock release above and
+                // Start() — it then stopped a not-yet-armed watcher and this thread armed it right
+                // back, leaving a WMI subscription no code path could ever reach again. If disposal
+                // won that race, tear the watcher down here.
+                bool disposedDuringArm;
+                lock (_lock)
+                {
+                    disposedDuringArm = _disposed;
+                    if (disposedDuringArm) _startWatcher = null;
+                }
+                if (disposedDuringArm)
+                {
+                    try { watcher.EventArrived -= OnProcessStartTrace; } catch { }
+                    try { watcher.Stop(); } catch { }
+                    try { watcher.Dispose(); } catch { }
+                    return;
+                }
+
                 _logger.Info($"[ConsoleBypassWatcher] watching Win32_ProcessStartTrace for " +
                     $"{string.Join(", ", WatchedProcessNames)} (interactive-session + bare command line)");
             }

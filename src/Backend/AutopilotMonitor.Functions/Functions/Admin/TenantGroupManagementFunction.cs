@@ -112,15 +112,26 @@ public class TenantGroupManagementFunction
         string groupId, FunctionContext context)
     {
         var currentUpn = context.GetRequestContext().UserPrincipalName;
+        await DeleteGroupCoreAsync(groupId, currentUpn);
 
-        // Capture tenants + assignees BEFORE the cascade delete removes them, so we can audit the
-        // bulk access removal under each affected tenant and cut every assignee's live streams.
+        var response = req.CreateResponse(HttpStatusCode.OK);
+        await response.WriteAsJsonAsync(new { message = "Group deleted" });
+        return response;
+    }
+
+    /// <summary>
+    /// Testable core of the group cascade delete (no HTTP plumbing). Captures tenants + assignees
+    /// BEFORE the delete removes them, so the bulk access removal is audited under each affected
+    /// tenant and EVERY (former) assignee's live streams are cut — group authorization is join-time
+    /// only, so without the kick they keep receiving the managed tenants' telemetry until their
+    /// connection drops.
+    /// </summary>
+    internal async Task DeleteGroupCoreAsync(string groupId, string? currentUpn)
+    {
         var group = await _delegatedAdminService.GetGroupAsync(groupId);
         var assignees = await _delegatedAdminService.GetGroupAssigneesAsync(groupId);
         await _delegatedAdminService.DeleteGroupAsync(groupId);
 
-        // Enforcement: group authorization is join-time only — without the kick, every (former)
-        // assignee keeps receiving the managed tenants' live telemetry until their connection drops.
         foreach (var assignee in assignees)
             await _signalRService.DisconnectUserAsync(assignee.Upn);
 
@@ -137,10 +148,6 @@ public class TenantGroupManagementFunction
         }
 
         _logger.LogInformation("Tenant group deleted: {GroupId} by {By}", groupId, currentUpn);
-
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Group deleted" });
-        return response;
     }
 
     /// <summary>POST /api/global/tenant-groups/{groupId}/tenants — add a tenant. GlobalAdminOnly. Body: { "tenantId": "&lt;guid&gt;" }.</summary>
@@ -271,17 +278,31 @@ public class TenantGroupManagementFunction
         string groupId, string upn, FunctionContext context)
     {
         var currentUpn = context.GetRequestContext().UserPrincipalName;
+        var unassigned = await UnassignCoreAsync(groupId, upn, currentUpn);
+        if (!unassigned)
+            return await NotFound(req);
+
+        var response = req.CreateResponse(HttpStatusCode.OK);
+        await response.WriteAsJsonAsync(new { message = "Unassigned from group" });
+        return response;
+    }
+
+    /// <summary>
+    /// Testable core of the unassign flow (no HTTP plumbing). Returns false when the UPN was not
+    /// actually assigned (caller 404s) — so a mistyped UPN can't 200 and write false "access removed"
+    /// audit rows, and no disconnect fires. On a real unassign cuts the UPN's already-joined live
+    /// streams (join-time-only authz) and audits the lost access under each of the group's tenants.
+    /// </summary>
+    internal async Task<bool> UnassignCoreAsync(string groupId, string upn, string? currentUpn)
+    {
         var normalizedUpn = upn.ToLowerInvariant();
 
         // Read the group's tenants (unchanged by unassign) so we can audit the UPN's lost access per tenant.
         var group = await _delegatedAdminService.GetGroupAsync(groupId);
-        // The service returns false when the UPN was not actually assigned — so a mistyped UPN can't 200 and
-        // write false "access removed" audit rows. Only audit after a real unassign.
         var unassigned = await _delegatedAdminService.UnassignGroupAsync(normalizedUpn, groupId);
         if (!unassigned)
-            return await NotFound(req);
+            return false;
 
-        // Enforcement: cut the unassigned caller's already-joined live streams (join-time-only authz).
         await _signalRService.DisconnectUserAsync(normalizedUpn);
 
         if (group != null)
@@ -296,10 +317,7 @@ public class TenantGroupManagementFunction
         }
 
         _logger.LogInformation("Group {GroupId} unassigned from {Upn} by {By}", groupId, normalizedUpn, currentUpn);
-
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Unassigned from group" });
-        return response;
+        return true;
     }
 
     /// <summary>Logs one audit entry per tenant (the customer-visible "who can read my tenant" trail).</summary>

@@ -10,6 +10,7 @@ using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Pagination;
 using Microsoft.Azure.Functions.Worker;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
 
@@ -17,15 +18,23 @@ namespace AutopilotMonitor.Functions.Functions.Config
 {
     public class GetAllTenantConfigurationsFunction
     {
+        // TTL for the "this managed id has NO config row in any casing" verdict a rescue scan proved.
+        // Bounds how long a tenant onboarded moments after that scan stays absent from a delegated
+        // caller's config/all (matches the positive config cache TTL in TenantConfigurationService).
+        private static readonly TimeSpan MissingConfigNegativeCacheDuration = TimeSpan.FromMinutes(5);
+
         private readonly ILogger<GetAllTenantConfigurationsFunction> _logger;
         private readonly TenantConfigurationService _configService;
+        private readonly IMemoryCache _cache;
 
         public GetAllTenantConfigurationsFunction(
             ILogger<GetAllTenantConfigurationsFunction> logger,
-            TenantConfigurationService configService)
+            TenantConfigurationService configService,
+            IMemoryCache cache)
         {
             _logger = logger;
             _configService = configService;
+            _cache = cache;
         }
 
         [Function("GetAllTenantConfigurations")]
@@ -73,9 +82,21 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     // (agent paths auto-create rows with the caller-supplied id verbatim) — the same caveat
                     // the delegated sessions fan-out handles case-insensitively. A point-read is exact-case,
                     // so any id it missed gets ONE scan+filter rescue pass (the pre-point-read behavior).
-                    // Only stale grants or case-variant rows pay for it; the common path stays read-bounded.
+                    // An id a previous scan already proved missing in ANY casing is negative-cached and
+                    // skipped for the TTL — otherwise a single stale grant (offboarded / never-onboarded
+                    // tenant) would make EVERY config/all call pay a full table scan.
                     if (subset.Count < managedIds.Count)
-                        subset = MergeRescuedConfigs(managedIds, subset, await _configService.GetAllConfigurationsAsync());
+                    {
+                        var unproven = MissingManagedIds(managedIds, subset)
+                            .Where(id => !_cache.TryGetValue(MissingConfigCacheKey(id), out _))
+                            .ToList();
+                        if (unproven.Count > 0)
+                        {
+                            subset = MergeRescuedConfigs(managedIds, subset, await _configService.GetAllConfigurationsAsync());
+                            foreach (var id in MissingManagedIds(unproven, subset))
+                                _cache.Set(MissingConfigCacheKey(id), true, MissingConfigNegativeCacheDuration);
+                        }
+                    }
                     _logger.LogInformation("GetAllTenantConfigurations (delegated subset, {Count} tenants) by {User}",
                         subset.Count, userIdentifier);
 
@@ -176,6 +197,23 @@ namespace AutopilotMonitor.Functions.Functions.Config
         internal static List<TenantConfiguration> ExistingManagedConfigs(
             IEnumerable<TenantConfiguration?> reads)
             => reads.Where(c => c != null).Select(c => c!).ToList();
+
+        /// <summary>
+        /// The managed ids not present (case-insensitively) in <paramref name="configs"/> — before the
+        /// rescue scan these are the point-read misses, after it the proven-missing ids to negative-cache.
+        /// Pure + testable.
+        /// </summary>
+        internal static List<string> MissingManagedIds(
+            IEnumerable<string> managedIds, IReadOnlyCollection<TenantConfiguration> configs)
+        {
+            var have = new HashSet<string>(configs.Select(c => c.TenantId), StringComparer.OrdinalIgnoreCase);
+            return managedIds.Where(id => !have.Contains(id)).ToList();
+        }
+
+        /// <summary>Negative-cache key for a managed id a rescue scan proved has no config row.
+        /// Lowercased so case variants of the same grant share one verdict.</summary>
+        internal static string MissingConfigCacheKey(string tenantId)
+            => $"tenant-config-missing:{tenantId.ToLowerInvariant()}";
 
         /// <summary>
         /// Case-variant rescue for managed ids the exact-case point-reads missed: from the full config scan,
