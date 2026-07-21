@@ -48,8 +48,11 @@ export default function TermsPage() {
 
           <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded">
             <p className="text-blue-900 text-sm">
-              <strong>Business use only.</strong> Autopilot Monitor is offered exclusively to businesses and
-              organizations acting in a commercial or professional capacity. It is not offered to consumers.
+              <strong>Who can use it.</strong> Autopilot Monitor requires a Microsoft Entra ID tenant with Intune and
+              registered Autopilot devices. The <strong>Community</strong> plan is open to anyone with such a tenant —
+              organizations, non-profits, and individuals running their own lab or personal tenant alike. The{" "}
+              <strong>Enterprise</strong> plan is a commercial agreement and is offered to businesses and organizations
+              acting in a commercial or professional capacity.
             </p>
           </div>
         </div>

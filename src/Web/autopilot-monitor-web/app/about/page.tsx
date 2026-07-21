@@ -26,9 +26,9 @@ const FEATURES = [
   {
     title: "Diagnostics Collection",
     description:
-      "Trigger on-demand diagnostic uploads directly from the portal. Collect ETL logs, event logs, IME logs, and system information from any enrolled device without local access.",
+      "Collect agent logs, IME logs, agent state, and device information as a ZIP bundle at the end of an enrollment — then download it from the session view without touching the device.",
     color: "green",
-    bullets: ["On-demand ZIP bundle upload", "ETL, event & IME log collection", "Configurable log path rules"],
+    bullets: ["Configurable upload: off, always, or on failure", "Agent, IME & device information bundle", "Configurable additional log paths"],
   },
   {
     title: "Detailed Event Timeline",
@@ -40,7 +40,7 @@ const FEATURES = [
   {
     title: "Audit Logging & Compliance",
     description:
-      "Complete audit trail of all administrative actions and configuration changes. Meet compliance requirements with detailed, tamper-evident records and configurable data retention.",
+      "Complete audit trail of all administrative actions and configuration changes. Meet compliance requirements with detailed, tenant-scoped records and configurable data retention.",
     color: "red",
     bullets: ["Admin action history", "Configurable retention policies", "Tenant-scoped audit log"],
   },
@@ -138,7 +138,7 @@ export default function AboutPage() {
               {
                 title: "MSPs & Enterprise Teams",
                 description:
-                  "Autopilot Monitor supports multi-tenant deployments — each customer tenant runs its own isolated instance. MSPs with login access to a customer environment can use the portal for that tenant independently.",
+                  "Autopilot Monitor is a multi-tenant service with strict per-tenant data isolation — telemetry, configuration, and diagnostics are partitioned and access-scoped to each tenant. MSPs can be granted delegated read access across several customer tenants from a single login.",
               },
             ].map((item) => (
               <div key={item.title} className="rounded-lg bg-blue-50 border border-blue-100 p-4">
@@ -165,7 +165,7 @@ export default function AboutPage() {
               { step: "2", text: "The bootstrapper installs the Autopilot Monitor Agent on each enrolling device." },
               { step: "3", text: "The agent captures live enrollment events and uploads them to the backend pipeline." },
               { step: "4", text: "The portal displays real-time session data, analyze rule results, and fleet health metrics." },
-              { step: "5", text: "On completion, the agent optionally self-destructs and uploads a diagnostics bundle." },
+              { step: "5", text: "On completion, the agent uploads a diagnostics bundle if configured, then removes itself." },
             ].map((item) => (
               <li key={item.step} className="flex items-start gap-3 text-sm text-gray-700">
                 <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white text-xs font-bold">
@@ -189,7 +189,7 @@ export default function AboutPage() {
               {
                 title: "Backend",
                 items: [
-                  "Azure Functions (.NET 8 Isolated) — serverless, scalable API",
+                  "Azure Functions (.NET 10 Isolated, Flex Consumption) — serverless, scalable API",
                   "Azure Table Storage — high-throughput event ingestion",
                   "Azure Blob Storage — diagnostics and log bundle storage",
                   "Azure SignalR Service — real-time push to the portal",
@@ -198,10 +198,10 @@ export default function AboutPage() {
               {
                 title: "Portal (Web Frontend)",
                 items: [
-                  "Next.js 18 + TypeScript — fast, server-rendered React app",
+                  "Next.js 15 (React 18) + TypeScript — fast, server-rendered React app",
                   "Microsoft Entra ID (MSAL) — secure authentication",
-                  "Role-based access control (Admin / Operator)",
-                  "Multi-tenant architecture",
+                  "Role-based access control (Admin / Operator / Viewer)",
+                  "Multi-tenant architecture with delegated MSP access",
                 ],
               },
               {
@@ -209,16 +209,16 @@ export default function AboutPage() {
                 items: [
                   ".NET binary — lightweight, low-overhead monitoring",
                   "Runs via scheduled task (no Windows service — easy, residue-free removal)",
-                  "Deployed via Intune bootstrapper script (Win32 app)",
-                  "Client certificate authentication",
-                  "Optional self-destruct on enrollment completion",
+                  "Deployed via an Intune platform script (PowerShell bootstrapper)",
+                  "Mutual TLS using the existing Intune MDM device certificate",
+                  "Self-destruct on enrollment completion (on by default — removes task and files)",
                 ],
               },
               {
                 title: "Integrations",
                 items: [
                   "Microsoft Intune — agent deployment target",
-                  "Microsoft Teams — enrollment failure notifications",
+                  "Microsoft Teams, Slack & generic JSON webhooks — start, success, failure and SLA alerts",
                   "Intune Management Extension (IME) log — event source for log pattern detection",
                   "WMI & Registry — extended data gather rules",
                 ],
