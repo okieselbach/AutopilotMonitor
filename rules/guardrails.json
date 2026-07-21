@@ -109,6 +109,79 @@
     "SELECT * FROM Win32_LogicalDisk",
     "SELECT * FROM SoftwareLicensingProduct"
   ],
+  "eventLogChannels": [
+    {
+      "category": "Core Windows logs",
+      "channels": [
+        "Application",
+        "System",
+        "Setup",
+        "Microsoft-Windows-Kernel-Boot",
+        "Microsoft-Windows-Diagnostics-Performance"
+      ]
+    },
+    {
+      "category": "MDM / Enrollment",
+      "channels": [
+        "Microsoft-Windows-DeviceManagement-Enterprise-Diagnostics-Provider",
+        "Microsoft-Windows-ModernDeployment-Diagnostics-Provider",
+        "Microsoft-Windows-Provisioning-Diagnostics-Provider",
+        "Microsoft-Windows-AAD",
+        "Microsoft-Windows-User Device Registration"
+      ]
+    },
+    {
+      "category": "ESP / Shell / Apps",
+      "channels": [
+        "Microsoft-Windows-Shell-Core",
+        "Microsoft-Windows-AppXDeployment",
+        "Microsoft-Windows-AppXDeploymentServer",
+        "Microsoft-Windows-AppReadiness",
+        "Microsoft-Windows-Store"
+      ]
+    },
+    {
+      "category": "Security posture / Crypto",
+      "channels": [
+        "Microsoft-Windows-BitLocker-API",
+        "Microsoft-Windows-BitLocker-DrivePreparationTool",
+        "Microsoft-Windows-TPM-WMI",
+        "Microsoft-Windows-CertificateServicesClient-Lifecycle-System"
+      ]
+    },
+    {
+      "category": "Update / Servicing",
+      "channels": [
+        "Microsoft-Windows-WindowsUpdateClient"
+      ]
+    },
+    {
+      "category": "Logon / Session",
+      "channels": [
+        "Microsoft-Windows-Winlogon",
+        "Microsoft-Windows-User Profile Service",
+        "Microsoft-Windows-GroupPolicy",
+        "Microsoft-Windows-TaskScheduler"
+      ]
+    },
+    {
+      "category": "Network",
+      "channels": [
+        "Microsoft-Windows-NetworkProfile",
+        "Microsoft-Windows-Dhcp-Client",
+        "Microsoft-Windows-DNS-Client",
+        "Microsoft-Windows-NCSI",
+        "Microsoft-Windows-WLAN-AutoConfig",
+        "Microsoft-Windows-Time-Service"
+      ]
+    }
+  ],
+  "blockedEventLogChannels": [
+    "Security",
+    "Microsoft-Windows-PowerShell",
+    "Windows PowerShell",
+    "Microsoft-Windows-Sysmon"
+  ],
   "allowedCommands": [
     {
       "category": "TPM and Security",

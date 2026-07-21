@@ -34,11 +34,30 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
             if (filePath == null)
                 return null; // Token present but no user logged on — skip silently
 
-            // Apply IME log path override if set
+            // Apply IME log path override if set. The override comes from the local
+            // --ime-log-path flag only (never from remote config), so the operator
+            // running it is already a local admin — it relaxes the allowlist the same
+            // way unrestricted mode does, while the hard blocks below still apply.
+            var localOverride = false;
             if (!string.IsNullOrEmpty(context.ImeLogPathOverride))
             {
                 var fileName = Path.GetFileName(filePath);
                 filePath = Path.Combine(context.ImeLogPathOverride, fileName);
+                localOverride = true;
+            }
+
+            var relaxAllowlist = context.UnrestrictedMode || localOverride;
+
+            // Guard: only allow enrollment-relevant file paths. Checked before resolution
+            // so a blocked target is reported even when no file matches it. A wildcard
+            // target is checked by its directory — Path.GetFullPath rejects '*' and '?'.
+            var guardPath = HasWildcard(Path.GetFileName(filePath))
+                ? Path.GetDirectoryName(filePath)
+                : filePath;
+            if (!GatherRuleGuards.IsFilePathAllowed(guardPath, relaxAllowlist, userProfilePath))
+            {
+                context.EmitSecurityWarning(rule, "logparser", filePath);
+                return null;
             }
 
             // Get parameters
@@ -87,18 +106,30 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
 
             foreach (var resolvedPath in resolvedPaths)
             {
+                // Re-check each resolved path: wildcard expansion can surface files
+                // reached through a junction that the directory check did not cover.
+                if (!GatherRuleGuards.IsFilePathAllowed(resolvedPath, relaxAllowlist, userProfilePath))
+                {
+                    context.EmitSecurityWarning(rule, "logparser", resolvedPath);
+                    continue;
+                }
+
                 ProcessLogFile(resolvedPath, rule, pattern, trackPosition, maxLines, isTextMode, context);
             }
 
             return null;
         }
 
+        private static bool HasWildcard(string fileNamePart)
+            => !string.IsNullOrEmpty(fileNamePart) &&
+               (fileNamePart.Contains("*") || fileNamePart.Contains("?"));
+
         private static List<string> ResolveLogPaths(string filePath, string ruleId, GatherRuleContext context)
         {
             var fileNamePart = Path.GetFileName(filePath);
 
             // No wildcards — single file
-            if (!fileNamePart.Contains("*") && !fileNamePart.Contains("?"))
+            if (!HasWildcard(fileNamePart))
             {
                 if (File.Exists(filePath))
                     return new List<string> { filePath };

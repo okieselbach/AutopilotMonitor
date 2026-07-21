@@ -13,10 +13,12 @@ import {
   ALLOWED_COMMANDS_LIST,
   ALLOWED_DIAGNOSTICS_PATH_PREFIXES,
   BLOCKED_FILE_PREFIXES,
+  ALLOWED_EVENT_LOG_CHANNELS,
+  BLOCKED_EVENT_LOG_CHANNELS,
 } from "./guardrails.generated";
 
 // Re-export for consumers that imported from here
-export { ALLOWED_REGISTRY_PREFIXES, ALLOWED_FILE_PREFIXES, ALLOWED_WMI_QUERY_PREFIXES, ALLOWED_COMMANDS_LIST, ALLOWED_DIAGNOSTICS_PATH_PREFIXES };
+export { ALLOWED_REGISTRY_PREFIXES, ALLOWED_FILE_PREFIXES, ALLOWED_WMI_QUERY_PREFIXES, ALLOWED_COMMANDS_LIST, ALLOWED_DIAGNOSTICS_PATH_PREFIXES, ALLOWED_EVENT_LOG_CHANNELS };
 
 // ---------------------------------------------------------------------------
 // Result type
@@ -363,12 +365,60 @@ export function validateDiagnosticsPath(
 }
 
 // ---------------------------------------------------------------------------
+// Event log channels
+// ---------------------------------------------------------------------------
+
+/**
+ * Channel names match with a boundary on "/" so that "Microsoft-Windows-AAD"
+ * admits "Microsoft-Windows-AAD/Operational" but not a longer provider name.
+ */
+function matchesChannel(channel: string, prefix: string): boolean {
+  const c = channel.toLowerCase();
+  const p = prefix.toLowerCase();
+  return c === p || c.startsWith(p + "/");
+}
+
+export function validateEventLogTarget(
+  target: string,
+  unrestrictedMode: boolean
+): ValidationResult {
+  const channel = target.trim();
+
+  const blocked = BLOCKED_EVENT_LOG_CHANNELS.find((b) => matchesChannel(channel, b));
+  if (blocked) {
+    return {
+      allowed: false,
+      reason: `"${blocked}" is never readable — it carries the audit trail or script-block logging`,
+      unrestricted: false,
+    };
+  }
+
+  if (ALLOWED_EVENT_LOG_CHANNELS.some((a) => matchesChannel(channel, a))) {
+    return { allowed: true, reason: "Channel is on the allowlist", unrestricted: false };
+  }
+
+  if (unrestrictedMode) {
+    return {
+      allowed: true,
+      reason: "Allowed only because unrestricted mode is enabled",
+      unrestricted: true,
+    };
+  }
+
+  return {
+    allowed: false,
+    reason: "Not an allowed event log channel",
+    unrestricted: false,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Dispatcher — routes to the correct validator by collector type
 // ---------------------------------------------------------------------------
 
 /**
  * Validate a gather rule target. Returns null for empty targets or
- * collector types that don't need path validation (eventlog).
+ * collector types that have no allowlist.
  */
 export function validateGatherRuleTarget(
   collectorType: string,
@@ -391,7 +441,7 @@ export function validateGatherRuleTarget(
     case "command":
       return validateCommandTarget(target, unrestrictedMode);
     case "eventlog":
-      return null; // Event log channel names are not path-validated
+      return validateEventLogTarget(target, unrestrictedMode);
     default:
       return null;
   }

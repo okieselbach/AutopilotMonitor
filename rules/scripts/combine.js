@@ -91,6 +91,7 @@ if (fs.existsSync(guardrailsPath)) {
   // Flatten categorized lists for validation
   const flatRegistryPrefixes = guardrails.registryPrefixes.flatMap((g) => g.prefixes);
   const flatCommands = guardrails.allowedCommands.flatMap((g) => g.commands);
+  const flatEventLogChannels = guardrails.eventLogChannels.flatMap((g) => g.channels);
 
   const ts = `/**
  * AUTO-GENERATED from rules/guardrails.json — DO NOT EDIT.
@@ -112,6 +113,10 @@ ${categorizedArray(guardrails.registryPrefixes, 'prefixes')}
 
 export const COMMAND_CATEGORIES: readonly GuardrailCategory[] = [
 ${categorizedArray(guardrails.allowedCommands, 'commands')}
+];
+
+export const EVENT_LOG_CHANNEL_CATEGORIES: readonly GuardrailCategory[] = [
+${categorizedArray(guardrails.eventLogChannels, 'channels')}
 ];
 
 // ---------------------------------------------------------------------------
@@ -141,10 +146,18 @@ ${flatArray(guardrails.diagnosticsPathPrefixes)}
 export const BLOCKED_FILE_PREFIXES: readonly string[] = [
 ${flatArray(guardrails.blockedFilePrefixes)}
 ];
+
+export const ALLOWED_EVENT_LOG_CHANNELS: readonly string[] = [
+${flatArray(flatEventLogChannels)}
+];
+
+export const BLOCKED_EVENT_LOG_CHANNELS: readonly string[] = [
+${flatArray(guardrails.blockedEventLogChannels)}
+];
 `;
 
   fs.writeFileSync(guardrailsOutput, ts, 'utf8');
-  console.log(`guardrails.generated.ts: ${flatRegistryPrefixes.length} registry, ${flatCommands.length} commands, ${guardrails.filePrefixes.length} file prefixes`);
+  console.log(`guardrails.generated.ts: ${flatRegistryPrefixes.length} registry, ${flatCommands.length} commands, ${guardrails.filePrefixes.length} file prefixes, ${flatEventLogChannels.length} event log channels`);
 } else {
   console.warn('guardrails.json not found — skipping guardrails generation');
 }

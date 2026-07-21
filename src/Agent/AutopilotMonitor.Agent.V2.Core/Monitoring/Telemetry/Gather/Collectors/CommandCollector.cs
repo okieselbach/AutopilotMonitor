@@ -12,6 +12,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
     {
         public string CollectorType => "command_allowlisted";
 
+        private const int CommandTimeoutMs = 30000;
+
+        /// <summary>
+        /// Returns what the reader captured, or an empty string if it did not finish
+        /// (a killed process can leave the read faulted or still pending).
+        /// </summary>
+        private static string DrainOrEmpty(System.Threading.Tasks.Task<string> readTask)
+        {
+            try
+            {
+                return readTask.Wait(2000) ? readTask.Result : string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
         public Dictionary<string, object> Execute(GatherRule rule, GatherRuleContext context)
         {
             var data = new Dictionary<string, object>();
@@ -81,12 +99,29 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
 
                 using (var process = Process.Start(psi))
                 {
-                    var output = process.StandardOutput.ReadToEnd();
-                    var error = process.StandardError.ReadToEnd();
-                    process.WaitForExit(30000); // 30 second timeout
+                    // Read asynchronously: a synchronous ReadToEnd() blocks until the pipe
+                    // closes, which only happens when the process exits — the WaitForExit
+                    // timeout below would never be reached and a hung command would pin
+                    // this worker forever.
+                    var outputTask = process.StandardOutput.ReadToEndAsync();
+                    var errorTask = process.StandardError.ReadToEndAsync();
+
+                    var exited = process.WaitForExit(CommandTimeoutMs);
+                    if (!exited)
+                    {
+                        context.Logger.Warning(
+                            $"Command timed out after {CommandTimeoutMs / 1000}s, killing: {command} (Rule: {rule.RuleId})");
+                        try { process.Kill(); } catch { /* already gone */ }
+                        // Give the readers a moment to drain once the pipes close.
+                        try { process.WaitForExit(5000); } catch { /* best effort */ }
+                        data["timed_out"] = true;
+                    }
 
                     data["command"] = command;
-                    data["exit_code"] = process.ExitCode;
+                    data["exit_code"] = exited ? process.ExitCode : -1;
+
+                    var output = DrainOrEmpty(outputTask);
+                    var error = DrainOrEmpty(errorTask);
 
                     if (!string.IsNullOrWhiteSpace(output))
                     {

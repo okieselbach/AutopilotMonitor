@@ -17,6 +17,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
             if (string.IsNullOrEmpty(logName))
                 return data;
 
+            // Guard: only allow enrollment-relevant channels
+            if (!GatherRuleGuards.IsEventLogChannelAllowed(logName, context.UnrestrictedMode))
+                return context.EmitSecurityWarning(rule, "eventlog", logName);
+
             // Optional: escalate severity when matching entries are found
             string severityIfFound = null;
             rule.Parameters?.TryGetValue("severityIfFound", out severityIfFound);

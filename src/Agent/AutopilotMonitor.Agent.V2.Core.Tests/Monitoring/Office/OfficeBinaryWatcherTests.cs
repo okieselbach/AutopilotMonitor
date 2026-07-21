@@ -17,6 +17,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Office
     /// cadence and stops at its bound, is idempotent, the initial scan raises when binaries already
     /// exist, a filesystem create raises, and Dispose cancels the re-probe.
     /// </summary>
+    [Collection("SerialThreading")] // the bounded re-probe runs on the shared ThreadPool
     public sealed class OfficeBinaryWatcherTests
     {
         private static readonly string[] CoreBinaries = { "WINWORD.EXE", "EXCEL.EXE", "POWERPNT.EXE", "OUTLOOK.EXE" };

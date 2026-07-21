@@ -153,6 +153,74 @@ export const COMMAND_CATEGORIES: readonly GuardrailCategory[] = [
   },
 ];
 
+export const EVENT_LOG_CHANNEL_CATEGORIES: readonly GuardrailCategory[] = [
+  {
+    category: "Core Windows logs",
+    items: [
+      "Application",
+      "System",
+      "Setup",
+      "Microsoft-Windows-Kernel-Boot",
+      "Microsoft-Windows-Diagnostics-Performance",
+    ],
+  },
+  {
+    category: "MDM / Enrollment",
+    items: [
+      "Microsoft-Windows-DeviceManagement-Enterprise-Diagnostics-Provider",
+      "Microsoft-Windows-ModernDeployment-Diagnostics-Provider",
+      "Microsoft-Windows-Provisioning-Diagnostics-Provider",
+      "Microsoft-Windows-AAD",
+      "Microsoft-Windows-User Device Registration",
+    ],
+  },
+  {
+    category: "ESP / Shell / Apps",
+    items: [
+      "Microsoft-Windows-Shell-Core",
+      "Microsoft-Windows-AppXDeployment",
+      "Microsoft-Windows-AppXDeploymentServer",
+      "Microsoft-Windows-AppReadiness",
+      "Microsoft-Windows-Store",
+    ],
+  },
+  {
+    category: "Security posture / Crypto",
+    items: [
+      "Microsoft-Windows-BitLocker-API",
+      "Microsoft-Windows-BitLocker-DrivePreparationTool",
+      "Microsoft-Windows-TPM-WMI",
+      "Microsoft-Windows-CertificateServicesClient-Lifecycle-System",
+    ],
+  },
+  {
+    category: "Update / Servicing",
+    items: [
+      "Microsoft-Windows-WindowsUpdateClient",
+    ],
+  },
+  {
+    category: "Logon / Session",
+    items: [
+      "Microsoft-Windows-Winlogon",
+      "Microsoft-Windows-User Profile Service",
+      "Microsoft-Windows-GroupPolicy",
+      "Microsoft-Windows-TaskScheduler",
+    ],
+  },
+  {
+    category: "Network",
+    items: [
+      "Microsoft-Windows-NetworkProfile",
+      "Microsoft-Windows-Dhcp-Client",
+      "Microsoft-Windows-DNS-Client",
+      "Microsoft-Windows-NCSI",
+      "Microsoft-Windows-WLAN-AutoConfig",
+      "Microsoft-Windows-Time-Service",
+    ],
+  },
+];
+
 // ---------------------------------------------------------------------------
 // Flat arrays (for validation logic)
 // ---------------------------------------------------------------------------
@@ -245,4 +313,44 @@ export const ALLOWED_DIAGNOSTICS_PATH_PREFIXES: readonly string[] = [
 
 export const BLOCKED_FILE_PREFIXES: readonly string[] = [
   "C:\\Users",
+];
+
+export const ALLOWED_EVENT_LOG_CHANNELS: readonly string[] = [
+  "Application",
+  "System",
+  "Setup",
+  "Microsoft-Windows-Kernel-Boot",
+  "Microsoft-Windows-Diagnostics-Performance",
+  "Microsoft-Windows-DeviceManagement-Enterprise-Diagnostics-Provider",
+  "Microsoft-Windows-ModernDeployment-Diagnostics-Provider",
+  "Microsoft-Windows-Provisioning-Diagnostics-Provider",
+  "Microsoft-Windows-AAD",
+  "Microsoft-Windows-User Device Registration",
+  "Microsoft-Windows-Shell-Core",
+  "Microsoft-Windows-AppXDeployment",
+  "Microsoft-Windows-AppXDeploymentServer",
+  "Microsoft-Windows-AppReadiness",
+  "Microsoft-Windows-Store",
+  "Microsoft-Windows-BitLocker-API",
+  "Microsoft-Windows-BitLocker-DrivePreparationTool",
+  "Microsoft-Windows-TPM-WMI",
+  "Microsoft-Windows-CertificateServicesClient-Lifecycle-System",
+  "Microsoft-Windows-WindowsUpdateClient",
+  "Microsoft-Windows-Winlogon",
+  "Microsoft-Windows-User Profile Service",
+  "Microsoft-Windows-GroupPolicy",
+  "Microsoft-Windows-TaskScheduler",
+  "Microsoft-Windows-NetworkProfile",
+  "Microsoft-Windows-Dhcp-Client",
+  "Microsoft-Windows-DNS-Client",
+  "Microsoft-Windows-NCSI",
+  "Microsoft-Windows-WLAN-AutoConfig",
+  "Microsoft-Windows-Time-Service",
+];
+
+export const BLOCKED_EVENT_LOG_CHANNELS: readonly string[] = [
+  "Security",
+  "Microsoft-Windows-PowerShell",
+  "Windows PowerShell",
+  "Microsoft-Windows-Sysmon",
 ];

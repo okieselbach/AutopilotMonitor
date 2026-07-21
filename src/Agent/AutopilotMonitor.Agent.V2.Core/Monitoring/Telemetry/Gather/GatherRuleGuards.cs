@@ -33,6 +33,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
         public static readonly IReadOnlyList<string> AllowedFilePrefixes;
         public static readonly IReadOnlyList<string> AllowedWmiQueryPrefixes;
         public static readonly IReadOnlyCollection<string> AllowedCommands;
+        public static readonly IReadOnlyList<string> AllowedEventLogChannels;
 
         // Hard blocks: never allowed, even in unrestricted mode
         private static readonly string BlockedUsersPrefix = Path.GetFullPath(@"C:\Users");
@@ -50,6 +51,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
 
         // Hard limit: maximum command length (even in unrestricted mode)
         private const int MaxCommandLength = 2000;
+
+        // Event log channels that are never readable, even in unrestricted mode.
+        // Security carries the audit trail of user behaviour; the PowerShell channels
+        // carry script-block logging, which routinely contains secrets in clear text.
+        // Mirrored in rules/guardrails.json ("blockedEventLogChannels") for the portal
+        // to display — enforcement lives here so a parse error cannot lift it.
+        private static readonly string[] HardBlockedEventLogChannels = new[]
+        {
+            "Security",
+            "Microsoft-Windows-PowerShell",
+            "Windows PowerShell",
+            "Microsoft-Windows-Sysmon",
+        };
 
         // Hard-blocked command patterns: never allowed, even in unrestricted mode.
         // These prevent privilege escalation, persistence, and data exfiltration.
@@ -85,6 +99,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
 
                     var commands = FlattenCategorized(obj, "allowedCommands", "commands");
                     AllowedCommands = new HashSet<string>(commands, StringComparer.OrdinalIgnoreCase);
+
+                    AllowedEventLogChannels = FlattenCategorized(obj, "eventLogChannels", "channels");
                     return;
                 }
             }
@@ -98,6 +114,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             AllowedFilePrefixes = new List<string>();
             AllowedWmiQueryPrefixes = new List<string>();
             AllowedCommands = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            AllowedEventLogChannels = new List<string>();
         }
 
         private static string LoadEmbeddedGuardrails()
@@ -256,6 +273,44 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                 trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
                 (trimmed.Length == prefix.Length || char.IsWhiteSpace(trimmed[prefix.Length])));
         }
+
+        /// <summary>
+        /// Returns true if the event log channel matches an allowed entry with
+        /// boundary matching (next char must be '/' or end of string), so that
+        /// "Microsoft-Windows-AAD" admits "Microsoft-Windows-AAD/Operational"
+        /// but not "Microsoft-Windows-AADSomethingElse".
+        /// </summary>
+        public static bool IsEventLogChannelAllowed(string channel)
+            => IsEventLogChannelAllowed(channel, unrestrictedMode: false);
+
+        /// <summary>
+        /// Returns true if the event log channel is allowed.
+        /// When unrestrictedMode is true, all channels are allowed except the
+        /// hard-blocked ones (audit trail and script-block logging).
+        /// </summary>
+        public static bool IsEventLogChannelAllowed(string channel, bool unrestrictedMode)
+        {
+            if (string.IsNullOrEmpty(channel))
+                return false;
+
+            var trimmed = channel.Trim();
+
+            // Hard blocks apply even in unrestricted mode
+            foreach (var blocked in HardBlockedEventLogChannels)
+            {
+                if (MatchesChannel(trimmed, blocked))
+                    return false;
+            }
+
+            if (unrestrictedMode)
+                return true;
+
+            return AllowedEventLogChannels.Any(allowed => MatchesChannel(trimmed, allowed));
+        }
+
+        private static bool MatchesChannel(string channel, string prefix)
+            => channel.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+               (channel.Length == prefix.Length || channel[prefix.Length] == '/');
 
         /// <summary>
         /// Returns true if the command (trimmed) exactly matches an entry in the allowlist.

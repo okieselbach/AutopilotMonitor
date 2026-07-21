@@ -362,9 +362,14 @@ describe("validateGatherRuleTarget", () => {
     expect(r!.allowed).toBe(true);
   });
 
-  it("returns null for eventlog type (no validation needed)", () => {
-    const r = validateGatherRuleTarget("eventlog", "Application", false);
-    expect(r).toBeNull();
+  it("routes eventlog type to validateEventLogTarget", () => {
+    const allowed = validateGatherRuleTarget("eventlog", "Application", false);
+    expect(allowed).not.toBeNull();
+    expect(allowed!.allowed).toBe(true);
+
+    const blocked = validateGatherRuleTarget("eventlog", "Security", false);
+    expect(blocked).not.toBeNull();
+    expect(blocked!.allowed).toBe(false);
   });
 
   it("returns null for empty target", () => {

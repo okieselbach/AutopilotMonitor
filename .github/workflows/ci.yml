@@ -1,0 +1,116 @@
+name: CI
+
+# Runs the full test suite on every pull request and every push to main.
+# The deploy workflows build but do not test — this is the gate that decides
+# whether a change is allowed to be correct.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dotnet:
+    name: .NET tests (backend + agent)
+    # windows-latest is required: the agent test projects target net48.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore AutopilotMonitor.sln
+
+      - name: Build
+        run: dotnet build AutopilotMonitor.sln --configuration Release --no-restore
+
+      - name: Backend tests
+        run: dotnet test src/Backend/AutopilotMonitor.Functions.Tests --configuration Release --no-build --verbosity quiet
+
+      - name: Agent V2 Core tests
+        run: dotnet test src/Agent/AutopilotMonitor.Agent.V2.Core.Tests --configuration Release --no-build --verbosity quiet
+
+      - name: Decision Core tests
+        run: dotnet test src/Agent/AutopilotMonitor.DecisionCore.Tests --configuration Release --no-build --verbosity quiet
+
+      - name: Summary Dialog tests
+        run: dotnet test src/Agent/AutopilotMonitor.SummaryDialog.Tests --configuration Release --no-build --verbosity quiet
+
+  web:
+    name: Web (typecheck + tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/Web/autopilot-monitor-web
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: src/Web/autopilot-monitor-web/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Tests
+        run: npm test
+
+  mcp:
+    name: MCP server tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/McpServer/autopilot-monitor-mcp
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: src/McpServer/autopilot-monitor-mcp/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Tests
+        run: npm test
+
+  guardrails-in-sync:
+    name: Generated guardrails match rules/guardrails.json
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+
+      - name: Regenerate
+        run: node rules/scripts/combine.js
+
+      - name: Fail if the generated files drifted
+        run: |
+          if ! git diff --quiet; then
+            echo "::error::Generated files are out of date. Run 'node rules/scripts/combine.js' and commit the result."
+            git diff --stat
+            exit 1
+          fi
