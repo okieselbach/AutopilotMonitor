@@ -179,6 +179,59 @@ export function formatTrigger(trigger: string) {
 }
 
 /**
+ * True when the trigger already pins the rule to a single firing: Startup, or a phase
+ * trigger naming a CONCRETE phase (Phase Start / Phase End dedup per rule+phase). The
+ * any-phase variants, Interval and On Event can all fire repeatedly.
+ */
+export function firesExactlyOnce(form: Pick<NewRuleForm, "trigger" | "triggerPhase">): boolean {
+  if (form.trigger === "startup") return true;
+  return PHASE_TRIGGERS.includes(form.trigger) && !!form.triggerPhase;
+}
+
+/**
+ * Whether phase scope can change anything for this trigger. It cannot when the trigger
+ * names a concrete phase — that phase IS the moment, so a scope could only ever suppress
+ * the single firing, never move it. Startup keeps it (scope defers the one-shot until the
+ * scope activates); Interval / On Event / any-phase variants are its main use.
+ */
+export function supportsPhaseScope(form: Pick<NewRuleForm, "trigger" | "triggerPhase">): boolean {
+  return !(PHASE_TRIGGERS.includes(form.trigger) && !!form.triggerPhase);
+}
+
+/** Emit mode dedups repeated results — meaningless for a rule that fires exactly once. */
+export function supportsEmitMode(form: Pick<NewRuleForm, "trigger" | "triggerPhase">): boolean {
+  return !firesExactlyOnce(form);
+}
+
+/**
+ * Rejects a scope mode that was selected but left unfilled. Without this the payload
+ * silently sends null (= unrestricted) and the rule runs everywhere while the form still
+ * reads "From a phase onwards" — the exact trap of a mode dropdown with an empty detail.
+ */
+export function validateScopeSelection(form: NewRuleForm): string | null {
+  if (!supportsPhaseScope(form)) return null;
+  if (form.scopeMode === "during" && form.activePhases.length === 0)
+    return 'Select at least one phase under "Active Phases", or set "Active During" back to "All phases".';
+  if (form.scopeMode === "from" && !form.activeFromPhase)
+    return 'Select a phase under "Active From Phase", or set "Active During" back to "All phases".';
+  return null;
+}
+
+/**
+ * Scope + emit fields for the create/save payload. Controls the form hides for the current
+ * trigger must not leak stale state from an earlier selection, so they are nulled here
+ * rather than at each call site.
+ */
+export function buildScopeFields(form: NewRuleForm) {
+  const scoped = supportsPhaseScope(form);
+  return {
+    activePhases: scoped && form.scopeMode === "during" && form.activePhases.length > 0 ? form.activePhases : null,
+    activeFromPhase: scoped && form.scopeMode === "from" && form.activeFromPhase ? form.activeFromPhase : null,
+    emitMode: supportsEmitMode(form) ? (form.emitMode || null) : null,
+  };
+}
+
+/**
  * Normalizes a form object after JSON-mode merges. Pasted JSON is usually rule-shaped
  * (activePhases/activeFromPhase/emitMode, no scopeMode key), so the UI-only scopeMode must
  * be derived from the data — otherwise the create/save payload would silently drop the

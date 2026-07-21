@@ -14,6 +14,10 @@ import {
   PHASE_TRIGGERS,
   EMIT_MODES,
   formatTrigger,
+  formatGatherPhase,
+  firesExactlyOnce,
+  supportsPhaseScope,
+  supportsEmitMode,
 } from "../types";
 import { KNOWN_EVENT_TYPES, findEventType } from "../eventTypes";
 import { validateGatherRuleTarget } from "@/utils/guardValidation";
@@ -485,8 +489,31 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
         </div>
       )}
 
-      {/* Row: Active During (phase scope) + Emit Mode */}
+      {/* One-shot triggers pin the moment themselves — say so instead of offering controls
+          that could only ever suppress the single firing. */}
+      {firesExactlyOnce(form) && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-500">
+          {form.trigger === "startup" ? (
+            <>
+              This rule collects <span className="font-medium text-gray-700">exactly once</span>, when the agent
+              starts monitoring. Emit mode doesn&apos;t apply to a single collection — but you can delay that
+              collection with a phase scope below.
+            </>
+          ) : (
+            <>
+              This rule collects <span className="font-medium text-gray-700">exactly once</span>, when the enrollment{" "}
+              {form.trigger === "phase_exit" ? "leaves" : "reaches"}{" "}
+              <span className="font-medium text-gray-700">{formatGatherPhase(form.triggerPhase)}</span>. Phase scoping
+              and emit mode don&apos;t apply to a single collection.
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Row: Active During (phase scope) + Emit Mode — only where they change behavior */}
+      {(supportsPhaseScope(form) || supportsEmitMode(form)) && (
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {supportsPhaseScope(form) && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Active During</label>
           <select
@@ -507,8 +534,14 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
             <option value="during">Only during specific phases</option>
             <option value="from">From a phase onwards</option>
           </select>
-          <p className="text-xs text-gray-400 mt-1">Restrict when this rule runs. Outside its scope the rule is idle — interval rules stop polling, triggers are ignored.</p>
+          <p className="text-xs text-gray-400 mt-1">
+            {form.trigger === "startup"
+              ? "Restrict when this rule may start. With a scope it waits and collects once the scope is first reached, instead of at agent start."
+              : "Restrict when this rule runs. Outside its scope the rule is idle — interval rules stop polling, triggers are ignored."}
+          </p>
         </div>
+        )}
+        {supportsEmitMode(form) && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Emit Mode</label>
           <select
@@ -522,9 +555,11 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
           </select>
           <p className="text-xs text-gray-400 mt-1">On change: polls on the trigger cadence but only emits an event when the collected result changes. The first collection always emits.</p>
         </div>
+        )}
       </div>
+      )}
 
-      {form.scopeMode === "during" && (
+      {supportsPhaseScope(form) && form.scopeMode === "during" && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Active Phases</label>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -547,11 +582,15 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
               </label>
             ))}
           </div>
-          <p className="text-xs text-gray-400 mt-1">The rule runs only while the enrollment is in one of the selected phases. No selection = all phases.</p>
+          <p className={`text-xs mt-1 ${form.activePhases.length === 0 ? "text-amber-600" : "text-gray-400"}`}>
+            {form.activePhases.length === 0
+              ? "Select at least one phase — otherwise switch \"Active During\" back to \"All phases\"."
+              : "The rule runs only while the enrollment is in one of the selected phases."}
+          </p>
         </div>
       )}
 
-      {form.scopeMode === "from" && (
+      {supportsPhaseScope(form) && form.scopeMode === "from" && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Active From Phase</label>
           <select
@@ -564,7 +603,11 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
               <option key={p.value} value={p.value}>{p.label}</option>
             ))}
           </select>
-          <p className="text-xs text-gray-400 mt-1">Once the enrollment reaches this phase the rule activates and stays active for the rest of the session. No selection = all phases.</p>
+          <p className={`text-xs mt-1 ${form.activeFromPhase ? "text-gray-400" : "text-amber-600"}`}>
+            {form.activeFromPhase
+              ? "Once the enrollment reaches this phase the rule activates and stays active for the rest of the session."
+              : "Select a phase — otherwise switch \"Active During\" back to \"All phases\"."}
+          </p>
         </div>
       )}
 

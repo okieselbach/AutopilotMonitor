@@ -16,7 +16,7 @@ import { FormJsonToggle, JsonModeToggleButtons } from "@/components/rules/FormJs
 import { useAuthenticatedFetch, useNotificationMessages, useGlobalAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
-import { GatherRule, NewRuleForm, EMPTY_FORM, CATEGORY_COLORS, PHASE_TRIGGERS, withDerivedScopeMode } from "./types";
+import { GatherRule, NewRuleForm, EMPTY_FORM, CATEGORY_COLORS, PHASE_TRIGGERS, buildScopeFields, validateScopeSelection, withDerivedScopeMode } from "./types";
 import { GatherRuleFormFields } from "./components/GatherRuleFormFields";
 import { GatherRuleCard } from "./components/GatherRuleCard";
 
@@ -198,6 +198,12 @@ export default function GatherRulesPage() {
       return;
     }
 
+    const scopeError = validateScopeSelection(form);
+    if (scopeError) {
+      showError(scopeError);
+      return;
+    }
+
     setCreating(true);
     const payload = {
       ruleId: form.ruleId,
@@ -211,9 +217,7 @@ export default function GatherRulesPage() {
       intervalSeconds: form.trigger === "interval" ? form.intervalSeconds : null,
       triggerPhase: PHASE_TRIGGERS.includes(form.trigger) ? form.triggerPhase : null,
       triggerEventType: form.trigger === "on_event" ? form.triggerEventType : null,
-      activePhases: form.scopeMode === "during" && form.activePhases.length > 0 ? form.activePhases : null,
-      activeFromPhase: form.scopeMode === "from" && form.activeFromPhase ? form.activeFromPhase : null,
-      emitMode: form.emitMode || null,
+      ...buildScopeFields(form),
       outputEventType: form.outputEventType,
       outputSeverity: form.outputSeverity,
     };
@@ -286,6 +290,12 @@ export default function GatherRulesPage() {
       return;
     }
 
+    const scopeError = validateScopeSelection(form);
+    if (scopeError) {
+      showError(scopeError);
+      return;
+    }
+
     setSaving(true);
     const payload = {
       title: form.title,
@@ -298,9 +308,7 @@ export default function GatherRulesPage() {
       intervalSeconds: form.trigger === "interval" ? form.intervalSeconds : null,
       triggerPhase: PHASE_TRIGGERS.includes(form.trigger) ? form.triggerPhase : null,
       triggerEventType: form.trigger === "on_event" ? form.triggerEventType : null,
-      activePhases: form.scopeMode === "during" && form.activePhases.length > 0 ? form.activePhases : null,
-      activeFromPhase: form.scopeMode === "from" && form.activeFromPhase ? form.activeFromPhase : null,
-      emitMode: form.emitMode || null,
+      ...buildScopeFields(form),
       outputEventType: form.outputEventType,
       outputSeverity: form.outputSeverity,
       version: bumpVersion(rule.version),

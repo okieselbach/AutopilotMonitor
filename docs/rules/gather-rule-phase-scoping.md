@@ -107,6 +107,16 @@ enter-rule and an exit-rule on the same phase never cannibalise each other's slo
   `always`. The scope UI is a three-way mode (always / during phases / from phase) backed by
   a canonical `GATHER_PHASES` list — the same list replaced the free-text `triggerPhase`
   input, whose placeholder used to suggest invalid tokens.
+* **Controls are shown only where they change behavior** (`supportsPhaseScope` /
+  `supportsEmitMode` in `types.ts`). Offering all three "when" controls unconditionally
+  produced meaningless combinations — a scope on a `phase_change` rule naming a concrete
+  phase can only ever suppress the single firing, and `on_change` has no second result to
+  compare against. Hidden controls are nulled by `buildScopeFields` so state from an earlier
+  trigger choice cannot leak into the payload, and `validateScopeSelection` rejects a scope
+  mode that was selected but left unfilled (which previously serialised to null and silently
+  ran the rule everywhere while the form still read "From a phase onwards").
+  Startup is the deliberate exception: a scope there defers the one-shot rather than
+  suppressing it, so the scope control stays while emit mode is hidden.
 * The custom-rule toggle PUT (`{enabled, isBuiltIn, isCommunity}`) previously full-replaced
   the stored rule and wiped Title/Target/Trigger — `GatherRuleService.UpdateRuleAsync` now
   merges toggle-style partials (empty Title/CollectorType/Target) into the existing row and
