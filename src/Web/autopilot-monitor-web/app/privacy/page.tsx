@@ -1,96 +1,212 @@
 import { PublicPageHeader } from "../../components/PublicPageHeader";
 
+const LAST_UPDATED = "21 July 2026";
+const DOCS_SECURITY_FAQ = "https://docs.autopilotmonitor.com/trust/security-faq";
+const DOCS_SUBPROCESSORS = "https://docs.autopilotmonitor.com/trust/subprocessors";
+
+function DocsLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-indigo-600 hover:text-indigo-800 underline"
+    >
+      {children}
+    </a>
+  );
+}
+
 export default function PrivacyPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <PublicPageHeader title="Privacy Policy" />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         <div className="bg-white rounded-lg shadow p-6 space-y-4">
-          <h2 className="text-xl font-semibold text-gray-900">Data Collection</h2>
+          <p className="text-sm text-gray-500">Last updated: {LAST_UPDATED}</p>
           <p className="text-gray-700">
-            This service collects and processes the following data to provide monitoring functionality:
-          </p>
-          <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
-            <li>Device hardware information (manufacturer, model, serial number)</li>
-            <li>Autopilot provisioning session data (status, events, timestamps)</li>
-            <li>Azure AD/Entra ID tenant information</li>
-            <li>User authentication information (UPN, display name, tenant ID)</li>
-            <li>Operational telemetry and audit logs</li>
-            <li>Anonymized usage telemetry (via Azure Application Insights, no cookies) — used to understand which features are used and improve the service. No personal data is transmitted.</li>
-          </ul>
-
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Data Processing Context</h2>
-          <p className="text-gray-700">
-            During an Autopilot enrollment, the user authenticates solely to verify their identity and initiate the process.
-            After that, the user is not actively interacting with the device while provisioning runs. As a result, the data
-            collected by the monitoring agent consists exclusively of <strong>technical enrollment events</strong> — no user
-            activity, browsing data, or personal content is captured.
-          </p>
-          <p className="text-gray-700">
-            Tenant administrators retain full control over collected data through the following options:
-          </p>
-          <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
-            <li><strong>Data Retention</strong> — configurable retention period per tenant (default 90 days); expired sessions are automatically purged</li>
-            <li><strong>Delete Session</strong> — delete individual monitoring sessions on demand</li>
-            <li><strong>Offboard Tenant</strong> — remove all data and configurations for a tenant from the service</li>
-          </ul>
-          <p className="text-gray-700">
-            These controls ensure that no personal information accumulates in the backend beyond what is necessary for
-            enrollment monitoring. The service is designed for operational transparency, not user surveillance.
+            Autopilot Monitor collects technical telemetry about Windows Autopilot enrollments so that IT teams can see
+            what happened during a device provisioning and why it failed. This policy explains what is collected, where it
+            is stored, who can reach it, and how long it is kept. The technical detail behind every statement here is
+            published in the <DocsLink href={DOCS_SECURITY_FAQ}>Security &amp; Privacy FAQ</DocsLink>.
           </p>
 
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Data Storage & Security</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mt-6">Roles: Who Is Responsible for What</h2>
           <p className="text-gray-700">
-            The platform is built with a layered security architecture designed to protect data at every level:
+            For enrollment telemetry, <strong>your organization is the controller and Autopilot Monitor acts as your
+            processor</strong>. You decide which devices are monitored, what additional data your gather rules collect,
+            how long it is retained, and when it is deleted.
+          </p>
+          <p className="text-gray-700">
+            For operating the service itself — administrator accounts, the audit trail of portal actions, and operational
+            telemetry — <strong>glueckkanja AG</strong> is the controller.
+          </p>
+          <p className="text-gray-700">
+            glueckkanja AG, a German company certified to ISO/IEC 27001, operates Autopilot Monitor for{" "}
+            <strong>both plans</strong> — the same service, the same infrastructure, the same protection measures. Company
+            details are in the <a href="https://www.glueckkanja.com/en/imprint" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">Imprint</a>.
+            The project is maintained by Oliver Kieselbach, who acts in that role on behalf of glueckkanja AG and is the
+            contact for the open-source project and the Community edition.
+          </p>
+          <p className="text-gray-700">
+            A <strong>data processing agreement (DPA / AVV) is available on request</strong>, concluded with
+            glueckkanja AG. On the Enterprise plan it forms part of the written agreement.
           </p>
 
-          <h3 className="text-lg font-medium text-gray-800 mt-4">Authentication & Device Identity</h3>
+          <h2 className="text-xl font-semibold text-gray-900 mt-6">What We Collect</h2>
+          <h3 className="text-lg font-medium text-gray-800 mt-4">From enrolling devices</h3>
           <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
-            <li>Device agents authenticate via <strong>Intune MDM client certificates</strong>, validated against the embedded Intune CA chain</li>
-            <li>Web users authenticate via <strong>Microsoft Entra ID (Azure AD)</strong> with multi-tenant JWT validation</li>
-            <li><strong>Autopilot device validation</strong> via Microsoft Graph — only registered Autopilot devices are accepted</li>
-            <li>Optional <strong>hardware whitelist</strong> for additional device verification</li>
-            <li>Per-device <strong>rate limiting</strong> (sliding window) to prevent abuse</li>
+            <li><strong>Device identity</strong> — serial number, device name, manufacturer, model, and the Entra ID tenant the device enrolls into</li>
+            <li><strong>Enrollment progress</strong> — phases, ESP stages, application and script results, policy activity, reboots, timings, and failure codes</li>
+            <li><strong>Device context</strong> — OS build, hardware characteristics, disk and network state, plus whatever your own gather rules request</li>
+            <li><strong>Approximate location</strong> — country, region, city, and approximate coordinates, if geolocation is enabled for your tenant</li>
           </ul>
 
-          <h3 className="text-lg font-medium text-gray-800 mt-4">Tenant Isolation</h3>
+          <h3 className="text-lg font-medium text-gray-800 mt-4">From portal users</h3>
           <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
-            <li>Strict <strong>multi-tenant data isolation</strong> — all storage queries are partitioned by Tenant ID</li>
-            <li>Real-time channels (SignalR) are scoped to <strong>tenant-specific groups</strong></li>
-            <li>Independent configuration, audit logs, and device management per tenant</li>
+            <li>Sign-in identity from Microsoft Entra ID — user principal name, display name, and tenant ID</li>
+            <li>Audit records of administrative actions, including who performed them and when</li>
+            <li>Operational request telemetry used to run and support the service</li>
           </ul>
 
-          <h3 className="text-lg font-medium text-gray-800 mt-4">Transport & Data Protection</h3>
-          <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
-            <li>All communication encrypted via <strong>HTTPS/TLS</strong>; real-time updates via secure WebSocket</li>
-            <li>Diagnostics upload URLs are issued on-demand, and never persisted on the device</li>
-            <li>Azure Storage encryption at rest for all persisted data</li>
-            <li>PII logging disabled in production environments</li>
-          </ul>
-
-          <h3 className="text-lg font-medium text-gray-800 mt-4">Access Control</h3>
-          <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
-            <li><strong>Role-based access</strong>: Tenant Admin (full tenant management), Operator, Users</li>
-            <li>Device blocking capabilities for compromised or unauthorized devices</li>
-            <li>Comprehensive <strong>audit logging</strong> of administrative actions</li>
-          </ul>
-
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Data Sharing</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mt-6">What We Do Not Collect</h2>
           <p className="text-gray-700">
-            Your data is not shared with third parties. Access is restricted to:
+            During Autopilot provisioning the user signs in once to start the process and then does not interact with the
+            device while it provisions. The agent captures <strong>no browsing history, no file or document content, no
+            keystrokes, no screen content, and no application usage tracking</strong>. It removes itself when enrollment
+            finishes. The service is designed for operational transparency, not user surveillance.
+          </p>
+          <p className="text-gray-700">
+            Gather rules cannot be used to widen this: <code className="text-sm bg-gray-100 px-1 py-0.5 rounded">C:\Users</code>{" "}
+            is always blocked for privacy reasons, and downloading files, creating users, manipulating boot configuration,
+            and establishing persistence are hard-blocked and cannot be enabled by configuration.
+          </p>
+
+          <h2 className="text-xl font-semibold text-gray-900 mt-6">IP Addresses and Geolocation</h2>
+          <p className="text-gray-700">
+            Geolocation is a tenant setting and is <strong>enabled by default</strong>. While it is enabled:
           </p>
           <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
-            <li>Authenticated users within your tenant</li>
-            <li>Global Administrators (for platform operations and support)</li>
+            <li>The <strong>session record</strong> stores only the derived location — country, region, city, and approximate coordinates. The IP is deliberately excluded from the location event shown in the timeline.</li>
+            <li>The <strong>outbound public IP is additionally stored once per session as a separate diagnostic event.</strong> It is hidden from the timeline view by default, but it is retained and queryable, and it expires with your retention period like any other event.</li>
+            <li>Service request telemetry does not carry device IP addresses; the platform masks them and the application never sets them.</li>
+            <li>A source IP is also stored on <strong>distress reports</strong> — the emergency channel an agent uses to report that it is failing — as part of that incident record.</li>
+          </ul>
+          <p className="text-gray-700">
+            <strong>Disabling geolocation stops all of this</strong> — no IP and no location data is collected. It is a
+            tenant setting and also an agent command-line switch. Only the Geographic Performance view is affected.
+          </p>
+
+          <h2 className="text-xl font-semibold text-gray-900 mt-6">Where Your Data Is Stored</h2>
+          <p className="text-gray-700">
+            All customer data — sessions, events, configuration, audit logs, diagnostics, and backups — is stored in
+            Microsoft Azure in <strong>Germany West Central</strong>. The only component outside that region is the portal
+            front-end, served as static assets from West Europe; it stores no customer data. There is no cross-region
+            replication and no transfer of customer data outside the EU by the platform.
+          </p>
+
+          <h2 className="text-xl font-semibold text-gray-900 mt-6">Who Can Access Your Data</h2>
+          <p className="text-gray-700">
+            Your data is not sold, and it is not shared with third parties for their own purposes. Access is limited to:
+          </p>
+          <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
+            <li><strong>Authenticated users in your own tenant</strong>, according to their role — Admin, Operator, Viewer, or a role-less Member limited to the Progress Portal</li>
+            <li><strong>Platform operators</strong> — Global Admin for operations and support, and Global Reader for read-only support with configuration secrets redacted</li>
+            <li><strong>Delegated (MSP) administrators you or your provider have been granted</strong> — read-only, limited to exactly the tenants in scope, with configuration secrets redacted, and with every grant and revocation written to <em>your</em> tenant&apos;s audit log so you can always see who was given access to your data</li>
+          </ul>
+          <p className="text-gray-700">
+            Delegated administration is an Enterprise capability and is off unless explicitly granted. Full detail on the
+            isolation model is in the <DocsLink href={DOCS_SECURITY_FAQ}>Security &amp; Privacy FAQ</DocsLink>.
+          </p>
+
+          <h2 className="text-xl font-semibold text-gray-900 mt-6">Sub-processors and Outbound Data Flows</h2>
+          <p className="text-gray-700">
+            <strong>Microsoft Azure is the only sub-processor that stores your data.</strong> Resend is used solely to
+            deliver the onboarding approval email when a tenant is activated — it receives an administrator&apos;s email
+            address and the tenant domain, never enrollment telemetry. Vulnerability reference data is pulled inbound from
+            NVD, the CISA KEV catalog, and MSRC; no customer data is sent to them.
+          </p>
+          <p className="text-gray-700">
+            Some data flows exist only because you configure them: your own Azure storage account for diagnostics,
+            notification channels such as Teams, Slack, or a generic webhook, and your own AI assistant if a user connects
+            one through the MCP integration. The platform itself makes no calls to any AI or LLM provider. The complete
+            list is published as <DocsLink href={DOCS_SUBPROCESSORS}>Sub-processors</DocsLink>, and new sub-processors are
+            announced there before they are introduced.
+          </p>
+
+          <h2 className="text-xl font-semibold text-gray-900 mt-6">Diagnostics Uploads</h2>
+          <p className="text-gray-700">
+            Diagnostics upload is <strong>off by default</strong>. When enabled, the default destination is{" "}
+            <strong>your own Azure storage account</strong> — the package never reaches our infrastructure. Hosted upload
+            exists as an alternative but is opt-in only and requires an explicit administrator action behind a clearly
+            marked disclosure that data leaves your tenant. It is never enabled silently.
+          </p>
+
+          <h2 className="text-xl font-semibold text-gray-900 mt-6">How Long We Keep Data</h2>
+          <p className="text-gray-700">
+            Retention is <strong>configured by you per tenant, defaulting to 90 days</strong> — 7 to 90 days on the
+            Community plan and 7 to 365 days on Enterprise. Expired sessions are purged automatically. You additionally
+            control:
+          </p>
+          <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
+            <li><strong>Delete session</strong> — remove an individual monitoring session on demand</li>
+            <li><strong>Offboard tenant</strong> — remove your tenant&apos;s data and configuration from the service entirely, as a verified multi-phase cascade</li>
+          </ul>
+          <p className="text-gray-700">
+            Two things intentionally survive tenant offboarding, neither of which contains enrollment telemetry or
+            personal data:
+          </p>
+          <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
+            <li><strong>Product feedback</strong> you submitted — it is not tied to enrollment data and is what improves the product.</li>
+            <li><strong>Custom rules and IME log patterns</strong> you authored are archived rather than deleted. Detection knowledge is what makes this product useful, so contributed rules and patterns are subject to entering the community pool — the next organization hitting the same enrollment failure gets a diagnosis instead of a mystery. A rule is a detection definition, not device data.</li>
+          </ul>
+          <p className="text-gray-700">
+            Either can be removed on request.
+          </p>
+
+          <h2 className="text-xl font-semibold text-gray-900 mt-6">How Your Data Is Protected</h2>
+          <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
+            <li><strong>Device authentication by mutual TLS</strong> using the Intune MDM client certificate, validated against pinned Intune root CAs rather than the operating system trust store — and rejected if no trust anchor loads</li>
+            <li><strong>Autopilot device validation via Microsoft Graph</strong> — only devices registered in your tenant are accepted, with an optional hardware allow-list on top</li>
+            <li><strong>Entra ID authentication</strong> for portal users with a restricted signing-algorithm allow-list and identity PII logging disabled</li>
+            <li><strong>Fail-closed authorization</strong> — every API route must be registered with an access policy; an unregistered route is unreachable</li>
+            <li><strong>Structural tenant isolation</strong> — storage partitioning by tenant, with the tenant identity taken from the validated token and never from a client-supplied header</li>
+            <li><strong>Encryption</strong> — HTTPS with a TLS 1.2 floor in transit, Azure Storage encryption at rest with platform-managed keys</li>
+            <li><strong>Managed identity instead of storage keys</strong>, and secret-less OIDC deployment pipelines</li>
+            <li><strong>Rate limiting</strong> per device, per portal user, and per MCP user</li>
+            <li><strong>Verifiable agent binaries</strong> — Sigstore build attestation plus a four-stage integrity chain through download, backend cross-check, and runtime self-verification</li>
+            <li><strong>Manifest-first deletion</strong> — what will be deleted is captured, restorably, before anything is removed</li>
           </ul>
 
           <h2 className="text-xl font-semibold text-gray-900 mt-6">Your Rights</h2>
           <p className="text-gray-700">
-            As this is an environment operated under best-effort principles, formal data subject rights (access, deletion, portability)
-            are not guaranteed. However, we will make reasonable efforts to accommodate such requests on a case-by-case basis.
+            Where the GDPR applies, you have the right to access, correction, deletion, restriction of processing,
+            portability, and to object to processing. We act on such requests within the statutory time limits. In
+            practice most requests resolve immediately in the portal, because deletion of individual sessions, full tenant
+            offboarding, and the retention period are all controls you hold yourself.
+          </p>
+          <p className="text-gray-700">
+            Where Autopilot Monitor acts as your processor, requests from your own employees should be directed to your
+            organization; we support you in fulfilling them.
+          </p>
+
+          <h2 className="text-xl font-semibold text-gray-900 mt-6">Changes to This Policy</h2>
+          <p className="text-gray-700">
+            Material changes are reflected in the &quot;last updated&quot; date above and announced through the service
+            announcements in the portal. If you hold a signed data processing agreement, notification follows the terms of
+            that agreement.
+          </p>
+
+          <h2 className="text-xl font-semibold text-gray-900 mt-6">Contact</h2>
+          <p className="text-gray-700">
+            For privacy questions, a data processing agreement, or a data subject request, contact glueckkanja AG using
+            the details in the <a href="https://www.glueckkanja.com/en/imprint" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">Imprint</a>.
+            For the open-source project and the Community edition you can also reach the maintainer via{" "}
+            <a href="https://www.linkedin.com/in/oliver-kieselbach" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">LinkedIn</a>{" "}
+            or open a{" "}
+            <a href="https://github.com/okieselbach/Autopilot-Monitor/issues" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">GitHub issue</a>.
           </p>
         </div>
-
       </main>
     </div>
   );

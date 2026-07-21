@@ -838,6 +838,7 @@ export default function LandingPage() {
                 <ul className="space-y-1.5">
                   <li><a href="/privacy" className="text-xs text-gray-500 hover:text-blue-600 transition-colors">Privacy Policy</a></li>
                   <li><a href="/terms" className="text-xs text-gray-500 hover:text-blue-600 transition-colors">Terms of Use</a></li>
+                  <li><a href="https://www.glueckkanja.com/en/imprint" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-blue-600 transition-colors">Imprint</a></li>
                 </ul>
               </div>
             </div>
@@ -847,7 +848,7 @@ export default function LandingPage() {
           <div className="mt-8 pt-5 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-2">
             <p className="text-[11px] text-gray-400">
               &copy; 2026 Autopilot Monitor. Built with ❤️ by Oliver Kieselbach.{" "}
-              <span className="inline-block">Powered by Azure.</span>
+              <span className="inline-block">Hosted on Azure by glueckkanja AG.</span>
             </p>
             <p className="text-[11px] text-gray-400">
               Open source. Star us on{' '}

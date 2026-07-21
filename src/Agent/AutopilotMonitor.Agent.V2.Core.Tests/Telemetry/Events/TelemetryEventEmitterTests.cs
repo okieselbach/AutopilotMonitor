@@ -17,12 +17,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry.Events
             FakeTelemetryTransport transport,
             out EventSequenceCounter counter,
             string sessionId = "sess-1",
-            string tenantId = "tenant-1")
+            string tenantId = "tenant-1",
+            Func<bool>? traceEventsEnabled = null)
         {
             var tmp = new TempDirectory();
             counter = new EventSequenceCounter(new EventSequencePersistence(tmp.File("seq.json")));
-            return new TelemetryEventEmitter(transport, counter, sessionId, tenantId);
+            return new TelemetryEventEmitter(transport, counter, sessionId, tenantId, traceEventsEnabled);
         }
+
+        private static EnrollmentEvent NewTraceEvent(string eventType = "outbound_ip") =>
+            new EnrollmentEvent
+            {
+                EventType = eventType,
+                Severity = EventSeverity.Trace,
+                Source = "test",
+                Timestamp = At,
+                Phase = EnrollmentPhase.Unknown,
+                Message = "trace message",
+            };
 
         private static EnrollmentEvent NewTestEvent(string eventType = "enrollment_complete") =>
             new EnrollmentEvent
@@ -49,6 +61,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry.Events
             Assert.Equal("sess-1", evt.SessionId);
             Assert.Equal("tenant-1", evt.TenantId);
 
+            Assert.NotNull(item);
             Assert.Equal(TelemetryItemKind.Event, item.Kind);
             Assert.Equal("tenant-1_sess-1", item.PartitionKey);
             Assert.Equal(evt.RowKey, item.RowKey);
@@ -173,6 +186,87 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry.Events
             var data = (JObject)parsed["Data"]!;
             Assert.Equal("test-reason", (string?)data["reason"]);
             Assert.Equal("Strong", (string?)data["wgConfidence"]);
+        }
+
+        // ============================================================ Trace-event gate
+
+        [Fact]
+        public void Trace_event_is_dropped_when_gate_is_off()
+        {
+            var transport = new FakeTelemetryTransport();
+            var emitter = Build(transport, out _, traceEventsEnabled: () => false);
+
+            var item = emitter.Emit(NewTraceEvent());
+
+            Assert.Null(item);
+            Assert.Equal(0, transport.EnqueueCount);
+        }
+
+        [Fact]
+        public void Trace_event_flows_when_gate_is_on()
+        {
+            var transport = new FakeTelemetryTransport();
+            var emitter = Build(transport, out _, traceEventsEnabled: () => true);
+
+            Assert.NotNull(emitter.Emit(NewTraceEvent()));
+            Assert.Equal(1, transport.EnqueueCount);
+        }
+
+        [Fact]
+        public void Trace_event_flows_when_no_gate_is_wired()
+        {
+            var transport = new FakeTelemetryTransport();
+            var emitter = Build(transport, out _);
+
+            Assert.NotNull(emitter.Emit(NewTraceEvent()));
+            Assert.Equal(1, transport.EnqueueCount);
+        }
+
+        [Fact]
+        public void Gate_off_does_not_suppress_non_trace_events()
+        {
+            var transport = new FakeTelemetryTransport();
+            var emitter = Build(transport, out _, traceEventsEnabled: () => false);
+
+            foreach (var severity in new[] { EventSeverity.Info, EventSeverity.Warning, EventSeverity.Error })
+            {
+                var evt = NewTestEvent();
+                evt.Severity = severity;
+                Assert.NotNull(emitter.Emit(evt));
+            }
+
+            Assert.Equal(3, transport.EnqueueCount);
+        }
+
+        [Fact]
+        public void Dropped_trace_event_does_not_consume_a_sequence_number()
+        {
+            var transport = new FakeTelemetryTransport();
+            var traceAllowed = true;
+            // ReSharper disable once AccessToModifiedClosure — deliberate: the gate is read
+            // per event, mirroring a mid-session remote-config merge.
+            var emitter = Build(transport, out _, traceEventsEnabled: () => traceAllowed);
+
+            emitter.Emit(NewTestEvent());          // seq 1
+            traceAllowed = false;
+            emitter.Emit(NewTraceEvent());         // dropped — must not burn seq 2
+            emitter.Emit(NewTestEvent());          // seq 2
+
+            Assert.Equal(2, transport.EnqueueCount);
+            var first = JObject.Parse(transport.Enqueued[0].PayloadJson);
+            var second = JObject.Parse(transport.Enqueued[1].PayloadJson);
+            Assert.Equal(1, (long)first["Sequence"]!);
+            Assert.Equal(2, (long)second["Sequence"]!);
+        }
+
+        [Fact]
+        public void Throwing_gate_fails_open_so_diagnostics_are_never_silently_lost()
+        {
+            var transport = new FakeTelemetryTransport();
+            var emitter = Build(transport, out _, traceEventsEnabled: () => throw new InvalidOperationException("boom"));
+
+            Assert.NotNull(emitter.Emit(NewTraceEvent()));
+            Assert.Equal(1, transport.EnqueueCount);
         }
     }
 }

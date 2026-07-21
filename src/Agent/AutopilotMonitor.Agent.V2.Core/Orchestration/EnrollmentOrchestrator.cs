@@ -86,6 +86,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         // Production always passes null → Start() creates the real DeadlineScheduler.
         private readonly IDeadlineScheduler? _schedulerOverride;
 
+        // Live accessor for TenantConfiguration.SendTraceEvents — read per event by the
+        // TelemetryEventEmitter so a mid-session remote-config merge takes effect. Null
+        // (tests / legacy callers) means trace events always flow.
+        private readonly Func<bool>? _traceEventsEnabled;
+
         // Max-lifetime watchdog (M4.6.α). Timer is armed in Start() when _agentMaxLifetime != null.
         private System.Threading.Timer? _maxLifetimeTimer;
         private int _terminatedFired;
@@ -166,7 +171,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             TimeSpan? terminalDrainTimeout = null,
             TimeSpan? agentMaxLifetime = null,
             int uploadBatchSize = 100,
-            IDeadlineScheduler? schedulerOverride = null)
+            IDeadlineScheduler? schedulerOverride = null,
+            Func<bool>? traceEventsEnabled = null)
         {
             if (string.IsNullOrEmpty(sessionId)) throw new ArgumentException("SessionId is mandatory.", nameof(sessionId));
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentException("TenantId is mandatory.", nameof(tenantId));
@@ -206,6 +212,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _uploadBatchSize = uploadBatchSize;
 
             _schedulerOverride = schedulerOverride;
+            _traceEventsEnabled = traceEventsEnabled;
         }
 
         /// <summary>
@@ -402,7 +409,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             //    strukturelle Abhängigkeit erlischt damit, Architektur-Baseline-Test gate
             //    shrinks to exactly two permitted callers.
             _eventSequenceCounter = new EventSequenceCounter(_eventSequencePersistence);
-            var eventEmitter = new TelemetryEventEmitter(_transport, _eventSequenceCounter, _sessionId, _tenantId);
+            var eventEmitter = new TelemetryEventEmitter(
+                _transport, _eventSequenceCounter, _sessionId, _tenantId, _traceEventsEnabled);
             _signalEmitter = new TelemetrySignalEmitter(_transport, _sessionId, _tenantId);
             _transitionEmitter = new TelemetryTransitionEmitter(_transport, _sessionId, _tenantId);
             _timelineEmitter = new EventTimelineEmitter(eventEmitter);

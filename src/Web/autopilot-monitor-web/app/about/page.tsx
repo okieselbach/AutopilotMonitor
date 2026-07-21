@@ -249,10 +249,16 @@ export default function AboutPage() {
             extended by the wider Windows Autopilot community.
           </p>
           <p className="text-gray-700 leading-relaxed mb-4">
-            Autopilot Monitor was created by{" "}
+            Autopilot Monitor was created and is maintained by{" "}
             <strong>Oliver Kieselbach</strong>, a Microsoft MVP and long-time contributor to the Windows
             Autopilot and Microsoft Intune community. The project is driven by real-world enterprise
             deployment experience and community feedback.
+          </p>
+          <p className="text-gray-700 leading-relaxed mb-4">
+            The hosted service is operated by <strong>glueckkanja AG</strong> — see the{" "}
+            <a href="https://www.glueckkanja.com/en/imprint" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline">Imprint</a> for company
+            details and the <Link href="/terms" className="text-blue-600 hover:text-blue-800 underline">Terms of Use</Link>{" "}
+            for what each plan does and does not commit to.
           </p>
           <div className="flex flex-wrap gap-3 mt-5">
             <a

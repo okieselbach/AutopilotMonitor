@@ -30,12 +30,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Telemetry.Events
         private readonly string _sessionId;
         private readonly string _tenantId;
         private readonly string _partitionKey;
+        private readonly Func<bool>? _traceEventsEnabled;
 
         public TelemetryEventEmitter(
             ITelemetryTransport transport,
             EventSequenceCounter sequenceCounter,
             string sessionId,
-            string tenantId)
+            string tenantId,
+            Func<bool>? traceEventsEnabled = null)
         {
             if (string.IsNullOrEmpty(sessionId)) throw new ArgumentException("SessionId is mandatory.", nameof(sessionId));
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentException("TenantId is mandatory.", nameof(tenantId));
@@ -44,18 +46,33 @@ namespace AutopilotMonitor.Agent.V2.Core.Telemetry.Events
             _sessionId = sessionId;
             _tenantId = tenantId;
             _partitionKey = $"{tenantId}_{sessionId}";
+            _traceEventsEnabled = traceEventsEnabled;
         }
 
         /// <summary>
         /// Weist Sequence zu, serialisiert im Legacy-Wire-Format und enqueued via Transport.
         /// Thread-safe (EventSequenceCounter + ITelemetryTransport.Enqueue beide unter Lock).
+        /// <para>
+        /// Returns <c>null</c> when the event was suppressed by the trace-event gate — the
+        /// only drop path. Both permitted callers ignore the return value.
+        /// </para>
         /// </summary>
-        internal TelemetryItem Emit(EnrollmentEvent evt)
+        internal TelemetryItem? Emit(EnrollmentEvent evt)
         {
             if (evt == null) throw new ArgumentNullException(nameof(evt));
             if (string.IsNullOrEmpty(evt.EventType))
             {
                 throw new ArgumentException("EnrollmentEvent.EventType is mandatory.", nameof(evt));
+            }
+
+            // Trace-event gate (TenantConfiguration.SendTraceEvents, default on). Dropped
+            // before the sequence counter advances, so suppression leaves no gaps in the
+            // per-session sequence and the timeline stays contiguous. Evaluated per event
+            // rather than captured at construction: remote config is merged into the live
+            // AgentConfiguration mid-session, and the gate must follow it.
+            if (evt.Severity == EventSeverity.Trace && !TraceEventsEnabled())
+            {
+                return null;
             }
 
             evt.Sequence = _sequenceCounter.Next();
@@ -76,6 +93,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Telemetry.Events
                 requiresImmediateFlush: evt.ImmediateUpload);
 
             return _transport.Enqueue(draft);
+        }
+
+        /// <summary>
+        /// Fail-open: no gate wired (legacy ctor / tests) or a throwing accessor means trace
+        /// events flow. The gate suppresses diagnostics, so a broken accessor must not be able
+        /// to silently blind the timeline.
+        /// </summary>
+        private bool TraceEventsEnabled()
+        {
+            if (_traceEventsEnabled == null) return true;
+            try
+            {
+                return _traceEventsEnabled();
+            }
+            catch
+            {
+                return true;
+            }
         }
     }
 }

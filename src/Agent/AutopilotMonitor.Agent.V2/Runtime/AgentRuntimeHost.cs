@@ -132,7 +132,10 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 whiteGloveSealingPatternIds: whiteGloveSealingPatternIds,
                 drainInterval: drainInterval,
                 agentMaxLifetime: agentMaxLifetime,
-                uploadBatchSize: uploadBatchSize))
+                uploadBatchSize: uploadBatchSize,
+                // Live read: remote config is merged into agentConfig mid-session, so the
+                // trace-event gate must follow it rather than snapshot at construction.
+                traceEventsEnabled: () => agentConfig.SendTraceEvents))
             {
                 using (var shutdown = new ManualResetEventSlim(false))
                 using (var shutdownComplete = new ManualResetEventSlim(false))
