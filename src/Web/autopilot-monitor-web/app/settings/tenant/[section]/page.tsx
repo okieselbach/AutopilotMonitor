@@ -11,6 +11,7 @@ import { SectionAccessManagement } from "../sections/SectionAccessManagement";
 import { SectionBootstrapSessions } from "../sections/SectionBootstrapSessions";
 import { SectionSlaTargets } from "../sections/SectionSlaTargets";
 import { SectionSubmitLogs } from "../sections/SectionSubmitLogs";
+import { SectionContact } from "../sections/SectionContact";
 import { SectionOptionalGraphCapabilities } from "../sections/SectionOptionalGraphCapabilities";
 
 const SECTION_COMPONENTS: Record<TenantSectionId, React.ComponentType> = {
@@ -22,6 +23,7 @@ const SECTION_COMPONENTS: Record<TenantSectionId, React.ComponentType> = {
   "access-management": SectionAccessManagement,
   "bootstrap-sessions": SectionBootstrapSessions,
   "graph-permissions": SectionOptionalGraphCapabilities,
+  "contact": SectionContact,
   "support": SectionSubmitLogs,
 };
 

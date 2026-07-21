@@ -32,6 +32,7 @@ namespace AutopilotMonitor.Functions.Services
         public bool DataCleanupExecuted { get; set; }
         public bool PlatformStatsRecomputed { get; set; }
         public int DevicesBlockedForExcessiveData { get; set; }
+        public int ContactEmailsBackfilled { get; set; }
     }
 
     /// <summary>
@@ -64,6 +65,7 @@ namespace AutopilotMonitor.Functions.Services
         private readonly IPoisonQueueProbe _poisonQueueProbe;
         private readonly IConfiguration _configuration;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly PreviewWhitelistService _previewWhitelistService;
         private readonly ILogger<MaintenanceService> _logger;
 
         private const string PlatformStatsAliasFileName = "platform-stats.json";
@@ -92,6 +94,7 @@ namespace AutopilotMonitor.Functions.Services
             IPoisonQueueProbe poisonQueueProbe,
             IConfiguration configuration,
             IHttpClientFactory httpClientFactory,
+            PreviewWhitelistService previewWhitelistService,
             ILogger<MaintenanceService> logger)
         {
             _maintenanceRepo = maintenanceRepo;
@@ -115,6 +118,7 @@ namespace AutopilotMonitor.Functions.Services
             _poisonQueueProbe = poisonQueueProbe;
             _configuration = configuration;
             _httpClientFactory = httpClientFactory;
+            _previewWhitelistService = previewWhitelistService;
             _logger = logger;
         }
 
@@ -213,6 +217,12 @@ namespace AutopilotMonitor.Functions.Services
                     // Safety net: remove ghost SessionsIndex entries caused by the
                     // StoreSessionAsync Replace-mode IndexRowKey bug (now fixed).
                     await _maintenanceRepo.CleanupGhostSessionIndexEntriesAsync();
+
+                    // One-off: give tenants onboarded before ContactEmail existed the contact
+                    // address they already supplied as a preview notification email. New tenants
+                    // are seeded at the point that address is saved, so this converges to a no-op
+                    // and can be dropped once every existing tenant has been covered.
+                    result.ContactEmailsBackfilled = await BackfillTenantContactEmailsAsync();
 
                     // Mirror the timer path: check embedded Intune cert bundle for
                     // expiring members so manual triggers also exercise the watcher.

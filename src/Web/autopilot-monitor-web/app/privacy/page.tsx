@@ -67,7 +67,15 @@ export default function PrivacyPage() {
             <li>Sign-in identity from Microsoft Entra ID — user principal name, display name, and tenant ID</li>
             <li>Audit records of administrative actions, including who performed them and when</li>
             <li>Operational request telemetry used to run and support the service</li>
+            <li>A <strong>contact address</strong> for your tenant, if one is provided</li>
           </ul>
+          <p className="text-gray-700">
+            The contact address is used <strong>only to reach you about this service</strong> — a technical problem
+            affecting your tenant, a security matter, or a change that needs an administrator&apos;s attention. It is
+            never used for marketing and never shared. Your administrators set and change it under Settings → Tenant →
+            Contact, and clearing it removes it. Where an organization signed up for the Private Preview and gave a
+            notification address, that address is copied once as the initial contact and is yours to change from then on.
+          </p>
 
           <h2 className="text-xl font-semibold text-gray-900 mt-6">What We Do Not Collect</h2>
           <p className="text-gray-700">

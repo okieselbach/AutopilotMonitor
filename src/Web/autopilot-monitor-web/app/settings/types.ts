@@ -56,6 +56,7 @@ export interface TenantConfiguration {
   keepLogFile?: boolean;
   rebootOnComplete?: boolean;
   rebootDelaySeconds?: number;
+  contactEmail?: string;
   enableGeoLocation?: boolean;
   enableTimezoneAutoSet?: boolean;
   enableImeMatchLog?: boolean;

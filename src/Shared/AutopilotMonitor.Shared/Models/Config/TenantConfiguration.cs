@@ -44,6 +44,23 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public string? OnboardedBy { get; set; }
 
+        /// <summary>
+        /// Address used to reach this tenant about the service itself — a technical problem,
+        /// a security matter, or a change that needs an administrator's attention. Editable by
+        /// the tenant's own admins under Settings → Tenant → Contact.
+        /// <para>
+        /// Seeded once at onboarding from the Private Preview notification address if one was
+        /// given, and never re-synced afterwards: from that point the value belongs to the
+        /// tenant, and a later edit must not be overwritten by the onboarding source.
+        /// </para>
+        /// <para>
+        /// Purpose-limited by design — service communication only. It is never used for
+        /// marketing and never disclosed. Null means we have no way to reach this tenant,
+        /// which is why enforcement actions cannot promise prior warning.
+        /// </para>
+        /// </summary>
+        public string? ContactEmail { get; set; }
+
         // ===== TENANT STATUS =====
 
         /// <summary>

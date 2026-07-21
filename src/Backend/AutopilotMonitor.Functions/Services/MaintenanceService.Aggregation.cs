@@ -517,6 +517,52 @@ namespace AutopilotMonitor.Functions.Services
         /// Removes distress reports older than 14 days. Distress data is unverified
         /// and low-volume; short retention keeps Table Storage lean.
         /// </summary>
+        /// <summary>
+        /// One-off reconciliation for tenants onboarded before <c>ContactEmail</c> existed:
+        /// copies the preview notification address they already supplied into their tenant
+        /// configuration, but only where no contact address is set yet.
+        /// <para>
+        /// Deliberately never overwrites an existing value — a tenant that has edited its
+        /// contact address owns it, and a maintenance run must not undo that. Going forward
+        /// the seed happens when the notification address is saved, so this converges to a
+        /// no-op and can be removed once every existing tenant has been covered.
+        /// </para>
+        /// </summary>
+        /// <returns>Number of tenants that received a contact address.</returns>
+        private async Task<int> BackfillTenantContactEmailsAsync()
+        {
+            var filled = 0;
+            try
+            {
+                var configs = await _tenantConfigService.GetAllConfigurationsAsync();
+                foreach (var config in configs)
+                {
+                    if (config == null || string.IsNullOrWhiteSpace(config.TenantId))
+                        continue;
+                    if (!string.IsNullOrWhiteSpace(config.ContactEmail))
+                        continue;
+
+                    var email = await _previewWhitelistService.GetNotificationEmailAsync(config.TenantId);
+                    if (string.IsNullOrWhiteSpace(email))
+                        continue;
+
+                    config.ContactEmail = email.Trim();
+                    await _tenantConfigService.SaveConfigurationAsync(config);
+                    filled++;
+                }
+
+                if (filled > 0)
+                    _logger.LogInformation("Backfilled contact address for {Count} tenant(s)", filled);
+            }
+            catch (Exception ex)
+            {
+                // Housekeeping, not load-bearing: a failure here must not fail the whole run.
+                _logger.LogWarning(ex, "Tenant contact address backfill failed");
+            }
+
+            return filled;
+        }
+
         private async Task CleanupOldDistressReportsAsync()
         {
             const int retentionDays = 14;

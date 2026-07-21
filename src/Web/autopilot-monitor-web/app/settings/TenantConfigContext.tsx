@@ -150,6 +150,10 @@ interface TenantConfigContextValue {
   setRebootOnComplete: (v: boolean) => void;
   rebootDelaySeconds: number;
   setRebootDelaySeconds: (v: number) => void;
+  contactEmail: string;
+  setContactEmail: (v: string) => void;
+  handleSaveContact: () => void;
+  handleResetContact: () => void;
   enableGeoLocation: boolean;
   setEnableGeoLocation: (v: boolean) => void;
   enableTimezoneAutoSet: boolean;
@@ -364,6 +368,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const [keepLogFile, setKeepLogFile] = useState(false);
   const [rebootOnComplete, setRebootOnComplete] = useState(false);
   const [rebootDelaySeconds, setRebootDelaySeconds] = useState(10);
+  const [contactEmail, setContactEmail] = useState("");
   const [enableGeoLocation, setEnableGeoLocation] = useState(true);
   const [enableTimezoneAutoSet, setEnableTimezoneAutoSet] = useState(false);
   const [enableImeMatchLog, setEnableImeMatchLog] = useState(false);
@@ -481,6 +486,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         setKeepLogFile(data.keepLogFile ?? false);
         setRebootOnComplete(data.rebootOnComplete ?? false);
         setRebootDelaySeconds(data.rebootDelaySeconds ?? 10);
+        setContactEmail(data.contactEmail ?? "");
         setEnableGeoLocation(data.enableGeoLocation ?? true);
         setEnableTimezoneAutoSet(data.enableTimezoneAutoSet ?? false);
         setEnableImeMatchLog(data.enableImeMatchLog ?? false);
@@ -675,6 +681,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         keepLogFile,
         rebootOnComplete,
         rebootDelaySeconds,
+        contactEmail: contactEmail.trim(),
         enableGeoLocation,
         enableTimezoneAutoSet,
         enableImeMatchLog,
@@ -755,7 +762,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     manufacturerWhitelist, modelWhitelist, validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation,
     dataRetentionDays, sessionTimeoutHours, enablePerformanceCollector, performanceCollectorInterval,
     helloWaitTimeoutSeconds, selfDestructOnComplete, keepLogFile, rebootOnComplete, rebootDelaySeconds,
-    enableGeoLocation, enableTimezoneAutoSet, enableImeMatchLog, logLevel, showScriptOutput, showEnrollmentSummary,
+    contactEmail, enableGeoLocation, enableTimezoneAutoSet, enableImeMatchLog, logLevel, showScriptOutput, showEnrollmentSummary,
     enrollmentSummaryTimeoutSeconds, enrollmentSummaryBrandingImageUrl, enrollmentSummaryLaunchRetrySeconds,
     notificationChannels,
     slaTargetSuccessRate, slaTargetMaxDurationMinutes, slaTargetAppInstallSuccessRate,
@@ -1087,6 +1094,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     setKeepLogFile(config.keepLogFile ?? false);
     setRebootOnComplete(config.rebootOnComplete ?? false);
     setRebootDelaySeconds(config.rebootDelaySeconds ?? 10);
+    setContactEmail(config.contactEmail ?? "");
     setEnableGeoLocation(config.enableGeoLocation ?? true);
     setEnableTimezoneAutoSet(config.enableTimezoneAutoSet ?? false);
     setEnableImeMatchLog(config.enableImeMatchLog ?? false);
@@ -1132,6 +1140,12 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     setSlaNotifyOnAppInstallBreach(config.slaNotifyOnAppInstallBreach ?? false);
     setSlaNotifyOnConsecutiveFailures(config.slaNotifyOnConsecutiveFailures ?? false);
     setSlaConsecutiveFailureThreshold(config.slaConsecutiveFailureThreshold ?? 5);
+  }, [config]);
+
+  const handleSaveContact = useCallback(() => saveConfiguration("contact"), [saveConfiguration]);
+  const handleResetContact = useCallback(() => {
+    if (!config) return;
+    setContactEmail(config.contactEmail ?? "");
   }, [config]);
 
   const handleSaveDiagnostics = useCallback(() => saveConfiguration("diagnostics"), [saveConfiguration]);
@@ -1508,6 +1522,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       keepLogFile, setKeepLogFile,
       rebootOnComplete, setRebootOnComplete,
       rebootDelaySeconds, setRebootDelaySeconds,
+      contactEmail, setContactEmail,
+      handleSaveContact, handleResetContact,
       enableGeoLocation, setEnableGeoLocation,
       enableTimezoneAutoSet, setEnableTimezoneAutoSet,
       enableImeMatchLog, setEnableImeMatchLog,

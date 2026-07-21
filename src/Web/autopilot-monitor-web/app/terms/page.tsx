@@ -71,9 +71,10 @@ export default function TermsPage() {
             <li>Automated access, including through the MCP integration, stays within the published rate limits and quotas.</li>
           </ul>
           <p className="text-gray-700">
-            <strong>Enforcement.</strong> Where use threatens the service or other tenants, we respond proportionately —
-            typically a warning first, then reduced rate limits, then suspension, and termination only for serious or
-            repeated violations. Where circumstances permit, notice is given before access is restricted.
+            <strong>Enforcement.</strong> Where use threatens the service or other tenants, we respond proportionately.
+            Depending on the situation that may be a warning, reduced rate limits, suspension, or termination — chosen
+            to fit the case, not worked through as a fixed sequence. Where the risk is immediate, access can be
+            restricted at once. A warning is sent where a tenant contact address is on file and time permits.
           </p>
           <p className="text-gray-700">
             <strong>Security research is welcome</strong> and is not a violation of these terms when reported privately.

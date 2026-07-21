@@ -11,6 +11,8 @@ export interface TenantConfiguration {
   domainName: string;
   lastUpdated: string;
   updatedBy: string;
+  /** Tenant-maintained contact address for service matters. Read-only here. */
+  contactEmail?: string | null;
   disabled: boolean;
   disabledReason?: string;
   disabledUntil?: string;
@@ -694,6 +696,13 @@ export function TenantManagementSection({
                 <p className="text-xs text-indigo-600 mt-2">
                   The email is saved and sent in one step. Also sent automatically on approval if set.
                 </p>
+                {editingTenant.contactEmail && (
+                  <p className="text-xs text-indigo-700 mt-2 pt-2 border-t border-indigo-200">
+                    <span className="font-medium">Tenant contact:</span>{" "}
+                    <span className="font-mono">{editingTenant.contactEmail}</span>
+                    <span className="text-indigo-500"> — maintained by the tenant, for service matters only</span>
+                  </p>
+                )}
               </div>
 
               {/* Device API Rate Limit override */}
