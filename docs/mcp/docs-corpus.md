@@ -143,10 +143,39 @@ via `lexicalMatch`, the substring scan every provider already exposes:
   results keep the head of the list and keyword hits fill the tail, flagged
   `matchType: "keyword"` with `keywordFallback` in the response.
 
-It is not a rare path: across 904 rare corpus tokens queried on their own, the
-fallback contributed hits for 431. Multi-word natural-language questions rarely
-trigger it — those the semantic pass answers well. It earns its keep when someone
-pastes an identifier.
+### When it fires
+
+Two triggers, and the second one exists because the first was not enough:
+
+1. **Fewer than `topK` semantic hits** — the obvious case.
+2. **A weak semantic head** (best score below `WEAK_SEMANTIC_SCORE`, 0.35). Topping
+   up only a short list misses the more common failure: a pasted identifier like
+   `WOW6432Node` returns three chunks at ~0.29 that do not contain the word, while
+   the single chunk that does never gets considered. When nothing semantic is
+   convincing, exact matches take the front — keeping at least one semantic result,
+   so a weak-but-correct hit is never pushed out entirely.
+
+The threshold was chosen by measurement, not intuition. `scripts/eval-docs-search.ts`
+scores strategies over 2465 queries in three classes — every chunk heading
+(known-item, a regression detector), rare identifiers (the class this fallback
+serves), and hand-written questions (the reality anchor, not derived from the
+corpus):
+
+| strategy | known-item | literal | handwritten MRR | fixed | broken |
+| --- | --- | --- | --- | --- | --- |
+| append-only (previous) | 71.9% | 66.2% | 1.000 | — | — |
+| weak < 0.30 | 71.9% | 72.6% | 1.000 | 142 | 0 |
+| **weak < 0.35** | **73.7%** | **81.1%** | **1.000** | **335** | **0** |
+| weak < 0.40 | 76.3% | 88.2% | 0.944 | 502 | 3 |
+| weak < 0.45 | 77.2% | 93.0% | 0.889 | 613 | 5 |
+
+0.35 is strictly dominant: better in every class, worse in none. Higher thresholds
+keep repairing more identifier queries but start demoting hand-written questions —
+the class that most resembles real use — so the gain is not free past that point.
+
+The measurement also corrected the size of the problem: identifier queries were
+succeeding only 66.2% of the time, so `WOW6432Node` was not an outlier but one of
+roughly 750 such failures.
 
 ## Build-time embedding
 
@@ -217,4 +246,6 @@ queries on all-MiniLM score low, and a relevant-but-marginal hit lands around
 * `/src/McpServer/autopilot-monitor-mcp/Dockerfile` — `mcp-docs/` copy,
   `DOCS_COMMIT`
 * `/.github/workflows/deploy-mcp.yml` — docs checkout and SHA capture
+* `/src/McpServer/autopilot-monitor-mcp/scripts/eval-docs-search.ts` — retrieval
+  evaluation harness; run it before changing anything about ranking
 * [MCP OAuth Flow](../mcp-oauth-flow.md) — the other MCP concept document

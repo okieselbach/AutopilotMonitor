@@ -153,6 +153,43 @@ describe('search_docs keyword fallback', () => {
     expect(body.results.every((r) => r.section === 'trust')).toBe(true);
   });
 
+  it('lets exact matches take the front when the semantic head is weak', async () => {
+    // The WOW6432Node case: semantic fills topK with chunks scoring ~0.29 that do
+    // not contain the term, while the one chunk that does never gets considered.
+    // Measured over 2465 queries, acting on a weak head fixed 335 and broke 0.
+    const weak = (id: string) => ({ ...chunk(id, 'trust'), score: 0.29 });
+    const handler = searchDocsHandler(
+      stubProvider(
+        [weak('weak-1'), weak('weak-2'), weak('weak-3')],
+        [chunk('exact', 'trust', 'mentions wow6432node verbatim')],
+      ),
+    );
+
+    const body = await run(handler, { query: 'wow6432node', topK: 3 });
+
+    expect(body.results[0].id).toBe('exact');
+    expect(body.results[0].matchType).toBe('keyword');
+    // At least one semantic result survives — a weak-but-correct hit is never
+    // pushed out entirely.
+    expect(body.results.map((r) => r.id)).toContain('weak-1');
+    expect(body.keywordFallback).toEqual({ used: true, added: 1 });
+  });
+
+  it('leaves a confident semantic ranking untouched', async () => {
+    const strong = (id: string) => ({ ...chunk(id, 'trust'), score: 0.72 });
+    const handler = searchDocsHandler(
+      stubProvider(
+        [strong('sem-1'), strong('sem-2'), strong('sem-3')],
+        [chunk('exact', 'trust', 'mentions wow6432node verbatim')],
+      ),
+    );
+
+    const body = await run(handler, { query: 'wow6432node', topK: 3 });
+
+    expect(body.results.map((r) => r.id)).toEqual(['sem-1', 'sem-2', 'sem-3']);
+    expect(body.keywordFallback).toBeUndefined();
+  });
+
   it('returns nothing when neither pass matches — no invented results', async () => {
     const handler = searchDocsHandler(stubProvider([], []));
 

@@ -977,6 +977,13 @@ const KEYWORD_STOPWORDS = new Set([
   'when', 'where', 'which', 'while', 'will', 'with', 'would', 'your',
 ]);
 
+/**
+ * Below this best-hit cosine score, the semantic pass is treated as having found
+ * nothing convincing, and exact keyword matches are allowed to take the front.
+ * Chosen by measurement, not intuition — see scripts/eval-docs-search.ts.
+ */
+export const WEAK_SEMANTIC_SCORE = 0.35;
+
 export function extractDistinctiveTerms(query: string): string[] {
   const seen = new Set<string>();
   for (const raw of query.toLowerCase().split(/[^a-z0-9_.-]+/)) {
@@ -1293,7 +1300,16 @@ export function registerSearchTools(
           // caller. Ranked among themselves by how many query terms they contain.
           const keywordHitIds = new Set<string>();
           const terms = extractDistinctiveTerms(query);
-          if (results.length < topK && terms.length > 0 && docsIndex.lexicalMatch) {
+          // A weak semantic head means "nothing here really matches" — measured, that
+          // is where exact matches belong in front. Topping up only when the list is
+          // SHORT misses this: a pasted identifier like "WOW6432Node" returns three
+          // chunks at 0.29 that do not contain the word, while the one chunk that does
+          // never gets considered. Over 2465 evaluation queries, acting on a weak head
+          // below this threshold fixed 335 and broke 0 (see scripts/eval-docs-search.ts);
+          // raising it to 0.40 fixed more but started demoting hand-written questions,
+          // so it stays here.
+          const semanticIsWeak = (results[0]?.score ?? 0) < WEAK_SEMANTIC_SCORE;
+          if ((results.length < topK || semanticIsWeak) && terms.length > 0 && docsIndex.lexicalMatch) {
             // lexicalMatch is ANY-of-needles, which alone is far too generous: for
             // "how do I bake sourdough bread" the single word "bake" matches "baked
             // into the image" and a page about LLM providers comes back as a hit.
@@ -1311,13 +1327,23 @@ export function registerSearchTools(
               .filter(({ matched }) => matched >= required)
               .sort((a, b) => b.matched - a.matched);
 
-            for (const { hit } of ranked) {
-              if (results.length >= topK) break;
-              if (seen.has(hit.id)) continue;
-              if (section && hit.metadata.section !== section) continue;
-              seen.add(hit.id);
-              keywordHitIds.add(hit.id);
-              results.push(hit);
+            const fresh = ranked
+              .map(({ hit }) => hit)
+              .filter((hit) => !seen.has(hit.id) && (!section || hit.metadata.section === section));
+
+            if (results.length < topK) {
+              // Free slots: append, semantic keeps the head.
+              for (const hit of fresh) {
+                if (results.length >= topK) break;
+                keywordHitIds.add(hit.id);
+                results.push(hit);
+              }
+            } else if (semanticIsWeak && fresh.length > 0) {
+              // No free slots, but nothing semantic is convincing. Exact matches go to
+              // the front — while keeping at least one semantic result, so a
+              // weak-but-correct hit is never pushed out entirely.
+              for (const hit of fresh.slice(0, topK - 1)) keywordHitIds.add(hit.id);
+              results = [...fresh.slice(0, topK - 1), ...results].slice(0, topK);
             }
           }
 
