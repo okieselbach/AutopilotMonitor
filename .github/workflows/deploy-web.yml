@@ -39,6 +39,9 @@ jobs:
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_DEPLOY_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }} # Used for Github integrations (i.e. PR comments)
+          # Dependabot PRs run without repo secrets, so the deploy token is absent.
+          # Skip (green) instead of failing the check; real deploys on main still have the token.
+          skip_deploy_on_missing_secrets: true
           action: "upload"
           ###### Repository/Build Configurations - These values can be configured to match your app requirements. ######
           # For more information regarding Static Web App workflow configurations, please visit: https://aka.ms/swaworkflowconfig
