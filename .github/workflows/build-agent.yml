@@ -56,11 +56,11 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # SDK 10 = single build toolchain (parity with local build.ps1 / global.json).
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
@@ -352,13 +352,13 @@ jobs:
           subject-path: ${{ steps.artifact.outputs.versioned_zip_release }}
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: AutopilotMonitor-Agent-v${{ steps.version.outputs.version }}
           path: ${{ steps.artifact.outputs.versioned_zip_release }}
 
       - name: Upload version metadata
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: version-metadata
           path: ${{ env.MANIFEST_NAME }}

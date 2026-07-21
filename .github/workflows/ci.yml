@@ -24,9 +24,9 @@ jobs:
     # windows-latest is required: the agent test projects target net48.
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
@@ -55,9 +55,9 @@ jobs:
       run:
         working-directory: src/Web/autopilot-monitor-web
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: npm
@@ -78,9 +78,9 @@ jobs:
       run:
         working-directory: src/McpServer/autopilot-monitor-mcp
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: npm
@@ -98,9 +98,9 @@ jobs:
     name: Generated guardrails match rules/guardrails.json
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
 
