@@ -159,7 +159,7 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "[McpQuota] Failed to record usage: user={UserId}, endpoint={Endpoint}", oid, normalizedEndpoint);
+                logger.LogWarning(ex, "[McpQuota] Failed to record usage: user={UserId}, endpoint={Endpoint}", LogSanitizer.Clean(oid), LogSanitizer.Clean(normalizedEndpoint));
             }
         });
     }

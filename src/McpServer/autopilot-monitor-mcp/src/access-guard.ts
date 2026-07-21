@@ -232,7 +232,7 @@ async function checkAccess(upn: string, token: string, clientIp: string): Promis
     }, MAX_ACCESS_CACHE_ENTRIES);
     return result;
   } catch (err) {
-    console.error(`[access-guard] Backend check failed for ${upn}:`, err);
+    console.error('[access-guard] Backend check failed for %s:', upn, err);
     // Fail-closed: deny on backend error
     return { allowed: false, reason: 'Backend access check unavailable', isGlobalAdmin: false, isGlobalReader: false, infraError: true };
   }

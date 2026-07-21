@@ -218,6 +218,24 @@ interface Section {
 }
 
 /**
+ * Remove HTML tags from a string. The pattern is applied repeatedly until the
+ * string stops changing, so tag removal can never re-form a tag from the joined
+ * remainder. A single `.replace(/<[^>]+>/g, '')` happens to be complete for this
+ * pattern, but the looped form is the shape CodeQL accepts as a robust sanitizer
+ * (js/incomplete-multi-character-sanitization) and is defensive against any
+ * future change to the tag regex.
+ */
+function stripHtmlTags(input: string): string {
+  let prev: string;
+  let out = input;
+  do {
+    prev = out;
+    out = out.replace(/<[^>]+>/g, '');
+  } while (out !== prev);
+  return out;
+}
+
+/**
  * Split a page body into heading-delimited sections.
  *
  * Handles both structures the bundle uses: markdown h2/h3 headings (the common
@@ -262,7 +280,7 @@ function splitIntoSections(body: string): Section[] {
     const summary = /^\s*<summary>(.*?)<\/summary>\s*$/i.exec(line);
     if (summary) {
       flush(detailsTitle ?? h3 ?? h2);
-      detailsTitle = summary[1].replace(/<[^>]+>/g, '').trim();
+      detailsTitle = stripHtmlTags(summary[1]).trim();
       continue;
     }
     if (/^\s*<\/details>\s*$/i.test(line)) {

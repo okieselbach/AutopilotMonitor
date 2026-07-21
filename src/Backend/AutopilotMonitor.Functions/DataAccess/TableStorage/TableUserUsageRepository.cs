@@ -1,3 +1,4 @@
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
@@ -72,7 +73,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
 
             _logger.LogWarning("Failed to increment user usage after {MaxRetries} retries: user={UserId}, endpoint={Endpoint}",
-                maxRetries, userId, endpoint);
+                maxRetries, LogSanitizer.Clean(userId), LogSanitizer.Clean(endpoint));
         }
 
         public async Task<List<UserUsageRecord>> GetUsageByUserAsync(string userId, string? dateFrom = null, string? dateTo = null)

@@ -65,13 +65,19 @@ const ALLOWED_USER_PROFILE_SUBDIRS = ["AppData\\Local", "AppData\\Roaming"];
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Escape a literal string so it can be embedded in a RegExp without its
+ *  characters being interpreted as regex metacharacters. */
+function escapeRegExp(literal: string): string {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /** Expand known Windows environment variables and custom tokens (case-insensitive). */
 function expandEnvVars(path: string): string {
   let result = path;
   // Expand custom agent token first
-  result = result.replace(new RegExp(USER_PROFILE_TOKEN.replace(/%/g, "%"), "gi"), USER_PROFILE_PLACEHOLDER);
+  result = result.replace(new RegExp(escapeRegExp(USER_PROFILE_TOKEN), "gi"), USER_PROFILE_PLACEHOLDER);
   for (const [envVar, replacement] of Object.entries(COMMON_ENV_VARS)) {
-    const regex = new RegExp(envVar.replace(/%/g, "%"), "gi");
+    const regex = new RegExp(escapeRegExp(envVar), "gi");
     result = result.replace(regex, replacement);
   }
   return result;

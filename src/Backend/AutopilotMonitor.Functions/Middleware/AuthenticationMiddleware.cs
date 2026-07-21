@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Http;
 using System.Net;
 using System.Security.Claims;
 using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Middleware;
 
@@ -57,9 +58,12 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
         // JWT validation. The exempt set is DERIVED from EndpointAccessPolicyCatalog — never a
         // hand-kept parallel list — so a new anonymous/device route can't drift out of sync here.
         var requestPath = httpContext.Request.Path.Value ?? string.Empty;
+        // Sanitized copies for logging only — never used for routing/authorization decisions.
+        var logPath = LogSanitizer.Clean(requestPath);
+        var logMethod = LogSanitizer.Clean(httpContext.Request.Method);
         if (SkipsJwtValidation(httpContext.Request.Method, requestPath))
         {
-            _logger.LogDebug("[Auth Middleware] JWT-exempt route: {Method} {Path}", httpContext.Request.Method, requestPath);
+            _logger.LogDebug("[Auth Middleware] JWT-exempt route: {Method} {Path}", logMethod, logPath);
             await next(context);
             return;
         }
@@ -68,7 +72,7 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
         var authHeader = httpContext.Request.Headers.Authorization.ToString();
         if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
         {
-            _logger.LogWarning("[Auth Middleware] Blocked unauthenticated request to {Path}", requestPath);
+            _logger.LogWarning("[Auth Middleware] Blocked unauthenticated request to {Path}", logPath);
             httpContext.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
             httpContext.Response.ContentType = "application/json";
             await httpContext.Response.WriteAsJsonAsync(new
@@ -96,7 +100,7 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
             // MSA, tid 9188040d-…) carries a GUID tid, so this reject is loss-free.
             if (!IsValidTenantId(tenantId))
             {
-                _logger.LogWarning("[Auth Middleware] Rejected token with missing/non-GUID tid for {Path}", requestPath);
+                _logger.LogWarning("[Auth Middleware] Rejected token with missing/non-GUID tid for {Path}", logPath);
                 throw new SecurityTokenValidationException("Token tid claim is missing or not a valid GUID");
             }
 
@@ -207,7 +211,7 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
 
         if (!authenticated)
         {
-            _logger.LogWarning("[Auth Middleware] Blocked request with invalid token to {Path}", requestPath);
+            _logger.LogWarning("[Auth Middleware] Blocked request with invalid token to {Path}", logPath);
             httpContext.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
             httpContext.Response.ContentType = "application/json";
             await httpContext.Response.WriteAsJsonAsync(new

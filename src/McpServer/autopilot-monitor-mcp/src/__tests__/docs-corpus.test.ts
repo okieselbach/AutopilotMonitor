@@ -129,6 +129,21 @@ describe('loadDocsCorpus', () => {
     expect(chunks.map((c) => c.metadata.heading)).toContain('General › Is Autopilot Monitor free?');
   });
 
+  it('strips inline HTML tags from a <summary> title, leaving no angle brackets', async () => {
+    const chunks = await withBundle(
+      {
+        'troubleshooting/faq.md': page(
+          'type: FAQ\ntags: [faq]',
+          ['# FAQ', '', '## General', '', '<details>', '', '<summary>Does <b>keep-awake</b> work during <i>ESP</i>?</summary>', '', 'Keep-awake is an opt-in behavior during the user ESP phase for supported devices.', '', '</details>'].join('\n'),
+        ),
+      },
+      (root) => loadDocsCorpus(root),
+    );
+    const headings = chunks.map((c) => c.metadata.heading);
+    expect(headings).toContain('General › Does keep-awake work during ESP?');
+    expect(headings.every((h) => h == null || (!h.includes('<') && !h.includes('>')))).toBe(true);
+  });
+
   it('never emits a heading from inside a fenced code block', async () => {
     const chunks = await withBundle(
       {

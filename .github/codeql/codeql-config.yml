@@ -1,0 +1,31 @@
+# CodeQL configuration.
+#
+# The default query suites stay active — this file only filters out two C# queries
+# that fire structurally on this codebase, where the flagged behavior is the feature,
+# not a defect:
+#
+#   cs/exposure-of-sensitive-information
+#     Audit and operational logs record WHO performed an action (actor UPN / email)
+#     and notification services deliver mail to a recipient address. Writing that
+#     identity to the log / notification IS the purpose of the field. Every such site
+#     is a legitimate, reviewed use — the query cannot distinguish it from a leak.
+#
+#   cs/cleartext-storage-of-sensitive-information
+#     The rate limiters and distress guard use the trusted client IP as their bucket
+#     key. The IP is an identifier for throttling, not a secret at rest; storing it in
+#     the in-memory / table rate-limit key is by design.
+#
+# Genuine one-off false positives from OTHER queries (e.g. an open-redirect the taint
+# model can't see is allow-listed, a rate-limited route it doesn't recognize) are
+# dismissed individually in the Security tab so those queries stay sharp — they are
+# NOT suppressed here.
+#
+# Log-injection (cs/log-forging) is deliberately NOT filtered: user-controlled values
+# are sanitized at the sink via Helpers/LogSanitizer, so the query stays useful for
+# catching a future unsanitized sink.
+
+query-filters:
+  - exclude:
+      id: cs/exposure-of-sensitive-information
+  - exclude:
+      id: cs/cleartext-storage-of-sensitive-information

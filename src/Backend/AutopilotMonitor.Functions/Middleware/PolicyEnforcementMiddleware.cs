@@ -57,6 +57,10 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         var httpMethod = httpContext.Request.Method;
         var queryTenantId = httpContext.Request.Query["tenantId"].FirstOrDefault();
 
+        // Sanitized copies for logging only — never used for routing/authorization decisions.
+        var logPath = LogSanitizer.Clean(requestPath);
+        var logMethod = LogSanitizer.Clean(httpMethod);
+
         // Authenticated principal set by AuthenticationMiddleware (null on anonymous/device routes).
         // Read from FunctionContext.Items (reliable in the isolated worker) rather than httpContext.User.
         ClaimsPrincipal? principal = null;
@@ -76,7 +80,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[PolicyEnforcement] Service error evaluating policy for {Method} {Path}", httpMethod, requestPath);
+            _logger.LogError(ex, "[PolicyEnforcement] Service error evaluating policy for {Method} {Path}", logMethod, logPath);
             httpContext.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
             httpContext.Response.ContentType = "application/json";
             httpContext.Response.Headers["Retry-After"] = "5";
@@ -92,13 +96,13 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         {
             context.Items[RequestContext.ItemsKey] = result.Context!;
             _logger.LogDebug("[PolicyEnforcement] ALLOW {Method} {Path} user={User} role={Role}",
-                httpMethod, requestPath, result.UserIdentifier, result.UserRole);
+                logMethod, logPath, LogSanitizer.Clean(result.UserIdentifier), result.UserRole);
             await next(context);
             return;
         }
 
         _logger.LogWarning("[PolicyEnforcement] DENIED {Method} {Path} status={Status} user={User} role={Role} reason={Reason}",
-            httpMethod, requestPath, result.StatusCode, result.UserIdentifier, result.UserRole, result.LogReason);
+            logMethod, logPath, result.StatusCode, LogSanitizer.Clean(result.UserIdentifier), result.UserRole, result.LogReason);
         httpContext.Response.StatusCode = result.StatusCode;
         httpContext.Response.ContentType = "application/json";
         await httpContext.Response.WriteAsJsonAsync(new { error = result.ErrorCode, message = result.ErrorMessage });
@@ -115,12 +119,16 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
     internal async Task<PolicyResult> DecideAsync(
         string httpMethod, string requestPath, string? queryTenantId, ClaimsPrincipal? principal)
     {
+        // Sanitized copies for logging only — never used for routing/authorization decisions.
+        var logPath = LogSanitizer.Clean(requestPath);
+        var logMethod = LogSanitizer.Clean(httpMethod);
+
         var catalogEntry = EndpointAccessPolicyCatalog.FindPolicy(httpMethod, requestPath);
         if (catalogEntry == null)
         {
             // Fail-closed: unregistered route → 403
             _logger.LogError("[PolicyEnforcement] BLOCKED unregistered route: {Method} {Path} — not in catalog (fail-closed)",
-                httpMethod, requestPath);
+                logMethod, logPath);
             return PolicyResult.Deny((int)HttpStatusCode.Forbidden, "Forbidden", "Access denied.", "anonymous", "N/A", "Unregistered");
         }
 
@@ -188,7 +196,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         if (crossTenant && !hasGlobalScope && !delegatedGrantsRead)
         {
             _logger.LogWarning("[PolicyEnforcement] BLOCKED cross-tenant access: user={User} jwtTenant={JwtTenant} target={Target} scoping={Scoping} path={Path}",
-                decision.UserIdentifier, jwtTenantId, namedTarget, catalogEntry.TenantScoping, requestPath);
+                LogSanitizer.Clean(decision.UserIdentifier), LogSanitizer.Clean(jwtTenantId), LogSanitizer.Clean(namedTarget), catalogEntry.TenantScoping, logPath);
             return PolicyResult.Deny((int)HttpStatusCode.Forbidden, "CrossTenantAccessDenied",
                 "Access denied. You can only access your own tenant's resources.",
                 decision.UserIdentifier, decision.UserRole, "CrossTenant");
