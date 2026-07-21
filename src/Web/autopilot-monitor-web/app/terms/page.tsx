@@ -3,6 +3,7 @@ import { PublicPageHeader } from "../../components/PublicPageHeader";
 const LAST_UPDATED = "21 July 2026";
 const DOCS_SECURITY_FAQ = "https://docs.autopilotmonitor.com/trust/security-faq";
 const DOCS_PLANS = "https://docs.autopilotmonitor.com/plans";
+const GITHUB_ADVISORY = "https://github.com/okieselbach/Autopilot-Monitor/security/advisories/new";
 
 export default function TermsPage() {
   return (
@@ -70,9 +71,29 @@ export default function TermsPage() {
             <li>Automated access, including through the MCP integration, stays within the published rate limits and quotas.</li>
           </ul>
           <p className="text-gray-700">
-            Responsible disclosure of a security issue is welcome and will not be treated as a violation — report it
-            privately rather than publicly.
+            <strong>Enforcement.</strong> Where use threatens the service or other tenants, we respond proportionately —
+            typically a warning first, then reduced rate limits, then suspension, and termination only for serious or
+            repeated violations. Where circumstances permit, notice is given before access is restricted.
           </p>
+          <p className="text-gray-700">
+            <strong>Security research is welcome</strong> and is not a violation of these terms when reported privately.
+            Report findings through{" "}
+            <a href={GITHUB_ADVISORY} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">GitHub Security Advisories</a>{" "}
+            rather than a public issue — see{" "}
+            <a href={DOCS_SECURITY_FAQ} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">Security &amp; Privacy FAQ</a>{" "}
+            for what happens next. Do not access other tenants&apos; data, degrade the service, or run automated scans
+            against production while testing.
+          </p>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-6 space-y-4">
+          <h2 className="text-xl font-semibold text-gray-900">Intellectual Property &amp; Licensing</h2>
+          <div className="space-y-2 text-gray-700">
+            <p><strong>Open source.</strong> The Autopilot Monitor source code is published on <a href="https://github.com/okieselbach/Autopilot-Monitor" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">GitHub</a> under the licence stated in that repository. That licence governs the code — it does not grant rights to the hosted service, its infrastructure, its data, or the Autopilot Monitor name and branding.</p>
+            <p><strong>Your data stays yours.</strong> Enrollment telemetry, configuration, and diagnostics belong to your organization. Using the service grants only the rights needed to operate it for you, as described in the <a href="/privacy" className="text-indigo-600 hover:text-indigo-800 underline">Privacy Policy</a>.</p>
+            <p><strong>Rules you contribute</strong> are covered by the licence grant described under &quot;Your Data, Suspension and Termination&quot; below.</p>
+            <p><strong>Third-party components</strong> remain the property of their respective owners and are used under their own licences; see the attributions below.</p>
+          </div>
         </div>
 
         <div className="bg-white rounded-lg shadow p-6 space-y-4">
