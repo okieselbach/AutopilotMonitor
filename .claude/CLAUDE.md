@@ -71,24 +71,16 @@ Codex will review your output once you are done!
 
 ## Customer-Facing Claims
 
-Four public surfaces make statements customers and security reviewers rely on. They drift silently because nobody opens them during a refactor — treat them as part of the change, not as documentation to update later.
+`src/Web/autopilot-monitor-web/app/{about,terms,privacy}/page.tsx` and `autopilotmonitor-docs/trust/*` state facts customers and security reviewers rely on. They drift silently.
 
-- **`src/Web/autopilot-monitor-web/app/about/page.tsx`** — marketing and tech-stack claims (framework and runtime versions, roles, integrations, agent deployment and lifecycle, diagnostics contents, isolation model).
-- **`app/terms/page.tsx`** and **`app/privacy/page.tsx`** — plans and contracting, what is collected, retention, access, sub-processors, data residency.
-- **`autopilotmonitor-docs/trust/security-faq.md`** and **`trust/subprocessors.md`** — the technical detail behind the two pages above; that repo's `index.md` carries its own sync rule and a "Last reviewed" date.
+- Verify every claim against the code before writing it — never carry one forward because it was already on the page.
+- Update them in the same change as: runtime/framework versions, roles, notification providers, agent deployment or lifecycle, diagnostics payload, isolation/delegation model, retention caps, sub-processors, or any default governing what is collected.
+- Trust pages: durable phrasing over exact figures, and bump their "Last reviewed" date. Never advertise operator-only infrastructure (Telegram ops alerts) as a customer feature.
 
-Rules:
+## Technical Docs — OKF Bundle (`docs/`)
 
-- Changing a runtime or framework version, a role, a notification provider, an agent deployment or lifecycle behaviour, the diagnostics payload, the isolation or delegation model, retention caps, sub-processors, or a **default that governs what is collected** means updating the affected surfaces in the same change.
-- **Verify claims against the code before writing them** — never carry a claim forward because it was already on the page. Stale claims found in July 2026 included a ".NET 8" backend that was .NET 10, a non-existent "Next.js 18", ETL log collection that never happened, and "each tenant runs its own isolated instance" for a shared multi-tenant service.
-- Prefer durable phrasing over exact figures on the trust pages, so routine tuning does not invalidate a published statement.
-- Do not advertise operator-only infrastructure (e.g. Telegram ops alerting) as a customer feature.
+Contributor/AI-facing docs (customer docs live in the `autopilotmonitor-docs` repo). Start at `docs/index.md` before opening individual files.
 
-## Technical Docs — OKF Knowledge Bundle (`docs/`)
-
-`docs/` is an [Open Knowledge Format (OKF) v0.1](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) knowledge bundle for contributor/AI-facing technical documentation (customer docs live in the separate autopilotmonitor-docs repo).
-
-- **Consume first**: start at `docs/index.md` for progressive disclosure before opening individual documents.
-- **When new durable technical knowledge emerges** (architecture decisions, flows, non-obvious mechanisms), capture it as an OKF concept document in `docs/` — markdown with YAML frontmatter: `type` (mandatory), plus `title`, `description`, `resource`, `tags`, `timestamp` (recommended).
-- **Maintain the bundle**: add every new document to `docs/index.md`, note changes in `docs/log.md` (grouped by ISO date). Use standard RELATIVE markdown links between docs — never the OKF `/`-prefixed bundle-absolute form (GitHub resolves those from the repo root and navigation breaks). `index.md` and `log.md` are reserved filenames.
-- Documents are English, structural markdown over prose (`# Schema`, `# Examples`, `# Citations` sections where applicable).
+- New durable knowledge (architecture decisions, flows, non-obvious mechanisms) → an OKF concept doc with YAML frontmatter: `type` (mandatory), plus `title`, `description`, `resource`, `tags`, `timestamp`.
+- Register it in `docs/index.md`, note the change in `docs/log.md` (ISO date). `index.md` and `log.md` are reserved names.
+- English, structural markdown (`# Schema`, `# Examples`, `# Citations`). Links between docs are RELATIVE — never `/`-prefixed, that breaks GitHub navigation.
