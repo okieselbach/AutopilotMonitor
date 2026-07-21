@@ -1136,6 +1136,8 @@ export function registerSearchTools(
         'Use natural language queries like "app install timeout", "BitLocker issues", "detection script failure". ' +
         'Returns the most relevant rules and patterns ranked by similarity. ' +
         'Great for finding remediation steps, understanding error patterns, or discovering relevant diagnostic rules. ' +
+        'QUERY IN ENGLISH: the rules and the embedding model are English-only, so a query in another language ' +
+        'matches nothing at all. Translate the user\'s question first and answer them in their own language. ' +
         'ERROR CODES: a query containing an HRESULT/Win32 hex code (e.g. "0x87D1041C", "0x80070002") also triggers a ' +
         'literal substring fallback — any rule that names the code verbatim is returned regardless of minScore, since ' +
         'such opaque codes embed poorly and the semantic score alone would miss them. Those hits are flagged `matchType: "error-code"`.',
@@ -1242,6 +1244,9 @@ export function registerSearchTools(
           'If semantic matching returns too few hits, exact keyword matches are APPENDED (flagged ' +
           '`matchType: "keyword"`, and their scores are on a different scale — rank order across the two is ' +
           'not comparable). ' +
+          'QUERY IN ENGLISH: the documentation and the embedding model are English-only, so a query in another ' +
+          'language matches nothing at all (it returns zero results rather than poor ones). Translate the ' +
+          'user\'s question first and answer them in their own language. ' +
           'NOT the same corpus as search_knowledge: that one holds analysis/gather rules and IME log patterns and ' +
           'explains why an enrollment failed. Rule of thumb — "how does X work?" → search_docs; ' +
           '"why did this session fail?" → search_knowledge or get_session_summary.',

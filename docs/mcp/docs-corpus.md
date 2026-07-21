@@ -143,6 +143,19 @@ via `lexicalMatch`, the substring scan every provider already exposes:
   results keep the head of the list and keyword hits fill the tail, flagged
   `matchType: "keyword"` with `keywordFallback` in the response.
 
+### Language
+
+The corpus and `all-MiniLM-L6-v2` are both English-only, and the failure is total
+rather than gradual: "wo werden meine Daten gespeichert" returns **zero** results,
+not weak ones, because the query vector lands nowhere near any English chunk.
+
+The fix is a sentence in the tool description telling the caller to query in English
+and answer in the user's language — the caller is a language model, so translating
+the question before the call costs nothing. A multilingual embedding model would
+handle it natively but is substantially larger and would need to be measured against
+`scripts/eval-docs-search.ts` first, since it changes English retrieval too.
+`search_knowledge` carries the same note for the same reason.
+
 ### When it fires
 
 Two triggers, and the second one exists because the first was not enough:
