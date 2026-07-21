@@ -69,6 +69,21 @@ Codex will review your output once you are done!
 - **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
 - **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
 
+## Customer-Facing Claims
+
+Four public surfaces make statements customers and security reviewers rely on. They drift silently because nobody opens them during a refactor — treat them as part of the change, not as documentation to update later.
+
+- **`src/Web/autopilot-monitor-web/app/about/page.tsx`** — marketing and tech-stack claims (framework and runtime versions, roles, integrations, agent deployment and lifecycle, diagnostics contents, isolation model).
+- **`app/terms/page.tsx`** and **`app/privacy/page.tsx`** — plans and contracting, what is collected, retention, access, sub-processors, data residency.
+- **`autopilotmonitor-docs/trust/security-faq.md`** and **`trust/subprocessors.md`** — the technical detail behind the two pages above; that repo's `index.md` carries its own sync rule and a "Last reviewed" date.
+
+Rules:
+
+- Changing a runtime or framework version, a role, a notification provider, an agent deployment or lifecycle behaviour, the diagnostics payload, the isolation or delegation model, retention caps, sub-processors, or a **default that governs what is collected** means updating the affected surfaces in the same change.
+- **Verify claims against the code before writing them** — never carry a claim forward because it was already on the page. Stale claims found in July 2026 included a ".NET 8" backend that was .NET 10, a non-existent "Next.js 18", ETL log collection that never happened, and "each tenant runs its own isolated instance" for a shared multi-tenant service.
+- Prefer durable phrasing over exact figures on the trust pages, so routine tuning does not invalidate a published statement.
+- Do not advertise operator-only infrastructure (e.g. Telegram ops alerting) as a customer feature.
+
 ## Technical Docs — OKF Knowledge Bundle (`docs/`)
 
 `docs/` is an [Open Knowledge Format (OKF) v0.1](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) knowledge bundle for contributor/AI-facing technical documentation (customer docs live in the separate autopilotmonitor-docs repo).
