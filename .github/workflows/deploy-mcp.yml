@@ -19,7 +19,7 @@ jobs:
     name: Build and Deploy MCP Server
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # The published customer documentation lives in its own PUBLIC repo and is
       # baked into the image as the search_docs corpus (see the Dockerfile). No
@@ -28,7 +28,7 @@ jobs:
       # RUNNING SERVER; this workflow must be re-run. /health reports the SHA
       # captured below so that staleness is checkable.
       - name: Check out documentation bundle
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: autopilotmonitor/autopilotmonitor-docs
           path: mcp-docs

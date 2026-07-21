@@ -13,7 +13,7 @@ jobs:
     name: Build and Deploy Backend
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Login to Azure (OIDC)
         uses: azure/login@v3

@@ -56,7 +56,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # SDK 10 = single build toolchain (parity with local build.ps1 / global.json).
       - name: Setup .NET

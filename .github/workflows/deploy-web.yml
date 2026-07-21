@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Build and Deploy Job
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           lfs: false
           fetch-depth: 0  # Full history needed for git-based sitemap lastmod dates
