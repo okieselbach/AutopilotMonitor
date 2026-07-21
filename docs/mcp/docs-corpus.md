@@ -203,6 +203,42 @@ is public documentation carrying no tenant data, and a tenant user asking "how d
 I deploy the agent" has as much business here as a Global Admin. It is skipped
 entirely when the corpus is empty, so a doc-less build advertises no broken tool.
 
+# Cold start
+
+`minReplicas: 0` means every idle period ends in a cold start someone waits through.
+Measured from outside: **24.5 s** to first byte after `ScaledToZero`, against **60 ms**
+warm.
+
+Where those seconds go could not be answered from outside the process. Log Analytics
+stamps every console line of one ingestion batch with the same time, so the boot
+sequence collapses to a single instant however it is queried. The server therefore
+times itself — `[boot +Nms]` marks from `process.uptime()`, which includes Node's own
+startup and module loading.
+
+On a development machine the whole app boot is ~1.3 s:
+
+```
++860ms   node started (startup + module loading)
++1199ms  corpora read from disk        (+339ms)
++1242ms  index read, validated, hydrated (+43ms  <- for 3.12 MB)
++1273ms  listening                      (+31ms)
++1497ms  query embedder warm            (+224ms, background)
+```
+
+Two things follow, and both contradict plausible assumptions:
+
+- **Index size is not the cold-start cost.** Parsing and hydrating 3.12 MB takes 43 ms.
+  Growing the corpus further is cheap.
+- **The prebaked embedder is not either** — 224 ms, and it loads in the background, so
+  only the first *search* could ever wait on it.
+
+The dominant local cost is Node startup and module loading. Whether that, or platform
+activation (pod scheduling, container start), dominates the production 24.5 s is what
+the `[boot]` marks answer on the next cold start. If they show the app listening after
+a few seconds, the remainder is platform time that no CPU or index change can touch —
+and `minReplicas: 1` would be the only real lever, at roughly 7× the monthly free
+consumption grant.
+
 # Cross-repo coupling
 
 **Editing the documentation does not update a running MCP server.** The corpus is

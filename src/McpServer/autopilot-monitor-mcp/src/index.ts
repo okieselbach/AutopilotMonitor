@@ -25,6 +25,19 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8')) as { version: string };
 const SERVER_VERSION: string = pkg.version;
 
+/**
+ * Boot stopwatch. minReplicas=0 means every idle period ends in a cold start a user
+ * actually waits through — measured at 24.5s to first byte, against 60ms warm.
+ * Where those seconds go was NOT answerable from outside: Log Analytics stamps all
+ * console lines of one ingestion batch with the same time, so the boot sequence
+ * collapses to a single instant no matter how it is queried.
+ *
+ * So the server times itself. `process.uptime()` counts from process start, which
+ * includes Node's own startup and module loading — the part an in-process timer
+ * started at the top of this file would miss.
+ */
+const bootMark = (): string => `+${(process.uptime() * 1000).toFixed(0)}ms`;
+
 const PORT = parseInt(process.env.PORT ?? '8080', 10);
 const RULES_DIR = process.env.RULES_DIR ?? resolve(__dirname, '..', '..', '..', '..', 'rules');
 
@@ -59,7 +72,7 @@ console.error(`[startup] Backend API base URL: ${API_BASE_URL}`);
 
 // --- Load shared knowledge base (reused across all sessions) ---
 
-console.error('Loading knowledge base documents…');
+console.error(`[boot ${bootMark()}] node started, loading corpora from disk…`);
 const docs = await loadKnowledgeDocs(RULES_DIR);
 const eventTypeDocs = buildEventTypeSearchDocs();
 const docsDocs = DOCS_DIR ? await loadDocsCorpus(DOCS_DIR) : [];
@@ -103,6 +116,7 @@ function tryLoadPrecomputedIndexes(): {
   eventTypeIndex: SearchProvider;
   docsIndex: SearchProvider | undefined;
 } | null {
+  console.error(`[boot ${bootMark()}] corpora loaded, reading precomputed index…`);
   let raw: string;
   try {
     raw = readFileSync(SEARCH_INDEX_PATH, 'utf-8');
@@ -151,7 +165,7 @@ if (precomputed) {
   // probe waits on the model load; a search arriving first awaits the same
   // memoized load instead of failing.
   embed('embedder warmup').then(
-    () => console.error('Query embedder warm.'),
+    () => console.error(`[boot ${bootMark()}] Query embedder warm (background; only the first SEARCH waits on this).`),
     (err) => console.error('[startup] Query embedder warmup failed — semantic ranking degrades until it loads:', err),
   );
 } else {
@@ -169,7 +183,7 @@ if (docsIndex) {
   // both makes a regression in the windowing visible in the boot log.
   const vectors = (docsIndex as { vectorCount?: number }).vectorCount;
   console.error(
-    `Docs index ready: ${docsIndex.name} — ${docsIndex.size} chunks` +
+    `[boot ${bootMark()}] Docs index ready: ${docsIndex.name} — ${docsIndex.size} chunks` +
       `${vectors ? ` / ${vectors} vectors` : ''} indexed${precomputed ? ' (precomputed)' : ''} ` +
       `(docs commit ${DOCS_COMMIT}).`,
   );
@@ -417,7 +431,9 @@ const bodyErrorHandler: ErrorRequestHandler = (err, req, res, next) => {
 app.use(bodyErrorHandler);
 
 const server = app.listen(PORT, '0.0.0.0', () => {
-  console.error(`Autopilot-Monitor MCP Server running on port ${PORT}`);
+  // The number a user actually waits for on a cold start, minus the platform's
+  // own activation (pod scheduling, container start), which is not visible here.
+  console.error(`[boot ${bootMark()}] Autopilot-Monitor MCP Server listening on port ${PORT} — ready to serve.`);
 });
 
 // --- Graceful shutdown ---
