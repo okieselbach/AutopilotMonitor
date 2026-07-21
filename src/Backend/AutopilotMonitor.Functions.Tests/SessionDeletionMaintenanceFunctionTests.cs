@@ -78,15 +78,16 @@ public class SessionDeletionMaintenanceFunctionTests
     [Fact]
     public async Task RunCore_emits_LongRunning_when_body_runs_past_warning_threshold()
     {
-        // Set watchdog thresholds to sub-second; make the fanout sleep long enough to trip warning
-        // but not severe.
-        var harness = new Harness(watchdogWarn: TimeSpan.FromMilliseconds(50), watchdogSevere: TimeSpan.FromMilliseconds(500));
+        // Deterministic (no wall-clock race): the fanout body blocks until the WARN watchdog has
+        // actually recorded its OpsEvent, then returns. Severe sits minutes out, so it can never
+        // fire in the moment between warn firing and the body completing (which cancels it).
+        var harness = new Harness(watchdogWarn: TimeSpan.FromMilliseconds(20), watchdogSevere: TimeSpan.FromMinutes(10));
         harness.SetKillSwitch(false);
         harness.Fanout.Setup(f => f.RunAsync(It.IsAny<SessionRetentionFanoutService.FanoutResult>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .Returns(async (SessionRetentionFanoutService.FanoutResult r, DateTime _, CancellationToken ct) =>
             {
                 r.TenantsProcessed = 1;
-                await Task.Delay(150, ct);
+                await harness.WaitForEventAsync("SessionDeletionMaintenanceLongRunning");
             });
 
         await harness.Sut.RunCoreAsync("Test", CancellationToken.None);
@@ -102,14 +103,17 @@ public class SessionDeletionMaintenanceFunctionTests
         // assigned only AFTER the fanout returned, so every LongRunning warning showed zeros.
         // The fanout now mutates the caller-supplied result incrementally; the watchdog snapshot
         // must reflect that progress mid-run.
-        var harness = new Harness(watchdogWarn: TimeSpan.FromMilliseconds(50), watchdogSevere: TimeSpan.FromSeconds(5));
+        // Deterministic: counters are set at fanout entry, then the body blocks until the WARN
+        // watchdog fires and snapshots them. Severe sits minutes out and never fires — no
+        // body-sleep-vs-threshold race.
+        var harness = new Harness(watchdogWarn: TimeSpan.FromMilliseconds(50), watchdogSevere: TimeSpan.FromMinutes(10));
         harness.SetKillSwitch(false);
         harness.Fanout.Setup(f => f.RunAsync(It.IsAny<SessionRetentionFanoutService.FanoutResult>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .Returns(async (SessionRetentionFanoutService.FanoutResult r, DateTime _, CancellationToken ct) =>
             {
                 r.TenantsProcessed = 3;
                 r.SessionsEnqueued = 7;
-                await Task.Delay(200, ct); // long enough for the 50ms watchdog to fire mid-run
+                await harness.WaitForEventAsync("SessionDeletionMaintenanceLongRunning");
             });
 
         await harness.Sut.RunCoreAsync("Test", CancellationToken.None);
@@ -122,17 +126,20 @@ public class SessionDeletionMaintenanceFunctionTests
     [Fact]
     public async Task RunCore_emits_LongRunningSevere_when_body_runs_past_severe_threshold()
     {
-        var harness = new Harness(watchdogWarn: TimeSpan.FromMilliseconds(50), watchdogSevere: TimeSpan.FromMilliseconds(150));
+        // Deterministic: the body blocks until the SEVERE watchdog records its OpsEvent. Warn has a
+        // smaller threshold, so it is guaranteed to have fired first — neither depends on a body
+        // sleep outlasting a fixed wall-clock threshold.
+        var harness = new Harness(watchdogWarn: TimeSpan.FromMilliseconds(20), watchdogSevere: TimeSpan.FromMilliseconds(60));
         harness.SetKillSwitch(false);
         harness.Fanout.Setup(f => f.RunAsync(It.IsAny<SessionRetentionFanoutService.FanoutResult>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
             .Returns(async (SessionRetentionFanoutService.FanoutResult _, DateTime _, CancellationToken ct) =>
             {
-                await Task.Delay(300, ct);
+                await harness.WaitForEventAsync("SessionDeletionMaintenanceLongRunningSevere");
             });
 
         await harness.Sut.RunCoreAsync("Test", CancellationToken.None);
 
-        // Both watchdogs fire: warning at 50ms, severe at 150ms.
+        // Both watchdogs fire: warning first (smaller threshold), then severe (which the body waited for).
         Assert.Contains(harness.OpsEvents, e => e.EventName == "SessionDeletionMaintenanceLongRunning");
         Assert.Contains(harness.OpsEvents, e => e.EventName == "SessionDeletionMaintenanceLongRunningSevere");
     }
@@ -345,6 +352,12 @@ public class SessionDeletionMaintenanceFunctionTests
         private readonly Dictionary<string, List<TableEntity>> _sessionsByState = new(StringComparer.Ordinal);
         private readonly List<DeletionManifestBlobSummary> _ttlBlobs = new();
 
+        // Watchdog OpsEvents are recorded from concurrent watchdog tasks; _opsSync serializes the
+        // OpsEvents append + waiter signalling, and _eventWaiters lets a test's fanout body block
+        // until a specific watchdog OpsEvent has actually fired (see WaitForEventAsync).
+        private readonly object _opsSync = new();
+        private readonly Dictionary<string, TaskCompletionSource> _eventWaiters = new(StringComparer.Ordinal);
+
         public Harness(TimeSpan? watchdogWarn = null, TimeSpan? watchdogSevere = null)
         {
             StorageMock = new Mock<TableStorageService>(Mock.Of<TableServiceClient>(), NullLogger<TableStorageService>.Instance);
@@ -376,7 +389,12 @@ public class SessionDeletionMaintenanceFunctionTests
             opsRepo.Setup(r => r.SaveOpsEventAsync(It.IsAny<OpsEventEntry>()))
                 .Returns<OpsEventEntry>(e =>
                 {
-                    OpsEvents.Add(new CapturedOpsEvent(e.EventType, e.Severity, e.Message, e.Details ?? string.Empty));
+                    lock (_opsSync)
+                    {
+                        OpsEvents.Add(new CapturedOpsEvent(e.EventType, e.Severity, e.Message, e.Details ?? string.Empty));
+                        if (_eventWaiters.TryGetValue(e.EventType, out var waiter))
+                            waiter.TrySetResult();
+                    }
                     return Task.CompletedTask;
                 });
             var alertDispatch = new OpsAlertDispatchService(
@@ -425,6 +443,27 @@ public class SessionDeletionMaintenanceFunctionTests
 
         public void SetKillSwitch(bool active) =>
             AdminConfig.Setup(a => a.IsSessionDeletionKillSwitchActiveAsync()).ReturnsAsync(active);
+
+        /// <summary>
+        /// Deterministic watchdog gate: returns a task that completes once an OpsEvent whose type is
+        /// <paramref name="eventName"/> has been recorded. A test's fanout body awaits this instead of
+        /// sleeping a fixed span, so the watchdog is guaranteed to have fired before the body returns —
+        /// removing the wall-clock race (body sleep vs sub-second thresholds) that flaked under CI load.
+        /// </summary>
+        public Task WaitForEventAsync(string eventName)
+        {
+            lock (_opsSync)
+            {
+                if (OpsEvents.Any(e => e.EventName == eventName))
+                    return Task.CompletedTask;
+                if (!_eventWaiters.TryGetValue(eventName, out var waiter))
+                {
+                    waiter = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    _eventWaiters[eventName] = waiter;
+                }
+                return waiter.Task;
+            }
+        }
 
         public void SeedTtlBlobs(params (string TenantId, string SessionId, string ManifestId, DateTime LastModified)[] entries)
         {
