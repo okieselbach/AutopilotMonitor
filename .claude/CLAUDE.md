@@ -1,73 +1,23 @@
-## Workflow Orchestration
-# Agent Directives: Mechanical Overrides
+# Agent Directives
 
-You are operating within a constrained context window and strict system prompts. To produce production-grade code, you MUST adhere to these overrides:
+- **Plan first.** Enter plan mode for any non-trivial task (3+ steps or an architectural decision) and write the spec before building. If something goes sideways, stop and re-plan instead of pushing on.
+- **Use subagents liberally** for research, exploration, and parallel analysis — one focus each — to keep the main context clean.
+- **Verify before claiming done.** Run the tests, check the logs, show the evidence. Diff against `main` where behaviour could regress.
+- **Fix bugs autonomously.** Given a report, a failing test, or an error, resolve it — no hand-holding.
+- **Capture corrections.** After any correction from the user, record the pattern and a preventing rule in `tasks/lessons.md`; review it at session start.
+- Read files over 500 LOC in chunks. Never treat one grep as proof of absence.
 
+Codex reviews your output once you are done.
 
+## Code Quality
 
-### 1. Plan Mode Default
-- Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions)
-- If something goes sideways, STOP and re-plan immediately — don't keep pushing
-- Use plan mode for specification steps, not just building
-- Write detailed specs upfront to reduce ambiguity
-
-### 2. Subagent Strategy
-- Use subagents liberally to keep main context window clean
-- Offload research, exploration, and parallel analysis to subagents
-- For complex problems, throw more compute at it via subagents
-- One tack per subagent for focused execution
-
-### 3. Self-Improvement Loop
-- After ANY correction from the user: update `tasks/lessons.md` with the pattern
-- Write rules for yourself that prevent the same mistake
-- Ruthlessly iterate on these lessons until mistake rate drops
-- Review lessons at session start for relevant project
-
-### 4. Verification Before Done
-- Never mark a task complete without proving it works
-- Diff behavior between main and your changes when relevant
-- Ask yourself: "Would a staff engineer approve this?"
-- Run tests, check logs, demonstrate correctness
-
-### 5. Demand Elegance (Balanced)
-- For non-trivial changes: pause and ask "is there a more elegant way?"
-- If a fix feels hacky: "Knowing everything I know now, implement the elegant solution"
-- Skip this for simple, obvious fixes — don't over-engineer
-- Challenge your own work before presenting it
-
-### 6. Autonomous Bug Fixing
-- When given a bug report: just fix it. Don't ask for hand-holding
-- Point at logs, errors, failing tests — then resolve them
-- Zero context switching required from the user
-- Go fix failing CI tests without being told how
-
-
-
-### Tools Execution
-- Read any file over 500 LOC in chunks using offset and limit parameters.
-- Do not assume a single grep caught everything.
-
-### Code Quality
-- If architecture is flawed, state is duplicated, or patterns are inconsistent - propose and implement structural fixes. Ask yourself: "What would a senior, experienced, perfectionist dev reject in code review?" Fix all of it.
-
-
-Codex will review your output once you are done!
-
+- Simplicity first: minimal, targeted changes. No temporary fixes — find the root cause.
+- Where architecture is flawed, state is duplicated, or patterns are inconsistent, propose and implement the structural fix. Ask what a perfectionist reviewer would reject, and fix that too.
+- On non-trivial changes, ask whether there is a more elegant way before presenting. Skip it for simple fixes — don't over-engineer.
 
 ## Task Management
 
-1. **Plan First**: Write plan to `tasks/todo.md` with checkable items
-2. **Verify Plan**: Check in before starting implementation
-3. **Track Progress**: Mark items complete as you go
-4. **Explain Changes**: High-level summary at each step
-5. **Document Results**: Add review section to `tasks/todo.md`
-6. **Capture Lessons**: Update `tasks/lessons.md` after corrections
-
-## Core Principles
-
-- **Simplicity First**: Make every change as simple as possible. Impact minimal code.
-- **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
-- **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
+Keep the plan in `tasks/todo.md` as checkable items, confirm it before implementing, tick items off as you go, and add a review section when done.
 
 ## Customer-Facing Claims
 
@@ -75,7 +25,8 @@ Codex will review your output once you are done!
 
 - Verify every claim against the code before writing it — never carry one forward because it was already on the page.
 - Update them in the same change as: runtime/framework versions, roles, notification providers, agent deployment or lifecycle, diagnostics payload, isolation/delegation model, retention caps, sub-processors, or any default governing what is collected.
-- Trust pages: durable phrasing over exact figures, and bump their "Last reviewed" date. Never advertise operator-only infrastructure (Telegram ops alerts) as a customer feature.
+- Describe only what customers can actually use; operator-only infrastructure is not a feature.
+- Trust pages: durable phrasing over exact figures, and bump their "Last reviewed" date.
 
 ## Technical Docs — OKF Bundle (`docs/`)
 
