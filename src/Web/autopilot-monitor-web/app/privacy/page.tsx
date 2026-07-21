@@ -2,7 +2,7 @@ import { PublicPageHeader } from "../../components/PublicPageHeader";
 
 const LAST_UPDATED = "21 July 2026";
 const DOCS_SECURITY_FAQ = "https://docs.autopilotmonitor.com/trust/security-faq";
-const DOCS_SUBPROCESSORS = "https://docs.autopilotmonitor.com/trust/subprocessors";
+const DOCS_DATA_FLOWS = "https://docs.autopilotmonitor.com/trust/data-flows";
 
 function DocsLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (
@@ -119,19 +119,20 @@ export default function PrivacyPage() {
             isolation model is in the <DocsLink href={DOCS_SECURITY_FAQ}>Security &amp; Privacy FAQ</DocsLink>.
           </p>
 
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Sub-processors and Outbound Data Flows</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mt-6">External Services</h2>
           <p className="text-gray-700">
-            <strong>Microsoft Azure is the only sub-processor that stores your data.</strong> Resend is used solely to
-            deliver the onboarding approval email when a tenant is activated — it receives an administrator&apos;s email
-            address and the tenant domain, never enrollment telemetry. Vulnerability reference data is pulled inbound from
-            NVD, the CISA KEV catalog, and MSRC; no customer data is sent to them.
+            <strong>Microsoft Azure is the only place your data is stored.</strong> Resend delivers the onboarding
+            approval email when a tenant is activated — it receives an administrator&apos;s email address and the tenant
+            domain, never enrollment telemetry. Vulnerability reference data is read inbound from NVD, the CISA KEV
+            catalog, and MSRC; nothing about your environment is sent to them.
           </p>
           <p className="text-gray-700">
-            Some data flows exist only because you configure them: your own Azure storage account for diagnostics,
+            Further connections exist only because you configure them: your own Azure storage account for diagnostics,
             notification channels such as Teams, Slack, or a generic webhook, and your own AI assistant if a user connects
-            one through the MCP integration. The platform itself makes no calls to any AI or LLM provider. The complete
-            list is published as <DocsLink href={DOCS_SUBPROCESSORS}>Sub-processors</DocsLink>, and new sub-processors are
-            announced there before they are introduced.
+            one through the MCP integration. The platform itself makes no calls to any AI or LLM provider.{" "}
+            <DocsLink href={DOCS_DATA_FLOWS}>Data Flows &amp; External Services</DocsLink> maps every outbound connection
+            and what it carries. The data processing agreement, available on request, is the authoritative document for
+            the parties engaged and the terms of their engagement.
           </p>
 
           <h2 className="text-xl font-semibold text-gray-900 mt-6">Diagnostics Uploads</h2>

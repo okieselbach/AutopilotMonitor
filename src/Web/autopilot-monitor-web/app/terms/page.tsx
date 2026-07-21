@@ -85,7 +85,7 @@ export default function TermsPage() {
             <li>Delegated access is <strong>read-only</strong> and limited to exactly the tenants in scope. Configuration secrets are redacted.</li>
             <li>A grant is either assigned by platform operators or delegated by the customer&apos;s own tenant admin; customer-initiated delegations require approval before they take effect.</li>
             <li>Every grant, revocation, and disablement is recorded in the <strong>managed customer tenant&apos;s</strong> audit log, so a customer can always determine who holds access to their data.</li>
-            <li>A managing organization acts as a processor or sub-processor of its customers and is responsible for having the necessary agreements in place with them.</li>
+            <li>A managing organization is responsible for having the necessary data protection agreements in place with the customers it manages.</li>
             <li>Access can be revoked at any time by the customer or by platform operators and takes effect within seconds.</li>
           </ul>
         </div>
@@ -127,7 +127,7 @@ export default function TermsPage() {
         <div className="bg-white rounded-lg shadow p-6 space-y-4">
           <h2 className="text-xl font-semibold text-gray-900">Security and Transparency</h2>
           <p className="text-gray-700">
-            The security architecture, data residency, sub-processors, retention and deletion behaviour, and an explicit
+            The security architecture, data residency, external services, retention and deletion behaviour, and an explicit
             statement of what the service does <em>not</em> do are published in the{" "}
             <a href={DOCS_SECURITY_FAQ} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">Security &amp; Privacy FAQ</a>.
             A signed data processing agreement is part of the Enterprise plan.
