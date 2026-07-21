@@ -215,29 +215,34 @@ sequence collapses to a single instant however it is queried. The server therefo
 times itself — `[boot +Nms]` marks from `process.uptime()`, which includes Node's own
 startup and module loading.
 
-On a development machine the whole app boot is ~1.3 s:
+Measured in production on a real cold start (31.5 s to first byte that time):
 
 ```
-+860ms   node started (startup + module loading)
-+1199ms  corpora read from disk        (+339ms)
-+1242ms  index read, validated, hydrated (+43ms  <- for 3.12 MB)
-+1273ms  listening                      (+31ms)
-+1497ms  query embedder warm            (+224ms, background)
++244ms  node started (startup + module loading)
++431ms  corpora read from disk         (+187ms)
++491ms  index read, validated, hydrated (+60ms  <- for 3.12 MB)
++504ms  listening
++677ms  query embedder warm            (background)
 ```
 
-Two things follow, and both contradict plausible assumptions:
+**The application accounts for half a second of it.** The other ~31 s — 98% — is
+Container Apps activation: KEDA reacting to the request, scheduling a pod, mounting
+the 236 MB image, starting the container. The container also boots *faster* than a
+development laptop (504 ms against 1273 ms), so nothing here is CPU-starved.
 
-- **Index size is not the cold-start cost.** Parsing and hydrating 3.12 MB takes 43 ms.
-  Growing the corpus further is cheap.
-- **The prebaked embedder is not either** — 224 ms, and it loads in the background, so
-  only the first *search* could ever wait on it.
+Three conclusions, and two of them overturn assumptions this file previously stated:
 
-The dominant local cost is Node startup and module loading. Whether that, or platform
-activation (pod scheduling, container start), dominates the production 24.5 s is what
-the `[boot]` marks answer on the next cold start. If they show the app listening after
-a few seconds, the remainder is platform time that no CPU or index change can touch —
-and `minReplicas: 1` would be the only real lever, at roughly 7× the monthly free
-consumption grant.
+- **Index size is irrelevant to startup.** 3.12 MB hydrates in 60 ms. Growing the
+  corpus is effectively free, and the embedding rounding earns its keep on file size
+  alone, not on boot time.
+- **Raising the container to 0.5 vCPU was not justified by cold start.** The stated
+  reason was the embedding model load; prebaked, that is 173 ms and runs in the
+  background, where only the first *search* could ever wait on it. The extra vCPU may
+  still help concurrent requests, but the cold-start argument does not survive
+  measurement.
+- **The only real lever is `minReplicas: 1`**, which removes activation entirely at
+  roughly 7× the monthly free consumption grant. Shrinking the image would shave the
+  mount, but that is a fraction of platform time, not the bulk of it.
 
 # Cross-repo coupling
 

@@ -192,13 +192,21 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
         {
           name: 'mcp-server'
           image: '${acr.properties.loginServer}/${containerAppName}:${imageTag}'
-          // 0.5 vCPU is deliberate, not a default. The corpus embeddings are
-          // precomputed at image build time, so steady-state search is cheap —
-          // but a scale-to-zero cold start still loads the ~23 MB ONNX embedding
-          // model to embed the incoming QUERY, and that is seconds of pure CPU on
-          // the critical path of the first search. Doubling the vCPU roughly
-          // halves it. Container Apps only accepts fixed CPU/memory pairs, so the
-          // memory moves with it. Do not "optimize" this back to 0.25.
+          // 0.5 vCPU, but NOT for the reason originally given. It was raised from
+          // 0.25 to shorten the scale-to-zero cold start, on the assumption that
+          // loading the ONNX embedding model dominated it. Measurement disproved
+          // that: the app boots in 504 ms in production (see the [boot] marks in
+          // the container log and docs/mcp/docs-corpus.md), of which the prebaked
+          // embedder is 173 ms in the background. Of a 31 s cold start, ~98% is
+          // Container Apps activation — pod scheduling, image mount, container
+          // start — which no CPU setting touches.
+          //
+          // It stays at 0.5 because it plausibly helps CONCURRENT requests
+          // (maxReplicas is 1, so one replica serves up to 10 in-flight calls) and
+          // because at scale-to-zero the container bills only while active, making
+          // the difference negligible. If cold start ever needs to actually go
+          // away, the only lever is minReplicas: 1. Container Apps accepts fixed
+          // CPU/memory pairs, so memory moves with the CPU.
           resources: {
             cpu: json('0.5')
             memory: '1.0Gi'
