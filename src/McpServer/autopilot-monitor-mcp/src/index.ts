@@ -165,8 +165,12 @@ if (precomputed) {
 console.error(`Search provider ready: ${knowledgeBase.name} — ${knowledgeBase.size} documents indexed${precomputed ? ' (precomputed)' : ''}.`);
 console.error(`Event-type index ready: ${eventTypeIndex.name} — ${eventTypeIndex.size} types indexed${precomputed ? ' (precomputed)' : ''}.`);
 if (docsIndex) {
+  // Vectors exceed chunks whenever a chunk spans several token windows — surfacing
+  // both makes a regression in the windowing visible in the boot log.
+  const vectors = (docsIndex as { vectorCount?: number }).vectorCount;
   console.error(
-    `Docs index ready: ${docsIndex.name} — ${docsIndex.size} chunks indexed${precomputed ? ' (precomputed)' : ''} ` +
+    `Docs index ready: ${docsIndex.name} — ${docsIndex.size} chunks` +
+      `${vectors ? ` / ${vectors} vectors` : ''} indexed${precomputed ? ' (precomputed)' : ''} ` +
       `(docs commit ${DOCS_COMMIT}).`,
   );
 } else {
@@ -175,7 +179,7 @@ if (docsIndex) {
 
 // Computed once: the tool catalog is rebuilt per request, and this is a pure
 // function of the (immutable) corpus.
-const DOCS_SECTIONS = docSections(docsDocs);
+const DOCS = docsIndex ? { vector: docsIndex, sections: docSections(docsDocs) } : undefined;
 
 // Server-level guidance. The host surfaces this once per connection, so it is
 // the right home for cross-cutting strategy that would otherwise be duplicated
@@ -227,7 +231,7 @@ function createMcpServer(ga: boolean, strictGa: boolean, delegated: boolean, man
     { name: 'Autopilot-Monitor', version: SERVER_VERSION },
     { instructions: buildInstructions(ga, delegated, managedTenants, homeTenantId) },
   );
-  registerTools(s, knowledgeBase, eventTypeIndex, docsIndex, DOCS_SECTIONS, ga, strictGa, delegated);
+  registerTools(s, knowledgeBase, eventTypeIndex, DOCS, ga, strictGa, delegated);
   registerResources(s);
   // A delegated caller has no platform scope, so prompts get the tenant-user surface (ga=false) —
   // the cross-tenant prompt wording would be misleading for a tenant-bounded MSP user.

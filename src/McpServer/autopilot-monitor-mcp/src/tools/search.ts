@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { apiFetch, buildQuery, enforceDelegatedTenant, followNextLink, pickGlobalOrTenantPath } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
-import type { SearchProvider } from '../search-provider.js';
+import type { SearchProvider, DocsSearchBundle } from '../search-provider.js';
 import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 import { ALL_EVENT_TYPES } from '../resource-catalog.js';
@@ -959,15 +959,42 @@ export function diversifyBySession<T extends { event: EventEntry }>(
   return picked;
 }
 
+/**
+ * Terms from a natural-language query that are worth matching literally.
+ *
+ * Only distinctive words: short and common ones ("how", "the", "does") appear in
+ * nearly every chunk, so matching on them would return the whole corpus in
+ * arbitrary order. What is left is the vocabulary literal matching is actually good
+ * at — product names, setting names, identifiers — which is exactly what embeddings
+ * are bad at.
+ */
+const KEYWORD_STOPWORDS = new Set([
+  'about', 'after', 'again', 'also', 'been', 'before', 'being', 'between', 'both', 'can',
+  'could', 'does', 'doing', 'during', 'each', 'from', 'have', 'having', 'here', 'how',
+  'into', 'just', 'more', 'most', 'much', 'must', 'need', 'only', 'other', 'over',
+  'same', 'should', 'some', 'such', 'than', 'that', 'their', 'them', 'then', 'there',
+  'these', 'they', 'this', 'those', 'through', 'under', 'until', 'very', 'were', 'what',
+  'when', 'where', 'which', 'while', 'will', 'with', 'would', 'your',
+]);
+
+export function extractDistinctiveTerms(query: string): string[] {
+  const seen = new Set<string>();
+  for (const raw of query.toLowerCase().split(/[^a-z0-9_.-]+/)) {
+    const term = raw.replace(/^[.-]+|[.-]+$/g, '');
+    if (term.length < 4 || KEYWORD_STOPWORDS.has(term)) continue;
+    seen.add(term);
+    if (seen.size >= 6) break;
+  }
+  return [...seen];
+}
+
 // ── Registration ────────────────────────────────────────────────────────
 
 export function registerSearchTools(
   server: McpServer,
   knowledgeBase: SearchProvider | undefined,
   eventTypeIndex: SearchProvider | undefined,
-  docsIndex: SearchProvider | undefined,
-  /** Top-level documentation areas present in the corpus — surfaced as the `section` filter hint. */
-  docsSections: string[],
+  docs: DocsSearchBundle | undefined,
   ga: boolean,
   delegated: boolean = false,
 ): void {
@@ -1186,7 +1213,8 @@ export function registerSearchTools(
   // normal tenant user has exactly as much business asking "how do I deploy the
   // agent" as a Global Admin. It is skipped entirely when no corpus was baked
   // into the image, so a doc-less build advertises no broken tool.
-  if (docsIndex && docsIndex.size > 0) {
+  if (docs && docs.vector.size > 0) {
+    const docsIndex = docs.vector;
     server.registerTool(
       'search_docs',
       {
@@ -1197,8 +1225,16 @@ export function registerSearchTools(
           'Use this for questions about how the PRODUCT works rather than what a specific enrollment did: ' +
           'setup and onboarding, agent deployment, portal features, roles and permissions, settings, ' +
           'notifications, network endpoints, security/privacy/data-residency, plans, and troubleshooting guidance. ' +
+          'PREFER THIS OVER FETCHING OR WEB-SEARCHING THE DOCS SITE: it returns the matching SECTIONS ' +
+          '(~1k tokens for topK=3) instead of whole pages (~9k tokens raw, ~600k rendered), it is the exact ' +
+          'version this server ships rather than a cached or third-party copy, and it matches on meaning — ' +
+          '"where is my data stored" finds the page that says "Germany West Central" with no shared words, ' +
+          'which keyword or web search cannot do. ' +
           'Each result carries the page `title`, its `heading` breadcrumb and a citable `url` — quote the url when ' +
           'answering so the user can verify. ' +
+          'If semantic matching returns too few hits, exact keyword matches are APPENDED (flagged ' +
+          '`matchType: "keyword"`, and their scores are on a different scale — rank order across the two is ' +
+          'not comparable). ' +
           'NOT the same corpus as search_knowledge: that one holds analysis/gather rules and IME log patterns and ' +
           'explains why an enrollment failed. Rule of thumb — "how does X work?" → search_docs; ' +
           '"why did this session fail?" → search_knowledge or get_session_summary.',
@@ -1207,7 +1243,7 @@ export function registerSearchTools(
           topK: z.coerce.number().min(1).max(20).optional().default(5).describe('Number of results to return (1-20, default 5)'),
           section: z.string().optional()
             .describe('Restrict to one documentation area, matching the bundle\'s top-level folder ' +
-              `(one of: ${docsSections.join(', ')}). Omit to search everything.`),
+              `(one of: ${docs.sections.join(', ')}). Omit to search everything.`),
           minScore: z.coerce.number().min(0).max(1).optional().default(0.25)
             .describe('Minimum similarity score (0-1, default 0.25). Short keyword queries score low on ' +
               'all-MiniLM embeddings, so the default is tuned to keep the relevant-but-marginal band.'),
@@ -1243,6 +1279,48 @@ export function registerSearchTools(
           }
           results = results.slice(0, topK);
 
+          // Keyword fallback: exact, literal term matching to top up a short result set.
+          //
+          // Proper nouns embed poorly — measured on this corpus, "RealmJoin" appears in
+          // 3 chunks yet scores below the semantic threshold. Fuzzy matching is the wrong
+          // remedy: at a threshold low enough to surface "RealmJoin" (0.28), Fuse also
+          // returns 5 hits for "SCEPman", a word that appears in the corpus zero times.
+          // Literal containment has neither problem — it finds the first and returns
+          // nothing for the second.
+          //
+          // APPENDED, never merged: these carry no cosine similarity, so semantic hits
+          // keep the head of the list and keyword hits fill the tail, flagged for the
+          // caller. Ranked among themselves by how many query terms they contain.
+          const keywordHitIds = new Set<string>();
+          const terms = extractDistinctiveTerms(query);
+          if (results.length < topK && terms.length > 0 && docsIndex.lexicalMatch) {
+            // lexicalMatch is ANY-of-needles, which alone is far too generous: for
+            // "how do I bake sourdough bread" the single word "bake" matches "baked
+            // into the image" and a page about LLM providers comes back as a hit.
+            // A multi-term query must therefore corroborate — at least two of its
+            // terms in the same chunk. A single-term query ("RealmJoin") still needs
+            // just that one, which is the case this fallback exists for.
+            const required = Math.min(2, terms.length);
+            const seen = new Set(results.map((r) => r.id));
+            const ranked = docsIndex
+              .lexicalMatch(terms)
+              .map((hit) => {
+                const haystack = hit.text.toLowerCase();
+                return { hit, matched: terms.filter((t) => haystack.includes(t)).length };
+              })
+              .filter(({ matched }) => matched >= required)
+              .sort((a, b) => b.matched - a.matched);
+
+            for (const { hit } of ranked) {
+              if (results.length >= topK) break;
+              if (seen.has(hit.id)) continue;
+              if (section && hit.metadata.section !== section) continue;
+              seen.add(hit.id);
+              keywordHitIds.add(hit.id);
+              results.push(hit);
+            }
+          }
+
           const formatted = results.map((r) => ({
             id: r.id,
             score: Math.round(r.score * 1000) / 1000,
@@ -1253,7 +1331,11 @@ export function registerSearchTools(
             url: r.metadata.url,
             tags: r.metadata.tags,
             content: r.text,
-            matchType: errorCodeHitIds.has(r.id) ? ('error-code' as const) : undefined,
+            matchType: errorCodeHitIds.has(r.id)
+              ? ('error-code' as const)
+              : keywordHitIds.has(r.id)
+                ? ('keyword' as const)
+                : undefined,
           }));
 
           return toolResultText({
@@ -1262,6 +1344,7 @@ export function registerSearchTools(
             ...(section ? { section } : {}),
             resultCount: formatted.length,
             ...(needles.length > 0 ? { errorCodeFallback: { codes: needles, matchedCount: errorCodeHitIds.size } } : {}),
+            ...(keywordHitIds.size > 0 ? { keywordFallback: { used: true, added: keywordHitIds.size } } : {}),
             results: formatted,
           }, MAX_RESULT_SIZE_CHARS.small);
         } catch (error: unknown) {

@@ -45,6 +45,68 @@ function getEmbedder(): Promise<FeatureExtractionPipeline> {
   return embedderPromise;
 }
 
+// ── Token windowing ──────────────────────────────────────────
+
+/**
+ * The model's context window is 256 tokens INCLUDING the [CLS]/[SEP] specials, so
+ * windows carry at most 250 content tokens.
+ *
+ * Anything past the window is silently dropped by the tokenizer — not an error, just
+ * a vector that represents the opening of a document and nothing else. Measured on
+ * the docs corpus, 87 of 324 chunks exceeded it and 13% of all tokens never reached
+ * the ranking. Splitting long text into several windows and scoring by the best one
+ * (see search()) puts every token back in play without shrinking chunks, which would
+ * break up the tables and breadcrumbs the chunker deliberately keeps whole.
+ */
+const WINDOW_TOKENS = 250;
+
+/**
+ * Overlap between consecutive windows. A sentence that straddles a boundary would
+ * otherwise be split across two vectors and match neither well.
+ */
+const WINDOW_OVERLAP_TOKENS = 40;
+
+// Tokenizer only — NOT the ONNX weights. Needed exclusively on the indexing path
+// (build time); the production boot hydrates precomputed vectors and never calls
+// index(), so this stays unloaded there. Measured cold load: ~93 ms.
+let tokenizerPromise: Promise<{
+  (text: string, opts?: object): Promise<{ input_ids: { data: BigInt64Array | Int32Array } }>;
+  decode(ids: number[], opts?: object): string;
+}> | null = null;
+
+function getTokenizer() {
+  if (!tokenizerPromise) {
+    tokenizerPromise = (async () => {
+      const { AutoTokenizer, env } = await import('@huggingface/transformers');
+      if (process.env.HF_CACHE_DIR) env.cacheDir = process.env.HF_CACHE_DIR;
+      return (await AutoTokenizer.from_pretrained(MODEL_NAME)) as never;
+    })().catch((err) => {
+      tokenizerPromise = null;
+      throw err;
+    });
+  }
+  return tokenizerPromise;
+}
+
+/**
+ * Split `text` into overlapping token windows, returned as decoded strings.
+ * Short text yields exactly one window (the original string, untouched).
+ */
+export async function splitIntoWindows(text: string): Promise<string[]> {
+  const tokenizer = await getTokenizer();
+  const encoded = await tokenizer(text, { add_special_tokens: false });
+  const ids = Array.from(encoded.input_ids.data as ArrayLike<bigint | number>, Number);
+  if (ids.length <= WINDOW_TOKENS) return [text];
+
+  const stride = WINDOW_TOKENS - WINDOW_OVERLAP_TOKENS;
+  const windows: string[] = [];
+  for (let start = 0; start < ids.length; start += stride) {
+    windows.push(tokenizer.decode(ids.slice(start, start + WINDOW_TOKENS), { skip_special_tokens: true }));
+    if (start + WINDOW_TOKENS >= ids.length) break;
+  }
+  return windows;
+}
+
 /**
  * Every embedding this module produces MUST be L2-unit-normalized: cosineSimilarity is a
  * bare dot product (see below) that silently returns wrong scores for non-unit inputs. We
@@ -105,9 +167,16 @@ function cosineSimilarity(a: number[], b: number[]): number {
 
 // ── Provider implementation ──────────────────────────────────
 
-/** An indexed document with its embedding — the unit of build-time serialization. */
+/**
+ * An indexed document with its embeddings — the unit of build-time serialization.
+ *
+ * One vector per token window (see splitIntoWindows). Short documents — which is
+ * every rule and every event type — have exactly one, so the array is not an
+ * optimization for the common case but the single uniform shape: no branch, no
+ * "primary vs extra" special case to get wrong.
+ */
 export interface PrecomputedDocument extends SearchDocument {
-  embedding: number[];
+  embeddings: number[][];
 }
 
 export class VectorSearchProvider implements SearchProvider {
@@ -131,8 +200,15 @@ export class VectorSearchProvider implements SearchProvider {
     // a bare dot product, so a non-unit vector here would silently skew every
     // score rather than fail. One check is enough — the whole section is written
     // by a single serialize() call, so they stand or fall together.
-    if (docs.length > 0) assertUnitNorm(docs[0].embedding, 'indexPrecomputed');
+    if (docs.length > 0 && docs[0].embeddings.length > 0) {
+      assertUnitNorm(docs[0].embeddings[0], 'indexPrecomputed');
+    }
     this.documents.push(...docs);
+  }
+
+  /** Total vectors held — exceeds `size` whenever documents span several windows. */
+  get vectorCount(): number {
+    return this.documents.reduce((n, d) => n + d.embeddings.length, 0);
   }
 
   /**
@@ -149,7 +225,7 @@ export class VectorSearchProvider implements SearchProvider {
   serialize(): PrecomputedDocument[] {
     return this.documents.map((doc) => ({
       ...doc,
-      embedding: doc.embedding.map((v) => Number(v.toFixed(SERIALIZED_PRECISION))),
+      embeddings: doc.embeddings.map((vec) => vec.map((v) => Number(v.toFixed(SERIALIZED_PRECISION)))),
     }));
   }
 
@@ -160,14 +236,21 @@ export class VectorSearchProvider implements SearchProvider {
       const batch = docs.slice(i, i + batchSize);
       const embeddings = await Promise.all(
         batch.map(async (d) => {
-          const out = await model(d.text, { pooling: 'mean', normalize: true });
-          const vec = Array.from(out.data as Float32Array);
-          assertUnitNorm(vec, `index:${d.id}`);
-          return vec;
+          // One vector per token window: text longer than the model's context would
+          // otherwise be truncated to its opening and the rest never ranked at all.
+          const windows = await splitIntoWindows(d.text);
+          return Promise.all(
+            windows.map(async (window, w) => {
+              const out = await model(window, { pooling: 'mean', normalize: true });
+              const vec = Array.from(out.data as Float32Array);
+              assertUnitNorm(vec, `index:${d.id}#w${w}`);
+              return vec;
+            })
+          );
         })
       );
       for (let j = 0; j < batch.length; j++) {
-        this.documents.push({ ...batch[j], embedding: embeddings[j] });
+        this.documents.push({ ...batch[j], embeddings: embeddings[j] });
       }
     }
   }
@@ -176,12 +259,18 @@ export class VectorSearchProvider implements SearchProvider {
     const { topK = 5, minScore = 0.3 } = options;
     const queryEmbedding = await embed(query);
 
-    const scored = this.documents.map((doc) => ({
-      id: doc.id,
-      text: doc.text,
-      metadata: doc.metadata,
-      score: cosineSimilarity(queryEmbedding, doc.embedding),
-    }));
+    // Score a document by its BEST window, not by an average. Averaging would blur a
+    // long document's several topics into one mediocre vector — the exact dilution
+    // that makes big context windows worse than chunking. Max keeps a document
+    // findable by any one of the things it actually talks about.
+    const scored = this.documents.map((doc) => {
+      let best = -Infinity;
+      for (const vec of doc.embeddings) {
+        const score = cosineSimilarity(queryEmbedding, vec);
+        if (score > best) best = score;
+      }
+      return { id: doc.id, text: doc.text, metadata: doc.metadata, score: best };
+    });
 
     return scored
       .filter((r) => r.score >= minScore)

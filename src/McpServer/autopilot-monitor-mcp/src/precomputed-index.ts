@@ -78,12 +78,20 @@ function validateSection(
   if (section.entries.length !== sourceDocs.length) {
     return `${name}: entry count ${section.entries.length} != corpus size ${sourceDocs.length}`;
   }
-  const dims = section.entries[0]?.embedding?.length ?? 0;
+  // Each entry carries one vector per token window (see splitIntoWindows) — usually
+  // one, more for long documents. Dimensionality must be uniform across every window
+  // of every entry: a ragged file would otherwise produce silently wrong dot products.
+  const dims = section.entries[0]?.embeddings?.[0]?.length ?? 0;
   if (dims === 0) return `${name}: first entry has no embedding`;
   for (const e of section.entries) {
     if (typeof e.id !== 'string' || typeof e.text !== 'string') return `${name}: entry missing id/text`;
-    if (!Array.isArray(e.embedding) || e.embedding.length !== dims) {
-      return `${name}: inconsistent embedding dimensions`;
+    if (!Array.isArray(e.embeddings) || e.embeddings.length === 0) {
+      return `${name}: entry ${e.id} has no embeddings`;
+    }
+    for (const vec of e.embeddings) {
+      if (!Array.isArray(vec) || vec.length !== dims) {
+        return `${name}: inconsistent embedding dimensions`;
+      }
     }
   }
   return null;

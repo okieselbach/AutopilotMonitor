@@ -90,3 +90,16 @@ export function scanLexical(documents: SearchDocument[], needles: string[]): Sea
 // ── Provider identifiers ─────────────────────────────────────
 
 export type SearchBackend = 'vector' | 'fuse';
+
+/**
+ * What `search_docs` runs on, as one value rather than a growing tail of positional
+ * parameters through registerTools → registerSearchTools.
+ *
+ * The keyword fallback needs no second provider: it uses `vector.lexicalMatch`,
+ * the literal-containment scan every provider already exposes.
+ */
+export interface DocsSearchBundle {
+  vector: SearchProvider;
+  /** Top-level documentation areas present in the corpus — the `section` filter hint. */
+  sections: string[];
+}

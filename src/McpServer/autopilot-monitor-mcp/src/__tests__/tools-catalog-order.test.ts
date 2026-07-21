@@ -26,7 +26,7 @@ function registeredToolNames(ga: boolean, strictGa: boolean = ga, delegated: boo
   const server = new McpServer({ name: 'test', version: '0.0.0' });
   // knowledgeBase / eventTypeIndex are optional — pass undefined so this stays a
   // pure unit test with no search-provider or backend dependency.
-  registerTools(server, undefined, undefined, undefined, [], ga, strictGa, delegated);
+  registerTools(server, undefined, undefined, undefined, ga, strictGa, delegated);
   const internal = server as unknown as { _registeredTools: Record<string, unknown> };
   return Object.keys(internal._registeredTools);
 }
@@ -44,7 +44,7 @@ function stubDocsIndex(size = 3): SearchProvider {
 
 function namesWithDocs(ga: boolean, strictGa: boolean = ga, delegated: boolean = false): string[] {
   const server = new McpServer({ name: 'test', version: '0.0.0' });
-  registerTools(server, undefined, undefined, stubDocsIndex(), ['concepts', 'trust'], ga, strictGa, delegated);
+  registerTools(server, undefined, undefined, { vector: stubDocsIndex(), sections: ['concepts', 'trust'] }, ga, strictGa, delegated);
   const internal = server as unknown as { _registeredTools: Record<string, unknown> };
   return Object.keys(internal._registeredTools);
 }
@@ -65,7 +65,7 @@ describe('search_docs registration', () => {
 
   it('is skipped for an empty corpus, so a doc-less build advertises no broken tool', () => {
     const server = new McpServer({ name: 'test', version: '0.0.0' });
-    registerTools(server, undefined, undefined, stubDocsIndex(0), [], true, true, false);
+    registerTools(server, undefined, undefined, { vector: stubDocsIndex(0), sections: [] }, true, true, false);
     const internal = server as unknown as { _registeredTools: Record<string, unknown> };
     expect(Object.keys(internal._registeredTools)).not.toContain('search_docs');
   });

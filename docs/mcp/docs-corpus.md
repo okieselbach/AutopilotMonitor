@@ -87,6 +87,67 @@ question sections.
 `normalizeNewlines()` runs before any parsing. Do not remove it, and do not
 "fix" a future parsing bug here by adding `\r?` to one pattern.
 
+## Token windows: why a chunk can hold several vectors
+
+Chunking at heading boundaries keeps sections coherent, but it does not bound the
+result by *tokens* — and it cannot. Measured on this corpus the ratio ranges from
+**2.43 to 5.81 characters per token**, a factor of 2.4, so no character budget maps
+reliably onto the model's 256-token window. A budget safe for the worst case
+(~620 characters) would shred prose and tables alike.
+
+Left alone, 87 of 324 chunks exceeded the window and **13% of all tokens never
+reached the ranking** — silently, since the tokenizer truncates without complaint.
+The effect was concrete: in `built-in-rules.md :: Apps` (734 tokens), the strings
+`ANALYZE-APP-013`, `ANALYZE-OFFICE-001`, `ANALYZE-CORR-003` and `Click-to-Run` all
+sit past the cutoff, so *"proxy configuration blocking app downloads"* did not
+retrieve that section at all.
+
+So the *chunk* stays whole and the *embedding* is split instead:
+`VectorSearchProvider.index()` cuts long text into 250-token windows with 40 tokens
+of overlap and embeds each. A document therefore carries `embeddings: number[][]`,
+and `search()` scores it by its **best** window.
+
+- **Max, not mean.** Averaging window vectors would blur a long section's several
+  topics into one mediocre direction — the same dilution that makes large context
+  windows worse than chunking. Max keeps a document findable by any one thing it
+  discusses.
+- **The tokenizer is a build-time dependency only.** `index()` runs during the
+  Docker build; production boots from precomputed vectors and never loads it. It is
+  also only the vocabulary, not the ONNX weights (~93 ms).
+- Cost: 324 chunks → 424 vectors (+31%), index 2.63 → 3.12 MB, and 424 instead of
+  324 dot products per query — still microseconds.
+- The rules corpus benefits too, unplanned: 128 rules now carry 172 vectors.
+
+Measured effect: token coverage 87% → **100%**, *"Office Click-to-Run install never
+finished"* 0.318 → **0.442**, *"proxy configuration blocking app downloads"* absent
+→ **0.559 at rank 1**. The ten reference queries kept byte-identical scores — their
+chunks are short, hence one window, hence the same vector as before.
+
+## Keyword fallback
+
+Semantic ranking alone leaves a gap: proper nouns embed poorly. `RealmJoin` occurs
+in 3 chunks yet scores under the threshold.
+
+Fuzzy matching is the wrong remedy, and the corpus says so. At a threshold low
+enough to surface `RealmJoin` (0.28), Fuse also returns 5 hits for `SCEPman` — a
+word this corpus contains **zero** times. Literal containment has neither problem.
+
+So when the semantic pass returns fewer than `topK`, `search_docs` tops the list up
+via `lexicalMatch`, the substring scan every provider already exposes:
+
+- Query terms are filtered to distinctive ones (≥4 characters, non-stopword, max 6).
+- A hit needs **corroboration**: at least two matching terms, unless the query has
+  only one. Without this rule, "how do I bake sourdough bread" matched a page about
+  LLM providers, because "bake" is a substring of "baked into the image".
+- Hits are **appended, never merged**: they carry no cosine similarity, so semantic
+  results keep the head of the list and keyword hits fill the tail, flagged
+  `matchType: "keyword"` with `keywordFallback` in the response.
+
+It is not a rare path: across 904 rare corpus tokens queried on their own, the
+fallback contributed hits for 431. Multi-word natural-language questions rarely
+trigger it — those the semantic pass answers well. It earns its keep when someone
+pastes an identifier.
+
 ## Build-time embedding
 
 Like the rules corpus, docs are embedded once at Docker build time by
@@ -101,7 +162,7 @@ if the server *has* a docs corpus and the file does *not*, that is staleness and
 is rejected like any other mismatch.
 
 Embeddings are rounded to 6 decimals on serialize. A float64 component
-serializes to ~20 characters of JSON, so 384 dims cost ~7.8 KB per document;
+serializes to ~20 characters of JSON, so 384 dims cost ~7.8 KB per vector;
 rounding roughly halves the index file, which is `JSON.parse`d on every
 scale-to-zero cold start. The induced L2 norm error (~1e-5 over 384 dims) sits
 two orders of magnitude inside `UNIT_NORM_EPSILON`.

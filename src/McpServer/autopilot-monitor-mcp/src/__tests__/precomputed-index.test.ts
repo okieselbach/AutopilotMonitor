@@ -26,7 +26,7 @@ const unit = (v: number[]): number[] => {
 };
 
 const withEmbedding = (d: SearchDocument, embedding: number[] = [0.1, 0.2, 0.3]): PrecomputedDocument =>
-  ({ ...d, embedding: unit(embedding) });
+  ({ ...d, embeddings: [unit(embedding)] });
 
 const KB_DOCS = [doc('rule-1', 'TPM not ready', { type: 'analyze-rule' }), doc('rule-2', 'ESP timeout', { type: 'analyze-rule' })];
 const ET_DOCS = [doc('et-1', 'bitlocker status', { eventType: 'bitlocker_status' })];
@@ -110,7 +110,7 @@ describe('validatePrecomputedIndex', () => {
 
   it('rejects inconsistent embedding dimensions', () => {
     const f = validFile();
-    f.knowledgeBase.entries[1].embedding = [0.1, 0.2]; // 2 dims vs 3
+    f.knowledgeBase.entries[1].embeddings = [[0.1, 0.2]]; // 2 dims vs 3
     expect(validatePrecomputedIndex(f, MODEL, KB_DOCS, ET_DOCS)).toMatchObject({
       ok: false, reason: expect.stringContaining('dimensions'),
     });
@@ -157,14 +157,14 @@ describe('VectorSearchProvider serialize/hydrate roundtrip', () => {
   it('rounds embeddings on serialize but stays well inside the unit-norm tolerance', () => {
     const p = new VectorSearchProvider();
     const raw = unit([0.123456789012345, -0.987654321098765, 0.5555555555555]);
-    p.indexPrecomputed([{ ...doc('d1', 'text'), embedding: raw }]);
+    p.indexPrecomputed([{ ...doc('d1', 'text'), embeddings: [raw] }]);
 
     const [out] = p.serialize();
     // Rounded to 6 decimals — the point of the exercise (halves the index JSON).
-    expect(out.embedding.every((v) => v === Number(v.toFixed(6)))).toBe(true);
-    expect(out.embedding).not.toEqual(raw);
+    expect(out.embeddings[0].every((v) => v === Number(v.toFixed(6)))).toBe(true);
+    expect(out.embeddings[0]).not.toEqual(raw);
 
-    const norm = Math.sqrt(out.embedding.reduce((s, x) => s + x * x, 0));
+    const norm = Math.sqrt(out.embeddings[0].reduce((s, x) => s + x * x, 0));
     expect(Math.abs(norm - 1)).toBeLessThan(1e-5);
     // Re-hydrating the rounded vectors must not trip the assertion.
     expect(() => new VectorSearchProvider().indexPrecomputed(p.serialize())).not.toThrow();
@@ -172,7 +172,7 @@ describe('VectorSearchProvider serialize/hydrate roundtrip', () => {
 
   it('rejects a non-unit embedding on hydrate rather than skewing every score silently', () => {
     const p = new VectorSearchProvider();
-    expect(() => p.indexPrecomputed([{ ...doc('d1', 'text'), embedding: [0.1, 0.2, 0.3] }]))
+    expect(() => p.indexPrecomputed([{ ...doc('d1', 'text'), embeddings: [[0.1, 0.2, 0.3]] }]))
       .toThrow(/not L2-unit-normalized/);
   });
 

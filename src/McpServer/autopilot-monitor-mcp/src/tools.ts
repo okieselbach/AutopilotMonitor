@@ -3,6 +3,7 @@ import type { SearchProvider } from './search-provider.js';
 import { registerSessionTools } from './tools/sessions.js';
 import { registerSearchTools } from './tools/search.js';
 import { registerAdminTools } from './tools/admin.js';
+import type { DocsSearchBundle } from './search-provider.js';
 
 /**
  * Registers the tool catalog for a single request, tailored to the caller's role.
@@ -26,14 +27,13 @@ export function registerTools(
   server: McpServer,
   knowledgeBase: SearchProvider | undefined,
   eventTypeIndex: SearchProvider | undefined,
-  docsIndex: SearchProvider | undefined,
-  docsSections: string[],
+  docs: DocsSearchBundle | undefined,
   ga: boolean,
   strictGa: boolean = ga,
   delegated: boolean = false,
 ): void {
   registerSessionTools(server, ga, delegated);
-  registerSearchTools(server, knowledgeBase, eventTypeIndex, docsIndex, docsSections, ga, delegated);
+  registerSearchTools(server, knowledgeBase, eventTypeIndex, docs, ga, delegated);
   registerAdminTools(server, ga, strictGa, delegated);
   sortToolCatalog(server);
 }
