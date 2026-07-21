@@ -29,6 +29,12 @@ export interface PrecomputedIndexFile {
   model: string;
   knowledgeBase: PrecomputedSection;
   eventTypes: PrecomputedSection;
+  /**
+   * Chunked customer documentation (see docs-corpus.ts). Optional in the file
+   * format: a build without the docs repo checked out ships no docs section, and
+   * that must not invalidate the other two.
+   */
+  docs?: PrecomputedSection;
 }
 
 /**
@@ -51,7 +57,12 @@ export function hashDocs(docs: SearchDocument[]): string {
 }
 
 export type PrecomputedValidation =
-  | { ok: true; knowledgeBase: PrecomputedDocument[]; eventTypes: PrecomputedDocument[] }
+  | {
+      ok: true;
+      knowledgeBase: PrecomputedDocument[];
+      eventTypes: PrecomputedDocument[];
+      docs: PrecomputedDocument[];
+    }
   | { ok: false; reason: string };
 
 function validateSection(
@@ -88,6 +99,7 @@ export function validatePrecomputedIndex(
   expectedModel: string,
   knowledgeDocs: SearchDocument[],
   eventTypeDocs: SearchDocument[],
+  docsDocs: SearchDocument[] = [],
 ): PrecomputedValidation {
   if (parsed === null || typeof parsed !== 'object') return { ok: false, reason: 'not an object' };
   const file = parsed as Partial<PrecomputedIndexFile>;
@@ -98,5 +110,24 @@ export function validatePrecomputedIndex(
   if (kbError) return { ok: false, reason: kbError };
   const etError = validateSection(file.eventTypes, 'eventTypes', eventTypeDocs);
   if (etError) return { ok: false, reason: etError };
-  return { ok: true, knowledgeBase: file.knowledgeBase!.entries, eventTypes: file.eventTypes!.entries };
+
+  // Docs are an OPTIONAL corpus: a checkout without the docs repo loads zero doc
+  // documents, and the matching image ships no docs section. Only validate when
+  // the booting server actually has a docs corpus to check against — otherwise a
+  // dev build would throw away the rules and event-type vectors too, which is the
+  // expensive half. When the server HAS docs but the file does not, that is a
+  // genuine staleness signal and must be rejected like any other mismatch.
+  let docs: PrecomputedDocument[] = [];
+  if (docsDocs.length > 0) {
+    const docsError = validateSection(file.docs, 'docs', docsDocs);
+    if (docsError) return { ok: false, reason: docsError };
+    docs = file.docs!.entries;
+  }
+
+  return {
+    ok: true,
+    knowledgeBase: file.knowledgeBase!.entries,
+    eventTypes: file.eventTypes!.entries,
+    docs,
+  };
 }

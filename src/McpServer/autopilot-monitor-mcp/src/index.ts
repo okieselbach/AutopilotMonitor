@@ -9,6 +9,7 @@ import { registerTools } from './tools.js';
 import { registerResources } from './resources.js';
 import { registerPrompts } from './prompts.js';
 import { loadKnowledgeDocs } from './knowledge-base.js';
+import { loadDocsCorpus, docSections } from './docs-corpus.js';
 import { createSearchProvider, resolveBackend } from './search-factory.js';
 import type { SearchBackend, SearchProvider } from './search-provider.js';
 import { MODEL_NAME, VectorSearchProvider, embed } from './vector-search-provider.js';
@@ -26,6 +27,18 @@ const SERVER_VERSION: string = pkg.version;
 
 const PORT = parseInt(process.env.PORT ?? '8080', 10);
 const RULES_DIR = process.env.RULES_DIR ?? resolve(__dirname, '..', '..', '..', '..', 'rules');
+
+// Published customer documentation bundle (autopilotmonitor-docs), baked into the
+// image by the deploy workflow. Unset in a plain local checkout — the docs live in
+// a separate repo — in which case the corpus is empty and search_docs is simply not
+// registered. Point DOCS_DIR at a local clone to develop against it.
+const DOCS_DIR = process.env.DOCS_DIR ?? '';
+
+// Commit of the docs bundle this image was built from. The docs repo changes
+// independently of this one, so a deployed image can silently serve stale
+// documentation; surfacing the SHA on /health makes that checkable instead of a
+// thing to remember.
+const DOCS_COMMIT = process.env.DOCS_COMMIT ?? 'unknown';
 
 // Surface the MCP_PUBLIC_URL state at boot. In production a missing pin is a
 // hard boot failure (config.ts throws — host-spoofing defense); this dev-only
@@ -49,10 +62,15 @@ console.error(`[startup] Backend API base URL: ${API_BASE_URL}`);
 console.error('Loading knowledge base documents…');
 const docs = await loadKnowledgeDocs(RULES_DIR);
 const eventTypeDocs = buildEventTypeSearchDocs();
+const docsDocs = DOCS_DIR ? await loadDocsCorpus(DOCS_DIR) : [];
+if (DOCS_DIR && docsDocs.length === 0) {
+  console.error(`[startup] DOCS_DIR=${DOCS_DIR} yielded no documents — search_docs will NOT be registered.`);
+}
 
 async function buildSearchIndexes(backend?: SearchBackend): Promise<{
   knowledgeBase: SearchProvider;
   eventTypeIndex: SearchProvider;
+  docsIndex: SearchProvider | undefined;
 }> {
   const kb = await createSearchProvider(backend);
   await kb.index(docs);
@@ -61,7 +79,15 @@ async function buildSearchIndexes(backend?: SearchBackend): Promise<{
   // the embedder singleton with the knowledge base, so this adds ~no memory.
   const et = await createSearchProvider(backend);
   await et.index(eventTypeDocs);
-  return { knowledgeBase: kb, eventTypeIndex: et };
+  // Product documentation — a third corpus, deliberately not merged into the
+  // knowledge base (rules answer "why did this fail", docs answer "how does this
+  // work"; sharing one topK would dilute both).
+  let dx: SearchProvider | undefined;
+  if (docsDocs.length > 0) {
+    dx = await createSearchProvider(backend);
+    await dx.index(docsDocs);
+  }
+  return { knowledgeBase: kb, eventTypeIndex: et, docsIndex: dx };
 }
 
 /**
@@ -72,7 +98,11 @@ async function buildSearchIndexes(backend?: SearchBackend): Promise<{
  */
 const SEARCH_INDEX_PATH = process.env.SEARCH_INDEX_PATH ?? resolve(__dirname, '..', 'search-index.json');
 
-function tryLoadPrecomputedIndexes(): { knowledgeBase: SearchProvider; eventTypeIndex: SearchProvider } | null {
+function tryLoadPrecomputedIndexes(): {
+  knowledgeBase: SearchProvider;
+  eventTypeIndex: SearchProvider;
+  docsIndex: SearchProvider | undefined;
+} | null {
   let raw: string;
   try {
     raw = readFileSync(SEARCH_INDEX_PATH, 'utf-8');
@@ -81,7 +111,7 @@ function tryLoadPrecomputedIndexes(): { knowledgeBase: SearchProvider; eventType
     return null;
   }
   try {
-    const validated = validatePrecomputedIndex(JSON.parse(raw), MODEL_NAME, docs, eventTypeDocs);
+    const validated = validatePrecomputedIndex(JSON.parse(raw), MODEL_NAME, docs, eventTypeDocs, docsDocs);
     if (!validated.ok) {
       console.error(`[startup] Precomputed search index rejected (${validated.reason}) — computing embeddings at boot.`);
       return null;
@@ -90,7 +120,13 @@ function tryLoadPrecomputedIndexes(): { knowledgeBase: SearchProvider; eventType
     kb.indexPrecomputed(validated.knowledgeBase);
     const et = new VectorSearchProvider();
     et.indexPrecomputed(validated.eventTypes);
-    return { knowledgeBase: kb, eventTypeIndex: et };
+    let dx: SearchProvider | undefined;
+    if (validated.docs.length > 0) {
+      const provider = new VectorSearchProvider();
+      provider.indexPrecomputed(validated.docs);
+      dx = provider;
+    }
+    return { knowledgeBase: kb, eventTypeIndex: et, docsIndex: dx };
   } catch (err) {
     console.error('[startup] Failed to read precomputed search index — computing embeddings at boot:', err);
     return null;
@@ -106,9 +142,10 @@ function tryLoadPrecomputedIndexes(): { knowledgeBase: SearchProvider; eventType
 console.error(`Initializing search provider (${docs.length} documents)…`);
 let knowledgeBase: SearchProvider;
 let eventTypeIndex: SearchProvider;
+let docsIndex: SearchProvider | undefined;
 const precomputed = (await resolveBackend()) === 'vector' ? tryLoadPrecomputedIndexes() : null;
 if (precomputed) {
-  ({ knowledgeBase, eventTypeIndex } = precomputed);
+  ({ knowledgeBase, eventTypeIndex, docsIndex } = precomputed);
   // Serving precomputed vectors does not need the embedder — only incoming
   // queries do. Warm it in the background so neither boot nor the readiness
   // probe waits on the model load; a search arriving first awaits the same
@@ -119,14 +156,26 @@ if (precomputed) {
   );
 } else {
   try {
-    ({ knowledgeBase, eventTypeIndex } = await buildSearchIndexes());
+    ({ knowledgeBase, eventTypeIndex, docsIndex } = await buildSearchIndexes());
   } catch (err) {
     console.error('[startup] Search index initialization failed (embedding model unavailable?) — falling back to the keyword (fuse) backend:', err);
-    ({ knowledgeBase, eventTypeIndex } = await buildSearchIndexes('fuse'));
+    ({ knowledgeBase, eventTypeIndex, docsIndex } = await buildSearchIndexes('fuse'));
   }
 }
 console.error(`Search provider ready: ${knowledgeBase.name} — ${knowledgeBase.size} documents indexed${precomputed ? ' (precomputed)' : ''}.`);
 console.error(`Event-type index ready: ${eventTypeIndex.name} — ${eventTypeIndex.size} types indexed${precomputed ? ' (precomputed)' : ''}.`);
+if (docsIndex) {
+  console.error(
+    `Docs index ready: ${docsIndex.name} — ${docsIndex.size} chunks indexed${precomputed ? ' (precomputed)' : ''} ` +
+      `(docs commit ${DOCS_COMMIT}).`,
+  );
+} else {
+  console.error('Docs index: not available — search_docs is not registered.');
+}
+
+// Computed once: the tool catalog is rebuilt per request, and this is a pure
+// function of the (immutable) corpus.
+const DOCS_SECTIONS = docSections(docsDocs);
 
 // Server-level guidance. The host surfaces this once per connection, so it is
 // the right home for cross-cutting strategy that would otherwise be duplicated
@@ -154,6 +203,11 @@ function buildInstructions(ga: boolean, delegated: boolean, managedTenants: stri
     'Autopilot-Monitor is a READ-ONLY telemetry server for Windows Autopilot enrollment sessions.',
     '',
     'Investigating one session: call get_session_summary FIRST (status, filtered timeline, stats, rule analysis in one call), then drill in.',
+    ...(docsIndex
+      ? ['Product questions ("how do I…", "what does X mean", "where is my data stored"): use search_docs — the ' +
+         'published customer documentation. search_knowledge is a DIFFERENT corpus (analysis rules and IME log ' +
+         'patterns) and answers why an enrollment failed, not how the product works.']
+      : []),
     'Searching events: use search_events (hybrid keyword+semantic ranking; depth="fast" then "deep" for exhaustive recall) for ranked hits, or get_session_events / query_raw_events for the raw unranked stream.',
     'Counting / aggregating: pass a lean `fields=` projection and use `agentVersionPrefix=`/`imeAgentVersionPrefix=` sweeps to stay under the per-response size cap.',
     'Pagination: when a response carries `nextLink`, pass that whole string back as `continuation`; stop when it is absent. Results are never silently truncated.',
@@ -173,7 +227,7 @@ function createMcpServer(ga: boolean, strictGa: boolean, delegated: boolean, man
     { name: 'Autopilot-Monitor', version: SERVER_VERSION },
     { instructions: buildInstructions(ga, delegated, managedTenants, homeTenantId) },
   );
-  registerTools(s, knowledgeBase, eventTypeIndex, ga, strictGa, delegated);
+  registerTools(s, knowledgeBase, eventTypeIndex, docsIndex, DOCS_SECTIONS, ga, strictGa, delegated);
   registerResources(s);
   // A delegated caller has no platform scope, so prompts get the tenant-user surface (ga=false) —
   // the cross-tenant prompt wording would be misleading for a tenant-bounded MSP user.
@@ -227,8 +281,19 @@ app.use(createOAuthRouter());
 // The version is the same value already advertised in the MCP handshake
 // (createMcpServer → { name, version }), so surfacing it here leaks nothing
 // new; it lets the backend health dashboard show the deployed MCP build.
+//
+// The docs block exists for one reason: the documentation bundle lives in its own
+// repo and is baked in at image build time, so editing the docs does NOT update a
+// running server — only a redeploy does. Reporting the bundle's commit and chunk
+// count turns "did we remember to redeploy?" into a diff against
+// `git rev-parse HEAD` in autopilotmonitor-docs. Both values are public
+// (the bundle is a public repo published at docs.autopilotmonitor.com).
 app.get('/health', (_req, res) => {
-  res.json({ status: 'healthy', version: SERVER_VERSION });
+  res.json({
+    status: 'healthy',
+    version: SERVER_VERSION,
+    docs: { commit: DOCS_COMMIT, chunks: docsIndex?.size ?? 0, sections: docSections(docsDocs) },
+  });
 });
 
 // Access guard for /mcp — validates JWT, checks backend whitelist, enforces rate limits

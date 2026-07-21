@@ -20,15 +20,61 @@
 import { describe, it, expect } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerTools } from '../tools.js';
+import type { SearchProvider } from '../search-provider.js';
 
 function registeredToolNames(ga: boolean, strictGa: boolean = ga, delegated: boolean = false): string[] {
   const server = new McpServer({ name: 'test', version: '0.0.0' });
   // knowledgeBase / eventTypeIndex are optional — pass undefined so this stays a
   // pure unit test with no search-provider or backend dependency.
-  registerTools(server, undefined, undefined, ga, strictGa, delegated);
+  registerTools(server, undefined, undefined, undefined, [], ga, strictGa, delegated);
   const internal = server as unknown as { _registeredTools: Record<string, unknown> };
   return Object.keys(internal._registeredTools);
 }
+
+/** Minimal stand-in for an indexed docs corpus — registration only checks `size`. */
+function stubDocsIndex(size = 3): SearchProvider {
+  return {
+    name: 'stub',
+    semanticCapable: true,
+    size,
+    index: async () => {},
+    search: async () => [],
+  };
+}
+
+function namesWithDocs(ga: boolean, strictGa: boolean = ga, delegated: boolean = false): string[] {
+  const server = new McpServer({ name: 'test', version: '0.0.0' });
+  registerTools(server, undefined, undefined, stubDocsIndex(), ['concepts', 'trust'], ga, strictGa, delegated);
+  const internal = server as unknown as { _registeredTools: Record<string, unknown> };
+  return Object.keys(internal._registeredTools);
+}
+
+describe('search_docs registration', () => {
+  it('is NOT registered when no documentation corpus was baked into the image', () => {
+    expect(registeredToolNames(true)).not.toContain('search_docs');
+  });
+
+  it('is registered when a corpus is present — for EVERY role, including a plain tenant user', () => {
+    // Published product documentation carries no tenant data, so unlike the
+    // platform tools it is deliberately ungated. A tenant user asking "how do I
+    // deploy the agent" has exactly as much business here as a Global Admin.
+    expect(namesWithDocs(true, true)).toContain('search_docs');
+    expect(namesWithDocs(false, false)).toContain('search_docs');
+    expect(namesWithDocs(false, false, true)).toContain('search_docs');
+  });
+
+  it('is skipped for an empty corpus, so a doc-less build advertises no broken tool', () => {
+    const server = new McpServer({ name: 'test', version: '0.0.0' });
+    registerTools(server, undefined, undefined, stubDocsIndex(0), [], true, true, false);
+    const internal = server as unknown as { _registeredTools: Record<string, unknown> };
+    expect(Object.keys(internal._registeredTools)).not.toContain('search_docs');
+  });
+
+  it('keeps the catalog alphabetically sorted once it joins', () => {
+    const names = namesWithDocs(true);
+    expect(names).toEqual([...names].sort());
+  });
+});
 
 describe('tool catalog ordering', () => {
   it('lists tools in alphabetical order for a Global Admin', () => {

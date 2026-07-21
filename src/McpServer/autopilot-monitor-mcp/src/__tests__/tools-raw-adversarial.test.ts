@@ -29,7 +29,7 @@ type ToolHandler = (args: Record<string, unknown>, extra: unknown) => Promise<{
 /** Build a strict-GA server and return a tool's raw handler by name. */
 function gaHandler(name: string): ToolHandler {
   const server = new McpServer({ name: 'test', version: '0.0.0' });
-  registerTools(server, undefined, undefined, /*ga*/ true, /*strictGa*/ true, /*delegated*/ false);
+  registerTools(server, undefined, undefined, undefined, [], /*ga*/ true, /*strictGa*/ true, /*delegated*/ false);
   const registry = (server as unknown as { _registeredTools: Record<string, { handler: ToolHandler }> })._registeredTools;
   const tool = registry[name];
   if (!tool) throw new Error(`tool ${name} not registered for strict-GA caller`);

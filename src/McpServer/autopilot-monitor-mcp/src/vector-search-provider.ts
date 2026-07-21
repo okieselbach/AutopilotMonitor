@@ -56,6 +56,13 @@ function getEmbedder(): Promise<FeatureExtractionPipeline> {
  */
 const UNIT_NORM_EPSILON = 1e-3;
 
+/**
+ * Decimal places kept when serializing embeddings to the precomputed index.
+ * Six is comfortably below the tolerance above while roughly halving the file
+ * size — see VectorSearchProvider.serialize().
+ */
+const SERIALIZED_PRECISION = 6;
+
 export function assertUnitNorm(vec: number[], context: string): void {
   let sumSq = 0;
   for (let i = 0; i < vec.length; i++) sumSq += vec[i] * vec[i];
@@ -119,12 +126,31 @@ export class VectorSearchProvider implements SearchProvider {
    * from disk is milliseconds. The embedder is still loaded lazily for queries.
    */
   indexPrecomputed(docs: PrecomputedDocument[]): void {
+    // The serialized vectors are rounded (see serialize()) and arrive from a file
+    // this process did not produce. Spot-check the first one: cosineSimilarity is
+    // a bare dot product, so a non-unit vector here would silently skew every
+    // score rather than fail. One check is enough — the whole section is written
+    // by a single serialize() call, so they stand or fall together.
+    if (docs.length > 0) assertUnitNorm(docs[0].embedding, 'indexPrecomputed');
     this.documents.push(...docs);
   }
 
-  /** Export the indexed documents with embeddings for build-time serialization. */
+  /**
+   * Export the indexed documents with embeddings for build-time serialization.
+   *
+   * Embeddings are rounded to SERIALIZED_PRECISION decimals. A float64 component
+   * serializes to ~20 characters of JSON ("0.05234159901738167"), so 384 dims
+   * cost ~7.8 KB per document; rounding roughly halves that, and the index file
+   * is JSON.parse'd on every scale-to-zero cold start. The precision loss is
+   * irrelevant to ranking: the induced L2 norm error is ~1e-5 across 384 dims,
+   * two orders of magnitude inside UNIT_NORM_EPSILON, and far below the score
+   * gaps that separate ranked results.
+   */
   serialize(): PrecomputedDocument[] {
-    return this.documents;
+    return this.documents.map((doc) => ({
+      ...doc,
+      embedding: doc.embedding.map((v) => Number(v.toFixed(SERIALIZED_PRECISION))),
+    }));
   }
 
   async index(docs: SearchDocument[]): Promise<void> {

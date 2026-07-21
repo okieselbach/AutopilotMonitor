@@ -1,5 +1,9 @@
 # Log
 
+## 2026-07-21
+
+* **Creation**: Added `mcp/docs-corpus.md` (new `mcp/` section) — the MCP server gains `search_docs`, a third semantic corpus built from the published customer documentation repository (`autopilotmonitor-docs`, checked out into the Docker build context by the deploy workflow). Documents the h2/h3 + `<details>` chunking with breadcrumb prefixes, the two deliberate size exceptions (tables never split, unbroken changelog lists split at line level), the CRLF precondition (`.` does not match `\r` in JS — headings silently stop matching, which produced 286 wrong-but-plausible chunks before it was found), the optional `docs` section in `search-index.json` and its validation asymmetry, embedding rounding to 6 decimals, and the cross-repo coupling: a docs edit reaches clients only after an MCP redeploy, made checkable via `DOCS_COMMIT` on `/health`. Container resources raised to 0.5 vCPU / 1.0 GiB for the cold-start query-embedder load.
+
 ## 2026-07-20
 
 * **Update**: Extended `rules/gather-rule-phase-scoping.md` with the `phase_exit` trigger — the closing bookend to `phase_change`, for one-shot collection when a phase is LEFT (e.g. "state at the end of Account Setup"). Documents the evaluation-before-phase-advance rule (triggerPhase match and scope gate see the phase being left), firing into `Failed`, the disjoint `exit:` dedup key space, and why no ConfigVersion bump is needed (no new field — old agents simply never fire the rule).

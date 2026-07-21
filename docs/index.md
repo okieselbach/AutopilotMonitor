@@ -28,6 +28,10 @@ https://docs.autopilotmonitor.com (separate repository).
 
 * [Business Timestamps](backend/business-timestamps.md) - Why the Azure Tables system Timestamp is never authoritative (migrations reset it), and the OccurredUtc + RowKey-decode compensation for AuditLogs/OpsEvents/Events after the 2026-07-18 migration.
 
+# MCP Server
+
+* [MCP Docs Corpus](mcp/docs-corpus.md) - How the published customer documentation becomes the `search_docs` corpus: CRLF-safe heading chunking, build-time embedding as a third precomputed section, and why a docs edit needs an MCP redeploy.
+
 # Security & Identity
 
 * [MCP OAuth Flow](mcp-oauth-flow.md) - Who authenticates where when connecting an AI client to the MCP server; two identities, three parties plus Entra ID.

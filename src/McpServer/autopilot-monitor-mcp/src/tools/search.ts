@@ -965,6 +965,9 @@ export function registerSearchTools(
   server: McpServer,
   knowledgeBase: SearchProvider | undefined,
   eventTypeIndex: SearchProvider | undefined,
+  docsIndex: SearchProvider | undefined,
+  /** Top-level documentation areas present in the corpus — surfaced as the `section` filter hint. */
+  docsSections: string[],
   ga: boolean,
   delegated: boolean = false,
 ): void {
@@ -1176,4 +1179,95 @@ export function registerSearchTools(
     })
   );
 
+  // Tool 11: search_docs — semantic search over the published customer documentation.
+  //
+  // Registered for EVERY role, unlike the platform tools: this is public product
+  // documentation (docs.autopilotmonitor.com), carries no tenant data, and a
+  // normal tenant user has exactly as much business asking "how do I deploy the
+  // agent" as a Global Admin. It is skipped entirely when no corpus was baked
+  // into the image, so a doc-less build advertises no broken tool.
+  if (docsIndex && docsIndex.size > 0) {
+    server.registerTool(
+      'search_docs',
+      {
+        title: 'Search Product Documentation',
+        description:
+          'PRODUCT DOCUMENTATION SEARCH — the published Autopilot Monitor customer documentation ' +
+          '(docs.autopilotmonitor.com), chunked by section and ranked semantically. ' +
+          'Use this for questions about how the PRODUCT works rather than what a specific enrollment did: ' +
+          'setup and onboarding, agent deployment, portal features, roles and permissions, settings, ' +
+          'notifications, network endpoints, security/privacy/data-residency, plans, and troubleshooting guidance. ' +
+          'Each result carries the page `title`, its `heading` breadcrumb and a citable `url` — quote the url when ' +
+          'answering so the user can verify. ' +
+          'NOT the same corpus as search_knowledge: that one holds analysis/gather rules and IME log patterns and ' +
+          'explains why an enrollment failed. Rule of thumb — "how does X work?" → search_docs; ' +
+          '"why did this session fail?" → search_knowledge or get_session_summary.',
+        inputSchema: {
+          query: z.string().describe('Natural language question (e.g. "how do I deploy the agent with Intune", "where is my data stored", "which roles exist")'),
+          topK: z.coerce.number().min(1).max(20).optional().default(5).describe('Number of results to return (1-20, default 5)'),
+          section: z.string().optional()
+            .describe('Restrict to one documentation area, matching the bundle\'s top-level folder ' +
+              `(one of: ${docsSections.join(', ')}). Omit to search everything.`),
+          minScore: z.coerce.number().min(0).max(1).optional().default(0.25)
+            .describe('Minimum similarity score (0-1, default 0.25). Short keyword queries score low on ' +
+              'all-MiniLM embeddings, so the default is tuned to keep the relevant-but-marginal band.'),
+        },
+        annotations: READ_ONLY,
+      },
+      async (args) => withToolTelemetry('search_docs', async () => {
+        try {
+          const { query, topK, section, minScore } = args;
+
+          // Over-fetch before filtering by section, exactly as search_knowledge does
+          // for `type` — filtering a topK-sized result set would otherwise return
+          // fewer than topK hits whenever the top matches sit in other sections.
+          const fetchK = section ? topK * 4 : topK;
+          let results = await docsIndex.search(query, { topK: fetchK, minScore });
+
+          // Same rationale as search_knowledge: opaque HRESULT/Win32 tokens embed
+          // poorly, and the troubleshooting pages name them verbatim.
+          const needles = extractErrorCodeNeedles(query);
+          const errorCodeHitIds = new Set<string>();
+          if (needles.length > 0 && docsIndex.lexicalMatch) {
+            const byId = new Map(results.map((r) => [r.id, r] as const));
+            for (const hit of docsIndex.lexicalMatch(needles)) {
+              errorCodeHitIds.add(hit.id);
+              const existing = byId.get(hit.id);
+              if (!existing || hit.score > existing.score) byId.set(hit.id, hit);
+            }
+            results = [...byId.values()].sort((a, b) => b.score - a.score);
+          }
+
+          if (section) {
+            results = results.filter((r) => r.metadata.section === section);
+          }
+          results = results.slice(0, topK);
+
+          const formatted = results.map((r) => ({
+            id: r.id,
+            score: Math.round(r.score * 1000) / 1000,
+            title: r.metadata.title,
+            heading: r.metadata.heading,
+            section: r.metadata.section,
+            path: r.metadata.path,
+            url: r.metadata.url,
+            tags: r.metadata.tags,
+            content: r.text,
+            matchType: errorCodeHitIds.has(r.id) ? ('error-code' as const) : undefined,
+          }));
+
+          return toolResultText({
+            query,
+            searchBackend: docsIndex.name,
+            ...(section ? { section } : {}),
+            resultCount: formatted.length,
+            ...(needles.length > 0 ? { errorCodeFallback: { codes: needles, matchedCount: errorCodeHitIds.size } } : {}),
+            results: formatted,
+          }, MAX_RESULT_SIZE_CHARS.small);
+        } catch (error: unknown) {
+          return toolError('search_docs', args, error);
+        }
+      })
+    );
+  }
 }

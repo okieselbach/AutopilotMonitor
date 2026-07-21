@@ -14,8 +14,19 @@ const MODEL = 'Xenova/all-MiniLM-L6-v2';
 const doc = (id: string, text: string, metadata: Record<string, unknown> = {}): SearchDocument =>
   ({ id, text, metadata });
 
+/**
+ * Fake embeddings still have to satisfy the real contract: indexPrecomputed()
+ * asserts L2-unit norm, because cosineSimilarity is a bare dot product that would
+ * otherwise return silently wrong scores. Normalize here rather than hand-writing
+ * unit vectors, so a test can pass any direction it finds readable.
+ */
+const unit = (v: number[]): number[] => {
+  const norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0));
+  return v.map((x) => x / norm);
+};
+
 const withEmbedding = (d: SearchDocument, embedding: number[] = [0.1, 0.2, 0.3]): PrecomputedDocument =>
-  ({ ...d, embedding });
+  ({ ...d, embedding: unit(embedding) });
 
 const KB_DOCS = [doc('rule-1', 'TPM not ready', { type: 'analyze-rule' }), doc('rule-2', 'ESP timeout', { type: 'analyze-rule' })];
 const ET_DOCS = [doc('et-1', 'bitlocker status', { eventType: 'bitlocker_status' })];
@@ -106,7 +117,66 @@ describe('validatePrecomputedIndex', () => {
   });
 });
 
+describe('docs section (optional third corpus)', () => {
+  const DOC_CHUNKS = [doc('docs:trust/security-faq.md#intro', 'Where is my data stored', { type: 'doc', section: 'trust' })];
+
+  const withDocs = (): PrecomputedIndexFile => ({
+    ...validFile(),
+    docs: { docsHash: hashDocs(DOC_CHUNKS), entries: DOC_CHUNKS.map((d) => withEmbedding(d)) },
+  });
+
+  it('returns the docs entries when the corpus matches', () => {
+    const result = validatePrecomputedIndex(withDocs(), MODEL, KB_DOCS, ET_DOCS, DOC_CHUNKS);
+    expect(result).toMatchObject({ ok: true });
+    expect(result.ok && result.docs).toHaveLength(1);
+  });
+
+  it('rejects the whole file when the docs corpus changed since the build', () => {
+    const stale = [doc('docs:trust/security-faq.md#intro', 'DIFFERENT TEXT', { type: 'doc', section: 'trust' })];
+    expect(validatePrecomputedIndex(withDocs(), MODEL, KB_DOCS, ET_DOCS, stale)).toMatchObject({
+      ok: false, reason: expect.stringContaining('docs'),
+    });
+  });
+
+  it('rejects when the server has docs but the image shipped none — that is staleness, not absence', () => {
+    expect(validatePrecomputedIndex(validFile(), MODEL, KB_DOCS, ET_DOCS, DOC_CHUNKS)).toMatchObject({
+      ok: false, reason: expect.stringContaining('docs'),
+    });
+  });
+
+  it('accepts a file WITHOUT a docs section when the server has no docs corpus', () => {
+    // A local checkout has no docs repo. That must not throw away the rules and
+    // event-type vectors too — recomputing those is the expensive half.
+    const result = validatePrecomputedIndex(validFile(), MODEL, KB_DOCS, ET_DOCS, []);
+    expect(result).toMatchObject({ ok: true });
+    expect(result.ok && result.docs).toEqual([]);
+  });
+});
+
 describe('VectorSearchProvider serialize/hydrate roundtrip', () => {
+  it('rounds embeddings on serialize but stays well inside the unit-norm tolerance', () => {
+    const p = new VectorSearchProvider();
+    const raw = unit([0.123456789012345, -0.987654321098765, 0.5555555555555]);
+    p.indexPrecomputed([{ ...doc('d1', 'text'), embedding: raw }]);
+
+    const [out] = p.serialize();
+    // Rounded to 6 decimals — the point of the exercise (halves the index JSON).
+    expect(out.embedding.every((v) => v === Number(v.toFixed(6)))).toBe(true);
+    expect(out.embedding).not.toEqual(raw);
+
+    const norm = Math.sqrt(out.embedding.reduce((s, x) => s + x * x, 0));
+    expect(Math.abs(norm - 1)).toBeLessThan(1e-5);
+    // Re-hydrating the rounded vectors must not trip the assertion.
+    expect(() => new VectorSearchProvider().indexPrecomputed(p.serialize())).not.toThrow();
+  });
+
+  it('rejects a non-unit embedding on hydrate rather than skewing every score silently', () => {
+    const p = new VectorSearchProvider();
+    expect(() => p.indexPrecomputed([{ ...doc('d1', 'text'), embedding: [0.1, 0.2, 0.3] }]))
+      .toThrow(/not L2-unit-normalized/);
+  });
+
+
   it('indexPrecomputed restores exactly what serialize exported, without the model', () => {
     const source = new VectorSearchProvider();
     source.indexPrecomputed(KB_DOCS.map((d, i) => withEmbedding(d, [i + 0.5, i + 1.5])));

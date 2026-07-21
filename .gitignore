@@ -117,8 +117,11 @@ scripts/Deployment/
 # Migration tooling (local only, vorerst) — cross-tenant storage/cert migration scripts
 scripts/Migration/
 
-# Infra (local only)
-infra/
+# Infra: tracked. The Bicep templates carry no credentials — every secret is a
+# @secure() parameter with an empty default, injected at deploy time, and image
+# pull runs on managed identity. Keep it that way: never commit a resolved secret
+# value or a *.parameters.json holding one.
+infra/*.parameters.json
 
 # M2 — local raw session fixtures before anonymization (plan §4 M2)
 tests/fixtures/enrollment-sessions-local/

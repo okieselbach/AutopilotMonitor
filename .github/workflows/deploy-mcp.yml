@@ -21,6 +21,22 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The published customer documentation lives in its own PUBLIC repo and is
+      # baked into the image as the search_docs corpus (see the Dockerfile). No
+      # token is needed. Checking it out here rather than vendoring it keeps the
+      # docs single-sourced — but it also means EDITING THE DOCS DOES NOT UPDATE A
+      # RUNNING SERVER; this workflow must be re-run. /health reports the SHA
+      # captured below so that staleness is checkable.
+      - name: Check out documentation bundle
+        uses: actions/checkout@v5
+        with:
+          repository: autopilotmonitor/autopilotmonitor-docs
+          path: mcp-docs
+
+      - name: Resolve docs commit
+        id: docs
+        run: echo "sha=$(git -C mcp-docs rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Login to Azure (OIDC)
         uses: azure/login@v3
         with:
@@ -35,6 +51,7 @@ jobs:
         run: |
           docker build \
             -f src/McpServer/autopilot-monitor-mcp/Dockerfile \
+            --build-arg DOCS_COMMIT=${{ steps.docs.outputs.sha }} \
             -t ${{ env.ACR_NAME }}.azurecr.io/${{ env.CONTAINER_APP_NAME }}:${{ env.IMAGE_TAG }} \
             -t ${{ env.ACR_NAME }}.azurecr.io/${{ env.CONTAINER_APP_NAME }}:latest \
             .

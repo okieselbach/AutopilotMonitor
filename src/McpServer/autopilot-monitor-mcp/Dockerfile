@@ -18,6 +18,22 @@ COPY rules/analyze/ ./rules/analyze/
 COPY rules/gather/ ./rules/gather/
 COPY rules/ime-log-patterns/ ./rules/ime-log-patterns/
 
+# Published customer documentation (autopilotmonitor-docs) — a SEPARATE public
+# repo that the deploy workflow checks out into ./mcp-docs of the build context.
+# Same byte-identical requirement as the rules above.
+#
+# This COPY is deliberately strict: if the workflow's docs checkout is ever
+# removed, the build must fail loudly rather than quietly ship an image whose
+# search_docs tool simply does not exist. For a local `docker build`, clone the
+# bundle first:
+#   git clone --depth 1 https://github.com/autopilotmonitor/autopilotmonitor-docs mcp-docs
+COPY mcp-docs/ ./docs/
+
+# Commit SHA of that docs checkout. Surfaced on /health so a running server can be
+# diffed against the docs repo HEAD — the bundle changes independently of this
+# repo, so a stale deploy is otherwise invisible.
+ARG DOCS_COMMIT=unknown
+
 # Pre-bake the ~23 MB embedding model AND precompute the search index at image
 # build time. Embedding the static corpus at boot cost 35-55s of ONNX inference
 # on the 0.25 vCPU container (measured); hydrating precomputed vectors is
@@ -35,7 +51,7 @@ RUN mkdir -p "$HF_CACHE_DIR" /app/search-index && \
   if [ "$PREBAKE_MODEL" = "1" ]; then \
     ok=0; \
     for i in 1 2 3 4 5; do \
-      node dist/precompute-embeddings.js ./rules /app/search-index/search-index.json && { ok=1; break; }; \
+      node dist/precompute-embeddings.js ./rules /app/search-index/search-index.json ./docs && { ok=1; break; }; \
       echo "embedding precompute attempt $i/5 failed; retrying in 15s"; \
       sleep 15; \
     done && \
@@ -66,8 +82,16 @@ COPY rules/analyze/ ./rules/analyze/
 COPY rules/gather/ ./rules/gather/
 COPY rules/ime-log-patterns/ ./rules/ime-log-patterns/
 
+# Customer documentation corpus — copied from the build stage rather than the
+# context so it is provably the same bytes the embeddings were computed over.
+COPY --from=build /app/docs/ ./docs/
+
+ARG DOCS_COMMIT=unknown
+ENV DOCS_COMMIT=${DOCS_COMMIT}
+
 ENV PORT=8080
 ENV RULES_DIR=/app/rules
+ENV DOCS_DIR=/app/docs
 ENV SEARCH_INDEX_PATH=/app/search-index/search-index.json
 EXPOSE 8080
 

@@ -26,12 +26,14 @@ export function registerTools(
   server: McpServer,
   knowledgeBase: SearchProvider | undefined,
   eventTypeIndex: SearchProvider | undefined,
+  docsIndex: SearchProvider | undefined,
+  docsSections: string[],
   ga: boolean,
   strictGa: boolean = ga,
   delegated: boolean = false,
 ): void {
   registerSessionTools(server, ga, delegated);
-  registerSearchTools(server, knowledgeBase, eventTypeIndex, ga, delegated);
+  registerSearchTools(server, knowledgeBase, eventTypeIndex, docsIndex, docsSections, ga, delegated);
   registerAdminTools(server, ga, strictGa, delegated);
   sortToolCatalog(server);
 }
