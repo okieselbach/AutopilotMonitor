@@ -21,7 +21,7 @@
     "compression": "^1.8.1",
     "express": "^5.2.1",
     "fuse.js": "^7.1.0",
-    "zod": "^3.22.0"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/compression": "^1.8.1",
