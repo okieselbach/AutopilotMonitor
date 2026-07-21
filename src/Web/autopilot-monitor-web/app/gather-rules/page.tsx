@@ -16,7 +16,7 @@ import { FormJsonToggle, JsonModeToggleButtons } from "@/components/rules/FormJs
 import { useAuthenticatedFetch, useNotificationMessages, useGlobalAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
-import { GatherRule, NewRuleForm, EMPTY_FORM, CATEGORY_COLORS, withDerivedScopeMode } from "./types";
+import { GatherRule, NewRuleForm, EMPTY_FORM, CATEGORY_COLORS, PHASE_TRIGGERS, withDerivedScopeMode } from "./types";
 import { GatherRuleFormFields } from "./components/GatherRuleFormFields";
 import { GatherRuleCard } from "./components/GatherRuleCard";
 
@@ -209,7 +209,7 @@ export default function GatherRulesPage() {
       parameters: buildParameters(form),
       trigger: form.trigger,
       intervalSeconds: form.trigger === "interval" ? form.intervalSeconds : null,
-      triggerPhase: form.trigger === "phase_change" ? form.triggerPhase : null,
+      triggerPhase: PHASE_TRIGGERS.includes(form.trigger) ? form.triggerPhase : null,
       triggerEventType: form.trigger === "on_event" ? form.triggerEventType : null,
       activePhases: form.scopeMode === "during" && form.activePhases.length > 0 ? form.activePhases : null,
       activeFromPhase: form.scopeMode === "from" && form.activeFromPhase ? form.activeFromPhase : null,
@@ -296,7 +296,7 @@ export default function GatherRulesPage() {
       parameters: buildParameters(form),
       trigger: form.trigger,
       intervalSeconds: form.trigger === "interval" ? form.intervalSeconds : null,
-      triggerPhase: form.trigger === "phase_change" ? form.triggerPhase : null,
+      triggerPhase: PHASE_TRIGGERS.includes(form.trigger) ? form.triggerPhase : null,
       triggerEventType: form.trigger === "on_event" ? form.triggerEventType : null,
       activePhases: form.scopeMode === "during" && form.activePhases.length > 0 ? form.activePhases : null,
       activeFromPhase: form.scopeMode === "from" && form.activeFromPhase ? form.activeFromPhase : null,

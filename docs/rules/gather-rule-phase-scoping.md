@@ -1,7 +1,7 @@
 ---
 type: Concept
-title: Gather Rule Phase Scoping & Emit-on-Change
-description: How gather rules are restricted to enrollment phases (activePhases / activeFromPhase) and how emitMode "on_change" suppresses repeated identical results — the anti-spam pair for interval rules.
+title: Gather Rule Phase Scoping, One-Shot Triggers & Emit-on-Change
+description: How gather rules are restricted to enrollment phases (activePhases / activeFromPhase), collect once at a phase boundary (phase_change / phase_exit), and how emitMode "on_change" suppresses repeated identical results.
 resource: /src/Agent/AutopilotMonitor.Agent.V2.Core/Monitoring/Telemetry/Gather/GatherRuleExecutor.cs
 tags:
   - agent
@@ -34,6 +34,35 @@ Canonical phase tokens are the `EnrollmentPhase` enum **names** `Start`(0) …`C
 Backend validation (`GatherRulesFunction.ValidateScopeAndEmitMode`) rejects `Unknown`/`Failed`,
 numeric tokens, unknown emit modes, and both scope fields set at once (400). The agent
 defensively prefers `activePhases` if both arrive anyway.
+
+# One-shot collection at phase boundaries
+
+Scoping answers "while *may* this rule run". The trigger answers "when does it fire". For
+one-shot collection the two phase triggers are the bookends of a phase:
+
+| Trigger | Fires |
+|---|---|
+| `phase_change` | Once when `triggerPhase` is **entered** (dedup key `{ruleId}\|{phase}`). |
+| `phase_exit` | Once when `triggerPhase` is **left** (dedup key `exit:{ruleId}\|{phase}`). |
+
+Empty `triggerPhase` means every transition. Both keys live in the same
+`_phaseRulesExecuted` set; the `exit:` prefix keeps the two key spaces disjoint, so an
+enter-rule and an exit-rule on the same phase never cannibalise each other's slot.
+
+`phase_exit` semantics that are easy to get wrong:
+
+* It is evaluated **before** `_currentPhase` advances, so both the `triggerPhase` match and
+  the phase-scope gate see the phase being **left**. A rule scoped to `DeviceSetup` therefore
+  still fires on its own exit, even though the phase being entered is outside that scope.
+* A transition into `Failed` **does** fire the exit rules of the failing phase — capturing
+  state at the failure boundary is the point.
+* Exit of `Unknown` never fires (nothing was entered yet), and a repeated identical phase
+  signal is not a transition.
+* An exit rule on `Complete` only fires if something transitions *away* from Complete. For
+  "at the end of enrollment", use `phase_change` on `Complete` or `on_event` with
+  `enrollment_complete`.
+* Old agents do not know the trigger value and simply never fire the rule (silent no-op) —
+  which is why `phase_exit` needs no ConfigVersion bump: no new field is transported.
 
 # Scope semantics (agent, `GatherRuleExecutor`)
 

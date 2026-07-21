@@ -176,12 +176,59 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
 
         /// <summary>
         /// Called when a phase change event occurs - executes rules triggered by phase changes
+        /// (<c>phase_change</c> on entering the new phase, <c>phase_exit</c> on leaving the old one).
         /// </summary>
         public void OnPhaseChanged(EnrollmentPhase newPhase)
         {
             var phaseName = newPhase.ToString();
 
-            // Update the phase + from-phase latches FIRST so deferred startup activation and
+            // phase_exit runs FIRST and against the phase being LEFT: both the TriggerPhase match
+            // and the scope gate must see the old phase, so this block has to complete before
+            // _currentPhase moves below. A transition INTO Failed still fires the exit rules of the
+            // phase that failed — that snapshot is the whole point at a failure boundary.
+            List<GatherRule> exitRules = null;
+            lock (_scopeLock)
+            {
+                var previousPhase = _currentPhase;
+                if (previousPhase != EnrollmentPhase.Unknown && previousPhase != newPhase)
+                {
+                    var previousPhaseName = previousPhase.ToString();
+                    exitRules = new List<GatherRule>();
+
+                    foreach (var rule in _activeRules)
+                    {
+                        if (rule.Trigger != "phase_exit") continue;
+                        if (!string.IsNullOrEmpty(rule.TriggerPhase)
+                            && !string.Equals(rule.TriggerPhase, previousPhaseName, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        // Scope gate before the dedup add — an out-of-scope pass must not consume
+                        // the once-per-(rule, phase) slot. IsRuleInScopeLocked still sees the old phase.
+                        if (!IsRuleInScopeLocked(rule)) continue;
+
+                        // "exit:" prefix keeps this key space disjoint from the phase_change keys.
+                        if (!_phaseRulesExecuted.Add($"exit:{rule.RuleId}|{previousPhaseName}"))
+                        {
+                            _logger.Debug($"Phase-exit rule {rule.RuleId} already executed for exit of {previousPhaseName}, skipping");
+                            continue;
+                        }
+
+                        _logger.Info($"Phase exit triggered rule {rule.RuleId} (left phase: {previousPhaseName}, now: {phaseName})");
+                        exitRules.Add(rule);
+                    }
+                }
+            }
+
+            if (exitRules != null)
+            {
+                foreach (var rule in exitRules)
+                {
+                    var exitRule = rule;
+                    ThreadPool.QueueUserWorkItem(_ => ExecuteRule(exitRule));
+                }
+            }
+
+            // Update the phase + from-phase latches so deferred startup activation and
             // the phase_change rules below all evaluate against the NEW phase.
             List<GatherRule> deferredStartup;
             lock (_scopeLock)

@@ -11,6 +11,7 @@ import {
   TARGET_PLACEHOLDERS,
   TARGET_HINTS,
   GATHER_PHASES,
+  PHASE_TRIGGERS,
   EMIT_MODES,
   formatTrigger,
 } from "../types";
@@ -425,7 +426,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
         </div>
       )}
 
-      {form.trigger === "phase_change" && (
+      {PHASE_TRIGGERS.includes(form.trigger) && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Trigger Phase</label>
           <select
@@ -433,7 +434,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
             onChange={(e) => setForm({ ...form, triggerPhase: e.target.value })}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
           >
-            <option value="">Any phase change</option>
+            <option value="">Any phase</option>
             {form.triggerPhase && !GATHER_PHASES.some((p) => p.value === form.triggerPhase) && (
               <option value={form.triggerPhase}>{form.triggerPhase} (legacy value)</option>
             )}
@@ -441,7 +442,11 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
               <option key={p.value} value={p.value}>{p.label}</option>
             ))}
           </select>
-          <p className="text-xs text-gray-400 mt-1">Run this rule when the enrollment reaches this phase. &quot;Any phase change&quot; fires once per phase transition.</p>
+          <p className="text-xs text-gray-400 mt-1">
+            {form.trigger === "phase_exit"
+              ? "Collect once when the enrollment LEAVES this phase — a snapshot of its end state. \"Any phase\" fires on every phase transition. Also fires when the phase is left because enrollment failed."
+              : "Collect once when the enrollment REACHES this phase. \"Any phase\" fires on every phase transition."}
+          </p>
         </div>
       )}
 

@@ -22,7 +22,7 @@ https://docs.autopilotmonitor.com (separate repository).
 
 # Rules
 
-* [Gather Rule Phase Scoping & Emit-on-Change](rules/gather-rule-phase-scoping.md) - Restricting gather rules to enrollment phases (activePhases / activeFromPhase sticky latch) and emitMode "on_change" result-dedup — the anti-spam pair for interval rules.
+* [Gather Rule Phase Scoping, One-Shot Triggers & Emit-on-Change](rules/gather-rule-phase-scoping.md) - Restricting gather rules to enrollment phases (activePhases / activeFromPhase sticky latch), one-shot collection at a phase's start/end (phase_change / phase_exit), and emitMode "on_change" result-dedup.
 
 # Backend
 

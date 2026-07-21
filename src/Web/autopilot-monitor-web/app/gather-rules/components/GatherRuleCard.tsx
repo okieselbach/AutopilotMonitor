@@ -293,7 +293,16 @@ export function GatherRuleCard({
                 )}
                 {rule.trigger === "phase_change" && rule.triggerPhase && (
                   <span className="text-gray-500">
-                    on phase: <code className="px-1 bg-gray-200 rounded text-xs">{rule.triggerPhase}</code>
+                    entering <code className="px-1 bg-gray-200 rounded text-xs">{formatGatherPhase(rule.triggerPhase)}</code>
+                  </span>
+                )}
+                {rule.trigger === "phase_exit" && (
+                  <span className="text-gray-500">
+                    {rule.triggerPhase ? (
+                      <>leaving <code className="px-1 bg-gray-200 rounded text-xs">{formatGatherPhase(rule.triggerPhase)}</code></>
+                    ) : (
+                      "on every phase exit"
+                    )}
                   </span>
                 )}
                 {rule.trigger === "on_event" && rule.triggerEventType && (

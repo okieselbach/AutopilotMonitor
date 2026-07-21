@@ -107,7 +107,11 @@ namespace AutopilotMonitor.Shared.Models
         // ===== WHEN TO COLLECT =====
 
         /// <summary>
-        /// Trigger type: "startup", "phase_change", "interval", "on_event"
+        /// Trigger type: "startup", "phase_change", "phase_exit", "interval", "on_event".
+        /// <para>
+        /// "phase_change" fires once when the phase in <see cref="TriggerPhase"/> is ENTERED,
+        /// "phase_exit" once when it is LEFT — the two one-shot bookends of a phase.
+        /// </para>
         /// </summary>
         public string Trigger { get; set; } = default!;
 
@@ -117,8 +121,9 @@ namespace AutopilotMonitor.Shared.Models
         public int? IntervalSeconds { get; set; }
 
         /// <summary>
-        /// Phase to trigger on (only used when Trigger = "phase_change")
-        /// e.g., "Identity", "MdmEnrollment", "AppInstallation"
+        /// Phase to trigger on (used when Trigger = "phase_change" or "phase_exit").
+        /// Canonical tokens are the <see cref="EnrollmentPhase"/> enum names, e.g.
+        /// "DeviceSetup", "AccountSetup", "Complete". Empty = every phase transition.
         /// </summary>
         public string TriggerPhase { get; set; } = default!;
 

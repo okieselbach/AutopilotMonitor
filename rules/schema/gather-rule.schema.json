@@ -80,8 +80,8 @@
         },
         "trigger": {
           "type": "string",
-          "description": "When to collect data.",
-          "enum": ["startup", "phase_change", "interval", "on_event"]
+          "description": "When to collect data. \"phase_change\" fires once when triggerPhase is entered, \"phase_exit\" once when it is left.",
+          "enum": ["startup", "phase_change", "phase_exit", "interval", "on_event"]
         },
         "intervalSeconds": {
           "type": "integer",
@@ -90,7 +90,7 @@
         },
         "triggerPhase": {
           "type": "string",
-          "description": "Phase to trigger on (only used when trigger = \"phase_change\")."
+          "description": "Phase to trigger on (used when trigger = \"phase_change\" or \"phase_exit\"). Empty = every phase transition."
         },
         "triggerEventType": {
           "type": "string",

@@ -61,7 +61,10 @@ export interface NewRuleForm {
 
 export const CATEGORIES = ["network", "identity", "apps", "device", "esp", "enrollment"] as const;
 export const COLLECTOR_TYPES = ["registry", "eventlog", "wmi", "file", "command_allowlisted", "logparser", "json", "xml"] as const;
-export const TRIGGERS = ["startup", "phase_change", "interval", "on_event"] as const;
+export const TRIGGERS = ["startup", "phase_change", "phase_exit", "interval", "on_event"] as const;
+
+/** Triggers that collect at a phase boundary and therefore use the triggerPhase field. */
+export const PHASE_TRIGGERS: ReadonlyArray<string> = ["phase_change", "phase_exit"];
 export const SEVERITIES = ["info", "warning", "error", "critical"] as const;
 
 // Canonical phase-scope tokens: the backend EnrollmentPhase enum NAMES from Start(0) through
@@ -168,7 +171,8 @@ export const EMPTY_FORM: NewRuleForm = {
 
 export function formatTrigger(trigger: string) {
   switch (trigger) {
-    case "phase_change": return "Phase Change";
+    case "phase_change": return "Phase Start";
+    case "phase_exit": return "Phase End";
     case "on_event": return "On Event";
     default: return trigger.charAt(0).toUpperCase() + trigger.slice(1);
   }
