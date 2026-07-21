@@ -20,6 +20,11 @@ updates:
       web:
         patterns: ['*']
         update-types: [minor, patch]
+    # Major bumps are breaking and reviewed deliberately, not auto-PR'd.
+    # Security updates ignore this filter, so the Security tab stays clean.
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: npm
     directory: /src/McpServer/autopilot-monitor-mcp
@@ -30,6 +35,11 @@ updates:
       mcp:
         patterns: ['*']
         update-types: [minor, patch]
+    # Major bumps are breaking and reviewed deliberately, not auto-PR'd.
+    # Security updates ignore this filter, so the Security tab stays clean.
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: github-actions
     directory: /
