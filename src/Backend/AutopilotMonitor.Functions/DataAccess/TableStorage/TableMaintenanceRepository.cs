@@ -69,9 +69,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<List<SessionSummary>> GetAgentSilentSessionsAsync(string tenantId, DateTime silenceCutoff, DateTime hardCutoff)
             => _storage.GetAgentSilentSessionsAsync(tenantId, silenceCutoff, hardCutoff);
 
-        public Task<List<SessionSummary>> GetExcessiveDataSendersAsync(string tenantId, DateTime windowCutoff, int maxSessionWindowHours)
-            => _storage.GetExcessiveDataSendersAsync(tenantId, windowCutoff, maxSessionWindowHours);
-
         public Task<List<SessionSummary>> GetLegacyTimeoutFailedSessionsAsync(string tenantId, int maxResults)
             => _storage.GetLegacyTimeoutFailedSessionsAsync(tenantId, maxResults);
 

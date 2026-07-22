@@ -111,27 +111,15 @@ namespace AutopilotMonitor.Shared.Models
         public int ExcessiveEventAutoActionThreshold { get; set; } = 2500;
 
         /// <summary>
-        /// Duration in hours for the device block created by the auto-action path. Independent
-        /// of <see cref="MaintenanceBlockDurationHours"/> (which governs the time-window
-        /// ExcessiveDataBlocked path) so the operator can tune both autonomously. Default: 24.
+        /// Duration in hours for the device block created by the auto-action path. Default: 24.
         /// </summary>
         public int ExcessiveEventAutoActionDurationHours { get; set; } = 24;
 
-        // ===== MAINTENANCE AUTO-BLOCK SETTINGS =====
-
-        /// <summary>
-        /// Max active data window in hours for maintenance auto-block detection.
-        /// Sessions with LastEventAt within the last MaxSessionWindowHours AND StartedAt older
-        /// than MaxSessionWindowHours will have their device blocked by the nightly maintenance function.
-        /// 0 = disabled. Default: 24.
-        /// </summary>
-        public int MaxSessionWindowHours { get; set; } = 24;
-
-        /// <summary>
-        /// Duration in hours for maintenance-triggered device blocks (excessive data senders).
-        /// Default: 12.
-        /// </summary>
-        public int MaintenanceBlockDurationHours { get; set; } = 12;
+        // MaxSessionWindowHours / MaintenanceBlockDurationHours were removed 2026-07-22 with the
+        // time-window auto-block. That detector blocked on session span alone, so every enrollment
+        // that spanned a night qualified — including 23-event sessions. The event-count settings
+        // above are now the only automatic block. Stored rows keep the two columns until their
+        // next write; nothing reads them.
 
         /// <summary>
         /// Retention period in days for operational events in the OpsEvents table.
@@ -531,9 +519,7 @@ namespace AutopilotMonitor.Shared.Models
                 GlobalAdminRateLimitRequestsPerMinute = 600,
                 PlatformStatsBlobSasUrl = string.Empty,
                 CollectorIdleTimeoutMinutes = 15,
-                DesktopDetectorNoCandidateTimeoutMinutes = 10,
-                MaxSessionWindowHours = 24,
-                MaintenanceBlockDurationHours = 12
+                DesktopDetectorNoCandidateTimeoutMinutes = 10
             };
         }
     }

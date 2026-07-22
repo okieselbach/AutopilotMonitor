@@ -39,13 +39,6 @@ interface BlockedDevice {
 
 interface DeviceBlockSectionProps {
   tenants: TenantConfiguration[];
-  maxSessionWindowHours: number;
-  setMaxSessionWindowHours: (value: number) => void;
-  maintenanceBlockDurationHours: number;
-  setMaintenanceBlockDurationHours: (value: number) => void;
-  savingConfig: boolean;
-  adminConfigExists: boolean;
-  onSaveAdminConfig: () => Promise<void>;
   getAccessToken: () => Promise<string | null>;
   setError: (error: string | null) => void;
   setSuccessMessage: (message: string | null) => void;
@@ -53,13 +46,6 @@ interface DeviceBlockSectionProps {
 
 export function DeviceBlockSection({
   tenants,
-  maxSessionWindowHours,
-  setMaxSessionWindowHours,
-  maintenanceBlockDurationHours,
-  setMaintenanceBlockDurationHours,
-  savingConfig,
-  adminConfigExists,
-  onSaveAdminConfig,
   getAccessToken,
   setError,
   setSuccessMessage,
@@ -320,60 +306,6 @@ export function DeviceBlockSection({
         </div>
       </div>
       <div className="p-6 space-y-6">
-        {/* Maintenance Auto-Block Settings */}
-        <div className="border border-red-200 dark:border-red-700 rounded-lg p-4 bg-red-50/50 dark:bg-red-900/10">
-          <div className="flex items-center space-x-2 mb-3">
-            <svg className="w-4 h-4 text-red-500 dark:text-red-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <h3 className="text-sm font-semibold text-red-900 dark:text-red-100">Maintenance Auto-Block Settings</h3>
-          </div>
-          <p className="text-xs text-red-600 dark:text-red-400 mb-4">
-            The nightly maintenance function automatically blocks devices that are still actively sending data beyond the configured window. Sessions with a <code className="bg-red-100 dark:bg-red-900/40 px-1 rounded">LastEventAt</code> timestamp within the window <em>and</em> a <code className="bg-red-100 dark:bg-red-900/40 px-1 rounded">StartedAt</code> older than the window are flagged – regardless of session status.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Max Session Window (Hours)
-              </label>
-              <input
-                type="number"
-                min={0}
-                max={168}
-                value={maxSessionWindowHours}
-                onChange={(e) => setMaxSessionWindowHours(parseInt(e.target.value) || 0)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
-              />
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">0 = disabled</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Maintenance Block Duration (Hours)
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={720}
-                value={maintenanceBlockDurationHours}
-                onChange={(e) => setMaintenanceBlockDurationHours(parseInt(e.target.value) || 12)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
-              />
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Applied by the maintenance function</p>
-            </div>
-          </div>
-          <button
-            onClick={onSaveAdminConfig}
-            disabled={!canMutate || savingConfig || !adminConfigExists}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50 flex items-center space-x-2"
-          >
-            {savingConfig ? (
-              <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div><span>Saving...</span></>
-            ) : (
-              <span>Save Maintenance Settings</span>
-            )}
-          </button>
-        </div>
-
         {/* Block / Kill a device form */}
         <div>
           <h3 className="text-sm font-semibold text-red-900 dark:text-red-100 mb-3">Block or Kill a Device</h3>

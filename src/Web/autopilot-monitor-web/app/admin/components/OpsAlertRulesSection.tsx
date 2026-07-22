@@ -54,7 +54,7 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
   ],
   Security: [
     "DeviceBlocked",
-    "ExcessiveDataBlocked",
+    // ExcessiveDataBlocked removed 2026-07-22 with the time-window auto-block that raised it.
     // Critical-tier auto-action: emitted when maintenance auto-blocks/kills a device
     // after its session crosses `excessiveEventAutoActionThreshold`. Dual-register
     // per memory feedback_ops_event_types_dual_register so operators can wire a

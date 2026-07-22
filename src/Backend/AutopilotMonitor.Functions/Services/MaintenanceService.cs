@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -134,7 +134,6 @@ namespace AutopilotMonitor.Functions.Services
             {
                 await MarkStalledSessionsAsTimedOutAsync();
                 await DetectExcessiveEventSessionsAsync();
-                await BlockExcessiveDataSendersAsync();
                 await AggregateMetricsWithCatchUpAsync();
                 // Plan §5 PR6 / §16 R14: session retention fanout extracted out of the 2h timer
                 // into the dedicated 12h SessionDeletionMaintenanceFunction so cascade-lifecycle
@@ -590,6 +589,14 @@ namespace AutopilotMonitor.Functions.Services
         /// mode mid-run never re-fires the warn.
         /// </para>
         /// Both paths skip when their threshold is 0; the whole sweep no-ops when both are off.
+        /// <para>
+        /// This is the ONLY automatic device block. A second, time-window detector used to run
+        /// beside it (AdminConfiguration.MaxSessionWindowHours) and blocked any session whose
+        /// first and last event lay more than N hours apart. It measured span, never volume, so
+        /// it flagged every enrollment that spanned a night — 23-event sessions included — and
+        /// was removed 2026-07-22. Event count is the quantity that actually costs anything;
+        /// if a span-based guard is ever reintroduced it has to gate on volume too.
+        /// </para>
         /// </summary>
         private async Task DetectExcessiveEventSessionsAsync()
         {
@@ -710,114 +717,6 @@ namespace AutopilotMonitor.Functions.Services
                 _logger.LogError(ex, "Failed to scan for excessive-event sessions");
             }
         }
-
-        /// <summary>
-        /// Detects devices that are still actively sending data beyond the configured maximum session
-        /// window and blocks them automatically. Status-independent: uses LastEventAt (written on every
-        /// event batch) combined with StartedAt to identify sessions spanning too long a data window.
-        /// Controlled by AdminConfiguration.MaxSessionWindowHours (0 = disabled).
-        /// </summary>
-        private async Task<int> BlockExcessiveDataSendersAsync()
-        {
-            _logger.LogInformation("Checking for excessive data senders...");
-            var sw = Stopwatch.StartNew();
-
-            try
-            {
-                var adminConfig = await _adminConfigurationService.GetConfigurationAsync();
-                if (adminConfig.MaxSessionWindowHours == 0)
-                {
-                    _logger.LogInformation("Excessive data sender detection disabled (MaxSessionWindowHours = 0)");
-                    return 0;
-                }
-
-                var windowCutoff = DateTime.UtcNow.AddHours(-adminConfig.MaxSessionWindowHours);
-                var blockDurationHours = adminConfig.MaintenanceBlockDurationHours;
-                var tenantIds = await _maintenanceRepo.GetAllTenantIdsAsync();
-                int totalBlocked = 0;
-
-                foreach (var tenantId in tenantIds)
-                {
-                    try
-                    {
-                        var sessions = await _maintenanceRepo.GetExcessiveDataSendersAsync(tenantId, windowCutoff, adminConfig.MaxSessionWindowHours);
-
-                        if (sessions.Count == 0)
-                        {
-                            _logger.LogInformation($"Tenant {tenantId}: No excessive data sender sessions found (window: {adminConfig.MaxSessionWindowHours}h)");
-                            continue;
-                        }
-
-                        int blockedCount = 0;
-
-                        foreach (var session in sessions)
-                        {
-                            if (string.IsNullOrEmpty(session.SerialNumber))
-                                continue;
-
-                            var (isBlocked, _, _, _) = await _blockedDeviceService.IsBlockedAsync(tenantId, session.SerialNumber);
-                            if (isBlocked)
-                                continue;
-
-                            var reason = $"Excessive data window: session active for >{adminConfig.MaxSessionWindowHours}h " +
-                                         $"(started {session.StartedAt:yyyy-MM-dd HH:mm:ss} UTC, " +
-                                         $"last event {session.LastEventAt:yyyy-MM-dd HH:mm:ss} UTC)";
-
-                            await _blockedDeviceService.BlockDeviceAsync(
-                                tenantId,
-                                session.SerialNumber,
-                                durationHours: blockDurationHours,
-                                blockedByEmail: "System.Maintenance",
-                                reason: reason,
-                                blockedSessionId: session.SessionId);
-
-                            // One ops event per device, not per tenant: the alert is only actionable
-                            // if it names the session and serial behind it (the detail modal's
-                            // View session / Block / Kill shortcuts key off `sessionId`).
-                            await _opsEventService.RecordExcessiveDataBlockedAsync(
-                                tenantId, session.SerialNumber, session.SessionId,
-                                adminConfig.MaxSessionWindowHours, blockDurationHours);
-
-                            blockedCount++;
-                        }
-
-                        if (blockedCount > 0)
-                        {
-                            await _maintenanceRepo.LogAuditEntryAsync(
-                                tenantId,
-                                "ExcessiveDataBlock",
-                                "Device",
-                                $"{blockedCount} devices",
-                                "System.Maintenance",
-                                new Dictionary<string, string>
-                                {
-                                    { "DevicesBlocked", blockedCount.ToString() },
-                                    { "WindowHours", adminConfig.MaxSessionWindowHours.ToString() },
-                                    { "BlockDurationHours", blockDurationHours.ToString() }
-                                });
-
-                            _logger.LogInformation($"Tenant {tenantId}: Blocked {blockedCount} excessive data sender device(s) (window: {adminConfig.MaxSessionWindowHours}h, block: {blockDurationHours}h)");
-                        }
-
-                        totalBlocked += blockedCount;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, $"Failed to check excessive data senders for tenant {tenantId}");
-                    }
-                }
-
-                sw.Stop();
-                _logger.LogInformation($"Excessive data sender check completed: {totalBlocked} devices blocked in {sw.ElapsedMilliseconds}ms");
-                return totalBlocked;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to check for excessive data senders");
-                return 0;
-            }
-        }
-
 
         /// <summary>
         /// Aggregates metrics for any missed days in the last 7 days, plus yesterday.

@@ -35,8 +35,6 @@ export interface AdminConfiguration {
   excessiveEventAutoActionThreshold?: number;
   /** Block duration in hours when the auto-action fires. */
   excessiveEventAutoActionDurationHours?: number;
-  maxSessionWindowHours?: number;
-  maintenanceBlockDurationHours?: number;
   opsEventRetentionDays?: number;
   slaNotificationCooldownHours?: number;
   diagnosticsGlobalLogPathsJson?: string;

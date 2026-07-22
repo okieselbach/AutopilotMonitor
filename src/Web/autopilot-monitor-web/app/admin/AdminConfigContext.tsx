@@ -34,10 +34,6 @@ interface AdminConfigContextValue {
   setCollectorIdleTimeoutMinutes: (value: number) => void;
   desktopDetectorNoCandidateTimeoutMinutes: number;
   setDesktopDetectorNoCandidateTimeoutMinutes: (value: number) => void;
-  maxSessionWindowHours: number;
-  setMaxSessionWindowHours: (value: number) => void;
-  maintenanceBlockDurationHours: number;
-  setMaintenanceBlockDurationHours: (value: number) => void;
   opsEventRetentionDays: number;
   setOpsEventRetentionDays: (value: number) => void;
   slaNotificationCooldownHours: number;
@@ -138,8 +134,6 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
   const [agentMigrateTenantOverridesJson, setAgentMigrateTenantOverridesJson] = useState("");
   const [collectorIdleTimeoutMinutes, setCollectorIdleTimeoutMinutes] = useState(15);
   const [desktopDetectorNoCandidateTimeoutMinutes, setDesktopDetectorNoCandidateTimeoutMinutes] = useState(10);
-  const [maxSessionWindowHours, setMaxSessionWindowHours] = useState(24);
-  const [maintenanceBlockDurationHours, setMaintenanceBlockDurationHours] = useState(12);
   const [opsEventRetentionDays, setOpsEventRetentionDays] = useState(90);
   const [slaNotificationCooldownHours, setSlaNotificationCooldownHours] = useState(24);
   const [allowAgentDowngrade, setAllowAgentDowngrade] = useState(false);
@@ -201,8 +195,6 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         setAgentMigrateTenantOverridesJson(data.agentMigrateTenantOverridesJson ?? "");
         setCollectorIdleTimeoutMinutes(data.collectorIdleTimeoutMinutes ?? 15);
         setDesktopDetectorNoCandidateTimeoutMinutes(data.desktopDetectorNoCandidateTimeoutMinutes ?? 10);
-        setMaxSessionWindowHours(data.maxSessionWindowHours ?? 24);
-        setMaintenanceBlockDurationHours(data.maintenanceBlockDurationHours ?? 12);
         setOpsEventRetentionDays(data.opsEventRetentionDays ?? 90);
         setSlaNotificationCooldownHours(data.slaNotificationCooldownHours ?? 24);
         setAllowAgentDowngrade(data.allowAgentDowngrade ?? false);
@@ -308,8 +300,6 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         agentMigrateTenantOverridesJson: agentMigrateTenantOverridesJson.trim(),
         collectorIdleTimeoutMinutes,
         desktopDetectorNoCandidateTimeoutMinutes,
-        maxSessionWindowHours,
-        maintenanceBlockDurationHours,
         opsEventRetentionDays,
         slaNotificationCooldownHours,
         allowAgentDowngrade,
@@ -342,7 +332,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
     } finally {
       setSavingConfig(false);
     }
-  }, [isGlobalAdmin, adminConfig, globalRateLimit, userRateLimit, globalAdminRateLimit, platformStatsBlobSasUrl, agentMigrateApiBaseUrl, agentMigrateTenantOverridesJson, collectorIdleTimeoutMinutes, desktopDetectorNoCandidateTimeoutMinutes, maxSessionWindowHours, maintenanceBlockDurationHours, opsEventRetentionDays, slaNotificationCooldownHours, allowAgentDowngrade, modernDeploymentHarmlessEventIds, enableIndexDualWrite, sessionDeletionKillSwitch, getAccessToken]);
+  }, [isGlobalAdmin, adminConfig, globalRateLimit, userRateLimit, globalAdminRateLimit, platformStatsBlobSasUrl, agentMigrateApiBaseUrl, agentMigrateTenantOverridesJson, collectorIdleTimeoutMinutes, desktopDetectorNoCandidateTimeoutMinutes, opsEventRetentionDays, slaNotificationCooldownHours, allowAgentDowngrade, modernDeploymentHarmlessEventIds, enableIndexDualWrite, sessionDeletionKillSwitch, getAccessToken]);
 
   // Reset admin config
   const handleResetAdminConfig = useCallback(() => {
@@ -355,8 +345,6 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
     setAgentMigrateTenantOverridesJson(adminConfig.agentMigrateTenantOverridesJson ?? "");
     setCollectorIdleTimeoutMinutes(adminConfig.collectorIdleTimeoutMinutes ?? 15);
     setDesktopDetectorNoCandidateTimeoutMinutes(adminConfig.desktopDetectorNoCandidateTimeoutMinutes ?? 10);
-    setMaxSessionWindowHours(adminConfig.maxSessionWindowHours ?? 24);
-    setMaintenanceBlockDurationHours(adminConfig.maintenanceBlockDurationHours ?? 12);
     setOpsEventRetentionDays(adminConfig.opsEventRetentionDays ?? 90);
     setSlaNotificationCooldownHours(adminConfig.slaNotificationCooldownHours ?? 24);
     setAllowAgentDowngrade(adminConfig.allowAgentDowngrade ?? false);
@@ -501,8 +489,6 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
       agentMigrateTenantOverridesJson, setAgentMigrateTenantOverridesJson,
       collectorIdleTimeoutMinutes, setCollectorIdleTimeoutMinutes,
       desktopDetectorNoCandidateTimeoutMinutes, setDesktopDetectorNoCandidateTimeoutMinutes,
-      maxSessionWindowHours, setMaxSessionWindowHours,
-      maintenanceBlockDurationHours, setMaintenanceBlockDurationHours,
       opsEventRetentionDays, setOpsEventRetentionDays,
       slaNotificationCooldownHours, setSlaNotificationCooldownHours,
       allowAgentDowngrade, setAllowAgentDowngrade,

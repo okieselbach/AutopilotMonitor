@@ -255,19 +255,9 @@ namespace AutopilotMonitor.Functions.Services
                 $"Device {serialNumber} blocked: {reason}",
                 tenantId, blockedBy, new { serialNumber, reason });
 
-        /// <summary>
-        /// Fired once per device that the time-window watchdog auto-blocks, i.e. a session still
-        /// uploading beyond <c>AdminConfiguration.MaxSessionWindowHours</c>. Per device rather than
-        /// per tenant so the Ops Events detail modal can deep-link View session / Block / Kill
-        /// against the device behind the alert — same payload contract as
-        /// <see cref="RecordExcessiveSessionEventsAutoActionedAsync"/>. The aggregate count stays
-        /// in the maintenance audit entry, where a sum is the useful view.
-        /// </summary>
-        public Task RecordExcessiveDataBlockedAsync(
-            string tenantId, string serialNumber, string sessionId, int windowHours, int durationHours)
-            => WriteAsync(OpsEventCategory.Security, "ExcessiveDataBlocked", OpsEventSeverity.Warning,
-                $"Device {serialNumber} auto-blocked for excessive data (session active >{windowHours}h, {durationHours}h block)",
-                tenantId, "System.Maintenance", new { sessionId, serialNumber, windowHours, durationHours });
+        // ExcessiveDataBlocked was removed 2026-07-22 together with the time-window detector that
+        // raised it — it blocked on session span alone and fired on ordinary overnight enrollments.
+        // Automatic blocks now come only from the event-count path below.
 
         public Task RecordVersionBlockedAsync(string pattern, string blockedBy)
             => WriteAsync(OpsEventCategory.Security, "VersionBlocked", OpsEventSeverity.Warning,

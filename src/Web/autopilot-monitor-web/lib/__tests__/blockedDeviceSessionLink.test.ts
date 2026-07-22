@@ -47,21 +47,22 @@ describe("blockedSessionCount", () => {
   });
 });
 
-describe("ExcessiveDataBlocked payload reaches the detail modal's actions", () => {
+describe("auto-block payload reaches the detail modal's actions", () => {
   it("carries a sessionId the modal can deep-link on", () => {
-    // Mirrors OpsEventService.RecordExcessiveDataBlockedAsync. This event used to be
-    // aggregated per tenant ({devicesBlocked, windowHours}), which left the modal with
-    // no device to act on — exactly the alert where an operator wants to act.
+    // Mirrors OpsEventService.RecordExcessiveSessionEventsAutoActionedAsync — the only
+    // automatic block left after the time-window detector was removed.
     const details = JSON.stringify({
       sessionId: "806f61c3-1978-4e5c-8fd7-a571cb0fe6bc",
       serialNumber: "PF5YANFB",
-      windowHours: 12,
-      durationHours: 8,
+      eventCount: 2742,
+      threshold: 2500,
+      action: "Block",
+      durationHours: 24,
     });
     expect(extractSessionId(details)).toBe("806f61c3-1978-4e5c-8fd7-a571cb0fe6bc");
   });
 
-  it("would have rendered no actions for the old aggregate payload", () => {
+  it("renders no actions for a payload without a session", () => {
     expect(extractSessionId(JSON.stringify({ devicesBlocked: 1, windowHours: 12 }))).toBeNull();
   });
 });

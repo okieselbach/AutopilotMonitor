@@ -1,4 +1,4 @@
-using Azure;
+﻿using Azure;
 using Azure.Data.Tables;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
@@ -345,8 +345,8 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
-        // Suppress automated maintenance entries (SessionTimeout, ExcessiveDataBlock,
-        // DataRetentionCleanup, …) from the human-facing audit list. They are written
+        // Suppress automated maintenance entries (SessionTimeout, DataRetentionCleanup, …)
+        // from the human-facing audit list. They are written
         // by MaintenanceService for traceability but duplicate the OpsEvents stream
         // and are not actionable as user-attributable audits. Rows stay in storage
         // and remain reachable via raw table queries.
@@ -788,73 +788,6 @@ namespace AutopilotMonitor.Functions.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Failed to get lean session projection for tenant {tenantId}");
-                return new List<SessionSummary>();
-            }
-        }
-
-        /// <summary>
-        /// Gets sessions where the device has been actively sending data for longer than
-        /// <paramref name="maxSessionWindowHours"/>.
-        /// Status-independent: detects excessive data senders regardless of session status.
-        /// Uses LastEventAt (written on every event batch) for the "still active" check.
-        /// Sessions without LastEventAt (predating this field) are not returned.
-        ///
-        /// The OData pre-filter narrows candidates to sessions that straddle the cutoff boundary,
-        /// then a post-filter verifies the actual session duration (LastEventAt − StartedAt)
-        /// exceeds the allowed window. This prevents false positives from short sessions that
-        /// merely happen to straddle the cutoff time.
-        /// </summary>
-        public async Task<List<SessionSummary>> GetExcessiveDataSendersAsync(string tenantId, DateTime windowCutoff, int maxSessionWindowHours)
-        {
-            SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
-
-            try
-            {
-                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
-
-                // OData pre-filter: narrow to sessions that straddle the cutoff boundary.
-                // Status eq 'InProgress' → only block devices whose session is still actively
-                //   sending data. Completed sessions (Succeeded/Failed) must NOT be re-blocked
-                //   even if their LastEventAt is still within the window — they cannot continue
-                //   to abuse data transfer. This also defends against ghost-blocks caused by
-                //   devices with bad clocks: an agent that submits events with timestamps from
-                //   weeks in the past pushes StartedAt back, making the session look long-lived;
-                //   but once the session is Succeeded/Failed, no further data flows from it.
-                // IsPreProvisioned ne true → exclude WhiteGlove sessions: a pre-provisioned device
-                //   that resumes after weeks in storage looks like an excessive sender (StartedAt old,
-                //   LastEventAt recent) but is a legitimate resumption, not abuse.
-                var cutoffStr = windowCutoff.ToString("yyyy-MM-ddTHH:mm:ss");
-                var filter = $"PartitionKey eq '{tenantId}' " +
-                             $"and Status eq 'InProgress' " +
-                             $"and LastEventAt gt datetime'{cutoffStr}Z' " +
-                             $"and StartedAt lt datetime'{cutoffStr}Z' " +
-                             $"and IsPreProvisioned ne true";
-
-                var query = tableClient.QueryAsync<TableEntity>(filter: filter);
-                var maxDuration = TimeSpan.FromHours(maxSessionWindowHours);
-
-                var sessions = new List<SessionSummary>();
-                await foreach (var entity in query)
-                {
-                    // Post-filter: verify actual session duration exceeds the window.
-                    // OData cannot compute date differences, so we check in code.
-                    var startedAt = entity.GetDateTimeOffset("StartedAt")?.UtcDateTime;
-                    var lastEventAt = entity.GetDateTimeOffset("LastEventAt")?.UtcDateTime;
-
-                    if (startedAt.HasValue && lastEventAt.HasValue
-                        && (lastEventAt.Value - startedAt.Value) < maxDuration)
-                    {
-                        continue;
-                    }
-
-                    sessions.Add(MapToSessionSummary(entity));
-                }
-
-                return sessions;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Failed to get excessive data sender sessions for tenant {tenantId}");
                 return new List<SessionSummary>();
             }
         }

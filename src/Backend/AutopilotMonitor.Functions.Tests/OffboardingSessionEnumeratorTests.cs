@@ -117,7 +117,6 @@ public class OffboardingSessionEnumeratorTests
         public Task<List<SessionSummary>> GetLegacyTimeoutFailedSessionsAsync(string tenantId, int maxResults) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetSessionsLeanAsync(string tenantId) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetAgentSilentSessionsAsync(string tenantId, DateTime silenceCutoff, DateTime hardCutoff) => throw new NotImplementedException();
-        public Task<List<SessionSummary>> GetExcessiveDataSendersAsync(string tenantId, DateTime windowCutoff, int maxSessionWindowHours) => throw new NotImplementedException();
         public Task<List<string>> GetAllTenantIdsAsync() => throw new NotImplementedException();
         public Task<int> DeleteSessionEventsAsync(string tenantId, string sessionId) => throw new NotImplementedException();
         public Task<int> DeleteSessionRuleResultsAsync(string tenantId, string sessionId) => throw new NotImplementedException();
