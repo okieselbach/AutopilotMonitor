@@ -256,7 +256,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
         [InlineData(null, false)]
         [InlineData("", false)]
         [InlineData("0x8007", false)]
-        public void IsAppxFamilyHresult_MatchesOnlyAppxDeploymentRange(string hresult, bool expected)
+        public void IsAppxFamilyHresult_MatchesOnlyAppxDeploymentRange(string? hresult, bool expected)
         {
             Assert.Equal(expected, AppxFailureAnalyzer.IsAppxFamilyHresult(hresult));
         }

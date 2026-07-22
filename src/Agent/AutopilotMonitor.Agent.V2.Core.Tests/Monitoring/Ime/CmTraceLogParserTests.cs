@@ -27,7 +27,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
         [InlineData("   ")]                                    // whitespace only
         [InlineData("<![LOG[truncated line with no closing")]  // truncated / missing fields
         [InlineData("garbage prefix <![LOG[msg]LOG]!><time=\"06:08:04.8834397\" date=\"2-8-2026\" component=\"C\" context=\"\" type=\"1\" thread=\"1\" file=\"\">")] // leading junk (non-ignorable) fails the StartsWith gate
-        public void TryParseLine_returns_false_without_throwing_for_malformed_input(string line)
+        public void TryParseLine_returns_false_without_throwing_for_malformed_input(string? line)
         {
             var ok = CmTraceLogParser.TryParseLine(line, out var entry);
 

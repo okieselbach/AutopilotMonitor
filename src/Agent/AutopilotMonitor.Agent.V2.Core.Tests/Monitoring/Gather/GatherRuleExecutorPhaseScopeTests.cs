@@ -63,7 +63,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Gather
 
         /// <summary>Interval rule with a 1h period — the timer never ticks within a test run,
         /// so these rules exist purely for synchronous scope-matrix assertions.</summary>
-        private static GatherRule ScopeProbeRule(string id, List<string> activePhases = null, string fromPhase = null)
+        private static GatherRule ScopeProbeRule(string id, List<string>? activePhases = null, string? fromPhase = null)
             => new GatherRule
             {
                 RuleId = id,
@@ -78,7 +78,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Gather
                 ActiveFromPhase = fromPhase,
             };
 
-        private static GatherRule StartupRule(string id, List<string> activePhases = null, string fromPhase = null)
+        private static GatherRule StartupRule(string id, List<string>? activePhases = null, string? fromPhase = null)
             => new GatherRule
             {
                 RuleId = id,

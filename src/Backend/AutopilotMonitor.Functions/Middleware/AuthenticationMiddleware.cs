@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
+using System.Diagnostics.CodeAnalysis;
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Http;
 using System.Net;
@@ -248,7 +249,7 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
     /// missing/garbage tid here prevents an outbound OIDC-metadata fetch to a bogus authority on
     /// malformed-token floods. Loss-free — every legitimate Entra token carries a GUID tid.
     /// </summary>
-    internal static bool IsValidTenantId(string? tid) => Guid.TryParse(tid, out _);
+    internal static bool IsValidTenantId([NotNullWhen(true)] string? tid) => Guid.TryParse(tid, out _);
 
     /// <summary>
     /// Maps a token issuer + tenant id to the OIDC authority to fetch signing keys from. Entra v1.0

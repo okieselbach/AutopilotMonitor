@@ -127,7 +127,7 @@ namespace AutopilotMonitor.Functions.Security
 
                 // Parse certificate from Base64
                 var certBytes = Convert.FromBase64String(certificateBase64);
-                var certificate = new X509Certificate2(certBytes);
+                var certificate = X509CertificateLoader.LoadCertificate(certBytes);
                 var thumbprint = certificate.Thumbprint;
 
                 logger?.LogDebug($"Validating certificate: Subject={certificate.Subject}, Issuer={certificate.Issuer}, Thumbprint={thumbprint}");

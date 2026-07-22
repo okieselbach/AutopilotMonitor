@@ -27,9 +27,11 @@ namespace AutopilotMonitor.Shared.Services
         /// Validates <paramref name="candidate"/> as a migration target and returns the
         /// normalized base URL (<c>https://{lowercase-host}</c>, no trailing slash) on success.
         /// Rules: absolute https URI, default port, no userinfo/path/query/fragment, host
-        /// matching <see cref="AllowedHostSuffixes"/>.
+        /// matching <see cref="AllowedHostSuffixes"/>. <paramref name="normalized"/> is non-null
+        /// exactly when this returns <c>true</c> (netstandard2.0 has no usable
+        /// <c>[NotNullWhen]</c>, so callers must check the bool themselves).
         /// </summary>
-        public static bool TryNormalizeTarget(string candidate, out string normalized)
+        public static bool TryNormalizeTarget(string candidate, out string? normalized)
         {
             normalized = null;
 
@@ -77,7 +79,8 @@ namespace AutopilotMonitor.Shared.Services
         /// differs from <paramref name="currentBaseUrl"/> (both compared in normalized form —
         /// serving the agent its own current URL is a no-op, not a migration).
         /// </summary>
-        public static bool IsEffectiveMigration(string candidate, string currentBaseUrl, out string normalizedTarget)
+        public static bool IsEffectiveMigration(
+            string candidate, string currentBaseUrl, out string? normalizedTarget)
         {
             normalizedTarget = null;
 

@@ -70,6 +70,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             // Read the file the production code actually wrote and deserialize with the same lib.
             var raw = File.ReadAllText(_cachePath);
             var persisted = JsonConvert.DeserializeObject<AgentConfigResponse>(raw);
+            Assert.NotNull(persisted);
 
             Assert.False(persisted.UnrestrictedMode);
             Assert.False(persisted.AllowAgentDowngrade);

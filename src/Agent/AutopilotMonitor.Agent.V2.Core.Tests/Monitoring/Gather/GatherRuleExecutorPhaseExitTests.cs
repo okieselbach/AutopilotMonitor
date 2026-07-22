@@ -60,7 +60,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Gather
         }
 
         private static GatherRule ExitRule(
-            string id, string triggerPhase, List<string> activePhases = null, string fromPhase = null)
+            string id, string triggerPhase, List<string>? activePhases = null, string? fromPhase = null)
             => new GatherRule
             {
                 RuleId = id,

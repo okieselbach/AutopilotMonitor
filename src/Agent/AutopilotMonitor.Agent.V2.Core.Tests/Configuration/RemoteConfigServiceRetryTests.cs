@@ -193,7 +193,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
                     case BackendBehaviour.AlwaysAuthFailure401:
                         throw new BackendAuthException("Unauthorized", 401);
                     case BackendBehaviour.AlwaysReturnNull:
-                        return Task.FromResult<AgentConfigResponse>(null);
+                        return Task.FromResult<AgentConfigResponse>(null!);
                     default:
                         throw new InvalidOperationException("unknown behaviour");
                 }
@@ -204,9 +204,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
 
             // In-memory + per-instance cache so a prior test's successful fetch can't
             // bleed into a later test that expects UsedDefaults.
-            private AgentConfigResponse _cached;
+            private AgentConfigResponse? _cached;
             protected override void CacheConfig(AgentConfigResponse config) { _cached = config; }
-            protected override AgentConfigResponse LoadCachedConfig() => _cached;
+            protected override AgentConfigResponse LoadCachedConfig() => _cached!;
         }
     }
 }

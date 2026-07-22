@@ -195,7 +195,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             var all = f.InfoEvents(SharedEventTypes.ScriptCompleted);
             Assert.Equal(2, all.Count);
             Assert.Equal("65.00", all[1].Payload!["durationSeconds"]);
-            Assert.Equal("cycle_including_reporting_latency", all[1].Payload["durationBasis"]);
+            Assert.Equal("cycle_including_reporting_latency", all[1].Payload!["durationBasis"]);
         }
 
         [Fact]

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic;
 using Xunit;
@@ -19,7 +19,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry
         private static List<BandwidthJobSample> Jobs(params BandwidthJobSample[] jobs)
             => new List<BandwidthJobSample>(jobs);
 
-        private static BandwidthJobSample Job(string fileId, long wan, long lan = 0)
+        private static BandwidthJobSample Job(string? fileId, long wan, long lan = 0)
             => new BandwidthJobSample { FileId = fileId, WanBytes = wan, LanBytes = lan };
 
         [Fact]
@@ -43,8 +43,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry
             var estimate = estimator.TryBuildEstimate();
             Assert.NotNull(estimate);
             Assert.Equal(1, estimate.WanSampleCount);
-            Assert.Equal(16.0, estimate.WanMbpsP90.Value, 3);
-            Assert.Equal(16.0, estimate.WanMbpsMax.Value, 3);
+            Assert.Equal(16.0, estimate.WanMbpsP90!.Value, 3);
+            Assert.Equal(16.0, estimate.WanMbpsMax!.Value, 3);
             Assert.Equal(6_000_000, estimate.WanBytesObserved);
             Assert.Equal("10-50", estimate.Bucket);
         }
@@ -58,7 +58,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry
             estimator.AddSnapshot(T0.AddSeconds(3), Jobs(Job("a", 3_000_000), Job("b", 3_000_000)));
 
             var estimate = estimator.TryBuildEstimate();
-            Assert.Equal(16.0, estimate.WanMbpsP90.Value, 3);
+            Assert.Equal(16.0, estimate.WanMbpsP90!.Value, 3);
         }
 
         [Fact]
@@ -74,7 +74,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry
 
             var estimate = estimator.TryBuildEstimate();
             Assert.Equal(2, estimate.WanSampleCount);
-            Assert.Equal(16.0, estimate.WanMbpsMax.Value, 3);
+            Assert.Equal(16.0, estimate.WanMbpsMax!.Value, 3);
         }
 
         [Fact]
@@ -91,7 +91,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry
             estimator.AddSnapshot(T0.AddSeconds(63), Jobs(Job("a", 106_000_000)));
             var estimate = estimator.TryBuildEstimate();
             Assert.Equal(1, estimate.WanSampleCount);
-            Assert.Equal(16.0, estimate.WanMbpsP90.Value, 3);
+            Assert.Equal(16.0, estimate.WanMbpsP90!.Value, 3);
         }
 
         [Fact]
@@ -130,8 +130,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry
             estimator.AddSnapshot(T0.AddSeconds(3), Jobs(Job("a", wan: 6_000_000, lan: 375_000_000)));
 
             var estimate = estimator.TryBuildEstimate();
-            Assert.Equal(16.0, estimate.WanMbpsP90.Value, 3);
-            Assert.Equal(1000.0, estimate.LanMbpsP90.Value, 3);
+            Assert.Equal(16.0, estimate.WanMbpsP90!.Value, 3);
+            Assert.Equal(1000.0, estimate.LanMbpsP90!.Value, 3);
             Assert.Equal("10-50", estimate.Bucket); // bucket keyed to WAN, not LAN
         }
 
@@ -182,8 +182,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry
 
             var estimate = estimator.TryBuildEstimate();
             Assert.Equal(20, estimate.WanSampleCount);
-            Assert.Equal(16.0, estimate.WanMbpsP90.Value, 3); // p90 stays on the steady plateau
-            Assert.Equal(160.0, estimate.WanMbpsMax.Value, 3);
+            Assert.Equal(16.0, estimate.WanMbpsP90!.Value, 3); // p90 stays on the steady plateau
+            Assert.Equal(160.0, estimate.WanMbpsMax!.Value, 3);
         }
 
         [Fact]
@@ -265,7 +265,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry
 
             var estimate = estimator.TryBuildEstimate();
             Assert.Equal(1, estimate.WanSampleCount); // only the finite positive sample survived
-            Assert.Equal(16.0, estimate.WanMbpsP90.Value, 3);
+            Assert.Equal(16.0, estimate.WanMbpsP90!.Value, 3);
             Assert.Equal(0, estimate.WanBytesObserved);
         }
 

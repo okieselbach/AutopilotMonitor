@@ -39,7 +39,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             public List<EspFailureDetectedEventArgs> EspFailures { get; } = new List<EspFailureDetectedEventArgs>();
             public ProvisioningStatusTracker Tracker { get; }
 
-            public Fixture(Func<IReadOnlyList<AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime.AppPackageState>> packageStatesProbe = null)
+            public Fixture(Func<IReadOnlyList<AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime.AppPackageState>>? packageStatesProbe = null)
             {
                 var clock = new VirtualClock(Fixed);
                 var post = new InformationalEventPost(Sink, clock);
@@ -179,7 +179,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             }");
 
             var captured = f.CapturedEvents();
-            Assert.Single(captured.Where(e => e.EventType == "esp_failure_settle_started"));
+            Assert.Single(captured, e => e.EventType == "esp_failure_settle_started");
         }
 
         // =====================================================================
@@ -214,8 +214,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             // No terminal fire — the failure was retracted.
             Assert.Empty(f.EspFailures);
 
-            var recovered = Assert.Single(f.CapturedEvents()
-                .Where(e => e.EventType == "esp_failure_settle_recovered"));
+            var recovered = Assert.Single(
+                f.CapturedEvents(), e => e.EventType == "esp_failure_settle_recovered");
             Assert.Equal("AccountSetup", (string)recovered.Data["category"]);
             Assert.Equal("Apps", (string)recovered.Data["failedSubcategory"]);
             Assert.Equal("inProgress", (string)recovered.Data["observedState"]);
@@ -280,7 +280,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             f.Tracker.TriggerSettleTimerForTest("AccountSetupCategory.Status");
 
             Assert.Single(f.EspFailures);
-            Assert.Empty(f.CapturedEvents().Where(e => e.EventType == "esp_failure_settle_recovered"));
+            Assert.DoesNotContain(f.CapturedEvents(), e => e.EventType == "esp_failure_settle_recovered");
         }
 
         // =====================================================================
@@ -326,8 +326,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
                 ""AppsSubcategory"": {""subcategoryState"":""failed"",""subcategoryStatusText"":""Apps (Error)""}
             }");
 
-            var settleStarted = Assert.Single(f.CapturedEvents()
-                .Where(e => e.EventType == "esp_failure_settle_started"));
+            var settleStarted = Assert.Single(
+                f.CapturedEvents(), e => e.EventType == "esp_failure_settle_started");
             Assert.Equal(1, (int)settleStarted.Data["trackedAppsNotCompletedCount"]);
             var apps = (List<Dictionary<string, object>>)settleStarted.Data["trackedAppsNotCompleted"];
             var app = Assert.Single(apps);
@@ -354,8 +354,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
                 ""SecurityPoliciesSubcategory"": {""subcategoryState"":""failed"",""subcategoryStatusText"":""Failed""}
             }");
 
-            var settleStarted = Assert.Single(f.CapturedEvents()
-                .Where(e => e.EventType == "esp_failure_settle_started"));
+            var settleStarted = Assert.Single(
+                f.CapturedEvents(), e => e.EventType == "esp_failure_settle_started");
             Assert.False(settleStarted.Data.ContainsKey("trackedAppsNotCompleted"));
             Assert.False(settleStarted.Data.ContainsKey("trackedAppsNotCompletedCount"));
         }

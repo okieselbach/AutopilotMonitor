@@ -15,7 +15,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
         private const string CurrentUrl = "https://autopilotmonitor-api-eu.azurewebsites.net";
         private const string TargetUrl = "https://autopilotmonitor-api-us.azurewebsites.net";
 
-        private static AgentConfigResponse Config(string migrateUrl) =>
+        private static AgentConfigResponse Config(string? migrateUrl) =>
             new AgentConfigResponse { MigrateToApiBaseUrl = migrateUrl };
 
         [Fact]

@@ -44,7 +44,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         private readonly FakeQuarantineSink _quarantine = new FakeQuarantineSink();
         private readonly FakeSignalIngressSink _sink = new FakeSignalIngressSink();
         private readonly DecisionEngine _engine = new DecisionEngine();
-        private DecisionStepProcessor _sut;
+        private DecisionStepProcessor? _sut;
 
         public DecisionStepProcessorParkedTripwireTests()
         {
@@ -107,7 +107,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             return (step, signal);
         }
 
-        private FakeSignalIngressSink.PostedSignal FindTripwirePost()
+        private FakeSignalIngressSink.PostedSignal? FindTripwirePost()
         {
             foreach (var posted in _sink.Posted)
             {
@@ -119,6 +119,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
                 }
             }
             return null;
+        }
+
+        /// <summary>The tripwire post, asserted present — for the assertions that only run
+        /// after <c>WaitForTripwire()</c> has already confirmed one was emitted.</summary>
+        private FakeSignalIngressSink.PostedSignal RequireTripwirePost()
+        {
+            var post = FindTripwirePost();
+            Assert.NotNull(post);
+            return post!;
         }
 
         private int CountTripwirePosts()
@@ -165,9 +174,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             Thread.Sleep(SuppressWait);
             Assert.Equal(1, CountTripwirePosts());
 
-            var post = FindTripwirePost();
+            var post = RequireTripwirePost();
             Assert.Equal(DecisionSignalKind.InformationalEvent, post.Kind);
-            Assert.Equal(nameof(SessionStage.EspAccountSetup), post.Payload["stage"]);
+            Assert.Equal(nameof(SessionStage.EspAccountSetup), post.Payload!["stage"]);
             Assert.Equal("Warning", post.Payload[SignalPayloadKeys.Severity]);
             Assert.Equal("true", post.Payload[SignalPayloadKeys.ImmediateUpload]);
             Assert.Contains("esp_final_exit", post.Payload["signalsSeen"]);
@@ -222,7 +231,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             sut.ApplyStep(step, signal);
 
             Assert.True(WaitForTripwire());
-            Assert.Equal(DeadlineNames.ClassifierTick, FindTripwirePost().Payload["armedDeadlines"]);
+            Assert.Equal(DeadlineNames.ClassifierTick, RequireTripwirePost().Payload!["armedDeadlines"]);
         }
 
         [Fact]
@@ -237,7 +246,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             sut.ApplyStep(step, signal);
 
             Assert.True(WaitForTripwire());
-            Assert.Equal(nameof(SessionStage.AwaitingDesktop), FindTripwirePost().Payload["stage"]);
+            Assert.Equal(nameof(SessionStage.AwaitingDesktop), RequireTripwirePost().Payload!["stage"]);
         }
 
         // ===================================================================== Dwell semantics

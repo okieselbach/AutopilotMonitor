@@ -192,7 +192,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Gather
                 GatherRuleExecutor.ComputeCanonicalHash(new Dictionary<string, object> { ["v"] = "1" }),
                 GatherRuleExecutor.ComputeCanonicalHash(new Dictionary<string, object> { ["v"] = 1 }));
             Assert.NotEqual(
-                GatherRuleExecutor.ComputeCanonicalHash(new Dictionary<string, object> { ["v"] = null }),
+                GatherRuleExecutor.ComputeCanonicalHash(new Dictionary<string, object> { ["v"] = null! }),
                 GatherRuleExecutor.ComputeCanonicalHash(new Dictionary<string, object> { ["v"] = "<null>" }));
         }
 

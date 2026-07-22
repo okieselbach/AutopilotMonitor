@@ -40,7 +40,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Gather
             try { Directory.Delete(_outsideUsers, recursive: true); } catch { /* best effort */ }
         }
 
-        private GatherRuleContext Context(bool unrestricted = false, string imeLogPathOverride = null)
+        private GatherRuleContext Context(bool unrestricted = false, string? imeLogPathOverride = null)
             => new GatherRuleContext(
                 new AgentLogger(_tmp.Path, AgentLogLevel.Info),
                 "sess", "tenant",
@@ -52,13 +52,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Gather
             };
 
         private static GatherRule Rule(string collectorType, string target,
-            Dictionary<string, string> parameters = null) => new GatherRule
+            Dictionary<string, string>? parameters = null) => new GatherRule
             {
                 RuleId = "GATHER-GUARD-TEST",
                 Title = "guard test",
                 CollectorType = collectorType,
                 Target = target,
-                Parameters = parameters,
+                // Match the model default (empty, never null) so the collectors see the
+                // same shape a deserialized rule without parameters gives them.
+                Parameters = parameters ?? new Dictionary<string, string>(),
                 Trigger = "startup",
                 OutputEventType = "guard_test",
             };

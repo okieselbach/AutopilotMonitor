@@ -672,9 +672,11 @@ namespace AutopilotMonitor.Shared
             /// </list>
             /// </summary>
             public static (string FailureType, string Message) ClassifyEspAppsFailure(
-                string errorCode, int? espTimeoutMinutes)
+                string? errorCode, int? espTimeoutMinutes)
             {
-                var normalised = string.IsNullOrEmpty(errorCode) ? null : errorCode.ToLowerInvariant();
+                // netstandard2.0's IsNullOrEmpty lacks [NotNullWhen(false)], so the compiler can't
+                // see that the else branch is non-null (CS8602) — assert it.
+                var normalised = string.IsNullOrEmpty(errorCode) ? null : errorCode!.ToLowerInvariant();
 
                 if (string.Equals(normalised, DetectionFailureHResult, System.StringComparison.Ordinal))
                 {

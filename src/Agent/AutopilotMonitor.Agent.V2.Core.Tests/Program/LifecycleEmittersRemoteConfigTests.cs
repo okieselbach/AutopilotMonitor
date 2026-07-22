@@ -256,8 +256,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
                 RemoteConfigFetchOutcome outcome,
                 int configVersion = 0,
                 int attempts = 1,
-                string failureType = null,
-                string failureMessage = null,
+                string? failureType = null,
+                string? failureMessage = null,
                 int? authStatusCode = null)
             {
                 // CurrentConfig is set via the protected SetConfig path — easiest:

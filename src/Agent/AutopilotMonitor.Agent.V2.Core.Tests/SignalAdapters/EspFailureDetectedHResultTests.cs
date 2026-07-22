@@ -33,7 +33,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
         [InlineData("Network connections (1 of 1 added)", null)]
         [InlineData("", null)]
         [InlineData(null, null)]
-        public void TryExtractErrorCode_extracts_parenthesised_hex_tail(string statusText, string expected)
+        public void TryExtractErrorCode_extracts_parenthesised_hex_tail(string? statusText, string? expected)
         {
             var actual = ProvisioningStatusTracker.TryExtractErrorCode(statusText);
             Assert.Equal(expected, actual);

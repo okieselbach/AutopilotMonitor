@@ -51,7 +51,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Integration
                 logger: logger,
                 helloTracker: null);
 
-            EspExitedEventArgs captured = null;
+            EspExitedEventArgs? captured = null;
             tracker.EspExited += (_, args) => captured = args;
 
             // Source time IS in the past relative to the clock — verify the tracker carries the

@@ -24,12 +24,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
     /// </summary>
     public sealed class ImeLogPatternReDoSTests
     {
-        private static ImeLogPattern Pattern(string id, string regex, string action = null) => new ImeLogPattern
+        private static ImeLogPattern Pattern(string id, string regex, string? action = null) => new ImeLogPattern
         {
             PatternId = id,
             Pattern = regex,
             Category = "always",
-            Action = action,
+            // Action is optional on the wire (absent = null); the model declares it non-nullable.
+            Action = action!,
             Enabled = true,
             Parameters = new Dictionary<string, string>(),
         };
