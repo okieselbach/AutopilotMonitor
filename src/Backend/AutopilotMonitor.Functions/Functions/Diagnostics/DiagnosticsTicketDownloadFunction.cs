@@ -1,5 +1,7 @@
 using System.Net;
 using System.Web;
+using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Diagnostics;
 using AutopilotMonitor.Shared.Diagnostics;
 using Microsoft.Azure.Functions.Worker;
@@ -17,21 +19,29 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
     /// from the query string, so a ticket cannot be retargeted.
     /// <para>
     /// Replay is bounded by the 10-min ticket TTL, the admin size cap, and the fact that the ticket
-    /// only ever points at the minting caller's own authorized blob; HMAC forgery is infeasible, so
-    /// no additional rate limiting is layered here.
+    /// only ever points at the minting caller's own authorized blob; HMAC forgery is infeasible. On top
+    /// of that the route carries a per-client-IP limit as defense in depth — it is unauthenticated and
+    /// streams whole blobs, so a valid ticket replayed in a loop would otherwise be unbounded egress.
     /// </para>
     /// </summary>
     public class DiagnosticsTicketDownloadFunction
     {
+        // Bounds replay of a still-valid ticket. A real client downloads a package once; the ceiling
+        // only has to stay clear of a legitimate retry-after-timeout.
+        private const int MaxRequestsPerMinutePerIp = 30;
+
         private readonly ILogger<DiagnosticsTicketDownloadFunction> _logger;
         private readonly DiagnosticsBlobStreamer _streamer;
+        private readonly RateLimitService _rateLimitService;
 
         public DiagnosticsTicketDownloadFunction(
             ILogger<DiagnosticsTicketDownloadFunction> logger,
-            DiagnosticsBlobStreamer streamer)
+            DiagnosticsBlobStreamer streamer,
+            RateLimitService rateLimitService)
         {
             _logger = logger;
             _streamer = streamer;
+            _rateLimitService = rateLimitService;
         }
 
         [Function("DiagnosticsTicketDownload")]
@@ -40,6 +50,23 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
         {
             try
             {
+                // Rightmost X-Forwarded-For hop only — leftmost entries are caller-controlled.
+                var clientIp = ClientIpExtractor.GetTrustedClientIp(req);
+                var rateLimitResult = _rateLimitService.CheckRateLimit(
+                    $"diag_ticket_download_{clientIp}", MaxRequestsPerMinutePerIp);
+
+                if (!rateLimitResult.IsAllowed)
+                {
+                    _logger.LogWarning("DiagnosticsTicketDownload rate limit exceeded for IP {ClientIp} ({Count} requests)",
+                        clientIp, rateLimitResult.RequestsInWindow);
+
+                    var tooMany = req.CreateResponse(HttpStatusCode.TooManyRequests);
+                    if (rateLimitResult.RetryAfter.HasValue)
+                        tooMany.Headers.Add("Retry-After", ((int)rateLimitResult.RetryAfter.Value.TotalSeconds).ToString());
+                    await tooMany.WriteAsJsonAsync(new { success = false, message = "Rate limit exceeded." });
+                    return tooMany;
+                }
+
                 var ticket = HttpUtility.ParseQueryString(req.Url.Query)["t"];
                 if (string.IsNullOrEmpty(ticket))
                 {

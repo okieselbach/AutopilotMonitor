@@ -11,7 +11,11 @@ namespace AutopilotMonitor.Functions.Middleware;
 /// <summary>
 /// Per-user rate limiting for authenticated (JWT) requests.
 /// Runs after PolicyEnforcementMiddleware so RequestContext (UPN, IsGlobalAdmin) is already resolved.
-/// Agent/device routes have no RequestContext and are automatically skipped.
+/// Device/bootstrap and anonymous routes resolve to an EMPTY RequestContext.UserPrincipalName and are
+/// skipped here — they carry their own limits (per cert thumbprint / per bootstrap token in
+/// SecurityValidator, per client IP on the public endpoints). That empty-UPN contract is what keeps the
+/// whole agent fleet out of one shared bucket; see the note on RequestContext construction in
+/// PolicyEnforcementMiddleware.
 /// </summary>
 public class UserRateLimitMiddleware : IFunctionsWorkerMiddleware
 {

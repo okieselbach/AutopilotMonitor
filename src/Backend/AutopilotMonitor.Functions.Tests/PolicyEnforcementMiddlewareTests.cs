@@ -868,4 +868,63 @@ public class PolicyEnforcementMiddlewareTests
         Assert.False(result.Allowed);
         Assert.Equal(403, result.StatusCode);
     }
+
+    // ── Empty-UPN contract for device / anonymous routes ───────────────────────────
+    //
+    // UserRateLimitMiddleware buckets on RequestContext.UserPrincipalName and skips only when it is
+    // EMPTY. Publishing the "anonymous" placeholder there collapsed every agent of every tenant into a
+    // single shared user_ratelimit_anonymous bucket, which 429'd agent telemetry fleet-wide once the
+    // per-user limit was reached. These tests pin the contract: no JWT ⇒ empty UPN.
+
+    [Theory]
+    [InlineData("POST", "/api/agent/telemetry")]
+    [InlineData("GET", "/api/agent/config")]
+    [InlineData("POST", "/api/agent/register-session")]
+    [InlineData("POST", "/api/agent/upload-url")]
+    [InlineData("POST", "/api/agent/error")]
+    [InlineData("POST", "/api/bootstrap/register-session")]
+    [InlineData("GET", "/api/bootstrap/config")]
+    [InlineData("POST", "/api/bootstrap/error")]
+    public async Task DeviceRoute_WithoutJwt_PublishesEmptyUpn(string method, string path)
+    {
+        var h = BuildHarness();
+
+        var result = await h.Middleware.DecideAsync(method, path, null, principal: null);
+
+        Assert.True(result.Allowed);
+        // The rate-limit bucket key: empty means "no user bucket applies to this call".
+        Assert.Equal(string.Empty, result.Context!.UserPrincipalName);
+        // The placeholder still renders in log lines — it just never reaches the RequestContext.
+        Assert.Equal("anonymous", result.UserIdentifier);
+    }
+
+    [Theory]
+    [InlineData("GET", "/api/health")]
+    [InlineData("GET", "/api/stats/platform")]
+    [InlineData("POST", "/api/agent/distress")]
+    [InlineData("GET", "/api/diagnostics/download")]
+    public async Task AnonymousRoute_WithoutJwt_PublishesEmptyUpn(string method, string path)
+    {
+        var h = BuildHarness();
+
+        var result = await h.Middleware.DecideAsync(method, path, null, principal: null);
+
+        Assert.True(result.Allowed);
+        Assert.Equal(string.Empty, result.Context!.UserPrincipalName);
+    }
+
+    [Fact]
+    public async Task AuthenticatedRoute_StillPublishesTheRealUpn()
+    {
+        // Guard the other direction: the fix must not blank the UPN for genuine JWT callers, or
+        // per-user rate limiting and presence tracking would silently stop working.
+        const string upn = "admin@contoso.com";
+        var h = BuildHarness();
+        h.AsTenantAdmin(TenantA, upn);
+
+        var result = await h.Middleware.DecideAsync("GET", "/api/notifications", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed);
+        Assert.Equal(upn, result.Context!.UserPrincipalName);
+    }
 }

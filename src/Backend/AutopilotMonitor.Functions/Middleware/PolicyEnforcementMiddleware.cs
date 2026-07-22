@@ -214,7 +214,15 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         {
             TenantId = jwtTenantId,
             TargetTenantId = targetTenantId,
-            UserPrincipalName = decision.UserIdentifier,
+            // ONLY a genuine JWT UPN lands here — never the "anonymous" placeholder that
+            // decision.UserIdentifier carries on device/anonymous routes. Downstream consumers treat a
+            // non-empty UPN as "an identified user made this call": UserRateLimitMiddleware buckets on
+            // it, so the placeholder collapsed the entire agent fleet (every tenant) into one shared
+            // user_ratelimit_anonymous bucket and 429'd agent telemetry once the fleet exceeded the
+            // per-user limit. Device/bootstrap routes carry their own per-cert / per-token limit in
+            // SecurityValidator; anonymous routes limit themselves per IP. The placeholder stays on
+            // decision.UserIdentifier for log lines, where "anonymous" is the useful rendering.
+            UserPrincipalName = upn ?? string.Empty,
             IsGlobalAdmin = isGlobalAdmin,
             IsGlobalReader = isGlobalReader,
             // Delegated flags reflect the caller's role for THIS request (null unless a delegated grant
