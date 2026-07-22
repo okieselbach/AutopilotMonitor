@@ -55,7 +55,7 @@ public class AuthFunctionSideEffectTests
         { CallBase = false };
 
         var previewMock = new Mock<PreviewWhitelistService>(
-            configRepo, cache, Mock.Of<ILogger<PreviewWhitelistService>>())
+            configRepo, cache, Mock.Of<ILogger<PreviewWhitelistService>>(), _tenantConfigMock.Object)
         { CallBase = false };
 
         _telegramMock = new Mock<TelegramNotificationService>(

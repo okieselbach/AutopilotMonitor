@@ -16,16 +16,19 @@ public class PreviewWhitelistService
     private readonly IConfigRepository _configRepo;
     private readonly IMemoryCache _cache;
     private readonly ILogger<PreviewWhitelistService> _logger;
+    private readonly TenantConfigurationService _tenantConfigService;
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
 
     public PreviewWhitelistService(
         IConfigRepository configRepo,
         IMemoryCache cache,
-        ILogger<PreviewWhitelistService> logger)
+        ILogger<PreviewWhitelistService> logger,
+        TenantConfigurationService tenantConfigService)
     {
         _configRepo = configRepo;
         _cache = cache;
         _logger = logger;
+        _tenantConfigService = tenantConfigService;
     }
 
     /// <summary>
@@ -104,42 +107,15 @@ public class PreviewWhitelistService
     /// <summary>
     /// Saves (or clears) the notification email for a tenant, and seeds the tenant's
     /// contact address from it the first time one is given.
+    /// <para>
+    /// The seed is a side effect of a write that has already been persisted, so it must never
+    /// fail this call — <see cref="TenantConfigurationService.TrySeedContactEmailAsync"/> is
+    /// fail-soft and owns the "never overwrite what the tenant owns" invariant.
+    /// </para>
     /// </summary>
     public async Task SaveNotificationEmailAsync(string tenantId, string? email)
     {
         await _configRepo.SaveNotificationEmailAsync(tenantId, email);
-        await SeedContactEmailAsync(tenantId, email);
-    }
-
-    /// <summary>
-    /// One-way seed: copies the preview notification address into
-    /// <see cref="TenantConfiguration.ContactEmail"/> only while that field is still empty.
-    /// Once the tenant owns a contact address — seeded or edited in the portal — this never
-    /// touches it again, so a later change here cannot silently overwrite the tenant's choice.
-    /// Best-effort: the notification email has already been persisted by the caller, and a
-    /// failure to seed must not fail that write.
-    /// </summary>
-    private async Task SeedContactEmailAsync(string tenantId, string? email)
-    {
-        if (string.IsNullOrWhiteSpace(email))
-            return;
-
-        try
-        {
-            var config = await _configRepo.GetTenantConfigurationAsync(tenantId);
-            if (config == null || !string.IsNullOrWhiteSpace(config.ContactEmail))
-                return;
-
-            config.ContactEmail = email.Trim();
-            await _configRepo.SaveTenantConfigurationAsync(config);
-
-            _logger.LogInformation(
-                "Seeded tenant contact address for {TenantId} from the preview notification email", tenantId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Could not seed tenant contact address for {TenantId} — the notification email was still saved", tenantId);
-        }
+        await _tenantConfigService.TrySeedContactEmailAsync(tenantId, email);
     }
 }

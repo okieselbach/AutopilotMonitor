@@ -126,6 +126,48 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// One-way seed of the tenant contact address: writes <paramref name="email"/> only while
+        /// the tenant has none, and only if nothing else wrote the configuration in the meantime.
+        /// Returns true when the seed landed.
+        /// <para>
+        /// Single owner for both seed paths (preview notification-email save and the maintenance
+        /// backfill), because both need the same three things: the conditional single-property
+        /// write, the "never overwrite what the tenant owns" invariant, and the cache invalidation
+        /// below — the repository writes behind this cache, so without it a freshly seeded address
+        /// stays invisible for the 5-minute TTL.
+        /// </para>
+        /// <para>
+        /// Fail-soft by design, unlike <see cref="SaveConfigurationAsync"/>: every caller is a side
+        /// effect of an operation that has already succeeded, and a lost seed is recoverable on the
+        /// next maintenance run. Enforced here rather than left to the repository, so the guarantee
+        /// holds for any implementation.
+        /// </para>
+        /// </summary>
+        public virtual async Task<bool> TrySeedContactEmailAsync(string tenantId, string? email)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(email))
+                return false;
+
+            try
+            {
+                var seeded = await _configRepo.TrySeedTenantContactEmailAsync(tenantId, email!.Trim());
+                if (seeded)
+                {
+                    _cache.Remove($"tenant-config:{tenantId}");
+                    _logger.LogInformation("Seeded contact address for tenant {TenantId}", tenantId);
+                }
+
+                return seeded;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Could not seed contact address for tenant {TenantId} — the triggering write still stands", tenantId);
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Invalidates cache for a tenant (forces reload on next request)
         /// </summary>
         public void InvalidateCache(string tenantId)

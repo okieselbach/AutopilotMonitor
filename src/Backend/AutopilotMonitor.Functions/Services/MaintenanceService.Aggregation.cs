@@ -527,6 +527,13 @@ namespace AutopilotMonitor.Functions.Services
         /// the seed happens when the notification address is saved, so this converges to a
         /// no-op and can be removed once every existing tenant has been covered.
         /// </para>
+        /// <para>
+        /// The enumerated snapshot is only a cheap pre-filter; the authoritative "is it still
+        /// empty" check happens under an ETag inside
+        /// <see cref="TenantConfigurationService.TrySeedContactEmailAsync"/>. A full-model save
+        /// here would write a snapshot that is minutes old by the time the loop reaches this
+        /// tenant, silently reverting whatever an admin changed in between.
+        /// </para>
         /// </summary>
         /// <returns>Number of tenants that received a contact address.</returns>
         private async Task<int> BackfillTenantContactEmailsAsync()
@@ -546,9 +553,8 @@ namespace AutopilotMonitor.Functions.Services
                     if (string.IsNullOrWhiteSpace(email))
                         continue;
 
-                    config.ContactEmail = email.Trim();
-                    await _tenantConfigService.SaveConfigurationAsync(config);
-                    filled++;
+                    if (await _tenantConfigService.TrySeedContactEmailAsync(config.TenantId, email))
+                        filled++;
                 }
 
                 if (filled > 0)

@@ -87,7 +87,11 @@ public sealed class TenantOffboardFunctionTests
         return new PreviewWhitelistService(
             configRepoMock.Object,
             cache,
-            NullLogger<PreviewWhitelistService>.Instance);
+            NullLogger<PreviewWhitelistService>.Instance,
+            new TenantConfigurationService(
+                configRepoMock.Object,
+                NullLogger<TenantConfigurationService>.Instance,
+                cache));
     }
 
     /// <summary>

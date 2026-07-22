@@ -76,6 +76,19 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     return badRequest;
                 }
 
+                // The contact address is where enforcement actions and service notices are sent,
+                // so it must be an address rather than whatever string a direct API caller posts.
+                var contactEmailError = ValidateContactEmail(config.ContactEmail);
+                if (contactEmailError != null)
+                {
+                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badRequest.WriteAsJsonAsync(new { success = false, message = $"Invalid contact email: {contactEmailError}" });
+                    return badRequest;
+                }
+                // Normalize so the stored value never carries surrounding whitespace, and an
+                // all-whitespace submission clears the field instead of masquerading as a value.
+                config.ContactEmail = string.IsNullOrWhiteSpace(config.ContactEmail) ? null : config.ContactEmail.Trim();
+
                 // Load the stored config up-front so we can (1) restore any redacted secret placeholders
                 // before validation/save and (2) protect GA-only fields below.
                 var existingConfig = await _configService.GetConfigurationAsync(requestCtx.TargetTenantId);
@@ -250,6 +263,52 @@ namespace AutopilotMonitor.Functions.Functions.Config
         private const int MaxCustomHeadersJsonLength = 8192;
         private const int MaxCustomHeaderCount = 25;
         private const int MaxNotificationChannelsJsonLength = 65536;
+
+        // RFC 5321 caps a forward path at 254 characters.
+        internal const int MaxContactEmailLength = 254;
+
+        /// <summary>
+        /// Validates the tenant contact address. Returns an error message, or null when valid/empty.
+        /// Empty is legitimate — it means we have no way to reach the tenant.
+        /// <para>
+        /// Deliberately not an RFC 5322 parser: the job is to reject values that are not addresses
+        /// at all. Specifically it rejects recipient lists (a comma would silently widen who receives
+        /// service notices), display-name forms, and control characters (which would let a caller
+        /// forge mail headers once this address is actually mailed).
+        /// </para>
+        /// </summary>
+        internal static string? ValidateContactEmail(string? email)
+        {
+            if (string.IsNullOrWhiteSpace(email))
+                return null;
+
+            var trimmed = email.Trim();
+
+            if (trimmed.Length > MaxContactEmailLength)
+                return $"must be at most {MaxContactEmailLength} characters.";
+
+            foreach (var ch in trimmed)
+            {
+                if (char.IsControl(ch))
+                    return "must not contain control characters.";
+                if (char.IsWhiteSpace(ch) || ch == ',' || ch == ';' || ch == '<' || ch == '>')
+                    return "must be a single address, without spaces, separators or angle brackets.";
+            }
+
+            var at = trimmed.IndexOf('@');
+            if (at <= 0 || at != trimmed.LastIndexOf('@') || at == trimmed.Length - 1)
+                return "must contain a single \"@\" with text on both sides.";
+
+            // A bare host with no dot is unreachable from our sender, so it is a typo, not an address.
+            var domain = trimmed.Substring(at + 1);
+            if (!domain.Contains('.') || domain.StartsWith(".", StringComparison.Ordinal)
+                || domain.EndsWith(".", StringComparison.Ordinal))
+            {
+                return "the domain part must be a dotted host name.";
+            }
+
+            return null;
+        }
 
         /// <summary>
         /// Validates the notification-channel list JSON. Returns an error message, or null when

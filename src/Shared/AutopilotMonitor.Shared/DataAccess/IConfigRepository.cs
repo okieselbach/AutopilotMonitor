@@ -24,6 +24,21 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// </summary>
         Task<RawPage<TenantConfiguration>> GetTenantConfigurationsPageAsync(int pageSize, string? continuation);
 
+        /// <summary>
+        /// Writes <paramref name="email"/> to the tenant's ContactEmail ONLY while that field is
+        /// still empty, and only if nothing else wrote the row in the meantime. Returns true when
+        /// the seed landed, false when the tenant already owns an address, has no config row, or
+        /// lost the race.
+        /// <para>
+        /// Exists because the seed cannot be expressed as a read-modify-write of the whole model:
+        /// <see cref="SaveTenantConfigurationAsync"/> replaces the entire row unconditionally, so a
+        /// concurrent portal save would be clobbered by the seeder's stale snapshot — of every
+        /// field, not just this one. The implementation must therefore write conditionally and
+        /// touch no other property.
+        /// </para>
+        /// </summary>
+        Task<bool> TrySeedTenantContactEmailAsync(string tenantId, string email);
+
         // --- Admin Configuration ---
         Task<AdminConfiguration?> GetAdminConfigurationAsync();
         Task<bool> SaveAdminConfigurationAsync(AdminConfiguration config);

@@ -71,6 +71,54 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
         }
 
+        /// <summary>
+        /// Conditional, single-property seed of ContactEmail (see <see cref="IConfigRepository"/>).
+        /// Merge mode leaves every other stored property untouched, and the ETag precondition turns
+        /// a concurrent write into a 412 rather than a silent overwrite. Both matter: the caller is
+        /// a background/side-effect path that must never beat a tenant admin's own edit.
+        /// </summary>
+        public async Task<bool> TrySeedTenantContactEmailAsync(string tenantId, string email)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(email))
+                return false;
+
+            try
+            {
+                var existing = await _tenantConfigTableClient.GetEntityAsync<TableEntity>(tenantId, "config");
+
+                // The tenant already owns an address — the seed is one-way and never re-syncs.
+                if (!string.IsNullOrWhiteSpace(existing.Value.GetString("ContactEmail")))
+                    return false;
+
+                var patch = new TableEntity(tenantId, "config")
+                {
+                    ["ContactEmail"] = email.Trim()
+                };
+
+                await _tenantConfigTableClient.UpdateEntityAsync(
+                    patch, existing.Value.ETag, TableUpdateMode.Merge);
+                return true;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                // No configuration row yet — nothing to seed onto.
+                return false;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 412)
+            {
+                // Someone wrote the row between the read and the write. They win by construction:
+                // a lost seed is recoverable (the backfill retries), a lost admin edit is not.
+                _logger.LogInformation(
+                    "Contact address seed for {TenantId} skipped — the configuration changed concurrently", tenantId);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error seeding contact address for tenant {TenantId}", tenantId);
+                return false;
+            }
+        }
+
         public async Task<List<TenantConfiguration>> GetAllTenantConfigurationsAsync()
         {
             try
