@@ -218,7 +218,7 @@ export default function AboutPage() {
                 title: "Integrations",
                 items: [
                   "Microsoft Intune — agent deployment target",
-                  "Microsoft Teams, Slack & generic JSON webhooks — start, success, failure and SLA alerts",
+                  "Microsoft Teams, Slack & generic JSON webhooks — start, success, failure, hardware rejection and SLA alerts",
                   "Intune Management Extension (IME) log — event source for log pattern detection",
                   "WMI & Registry — extended data gather rules",
                 ],
