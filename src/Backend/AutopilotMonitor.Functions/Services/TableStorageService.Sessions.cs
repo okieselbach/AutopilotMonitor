@@ -3006,6 +3006,26 @@ namespace AutopilotMonitor.Functions.Services
         #region Excessive-Event Detection
 
         /// <summary>
+        /// Status parse for the runaway-session rows. Deliberately stricter than
+        /// <c>MapToSessionSummary</c>, which reads a missing column as InProgress for legacy rows:
+        /// here a missing, empty, numeric or unknown value maps to <see cref="SessionStatus.Unknown"/>
+        /// so the auto-block/kill gate fails closed and no device is blocked over a session that
+        /// cannot be classified. The two explicit rejections exist because <c>Enum.TryParse</c> is
+        /// lenient in ways that would open the gate: it maps the string "0" straight onto
+        /// InProgress, and it ORs comma-separated names into a single unrelated member.
+        /// </summary>
+        internal static SessionStatus ParseStatusForAutoAction(string? statusString)
+        {
+            if (string.IsNullOrWhiteSpace(statusString)) return SessionStatus.Unknown;
+            if (!char.IsLetter(statusString[0])) return SessionStatus.Unknown;
+            if (statusString.Contains(',')) return SessionStatus.Unknown;
+            return Enum.TryParse<SessionStatus>(statusString, ignoreCase: true, out var status)
+                   && Enum.IsDefined(status)
+                ? status
+                : SessionStatus.Unknown;
+        }
+
+        /// <summary>
         /// Returns sessions in the given tenant whose EventCount exceeds the threshold.
         /// Projects only the fields needed for the idempotency check — avoids full entity read.
         /// Never throws: on failure returns an empty list (maintenance scan is best-effort).
@@ -3023,7 +3043,10 @@ namespace AutopilotMonitor.Functions.Services
                     // SerialNumber + ExcessiveEventsAutoActioned added for the auto-block/kill
                     // path in MaintenanceService — lets us decide and execute in one round-trip
                     // per qualifying session, without a follow-up GetSessionAsync.
-                    select: new[] { "PartitionKey", "RowKey", "EventCount", "SerialNumber", "ExcessiveEventsAlerted", "ExcessiveEventsAutoActioned" });
+                    // Status is mandatory for that path: SessionStatus.InProgress is ordinal 0, so
+                    // an unselected column would leave every row looking in-progress and the
+                    // auto-action eligibility gate silently always-true.
+                    select: new[] { "PartitionKey", "RowKey", "EventCount", "SerialNumber", "Status", "ExcessiveEventsAlerted", "ExcessiveEventsAutoActioned" });
 
                 await foreach (var entity in query)
                 {
@@ -3033,6 +3056,7 @@ namespace AutopilotMonitor.Functions.Services
                         SessionId = entity.RowKey,
                         EventCount = SafeGetInt32(entity, "EventCount") ?? 0,
                         SerialNumber = entity.GetString("SerialNumber") ?? string.Empty,
+                        Status = ParseStatusForAutoAction(entity.GetString("Status")),
                         ExcessiveEventsAlerted = entity.GetBoolean("ExcessiveEventsAlerted") ?? false,
                         ExcessiveEventsAutoActioned = entity.GetBoolean("ExcessiveEventsAutoActioned") ?? false
                     });

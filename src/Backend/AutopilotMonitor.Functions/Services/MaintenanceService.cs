@@ -564,6 +564,16 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Pure eligibility gate for the runaway-session auto-action path: only a session that
+        /// can still upload may cost its device a block. Mirrors the time-window watchdog's
+        /// <c>Status eq 'InProgress'</c> filter, so neither detector ever blocks a device over a
+        /// session that stopped sending — without it, a session that finished days ago with a
+        /// high EventCount still gets its device blocked on the next sweep.
+        /// The warn tier deliberately stays status-agnostic: it is forensic and blocks nothing.
+        /// </summary>
+        internal static bool IsAutoActionEligible(SessionStatus status) => status == SessionStatus.InProgress;
+
+        /// <summary>
         /// Scans every tenant for sessions whose EventCount exceeds the configured warn
         /// threshold (<see cref="AdminConfiguration.ExcessiveEventCountThreshold"/>) or the
         /// auto-action threshold (<see cref="AdminConfiguration.ExcessiveEventAutoActionThreshold"/>).
@@ -637,11 +647,32 @@ namespace AutopilotMonitor.Functions.Services
                                 var action = DecideAutoAction(session.EventCount, autoMode, autoThreshold);
                                 if (action == null) continue;
 
+                                if (!IsAutoActionEligible(session.Status))
+                                {
+                                    _logger.LogInformation(
+                                        "Skipping auto-action for runaway session {SessionId} (tenant {TenantId}): status {Status} can no longer upload",
+                                        session.SessionId, tenantId, session.Status);
+                                    continue;
+                                }
+
                                 if (string.IsNullOrEmpty(session.SerialNumber))
                                 {
                                     _logger.LogWarning(
                                         "Skipping auto-action for runaway session {SessionId} (tenant {TenantId}): SerialNumber is missing",
                                         session.SessionId, tenantId);
+                                    continue;
+                                }
+
+                                // Don't re-block an already-blocked device: BlockDeviceAsync would
+                                // overwrite BlockedAt/UnblockAt/Reason of the existing block — most
+                                // often one the time-window watchdog placed on the same session,
+                                // whose reason then silently disappears from the Active Blocks list.
+                                var (alreadyBlocked, _, _, _) = await _blockedDeviceService.IsBlockedAsync(tenantId, session.SerialNumber);
+                                if (alreadyBlocked)
+                                {
+                                    _logger.LogInformation(
+                                        "Skipping auto-action for runaway session {SessionId} (tenant {TenantId}): device {SerialNumber} is already blocked",
+                                        session.SessionId, tenantId, session.SerialNumber);
                                     continue;
                                 }
 
@@ -740,6 +771,13 @@ namespace AutopilotMonitor.Functions.Services
                                 reason: reason,
                                 blockedSessionId: session.SessionId);
 
+                            // One ops event per device, not per tenant: the alert is only actionable
+                            // if it names the session and serial behind it (the detail modal's
+                            // View session / Block / Kill shortcuts key off `sessionId`).
+                            await _opsEventService.RecordExcessiveDataBlockedAsync(
+                                tenantId, session.SerialNumber, session.SessionId,
+                                adminConfig.MaxSessionWindowHours, blockDurationHours);
+
                             blockedCount++;
                         }
 
@@ -759,7 +797,6 @@ namespace AutopilotMonitor.Functions.Services
                                 });
 
                             _logger.LogInformation($"Tenant {tenantId}: Blocked {blockedCount} excessive data sender device(s) (window: {adminConfig.MaxSessionWindowHours}h, block: {blockDurationHours}h)");
-                            await _opsEventService.RecordExcessiveDataBlockedAsync(tenantId, blockedCount, adminConfig.MaxSessionWindowHours);
                         }
 
                         totalBlocked += blockedCount;

@@ -1,4 +1,5 @@
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Functions.Tests;
 
@@ -86,5 +87,62 @@ public class MaintenanceServiceExcessiveEventAutoActionTests
         // Unknown values (typo, future enum extension not yet wired here) must NOT execute
         // — better to no-op than block/kill on an unintended config.
         Assert.Null(MaintenanceService.DecideAutoAction(eventCount: 5000, autoMode: mode, autoThreshold: 2500));
+    }
+
+    // ── Status eligibility ────────────────────────────────────────────────────
+    // A device may only be blocked over a session that can still upload. Without this gate
+    // a session that finished days ago with a high EventCount got its device blocked on the
+    // next sweep, long after it stopped sending.
+
+    [Fact]
+    public void IsAutoActionEligible_InProgress_IsEligible()
+    {
+        Assert.True(MaintenanceService.IsAutoActionEligible(SessionStatus.InProgress));
+    }
+
+    [Theory]
+    [InlineData(SessionStatus.Succeeded)]
+    [InlineData(SessionStatus.Failed)]
+    [InlineData(SessionStatus.Incomplete)]
+    [InlineData(SessionStatus.Stalled)]
+    [InlineData(SessionStatus.AwaitingUser)]
+    [InlineData(SessionStatus.Pending)]
+    [InlineData(SessionStatus.Unknown)]
+    public void IsAutoActionEligible_EverythingElse_IsRejected(SessionStatus status)
+    {
+        // Matches the time-window watchdog's `Status eq 'InProgress'` filter, so neither
+        // detector can block a device over a session that no longer sends. Stalled and
+        // AwaitingUser can heal back to InProgress — then the next sweep acts.
+        Assert.False(MaintenanceService.IsAutoActionEligible(status));
+    }
+
+    // ── Status parsing feeding that gate ──────────────────────────────────────
+    // The runaway query projects a subset of columns. SessionStatus.InProgress is ordinal 0,
+    // so an unparsed Status would leave every row looking in-progress and the gate above
+    // silently always-true — these pin the fail-closed mapping.
+
+    [Theory]
+    [InlineData("InProgress", SessionStatus.InProgress)]
+    [InlineData("inprogress", SessionStatus.InProgress)]
+    [InlineData("Succeeded", SessionStatus.Succeeded)]
+    [InlineData("AwaitingUser", SessionStatus.AwaitingUser)]
+    public void ParseStatusForAutoAction_KnownNames_RoundTrip(string stored, SessionStatus expected)
+    {
+        Assert.Equal(expected, TableStorageService.ParseStatusForAutoAction(stored));
+    }
+
+    [Theory]
+    [InlineData(null)]        // column absent from the projection or the row
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("Enrolling")] // status name that never existed
+    [InlineData("0")]         // Enum.TryParse would map this onto InProgress and open the gate
+    [InlineData("3")]
+    [InlineData("-1")]
+    [InlineData("InProgress,Failed")] // flags-style combination is not a real status
+    public void ParseStatusForAutoAction_UnusableInput_IsUnknown(string? stored)
+    {
+        Assert.Equal(SessionStatus.Unknown, TableStorageService.ParseStatusForAutoAction(stored));
+        Assert.False(MaintenanceService.IsAutoActionEligible(TableStorageService.ParseStatusForAutoAction(stored)));
     }
 }

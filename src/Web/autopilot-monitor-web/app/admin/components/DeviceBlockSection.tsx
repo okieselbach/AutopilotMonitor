@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
@@ -8,6 +9,7 @@ import { trackEvent } from "@/lib/appInsights";
 import { TenantConfiguration } from "./TenantManagementSection";
 import { TenantSearchSelect } from "./TenantSearchSelect";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
+import { firstBlockedSessionId, blockedSessionCount } from "./blockedDeviceHelpers";
 
 interface ResolvedDevice {
   sessionId: string;
@@ -27,6 +29,12 @@ interface BlockedDevice {
   durationHours: number;
   reason?: string;
   action?: string;
+  /**
+   * Comma-separated sessions this block is scoped to — set by the maintenance auto-block
+   * paths, absent on a manual whole-device block. Drives the serial's deep-link: without a
+   * session there is nothing honest to link to.
+   */
+  blockedSessionIds?: string | null;
 }
 
 interface DeviceBlockSectionProps {
@@ -563,7 +571,29 @@ export function DeviceBlockSection({
                 <tbody className="divide-y divide-red-100 dark:divide-red-900/30">
                   {blockedDevices.map((d) => (
                     <tr key={`${d.tenantId}:${d.serialNumber}`} className="bg-white dark:bg-gray-800">
-                      <td className="px-3 py-2 font-mono font-medium text-gray-900 dark:text-gray-100">{d.serialNumber}</td>
+                      <td className="px-3 py-2 font-mono font-medium text-gray-900 dark:text-gray-100">
+                        {(() => {
+                          // Maintenance auto-blocks carry the session they were placed for —
+                          // that session is what the operator needs to look at. Manual blocks
+                          // have none and stay plain text.
+                          const sessionId = firstBlockedSessionId(d.blockedSessionIds);
+                          if (!sessionId) return d.serialNumber;
+                          const count = blockedSessionCount(d.blockedSessionIds);
+                          return (
+                            <Link
+                              href={`/sessions/${encodeURIComponent(sessionId)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-700 dark:text-blue-300 hover:underline"
+                              title={count > 1
+                                ? `Open the first of ${count} blocked sessions (${sessionId})`
+                                : `Open blocked session ${sessionId}`}
+                            >
+                              {d.serialNumber}
+                            </Link>
+                          );
+                        })()}
+                      </td>
                       {!blockListTenantId && (
                         <td className="px-3 py-2">
                           <button
