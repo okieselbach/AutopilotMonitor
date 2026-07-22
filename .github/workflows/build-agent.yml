@@ -64,70 +64,19 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      # Build numbers come from the shared counter blob (single source of truth for CI
-      # AND local build.ps1). Reserve-before-build with ETag-CAS: concurrent builds can
-      # never mint the same number; a failed build burns a number, which is harmless.
-      # The blob is public-read (like the rest of the container); writes need the SAS.
+      # Build numbers come from the shared counter blob -- one counter and one
+      # implementation for CI and the local build (.github/scripts/Request-BuildNumber.ps1).
+      # Reserve-before-build with ETag-CAS: concurrent builds can never mint the same
+      # number; a failed build burns a number, which is harmless.
       - name: Reserve build number (counter blob CAS)
         id: version
         shell: pwsh
         run: |
-          $counterBlob = "buildcounter-v$env:LINE_MAJOR.txt"
-          $counterUrl = "https://autopilotmonitoreu.blob.core.windows.net/agent/$counterBlob"
-          # Tolerate both secret formats ("sp=cw&..." and "?sp=cw&...") -- the URL below adds the '?'.
-          $sasToken = "${{ secrets.AZURE_BLOB_AGENT_SAS_TOKEN }}".TrimStart('?')
-          $override = "${{ inputs.build_number }}"
+          $override = 0
+          if ('${{ inputs.build_number }}' -ne '') { $override = [int]'${{ inputs.build_number }}' }
 
-          function Get-Counter {
-            try {
-              $resp = Invoke-WebRequest -Uri $counterUrl -Method Get
-              $raw = if ($resp.Content -is [byte[]]) { [System.Text.Encoding]::UTF8.GetString($resp.Content) } else { [string]$resp.Content }
-              # If-Match requires the quoted ETag form; pwsh strips the quotes on read.
-              $etag = '"' + ([string]($resp.Headers['ETag'] | Select-Object -First 1)).Trim('"') + '"'
-              return @{ Value = [int]$raw.Trim(); ETag = $etag }
-            } catch {
-              $status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 0 }
-              if ($status -eq 404) {
-                Write-Error "Counter blob '$counterBlob' not found. Seed it once with the last used build number (see docs/agent/build-counter-blob.md) -- do NOT seed from the repo's buildcounter.txt, it is a stale offline fallback."
-              }
-              throw
-            }
-          }
-
-          $buildNumber = $null
-          for ($attempt = 1; $attempt -le 5; $attempt++) {
-            $counter = Get-Counter
-            if ($override -ne '') {
-              $target = [int]$override
-              if ($target -le $counter.Value) {
-                # Re-build of an already-reserved number: counter stays monotonic, no write.
-                Write-Host "Manual build number $target <= counter $($counter.Value) -- counter blob unchanged"
-                $buildNumber = $target
-                break
-              }
-              Write-Host "Manual build number $target > counter $($counter.Value) -- advancing counter"
-            } else {
-              $target = $counter.Value + 1
-            }
-            try {
-              $headers = @{ 'x-ms-blob-type' = 'BlockBlob'; 'If-Match' = $counter.ETag }
-              Invoke-RestMethod -Uri "$counterUrl`?$sasToken" -Method Put -Headers $headers -Body "$target" -ContentType 'text/plain' | Out-Null
-              $buildNumber = $target
-              Write-Host "Reserved build number ${target} (CAS write ok, attempt $attempt)"
-              break
-            } catch {
-              $status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 0 }
-              if ($status -eq 412) {
-                Write-Host "CAS conflict on attempt $attempt (another build reserved concurrently) -- retrying"
-                Start-Sleep -Seconds ($attempt * 2)
-              } else {
-                throw
-              }
-            }
-          }
-          if ($null -eq $buildNumber) {
-            Write-Error "Could not reserve a build number after 5 CAS attempts"
-          }
+          $counterUrl = "https://autopilotmonitoreu.blob.core.windows.net/agent/buildcounter-v$($env:LINE_MAJOR).txt"
+          $buildNumber = & ./.github/scripts/Request-BuildNumber.ps1 -CounterUrl $counterUrl -SasToken '${{ secrets.AZURE_BLOB_AGENT_SAS_TOKEN }}' -Override $override
 
           $csproj = Get-Content $env:CSPROJ_PATH -Raw
           if ($csproj -match '<VersionPrefix>(\d+\.\d+)</VersionPrefix>') {
@@ -228,8 +177,13 @@ jobs:
             Write-Warning "Could not parse bootstrap `$ScriptVersion from $env:BOOTSTRAP_SOURCE"
           }
 
-          # Enrich the per-line manifest emitted by MSBuild (version-v2.json, read above)
+          # Enrich the per-line manifest emitted by MSBuild (version-v2.json, read above).
+          # commit/buildUtc are the same two fields the backend and MCP manifests carry —
+          # additive, and the bootstrap reads this file by field name, so older installers
+          # ignore them. sha256/bootstrapVersion stay: those are the customer contract.
           $manifest | Add-Member -NotePropertyName "sha256" -NotePropertyValue $sha256Hash -Force
+          $manifest | Add-Member -NotePropertyName "commit" -NotePropertyValue '${{ github.sha }}'.Substring(0, 7) -Force
+          $manifest | Add-Member -NotePropertyName "buildUtc" -NotePropertyValue ([DateTime]::UtcNow.ToString('o')) -Force
           if ($bootstrapVersion) {
             $manifest | Add-Member -NotePropertyName "bootstrapVersion" -NotePropertyValue $bootstrapVersion -Force
           }

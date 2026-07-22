@@ -89,6 +89,16 @@ COPY --from=build /app/docs/ ./docs/
 ARG DOCS_COMMIT=unknown
 ENV DOCS_COMMIT=${DOCS_COMMIT}
 
+# Build identity of the server itself (deploy-mcp.yml supplies all three).
+# BUILD_NUMBER completes the version as <major>.<minor>.<build>; left unset in a
+# local `docker build`, which keeps package.json's version and marks it as such.
+ARG BUILD_NUMBER=
+ARG BUILD_COMMIT=unknown
+ARG BUILD_UTC=unknown
+ENV BUILD_NUMBER=${BUILD_NUMBER}
+ENV BUILD_COMMIT=${BUILD_COMMIT}
+ENV BUILD_UTC=${BUILD_UTC}
+
 ENV PORT=8080
 ENV RULES_DIR=/app/rules
 ENV DOCS_DIR=/app/docs

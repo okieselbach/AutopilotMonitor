@@ -22,26 +22,21 @@ attestation on top.
 
 # Schema
 
-- **Counter blob**: `https://autopilotmonitor.blob.core.windows.net/agent/buildcounter-v{LINE}.txt`
-  (per release line, analogous to `version-v{LINE}.json`). Content: the **last used**
-  build number as plain text. Public-read like the rest of the container (the number
-  is visible in `version-v{LINE}.json` anyway); writes require the container SAS.
-- **Protocol — reserve before build, ETag-CAS**:
-  1. Anonymous `GET` the blob, capture value `N` and the `ETag`.
-  2. `PUT N+1` with `If-Match: <etag>` (quoted form — pwsh strips the quotes on read,
-     they must be re-added or the request is rejected client-side).
-  3. `412 Precondition Failed` → another build reserved concurrently → re-read, retry
-     (5 attempts, linear backoff).
-  4. Build with `BUILD_NUMBER=N+1` in the environment. The csproj honors
-     `BUILD_NUMBER` and then skips its `PersistBuildCounter` target, so the repo file
-     is not touched.
-- **Failed builds burn a number.** That is intentional: uniqueness matters, density
-  does not. Reserve-before-build is what makes concurrent minting impossible.
+The reserve-before-build CAS protocol itself is shared with the backend and the MCP
+server and is documented once in [Version Contract](../versioning.md); the single
+implementation is `.github/scripts/Request-BuildNumber.ps1`. Agent-specific:
+
+- **Counter blob**: `https://autopilotmonitoreu.blob.core.windows.net/agent/buildcounter-v{LINE}.txt`
+  — one per release line, analogous to `version-v{LINE}.json`, and kept in the `agent`
+  container next to the artifacts it numbers rather than in `versions/`. Content: the
+  **last used** build number as plain text. Public-read like the rest of the container
+  (the number is visible in `version-v{LINE}.json` anyway); writes require the SAS.
+- The reserved number reaches the build as `BUILD_NUMBER` in the environment. The
+  csproj honors it and then skips its `PersistBuildCounter` target, so the repo file
+  is not touched.
 - **CI manual override** (`build_number` input): numbers `<=` counter are re-builds
   and leave the blob unchanged; numbers `>` counter advance it (monotonic guard).
-- **Seeding** (one-time per line): `PUT <last used number>` with `If-None-Match: *`
-  so an existing counter can never be clobbered. V2 was seeded with `1356` on
-  2026-07-17.
+- V2 was seeded with `1356` on 2026-07-17.
 
 # Consequences
 
@@ -62,7 +57,9 @@ attestation on top.
 
 # Citations
 
+- [Version Contract](../versioning.md) — the shared CAS protocol and manifest format
 - `.github/workflows/build-agent.yml` — "Reserve build number (counter blob CAS)" step
-- `scripts/Deployment/build.ps1` (gitignored, contains SAS) — `Request-BuildNumber`
+- `.github/scripts/Request-BuildNumber.ps1` — the shared implementation
+- `scripts/Deployment/build.ps1` (gitignored, contains SAS) — local build path
 - `src/Agent/AutopilotMonitor.Agent.V2/AutopilotMonitor.Agent.V2.csproj` —
   `BUILD_NUMBER` property + `PersistBuildCounter` target

@@ -7,6 +7,12 @@ permissions:
   id-token: write   # OIDC federated login (secret-less)
   contents: read
 
+env:
+  FUNCTION_APP: autopilotmonitor-api-eu
+  HEALTH_URL: https://autopilotmonitor-api-eu.azurewebsites.net/api/health
+  VERSIONS_CONTAINER: https://autopilotmonitoreu.blob.core.windows.net/versions
+  CSPROJ_PATH: src/Backend/AutopilotMonitor.Functions/AutopilotMonitor.Functions.csproj
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -27,17 +33,90 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # Same counter mechanism as the agent line: reserve-before-build with ETag-CAS
+      # against a per-component counter blob. BuildTimestampUtc is pinned here rather
+      # than left to MSBuild's default so the published manifest and the value baked
+      # into the assembly (reported by /api/health) are the same instant.
+      - name: Reserve build number (counter blob CAS)
+        id: version
+        shell: pwsh
+        run: |
+          $buildNumber = & ./.github/scripts/Request-BuildNumber.ps1 -CounterUrl "${{ env.VERSIONS_CONTAINER }}/backend.txt" -SasToken '${{ secrets.AZURE_BLOB_VERSIONS_SAS_TOKEN }}'
+
+          $csproj = Get-Content ${{ env.CSPROJ_PATH }} -Raw
+          if ($csproj -notmatch '<VersionPrefix>(\d+\.\d+)</VersionPrefix>') {
+            throw "VersionPrefix not found in ${{ env.CSPROJ_PATH }}"
+          }
+          $version = "$($Matches[1]).$buildNumber"
+          $buildUtc = [DateTime]::UtcNow.ToString('o')
+          Write-Host "Backend version: $version (built $buildUtc)"
+
+          "build_number=$buildNumber" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "build_utc=$buildUtc" >> $env:GITHUB_OUTPUT
+
       - name: Restore dependencies
-        run: dotnet restore src/Backend/AutopilotMonitor.Functions/AutopilotMonitor.Functions.csproj
+        run: dotnet restore ${{ env.CSPROJ_PATH }}
 
       - name: Build
-        run: dotnet build src/Backend/AutopilotMonitor.Functions/AutopilotMonitor.Functions.csproj --configuration Release --no-restore -p:SourceRevisionId=${{ github.sha }}
+        run: dotnet build ${{ env.CSPROJ_PATH }} --configuration Release --no-restore -p:SourceRevisionId=${{ github.sha }} -p:BuildNumber=${{ steps.version.outputs.build_number }} -p:BuildTimestampUtc=${{ steps.version.outputs.build_utc }}
 
       - name: Publish
-        run: dotnet publish src/Backend/AutopilotMonitor.Functions/AutopilotMonitor.Functions.csproj --configuration Release --output ./publish --no-build -p:SourceRevisionId=${{ github.sha }}
+        run: dotnet publish ${{ env.CSPROJ_PATH }} --configuration Release --output ./publish --no-build -p:SourceRevisionId=${{ github.sha }} -p:BuildNumber=${{ steps.version.outputs.build_number }} -p:BuildTimestampUtc=${{ steps.version.outputs.build_utc }}
 
       - name: Deploy to Azure Functions
         uses: Azure/functions-action@v1
         with:
-          app-name: autopilotmonitor-api-eu
+          app-name: ${{ env.FUNCTION_APP }}
           package: ./publish
+
+      # A green deploy step only means the package was accepted. This gate makes the
+      # workflow assert what is actually being served, so the manifest published below
+      # can be trusted as "this is live" rather than "this was uploaded".
+      # /api/health is IP rate-limited at 30/min; one poll per 10s stays well under.
+      - name: Verify deployed build is live
+        shell: pwsh
+        run: |
+          $expectedCommit = '${{ github.sha }}'.Substring(0, 7)
+          $expectedVersion = '${{ steps.version.outputs.version }}'
+          $deadline = [DateTime]::UtcNow.AddMinutes(3)
+          $attempt = 0
+
+          while ([DateTime]::UtcNow -lt $deadline) {
+            $attempt++
+            try {
+              $health = Invoke-RestMethod -Uri '${{ env.HEALTH_URL }}' -Method Get -TimeoutSec 30
+              if ($health.commitHash -eq $expectedCommit -and $health.version -eq $expectedVersion) {
+                Write-Host "Live after $attempt attempt(s): $($health.version) @ $($health.commitHash), built $($health.buildUtc)"
+                exit 0
+              }
+              Write-Host "Attempt ${attempt}: serving $($health.version) @ $($health.commitHash) -- waiting for $expectedVersion @ $expectedCommit"
+            } catch {
+              Write-Host "Attempt ${attempt}: /api/health not answering yet -- $($_.Exception.Message)"
+            }
+            Start-Sleep -Seconds 10
+          }
+
+          throw "Backend did not report $expectedVersion @ $expectedCommit within 3 minutes -- deployment not verified, version manifest NOT published"
+
+      # The manifest is the cross-component record of what is deployed where. It is
+      # written last and only on a verified deploy, so a difference between the
+      # manifest and /api/health means the running app drifted after the fact
+      # (rollback, stale instance) rather than a half-finished pipeline.
+      - name: Publish version manifest
+        shell: pwsh
+        run: |
+          $manifest = [ordered]@{
+            component   = 'backend'
+            version     = '${{ steps.version.outputs.version }}'
+            commit      = '${{ github.sha }}'.Substring(0, 7)
+            buildUtc    = '${{ steps.version.outputs.build_utc }}'
+            deployedUtc = [DateTime]::UtcNow.ToString('o')
+            runId       = '${{ github.run_id }}'
+          } | ConvertTo-Json
+
+          $sas = '${{ secrets.AZURE_BLOB_VERSIONS_SAS_TOKEN }}'.TrimStart('?')
+          $url = "${{ env.VERSIONS_CONTAINER }}/backend.json?$sas"
+          Invoke-RestMethod -Uri $url -Method Put -Headers @{ 'x-ms-blob-type' = 'BlockBlob' } -Body $manifest -ContentType 'application/json' | Out-Null
+          Write-Host "Published versions/backend.json"
+          Write-Host $manifest

@@ -23,7 +23,21 @@ import { API_BASE_URL } from './config.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8')) as { version: string };
-const SERVER_VERSION: string = pkg.version;
+
+// Version contract shared with the agent and the backend: <major>.<minor>.<build>,
+// where major.minor is curated in package.json and <build> is reserved per build
+// from the counter blob versions/mcp.txt and baked in by deploy-mcp.yml. Without
+// the env var (any local run) the package.json version stands as-is, which is how
+// /health and the MCP handshake tell a workstation from a deployed image.
+const BUILD_NUMBER = process.env.BUILD_NUMBER ?? '';
+const SERVER_VERSION: string = BUILD_NUMBER
+  ? `${pkg.version.split('.').slice(0, 2).join('.')}.${BUILD_NUMBER}`
+  : pkg.version;
+
+// Commit of THIS repo the image was built from. Counterpart to DOCS_COMMIT below:
+// that one tracks the documentation bundle, this one the server itself.
+const BUILD_COMMIT = process.env.BUILD_COMMIT ?? 'unknown';
+const BUILD_UTC = process.env.BUILD_UTC ?? 'unknown';
 
 /**
  * Boot stopwatch. minReplicas=0 means every idle period ends in a cold start a user
@@ -299,6 +313,9 @@ app.use(createOAuthRouter());
 // The version is the same value already advertised in the MCP handshake
 // (createMcpServer → { name, version }), so surfacing it here leaks nothing
 // new; it lets the backend health dashboard show the deployed MCP build.
+// commit/buildUtc mirror what the backend's own /api/health has always
+// reported (also anonymous): an opaque SHA carries no repository content and
+// turns "which build is this?" into one request instead of an image lookup.
 //
 // The docs block exists for one reason: the documentation bundle lives in its own
 // repo and is baked in at image build time, so editing the docs does NOT update a
@@ -310,6 +327,8 @@ app.get('/health', (_req, res) => {
   res.json({
     status: 'healthy',
     version: SERVER_VERSION,
+    commit: BUILD_COMMIT,
+    buildUtc: BUILD_UTC,
     docs: { commit: DOCS_COMMIT, chunks: docsIndex?.size ?? 0, sections: docSections(docsDocs) },
   });
 });

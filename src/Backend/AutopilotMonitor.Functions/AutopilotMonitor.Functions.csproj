@@ -12,8 +12,16 @@
          BuildTimestampUtc is baked into the assembly as AssemblyMetadata so /api/health
          reports the actual build moment — not the file mtime, which Azure Functions
          resets to the zip-extract time on every cold start. CI may override via
-         -p:BuildTimestampUtc=<iso8601> to force a specific timestamp. -->
-    <Version>1.0.0</Version>
+         -p:BuildTimestampUtc=<iso8601> to force a specific timestamp.
+
+         VersionPrefix is the curated part (bump by hand for a release); BuildNumber is
+         reserved per build from the counter blob versions/backend.txt and passed in as
+         -p:BuildNumber=<n> by deploy-backend.yml — same mechanism as the agent line.
+         A local build has no counter and stays at x.y.0 with an empty commit hash,
+         which is how /api/health tells a developer machine from a CI artifact. -->
+    <VersionPrefix>1.5</VersionPrefix>
+    <BuildNumber Condition="'$(BuildNumber)' == ''">0</BuildNumber>
+    <Version>$(VersionPrefix).$(BuildNumber)</Version>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <IncludeSourceRevisionInInformationalVersion>true</IncludeSourceRevisionInInformationalVersion>
     <BuildTimestampUtc Condition="'$(BuildTimestampUtc)' == ''">$([System.DateTime]::UtcNow.ToString('o'))</BuildTimestampUtc>

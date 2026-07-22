@@ -12,6 +12,9 @@ env:
   CONTAINER_APP_NAME: autopilotmonitor-mcp
   RESOURCE_GROUP: ${{ secrets.AZURE_MCP_RESOURCE_GROUP }}
   IMAGE_TAG: ${{ github.sha }}
+  HEALTH_URL: https://mcp.autopilotmonitor.com/health
+  VERSIONS_CONTAINER: https://autopilotmonitoreu.blob.core.windows.net/versions
+  PACKAGE_JSON: src/McpServer/autopilot-monitor-mcp/package.json
 
 jobs:
   build-and-deploy:
@@ -44,6 +47,30 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      # Same counter mechanism as agent and backend: reserve-before-build with
+      # ETag-CAS against the component's own counter blob. major.minor stays curated
+      # in package.json; only the build part is minted here.
+      - name: Reserve build number (counter blob CAS)
+        id: version
+        shell: pwsh
+        run: |
+          $buildNumber = & ./.github/scripts/Request-BuildNumber.ps1 -CounterUrl "${{ env.VERSIONS_CONTAINER }}/mcp.txt" -SasToken '${{ secrets.AZURE_BLOB_VERSIONS_SAS_TOKEN }}'
+
+          $pkgVersion = (Get-Content ${{ env.PACKAGE_JSON }} -Raw | ConvertFrom-Json).version
+          $prefix = ($pkgVersion -split '\.')[0..1] -join '.'
+          $version = "$prefix.$buildNumber"
+          $buildUtc = [DateTime]::UtcNow.ToString('o')
+          Write-Host "MCP version: $version (built $buildUtc)"
+
+          # 7 chars, matching what the backend's BackendBuildInfo reports — one commit
+          # shape across all components so the values can be compared as-is.
+          $shortSha = '${{ github.sha }}'.Substring(0, 7)
+
+          "build_number=$buildNumber" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "build_utc=$buildUtc" >> $env:GITHUB_OUTPUT
+          "short_sha=$shortSha" >> $env:GITHUB_OUTPUT
+
       - name: Login to ACR
         run: az acr login --name ${{ env.ACR_NAME }}
 
@@ -52,6 +79,9 @@ jobs:
           docker build \
             -f src/McpServer/autopilot-monitor-mcp/Dockerfile \
             --build-arg DOCS_COMMIT=${{ steps.docs.outputs.sha }} \
+            --build-arg BUILD_NUMBER=${{ steps.version.outputs.build_number }} \
+            --build-arg BUILD_COMMIT=${{ steps.version.outputs.short_sha }} \
+            --build-arg BUILD_UTC=${{ steps.version.outputs.build_utc }} \
             -t ${{ env.ACR_NAME }}.azurecr.io/${{ env.CONTAINER_APP_NAME }}:${{ env.IMAGE_TAG }} \
             -t ${{ env.ACR_NAME }}.azurecr.io/${{ env.CONTAINER_APP_NAME }}:latest \
             .
@@ -63,3 +93,54 @@ jobs:
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --image ${{ env.ACR_NAME }}.azurecr.io/${{ env.CONTAINER_APP_NAME }}:${{ env.IMAGE_TAG }}
+
+      # `az containerapp update` returns once the revision is provisioned, not once
+      # it serves traffic — and with minReplicas=0 the first request also pays a cold
+      # start. Polling /health until it reports THIS build is what makes the manifest
+      # below mean "live"; a full 5 minutes because the cold start alone is ~25s.
+      - name: Verify deployed build is live
+        shell: pwsh
+        run: |
+          $expectedCommit = '${{ steps.version.outputs.short_sha }}'
+          $expectedVersion = '${{ steps.version.outputs.version }}'
+          $deadline = [DateTime]::UtcNow.AddMinutes(5)
+          $attempt = 0
+
+          while ([DateTime]::UtcNow -lt $deadline) {
+            $attempt++
+            try {
+              $health = Invoke-RestMethod -Uri '${{ env.HEALTH_URL }}' -Method Get -TimeoutSec 60
+              if ($health.commit -eq $expectedCommit -and $health.version -eq $expectedVersion) {
+                Write-Host "Live after $attempt attempt(s): $($health.version) @ $($health.commit), docs $($health.docs.commit) ($($health.docs.chunks) chunks)"
+                exit 0
+              }
+              Write-Host "Attempt ${attempt}: serving $($health.version) @ $($health.commit) -- waiting for $expectedVersion @ $expectedCommit"
+            } catch {
+              Write-Host "Attempt ${attempt}: /health not answering yet -- $($_.Exception.Message)"
+            }
+            Start-Sleep -Seconds 15
+          }
+
+          throw "MCP did not report $expectedVersion @ $expectedCommit within 5 minutes -- deployment not verified, version manifest NOT published"
+
+      # Cross-component record of what is deployed where; written last and only on a
+      # verified deploy. docsCommit rides along because for this component "which
+      # build" and "which documentation" are two separate questions.
+      - name: Publish version manifest
+        shell: pwsh
+        run: |
+          $manifest = [ordered]@{
+            component   = 'mcp'
+            version     = '${{ steps.version.outputs.version }}'
+            commit      = '${{ steps.version.outputs.short_sha }}'
+            buildUtc    = '${{ steps.version.outputs.build_utc }}'
+            deployedUtc = [DateTime]::UtcNow.ToString('o')
+            runId       = '${{ github.run_id }}'
+            docsCommit  = '${{ steps.docs.outputs.sha }}'.Substring(0, 7)
+          } | ConvertTo-Json
+
+          $sas = '${{ secrets.AZURE_BLOB_VERSIONS_SAS_TOKEN }}'.TrimStart('?')
+          $url = "${{ env.VERSIONS_CONTAINER }}/mcp.json?$sas"
+          Invoke-RestMethod -Uri $url -Method Put -Headers @{ 'x-ms-blob-type' = 'BlockBlob' } -Body $manifest -ContentType 'application/json' | Out-Null
+          Write-Host "Published versions/mcp.json"
+          Write-Host $manifest

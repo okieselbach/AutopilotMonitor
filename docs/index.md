@@ -12,6 +12,7 @@ https://docs.autopilotmonitor.com (separate repository).
 # Architecture
 
 * [Architecture Guide](architecture.md) - High-level architecture overview and solution layout for contributors.
+* [Version Contract](versioning.md) - One version shape for agent, backend and MCP: the ETag-CAS counter blob that mints build numbers, and the manifests published only after a deploy is verified live.
 
 # Agent
 
