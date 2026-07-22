@@ -266,6 +266,130 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Gather
                 $"expected the hung command to be killed at the timeout; took {sw.Elapsed}");
         }
 
+        // -------------------------------------------------------------------
+        // Every remaining collector actually calls its guard
+        //
+        // The guard functions have their own unit tests, but those prove nothing about
+        // whether a collector consults them before touching the registry, WMI or disk.
+        // These drive the collectors themselves: each blocked target must come back empty,
+        // emit exactly one security_warning naming the target, and produce no rule output.
+        // -------------------------------------------------------------------
+
+        private void AssertBlocked(Dictionary<string, object> result, string target)
+        {
+            Assert.Empty(result);
+            var warning = SingleSecurityWarning();
+            Assert.Equal(true, warning.Data["blocked"]);
+            Assert.Equal(target, warning.Data["target"]);
+            Assert.DoesNotContain(_events, e => e.EventType == "guard_test");
+        }
+
+        [Theory]
+        [InlineData(@"SAM\SAM\Domains\Account\Users")]
+        [InlineData(@"SECURITY\Policy\Secrets")]
+        [InlineData(@"HKLM\SOFTWARE\Microsoft\EnrollmentsSomethingElse")]  // prefix spoofing
+        public void RegistryCollector_OffAllowlistPath_IsBlockedBeforeTheHiveIsOpened(string target)
+            => AssertBlocked(new RegistryCollector().Execute(Rule("registry", target), Context()), target);
+
+        [Theory]
+        [InlineData("SELECT * FROM Win32_UserAccount")]
+        [InlineData("SELECT * FROM Win32_ShadowCopy")]
+        [InlineData("SELECT * FROM Win32_OperatingSystemExtra")]          // prefix spoofing
+        public void WmiCollector_OffAllowlistQuery_IsBlockedBeforeTheQueryRuns(string query)
+            => AssertBlocked(new WmiCollector().Execute(Rule("wmi", query), Context()), query);
+
+        [Fact]
+        public void JsonCollector_UserProfilePath_IsBlockedBeforeTheFileIsOpened()
+        {
+            const string target = @"C:\Users\Public\Documents\secrets.json";
+            AssertBlocked(
+                new JsonCollector().Execute(
+                    Rule("json", target, new Dictionary<string, string> { ["jsonpath"] = "$.token" }),
+                    Context()),
+                target);
+        }
+
+        [Fact]
+        public void XmlCollector_UserProfilePath_IsBlockedBeforeTheFileIsOpened()
+        {
+            const string target = @"C:\Users\Public\Documents\secrets.xml";
+            AssertBlocked(
+                new XmlCollector().Execute(
+                    Rule("xml", target, new Dictionary<string, string> { ["xpath"] = "//token" }),
+                    Context()),
+                target);
+        }
+
+        [Fact]
+        public void FileCollector_UserProfilePath_IsBlockedBeforeTheFileIsOpened()
+        {
+            const string target = @"C:\Users\Public\Documents\secrets.txt";
+            AssertBlocked(new FileCollector().Execute(Rule("file", target), Context()), target);
+        }
+
+        [Fact]
+        public void JsonCollector_AllowedPath_ReadsTheFile()
+        {
+            // Counterpart to the blocked cases: proves the guard is a gate, not a wall —
+            // the collector does reach the file once the path is admitted.
+            var path = Path.Combine(_outsideUsers, "inventory.json");
+            File.WriteAllText(path, "{ \"agent\": { \"version\": \"2.4.0\" } }");
+
+            var result = new JsonCollector().Execute(
+                Rule("json", path, new Dictionary<string, string> { ["jsonpath"] = "$.agent.version" }),
+                Context(unrestricted: true));
+
+            Assert.DoesNotContain(_events, e => e.EventType == Constants.EventTypes.SecurityWarning);
+            Assert.Contains("2.4.0", string.Join(",", result.Values));
+        }
+
+        // -------------------------------------------------------------------
+        // Path traversal
+        // -------------------------------------------------------------------
+
+        [Fact]
+        public void FilePath_TraversalOutOfAnAllowedPrefix_IsBlocked()
+        {
+            // The raw string starts with an allowed prefix, so a naive StartsWith check would
+            // admit it. Path.GetFullPath runs FIRST, so the allowlist sees C:\Secret.txt.
+            const string traversal =
+                @"C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\..\..\..\..\Secret.txt";
+
+            Assert.Equal(@"C:\Secret.txt", Path.GetFullPath(traversal));
+            Assert.False(GatherRuleGuards.IsFilePathAllowed(traversal));
+        }
+
+        [Fact]
+        public void FilePath_TraversalIntoTheUsersHardBlock_StaysBlockedEvenUnrestricted()
+        {
+            // Unrestricted mode lifts the allowlist but never the C:\Users privacy block —
+            // and it must not be reachable by spelling the path with '..' either.
+            const string traversal =
+                @"C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\..\..\..\..\Users\Public\ntuser.dat";
+
+            Assert.StartsWith(@"C:\Users\", Path.GetFullPath(traversal), StringComparison.OrdinalIgnoreCase);
+            Assert.False(GatherRuleGuards.IsFilePathAllowed(traversal));
+            Assert.False(GatherRuleGuards.IsFilePathAllowed(traversal, unrestrictedMode: true));
+        }
+
+        [Fact]
+        public void FilePath_TraversalIntoTheConfigHiveDirectory_StaysBlockedEvenUnrestricted()
+        {
+            const string traversal = @"C:\Windows\Logs\..\System32\config\SAM";
+
+            Assert.False(GatherRuleGuards.IsFilePathAllowed(traversal));
+            Assert.False(GatherRuleGuards.IsFilePathAllowed(traversal, unrestrictedMode: true));
+        }
+
+        [Fact]
+        public void FileCollector_TraversalTarget_IsBlockedAndReported()
+        {
+            const string traversal =
+                @"C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\..\..\..\..\Users\Public\ntuser.dat";
+
+            AssertBlocked(new FileCollector().Execute(Rule("file", traversal), Context()), traversal);
+        }
+
         [Fact]
         public void LogParser_ImeLogPathOverride_StillHonoursTheUsersHardBlock()
         {
