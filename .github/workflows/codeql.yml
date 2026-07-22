@@ -1,12 +1,26 @@
 name: CodeQL
 
+# Documentation-only changes cannot affect what CodeQL analyzes (C# and
+# TypeScript), so they are filtered out rather than spending ~10 minutes to
+# re-report an unchanged result. A commit that touches docs AND code still runs:
+# GitHub skips only when EVERY changed path matches the filter.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
   schedule:
-    # Weekly, so advisories published after a merge still surface.
+    # Weekly, so advisories published after a merge still surface. Deliberately
+    # unfiltered — it re-analyzes the whole tree regardless of what changed, which
+    # is also the backstop if the filters above ever skip too much.
     - cron: '17 3 * * 1'
 
 permissions:
