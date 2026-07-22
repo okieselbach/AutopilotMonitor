@@ -31,6 +31,21 @@ public class LogSanitizerTests
         Assert.Equal("abcde", LogSanitizer.Clean(input));
     }
 
+    [Fact]
+    public void Clean_WithUnicodeLineSeparators_StripsThem()
+    {
+        // U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR are Unicode categories
+        // Zl/Zp, not Cc — so a \p{Cc}-only pass would let them through, and a log viewer
+        // or JavaScript-side reader would still break the line on them. Built from char
+        // codes so the source file carries no literal separator bytes.
+        var forged = $"/api/sessions{(char)0x2028}[Auth Middleware] FAKE: admin granted";
+        var cleaned = LogSanitizer.Clean(forged);
+
+        Assert.Equal("/api/sessions[Auth Middleware] FAKE: admin granted", cleaned);
+        Assert.DoesNotContain((char)0x2028, cleaned!);
+        Assert.Equal("ab", LogSanitizer.Clean($"a{(char)0x2029}b"));
+    }
+
     [Theory]
     [InlineData("/api/sessions/abc-123/events")]
     [InlineData("user@contoso.com")]
