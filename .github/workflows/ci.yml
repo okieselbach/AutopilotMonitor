@@ -1,8 +1,12 @@
 name: CI
 
-# Runs the full test suite on every pull request and every push to main.
-# The deploy workflows build but do not test — this is the gate that decides
-# whether a change is allowed to be correct.
+# Tests, typechecks and drift-checks every push to main and every pull request:
+# the .NET suites, the web and MCP suites, and a guard that the generated rule
+# files still match rules/guardrails.json.
+#
+# The deploy workflows build but never test, so this is the only place the suites
+# actually run. It does not gate anything — main is deliberately unprotected, so a
+# red run reports rather than blocks. Read the result and follow up.
 
 on:
   push:
