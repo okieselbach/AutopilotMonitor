@@ -53,6 +53,34 @@ public static class ClaimsPrincipalExtensions
     }
 
     /// <summary>
+    /// Stable per-caller identity for THROTTLING keys — never for authorization or audit.
+    /// <para>
+    /// Prefers the UPN so a human caller keeps the same bucket as before. Falls back to the token
+    /// subject (<c>oid</c> → <c>sub</c> → <c>appid</c>/<c>azp</c>) because a valid token need not carry
+    /// a user identity at all: AuthenticationMiddleware validates issuer/audience/lifetime/signature
+    /// but requires no <c>upn</c>, so an app-only (client-credentials) token authenticates fine and
+    /// reaches every AuthenticatedUser route. Without this fallback such a caller would present an
+    /// empty identity and skip per-user rate limiting entirely.
+    /// </para>
+    /// <para>
+    /// Both the raw and the WS-Fed-mapped claim names are checked: JwtSecurityTokenHandler runs with
+    /// inbound claim mapping ON, so <c>oid</c>/<c>sub</c> may arrive under their schema URIs.
+    /// </para>
+    /// Returns null only for a principal carrying no identifying claim whatsoever; callers must
+    /// decide fail-closed what that means (see <c>RequestContext.CallerId</c>).
+    /// </summary>
+    public static string? GetCallerId(this ClaimsPrincipal principal)
+    {
+        return principal.GetUserPrincipalName()
+               ?? principal.FindFirst("oid")?.Value
+               ?? principal.FindFirst("http://schemas.microsoft.com/identity/claims/objectidentifier")?.Value
+               ?? principal.FindFirst("sub")?.Value
+               ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value
+               ?? principal.FindFirst("appid")?.Value
+               ?? principal.FindFirst("azp")?.Value;
+    }
+
+    /// <summary>
     /// Gets the user's display name from token claims
     /// Supports both v1.0 and v2.0 token formats
     /// </summary>

@@ -19,6 +19,23 @@ public sealed record RequestContext
     /// <summary>The user's UPN (from JWT upn/preferred_username claim).</summary>
     public string UserPrincipalName { get; init; } = string.Empty;
 
+    /// <summary>
+    /// Stable identity of the authenticated caller, for THROTTLING keys only — never authorization,
+    /// never audit (use <see cref="UserPrincipalName"/> there; this may be a bare object id).
+    /// <para>
+    /// Empty ⇔ the request carried no JWT at all (device/bootstrap or anonymous route). Those routes
+    /// bring their own limits — per cert thumbprint / per bootstrap token in SecurityValidator, per
+    /// client IP on the public endpoints — so an empty value means "no user bucket applies here".
+    /// </para>
+    /// <para>
+    /// It is deliberately NOT the same field as <see cref="UserPrincipalName"/>: a valid token need
+    /// not carry a UPN (app-only/client-credentials tokens do not), and such a caller still reaches
+    /// every AuthenticatedUser route. Keying the throttle off the UPN alone let those tokens through
+    /// unlimited; keying audit off this would write object ids where a UPN is expected.
+    /// </para>
+    /// </summary>
+    public string CallerId { get; init; } = string.Empty;
+
     /// <summary>True if the user is a Global Admin of the platform (full read + write).</summary>
     public bool IsGlobalAdmin { get; init; }
 

@@ -9,13 +9,14 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Middleware;
 
 /// <summary>
-/// Per-user rate limiting for authenticated (JWT) requests.
-/// Runs after PolicyEnforcementMiddleware so RequestContext (UPN, IsGlobalAdmin) is already resolved.
-/// Device/bootstrap and anonymous routes resolve to an EMPTY RequestContext.UserPrincipalName and are
-/// skipped here — they carry their own limits (per cert thumbprint / per bootstrap token in
-/// SecurityValidator, per client IP on the public endpoints). That empty-UPN contract is what keeps the
-/// whole agent fleet out of one shared bucket; see the note on RequestContext construction in
-/// PolicyEnforcementMiddleware.
+/// Per-caller rate limiting for authenticated (JWT) requests.
+/// Runs after PolicyEnforcementMiddleware so RequestContext (CallerId, IsGlobalAdmin) is already resolved.
+/// Buckets on RequestContext.CallerId — the throttle identity, which is the UPN for a human caller and
+/// the token subject (oid/sub/appid) for a token that carries none. Device/bootstrap and anonymous
+/// routes resolve to an EMPTY CallerId and are skipped here; they carry their own limits (per cert
+/// thumbprint / per bootstrap token in SecurityValidator, per client IP on the public endpoints).
+/// Keying on CallerId rather than UserPrincipalName is what keeps BOTH holes shut: the agent fleet out
+/// of one shared bucket, and app-only tokens inside a bucket at all.
 /// </summary>
 public class UserRateLimitMiddleware : IFunctionsWorkerMiddleware
 {
@@ -49,9 +50,12 @@ public class UserRateLimitMiddleware : IFunctionsWorkerMiddleware
         }
 
         var requestContext = context.GetRequestContext();
-        if (string.IsNullOrEmpty(requestContext.UserPrincipalName))
+        if (string.IsNullOrEmpty(requestContext.CallerId))
         {
-            // Anonymous or device-auth route — no user to rate limit
+            // No JWT on this request — device-auth or anonymous route. Those limit themselves
+            // (per cert thumbprint / bootstrap token in SecurityValidator, per client IP on the
+            // public endpoints). Gate on CallerId, NOT UserPrincipalName: a valid app-only token
+            // carries no upn, and skipping on that would exempt it from throttling entirely.
             await next(context);
             return;
         }
@@ -100,13 +104,13 @@ public class UserRateLimitMiddleware : IFunctionsWorkerMiddleware
                 config.GlobalAdminRateLimitRequestsPerMinute,
                 entitlementFloor);
 
-            var key = $"user_ratelimit_{requestContext.UserPrincipalName.ToLowerInvariant()}";
+            var key = $"user_ratelimit_{requestContext.CallerId.ToLowerInvariant()}";
             result = _rateLimitService.CheckRateLimit(key, limit);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[UserRateLimit] Rate limit check failed for user={User}, allowing request (fail-open)",
-                requestContext.UserPrincipalName);
+            _logger.LogError(ex, "[UserRateLimit] Rate limit check failed for caller={Caller}, allowing request (fail-open)",
+                requestContext.CallerId);
             await next(context);
             return;
         }
@@ -131,8 +135,8 @@ public class UserRateLimitMiddleware : IFunctionsWorkerMiddleware
             : 60;
 
         _logger.LogWarning(
-            "[UserRateLimit] THROTTLED user={User} requests={Count}/{Max} retryAfter={RetryAfter}s",
-            requestContext.UserPrincipalName, result.RequestsInWindow, result.MaxRequests, retryAfterSeconds);
+            "[UserRateLimit] THROTTLED caller={Caller} requests={Count}/{Max} retryAfter={RetryAfter}s",
+            requestContext.CallerId, result.RequestsInWindow, result.MaxRequests, retryAfterSeconds);
 
         httpContext.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
         httpContext.Response.Headers["Retry-After"] = retryAfterSeconds.ToString();

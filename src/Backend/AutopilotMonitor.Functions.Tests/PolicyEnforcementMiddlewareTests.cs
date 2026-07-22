@@ -926,5 +926,91 @@ public class PolicyEnforcementMiddlewareTests
 
         Assert.True(result.Allowed);
         Assert.Equal(upn, result.Context!.UserPrincipalName);
+        Assert.Equal(upn, result.Context!.CallerId);
+    }
+
+    // ── CallerId: throttle identity survives tokens that carry no UPN ──────────────
+    //
+    // AuthenticationMiddleware validates issuer/audience/lifetime/signature but requires NO upn and no
+    // scp, so an app-only (client-credentials) token authenticates and reaches every AuthenticatedUser
+    // route (feedback, realtime/negotiate, progress/*, health/detailed, …). UserRateLimitMiddleware
+    // skips on an EMPTY throttle identity — so if CallerId fell back to the (absent) UPN, those tokens
+    // would bypass rate limiting entirely. These tests pin the fallback chain.
+
+    /// <summary>Principal with a tid but NO upn/preferred_username — shaped like an app-only token.</summary>
+    private static ClaimsPrincipal AppOnlyPrincipal(string tenantId, params (string Type, string Value)[] claims)
+    {
+        var all = new List<Claim> { new("tid", tenantId) };
+        all.AddRange(claims.Select(c => new Claim(c.Type, c.Value)));
+        return new ClaimsPrincipal(new ClaimsIdentity(all, "TestAuth"));
+    }
+
+    [Theory]
+    [InlineData("oid", "aaaaaaaa-0000-0000-0000-000000000001")]
+    [InlineData("http://schemas.microsoft.com/identity/claims/objectidentifier", "aaaaaaaa-0000-0000-0000-000000000002")]
+    [InlineData("sub", "subject-abc")]
+    [InlineData("appid", "bbbbbbbb-0000-0000-0000-000000000003")]
+    [InlineData("azp", "cccccccc-0000-0000-0000-000000000004")]
+    public async Task AuthenticatedUserRoute_TokenWithoutUpn_StillGetsAThrottleIdentity(string claimType, string claimValue)
+    {
+        var h = BuildHarness();
+
+        // /api/feedback/status is AuthenticatedUser — admits ANY valid principal, role unresolved.
+        var result = await h.Middleware.DecideAsync(
+            "GET", "/api/feedback/status", null, AppOnlyPrincipal(TenantA, (claimType, claimValue)));
+
+        Assert.True(result.Allowed);
+        // No UPN to report — audit/presence correctly see nothing...
+        Assert.Equal(string.Empty, result.Context!.UserPrincipalName);
+        // ...but the throttle still has something stable to bucket on.
+        Assert.Equal(claimValue, result.Context!.CallerId);
+    }
+
+    [Fact]
+    public async Task AuthenticatedUserRoute_TokenWithoutUpn_PrefersOidOverSubAndAppId()
+    {
+        var h = BuildHarness();
+        var principal = AppOnlyPrincipal(TenantA,
+            ("appid", "cccccccc-0000-0000-0000-000000000009"),
+            ("sub", "subject-xyz"),
+            ("oid", "aaaaaaaa-0000-0000-0000-00000000000a"));
+
+        var result = await h.Middleware.DecideAsync("GET", "/api/feedback/status", null, principal);
+
+        Assert.True(result.Allowed);
+        Assert.Equal("aaaaaaaa-0000-0000-0000-00000000000a", result.Context!.CallerId);
+    }
+
+    [Fact]
+    public async Task AuthenticatedUserRoute_TokenWithNoIdentifyingClaim_FailsClosedToASharedBucket()
+    {
+        // Pathological (every real Entra token has a sub): must NOT resolve to empty, because empty
+        // means "skip the limiter". A shared bucket is the safe answer.
+        var h = BuildHarness();
+
+        var result = await h.Middleware.DecideAsync(
+            "GET", "/api/feedback/status", null, AppOnlyPrincipal(TenantA));
+
+        Assert.True(result.Allowed);
+        Assert.NotEqual(string.Empty, result.Context!.CallerId);
+        Assert.Equal(PolicyEnforcementMiddleware.UnidentifiedCallerBucket, result.Context!.CallerId);
+        // Never reuse the log placeholder as a bucket key — that was the original fleet-wide collapse.
+        Assert.NotEqual("anonymous", result.Context!.CallerId);
+    }
+
+    [Theory]
+    [InlineData("POST", "/api/agent/telemetry")]
+    [InlineData("GET", "/api/health")]
+    [InlineData("GET", "/api/stats/platform")]
+    public async Task UnauthenticatedRoute_HasEmptyCallerId(string method, string path)
+    {
+        // Empty CallerId is the ONLY signal that skips the user limiter — it must mean
+        // "no JWT at all", never "authenticated but unnamed".
+        var h = BuildHarness();
+
+        var result = await h.Middleware.DecideAsync(method, path, null, principal: null);
+
+        Assert.True(result.Allowed);
+        Assert.Equal(string.Empty, result.Context!.CallerId);
     }
 }

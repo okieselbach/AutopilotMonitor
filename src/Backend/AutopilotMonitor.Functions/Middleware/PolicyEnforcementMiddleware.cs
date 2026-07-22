@@ -23,6 +23,15 @@ namespace AutopilotMonitor.Functions.Middleware;
 /// </summary>
 public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
 {
+    /// <summary>
+    /// Throttle bucket for an authenticated token that carries no identifying claim at all (no upn,
+    /// oid, sub, appid or azp). Every real Entra token has at least a <c>sub</c>, so this is a
+    /// fail-closed backstop rather than a live code path: such callers share one bucket instead of
+    /// escaping the limiter. Deliberately NOT "anonymous" — that value is reserved for the log
+    /// rendering of unauthenticated calls and must never become a rate-limit key again.
+    /// </summary>
+    internal const string UnidentifiedCallerBucket = "unidentified-token";
+
     private readonly ILogger<PolicyEnforcementMiddleware> _logger;
     private readonly GlobalAdminService _globalAdminService;
     private readonly DelegatedAdminService _delegatedAdminService;
@@ -215,14 +224,20 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
             TenantId = jwtTenantId,
             TargetTenantId = targetTenantId,
             // ONLY a genuine JWT UPN lands here — never the "anonymous" placeholder that
-            // decision.UserIdentifier carries on device/anonymous routes. Downstream consumers treat a
-            // non-empty UPN as "an identified user made this call": UserRateLimitMiddleware buckets on
-            // it, so the placeholder collapsed the entire agent fleet (every tenant) into one shared
-            // user_ratelimit_anonymous bucket and 429'd agent telemetry once the fleet exceeded the
-            // per-user limit. Device/bootstrap routes carry their own per-cert / per-token limit in
-            // SecurityValidator; anonymous routes limit themselves per IP. The placeholder stays on
+            // decision.UserIdentifier carries on device/anonymous routes. The placeholder used to be
+            // published here, which collapsed the entire agent fleet (every tenant) into one shared
+            // user_ratelimit_anonymous bucket and 429'd agent telemetry fleet-wide. It stays on
             // decision.UserIdentifier for log lines, where "anonymous" is the useful rendering.
             UserPrincipalName = upn ?? string.Empty,
+            // Throttle identity — NOT the same thing as the UPN. Empty only when the request carried
+            // no JWT at all (device/anonymous routes, which bring their own limits). An authenticated
+            // caller ALWAYS gets a non-empty value, including app-only tokens that carry no upn:
+            // those authenticate fine and reach every AuthenticatedUser route, so keying the throttle
+            // off the UPN alone would let them through unlimited. Fail closed if a token somehow
+            // carries no identifying claim at all — a shared bucket is the safe answer there.
+            CallerId = principal is null
+                ? string.Empty
+                : (principal.GetCallerId() ?? UnidentifiedCallerBucket),
             IsGlobalAdmin = isGlobalAdmin,
             IsGlobalReader = isGlobalReader,
             // Delegated flags reflect the caller's role for THIS request (null unless a delegated grant
