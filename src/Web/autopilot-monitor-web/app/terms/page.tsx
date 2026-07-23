@@ -1,8 +1,9 @@
 import { PublicPageHeader } from "../../components/PublicPageHeader";
+import { DOCS_URL } from "@/utils/config";
 
 const LAST_UPDATED = "21 July 2026";
-const DOCS_SECURITY_FAQ = "https://docs.autopilotmonitor.com/trust/security-faq";
-const DOCS_PLANS = "https://docs.autopilotmonitor.com/plans";
+const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
+const DOCS_PLANS = `${DOCS_URL}/plans`;
 const GITHUB_ADVISORY = "https://github.com/okieselbach/Autopilot-Monitor/security/advisories/new";
 
 export default function TermsPage() {

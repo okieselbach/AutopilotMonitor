@@ -28,6 +28,12 @@ function resolveApiBaseUrl(): string {
 /** Resolved backend API base URL (no trailing slash). */
 export const API_BASE_URL = resolveApiBaseUrl();
 
+/** Entra ID login/token authority host (no trailing slash). */
+export const ENTRA_LOGIN_BASE_URL = 'https://login.microsoftonline.com';
+
+/** Published customer documentation — base for citable search_docs links. */
+export const DOCS_BASE_URL = 'https://docs.autopilotmonitor.com';
+
 /**
  * Parse a positive-integer environment variable, falling back to `fallback`
  * for missing, non-numeric, or non-positive values. A bare `parseInt` returns

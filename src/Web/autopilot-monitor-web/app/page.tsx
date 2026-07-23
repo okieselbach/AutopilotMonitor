@@ -2,6 +2,7 @@ import { PublicSiteNavbar } from "../components/PublicSiteNavbar";
 import { AuthGate } from "../components/landing/AuthGate";
 import { LoginButton } from "../components/landing/LoginButton";
 import { PlatformStats } from "../components/landing/PlatformStats";
+import { DOCS_URL } from "@/utils/config";
 
 const QUICK_START = [
   {
@@ -818,7 +819,7 @@ export default function LandingPage() {
               <div>
                 <h4 className="text-[11px] font-semibold text-gray-900 uppercase tracking-wider mb-2.5">Resources</h4>
                 <ul className="space-y-1.5">
-                  <li><a href="https://docs.autopilotmonitor.com" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-blue-600 transition-colors">Documentation</a></li>
+                  <li><a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-blue-600 transition-colors">Documentation</a></li>
                   <li><a href="https://github.com/okieselbach/Autopilot-Monitor/issues" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-blue-600 transition-colors">Feedback</a></li>
                   <li><a href="https://github.com/okieselbach/Autopilot-Monitor" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-blue-600 transition-colors">GitHub</a></li>
                 </ul>

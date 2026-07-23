@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import withBundleAnalyzer from "@next/bundle-analyzer";
+import { API_URL_PROD, BLOB_URL_PROD, DOCS_URL, ENTRA_LOGIN_URL } from "./utils/config";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -17,7 +18,7 @@ const nextConfig: NextConfig = {
     // Documentation moved to GitBook (docs.autopilotmonitor.com). Specific
     // per-section mappings first (Next.js uses the first matching redirect),
     // then a catch-all so no old deep link ever 404s.
-    const DOCS = "https://docs.autopilotmonitor.com";
+    const DOCS = DOCS_URL;
     const docsMoves: Array<[string, string]> = [
       ["/docs/private-preview", "/getting-started/requirements-and-access"],
       ["/docs/overview", "/"],
@@ -81,7 +82,7 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https://*.tile.openstreetmap.org",
               "font-src 'self'",
-              "connect-src 'self' https://autopilotmonitor-api-eu.azurewebsites.net https://autopilotmonitoreu.blob.core.windows.net https://login.microsoftonline.com https://*.service.signalr.net wss://*.service.signalr.net https://js.monitor.azure.com https://*.in.applicationinsights.azure.com",
+              `connect-src 'self' ${API_URL_PROD} ${BLOB_URL_PROD} ${ENTRA_LOGIN_URL} https://*.service.signalr.net wss://*.service.signalr.net https://js.monitor.azure.com https://*.in.applicationinsights.azure.com`,
               "frame-ancestors 'none'",
             ].join("; "),
           },

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PublicPageHeader } from "../../components/PublicPageHeader";
+import { DOCS_URL } from "@/utils/config";
 
 const FEATURES = [
   {
@@ -295,10 +296,10 @@ export default function AboutPage() {
         <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-4">Explore Further</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-            <a href="https://docs.autopilotmonitor.com" target="_blank" rel="noopener noreferrer" className="rounded-lg border border-gray-200 px-4 py-3 hover:border-blue-300 hover:bg-blue-50/50 transition-colors text-gray-700 font-medium">
+            <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-gray-200 px-4 py-3 hover:border-blue-300 hover:bg-blue-50/50 transition-colors text-gray-700 font-medium">
               Documentation →
             </a>
-            <a href="https://docs.autopilotmonitor.com/changelog/platform-changelog" target="_blank" rel="noopener noreferrer" className="rounded-lg border border-gray-200 px-4 py-3 hover:border-blue-300 hover:bg-blue-50/50 transition-colors text-gray-700 font-medium">
+            <a href={`${DOCS_URL}/changelog/platform-changelog`} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-gray-200 px-4 py-3 hover:border-blue-300 hover:bg-blue-50/50 transition-colors text-gray-700 font-medium">
               Changelog →
             </a>
             <Link href="/privacy" className="rounded-lg border border-gray-200 px-4 py-3 hover:border-blue-300 hover:bg-blue-50/50 transition-colors text-gray-700 font-medium">

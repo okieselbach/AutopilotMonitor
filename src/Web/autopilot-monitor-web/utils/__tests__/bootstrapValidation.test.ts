@@ -3,8 +3,13 @@ import { validateBootstrapResponse } from "../bootstrapValidation";
 
 const VALID_TENANT_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
 const VALID_TOKEN = "11111111-2222-3333-4444-555555555555";
+// Legacy blob host — stays allowlisted for the customer-migration transition.
 const VALID_URL =
   "https://autopilotmonitor.blob.core.windows.net/agent/AutopilotMonitor-Agent.zip";
+
+// Download alias — what ValidateBootstrapCodeFunction serves going forward.
+const VALID_URL_ALIAS =
+  "https://download.autopilotmonitor.com/agent/AutopilotMonitor-Agent.zip";
 
 // Fixed system time so expiresAt math is deterministic
 const FIXED_NOW = new Date("2026-04-08T12:00:00.000Z").getTime();
@@ -44,6 +49,16 @@ describe("validateBootstrapResponse", () => {
         expect(result.value.tenantId).toBe(VALID_TENANT_ID);
         expect(result.value.token).toBe(VALID_TOKEN);
         expect(result.value.agentDownloadUrl).toBe(VALID_URL);
+      }
+    });
+
+    it("accepts the download-alias host (what the backend serves going forward)", () => {
+      const result = validateBootstrapResponse(
+        validResponse({ agentDownloadUrl: VALID_URL_ALIAS }),
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.agentDownloadUrl).toBe(VALID_URL_ALIAS);
       }
     });
 

@@ -1,3 +1,4 @@
+using AutopilotMonitor.Shared;
 using System.Linq;
 using System.Net;
 using System.Threading;
@@ -107,7 +108,7 @@ public class AutopilotDeviceValidationConsentFunction
         }
 
         var consentUrl =
-            $"https://login.microsoftonline.com/{Uri.EscapeDataString(requestCtx.TargetTenantId)}/adminconsent" +
+            $"{Constants.EntraLoginBaseUrl}/{Uri.EscapeDataString(requestCtx.TargetTenantId)}/adminconsent" +
             $"?client_id={Uri.EscapeDataString(validatorClientId)}" +
             $"&redirect_uri={Uri.EscapeDataString(redirectUri)}" +
             $"&state={Uri.EscapeDataString("autopilot-device-validation-enable")}";

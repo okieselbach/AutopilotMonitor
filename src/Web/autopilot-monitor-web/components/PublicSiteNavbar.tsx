@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useAuth } from "../contexts/AuthContext";
 import { useTheme } from "../contexts/ThemeContext";
 import { getPortalLoginUrl, shouldCrossOriginToPortal } from "../lib/hostRouting";
+import { DOCS_URL } from "@/utils/config";
 
 export function PublicSiteNavbar({ showSectionLinks, fullWidth = false }: { showSectionLinks: boolean; fullWidth?: boolean }) {
   const { login, isAuthenticated } = useAuth();
@@ -81,7 +82,7 @@ export function PublicSiteNavbar({ showSectionLinks, fullWidth = false }: { show
               Comparison
             </a>
             <a
-              href="https://docs.autopilotmonitor.com"
+              href={DOCS_URL}
               target="_blank"
               rel="noopener noreferrer"
               className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
@@ -116,7 +117,7 @@ export function PublicSiteNavbar({ showSectionLinks, fullWidth = false }: { show
             )}
           </button>
           <a
-            href="https://docs.autopilotmonitor.com"
+            href={DOCS_URL}
             target="_blank"
             rel="noopener noreferrer"
             className={`sm:hidden p-1.5 rounded-lg transition-colors ${

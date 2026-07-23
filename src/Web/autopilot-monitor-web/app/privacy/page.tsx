@@ -1,8 +1,9 @@
 import { PublicPageHeader } from "../../components/PublicPageHeader";
+import { DOCS_URL } from "@/utils/config";
 
 const LAST_UPDATED = "21 July 2026";
-const DOCS_SECURITY_FAQ = "https://docs.autopilotmonitor.com/trust/security-faq";
-const DOCS_DATA_FLOWS = "https://docs.autopilotmonitor.com/trust/data-flows";
+const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
+const DOCS_DATA_FLOWS = `${DOCS_URL}/trust/data-flows`;
 
 function DocsLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (

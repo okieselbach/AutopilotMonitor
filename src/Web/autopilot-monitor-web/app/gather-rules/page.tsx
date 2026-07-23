@@ -19,6 +19,7 @@ import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import { GatherRule, NewRuleForm, EMPTY_FORM, CATEGORY_COLORS, PHASE_TRIGGERS, buildScopeFields, validateScopeSelection, withDerivedScopeMode } from "./types";
 import { GatherRuleFormFields } from "./components/GatherRuleFormFields";
 import { GatherRuleCard } from "./components/GatherRuleCard";
+import { DOCS_URL } from "@/utils/config";
 
 export default function GatherRulesPage() {
   const router = useRouter();
@@ -499,7 +500,7 @@ export default function GatherRulesPage() {
                         </svg>
                         <div>
                           <h2 className="text-xl font-semibold text-gray-900">Create Custom Rule</h2>
-                          <p className="text-sm text-gray-500 mt-1">Define a new data collection rule for enrolled devices — <a href="https://docs.autopilotmonitor.com/rules/gather-rules" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">see documentation</a></p>
+                          <p className="text-sm text-gray-500 mt-1">Define a new data collection rule for enrolled devices — <a href={`${DOCS_URL}/rules/gather-rules`} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">see documentation</a></p>
                         </div>
                       </div>
                       <JsonModeToggleButtons

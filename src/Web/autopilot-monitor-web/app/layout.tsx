@@ -14,11 +14,12 @@ import FeedbackBubble from "../components/FeedbackBubble";
 import { SidebarProvider } from "../contexts/SidebarContext";
 import { GlobalSidebar } from "../components/GlobalSidebar";
 import AppInsightsInit from "../components/AppInsightsInit";
+import { SITE_URL } from "@/utils/config";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://www.autopilotmonitor.com"),
+  metadataBase: new URL(SITE_URL),
   title: {
     absolute: "AutopilotMonitor – Real-Time Windows Enrollment Monitoring",
     default: "AutopilotMonitor",
@@ -47,7 +48,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: "https://www.autopilotmonitor.com",
+    url: SITE_URL,
     siteName: "AutopilotMonitor",
     title: "AutopilotMonitor – Real-Time Windows Enrollment Monitoring",
     description:
@@ -60,7 +61,7 @@ export const metadata: Metadata = {
       "Real-time monitoring and troubleshooting for Windows Autopilot deployments. Track every enrollment phase, detect issues automatically, and resolve failures faster.",
   },
   alternates: {
-    canonical: "https://www.autopilotmonitor.com",
+    canonical: SITE_URL,
   },
   verification: {
     google: "qqIx6VoSjaNL-Idu78il6i3n76_ax9OUT44saxaGyac",
@@ -98,7 +99,7 @@ const jsonLd = {
     name: "Oliver Kieselbach",
     url: "https://www.linkedin.com/in/oliver-kieselbach/",
   },
-  url: "https://www.autopilotmonitor.com",
+  url: SITE_URL,
   codeRepository: "https://github.com/okieselbach/Autopilot-Monitor",
   keywords:
     "Windows Autopilot, Intune, enrollment monitoring, autopilot troubleshooting, Windows deployment",

@@ -11,9 +11,46 @@
  * 2. Default: http://localhost:7071 (local development)
  *
  * Production: Set NEXT_PUBLIC_API_BASE_URL in your environment
- * Example: https://autopilot-monitor-api.azurewebsites.net
+ * Example: https://autopilotmonitor-api-eu.azurewebsites.net
  */
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:7071";
+
+/**
+ * Well-known base URLs — single registry (counterpart of Constants.cs on the
+ * C# side). Every own or Microsoft host used in code MUST reference these
+ * constants instead of repeating the literal; hardcodedUrls.guard.test.ts
+ * enforces this. The EU cutover missed hardcoded copies of the blob host
+ * precisely because they did not go through a registry.
+ */
+
+/** Published customer documentation. */
+export const DOCS_URL = "https://docs.autopilotmonitor.com";
+
+/** Public marketing/product website (also feeds metadataBase/sitemap/robots). */
+export const SITE_URL = "https://www.autopilotmonitor.com";
+
+/** Customer portal (deep links rendered into generated bootstrap scripts). */
+export const PORTAL_URL = "https://portal.autopilotmonitor.com";
+
+/** Entra ID login/token authority host (no trailing slash). */
+export const ENTRA_LOGIN_URL = "https://login.microsoftonline.com";
+
+/** Production backend origin (CSP connect-src + server-side env fallback). */
+export const API_URL_PROD = "https://autopilotmonitor-api-eu.azurewebsites.net";
+
+/** Production blob origin (CSP connect-src: diagnostics SAS uploads). */
+export const BLOB_URL_PROD = "https://autopilotmonitoreu.blob.core.windows.net";
+
+/**
+ * Hostnames the portal accepts in a bootstrap response's agentDownloadUrl.
+ * Keep in sync with ValidateBootstrapCodeFunction.cs, which builds that URL
+ * from Constants.AgentDownloadBaseUrl. The legacy blob host stays allowlisted
+ * until the customer migration to the download alias is complete.
+ */
+export const AGENT_DOWNLOAD_HOSTNAMES = [
+  "download.autopilotmonitor.com",
+  "autopilotmonitor.blob.core.windows.net",
+] as const;
 
 /**
  * Cache durations (in milliseconds)

@@ -1,3 +1,4 @@
+using AutopilotMonitor.Shared;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -29,7 +30,7 @@ namespace AutopilotMonitor.Functions.Services
     /// </summary>
     public class SlaBreachEvaluationService
     {
-        private const string DashboardUrl = "https://www.autopilotmonitor.com/sla";
+        private const string DashboardUrl = Constants.WebsiteBaseUrl + "/sla";
         private const int MaxConflictRetries = 4;
         private const int MinAppInstallSampleSize = 5;
 

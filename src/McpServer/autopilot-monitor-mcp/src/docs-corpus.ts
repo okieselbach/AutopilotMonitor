@@ -23,9 +23,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import type { SearchDocument } from './search-provider.js';
-
-/** Published base URL of the bundle — used to build a citable link per chunk. */
-const DOCS_BASE_URL = 'https://docs.autopilotmonitor.com';
+import { DOCS_BASE_URL } from './config.js';
 
 /**
  * Upper bound on chunk text. MiniLM-L6-v2's 256-token window is roughly 1000-1200

@@ -1,3 +1,4 @@
+using AutopilotMonitor.Shared;
 using System.Net;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
@@ -351,7 +352,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 if (startChannels.Count == 0)
                     return;
 
-                var sessionUrl = $"https://portal.autopilotmonitor.com/sessions/{sessionId}";
+                var sessionUrl = $"{Constants.PortalBaseUrl}/sessions/{sessionId}";
                 var alert = NotificationAlertBuilder.BuildEnrollmentStartedAlert(
                     session.DeviceName,
                     session.SerialNumber,

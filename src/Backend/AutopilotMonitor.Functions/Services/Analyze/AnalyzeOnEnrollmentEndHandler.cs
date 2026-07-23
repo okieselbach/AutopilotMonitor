@@ -1,3 +1,4 @@
+using AutopilotMonitor.Shared;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -176,7 +177,7 @@ namespace AutopilotMonitor.Functions.Services.Analyze
                     return;
 
                 var session = await _sessionRepo.GetSessionAsync(envelope.TenantId, envelope.SessionId).ConfigureAwait(false);
-                var sessionUrl = $"https://portal.autopilotmonitor.com/sessions/{envelope.SessionId}";
+                var sessionUrl = $"{Constants.PortalBaseUrl}/sessions/{envelope.SessionId}";
 
                 foreach (var (result, rule) in candidates)
                 {

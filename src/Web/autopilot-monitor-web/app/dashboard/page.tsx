@@ -23,6 +23,7 @@ import { delegatedScopedTenantList, upnDomain } from "@/utils/homeTenantScope";
 import { useDashboardFilters } from "./hooks/useDashboardFilters";
 import { useDashboardSessions } from "./hooks/useDashboardSessions";
 import { useDashboardStats } from "./hooks/useDashboardStats";
+import { DOCS_URL } from "@/utils/config";
 
 export default function Home() {
   // useSearchParams() in HomeContent requires a Suspense boundary for static prerender.
@@ -293,7 +294,7 @@ function HomeContent() {
               The platform is under active development.{" "}
               If something looks off, check the{" "}
               <a
-                href="https://docs.autopilotmonitor.com/changelog/platform-changelog"
+                href={`${DOCS_URL}/changelog/platform-changelog`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline font-medium hover:text-blue-600 dark:hover:text-blue-200"
@@ -302,7 +303,7 @@ function HomeContent() {
               </a>{" "}
               or{" "}
               <a
-                href="https://docs.autopilotmonitor.com/troubleshooting/service-announcements"
+                href={`${DOCS_URL}/troubleshooting/service-announcements`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline font-medium hover:text-blue-600 dark:hover:text-blue-200"

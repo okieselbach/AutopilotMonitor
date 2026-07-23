@@ -1,3 +1,4 @@
+using AutopilotMonitor.Shared;
 using System;
 using System.Linq;
 using System.Net.Http.Headers;
@@ -119,7 +120,7 @@ namespace AutopilotMonitor.Functions.Security
                 // Use contains for server-side narrowing, then perform exact match client-side.
                 var escapedSerial = normalizedSerial.Replace("'", "''");
                 var filter = Uri.EscapeDataString($"contains(serialNumber,'{escapedSerial}')");
-                var graphUrl = $"https://graph.microsoft.com/v1.0/deviceManagement/windowsAutopilotDeviceIdentities?$top=100&$filter={filter}";
+                var graphUrl = $"{Constants.GraphBaseUrl}/v1.0/deviceManagement/windowsAutopilotDeviceIdentities?$top=100&$filter={filter}";
 
                 var response = await graphClient.GetAsync(graphUrl);
                 var responseBody = await response.Content.ReadAsStringAsync();

@@ -83,6 +83,28 @@ namespace AutopilotMonitor.Shared
         public const string McpServerBaseUrl = "https://mcp.autopilotmonitor.com";
 
         // -----------------------------------------------------------------------
+        // Well-known base URLs — single registry. Every own or Microsoft host used
+        // in code MUST reference these constants instead of repeating the literal;
+        // HardcodedUrlGuardTests enforces this. The EU cutover missed two copies of
+        // the blob host precisely because they did not go through this file.
+        // -----------------------------------------------------------------------
+
+        /// <summary>Customer portal (deep links in notifications and e-mails).</summary>
+        public const string PortalBaseUrl = "https://portal.autopilotmonitor.com";
+
+        /// <summary>Public marketing/product website.</summary>
+        public const string WebsiteBaseUrl = "https://www.autopilotmonitor.com";
+
+        /// <summary>Published customer documentation.</summary>
+        public const string DocsBaseUrl = "https://docs.autopilotmonitor.com";
+
+        /// <summary>Microsoft Graph API root (no version segment).</summary>
+        public const string GraphBaseUrl = "https://graph.microsoft.com";
+
+        /// <summary>Entra ID (Azure AD) login/token authority host (no trailing slash).</summary>
+        public const string EntraLoginBaseUrl = "https://login.microsoftonline.com";
+
+        // -----------------------------------------------------------------------
         // Agent self-update
         // -----------------------------------------------------------------------
 

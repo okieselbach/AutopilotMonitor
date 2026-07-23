@@ -1,3 +1,4 @@
+using AutopilotMonitor.Shared;
 using System;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -132,7 +133,7 @@ namespace AutopilotMonitor.Functions.Security
                     Encoding.UTF8,
                     "application/json");
 
-                var graphUrl = "https://graph.microsoft.com/beta/deviceManagement/importedDeviceIdentities/searchExistingIdentities";
+                var graphUrl = Constants.GraphBaseUrl + "/beta/deviceManagement/importedDeviceIdentities/searchExistingIdentities";
                 var response = await graphClient.PostAsync(graphUrl, content);
                 var responseBody = await response.Content.ReadAsStringAsync();
 

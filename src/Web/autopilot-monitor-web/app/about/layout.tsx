@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { SITE_URL } from "@/utils/config";
 
 export const metadata: Metadata = {
   title: "About – Real-Time Windows Autopilot Monitoring",
@@ -28,7 +29,7 @@ export const metadata: Metadata = {
     title: "About AutopilotMonitor – Real-Time Windows Autopilot Monitoring",
     description:
       "Free, open-source real-time monitoring and troubleshooting for Windows Autopilot enrollments. Track every phase, run analyze rules, and resolve issues faster — built by Oliver Kieselbach.",
-    url: "https://www.autopilotmonitor.com/about",
+    url: `${SITE_URL}/about`,
   },
   twitter: {
     title: "About AutopilotMonitor – Real-Time Windows Autopilot Monitoring",
@@ -36,7 +37,7 @@ export const metadata: Metadata = {
       "Free, open-source real-time monitoring and troubleshooting for Windows Autopilot enrollments. Track every phase, run analyze rules, and resolve issues faster.",
   },
   alternates: {
-    canonical: "https://www.autopilotmonitor.com/about",
+    canonical: `${SITE_URL}/about`,
   },
 };
 

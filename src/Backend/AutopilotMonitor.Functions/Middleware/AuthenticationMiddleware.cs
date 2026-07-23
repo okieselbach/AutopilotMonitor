@@ -1,3 +1,4 @@
+using AutopilotMonitor.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Azure.Functions.Worker.Middleware;
@@ -260,8 +261,8 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
     {
         var isV1Token = issuer != null && issuer.Contains("sts.windows.net");
         return isV1Token
-            ? $"https://login.microsoftonline.com/{tenantId}"        // v1.0
-            : $"https://login.microsoftonline.com/{tenantId}/v2.0";  // v2.0
+            ? $"{Constants.EntraLoginBaseUrl}/{tenantId}"        // v1.0
+            : $"{Constants.EntraLoginBaseUrl}/{tenantId}/v2.0";  // v2.0
     }
 
     /// <summary>
@@ -284,7 +285,7 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
             ValidateIssuer = true,
             IssuerValidator = (iss, token, parameters) =>
             {
-                if (iss.StartsWith("https://login.microsoftonline.com/") ||
+                if (iss.StartsWith(Constants.EntraLoginBaseUrl + "/") ||
                     iss.StartsWith("https://sts.windows.net/"))
                 {
                     return iss;

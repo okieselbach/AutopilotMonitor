@@ -1,3 +1,4 @@
+using AutopilotMonitor.Shared;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -37,7 +38,7 @@ public sealed class ScriptDisplayNameResolver : IScriptDisplayNameResolver
     /// </summary>
     internal static readonly TimeSpan TokenAcquireBudget = TimeSpan.FromMilliseconds(1500);
 
-    private const string GraphBetaBase = "https://graph.microsoft.com/beta";
+    private const string GraphBetaBase = Constants.GraphBaseUrl + "/beta";
     private const int PageSize = 100;
 
     private readonly IGraphFeatureDetector _detector;

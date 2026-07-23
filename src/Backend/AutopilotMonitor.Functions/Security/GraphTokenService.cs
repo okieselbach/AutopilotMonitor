@@ -1,3 +1,4 @@
+using AutopilotMonitor.Shared;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -169,7 +170,7 @@ namespace AutopilotMonitor.Functions.Security
             // while this POST is in flight, the generation changes and the token we cache below is
             // tagged with the now-stale value — so readers reject it and re-mint fresh.
             var genAtStart = CurrentGen(tenantId);
-            var tokenUrl = $"https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/token";
+            var tokenUrl = $"{Constants.EntraLoginBaseUrl}/{tenantId}/oauth2/v2.0/token";
 
             // Retry with backoff to handle Azure AD consent propagation delays.
             // After admin consent is granted, the service principal may not be immediately
@@ -196,7 +197,7 @@ namespace AutopilotMonitor.Functions.Security
                     {
                         ["client_id"] = clientId,
                         ["client_secret"] = clientSecret,
-                        ["scope"] = "https://graph.microsoft.com/.default",
+                        ["scope"] = Constants.GraphBaseUrl + "/.default",
                         ["grant_type"] = "client_credentials"
                     });
 

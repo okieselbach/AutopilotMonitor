@@ -370,7 +370,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         {
             try
             {
-                var versionUrl = $"{Constants.AgentBlobBaseUrl}/{Constants.AgentVersionFileNameForLine(2)}";
+                // Download alias, not the legacy blob account: the legacy mirror in the
+                // release pipeline is fail-soft, so it can silently lag behind eu.
+                var versionUrl = $"{Constants.AgentDownloadBaseUrl}/{Constants.AgentVersionFileNameForLine(2)}";
 
                 using (var handler = new HttpClientHandler())
                 using (var client = new HttpClient(handler) { Timeout = TimeSpan.FromMilliseconds(VersionCheckTimeoutMs) })
@@ -497,7 +499,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         {
             try
             {
-                var zipUrl = $"{Constants.AgentBlobBaseUrl}/{Constants.AgentZipFileNameForLine(2)}";
+                var zipUrl = $"{Constants.AgentDownloadBaseUrl}/{Constants.AgentZipFileNameForLine(2)}";
 
                 // Clean up any previous download (fragment from aborted run, or symlink/junction).
                 // Pre-delete + FileMode.CreateNew below: CreateNew refuses to open an existing

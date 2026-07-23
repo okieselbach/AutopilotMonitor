@@ -92,7 +92,9 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                     Success = true,
                     TenantId = session.TenantId,
                     Token = session.Token,
-                    AgentDownloadUrl = "https://autopilotmonitor.blob.core.windows.net/agent/AutopilotMonitor-Agent.zip",
+                    // Download alias — the portal's bootstrapValidation.ts allowlists this
+                    // host (plus the legacy blob host for transition); keep the two in sync.
+                    AgentDownloadUrl = $"{Constants.AgentDownloadBaseUrl}/{Constants.AgentZipFileName}",
                     ExpiresAt = session.ExpiresAt,
                     Message = "Bootstrap code validated"
                 };

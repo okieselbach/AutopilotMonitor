@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using AutopilotMonitor.Shared;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
@@ -27,7 +28,10 @@ namespace AutopilotMonitor.Functions.Services
 
     public sealed class LatestVersionsService : ILatestVersionsService
     {
-        public const string VersionJsonUrl = "https://autopilotmonitor.blob.core.windows.net/agent/version.json";
+        // Download alias (Front Door → current blob origin) — NOT the legacy blob
+        // account. The legacy mirror in build-agent.yml is fail-soft, so reading from
+        // it could silently serve a stale version while the release pipeline is green.
+        public const string VersionJsonUrl = Constants.AgentDownloadBaseUrl + "/" + Constants.AgentVersionFileName;
         private const string CacheKey = "latest-versions";
         private static readonly TimeSpan CacheDuration = TimeSpan.FromHours(12);
         private static readonly TimeSpan FailureCacheDuration = TimeSpan.FromMinutes(5);

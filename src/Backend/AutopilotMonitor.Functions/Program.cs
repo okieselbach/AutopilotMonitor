@@ -104,7 +104,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     options =>
     {
         // Multi-Tenant Configuration
-        options.Instance = "https://login.microsoftonline.com/";
+        // Fully qualified: Microsoft.Identity.Web also exports a 'Constants' type.
+        options.Instance = AutopilotMonitor.Shared.Constants.EntraLoginBaseUrl + "/";
         options.TenantId = "organizations"; // Accept tokens from any Azure AD tenant
         options.ClientId = builder.Configuration["EntraId:ClientId"];
 
@@ -117,7 +118,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuerSigningKey = true,
             ValidIssuers = new[]
             {
-                "https://login.microsoftonline.com/organizations/v2.0",
+                AutopilotMonitor.Shared.Constants.EntraLoginBaseUrl + "/organizations/v2.0",
                 "https://sts.windows.net/{tenantid}/"
             },
             // Temporarily accept Microsoft Graph tokens (used by frontend with User.Read scope)

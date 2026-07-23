@@ -45,10 +45,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         /// </summary>
         private static readonly (string Name, string Url)[] MdmEndpoints =
         {
-            ("Entra ID", "https://login.microsoftonline.com"),
+            ("Entra ID", Constants.EntraLoginBaseUrl),
             ("Device Registration", "https://enterpriseregistration.windows.net"),
             ("Intune Portal", "https://portal.manage.microsoft.com"),
-            ("Microsoft Graph", "https://graph.microsoft.com"),
+            ("Microsoft Graph", Constants.GraphBaseUrl),
         };
 
         public NetworkChangeDetector(

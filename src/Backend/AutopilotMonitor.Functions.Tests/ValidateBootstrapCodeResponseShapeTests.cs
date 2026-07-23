@@ -64,22 +64,26 @@ public class ValidateBootstrapCodeResponseShapeTests
     }
 
     /// <summary>
-    /// The hardcoded agent download URL in <c>ValidateBootstrapCodeFunction</c> must
+    /// The agent download URL served by <c>ValidateBootstrapCodeFunction</c> must
     /// satisfy the frontend's host allow-list and path regex.
     /// </summary>
     [Fact]
     public void AgentDownloadUrl_MatchesFrontendAllowList()
     {
-        // Keep in sync with ValidateBootstrapCodeFunction.cs — if that literal
-        // changes, both this assertion and bootstrapValidation.ts must be updated.
-        const string HardcodedAgentUrl =
-            "https://autopilotmonitor.blob.core.windows.net/agent/AutopilotMonitor-Agent.zip";
+        // Independent oracle, deliberately spelled out: if Constants or the function
+        // change the URL, this literal AND bootstrapValidation.ts (AGENT_DOWNLOAD_HOSTNAMES)
+        // must be updated consciously — that pairing is what keeps portal and backend in sync.
+        const string ExpectedAgentUrl =
+            "https://download.autopilotmonitor.com/agent/AutopilotMonitor-Agent.zip";
 
-        Assert.True(Uri.TryCreate(HardcodedAgentUrl, UriKind.Absolute, out var uri),
+        var built = $"{AutopilotMonitor.Shared.Constants.AgentDownloadBaseUrl}/{AutopilotMonitor.Shared.Constants.AgentZipFileName}";
+        Assert.Equal(ExpectedAgentUrl, built);
+
+        Assert.True(Uri.TryCreate(built, UriKind.Absolute, out var uri),
             "AgentDownloadUrl is not a well-formed absolute URI");
 
         Assert.Equal(Uri.UriSchemeHttps, uri!.Scheme);
-        Assert.Equal("autopilotmonitor.blob.core.windows.net", uri.Host);
+        Assert.Equal("download.autopilotmonitor.com", uri.Host);
         Assert.True(AgentDownloadUrlPath.IsMatch(uri.AbsolutePath),
             $"AgentDownloadUrl path '{uri.AbsolutePath}' does not match the frontend allow-list regex");
     }

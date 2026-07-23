@@ -4,6 +4,7 @@ using System.Net;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
@@ -92,7 +93,9 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 {
                     Success = true,
                     ShortCode = session.ShortCode,
-                    BootstrapUrl = $"https://autopilotmonitor.com/go/{session.ShortCode}",
+                    // www directly — the bare apex is only a registrar-level 301 to www,
+                    // so pointing there just adds a redirect hop for every bootstrap.
+                    BootstrapUrl = $"{Constants.WebsiteBaseUrl}/go/{session.ShortCode}",
                     ExpiresAt = session.ExpiresAt,
                     Message = $"Bootstrap session created. Valid for {validityHours} hours."
                 };

@@ -1,3 +1,4 @@
+using AutopilotMonitor.Shared;
 using System;
 using System.Linq;
 using System.Net.Http;
@@ -118,7 +119,7 @@ namespace AutopilotMonitor.Functions.Security
                 var escapedSerial = normalizedSerial.Replace("'", "''");
                 var filter = Uri.EscapeDataString($"contains(serialNumber,'{escapedSerial}')");
                 var orderby = Uri.EscapeDataString("preAssociationDateTime desc");
-                var graphUrl = "https://graph.microsoft.com/beta/deviceManagement/tenantAssociatedDevices"
+                var graphUrl = Constants.GraphBaseUrl + "/beta/deviceManagement/tenantAssociatedDevices"
                                + $"?$top=25&$filter={filter}&$orderby={orderby}";
 
                 var response = await graphClient.GetAsync(graphUrl);

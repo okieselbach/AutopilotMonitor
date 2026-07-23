@@ -19,7 +19,7 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import { oauthRateLimit, oauthTokenRateLimit } from './access-guard.js';
-import { getPublicBaseUrl } from './config.js';
+import { ENTRA_LOGIN_BASE_URL, getPublicBaseUrl } from './config.js';
 
 const CLIENT_ID: string = (() => {
   const v = process.env.AUTOPILOT_ENTRA_CLIENT_ID;
@@ -32,7 +32,7 @@ const CLIENT_ID: string = (() => {
   return v;
 })();
 const CLIENT_SECRET = process.env.AUTOPILOT_ENTRA_CLIENT_SECRET ?? '';
-const AUTHORITY = process.env.AUTOPILOT_ENTRA_AUTHORITY ?? 'https://login.microsoftonline.com/organizations';
+const AUTHORITY = process.env.AUTOPILOT_ENTRA_AUTHORITY ?? `${ENTRA_LOGIN_BASE_URL}/organizations`;
 const SCOPES = `api://${CLIENT_ID}/access_as_user openid profile offline_access`;
 
 // Dynamic client registration (RFC 7591) is STATELESS: instead of a

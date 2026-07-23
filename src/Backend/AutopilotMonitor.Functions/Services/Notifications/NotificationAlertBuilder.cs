@@ -1,3 +1,4 @@
+using AutopilotMonitor.Shared;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -167,7 +168,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
                 },
                 Actions = new List<NotificationAction>
                 {
-                    new() { Type = "openUrl", Title = "Open Autopilot Monitor", Url = "https://portal.autopilotmonitor.com" },
+                    new() { Type = "openUrl", Title = "Open Autopilot Monitor", Url = Constants.PortalBaseUrl },
                 },
             };
         }

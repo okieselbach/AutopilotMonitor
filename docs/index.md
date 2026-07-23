@@ -13,6 +13,7 @@ https://docs.autopilotmonitor.com (separate repository).
 
 * [Architecture Guide](architecture.md) - High-level architecture overview and solution layout for contributors.
 * [Version Contract](versioning.md) - One version shape for agent, backend and MCP: the ETag-CAS counter blob that mints build numbers, and the manifests published only after a deploy is verified live.
+* [URL Registry](url-registry.md) - Every well-known host lives in one registry file per component (Constants.cs / utils/config.ts / src/config.ts), enforced by guard tests; includes the agent-download migration to the download alias and its deploy-order constraint.
 
 # Agent
 

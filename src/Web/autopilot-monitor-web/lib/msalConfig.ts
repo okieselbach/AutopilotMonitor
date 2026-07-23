@@ -1,4 +1,5 @@
 import { Configuration, LogLevel, RedirectRequest } from "@azure/msal-browser";
+import { ENTRA_LOGIN_URL } from "@/utils/config";
 
 /**
  * MSAL Configuration for Multi-Tenant Azure AD Authentication
@@ -23,7 +24,7 @@ const resolveRedirectUri = (fallback: string | undefined): string => {
 export const msalConfig: Configuration = {
   auth: {
     clientId: process.env.NEXT_PUBLIC_ENTRA_CLIENT_ID || "YOUR_CLIENT_ID_HERE",
-    authority: "https://login.microsoftonline.com/organizations", // Multi-tenant
+    authority: `${ENTRA_LOGIN_URL}/organizations`, // Multi-tenant
     redirectUri: resolveRedirectUri(process.env.NEXT_PUBLIC_ENTRA_REDIRECT_URI),
     postLogoutRedirectUri: resolveRedirectUri(process.env.NEXT_PUBLIC_ENTRA_POST_LOGOUT_REDIRECT_URI),
     navigateToLoginRequestUrl: false,

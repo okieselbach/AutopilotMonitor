@@ -11,6 +11,7 @@
  */
 
 import { isGuid } from "./inputValidation";
+import { AGENT_DOWNLOAD_HOSTNAMES } from "./config";
 
 export interface ValidatedBootstrapResponse {
   tenantId: string;
@@ -38,7 +39,11 @@ const ISO_8601_RE =
 
 const AGENT_PATH_RE = /^\/agent\/[A-Za-z0-9_-][A-Za-z0-9._-]{0,79}\.zip$/;
 
-const AGENT_HOSTNAME = "autopilotmonitor.blob.core.windows.net";
+// Both the download alias (what the backend serves going forward) and the
+// legacy blob host (transition; bootstrap scripts already deployed in customer
+// tenants). Single registry in utils/config.ts — mirrored on the C# side by
+// Constants.AgentDownloadBaseUrl / Constants.AgentBlobBaseUrl.
+const AGENT_HOSTNAMES: readonly string[] = AGENT_DOWNLOAD_HOSTNAMES;
 
 const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
 
@@ -67,7 +72,7 @@ function isValidAgentDownloadUrl(value: string): boolean {
     return false;
   }
   if (url.protocol !== "https:") return false;
-  if (url.hostname !== AGENT_HOSTNAME) return false;
+  if (!AGENT_HOSTNAMES.includes(url.hostname)) return false;
   if (url.username !== "" || url.password !== "") return false;
   if (url.port !== "") return false;
   if (url.search !== "" || url.hash !== "") return false;

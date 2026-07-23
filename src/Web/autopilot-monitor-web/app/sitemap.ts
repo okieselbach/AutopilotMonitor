@@ -1,7 +1,8 @@
 import type { MetadataRoute } from "next";
 import { PAGE_LASTMOD } from "@/utils/page-lastmod.generated";
+import { SITE_URL } from "@/utils/config";
 
-const BASE_URL = "https://www.autopilotmonitor.com";
+const BASE_URL = SITE_URL;
 
 function lastmod(urlPath: string): Date {
   const iso = PAGE_LASTMOD[urlPath];

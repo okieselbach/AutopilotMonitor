@@ -10,6 +10,7 @@ import { DefaultSectionIcon, BookOpenIcon, InformationCircleIcon, DocumentTextIc
 import { DASHBOARD_ITEM, NAV_GROUPS, EXPANDABLE_NAV_GROUPS, REGULAR_USER_ITEMS, NavItem, NavGroup, ExpandableNavGroup, ExpandableNavItem } from "../lib/globalNavConfig";
 import { PublicSiteNavbar } from "./PublicSiteNavbar";
 import { useAdminMode } from "../hooks/useAdminMode";
+import { DOCS_URL } from "@/utils/config";
 
 // Sidebar pixel widths
 export const SIDEBAR_PX: Record<CollapseState, number> = {
@@ -596,7 +597,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
           </ul>
           <div className={`${collapseState === "full" || isMobile ? "mt-3" : "mt-1"}`}>
             <ul className="space-y-0.5">
-              {renderGlobalItem({ id: "docs", label: "Docs", href: "https://docs.autopilotmonitor.com", icon: <BookOpenIcon /> })}
+              {renderGlobalItem({ id: "docs", label: "Docs", href: DOCS_URL, icon: <BookOpenIcon /> })}
               {renderGlobalItem({ id: "about", label: "About", href: "/about", icon: <InformationCircleIcon /> })}
               {renderGlobalItem({ id: "terms", label: "Terms", href: "/terms", icon: <DocumentTextIcon /> })}
               {renderGlobalItem({ id: "privacy", label: "Privacy", href: "/privacy", icon: <ShieldCheckIcon /> })}

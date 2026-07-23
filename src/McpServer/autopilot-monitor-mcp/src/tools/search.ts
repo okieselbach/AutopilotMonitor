@@ -6,6 +6,7 @@ import type { SearchProvider, DocsSearchBundle } from '../search-provider.js';
 import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 import { ALL_EVENT_TYPES } from '../resource-catalog.js';
+import { DOCS_BASE_URL } from '../config.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -1230,7 +1231,7 @@ export function registerSearchTools(
         title: 'Search Product Documentation',
         description:
           'PRODUCT DOCUMENTATION SEARCH — the published Autopilot Monitor customer documentation ' +
-          '(docs.autopilotmonitor.com), chunked by section and ranked semantically. ' +
+          `(${DOCS_BASE_URL}), chunked by section and ranked semantically. ` +
           'Use this for questions about how the PRODUCT works rather than what a specific enrollment did: ' +
           'setup and onboarding, agent deployment, portal features, roles and permissions, settings, ' +
           'notifications, network endpoints, security/privacy/data-residency, plans, and troubleshooting guidance. ' +

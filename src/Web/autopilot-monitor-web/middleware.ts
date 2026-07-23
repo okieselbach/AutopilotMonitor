@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { APEX_HOST, PORTAL_HOST, PUBLIC_HOST } from "@/lib/hostRouting";
 
 /**
  * Host-based routing for the public/portal split.
@@ -20,9 +21,6 @@ import type { NextRequest } from "next/server";
  * branches, so the middleware passes through unchanged.
  */
 
-const PUBLIC_HOST = "www.autopilotmonitor.com";
-const PORTAL_HOST = "portal.autopilotmonitor.com";
-const APEX_HOST = "autopilotmonitor.com";
 
 const PUBLIC_PATH_PREFIXES = [
   "/about",

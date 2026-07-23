@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { SITE_URL } from "@/utils/config";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
@@ -8,10 +9,10 @@ export const metadata: Metadata = {
     title: "Privacy Policy | AutopilotMonitor",
     description:
       "Privacy Policy for Autopilot Monitor. Learn how we collect, store, and protect your data.",
-    url: "https://www.autopilotmonitor.com/privacy",
+    url: `${SITE_URL}/privacy`,
   },
   alternates: {
-    canonical: "https://www.autopilotmonitor.com/privacy",
+    canonical: `${SITE_URL}/privacy`,
   },
   robots: {
     index: true,

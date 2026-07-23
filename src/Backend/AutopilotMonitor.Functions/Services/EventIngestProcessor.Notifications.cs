@@ -1,3 +1,4 @@
+using AutopilotMonitor.Shared;
 using System.Linq;
 using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Shared.Models;
@@ -35,7 +36,7 @@ namespace AutopilotMonitor.Functions.Services
                 return;
 
             var sessionUrl = updatedSession != null
-                ? $"https://portal.autopilotmonitor.com/sessions/{request.SessionId}"
+                ? $"{Constants.PortalBaseUrl}/sessions/{request.SessionId}"
                 : null;
 
             // A failure alert requires an actual failure-ish verdict: an agent_timeout

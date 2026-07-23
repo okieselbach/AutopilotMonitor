@@ -8,11 +8,15 @@
  * Middleware enforces these boundaries server-side; helpers here let
  * client components nudge users to the right host before MSAL fires,
  * so we avoid bouncing through two MSAL flows during sign-in.
+ *
+ * Hostnames are derived from the URL registry in utils/config.ts — this file
+ * adds the routing semantics, not a second copy of the hosts.
  */
+import { PORTAL_URL, SITE_URL } from "@/utils/config";
 
-export const PUBLIC_HOST = "www.autopilotmonitor.com";
-export const PORTAL_HOST = "portal.autopilotmonitor.com";
-export const APEX_HOST = "autopilotmonitor.com";
+export const PUBLIC_HOST = new URL(SITE_URL).hostname;
+export const PORTAL_HOST = new URL(PORTAL_URL).hostname;
+export const APEX_HOST = PUBLIC_HOST.replace(/^www\./, "");
 
 export const DEFAULT_PORTAL_LANDING = "/dashboard";
 

@@ -1,9 +1,9 @@
 import { validateBootstrapResponse } from "@/utils/bootstrapValidation";
+import { API_URL_PROD, PORTAL_URL } from "@/utils/config";
 
 export const runtime = "nodejs";
 
-const BACKEND_API_URL =
-  process.env.BACKEND_API_URL ?? "https://autopilotmonitor-api-eu.azurewebsites.net";
+const BACKEND_API_URL = process.env.BACKEND_API_URL ?? API_URL_PROD;
 
 export async function GET(
   _req: Request,
@@ -189,7 +189,7 @@ try {
     }
 
     Write-Log "===== OOBE Bootstrap Complete ====="
-    Write-Log "Agent is now monitoring. View progress at https://portal.autopilotmonitor.com"
+    Write-Log "Agent is now monitoring. View progress at ${PORTAL_URL}"
     Write-Log ""
     Write-Log "The agent will:"
     Write-Log "  - Monitor enrollment from the very start"
@@ -198,7 +198,7 @@ try {
 
     Write-Host ""
     Write-Host "Autopilot Monitor agent installed successfully!" -ForegroundColor Green
-    Write-Host "View enrollment progress at https://portal.autopilotmonitor.com" -ForegroundColor Cyan
+    Write-Host "View enrollment progress at ${PORTAL_URL}" -ForegroundColor Cyan
     Write-Host ""
 }
 catch {

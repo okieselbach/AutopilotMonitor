@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { SITE_URL } from "@/utils/config";
 
 export const metadata: Metadata = {
   title: "Terms of Use",
@@ -7,10 +8,10 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Terms of Use | AutopilotMonitor",
     description: "Terms of Use for Autopilot Monitor. Read the usage terms, conditions, and acceptable use policies for the monitoring platform.",
-    url: "https://www.autopilotmonitor.com/terms",
+    url: `${SITE_URL}/terms`,
   },
   alternates: {
-    canonical: "https://www.autopilotmonitor.com/terms",
+    canonical: `${SITE_URL}/terms`,
   },
   robots: {
     index: true,

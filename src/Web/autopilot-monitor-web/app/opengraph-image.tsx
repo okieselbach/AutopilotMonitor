@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { PUBLIC_HOST } from "@/lib/hostRouting";
 
 export const alt = "AutopilotMonitor – Real-Time Windows Enrollment Monitoring";
 export const size = { width: 1200, height: 630 };
@@ -81,7 +82,7 @@ export default async function Image() {
             letterSpacing: "1px",
           }}
         >
-          www.autopilotmonitor.com
+          {PUBLIC_HOST}
         </div>
       </div>
     ),
