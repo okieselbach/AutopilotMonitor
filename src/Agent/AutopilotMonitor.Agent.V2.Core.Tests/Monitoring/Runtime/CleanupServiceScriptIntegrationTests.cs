@@ -15,7 +15,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Runtime
     ///   <item>a locked tree must abort WITHOUT deleting anything (old script force-deleted
     ///     marker + state around the locks and orphaned the binaries),</item>
     ///   <item>a straggler agent process (the incident's second instance) must be found by
-    ///     NAME, killed, and the cleanup must then complete,</item>
+    ///     NAME, killed, and the cleanup must then complete — simulated via function
+    ///     shadowing, NEVER by launching a renamed executable (EDR isolation, see the test),</item>
     ///   <item>concurrent cleanup scripts must be serialized by the lock file.</item>
     /// </list>
     /// Timings are dialed down via the test-only BuildCleanupScript parameters so each case
@@ -111,60 +112,55 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Runtime
         }
 
         [Fact]
-        public void Straggler_process_holding_the_tree_is_killed_and_cleanup_completes()
+        public void Straggler_agent_process_is_waited_on_and_force_killed_via_name_backstop()
         {
-            // Full incident replay: a SECOND agent-named process (here: a renamed
-            // powershell.exe, matching how only the process NAME identifies agents) holds a
-            // file in the tree open. The old script waited on the launcher PID only and ran
-            // its force-delete against the live locks. The hardened script must find the
-            // straggler by name, kill it after the wait deadline, and then delete everything.
-            var fakeExe = Path.Combine(_root, _fakeProcessName + ".exe");
-            File.Copy(SystemPaths.PowerShell, fakeExe);
+            // Incident replay of the second-instance mechanics WITHOUT spawning a process:
+            // an earlier version of this test copied powershell.exe under the fake agent name
+            // and launched it — textbook MITRE T1036.003 ("Rename Legitimate Utilities"),
+            // which Defender for Endpoint answered with a machine ISOLATION on the dev box
+            // (see tasks/lessons.md). Instead, a harness script shadows Get-Process /
+            // Stop-Process with functions (PowerShell resolves functions before cmdlets, so
+            // the dot-sourced cleanup script binds to the stubs): Get-Process reports a live
+            // agent-named straggler on every probe; Stop-Process records the kill. This pins
+            // the same contract — the script polls by NAME until the deadline, then
+            // force-kills by NAME before deleting — with zero EDR-visible behavior.
+            var probeLog = Path.Combine(_root, "probe.log");
+            var cleanupScriptPath = Path.Combine(_root, $"cleanup-{Guid.NewGuid():N}.ps1");
+            File.WriteAllText(cleanupScriptPath, BuildScript(processWaitSeconds: 2));
 
-            var lockTarget = Path.Combine(_basePath, "Agent", "fake.exe").Replace("'", "''");
-            Process straggler = null;
-            try
-            {
-                straggler = Process.Start(new ProcessStartInfo
-                {
-                    FileName = fakeExe,
-                    Arguments = "-NoProfile -Command \"$f = [IO.File]::Open('" + lockTarget +
-                                "', 'Open', 'Read', 'None'); Start-Sleep -Seconds 120\"",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                });
+            var harness = @"
+$probeLog = 'LOG_PATH'
+$global:AmProbeCount = 0
+function Get-Process {
+    [CmdletBinding()]
+    param([string[]]$Name)
+    if ($Name -contains 'FAKE_NAME') {
+        $global:AmProbeCount++
+        Add-Content -Path $probeLog -Value ('probe ' + $global:AmProbeCount)
+        return [pscustomobject]@{ Name = 'FAKE_NAME'; Id = 424242 }
+    }
+    Microsoft.PowerShell.Management\Get-Process @PSBoundParameters
+}
+function Stop-Process {
+    [CmdletBinding()]
+    param([Parameter(ValueFromPipeline = $true)]$InputObject, [switch]$Force)
+    process { Add-Content -Path $probeLog -Value ('kill ' + $InputObject.Id + ' force=' + $Force) }
+}
+. 'SCRIPT_PATH'
+"
+                .Replace("LOG_PATH", probeLog)
+                .Replace("FAKE_NAME", _fakeProcessName)
+                .Replace("SCRIPT_PATH", cleanupScriptPath);
 
-                // Give the straggler time to acquire its file handle before cleanup starts.
-                var acquireDeadline = DateTime.UtcNow.AddSeconds(20);
-                var acquired = false;
-                while (!acquired && DateTime.UtcNow < acquireDeadline)
-                {
-                    try
-                    {
-                        using (File.Open(Path.Combine(_basePath, "Agent", "fake.exe"),
-                                   FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                        {
-                        }
-                    }
-                    catch (IOException)
-                    {
-                        acquired = true; // share violation ⇒ straggler holds the file
-                    }
-                    if (!acquired) System.Threading.Thread.Sleep(200);
-                }
-                Assert.True(acquired, "straggler never acquired its file lock");
+            RunScript(harness);
 
-                RunScript(BuildScript(processWaitSeconds: 2));
-
-                Assert.True(straggler.HasExited, "straggler must be force-killed by the name-based backstop");
-                Assert.False(Directory.Exists(_basePath), "after the kill the tree must be fully deleted");
-                Assert.Empty(Directory.GetFileSystemEntries(_root, "*.del-*"));
-            }
-            finally
-            {
-                try { if (straggler != null && !straggler.HasExited) straggler.Kill(); } catch { }
-                try { straggler?.Dispose(); } catch { }
-            }
+            var log = File.ReadAllLines(probeLog);
+            Assert.Contains("kill 424242 force=True", log);
+            Assert.True(Array.FindAll(log, l => l.StartsWith("probe")).Length >= 2,
+                "script must poll by name in the wait loop AND re-probe for the kill backstop");
+            Assert.False(Directory.Exists(_basePath), "after the kill the tree must be fully deleted");
+            Assert.Empty(Directory.GetFileSystemEntries(_root, "*.del-*"));
+            Assert.False(File.Exists(LockPath));
         }
 
         [Fact]
