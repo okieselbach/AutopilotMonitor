@@ -463,6 +463,11 @@ namespace AutopilotMonitor.Shared
             public const string RealmJoinPhaseChanged    = "realmjoin_phase_changed";
             public const string RealmJoinResolved        = "realmjoin_resolved";
             public const string RealmJoinTimeout         = "realmjoin_timeout";
+            // Warning: DeploymentPhase left the first-deployment window (100/101) for 200/210
+            // without CompletedFirstDeployment (110) — the RJ ESP was aborted (typically an
+            // interactive logon during the first deployment reclassified the run as
+            // secondary-user). The completion gate releases at this point.
+            public const string RealmJoinFirstDeploymentIncomplete = "realmjoin_first_deployment_incomplete";
             public const string RealmJoinPackageStarted  = "realmjoin_package_started";
             public const string RealmJoinPackageCompleted = "realmjoin_package_completed";
 

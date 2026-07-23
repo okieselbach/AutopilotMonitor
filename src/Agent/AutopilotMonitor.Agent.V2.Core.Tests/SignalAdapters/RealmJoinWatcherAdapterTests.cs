@@ -151,17 +151,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
         }
 
         [Fact]
-        public void TriggerPhaseChangedFromTest_emits_informational_only_no_decision_signal()
+        public void TriggerPhaseChangedFromTest_emits_typed_signal_and_informational_event()
         {
             using var f = new Fixture();
             using var adapter = new RealmJoinWatcherAdapter(f.Watcher, f.Ingress, f.Clock);
 
             adapter.TriggerPhaseChangedFromTest(prev: 100, curr: 200);
 
-            // Phase change is observability-only. There is no DecisionSignalKind.RealmJoinPhaseChanged.
+            // 1) Typed signal — persists LastDeploymentPhase and drives the aborted-RJ-ESP
+            //    detection in the reducer (session 224b2087). Not Detected/Resolved.
             Assert.DoesNotContain(f.Ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinDetected);
             Assert.DoesNotContain(f.Ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinResolved);
+            var decision = f.Ingress.Posted.Single(p => p.Kind == DecisionSignalKind.RealmJoinPhaseChanged);
+            Assert.Equal("RealmJoinWatcher", decision.SourceOrigin);
+            Assert.Equal("200", decision.Payload![DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase]);
+            Assert.Equal("100", decision.Payload[DecisionEngine.RealmJoinPayloadKeys.PreviousPhase]);
 
+            // 2) Dual-emit informational event keeps the existing timeline entry.
             var info = f.Ingress.Posted.Single(p =>
                 p.Kind == DecisionSignalKind.InformationalEvent
                 && p.Payload != null

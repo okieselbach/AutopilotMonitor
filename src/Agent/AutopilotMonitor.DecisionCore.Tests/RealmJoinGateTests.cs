@@ -241,6 +241,199 @@ namespace AutopilotMonitor.DecisionCore.Tests
                 e.Parameters.TryGetValue("eventType", out var et) && et == "realmjoin_timeout");
         }
 
+        // ============================================================== Aborted first deployment (session 224b2087)
+
+        [Fact]
+        public void PhaseChanged_leaving_first_deployment_for_200_releases_gate_with_warning()
+        {
+            // Session 224b2087: interactive logon 17 s after phase 101 → RJ reclassifies the run
+            // as secondary-user deployment and writes 200/210, never 110. The 101 -> 200
+            // transition is impossible in a healthy first deployment, so it releases the gate
+            // with Outcome=FirstDeploymentIncomplete and a Warning timeline entry.
+            var engine = new DecisionEngine();
+            var state = PrimeClassicAwaitingDesktop(engine);
+            state = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(5),
+                new Dictionary<string, string> { [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "101" })).NewState;
+            state = engine.Reduce(state, MakeSignal(6, DecisionSignalKind.DesktopArrived, T0.AddMinutes(6))).NewState;
+            Assert.NotEqual(SessionStage.Finalizing, state.Stage);
+
+            var step = engine.Reduce(state, MakeSignal(7, DecisionSignalKind.RealmJoinPhaseChanged, T0.AddMinutes(10),
+                new Dictionary<string, string>
+                {
+                    [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "200",
+                    [DecisionEngine.RealmJoinPayloadKeys.PreviousPhase] = "101",
+                }));
+
+            Assert.Equal(SessionStage.Finalizing, step.NewState.Stage);
+            Assert.Equal("FirstDeploymentIncomplete", step.NewState.RealmJoinFacts.Outcome!.Value);
+            Assert.NotNull(step.NewState.RealmJoinFacts.ResolvedUtc);
+            Assert.Equal(200, step.NewState.RealmJoinFacts.LastDeploymentPhase!.Value);
+
+            // Hard-timeout deadline cancelled in state AND as a scheduler effect.
+            Assert.DoesNotContain(step.NewState.Deadlines, d => d.Name == DeadlineNames.RealmJoinTimeout);
+            Assert.Contains(step.Effects, e =>
+                e.Kind == DecisionEffectKind.CancelDeadline &&
+                e.CancelDeadlineName == DeadlineNames.RealmJoinTimeout);
+
+            // Warning timeline entry names both phases.
+            var warning = Assert.Single(step.Effects, e =>
+                e.Kind == DecisionEffectKind.EmitEventTimelineEntry &&
+                e.Parameters != null &&
+                e.Parameters.TryGetValue("eventType", out var et) && et == "realmjoin_first_deployment_incomplete");
+            Assert.Equal("Warning", warning.Parameters!["severity"]);
+            Assert.Equal("101", warning.Parameters["previousPhase"]);
+            Assert.Equal("200", warning.Parameters["deploymentPhase"]);
+            Assert.Contains("110", warning.Parameters["message"]);
+        }
+
+        [Fact]
+        public void PhaseChanged_within_first_deployment_window_is_bookkeeping_only()
+        {
+            // 100 -> 101 stays inside the first-deployment window — no release, but the phase
+            // fact must advance (it is the restart-safe witness for the abort rule).
+            var engine = new DecisionEngine();
+            var state = PrimeClassicAwaitingDesktop(engine);
+            state = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(5),
+                new Dictionary<string, string> { [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "100" })).NewState;
+
+            var step = engine.Reduce(state, MakeSignal(6, DecisionSignalKind.RealmJoinPhaseChanged, T0.AddMinutes(6),
+                new Dictionary<string, string>
+                {
+                    [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "101",
+                    [DecisionEngine.RealmJoinPayloadKeys.PreviousPhase] = "100",
+                }));
+
+            Assert.Equal(101, step.NewState.RealmJoinFacts.LastDeploymentPhase!.Value);
+            Assert.Null(step.NewState.RealmJoinFacts.Outcome);
+            Assert.Contains(step.NewState.Deadlines, d => d.Name == DeadlineNames.RealmJoinTimeout);
+            Assert.Empty(step.Effects);
+        }
+
+        [Fact]
+        public void PhaseChanged_from_completed_deployment_start_does_not_release()
+        {
+            // Session 6f1959c0 protection: RJ already stood at CompletedDeployment (210) when
+            // the agent booted and only deployed AFTERWARDS (210 -> 200 -> 210). Neither
+            // transition starts from the first-deployment window, so the abort rule must not
+            // fire — this ambiguous shape keeps waiting for 110 / the hard timeout (status quo).
+            var engine = new DecisionEngine();
+            var state = PrimeClassicAwaitingDesktop(engine);
+            state = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(5),
+                new Dictionary<string, string> { [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "210" })).NewState;
+
+            state = engine.Reduce(state, MakeSignal(6, DecisionSignalKind.RealmJoinPhaseChanged, T0.AddMinutes(6),
+                new Dictionary<string, string>
+                {
+                    [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "200",
+                    [DecisionEngine.RealmJoinPayloadKeys.PreviousPhase] = "210",
+                })).NewState;
+            Assert.Null(state.RealmJoinFacts.Outcome);
+
+            var step = engine.Reduce(state, MakeSignal(7, DecisionSignalKind.RealmJoinPhaseChanged, T0.AddMinutes(7),
+                new Dictionary<string, string>
+                {
+                    [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "210",
+                    [DecisionEngine.RealmJoinPayloadKeys.PreviousPhase] = "200",
+                }));
+
+            Assert.Null(step.NewState.RealmJoinFacts.Outcome);
+            Assert.Contains(step.NewState.Deadlines, d => d.Name == DeadlineNames.RealmJoinTimeout);
+        }
+
+        [Fact]
+        public void Detected_replay_after_restart_with_deployment_phase_releases_gate()
+        {
+            // Agent restarted between the 101 and 200 observations: the watcher re-fires
+            // Detected with the CURRENT phase (200) and no PhaseChanged ever carries the
+            // transition. The persisted LastDeploymentPhase=101 is the witness — the Detected
+            // replay path must release the gate exactly like the PhaseChanged path.
+            var engine = new DecisionEngine();
+            var state = PrimeClassicAwaitingDesktop(engine);
+            state = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(5),
+                new Dictionary<string, string> { [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "101" })).NewState;
+            state = engine.Reduce(state, MakeSignal(6, DecisionSignalKind.DesktopArrived, T0.AddMinutes(6))).NewState;
+            Assert.NotEqual(SessionStage.Finalizing, state.Stage);
+            Assert.Equal(101, state.RealmJoinFacts.LastDeploymentPhase!.Value);
+
+            var step = engine.Reduce(state, MakeSignal(7, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(12),
+                new Dictionary<string, string> { [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "200" }));
+
+            Assert.Equal(SessionStage.Finalizing, step.NewState.Stage);
+            Assert.Equal("FirstDeploymentIncomplete", step.NewState.RealmJoinFacts.Outcome!.Value);
+            Assert.Contains(step.Effects, e =>
+                e.Kind == DecisionEffectKind.EmitEventTimelineEntry &&
+                e.Parameters != null &&
+                e.Parameters.TryGetValue("eventType", out var et) && et == "realmjoin_first_deployment_incomplete");
+        }
+
+        [Fact]
+        public void Timeout_message_reports_persisted_last_phase_instead_of_zero()
+        {
+            // Before RealmJoinPhaseChanged became a typed signal, LastDeploymentPhase was only
+            // written at detection time — every realmjoin_timeout claimed "last phase: 0" no
+            // matter how far RJ actually got, hiding this whole failure class from ops.
+            var engine = new DecisionEngine();
+            var state = PrimeClassicAwaitingDesktop(engine);
+            state = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(5),
+                new Dictionary<string, string> { [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "100" })).NewState;
+            state = engine.Reduce(state, MakeSignal(6, DecisionSignalKind.RealmJoinPhaseChanged, T0.AddMinutes(6),
+                new Dictionary<string, string>
+                {
+                    [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "101",
+                    [DecisionEngine.RealmJoinPayloadKeys.PreviousPhase] = "100",
+                })).NewState;
+            state = engine.Reduce(state, MakeSignal(7, DecisionSignalKind.DesktopArrived, T0.AddMinutes(7))).NewState;
+
+            var step = engine.Reduce(state, MakeSignal(8, DecisionSignalKind.DeadlineFired, T0.AddMinutes(65),
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.RealmJoinTimeout }));
+
+            var timeout = Assert.Single(step.Effects, e =>
+                e.Kind == DecisionEffectKind.EmitEventTimelineEntry &&
+                e.Parameters != null &&
+                e.Parameters.TryGetValue("eventType", out var et) && et == "realmjoin_timeout");
+            Assert.Contains("last phase: 101", timeout.Parameters!["message"]);
+            Assert.Equal("101", timeout.Parameters["lastSeenPhase"]);
+        }
+
+        [Fact]
+        public void SelfDeploying_deferred_terminal_released_by_first_deployment_incomplete()
+        {
+            // Same deferred-release contract as RealmJoinResolved: when the SelfDeploying
+            // terminal was deferred on the closed RJ gate, the aborted-first-deployment release
+            // must complete the session directly (Completed + enrollment_complete), with the
+            // Warning entry leading the effects.
+            var engine = new DecisionEngine();
+            var state = DecisionState.CreateInitial("rj-sd-3", "rj-tenant", T0);
+            state = engine.Reduce(state, MakeSignal(0, DecisionSignalKind.SessionStarted, T0)).NewState;
+            state = engine.Reduce(state, MakeSignal(1, DecisionSignalKind.EspPhaseChanged, T0.AddMinutes(1),
+                new Dictionary<string, string> { [SignalPayloadKeys.EspPhase] = "DeviceSetup" })).NewState;
+            state = engine.Reduce(state, MakeSignal(2, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(2),
+                new Dictionary<string, string> { [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "101" })).NewState;
+            state = engine.Reduce(state, MakeSignal(3, DecisionSignalKind.DeviceSetupProvisioningComplete, T0.AddMinutes(3))).NewState;
+            state = engine.Reduce(state, MakeSignal(4, DecisionSignalKind.DeadlineFired, T0.AddMinutes(8),
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.DeviceOnlyEspDetection })).NewState;
+            Assert.True(state.RealmJoinFacts.SelfDeployingDeferredCompletion?.Value);
+
+            var step = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.RealmJoinPhaseChanged, T0.AddMinutes(10),
+                new Dictionary<string, string>
+                {
+                    [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "200",
+                    [DecisionEngine.RealmJoinPayloadKeys.PreviousPhase] = "101",
+                }));
+
+            Assert.Equal(SessionStage.Completed, step.NewState.Stage);
+            Assert.Equal(SessionOutcome.EnrollmentComplete, step.NewState.Outcome);
+            Assert.Equal("FirstDeploymentIncomplete", step.NewState.RealmJoinFacts.Outcome!.Value);
+            Assert.Contains(step.Effects, e =>
+                e.Kind == DecisionEffectKind.EmitEventTimelineEntry &&
+                e.Parameters != null &&
+                e.Parameters.TryGetValue("eventType", out var et) && et == "realmjoin_first_deployment_incomplete");
+            Assert.Contains(step.Effects, e =>
+                e.Kind == DecisionEffectKind.EmitEventTimelineEntry &&
+                e.Parameters != null &&
+                e.Parameters.TryGetValue("eventType", out var et) && et == "enrollment_complete");
+        }
+
         // ============================================================== SelfDeploying flow
 
         [Fact]

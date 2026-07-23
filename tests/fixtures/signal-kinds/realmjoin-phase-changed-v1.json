@@ -1,0 +1,13 @@
+# RealmJoinPhaseChanged v1 — RealmJoin DeploymentPhase transition.
+# Posted by RealmJoinWatcherAdapter on every observed DeploymentPhase change (dual-emitted
+# alongside the existing realmjoin_phase_changed InformationalEvent). Payload carries the
+# current and previous phase DWORDs.
+# Reducer: HandleRealmJoinPhaseChangedV1 → always updates RealmJoinFacts.LastDeploymentPhase
+# (restart-safe persistence; fixes realmjoin_timeout reporting "last phase: 0"). When the
+# phase leaves the first-deployment window (100/101) for a regular deployment phase (200/210)
+# without CompletedFirstDeployment (110) ever being observed, the RJ ESP was aborted (e.g.
+# interactive logon during first deployment reclassified the run as secondary-user): emits
+# realmjoin_first_deployment_incomplete (Warning), cancels the RealmJoinTimeout deadline and
+# releases the completion gate via CompleteIfDeferredOrBookkeep with
+# Outcome="FirstDeploymentIncomplete".
+{"SessionSignalOrdinal":43,"SessionTraceOrdinal":43,"Kind":"RealmJoinPhaseChanged","KindSchemaVersion":1,"OccurredAtUtc":"2026-05-21T10:26:00.0000000Z","SourceOrigin":"RealmJoinWatcher","Evidence":{"Kind":"Derived","Identifier":"realmjoin-phase-changed-v1","Summary":"RealmJoin DeploymentPhase 101 -> 200","DerivationInputs":{"registryKey":"HKLM\\SYSTEM\\CurrentControlSet\\Services\\realmjoin\\Parameters"}},"Payload":{"deploymentPhase":"200","previousPhase":"101"}}

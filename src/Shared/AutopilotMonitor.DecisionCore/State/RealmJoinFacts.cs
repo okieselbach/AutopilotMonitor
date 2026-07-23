@@ -14,8 +14,8 @@ namespace AutopilotMonitor.DecisionCore.State
     /// <list type="bullet">
     ///   <item>Immutable; <see cref="With"/>-methods return new instances.</item>
     ///   <item><see cref="Packages"/> is capped at <see cref="MaxPackages"/>; overflow is discarded.</item>
-    ///   <item><see cref="ResolvedUtc"/> is set once on observing phase 110; later phase readings update <see cref="LastDeploymentPhase"/> only.</item>
-    ///   <item><see cref="Outcome"/> is one of <c>"Resolved"</c> / <c>"Timeout"</c>; null while RJ is still running.</item>
+    ///   <item><see cref="ResolvedUtc"/> is set once on observing phase 110 (or the aborted-first-deployment release); later phase readings update <see cref="LastDeploymentPhase"/> only.</item>
+    ///   <item><see cref="Outcome"/> is one of <c>"Resolved"</c> / <c>"Timeout"</c> / <c>"FirstDeploymentIncomplete"</c>; null while RJ is still running.</item>
     /// </list>
     /// </remarks>
     public sealed class RealmJoinFacts
@@ -25,6 +25,11 @@ namespace AutopilotMonitor.DecisionCore.State
 
         public const string OutcomeResolved = "Resolved";
         public const string OutcomeTimeout = "Timeout";
+        // Session 224b2087 (2026-07-22): the RJ ESP was aborted (interactive logon during the
+        // first deployment reclassified the run as secondary-user) — DeploymentPhase left
+        // 100/101 for 200/210 without ever writing CompletedFirstDeployment (110). The gate
+        // releases with this distinct outcome so reporting can tell the three cases apart.
+        public const string OutcomeFirstDeploymentIncomplete = "FirstDeploymentIncomplete";
 
         public static readonly RealmJoinFacts Empty = new RealmJoinFacts(
             detectedUtc: null,
@@ -155,6 +160,27 @@ namespace AutopilotMonitor.DecisionCore.State
                 resolvedUtc: new SignalFact<DateTime>(utc, sourceSignalOrdinal),
                 lastDeploymentPhase: new SignalFact<int>(phase, sourceSignalOrdinal),
                 outcome: new SignalFact<string>(OutcomeResolved, sourceSignalOrdinal),
+                selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
+                productVersion: ProductVersion,
+                releaseChannel: ReleaseChannel,
+                packages: Packages);
+        }
+
+        /// <summary>
+        /// Terminal outcome for the aborted-RJ-ESP case: DeploymentPhase left the
+        /// first-deployment window (100/101) for a regular deployment phase (200/210) without
+        /// ever reaching CompletedFirstDeployment (110). Sets <see cref="ResolvedUtc"/> (this
+        /// IS our resolution moment — RJ counts as finished for the completion gate) with
+        /// <see cref="OutcomeFirstDeploymentIncomplete"/>. No-op when an outcome is already set.
+        /// </summary>
+        public RealmJoinFacts WithFirstDeploymentIncomplete(DateTime utc, int phase, long sourceSignalOrdinal)
+        {
+            if (Outcome != null) return this; // resolved/timeout already wins
+            return new RealmJoinFacts(
+                detectedUtc: DetectedUtc,
+                resolvedUtc: new SignalFact<DateTime>(utc, sourceSignalOrdinal),
+                lastDeploymentPhase: new SignalFact<int>(phase, sourceSignalOrdinal),
+                outcome: new SignalFact<string>(OutcomeFirstDeploymentIncomplete, sourceSignalOrdinal),
                 selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
                 productVersion: ProductVersion,
                 releaseChannel: ReleaseChannel,

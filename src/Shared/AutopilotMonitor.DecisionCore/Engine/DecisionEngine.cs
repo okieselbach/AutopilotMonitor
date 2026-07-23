@@ -143,6 +143,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 // ----- RealmJoin deployment tracking (DecisionEngine.RealmJoin.cs) -----
                 (DecisionSignalKind.RealmJoinDetected, 1)                  => HandleRealmJoinDetectedV1(state, signal),
                 (DecisionSignalKind.RealmJoinResolved, 1)                  => HandleRealmJoinResolvedV1(state, signal),
+                (DecisionSignalKind.RealmJoinPhaseChanged, 1)              => HandleRealmJoinPhaseChangedV1(state, signal),
                 (DecisionSignalKind.RealmJoinPackageStarted, 1)            => HandleRealmJoinPackageStartedV1(state, signal),
                 (DecisionSignalKind.RealmJoinPackageCompleted, 1)          => HandleRealmJoinPackageCompletedV1(state, signal),
                 // Note: RealmJoinTimeout is a deadline-only kind (no direct adapter signal) —

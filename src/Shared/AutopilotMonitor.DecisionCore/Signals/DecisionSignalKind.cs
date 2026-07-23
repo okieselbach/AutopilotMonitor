@@ -118,5 +118,12 @@ namespace AutopilotMonitor.DecisionCore.Signals
         RealmJoinTimeout,
         RealmJoinPackageStarted,
         RealmJoinPackageCompleted,
+        // Session 224b2087 (2026-07-22): DeploymentPhase transition observed by the watcher.
+        // Promoted from InformationalEvent-only so RealmJoinFacts.LastDeploymentPhase is
+        // persisted across agent restarts AND so the reducer can detect the aborted-RJ-ESP
+        // shape: an interactive logon during the first deployment (100/101) makes RJ reclassify
+        // the run as a secondary-user deployment, which writes 200/210 and NEVER 110 — the
+        // gate would otherwise stay closed until the 60-min hard timeout.
+        RealmJoinPhaseChanged,
     }
 }

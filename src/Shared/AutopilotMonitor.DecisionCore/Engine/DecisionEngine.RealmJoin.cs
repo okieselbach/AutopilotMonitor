@@ -9,11 +9,12 @@ using SharedConstants = AutopilotMonitor.Shared.Constants;
 namespace AutopilotMonitor.DecisionCore.Engine
 {
     // RealmJoin (RJ) deployment-tracking handlers. Plan: tasks/zany-gathering-oasis plan.
-    // The agent posts five new DecisionSignalKinds when it observes the
+    // The agent posts six DecisionSignalKinds when it observes the
     // HKLM\SYSTEM\CurrentControlSet\Services\realmjoin\Parameters key + HKLM\SOFTWARE\RealmJoin\Packages
     // (and the HKU\<sid>\... user-scope counterpart). Detection arms a 60-min hard timeout
-    // and gates the enrollment-completion AND-gate. Resolution (phase 110) or timeout
-    // releases the gate so the session can complete.
+    // and gates the enrollment-completion AND-gate. Resolution (phase 110), the
+    // aborted-first-deployment release (phase left 100/101 for 200/210 without 110 —
+    // session 224b2087) or the timeout releases the gate so the session can complete.
     public sealed partial class DecisionEngine
     {
         // Hard 60-minute deadline from RJ-detected. Not configurable (per design choice —
@@ -25,6 +26,10 @@ namespace AutopilotMonitor.DecisionCore.Engine
         public static class RealmJoinPayloadKeys
         {
             public const string DeploymentPhase = "deploymentPhase";
+            // Set on RealmJoinPhaseChanged: the phase the watcher observed immediately before
+            // the transition. The reducer prefers the PERSISTED RealmJoinFacts.LastDeploymentPhase
+            // (restart-safe) and only falls back to this process-local value.
+            public const string PreviousPhase = "previousPhase";
             public const string PackageId = "packageId";
             public const string DisplayName = "displayName";
             public const string Version = "version";
@@ -107,6 +112,25 @@ namespace AutopilotMonitor.DecisionCore.Engine
             }
             builder.RealmJoinFacts = updatedFacts;
 
+            // Replay path (agent restarted between the 101 and 200 observations): the watcher
+            // re-fires Detected with the CURRENT phase and no PhaseChanged ever carries the
+            // transition — the persisted LastDeploymentPhase is the only witness of the aborted
+            // first deployment. Evaluate the abort rule here too so the gate does not stay
+            // closed until the hard timeout.
+            if (alreadyDetected
+                && phase.HasValue
+                && IsFirstDeploymentAbortTransition(state.RealmJoinFacts, state.RealmJoinFacts.LastDeploymentPhase?.Value, phase.Value))
+            {
+                return ReleaseFirstDeploymentIncomplete(
+                    state: state,
+                    signal: signal,
+                    builder: builder,
+                    nextStep: nextStep,
+                    previousPhase: state.RealmJoinFacts.LastDeploymentPhase!.Value,
+                    currentPhase: phase.Value,
+                    triggerBase: nameof(DecisionSignalKind.RealmJoinDetected));
+            }
+
             var effects = Array.Empty<DecisionEffect>();
             if (!alreadyDetected)
             {
@@ -177,7 +201,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 preparedBuilder: builder,
                 nextStepIndex: nextStep,
                 trigger: nameof(DecisionSignalKind.RealmJoinResolved),
-                leadingEffect: cancelEffect);
+                leadingEffects: cancelEffect != null ? new[] { cancelEffect } : null);
         }
 
         /// <summary>
@@ -237,7 +261,156 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 preparedBuilder: builder,
                 nextStepIndex: nextStep,
                 trigger: $"DeadlineFired:{DeadlineNames.RealmJoinTimeout}",
-                leadingEffect: timeoutEffect);
+                leadingEffects: new[] { timeoutEffect });
+        }
+
+        // RJ DeploymentPhase enum values relevant to the abort rule (mirrors
+        // RealmJoin.Core.SoftwarePackaging.DeploymentPhase; the agent-side RealmJoinInfo
+        // constants are not referencable from this netstandard shared lib).
+        private const int RjPhaseRunningFirstDeployment = 100;
+        private const int RjPhaseRunningFirstDeploymentAuto = 101;
+        private const int RjPhaseCompletedFirstDeployment = 110;
+        private const int RjPhaseRunningDeployment = 200;
+        private const int RjPhaseCompletedDeployment = 210;
+
+        private static bool IsRealmJoinFirstDeploymentPhase(int phase) =>
+            phase == RjPhaseRunningFirstDeployment || phase == RjPhaseRunningFirstDeploymentAuto;
+
+        /// <summary>
+        /// The aborted-RJ-ESP shape (session 224b2087): the phase left the first-deployment
+        /// window (100/101) for a regular deployment phase (200/210) — a transition that cannot
+        /// occur in a healthy first deployment, whose only exit is CompletedFirstDeployment
+        /// (110). Root cause observed in the RJ logs: an interactive logon lands seconds after
+        /// 101, RJ reclassifies the run as a secondary-user deployment
+        /// (isFirstMachineDeployment=False) and that branch writes 200/210, never 110.
+        /// <para>
+        /// Deliberately NOT triggered by 101 → 0 (RJ service restart may still complete the
+        /// first deployment) nor by a first observation of 210 (RJ already completed before
+        /// the agent booted — session 6f1959c0 starts 210 → 200; releasing there would be
+        /// wrong). <paramref name="previousPhase"/> comes from the persisted
+        /// <see cref="RealmJoinFacts.LastDeploymentPhase"/> where available so the rule
+        /// survives an agent restart between the 101 and 200 observations.
+        /// </para>
+        /// </summary>
+        private static bool IsFirstDeploymentAbortTransition(RealmJoinFacts facts, int? previousPhase, int currentPhase) =>
+            facts.DetectedUtc != null
+            && facts.Outcome == null
+            && previousPhase.HasValue
+            && IsRealmJoinFirstDeploymentPhase(previousPhase.Value)
+            && (currentPhase == RjPhaseRunningDeployment || currentPhase == RjPhaseCompletedDeployment);
+
+        /// <summary>
+        /// Phase-transition observation from the watcher. Always persists the current phase
+        /// into <see cref="RealmJoinFacts.LastDeploymentPhase"/> (restart-safe; also fixes the
+        /// <c>realmjoin_timeout</c> event reporting "last phase: 0" regardless of how far RJ
+        /// actually got). When <see cref="IsFirstDeploymentAbortTransition"/> matches, emits
+        /// the <c>realmjoin_first_deployment_incomplete</c> Warning, cancels the hard-timeout
+        /// deadline and releases the completion gate — for us RJ is finished at that point.
+        /// </summary>
+        private DecisionStep HandleRealmJoinPhaseChangedV1(DecisionState state, DecisionSignal signal)
+        {
+            var currentPhase = TryReadPhase(signal);
+            if (currentPhase == null)
+            {
+                var deadEnd = BumpStepBookkeeping(state, signal);
+                var deadEndTransition = BuildDeadEndTransition(
+                    state: state,
+                    signal: signal,
+                    nextStepIndex: deadEnd.StepIndex,
+                    trigger: nameof(DecisionSignalKind.RealmJoinPhaseChanged),
+                    deadEndReason: "realmjoin_phase_changed_missing_phase");
+                return new DecisionStep(deadEnd, deadEndTransition, Array.Empty<DecisionEffect>());
+            }
+
+            // Persisted fact first (survives agent restarts), watcher's process-local value
+            // as fallback for the very first phase observation of a session.
+            var previousPhase = state.RealmJoinFacts.LastDeploymentPhase?.Value
+                ?? TryReadInt(signal, RealmJoinPayloadKeys.PreviousPhase);
+
+            var nextStep = state.StepIndex + 1;
+            var builder = state.ToBuilder()
+                .WithStepIndex(nextStep)
+                .WithLastAppliedSignalOrdinal(signal.SessionSignalOrdinal);
+            builder.RealmJoinFacts = state.RealmJoinFacts.WithLastPhase(currentPhase.Value, signal.SessionSignalOrdinal);
+
+            if (!IsFirstDeploymentAbortTransition(state.RealmJoinFacts, previousPhase, currentPhase.Value))
+            {
+                var bookkept = builder.Build();
+                var transition = BuildTakenTransition(
+                    before: state,
+                    signal: signal,
+                    toStage: state.Stage,
+                    nextStepIndex: nextStep,
+                    trigger: nameof(DecisionSignalKind.RealmJoinPhaseChanged));
+                return new DecisionStep(bookkept, transition, Array.Empty<DecisionEffect>());
+            }
+
+            return ReleaseFirstDeploymentIncomplete(
+                state: state,
+                signal: signal,
+                builder: builder,
+                nextStep: nextStep,
+                previousPhase: previousPhase!.Value,
+                currentPhase: currentPhase.Value,
+                triggerBase: nameof(DecisionSignalKind.RealmJoinPhaseChanged));
+        }
+
+        /// <summary>
+        /// Shared gate-release for the aborted-first-deployment rule — called from
+        /// <see cref="HandleRealmJoinPhaseChangedV1"/> and from the
+        /// <see cref="HandleRealmJoinDetectedV1"/> replay path (agent restarted between the
+        /// 101 and 200 observations: the watcher re-fires Detected with the CURRENT phase and
+        /// no PhaseChanged ever carries the transition, so the persisted fact is the only
+        /// witness). Mirrors <see cref="HandleRealmJoinResolvedV1"/>'s release shape with a
+        /// Warning timeline entry ahead of the completion effects.
+        /// </summary>
+        private DecisionStep ReleaseFirstDeploymentIncomplete(
+            DecisionState state,
+            DecisionSignal signal,
+            DecisionStateBuilder builder,
+            int nextStep,
+            int previousPhase,
+            int currentPhase,
+            string triggerBase)
+        {
+            builder.CancelDeadline(DeadlineNames.RealmJoinTimeout);
+            builder.RealmJoinFacts = builder.RealmJoinFacts.WithFirstDeploymentIncomplete(
+                signal.OccurredAtUtc, currentPhase, signal.SessionSignalOrdinal);
+
+            var leadingEffects = new List<DecisionEffect>(capacity: 2);
+            var cancelEffect = BuildRealmJoinTimeoutCancelEffectIfArmed(state);
+            if (cancelEffect != null) leadingEffects.Add(cancelEffect);
+            leadingEffects.Add(BuildRealmJoinFirstDeploymentIncompleteEvent(previousPhase, currentPhase));
+
+            return CompleteIfDeferredOrBookkeep(
+                state: state,
+                signal: signal,
+                preparedBuilder: builder,
+                nextStepIndex: nextStep,
+                trigger: triggerBase + ":FirstDeploymentIncomplete",
+                leadingEffects: leadingEffects);
+        }
+
+        /// <summary>
+        /// Build the <c>realmjoin_first_deployment_incomplete</c> Warning timeline entry.
+        /// Reducer-owned (like <see cref="BuildRealmJoinTimeoutEvent"/>) — the agent adapter
+        /// only dual-emits the neutral <c>realmjoin_phase_changed</c> observation; the abort
+        /// interpretation lives here where the persisted facts are.
+        /// </summary>
+        private static DecisionEffect BuildRealmJoinFirstDeploymentIncompleteEvent(int previousPhase, int currentPhase)
+        {
+            return new DecisionEffect(
+                kind: DecisionEffectKind.EmitEventTimelineEntry,
+                parameters: new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [SignalPayloadKeys.EventType] = SharedConstants.EventTypes.RealmJoinFirstDeploymentIncomplete,
+                    [SignalPayloadKeys.Source] = "DecisionEngine",
+                    [SignalPayloadKeys.Severity] = "Warning",
+                    [SignalPayloadKeys.Message] =
+                        $"RealmJoin left first deployment (phase {previousPhase} -> {currentPhase}) without CompletedFirstDeployment (110) — the RealmJoin ESP likely aborted. Treating the RealmJoin deployment as finished.",
+                    ["previousPhase"] = previousPhase.ToString(CultureInfo.InvariantCulture),
+                    ["deploymentPhase"] = currentPhase.ToString(CultureInfo.InvariantCulture),
+                });
         }
 
         /// <summary>
@@ -360,7 +533,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
             DecisionStateBuilder preparedBuilder,
             int nextStepIndex,
             string trigger,
-            DecisionEffect? leadingEffect)
+            IReadOnlyList<DecisionEffect>? leadingEffects)
         {
             var selfDeployingDeferred = state.RealmJoinFacts.SelfDeployingDeferredCompletion?.Value == true;
             var classicReady = state.HelloResolvedUtc != null && state.DesktopArrivedUtc != null;
@@ -421,8 +594,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     // Plan v9 Phase 4 — UI phase coverage: emit FinalizingSetup + Complete phase
                     // declarations BEFORE enrollment_complete so the Web timeline opens both bars
                     // for RJ-deferred-completion just like the direct SelfDeploying-terminal path.
-                    var effects = new List<DecisionEffect>(capacity: 4);
-                    if (leadingEffect != null) effects.Add(leadingEffect);
+                    var effects = new List<DecisionEffect>(capacity: (leadingEffects?.Count ?? 0) + 3);
+                    if (leadingEffects != null && leadingEffects.Count > 0) effects.AddRange(leadingEffects);
                     effects.Add(BuildPhaseTransitionEffect(EnrollmentPhase.FinalizingSetup, completedState, trigger + ":SelfDeployingDeferred"));
                     effects.Add(BuildPhaseTransitionEffect(EnrollmentPhase.Complete, completedState, trigger + ":SelfDeployingDeferred"));
                     effects.Add(BuildEnrollmentCompleteEffect(completedState, trigger + ":SelfDeployingDeferred"));
@@ -434,19 +607,19 @@ namespace AutopilotMonitor.DecisionCore.Engine
             if (classicReady)
             {
                 // This IS the gate-release path: the RealmJoin gate has just opened (the caller
-                // wrote WithResolved / WithTimeoutOutcome into preparedBuilder), so complete
-                // directly. Note the completion gates read `state` (pre-resolution), where RJ is
-                // still closed — routing this through CompleteThroughFinalizingOrDefer would
-                // re-defer on the very gate we just released. A future second gate that must
-                // re-block here would re-check the *post* state (WDP-v2 follow-up, ARCH-F1).
-                var extra = leadingEffect != null ? new[] { leadingEffect } : null;
+                // wrote WithResolved / WithTimeoutOutcome / WithFirstDeploymentIncomplete into
+                // preparedBuilder), so complete directly. Note the completion gates read `state`
+                // (pre-resolution), where RJ is still closed — routing this through
+                // CompleteThroughFinalizingOrDefer would re-defer on the very gate we just
+                // released. A future second gate that must re-block here would re-check the
+                // *post* state (WDP-v2 follow-up, ARCH-F1).
                 return TransitionToFinalizing(
                     state: state,
                     signal: signal,
                     preparedBuilder: preparedBuilder,
                     nextStepIndex: nextStepIndex,
                     trigger: trigger,
-                    extraLeadingEffects: extra);
+                    extraLeadingEffects: leadingEffects);
             }
 
             // Bookkeeping only — defer to the next Hello / Desktop / SelfDeploying signal.
@@ -458,10 +631,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 nextStepIndex: nextStepIndex,
                 trigger: trigger);
 
-            var bookkeepEffects = leadingEffect != null
-                ? new[] { leadingEffect }
-                : Array.Empty<DecisionEffect>();
-            return new DecisionStep(newState, transition, bookkeepEffects);
+            return new DecisionStep(newState, transition, MaterializeEffects(leadingEffects));
         }
 
         /// <summary>

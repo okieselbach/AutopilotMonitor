@@ -137,8 +137,17 @@ false` and an arm holds), `EspExiting`, `ImeUserSessionCompleted`,
 advisory backstop. All routes converge on `CompleteThroughFinalizingOrDefer`:
 
 1. **Completion gates** (currently only the RealmJoin AND-gate): if RealmJoin was
-   detected and is neither resolved nor timed-out (hard 60-min timeout), completion is
-   *deferred* — the session stays in stage and emits `completion_waiting`.
+   detected and has no terminal outcome yet, completion is *deferred* — the session
+   stays in stage and emits `completion_waiting`. Three terminals open the gate:
+   `Resolved` (DeploymentPhase 110), `FirstDeploymentIncomplete` (phase left the
+   first-deployment window 100/101 for 200/210 without 110 — the RJ ESP was aborted,
+   typically by an interactive logon reclassifying the run as secondary-user; emits
+   the `realmjoin_first_deployment_incomplete` Warning, session 224b2087), and
+   `Timeout` (hard 60-min deadline). The abort rule reads the *persisted*
+   `RealmJoinFacts.LastDeploymentPhase` (updated by the typed `RealmJoinPhaseChanged`
+   signal), so it survives agent restarts — the `RealmJoinDetected` replay path
+   evaluates it too. A first observation of 210 does **not** release (RJ may have
+   completed before agent boot and deploy afterwards).
 2. `Finalizing` stage + ~5 s `FinalizingGrace` deadline.
 3. Grace fires → `Completed`, `EnrollmentComplete` outcome, `enrollment_complete`
    timeline event with full audit payload.

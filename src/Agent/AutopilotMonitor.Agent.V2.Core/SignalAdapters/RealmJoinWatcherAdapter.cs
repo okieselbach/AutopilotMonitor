@@ -137,7 +137,24 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
 
         private void OnPhaseChanged(object? sender, RealmJoinPhaseChangedEventArgs e)
         {
-            // Phase change is observability-only: no DecisionSignalKind, just a timeline event.
+            // Dual-emission like OnDetected/OnResolved: (1) the typed signal persists the phase
+            // into RealmJoinFacts.LastDeploymentPhase (restart-safe) and lets the reducer detect
+            // the aborted-RJ-ESP shape (phase left 100/101 for 200/210 without 110 — session
+            // 224b2087); (2) the InformationalEvent keeps the existing timeline entry.
+            var payload = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = e.CurrentPhase.ToString(),
+                [DecisionEngine.RealmJoinPayloadKeys.PreviousPhase] = e.PreviousPhase.ToString(),
+            };
+            _ingress.Post(
+                kind: DecisionSignalKind.RealmJoinPhaseChanged,
+                occurredAtUtc: _clock.UtcNow,
+                sourceOrigin: SourceLabel,
+                evidence: BuildEvidence(
+                    "realmjoin-phase-changed-v1",
+                    $"RealmJoin DeploymentPhase {e.PreviousPhase} -> {e.CurrentPhase}"),
+                payload: payload);
+
             // Both raw int (deploymentPhase / previousPhase) and human-readable name
             // (deploymentPhaseName / previousPhaseName) flow through — int stays for downstream
             // filters / KQL, name fields make the message + UI rows readable without a lookup.

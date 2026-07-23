@@ -147,9 +147,12 @@ namespace AutopilotMonitor.Functions.Services
                     helloResolved = true;
                 else if (Eq(type, "realmjoin_detected"))
                     realmJoinDetected = true;
-                // Either terminal opens the agent-side RealmJoin gate: phase 110 or the 60-min
-                // hard timeout (both dual-emitted to the timeline by the agent/engine).
-                else if (Eq(type, "realmjoin_resolved") || Eq(type, "realmjoin_timeout"))
+                // Any terminal opens the agent-side RealmJoin gate: phase 110, the aborted
+                // first deployment (phase left 100/101 for 200/210 without 110 — session
+                // 224b2087) or the 60-min hard timeout (all emitted to the timeline by the
+                // agent/engine).
+                else if (Eq(type, "realmjoin_resolved") || Eq(type, "realmjoin_timeout")
+                         || Eq(type, "realmjoin_first_deployment_incomplete"))
                     realmJoinResolved = true;
                 // Policy facts for the Hello-disabled / User-ESP-skipped completion mirror.
                 // Contradicting observations are resolved pessimistically below (both-seen →

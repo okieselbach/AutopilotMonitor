@@ -113,9 +113,11 @@ public class EnrollmentTimeoutClassifierTests
         // Negative Hello terminals leave the agent waiting — must NOT count as resolved.
         Assert.False(EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("hello_provisioning_failed") }).HelloResolved);
         Assert.False(EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("hello_completion_timeout") }).HelloResolved);
-        // Both RealmJoin gate terminals count as resolved (phase 110 or 60-min hard timeout).
+        // All RealmJoin gate terminals count as resolved (phase 110, aborted first
+        // deployment — session 224b2087 — or 60-min hard timeout).
         Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("realmjoin_resolved") }).RealmJoinResolved);
         Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("realmjoin_timeout") }).RealmJoinResolved);
+        Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("realmjoin_first_deployment_incomplete") }).RealmJoinResolved);
     }
 
     [Fact]
