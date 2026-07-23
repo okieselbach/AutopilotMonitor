@@ -57,19 +57,33 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         /// (intended to be called as fire-and-forget via <c>_ = reporter.TrySendAsync(...)</c>).
         ///
         /// All anti-flood checks are applied synchronously before the async HTTP call,
-        /// so repeated calls are cheap when suppressed.
+        /// so repeated calls are cheap when suppressed. The anti-flood reservation is
+        /// taken up front (so concurrent same-key calls cannot double-send) but ROLLED
+        /// BACK when every attempt fails: the budget and the once-per-session dedup are
+        /// meant to count DELIVERED reports — the previous mark-before-send made the very
+        /// first transport failure permanently suppress that error key for the session
+        /// (found via the 48h emergency-break report, which is a single shot at boot).
+        ///
+        /// <paramref name="attempts"/>/<paramref name="perAttemptTimeout"/>/<paramref name="retryDelay"/>
+        /// exist for callers whose process is about to exit and cannot come back later
+        /// (emergency break): retries stay INSIDE the one reservation, so they never
+        /// multiply against the per-session budget.
         /// </summary>
         public virtual async Task TrySendAsync(
             AgentErrorType errorType,
             string message,
             int? httpStatusCode = null,
-            long? sequenceNumber = null)
+            long? sequenceNumber = null,
+            int attempts = 1,
+            TimeSpan? perAttemptTimeout = null,
+            TimeSpan? retryDelay = null)
         {
             // Deduplicate by error type + status code: same failure category sent only once per session.
             // All anti-flood checks are protected by a lock to prevent race conditions when
             // TrySendAsync is called concurrently (fire-and-forget from multiple threads).
             var key = $"{errorType}:{httpStatusCode}";
             int currentReportCount;
+            DateTime? previousLastReportTime;
 
             lock (_antiFloodLock)
             {
@@ -92,6 +106,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                     return;
                 }
 
+                previousLastReportTime = _lastReportTime;
                 _reportedKeys.Add(key);
                 _reportCount++;
                 _lastReportTime = DateTime.UtcNow;
@@ -113,14 +128,39 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                 Timestamp = DateTime.UtcNow
             };
 
+            var delivered = false;
+            var totalAttempts = attempts < 1 ? 1 : attempts;
             try
             {
-                await _apiClient.ReportAgentErrorAsync(report);
+                for (var attempt = 1; attempt <= totalAttempts && !delivered; attempt++)
+                {
+                    if (attempt > 1 && retryDelay.HasValue)
+                    {
+                        await Task.Delay(retryDelay.Value).ConfigureAwait(false);
+                    }
+
+                    delivered = await _apiClient.ReportAgentErrorAsync(report, perAttemptTimeout).ConfigureAwait(false);
+                    if (!delivered && totalAttempts > 1)
+                    {
+                        _logger?.Debug($"[EmergencyChannel] Attempt {attempt}/{totalAttempts} failed: {key}");
+                    }
+                }
             }
             catch (Exception ex)
             {
                 // Swallow — emergency channel must never cascade failures into the caller
                 _logger?.Debug($"[EmergencyChannel] Failed to send report: {ex.Message}");
+            }
+
+            if (!delivered)
+            {
+                lock (_antiFloodLock)
+                {
+                    _reportedKeys.Remove(key);
+                    _reportCount--;
+                    _lastReportTime = previousLastReportTime;
+                }
+                _logger?.Debug($"[EmergencyChannel] Report not delivered — reservation rolled back: {key}");
             }
         }
     }

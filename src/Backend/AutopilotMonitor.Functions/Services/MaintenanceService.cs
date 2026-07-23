@@ -439,6 +439,13 @@ namespace AutopilotMonitor.Functions.Services
                                     var timeoutEvent = BuildSessionTimeoutEvent(session, timeoutHours, sessionEvents, now);
                                     await _sessionRepo.StoreEventsBatchAsync(new List<EnrollmentEvent> { timeoutEvent });
 
+                                    // Backend-materialized events bypass EventIngestProcessor and thus the
+                                    // cross-session EventType index — without this upsert session_timeout is
+                                    // invisible to every search-by-eventType surface (portal cross-session
+                                    // search, MCP search_sessions_by_event / query_raw_events).
+                                    await _sessionRepo.UpsertEventTypeIndexBatchAsync(
+                                        session.TenantId, session.SessionId, new List<EnrollmentEvent> { timeoutEvent });
+
                                     // StoreEventsBatchAsync only bumps the orphan side-index, not the
                                     // session's EventCount, and the terminal reconcile already ran inside
                                     // UpdateSessionStatusAsync *before* this synthetic event existed. Recount

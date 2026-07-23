@@ -37,6 +37,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         private readonly TelemetryClient _telemetryClient;
         private readonly BootstrapSessionService _bootstrapSessionService;
         private readonly ISessionRepository _sessionRepo;
+        private readonly OpsEventService _opsEventService;
 
         public ReportAgentErrorFunction(
             ILogger<ReportAgentErrorFunction> logger,
@@ -48,7 +49,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             DeviceAssociationValidator deviceAssociationValidator,
             TelemetryClient telemetryClient,
             BootstrapSessionService bootstrapSessionService,
-            ISessionRepository sessionRepo)
+            ISessionRepository sessionRepo,
+            OpsEventService opsEventService)
         {
             _logger = logger;
             _configService = configService;
@@ -60,6 +62,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             _telemetryClient = telemetryClient;
             _bootstrapSessionService = bootstrapSessionService;
             _sessionRepo = sessionRepo;
+            _opsEventService = opsEventService;
         }
 
         [Function("ReportAgentError")]
@@ -169,33 +172,69 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 ["AgentTimestamp"] = report.Timestamp.ToString("O"),
             });
 
-            // Materialize the agent's silent 48h emergency break as a timeline event so it shows in the
-            // session and the timeout classifier can see it (tasks/enrollment-status-reclassification.md).
-            // Best-effort — a failure here must never turn the always-200 emergency channel into a retry loop.
-            if (report.ErrorType == AgentErrorType.SessionAgeEmergencyBreak
-                && !string.IsNullOrEmpty(report.SessionId))
-            {
-                try
-                {
-                    var existing = await _sessionRepo.GetSessionEventsAsync(tenantId, report.SessionId, maxResults: 1000);
-                    // Idempotency: the agent's emergency channel can send up to a few reports per session;
-                    // only ever materialize one timeline event.
-                    var alreadyMaterialized = existing.Any(e =>
-                        string.Equals(e.EventType, Constants.EventTypes.AgentEmergencyBreak, StringComparison.OrdinalIgnoreCase));
-                    if (!alreadyMaterialized)
-                    {
-                        var evt = BuildAgentEmergencyBreakEvent(report, tenantId, existing, DateTime.UtcNow);
-                        await _sessionRepo.StoreEventsBatchAsync(new List<EnrollmentEvent> { evt });
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex,
-                        "ReportAgentError: failed to materialize agent_emergency_break event for session {SessionId}", report.SessionId);
-                }
-            }
+            await MaterializeEmergencyBreakArtifactsAsync(report, tenantId, _sessionRepo, _opsEventService, _logger);
 
             return req.CreateResponse(HttpStatusCode.OK);
+        }
+
+        /// <summary>
+        /// Materializes the agent's silent 48h emergency break as (1) a timeline event so it shows
+        /// in the session and the timeout classifier can see it, (2) the cross-session EventType
+        /// index row, and (3) an <c>AgentEmergencyBreak</c> ops event for operator visibility
+        /// (tasks/enrollment-status-reclassification.md). Static seam with explicit dependencies so
+        /// tests can pin the artifact set without booting the Functions HTTP stack.
+        /// Best-effort — a failure here must never turn the always-200 emergency channel into a
+        /// retry loop.
+        /// </summary>
+        internal static async Task MaterializeEmergencyBreakArtifactsAsync(
+            AgentErrorReport report,
+            string tenantId,
+            ISessionRepository sessionRepo,
+            OpsEventService opsEventService,
+            ILogger logger)
+        {
+            if (report.ErrorType != AgentErrorType.SessionAgeEmergencyBreak
+                || string.IsNullOrEmpty(report.SessionId))
+            {
+                return;
+            }
+
+            try
+            {
+                var existing = await sessionRepo.GetSessionEventsAsync(tenantId, report.SessionId, maxResults: 1000);
+                // Idempotency: the agent's emergency channel can send up to a few reports per session;
+                // only ever materialize one timeline event (and one ops event).
+                var alreadyMaterialized = existing.Any(e =>
+                    string.Equals(e.EventType, Constants.EventTypes.AgentEmergencyBreak, StringComparison.OrdinalIgnoreCase));
+                if (alreadyMaterialized)
+                {
+                    return;
+                }
+
+                var evt = BuildAgentEmergencyBreakEvent(report, tenantId, existing, DateTime.UtcNow);
+                await sessionRepo.StoreEventsBatchAsync(new List<EnrollmentEvent> { evt });
+
+                // StoreEventsBatchAsync writes the Events partition only — the cross-session
+                // EventType index is normally written by EventIngestProcessor, which this
+                // backend-materialized event never passes through. Without the upsert the event
+                // exists on the session timeline but is invisible to every search-by-eventType
+                // surface (portal cross-session search, MCP search_sessions_by_event /
+                // query_raw_events) — found the hard way in the 2026-07-22 incident analysis.
+                await sessionRepo.UpsertEventTypeIndexBatchAsync(
+                    tenantId, report.SessionId, new List<EnrollmentEvent> { evt });
+
+                // Operator visibility: an emergency break means an agent silently gave up at its
+                // absolute age cap — exactly the "are we losing agents?" signal. Emitted only on
+                // first materialization so repeat reports for the same session cannot flood the
+                // ops feed. OpsEventService never throws.
+                await opsEventService.RecordAgentEmergencyBreakAsync(
+                    tenantId, report.SessionId, report.AgentVersion, evt.Message);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex,
+                    "ReportAgentError: failed to materialize agent_emergency_break event for session {SessionId}", report.SessionId);
+            }
         }
 
         /// <summary>

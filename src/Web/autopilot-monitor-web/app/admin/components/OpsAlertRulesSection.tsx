@@ -95,7 +95,17 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     "TenantTrialExpiring",
     "TenantTrialExpired",
   ],
-  Agent: ["BlobStorageMissing", "BlobStorageUnreachable", "NewImeVersionDetected", "ExcessiveSessionEvents"],
+  Agent: [
+    "BlobStorageMissing",
+    "BlobStorageUnreachable",
+    "NewImeVersionDetected",
+    "ExcessiveSessionEvents",
+    // 48h session-age emergency break reported over the agent's emergency channel — the
+    // "are we silently losing agents?" signal. Emitted once per session by
+    // ReportAgentErrorFunction (RecordAgentEmergencyBreakAsync). Dual-register per memory
+    // feedback_ops_event_types_dual_register.
+    "AgentEmergencyBreak",
+  ],
 };
 
 const SEVERITIES = ["Info", "Warning", "Error", "Critical"];

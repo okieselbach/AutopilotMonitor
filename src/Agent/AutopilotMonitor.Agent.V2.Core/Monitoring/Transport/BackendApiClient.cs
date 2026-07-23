@@ -169,9 +169,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         /// <summary>
         /// Sends a critical error report to the emergency channel endpoint.
         /// Fire-and-forget: swallows all exceptions so a failure here never cascades.
-        /// Uses a 5-second per-request timeout so it cannot block the upload loop.
+        /// Default 5-second per-request timeout so it cannot block the upload loop; the
+        /// emergency-break path passes a longer <paramref name="timeout"/> because its first
+        /// request of a freshly booted process pays cold TLS + DNS + a possible backend
+        /// cold start (observed 503s take well over 5 s).
+        /// Returns <c>true</c> when the HTTP round-trip completed (the endpoint always
+        /// answers 200), <c>false</c> on timeout/transport failure — the caller-side
+        /// anti-flood layer uses this to decide whether the report counts as delivered.
+        /// Virtual for tests.
         /// </summary>
-        public async Task ReportAgentErrorAsync(AgentErrorReport report)
+        public virtual async Task<bool> ReportAgentErrorAsync(AgentErrorReport report, TimeSpan? timeout = null)
         {
             try
             {
@@ -190,16 +197,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                     httpRequest.Headers.Add("X-Tenant-Id", report.TenantId);
                     AddSecurityHeaders(httpRequest);
 
-                    using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5)))
+                    using (var cts = new CancellationTokenSource(timeout ?? TimeSpan.FromSeconds(5)))
                     using (var response = await _httpClient.SendAsync(httpRequest, cts.Token).ConfigureAwait(false))
                     {
                         // Response status is deliberately ignored — endpoint always returns 200.
+                        return true;
                     }
                 }
             }
             catch (Exception ex)
             {
                 _logger?.Debug($"ReportAgentErrorAsync: emergency channel failed: {ex.Message}");
+                return false;
             }
         }
 

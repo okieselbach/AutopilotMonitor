@@ -493,6 +493,20 @@ namespace AutopilotMonitor.Functions.Services
                 $"{sessionCount} session(s) timed out after {timeoutHours}h",
                 tenantId, "System.Maintenance", new { sessionCount, timeoutHours });
 
+        /// <summary>
+        /// An agent reported its absolute session-age emergency break (48h cap) over the
+        /// emergency channel — it cleaned itself up and exited on a session that never reached
+        /// a terminal state. This is the "are we silently losing agents?" signal; emitted by
+        /// <see cref="Functions.Ingest.ReportAgentErrorFunction"/> once per session (guarded by
+        /// the timeline-event idempotency check). Warning-tier so operators can wire a Telegram
+        /// rule; if real-world volume turns out noisy, downgrade or remove — the timeline event
+        /// on the session is the durable record.
+        /// </summary>
+        public Task RecordAgentEmergencyBreakAsync(string tenantId, string sessionId, string? agentVersion, string message)
+            => WriteAsync(OpsEventCategory.Agent, "AgentEmergencyBreak", OpsEventSeverity.Warning,
+                $"Agent emergency break on session {sessionId} (agent {agentVersion ?? "?"}): {message}",
+                tenantId, "System.EmergencyChannel", new { sessionId, agentVersion });
+
         public Task RecordExcessiveSessionEventsAsync(string tenantId, string sessionId, int eventCount, int threshold)
             => WriteAsync(OpsEventCategory.Agent, "ExcessiveSessionEvents", OpsEventSeverity.Warning,
                 $"Session {sessionId} has {eventCount} events (threshold {threshold}) — likely agent loop bug",
