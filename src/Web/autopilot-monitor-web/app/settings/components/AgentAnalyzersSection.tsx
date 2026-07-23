@@ -64,9 +64,13 @@ export default function AgentAnalyzersSection({
     trimmed !== "" &&
     (localAdminAllowedAccounts.some((a) => a.toLowerCase() === trimmed.toLowerCase()) ||
       BUILTIN_ACCOUNTS.some((a) => a.toLowerCase() === trimmed.toLowerCase()));
+  // Wildcard patterns (* / ?) need at least 2 literal characters — a bare "*"
+  // would silently disable the analyzer for the whole tenant.
+  const isTooBroad =
+    /[*?]/.test(trimmed) && trimmed.replace(/[*?]/g, "").length < 2;
 
   const addAccount = () => {
-    if (!trimmed || isDuplicate) return;
+    if (!trimmed || isDuplicate || isTooBroad) return;
     setLocalAdminAllowedAccounts([...localAdminAllowedAccounts, trimmed]);
     setNewAllowedAccount("");
   };
@@ -114,6 +118,10 @@ export default function AgentAnalyzersSection({
           <p className="font-medium text-gray-900 mb-1">Allowed Local Accounts</p>
           <p className="text-sm text-gray-500 mb-3">
             Accounts listed here are considered expected on enrolled devices and will not trigger alerts. These are merged with the built-in defaults on the agent.
+            Wildcards are supported: <code className="px-1 bg-gray-100 rounded">*</code> matches any sequence of characters,{" "}
+            <code className="px-1 bg-gray-100 rounded">?</code> exactly one — e.g.{" "}
+            <code className="px-1 bg-gray-100 rounded">adm-*</code> allows generated accounts like <code className="px-1 bg-gray-100 rounded">adm-83921</code>.
+            Matching is case-insensitive and applies to both account names and profile folders.
           </p>
 
           {/* Built-in accounts (read-only) */}
@@ -155,7 +163,7 @@ export default function AgentAnalyzersSection({
           <div className="flex gap-2 mt-2">
             <input
               type="text"
-              placeholder="Account name (e.g. SupportAdmin)"
+              placeholder="Account name or pattern (e.g. SupportAdmin, adm-*)"
               value={newAllowedAccount}
               onChange={(e) => setNewAllowedAccount(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addAccount(); } }}
@@ -163,7 +171,7 @@ export default function AgentAnalyzersSection({
             />
             <button
               onClick={addAccount}
-              disabled={!trimmed || isDuplicate}
+              disabled={!trimmed || isDuplicate || isTooBroad}
               className="px-4 py-1.5 bg-rose-600 text-white rounded-lg text-sm font-medium hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
             >
               Add
@@ -171,6 +179,11 @@ export default function AgentAnalyzersSection({
           </div>
           {isDuplicate && (
             <p className="text-xs text-red-500 mt-1">This account is already in the list.</p>
+          )}
+          {isTooBroad && (
+            <p className="text-xs text-red-500 mt-1">
+              Pattern is too broad — it needs at least 2 characters besides <code>*</code>/<code>?</code>, otherwise the analyzer would be effectively disabled.
+            </p>
           )}
         </div>
 

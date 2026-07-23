@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Management;
+using System.Text.RegularExpressions;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
@@ -28,6 +29,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
     ///
     /// Emits a single "local_admin_analysis" event at startup and at shutdown,
     /// enabling delta detection between pre- and post-enrollment state.
+    ///
+    /// Tenant-supplied allowed accounts may contain glob wildcards (e.g. "adm-*");
+    /// see <see cref="MatchesAllowedEntry"/>.
     /// </summary>
     public class LocalAdminAnalyzer : IAgentAnalyzer
     {
@@ -247,6 +251,43 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
         }
 
         // -----------------------------------------------------------------------
+        // Allowed-list matching
+        // -----------------------------------------------------------------------
+
+        /// <summary>
+        /// Matches an account or profile-folder name against one allowed-list entry.
+        /// Entries containing <c>*</c> or <c>?</c> are glob patterns (same semantics as the
+        /// hardware whitelist: <c>*</c> = any run, <c>?</c> = one char, case-insensitive);
+        /// all other entries match exactly. No ambiguity with literal names — <c>*</c> and
+        /// <c>?</c> are invalid characters in Windows account names.
+        /// Internal for direct unit-testing via InternalsVisibleTo.
+        /// </summary>
+        internal static bool MatchesAllowedEntry(string name, string entry)
+        {
+            if (entry.IndexOf('*') < 0 && entry.IndexOf('?') < 0)
+                return string.Equals(entry, name, StringComparison.OrdinalIgnoreCase);
+
+            var regexPattern = "^" + Regex.Escape(entry)
+                .Replace("\\*", ".*")
+                .Replace("\\?", ".") + "$";
+
+            try
+            {
+                // Timeout guards against pathological patterns (ReDoS)
+                return Regex.IsMatch(name, regexPattern, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                return false;
+            }
+        }
+
+        private static bool IsAllowed(string name, List<string> allowedAccounts)
+        {
+            return allowedAccounts.Any(a => MatchesAllowedEntry(name, a));
+        }
+
+        // -----------------------------------------------------------------------
         // Individual checks
         // -----------------------------------------------------------------------
 
@@ -308,8 +349,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                         if (disabled)
                             continue;
 
-                        if (!allowedAccounts.Any(a =>
-                            string.Equals(a, name, StringComparison.OrdinalIgnoreCase)))
+                        if (!IsAllowed(name, allowedAccounts))
                         {
                             unexpected.Add(name);
                             _logger.Debug($"{Name}: Unexpected local account: {name}");
@@ -349,8 +389,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
 
                     allFound.Add(folderName);
 
-                    if (!allowedAccounts.Any(a =>
-                        string.Equals(a, folderName, StringComparison.OrdinalIgnoreCase)))
+                    if (!IsAllowed(folderName, allowedAccounts))
                     {
                         unexpected.Add(folderName);
                         _logger.Debug($"{Name}: Unexpected profile folder: {folderName}");
