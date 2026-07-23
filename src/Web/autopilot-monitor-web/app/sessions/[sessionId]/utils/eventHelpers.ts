@@ -66,6 +66,69 @@ export function computeWhiteGloveSplitSequence(events: EnrollmentEvent[]): numbe
   return -1;
 }
 
+// Pure helper — per-block durations for WhiteGlove sessions.
+// Duration 1 = pre-provisioning, Duration 2 = user enrollment, combined = D1 + D2
+// (the sealed pause between reseal and resume is excluded).
+//
+// Block spans are anchored on the SEQUENCE-canonical edge events (first/last event by
+// sequence), NOT on min/max over all timestamps in the block. Two real-world cases break
+// the min/max approach:
+//   - Events re-emitted after the Part-2 resume can legitimately carry historical event
+//     times (e.g. an app_install_started the ImeLogTracker re-parses from the IME log,
+//     stamped with the Part-1 install start). min() would stretch the User Enrollment
+//     block back across the sealed pause.
+//   - A single clock-skewed source timestamp (e.g. an IME log line with a wrong timezone
+//     bias that slips under the agent's 1h future-skew clamp) would stretch the block
+//     the other way.
+// Sequence is the canonical event order, so the block edges by sequence are the robust
+// span anchors. Part 1 additionally starts at session.startedAt (registration) when
+// provided — the same anchor the backend uses for DurationSeconds.
+export interface WhiteGloveDurations {
+  preProvDuration: string | null;
+  userEnrollDuration: string | null;
+  combinedDuration: string | null;
+}
+
+export function computeWhiteGloveDurations(
+  events: EnrollmentEvent[],
+  splitSequence: number,
+  startedAt?: string,
+): WhiteGloveDurations {
+  const preProvEvts = splitSequence < 0 ? events : events.filter(e => e.sequence <= splitSequence);
+  const userEnrollEvts = splitSequence < 0 ? [] : events.filter(e => e.sequence > splitSequence);
+
+  const spanMs = (evts: EnrollmentEvent[], startOverrideMs?: number): number => {
+    if (evts.length === 0) return 0;
+    let first = evts[0];
+    let last = evts[0];
+    for (const e of evts) {
+      if (e.sequence < first.sequence) first = e;
+      if (e.sequence > last.sequence) last = e;
+    }
+    const start = startOverrideMs ?? new Date(first.timestamp).getTime();
+    const end = new Date(last.timestamp).getTime();
+    return Math.max(0, end - start);
+  };
+
+  const fmt = (ms: number): string | null => {
+    const sec = Math.round(ms / 1000);
+    if (sec < 1) return null;
+    if (sec < 60) return `${sec}s`;
+    if (sec < 3600) return `${Math.floor(sec / 60)}m ${sec % 60}s`;
+    return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
+  };
+
+  const startedAtMs = startedAt ? new Date(startedAt).getTime() : NaN;
+  const preProvMs = spanMs(preProvEvts, Number.isFinite(startedAtMs) ? startedAtMs : undefined);
+  const userEnrollMs = spanMs(userEnrollEvts);
+
+  return {
+    preProvDuration: fmt(preProvMs),
+    userEnrollDuration: fmt(userEnrollMs),
+    combinedDuration: fmt(preProvMs + userEnrollMs),
+  };
+}
+
 // Pure helper — groups a flat event list into phase buckets.
 // Extracted from the useMemo so it can be called multiple times for WhiteGlove split timelines.
 //

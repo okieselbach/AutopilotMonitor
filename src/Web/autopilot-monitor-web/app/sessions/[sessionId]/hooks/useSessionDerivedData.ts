@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { EnrollmentEvent, Session } from "@/types";
 import { V1_PHASE_NAMES, V2_PHASE_NAMES, V1_PHASE_ORDER, V2_PHASE_ORDER } from "../utils/phaseConstants";
-import { computeWhiteGloveSplitSequence, groupEventsByPhase } from "../utils/eventHelpers";
+import { computeWhiteGloveDurations, computeWhiteGloveSplitSequence, groupEventsByPhase } from "../utils/eventHelpers";
 
 interface PhaseGrouping {
   eventsByPhase: Record<string, EnrollmentEvent[]>;
@@ -176,33 +176,8 @@ export function useSessionDerivedData(
     if (!isWhiteGloveSession) {
       return { preProvDuration: null as string | null, userEnrollDuration: null as string | null, combinedDuration: null as string | null };
     }
-
-    const preProvEvts = whiteGloveSplitSequence < 0 ? events : events.filter(e => e.sequence <= whiteGloveSplitSequence);
-    const userEnrollEvts = whiteGloveSplitSequence < 0 ? [] : events.filter(e => e.sequence > whiteGloveSplitSequence);
-
-    const calcMs = (evts: EnrollmentEvent[]): number => {
-      if (evts.length === 0) return 0;
-      const ts = evts.map(e => new Date(e.timestamp).getTime());
-      return Math.max(...ts) - Math.min(...ts);
-    };
-
-    const fmt = (ms: number): string | null => {
-      const sec = Math.round(ms / 1000);
-      if (sec < 1) return null;
-      if (sec < 60) return `${sec}s`;
-      if (sec < 3600) return `${Math.floor(sec / 60)}m ${sec % 60}s`;
-      return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
-    };
-
-    const preProvMs = calcMs(preProvEvts);
-    const userEnrollMs = calcMs(userEnrollEvts);
-
-    return {
-      preProvDuration: fmt(preProvMs),
-      userEnrollDuration: fmt(userEnrollMs),
-      combinedDuration: fmt(preProvMs + userEnrollMs),
-    };
-  }, [events, isWhiteGloveSession, whiteGloveSplitSequence]);
+    return computeWhiteGloveDurations(events, whiteGloveSplitSequence, session?.startedAt);
+  }, [events, isWhiteGloveSession, whiteGloveSplitSequence, session?.startedAt]);
 
   // Group events by phase — single timeline for normal sessions, two groups for WhiteGlove
   const { eventsByPhase, orderedPhases } = useMemo(() => {
