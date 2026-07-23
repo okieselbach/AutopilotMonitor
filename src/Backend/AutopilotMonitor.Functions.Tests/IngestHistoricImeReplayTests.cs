@@ -13,7 +13,7 @@ namespace AutopilotMonitor.Functions.Tests;
 /// own time, preserved by the agent's staleness clamp) is more than 24 h older than the
 /// event's clock-clamped stamp.
 /// </summary>
-public class IngestHistoricScriptReplayTests
+public class IngestHistoricImeReplayTests
 {
     private static readonly DateTime EventStamp = new(2026, 7, 23, 15, 42, 0, DateTimeKind.Utc);
 
@@ -34,21 +34,39 @@ public class IngestHistoricScriptReplayTests
     public void StaleRejectedSourceTimestamp_IsHistoricReplay()
     {
         var evt = ScriptEvent(EventStamp.AddDays(-7).ToString("o"));
-        Assert.True(EventIngestProcessor.IsHistoricScriptReplay(evt));
+        Assert.True(EventIngestProcessor.IsHistoricImeReplay(evt));
+    }
+
+    [Fact]
+    public void StaleAppInstallEvent_IsHistoricReplay()
+    {
+        // The predicate is event-type-agnostic — it also guards AggregateAppInstallEvent
+        // (AppInstallSummaries would otherwise be overwritten with week-old runs).
+        var evt = new EnrollmentEvent
+        {
+            EventType = "app_install_completed",
+            Timestamp = EventStamp,
+            Data = new Dictionary<string, object>
+            {
+                ["appName"] = "Contoso App",
+                ["rejectedSourceTimestamp"] = EventStamp.AddDays(-7).ToString("o"),
+            },
+        };
+        Assert.True(EventIngestProcessor.IsHistoricImeReplay(evt));
     }
 
     [Fact]
     public void JustOver24h_IsHistoricReplay()
     {
         var evt = ScriptEvent(EventStamp.AddHours(-25).ToString("o"));
-        Assert.True(EventIngestProcessor.IsHistoricScriptReplay(evt));
+        Assert.True(EventIngestProcessor.IsHistoricImeReplay(evt));
     }
 
     [Fact]
     public void Within24h_IsNotHistoricReplay()
     {
         var evt = ScriptEvent(EventStamp.AddHours(-23).ToString("o"));
-        Assert.False(EventIngestProcessor.IsHistoricScriptReplay(evt));
+        Assert.False(EventIngestProcessor.IsHistoricImeReplay(evt));
     }
 
     [Fact]
@@ -57,20 +75,20 @@ public class IngestHistoricScriptReplayTests
         // A rejected source timestamp AHEAD of the event stamp is a mid-enrollment clock
         // jump (WhiteGlove +1h CMTrace skew), not replayed history.
         var evt = ScriptEvent(EventStamp.AddHours(2).ToString("o"));
-        Assert.False(EventIngestProcessor.IsHistoricScriptReplay(evt));
+        Assert.False(EventIngestProcessor.IsHistoricImeReplay(evt));
     }
 
     [Fact]
     public void MissingKey_IsNotHistoricReplay()
     {
-        Assert.False(EventIngestProcessor.IsHistoricScriptReplay(ScriptEvent(null, includeKey: false)));
+        Assert.False(EventIngestProcessor.IsHistoricImeReplay(ScriptEvent(null, includeKey: false)));
     }
 
     [Fact]
     public void NullData_IsNotHistoricReplay()
     {
         var evt = new EnrollmentEvent { EventType = "script_completed", Timestamp = EventStamp, Data = null! };
-        Assert.False(EventIngestProcessor.IsHistoricScriptReplay(evt));
+        Assert.False(EventIngestProcessor.IsHistoricImeReplay(evt));
     }
 
     [Theory]
@@ -78,12 +96,12 @@ public class IngestHistoricScriptReplayTests
     [InlineData("not-a-date")]
     public void UnparseableValue_IsNotHistoricReplay(string raw)
     {
-        Assert.False(EventIngestProcessor.IsHistoricScriptReplay(ScriptEvent(raw)));
+        Assert.False(EventIngestProcessor.IsHistoricImeReplay(ScriptEvent(raw)));
     }
 
     [Fact]
     public void NullEvent_IsNotHistoricReplay()
     {
-        Assert.False(EventIngestProcessor.IsHistoricScriptReplay(null));
+        Assert.False(EventIngestProcessor.IsHistoricImeReplay(null));
     }
 }

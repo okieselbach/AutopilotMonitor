@@ -62,6 +62,10 @@ export function useSessionDerivedData(
 
   // Extract latest app_tracking_summary state-breakdown for progress headers.
   // Schema is the flat V1 shape — see AppTrackingSummaryBuilder.cs for the contract.
+  // Known legacy limitation: on sessions recorded by agents without the tracker-level
+  // historic-replay guard, the snapshot may count apps replayed from a previous
+  // enrollment's IME log — accepted; fixed agents keep replayed apps out of the summary
+  // at the source (ImeLogTracker AppMutatingActions guard).
   const appSummaryStats = useMemo(() => {
     const summaryEvents = events.filter(e => e.eventType === "app_tracking_summary");
     if (summaryEvents.length === 0) return null;

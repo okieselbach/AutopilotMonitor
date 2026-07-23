@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { partitionHistoricReplayEvents } from "@/lib/historicReplay";
 import { shouldSkipLowBytesTotal, shouldSkipNoActivity } from "@/lib/downloadProgressFilters";
 import { formatBytes, formatThroughput, formatDuration } from "@/lib/formatting";
 import DoBreakdownBar from "./DoBreakdownBar";
@@ -84,10 +85,18 @@ function formatDoDuration(duration: string): string {
 }
 
 export default function DownloadProgress({ events, summaryStats }: DownloadProgressProps) {
-  const downloads = useMemo(() => {
-    if (events.length === 0) return [];
+  // Legacy-agent guard: drop download events replayed from a previous enrollment's IME log.
+  // Silent (empty finals set) — the InstallProgress panel already reports the hidden count
+  // for the same apps; a second note here would double-report them.
+  const current = useMemo(
+    () => partitionHistoricReplayEvents(events, new Set<string>()).current,
+    [events]
+  );
 
-    const sortedEvents = [...events].sort(
+  const downloads = useMemo(() => {
+    if (current.length === 0) return [];
+
+    const sortedEvents = [...current].sort(
       (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
 
@@ -185,7 +194,7 @@ export default function DownloadProgress({ events, summaryStats }: DownloadProgr
       // This avoids active items jumping when completion status changes.
       return a.firstSeenIndex - b.firstSeenIndex;
     });
-  }, [events]);
+  }, [current]);
 
   const [expanded, setExpanded] = useState(true);
   const [showSkipped, setShowSkipped] = useState(false);

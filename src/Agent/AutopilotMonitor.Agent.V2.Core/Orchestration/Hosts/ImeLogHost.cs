@@ -111,6 +111,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 logger: logger,
                 matchLogPath: expandedMatchLogPath,
                 stateDirectory: stateDirectory);
+            // Historic-replay guard runs against the agent clock, not the raw system clock —
+            // keeps the tracker's staleness verdicts consistent with the adapter's clamp.
+            _tracker.UtcNowProvider = () => clock.UtcNow;
 
             if (simulationMode)
             {

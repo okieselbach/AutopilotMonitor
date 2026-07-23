@@ -28,7 +28,7 @@ export const KEY_EVENT_TYPES = new Set([
   'enrollment_complete', 'enrollment_failed', 'completion_check',
   'desktop_arrived', 'hello_policy_detected', 'waiting_for_hello', 'hello_completion_timeout',
   'agent_started', 'agent_shutdown', 'agent_shutting_down', 'agent_trace',
-  'script_started', 'script_completed', 'script_failed', 'historic_script_replay_detected',
+  'script_started', 'script_completed', 'script_failed', 'historic_ime_replay_detected',
   'vulnerability_report',
 ]);
 // Phase-defining events promoted to the top of the triage timeline. Module-level
@@ -37,6 +37,27 @@ export const PHASE_EVENT_TYPES = new Set([
   'phase_transition', 'esp_phase_changed', 'enrollment_type_detected',
   'enrollment_complete', 'enrollment_failed', 'desktop_arrived',
 ]);
+
+// Mirrors the agent's 24 h source-timestamp staleness clamp (session eaf3d8c4).
+const HISTORIC_REPLAY_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * True when an event is replayed history from a previous enrollment: legacy agents replay
+ * IME log content surviving a re-enrollment, stamping the rejected source-line time as
+ * `data.rejectedSourceTimestamp` — more than 24 h older than the event stamp means the
+ * activity happened during a previous enrollment. Newer agents suppress these at the
+ * source; this filter covers sessions recorded by older agents. A rejected timestamp in
+ * the FUTURE (clock jump) is genuine current activity and passes through. Exported so the
+ * unit tests can pin the predicate.
+ */
+export function isHistoricImeReplay(e: Record<string, unknown>): boolean {
+  const data = e.data as Record<string, unknown> | undefined;
+  const rejected = data?.rejectedSourceTimestamp ?? data?.rejected_source_timestamp;
+  if (typeof rejected !== 'string' || rejected.length === 0) return false;
+  const rej = Date.parse(rejected);
+  const ts = Date.parse(String(e.timestamp ?? ''));
+  return Number.isFinite(rej) && Number.isFinite(ts) && ts - rej > HISTORIC_REPLAY_THRESHOLD_MS;
+}
 // Permissive ISO-8601 guard: rejects unparseable junk (which the backend would
 // silently treat as no filter) while still accepting the date-only and
 // timezone-offset forms the backend honors.
@@ -483,7 +504,12 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
             : null,
         };
 
-        const allEvents = (eventsData?.events ?? []) as Array<Record<string, unknown>>;
+        // Historic-replay filter: replayed app_install_failed events are Error-severity and
+        // would inflate errorCount; replayed app_install_* would inflate the appInstalls
+        // stats; replayed events would pollute the keyEvents triage timeline. One filter
+        // cleans all three. stats.totalEvents therefore counts non-replayed events.
+        const allEvents = ((eventsData?.events ?? []) as Array<Record<string, unknown>>)
+          .filter((e) => !isHistoricImeReplay(e));
 
         let errorCount = 0;
         let warningCount = 0;

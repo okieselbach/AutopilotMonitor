@@ -71,6 +71,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         public double SpeedFactor { get; set; } = 50;
         private DateTime _lastLogTimestamp = DateTime.MinValue;
 
+        // Source log lines older than this relative to now are content from a previous
+        // enrollment (IME logs surviving a re-enrollment, session eaf3d8c4). Single source of
+        // truth shared with the adapter's ResolveOccurredAt clamp and replay suppression.
+        internal static readonly TimeSpan HistoricReplayThreshold = TimeSpan.FromHours(24);
+
+        // Deterministic-time seam for the historic-replay guard; production default is the
+        // system clock, ImeLogHost rewires it to the agent IClock, tests to their VirtualClock.
+        internal Func<DateTime> UtcNowProvider { get; set; } = () => DateTime.UtcNow;
+
+        /// <summary>
+        /// CMTrace timestamps from IME are emitted in UTC, but DateTimeKind may arrive as
+        /// Unspecified depending on the parser path. Normalize via SpecifyKind=Utc rather than
+        /// ToUniversalTime() to avoid double-conversion when Kind is already UTC.
+        /// </summary>
+        internal static DateTime NormalizeUtc(DateTime value) =>
+            value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
+
         // Background task
         private Task _pollingTask;
         private CancellationTokenSource _cts;

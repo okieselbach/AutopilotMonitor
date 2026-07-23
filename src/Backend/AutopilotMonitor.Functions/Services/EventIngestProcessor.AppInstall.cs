@@ -22,6 +22,13 @@ namespace AutopilotMonitor.Functions.Services
 
             if (!isRelevant) return;
 
+            // Legacy-agent stale-replay guard (session eaf3d8c4): app events replayed from a
+            // previous enrollment's IME log carry a rejectedSourceTimestamp > 24 h older than
+            // the event stamp. They would create/overwrite this session's AppInstallSummaries
+            // rows with week-old runs. The fixed agent suppresses them at the source; this
+            // covers agents not yet rolled out.
+            if (IsHistoricImeReplay(evt)) return;
+
             var appName = evt.Data?.ContainsKey("appName") == true ? evt.Data["appName"]?.ToString()?.Trim() : null;
             if (string.IsNullOrEmpty(appName)) return;
 

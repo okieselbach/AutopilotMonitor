@@ -5,6 +5,7 @@
  * mapping can be unit-tested without React Testing Library.
  */
 import { extractBootstrapVersion } from "@/utils/bootstrapVersion";
+import { HISTORIC_REPLAY_THRESHOLD_MS, partitionHistoricReplayEvents } from "./historicReplay";
 
 export interface ScriptInputEvent {
   timestamp: string;
@@ -119,13 +120,9 @@ export function scriptCardKey(card: Pick<ScriptCard, "policyId" | "scriptType" |
 /** Threshold above which a Running placeholder is rendered as "stuck?" rather than animated. */
 export const STALE_RUNNING_THRESHOLD_SECONDS = 600;
 
-/**
- * Age above which a rejectedSourceTimestamp marks the event as a historic replay from a
- * previous enrollment (mirrors the agent's 24 h source-timestamp staleness clamp). Newer
- * agents suppress such events at the source (historic_script_replay_detected); this
- * client-side partition covers sessions recorded by older agents.
- */
-export const HISTORIC_REPLAY_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+export { HISTORIC_REPLAY_THRESHOLD_MS };
+
+const SCRIPT_FINAL_TYPES: ReadonlySet<string> = new Set(["script_completed", "script_failed"]);
 
 export interface HistoricPartition {
   current: ScriptInputEvent[];
@@ -138,30 +135,13 @@ export interface HistoricPartition {
 }
 
 /**
- * Splits off script events that are replayed history from a previous enrollment: the agent
- * stamps `rejectedSourceTimestamp` when it rejected the source log line's own timestamp and
- * fell back to the clock. A source timestamp more than 24 h OLDER than the event stamp means
- * the line predates this enrollment — the run happened days ago and must not render as a
- * current execution (session eaf3d8c4: 156 replayed runs shown with ~170 h durations).
- * Future-skew rejections (source timestamp AHEAD of the event stamp — mid-enrollment clock
- * jump) are genuine current runs and stay visible.
+ * Script-specific wrapper over `partitionHistoricReplayEvents` (see lib/historicReplay.ts
+ * for the replay semantics): drops script events replayed from a previous enrollment
+ * (session eaf3d8c4: 156 replayed runs shown with ~170 h durations) and counts the finals
+ * for the "N hidden" note.
  */
 export function partitionHistoricScriptEvents(events: ScriptInputEvent[]): HistoricPartition {
-  const current: ScriptInputEvent[] = [];
-  let historicCount = 0;
-  for (const evt of events) {
-    const rejected = evt.data?.rejectedSourceTimestamp ?? evt.data?.rejected_source_timestamp;
-    if (typeof rejected === "string" && rejected.length > 0) {
-      const rej = Date.parse(rejected);
-      const ts = Date.parse(evt.timestamp);
-      if (Number.isFinite(rej) && Number.isFinite(ts) && ts - rej > HISTORIC_REPLAY_THRESHOLD_MS) {
-        if (evt.eventType === "script_completed" || evt.eventType === "script_failed") historicCount++;
-        continue;
-      }
-    }
-    current.push(evt);
-  }
-  return { current, historicCount };
+  return partitionHistoricReplayEvents(events, SCRIPT_FINAL_TYPES);
 }
 
 /**

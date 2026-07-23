@@ -39,6 +39,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Harness
                 logFolder: Tmp.Path,
                 patterns: new List<ImeLogPattern>(),
                 logger: Logger);
+            // Mirror ImeLogHost wiring: the historic-replay guard judges staleness against the
+            // (virtual) agent clock so tests stay deterministic.
+            Tracker.UtcNowProvider = () => Clock.UtcNow;
         }
 
         public IReadOnlyList<FakeSignalIngressSink.PostedSignal> DecisionSignals(DecisionSignalKind kind) =>

@@ -194,6 +194,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             }
         }
 
+        // Actions that mutate app/phase tracking state (_packageStates, _phasePackageSnapshots,
+        // _currentPhaseOrder, DO telemetry) — the historic-replay guard skips these for source
+        // lines from a previous enrollment so replayed apps never enter tracked state,
+        // persistence, app_tracking_summary, culprit lists or final-status. Script actions are
+        // deliberately NOT here: their tracker state is harmless (stale-slot hardening covers
+        // leftovers) and the adapter suppresses their emissions. espphasedetected IS here — a
+        // stale "In EspPhase: AccountSetup" would advance _currentPhaseOrder and make the fresh
+        // enrollment's DeviceSetup lines bounce as "backward"; IME re-logs the phase constantly,
+        // so fresh lines re-deliver it immediately.
+        private static readonly HashSet<string> AppMutatingActions = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "imeshutdown", "espphasedetected", "setcurrentapp",
+            "updatestateinstalled", "updatestatedownloading", "updatestateinstalling",
+            "updatestateskipped", "updatestateerror", "updatestatepostponed",
+            "captureexitcode", "capturehresult", "captureappversion",
+            "captureapptypewinget", "captureapptypemsi", "captureattemptnumber",
+            "capturedetectionresult", "esptrackstatus", "policiesdiscovered",
+            "ignorecompletedapp", "updatename", "updatewin32appstate",
+            "cancelstuckandsetcurrent", "updatedotelemetry",
+        };
+
         private void HandlePatternMatch(CompiledPattern pattern, Match match, string message, CmTraceLogEntry entry)
         {
             LastMatchedPatternId = pattern.PatternId;
@@ -205,6 +226,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             // exceptions from the action-dispatch that follows.
             try { OnPatternMatched?.Invoke(pattern.PatternId); }
             catch (Exception ex) { _logger?.Warning($"OnPatternMatched handler threw: {ex.Message}"); }
+
+            // Historic-replay guard (session eaf3d8c4): a source line > 24 h older than now is
+            // content from a previous enrollment whose IME log survived on disk. App-mutating
+            // actions are skipped BEFORE _seenAppIds so replayed apps poison neither the tracked
+            // state nor the phase-change ignore list. SimulationMode (--replay-log-dir dev tool)
+            // replays historic logs on purpose and bypasses the guard.
+            var isStaleReplayLine = !SimulationMode && entry != null
+                && (UtcNowProvider() - NormalizeUtc(entry.Timestamp)) > HistoricReplayThreshold;
+            if (isStaleReplayLine && AppMutatingActions.Contains(pattern.Action?.ToLower() ?? string.Empty))
+            {
+                _logger.Debug($"ImeLogTracker: skipped app action '{pattern.Action}' for historic line ({entry.Timestamp:o})");
+                return;
+            }
 
             try
             {

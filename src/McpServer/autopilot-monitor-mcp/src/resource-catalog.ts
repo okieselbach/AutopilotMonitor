@@ -80,7 +80,7 @@ export const EVENT_TYPES_CATALOG = {
     'office_install_failed',
     'office_preinstalled_detected',
   ],
-  script_events: ['script_started', 'script_completed', 'script_failed', 'script_timeout_suspected', 'historic_script_replay_detected'],
+  script_events: ['script_started', 'script_completed', 'script_failed', 'script_timeout_suspected', 'historic_ime_replay_detected'],
   network_events: [
     'network_state_change',
     'network_connectivity_check',

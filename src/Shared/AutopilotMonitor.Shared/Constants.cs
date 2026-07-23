@@ -341,11 +341,12 @@ namespace AutopilotMonitor.Shared
             // timestamp). Warning, advisory ("suspected"); no state mutation.
             public const string ScriptTimeoutSuspected = "script_timeout_suspected";
             // One-shot per agent run: the IME adapter detected replayed log content from a
-            // previous enrollment (script source lines > 24 h stale, e.g. IME logs surviving a
-            // re-enrollment) and suppressed the historic script_started/script_completed/
-            // script_failed events. Data.earliestRejectedSourceTimestamp dates the replayed
-            // content so operators know why script events are missing (session eaf3d8c4).
-            public const string HistoricScriptReplayDetected = "historic_script_replay_detected";
+            // previous enrollment (source lines > 24 h stale, e.g. IME logs surviving a
+            // re-enrollment) and suppressed the historic script (script_started/completed/
+            // failed) and app (app_install_*/download_progress/do_telemetry) events.
+            // Data.earliestRejectedSourceTimestamp dates the replayed content so operators
+            // know why those events are missing (session eaf3d8c4).
+            public const string HistoricImeReplayDetected = "historic_ime_replay_detected";
             public const string EspProvisioningStatus = "esp_provisioning_status";
             public const string SoftwareInventoryAnalysis = "software_inventory_analysis";
             public const string VulnerabilityReport       = "vulnerability_report";

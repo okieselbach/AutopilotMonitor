@@ -12,7 +12,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
     /// on disk made the agent replay week-old script activity — 156 phantom script_completed
     /// events with ~170 h durations (clock-clamped completion minus RAW stale start) and an
     /// immediate-upload flood. Script events whose source line is &gt; 24 h stale are now
-    /// suppressed entirely (one-shot <c>historic_script_replay_detected</c> summary instead),
+    /// suppressed entirely (one-shot <c>historic_ime_replay_detected</c> summary instead),
     /// and durations are computed from a timeline-consistent timestamp pair with a 24 h
     /// plausibility backstop.
     /// </summary>
@@ -50,7 +50,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             Assert.Empty(f.InfoEvents(SharedEventTypes.ScriptTimeoutSuspected));
             Assert.Empty(f.InfoEvents(SharedEventTypes.AgentTrace));
 
-            var summary = f.InfoEvent(SharedEventTypes.HistoricScriptReplayDetected);
+            var summary = f.InfoEvent(SharedEventTypes.HistoricImeReplayDetected);
             Assert.Equal(ancient.ToString("o"), summary.Payload!["earliestRejectedSourceTimestamp"]);
         }
 
@@ -86,7 +86,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             Assert.Empty(f.InfoEvents(SharedEventTypes.ScriptCompleted));
             // Exactly ONE summary regardless of how many replayed lines followed — and it dates
             // the replay window from the FIRST (earliest) suppressed line.
-            var summary = Assert.Single(f.InfoEvents(SharedEventTypes.HistoricScriptReplayDetected));
+            var summary = Assert.Single(f.InfoEvents(SharedEventTypes.HistoricImeReplayDetected));
             Assert.Equal(ClockNow.AddDays(-7).ToString("o"), summary.Payload!["earliestRejectedSourceTimestamp"]);
         }
 
@@ -141,7 +141,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             var info = Assert.Single(f.InfoEvents(SharedEventTypes.ScriptCompleted));
             Assert.Equal("true", info.Payload!["derivedTimestamp"]);
             Assert.False(info.Payload.ContainsKey("rejectedSourceTimestamp"));
-            Assert.Empty(f.InfoEvents(SharedEventTypes.HistoricScriptReplayDetected));
+            Assert.Empty(f.InfoEvents(SharedEventTypes.HistoricImeReplayDetected));
         }
 
         // ---------------------------------------------------------------------
@@ -174,7 +174,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             Assert.Equal("true", info.Payload!["derivedTimestamp"]);
             Assert.Equal(skewed.ToString("o"), info.Payload["rejectedSourceTimestamp"]);
             Assert.Equal("360.00", info.Payload["durationSeconds"]);          // duration: raw pair
-            Assert.Empty(f.InfoEvents(SharedEventTypes.HistoricScriptReplayDetected));
+            Assert.Empty(f.InfoEvents(SharedEventTypes.HistoricImeReplayDetected));
         }
 
         [Fact]

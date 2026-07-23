@@ -87,7 +87,7 @@ namespace AutopilotMonitor.Functions.Services
                         // history from a previous enrollment (session eaf3d8c4 inflated
                         // RemediationScriptCount to 156 in a 7-min session). The fixed agent
                         // suppresses them at the source; this covers agents not yet rolled out.
-                        if (IsHistoricScriptReplay(evt))
+                        if (IsHistoricImeReplay(evt))
                             break;
                         var scriptType = evt.Data?.ContainsKey("scriptType") == true
                             ? evt.Data["scriptType"]?.ToString() : null;
@@ -127,14 +127,14 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// True for a script event whose <c>Data.rejectedSourceTimestamp</c> is more than 24 h
+        /// True for an agent event whose <c>Data.rejectedSourceTimestamp</c> is more than 24 h
         /// older than the event's own (clock-clamped) timestamp: the agent replayed IME log
         /// content from a previous enrollment that survived on disk. Such runs happened days ago
         /// and must not count as this session's script executions. A rejected source timestamp
         /// in the FUTURE (negative difference) is a mid-enrollment clock jump, not a replay.
         /// The 24 h bound mirrors the agent's source-timestamp staleness clamp.
         /// </summary>
-        internal static bool IsHistoricScriptReplay(EnrollmentEvent? evt)
+        internal static bool IsHistoricImeReplay(EnrollmentEvent? evt)
         {
             if (evt?.Data == null || !evt.Data.ContainsKey("rejectedSourceTimestamp"))
                 return false;

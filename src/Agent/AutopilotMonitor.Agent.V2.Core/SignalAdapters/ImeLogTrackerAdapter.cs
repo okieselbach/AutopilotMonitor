@@ -99,9 +99,9 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
 
         // One-shot: historic script replay detected (a previous enrollment's IME log content
         // surviving on disk) — its script events are suppressed, and a single
-        // historic_script_replay_detected Info event explains the gap in the timeline.
+        // historic_ime_replay_detected Info event explains the gap in the timeline.
         private bool _historicReplayNoted;
-        private int _suppressedHistoricScriptEvents;   // forensic count for the log line
+        private int _suppressedHistoricReplayEvents;   // forensic count for the log line
 
         // A platform script whose observed run duration reaches this is treated as having hit the
         // IME script-execution timeout (default ~30 min). 25 min leaves headroom below 30 so clock
@@ -110,9 +110,10 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private static readonly TimeSpan ScriptTimeoutSuspectedThreshold = TimeSpan.FromMinutes(25);
 
         // Source log lines older than this relative to the clock are pathological — shared by
-        // ResolveOccurredAt's staleness clamp, the historic-replay suppression and the duration
-        // plausibility backstop, one constant so the three can never drift apart.
-        private static readonly TimeSpan StaleSourceThreshold = TimeSpan.FromHours(24);
+        // ResolveOccurredAt's staleness clamp, the historic-replay suppression, the duration
+        // plausibility backstop AND the tracker's app-mutation guard (single source of truth
+        // in ImeLogTracker so the layers can never drift apart).
+        private static readonly TimeSpan StaleSourceThreshold = ImeLogTracker.HistoricReplayThreshold;
 
         // Matches the deterministic marker line the bootstrap script writes via Write-Log,
         // e.g. "Bootstrap script version: v2.0" — see scripts/Bootstrap/Install-AutopilotMonitor.ps1.
@@ -330,28 +331,27 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 data["rejectedSourceTimestamp"] = rawSourceTs.Value.ToString("o", System.Globalization.CultureInfo.InvariantCulture);
         }
 
-        /// <summary>
-        /// CMTrace log timestamps from IME are emitted in UTC, but DateTimeKind may arrive as
-        /// Unspecified depending on the parser path. Normalize via SpecifyKind=Utc rather than
-        /// ToUniversalTime() to avoid double-conversion when Kind is already UTC.
-        /// </summary>
-        private static DateTime NormalizeUtc(DateTime value) =>
-            value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
+        // CMTrace Kind normalization — shared implementation lives on the tracker (used by its
+        // historic-replay guard too).
+        private static DateTime NormalizeUtc(DateTime value) => ImeLogTracker.NormalizeUtc(value);
 
         /// <summary>
-        /// True when a script event's source log line is a historic replay: the source timestamp
+        /// True when an event's source log line is a historic replay: the source timestamp
         /// was rejected as stale (> <see cref="StaleSourceThreshold"/> in the PAST). Those lines
-        /// are runs from a previous enrollment whose IME log survived on disk (session eaf3d8c4:
-        /// 156 replayed script completions shown as current executions, immediate-upload flood →
-        /// ingress_backpressure). Future-skew rejections (negative age — mid-enrollment clock
-        /// jump) and clock-only fallbacks (no source timestamp at all) are NOT replay and must
-        /// still emit. Emits the one-shot <c>historic_script_replay_detected</c> summary on the
-        /// first suppression; replay is chronological, so that first suppressed line carries the
-        /// earliest rejected source timestamp.
+        /// are script runs and app installs from a previous enrollment whose IME log survived on
+        /// disk (session eaf3d8c4: 156 replayed script completions + 147 replayed app events
+        /// shown as current activity, immediate-upload flood → ingress_backpressure). Future-skew
+        /// rejections (negative age — mid-enrollment clock jump) and clock-only fallbacks (no
+        /// source timestamp at all) are NOT replay and must still emit. Emits the one-shot
+        /// <c>historic_ime_replay_detected</c> summary on the first suppression; replay is
+        /// chronological, so that first suppressed line carries the earliest rejected source
+        /// timestamp. Bypassed in <see cref="ImeLogTracker.SimulationMode"/> — the
+        /// --replay-log-dir dev tool feeds historic lines on purpose.
         /// </summary>
-        private bool SuppressIfHistoricScriptReplay(
-            bool derivedFromClock, DateTime? rawSourceTs, string eventLabel, string policyId)
+        private bool SuppressIfHistoricReplay(
+            bool derivedFromClock, DateTime? rawSourceTs, string eventLabel, string entityId)
         {
+            if (_tracker.SimulationMode) return false;
             if (!derivedFromClock || !rawSourceTs.HasValue) return false;
             var asUtc = NormalizeUtc(rawSourceTs.Value);
             var clockNow = _clock.UtcNow;
@@ -362,7 +362,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             int suppressedSoFar;
             lock (_lock)
             {
-                suppressedSoFar = ++_suppressedHistoricScriptEvents;
+                suppressedSoFar = ++_suppressedHistoricReplayEvents;
                 emitSummary = !_historicReplayNoted;
                 _historicReplayNoted = true;
             }
@@ -373,21 +373,21 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 // Standard batch upload on purpose — no immediateUpload; the whole point of the
                 // suppression is to stop the replayed batch from flooding the ingest.
                 _post.Emit(
-                    eventType: SharedEventTypes.HistoricScriptReplayDetected,
+                    eventType: SharedEventTypes.HistoricImeReplayDetected,
                     source: SourceLabel,
-                    message: "Historic script executions from a previous enrollment detected in the IME log "
-                           + $"(earliest source timestamp {asUtc:o}) — their script events are suppressed for this session.",
+                    message: "Historic IME activity from a previous enrollment detected in the log "
+                           + $"(earliest source timestamp {asUtc:o}) — its script and app events are suppressed for this session.",
                     severity: EventSeverity.Info,
                     data: new Dictionary<string, string>(StringComparer.Ordinal)
                     {
-                        ["decision"] = "historic_script_replay_suppressed",
+                        ["decision"] = "historic_ime_replay_suppressed",
                         ["earliestRejectedSourceTimestamp"] = asUtc.ToString("o", culture),
                         ["staleThresholdHours"] = StaleSourceThreshold.TotalHours.ToString("F0", culture),
                     });
             }
 
             _logger?.Debug(
-                $"ImeAdapter: suppressed historic {eventLabel} for policy {policyId} "
+                $"ImeAdapter: suppressed historic {eventLabel} for {entityId} "
                 + $"(source ts {asUtc:o}, age {age.TotalHours:F1}h, suppressed so far: {suppressedSoFar})");
             return true;
         }
@@ -570,6 +570,14 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             if (app == null || string.IsNullOrEmpty(app.Id)) return;
 
             var now = ResolveOccurredAt(out var derivedFromClock, out var rawSourceTs);
+
+            // Historic replay (a previous enrollment's log) — do not emit at all. Placed BEFORE
+            // the sub-phase declaration, the timing bookkeeping and the terminal-signal dedup so
+            // a replayed app neither consumes the fire-once flags nor poisons _appTimings (which
+            // feeds FinalStatusBuilder) nor posts a phantom DecisionSignal. The early return also
+            // covers the shadow download_progress and the app_tracking_summary snapshot below.
+            if (SuppressIfHistoricReplay(derivedFromClock, rawSourceTs, $"app-state {oldState}->{newState}", app.Id))
+                return;
 
             // Plan §5 Fix 2: first app activity in a given ESP phase opens the sub-phase on
             // the UI timeline via a `phase_transition` declaration event. Fire-once per ESP
@@ -886,6 +894,11 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             if (!string.IsNullOrEmpty(patternId)) data["patternId"] = patternId!;
 
             var now = ResolveOccurredAt(out var derivedFromClock, out var rawSourceTs);
+
+            // Historic replay — a week-old DO summary is not this enrollment's download.
+            if (SuppressIfHistoricReplay(derivedFromClock, rawSourceTs, SharedEventTypes.DoTelemetry, app.Id))
+                return;
+
             TagDerivedTimestamp(data, derivedFromClock, rawSourceTs);
 
             var label = string.IsNullOrEmpty(app.Name) ? app.Id : app.Name;
@@ -981,7 +994,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             // Historic replay (a previous enrollment's log) — do not emit at all. The early
             // return also skips MaybeEmitBootstrapDetected / MaybeEmitScriptTimeoutSuspected,
             // which would otherwise fire on week-old evidence.
-            if (SuppressIfHistoricScriptReplay(derivedFromClock, rawSourceTs, eventType, script.PolicyId))
+            if (SuppressIfHistoricReplay(derivedFromClock, rawSourceTs, eventType, script.PolicyId))
                 return;
 
             TagDerivedTimestamp(data, derivedFromClock, rawSourceTs);
@@ -1175,7 +1188,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
 
             // Historic replay — suppressing here also kills the immediateUpload flood the
             // replayed batch caused (session eaf3d8c4: 3× ingress_backpressure).
-            if (SuppressIfHistoricScriptReplay(derivedFromClock, rawSourceTs, SharedEventTypes.ScriptStarted, info.PolicyId))
+            if (SuppressIfHistoricReplay(derivedFromClock, rawSourceTs, SharedEventTypes.ScriptStarted, info.PolicyId))
                 return;
 
             TagDerivedTimestamp(data, derivedFromClock, rawSourceTs);

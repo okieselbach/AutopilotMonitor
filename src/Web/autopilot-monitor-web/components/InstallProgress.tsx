@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getErrorCodeEntry, formatErrorCode } from "@/utils/errorCodeMap";
+import { partitionHistoricReplayEvents } from "@/lib/historicReplay";
 
 interface InstallEvent {
   timestamp: string;
@@ -28,6 +29,10 @@ interface InstallProgressProps {
 const ESP_APPS_TIMEOUT = "esp_apps_timeout";
 const ESP_APPS_DETECTION_FAILURE = "esp_apps_detection_failure";
 const ESP_APPS_INSTALL_FAILURE = "esp_apps_install_failure";
+
+// Finals counted by the historic-replay partition — one per hidden install, so the note
+// is not inflated by started/progress events of the same app.
+const APP_FINAL_TYPES: ReadonlySet<string> = new Set(["app_install_completed", "app_install_failed"]);
 
 interface InstallItem {
   appName: string;
@@ -76,10 +81,18 @@ function formatDuration(ms: number): string {
 }
 
 export default function InstallProgress({ events, summaryStats }: InstallProgressProps) {
-  const installs = useMemo(() => {
-    if (events.length === 0) return [];
+  // Legacy-agent guard: split off app events replayed from a previous enrollment's IME log
+  // (newer agents suppress them at the source) so week-old installs never render as current.
+  // office_*/realmjoin_* events never carry rejectedSourceTimestamp and pass through untouched.
+  const { current, historicCount } = useMemo(
+    () => partitionHistoricReplayEvents(events, APP_FINAL_TYPES),
+    [events]
+  );
 
-    const sortedEvents = [...events].sort(
+  const installs = useMemo(() => {
+    if (current.length === 0) return [];
+
+    const sortedEvents = [...current].sort(
       (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
 
@@ -265,7 +278,7 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
     }
 
     return Array.from(installMap.values()).sort((a, b) => a.firstSeenIndex - b.firstSeenIndex);
-  }, [events]);
+  }, [current]);
 
   const [expanded, setExpanded] = useState(true);
   const [showSkipped, setShowSkipped] = useState(false);
@@ -288,7 +301,7 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
     return showSkipped ? installs : installs.filter(d => d.state !== "Skipped");
   }, [installs, showSkipped]);
 
-  if (installs.length === 0) return null;
+  if (installs.length === 0 && historicCount === 0) return null;
 
   const activeCount = installs.filter(d => d.state === "Installing").length;
   const completedCount = installs.filter(d => d.state === "Installed").length;
@@ -376,6 +389,14 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
         {filteredInstalls.map((item) => (
           <InstallItemRow key={item.appName} item={item} />
         ))}
+        {historicCount > 0 && (
+          <div
+            className="text-xs text-gray-400 italic"
+            title="These installs were replayed from IME log content that predates this enrollment by more than 24 hours — they ran during a previous enrollment on this device"
+          >
+            {historicCount} historic app install{historicCount === 1 ? "" : "s"} from a previous enrollment hidden
+          </div>
+        )}
       </div>}
     </div>
   );

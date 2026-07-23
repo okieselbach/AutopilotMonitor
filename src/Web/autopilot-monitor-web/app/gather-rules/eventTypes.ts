@@ -142,8 +142,8 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
     description: "A platform script crashed (exit code != 0), or the remediation phase of a health script crashed. Health-script detection / post-detection phases use exit code as a compliance verdict (non-zero = non-compliant) and emit script_completed even on non-zero exit; only a true script crash in those phases would surface here." },
   { value: "script_timeout_suspected", label: "script_timeout_suspected", category: "script",
     description: "A platform script ran to the IME script-execution timeout (~30 min; threshold 25 min) and was marked Failed while the enrollment was in progress. IME runs platform scripts serially, so a hung script starves app installs and the Autopilot-Monitor bootstrap — the prime suspect behind a late agent start / pre-failed ESP. Advisory (one per policyId); carries durationSeconds, exitCode and espPhase." },
-  { value: "historic_script_replay_detected", label: "historic_script_replay_detected", category: "script",
-    description: "One-shot per agent run: the IME log contained replayed script activity from a previous enrollment (source lines more than 24 h stale, e.g. IME logs surviving a re-enrollment). The historic script_started/script_completed/script_failed events were suppressed for this session; carries earliestRejectedSourceTimestamp so the replayed window is datable." },
+  { value: "historic_ime_replay_detected", label: "historic_ime_replay_detected", category: "diagnostics",
+    description: "One-shot per agent run: the IME log contained replayed script and app activity from a previous enrollment (source lines more than 24 h stale, e.g. IME logs surviving a re-enrollment). The historic script_* and app_install_*/download_progress/do_telemetry events were suppressed for this session; carries earliestRejectedSourceTimestamp so the replayed window is datable." },
 
   // -------- Diagnostics / misc --------
   { value: "error_detected", label: "error_detected", category: "diagnostics",
