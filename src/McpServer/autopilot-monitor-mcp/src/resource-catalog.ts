@@ -167,6 +167,7 @@ export const EVENT_TYPES_CATALOG = {
     'telemetry_upload_blocked',
     'session_parked_without_deadline',
     'disk_space_low',
+    'esp_policy_provider_stalled',
     'agent_late_start',
   ],
   metrics_events: ['performance_snapshot', 'agent_metrics_snapshot', 'ingress_backpressure'],

@@ -290,8 +290,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Gather
         [InlineData(@"SAM\SAM\Domains\Account\Users")]
         [InlineData(@"SECURITY\Policy\Secrets")]
         [InlineData(@"HKLM\SOFTWARE\Microsoft\EnrollmentsSomethingElse")]  // prefix spoofing
+        [InlineData(@"HKLM\SOFTWARE\Microsoft\Windows\AutopilotSomethingElse")]  // sibling spoof of the Autopilot prefix
         public void RegistryCollector_OffAllowlistPath_IsBlockedBeforeTheHiveIsOpened(string target)
             => AssertBlocked(new RegistryCollector().Execute(Rule("registry", target), Context()), target);
+
+        // Session 5d735290: the EnrollmentStatusTracking subtree (ESP policy providers / tracking
+        // state) is allow-listed so tenants can build gather rules on the co-management stall
+        // signature the esp_policy_provider_stalled detector reports (e.g. not_exists on the
+        // Sidecar provider key).
+        [Theory]
+        [InlineData(@"SOFTWARE\Microsoft\Windows\Autopilot")]
+        [InlineData(@"SOFTWARE\Microsoft\Windows\Autopilot\EnrollmentStatusTracking\Device\Setup\Apps\PolicyProviders\Sidecar")]
+        public void RegistryGuard_AutopilotEnrollmentTrackingSubtree_IsAllowed(string subPath)
+            => Assert.True(GatherRuleGuards.IsRegistryPathAllowed(subPath));
 
         [Theory]
         [InlineData("SELECT * FROM Win32_UserAccount")]

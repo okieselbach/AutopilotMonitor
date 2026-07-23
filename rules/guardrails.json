@@ -43,7 +43,8 @@
       "prefixes": [
         "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Setup",
         "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\OOBE",
-        "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
+        "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+        "SOFTWARE\\Microsoft\\Windows\\Autopilot"
       ]
     },
     {

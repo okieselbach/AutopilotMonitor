@@ -58,6 +58,8 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
     description: "Stall probe found an anomaly (ModernDeployment error, DeploymentErrorCode≠0, IME EnforcementState Failed)." },
   { value: "stall_probe_check", label: "stall_probe_check", category: "stall",
     description: "Trace-level heartbeat from a stall probe — proves the logic ran (default: only the 15 min probe)." },
+  { value: "esp_policy_provider_stalled", label: "esp_policy_provider_stalled", category: "stall",
+    description: "A registered ESP policy provider (EnrollmentStatusTracking CSP) stayed incomplete for 15+ minutes — e.g. co-management leaves only ConfigMgr registered without the Intune Sidecar provider, which parks the user ESP at 'Apps (Identifying)' with no OS timeout. One-shot Warning; payload carries the full provider table, per-provider state, and sidecarRegistered." },
   { value: "agent_late_start", label: "agent_late_start", category: "stall",
     description: "Low observation coverage: the agent started long after device boot (≥10 min) AND lived only briefly (≤5 min) before a terminal outcome — it arrived after the enrollment had already decided, so its diagnosis is a post-mortem of the end-state, not a live observation. Carries bootToAgentStartSeconds, agentUptimeSeconds and outcome. Often paired with script_timeout_suspected (a script that hung ahead of the agent bootstrap)." },
 

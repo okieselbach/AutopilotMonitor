@@ -36,6 +36,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
     ///   <item><b>StallProbeHost</b> — <see cref="StallProbeCollector"/> +
     ///     <see cref="StallProbeCollectorAdapter"/>. Owns its 60-s idle-check timer (the
     ///     collector itself has no timer — it's a pure probe invoked from outside).</item>
+    ///   <item><b>EspPolicyProviderStallHost</b> — always-on 60-s wall-clock tick for the
+    ///     <c>esp_policy_provider_stalled</c> tripwire (registered EnrollmentStatusTracking CSP
+    ///     provider continuously incomplete ≥ 15 min — the no-timeout ESP wait).</item>
     /// </list>
     /// Optional peripheral hosts (driven by <see cref="CollectorConfiguration"/> toggles):
     /// <list type="bullet">
@@ -302,6 +305,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     sessionStalledAfterProbeIndex: collectors.SessionStalledAfterProbeIndex,
                     harmlessModernDeploymentEventIds: collectors.ModernDeploymentHarmlessEventIds));
             }
+
+            // ESP policy-provider stall tripwire — always-on kernel host (no config gate, like
+            // disk_space_low): a registered EnrollmentStatusTracking CSP provider that never
+            // completes (e.g. co-management "ConfigMgr" without "Sidecar" on a pre-provisioned
+            // device) parks the user ESP at "Apps (Identifying)" WITHOUT any OS timeout. Wall-clock
+            // dwell, deliberately outside the StallProbe gate: the idle clock there resets on any
+            // session activity, and the stall must accrue regardless of it.
+            hosts.Add(new EspPolicyProviderStallHost(
+                sessionId: sessionId,
+                tenantId: tenantId,
+                logger: logger,
+                ingress: ingress,
+                clock: clock,
+                startupGate: _startupEventGate));
 
             // Deterministic update corroboration — compares the persisted OS build (CurrentBuild.UBR)
             // across agent restarts and emits os_build_changed when it differs (session 7443317c:

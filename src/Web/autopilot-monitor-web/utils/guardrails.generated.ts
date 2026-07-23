@@ -57,6 +57,7 @@ export const REGISTRY_PREFIX_CATEGORIES: readonly GuardrailCategory[] = [
       "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Setup",
       "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\OOBE",
       "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+      "SOFTWARE\\Microsoft\\Windows\\Autopilot",
     ],
   },
   {
@@ -242,6 +243,7 @@ export const ALLOWED_REGISTRY_PREFIXES: readonly string[] = [
   "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Setup",
   "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\OOBE",
   "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+  "SOFTWARE\\Microsoft\\Windows\\Autopilot",
   "SYSTEM\\CurrentControlSet\\Services\\TPM",
   "SOFTWARE\\Microsoft\\Tpm",
   "SYSTEM\\CurrentControlSet\\Control\\SecureBoot",
