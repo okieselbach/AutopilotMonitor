@@ -2178,10 +2178,10 @@
     {
       "ruleId": "ANALYZE-SEC-001",
       "title": "Secure Boot UEFI CA 2023 certificate not deployed",
-      "description": "Detects devices where the Windows UEFI CA 2023 certificate has not been deployed to the Secure Boot DB. The 2011 certificates expired in June 2026 — affected devices no longer receive Secure Boot security updates until the 2023 certificate is deployed.",
+      "description": "Detects devices where the Windows UEFI CA 2023 certificate has not been deployed to the Secure Boot DB. The 2011 certificates expired in June 2026 — affected devices no longer receive Secure Boot security updates until the 2023 certificate is deployed. Since v3 the agent reads the firmware db/KEK variables directly: when the firmware itself confirms the 2023 certificate, the rule is suppressed even if the Windows servicing status has not caught up yet.",
       "severity": "warning",
       "category": "security",
-      "version": "2.0.0",
+      "version": "3.0.0",
       "enabled": true,
       "baseConfidence": 70,
       "preconditions": [
@@ -2192,6 +2192,14 @@
           "operator": "equals",
           "value": "false",
           "description": "Skip on virtual machines — Secure Boot DB is host-controlled (Hyper-V/VMware/etc), the inside-the-VM UEFICA2023Status registry value is not the right indicator and not actionable for the VM admin."
+        },
+        {
+          "source": "event_data",
+          "eventType": "secureboot_status",
+          "dataField": "uefiCa2023FirmwareConfirmed",
+          "operator": "not_exists",
+          "value": "",
+          "description": "Skip when the firmware db itself confirms the Windows UEFI CA 2023 certificate — the marker is only emitted on positive firmware confirmation, so old agents (field absent) and unconfirmed devices keep evaluating the rule. The servicing registry status lags behind actual firmware state (OEM factory image, WinCS, manual deployment, or WU simply not run yet)."
         }
       ],
       "conditions": [
@@ -2230,6 +2238,24 @@
           "operator": "exists",
           "value": "",
           "required": false
+        },
+        {
+          "signal": "db_ca2023_firmware_missing",
+          "source": "event_data",
+          "eventType": "secureboot_status",
+          "dataField": "uefiDbHasWindowsUefiCa2023",
+          "operator": "equals",
+          "value": "false",
+          "required": false
+        },
+        {
+          "signal": "kek_2023_missing",
+          "source": "event_data",
+          "eventType": "secureboot_status",
+          "dataField": "uefiKekHasMicrosoftKek2kCa2023",
+          "operator": "equals",
+          "value": "false",
+          "required": false
         }
       ],
       "confidenceFactors": [
@@ -2242,9 +2268,19 @@
           "signal": "ca2023_error",
           "condition": "exists",
           "weight": 10
+        },
+        {
+          "signal": "db_ca2023_firmware_missing",
+          "condition": "exists",
+          "weight": 20
+        },
+        {
+          "signal": "kek_2023_missing",
+          "condition": "exists",
+          "weight": 10
         }
       ],
-      "explanation": "This device has Secure Boot enabled but the **Windows UEFI CA 2023** certificate has not been deployed to the Secure Boot DB.\n\nThe original Windows UEFI CA 2011 certificates **expired on June 27, 2026 — this deadline has passed**. The automatic pre-expiry rollout window is over: this device no longer receives Secure Boot security updates (DB/DBX) and cannot trust 2023-signed boot managers until the 2023 certificate is deployed. Deploying it now requires active remediation (Windows servicing opt-in and, on some models, an OEM firmware update) rather than waiting for an automatic update.\n\nCurrent UEFI CA 2023 status: `{{uefiCA2023Status}}`",
+      "explanation": "This device has Secure Boot enabled but the **Windows UEFI CA 2023** certificate has not been deployed to the Secure Boot DB.\n\nThe original Windows UEFI CA 2011 certificates **expired on June 27, 2026 — this deadline has passed**. The automatic pre-expiry rollout window is over: this device no longer receives Secure Boot security updates (DB/DBX) and cannot trust 2023-signed boot managers until the 2023 certificate is deployed. Deploying it now requires active remediation (Windows servicing opt-in and, on some models, an OEM firmware update) rather than waiting for an automatic update.\n\nOn devices running a current agent this finding is verified against the firmware itself: the agent reads the UEFI `db` signature database directly, and this warning is automatically suppressed when the firmware already contains the 2023 certificate — regardless of the Windows servicing status below.\n\nCurrent UEFI CA 2023 servicing status: `{{uefiCA2023Status}}`",
       "remediation": [
         {
           "title": "Deploy UEFI CA 2023 certificate now",
@@ -2253,7 +2289,7 @@
             "Use Intune policy to enable Secure Boot DB update (Windows UEFI CA 2023)",
             "Check with the device OEM whether a firmware update is required for the DB update to apply on this model",
             "Alternatively, use the WinCS CLI tool from Microsoft for manual deployment",
-            "Verify deployment: check registry HKLM\\SYSTEM\\CurrentControlSet\\Control\\SecureBoot\\Servicing\\UEFICA2023Status = 'Updated'",
+            "Verify deployment against the firmware directly: [Text.Encoding]::ASCII.GetString((Get-SecureBootUEFI -Name db).Bytes).Contains('Windows UEFI CA 2023') — this is authoritative; the registry value HKLM\\SYSTEM\\CurrentControlSet\\Control\\SecureBoot\\Servicing\\UEFICA2023Status = 'Updated' only reflects the Windows Update rollout",
             "After DB update: ensure the boot manager is updated to a 2023-signed version via monthly cumulative update"
           ]
         }

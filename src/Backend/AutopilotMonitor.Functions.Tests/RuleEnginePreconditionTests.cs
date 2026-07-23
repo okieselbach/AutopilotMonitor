@@ -235,6 +235,80 @@ public class RuleEnginePreconditionTests
         Assert.Single(outcome.Results);
     }
 
+    // ===== ANALYZE-SEC-001 v3: firmware-confirmation marker (uefiCa2023FirmwareConfirmed) =====
+
+    /// <summary>
+    /// v3 core fix: when the agent's direct UEFI db read confirms the 2023 certificate, the
+    /// one-sided marker is present and the not_exists precondition suppresses the rule — even
+    /// though the servicing status ("unknown") would still satisfy both required conditions.
+    /// </summary>
+    [Fact]
+    public async Task Sec001V3_FirmwareConfirmed_MarkerSuppressesRule()
+    {
+        var rule = MakeSecureBootRuleV3();
+        var events = new List<EnrollmentEvent>
+        {
+            HardwareSpecEvent(isVirtualMachine: "false"),
+            SecureBootStatusEvent(uefiCA2023Status: "unknown", secureBootEnabled: "true",
+                extraData: new Dictionary<string, object>
+                {
+                    ["uefiDbHasWindowsUefiCa2023"] = true,
+                    ["uefiCa2023FirmwareConfirmed"] = true
+                })
+        };
+
+        var outcome = await RunAsync(rule, events);
+
+        Assert.Empty(outcome.Results);
+        Assert.Single(outcome.EvaluatedRules);
+    }
+
+    /// <summary>
+    /// Backward compatibility: an old-agent payload (no firmware fields at all) must behave
+    /// exactly like v2 — marker absent → precondition passes → rule fires on the servicing
+    /// status, at base confidence (no firmware factors).
+    /// </summary>
+    [Fact]
+    public async Task Sec001V3_OldAgentPayload_FiresLikeV2()
+    {
+        var rule = MakeSecureBootRuleV3();
+        var events = new List<EnrollmentEvent>
+        {
+            HardwareSpecEvent(isVirtualMachine: "false"),
+            SecureBootStatusEvent(uefiCA2023Status: "unknown", secureBootEnabled: "true")
+        };
+
+        var outcome = await RunAsync(rule, events);
+
+        Assert.Single(outcome.Results);
+        Assert.Equal(70, outcome.Results[0].ConfidenceScore);
+    }
+
+    /// <summary>
+    /// New agent, firmware-verified missing: the marker is omitted (never emitted as false),
+    /// so the rule fires and the firmware evidence raises confidence (+20 db, +10 KEK).
+    /// </summary>
+    [Fact]
+    public async Task Sec001V3_FirmwareVerifiedMissing_RaisesConfidence()
+    {
+        var rule = MakeSecureBootRuleV3();
+        var events = new List<EnrollmentEvent>
+        {
+            HardwareSpecEvent(isVirtualMachine: "false"),
+            SecureBootStatusEvent(uefiCA2023Status: "unknown", secureBootEnabled: "true",
+                extraData: new Dictionary<string, object>
+                {
+                    ["uefiDbHasWindowsUefiCa2023"] = false,
+                    ["uefiKekHasMicrosoftKek2kCa2023"] = false
+                })
+        };
+
+        var outcome = await RunAsync(rule, events);
+
+        Assert.Single(outcome.Results);
+        Assert.Equal(100, outcome.Results[0].ConfidenceScore);
+    }
+
     // ===== Helpers =====
 
     private static AnalyzeRule MakeSecureBootRule(List<RulePrecondition>? preconditions)
@@ -256,6 +330,29 @@ public class RuleEnginePreconditionTests
             },
             Explanation = "test"
         };
+    }
+
+    /// <summary>
+    /// Mirrors the shipped ANALYZE-SEC-001 v3.0.0 (rules/analyze/ANALYZE-SEC-001.json):
+    /// VM-skip + firmware-confirmed-marker preconditions, the two required servicing
+    /// conditions, and the optional firmware conditions with their confidence weights.
+    /// Keep in sync when the rule JSON changes.
+    /// </summary>
+    private static AnalyzeRule MakeSecureBootRuleV3()
+    {
+        var rule = MakeSecureBootRule(preconditions: new List<RulePrecondition>
+        {
+            new() { Source = "event_data", EventType = "hardware_spec", DataField = "isVirtualMachine", Operator = "equals", Value = "false" },
+            new() { Source = "event_data", EventType = "secureboot_status", DataField = "uefiCa2023FirmwareConfirmed", Operator = "not_exists", Value = "" }
+        });
+        rule.Conditions.Add(new RuleCondition { Signal = "db_ca2023_firmware_missing", Source = "event_data", EventType = "secureboot_status", DataField = "uefiDbHasWindowsUefiCa2023", Operator = "equals", Value = "false", Required = false });
+        rule.Conditions.Add(new RuleCondition { Signal = "kek_2023_missing", Source = "event_data", EventType = "secureboot_status", DataField = "uefiKekHasMicrosoftKek2kCa2023", Operator = "equals", Value = "false", Required = false });
+        rule.ConfidenceFactors = new List<ConfidenceFactor>
+        {
+            new() { Signal = "db_ca2023_firmware_missing", Condition = "exists", Weight = 20 },
+            new() { Signal = "kek_2023_missing", Condition = "exists", Weight = 10 }
+        };
+        return rule;
     }
 
     private static EnrollmentEvent HardwareSpecEvent(string isVirtualMachine) => new()
@@ -280,20 +377,29 @@ public class RuleEnginePreconditionTests
         Data = new Dictionary<string, object> { ["edition"] = edition }
     };
 
-    private static EnrollmentEvent SecureBootStatusEvent(string uefiCA2023Status, string secureBootEnabled) => new()
+    private static EnrollmentEvent SecureBootStatusEvent(string uefiCA2023Status, string secureBootEnabled,
+        Dictionary<string, object>? extraData = null)
     {
-        EventId = Guid.NewGuid().ToString(),
-        TenantId = TenantId,
-        SessionId = SessionId,
-        EventType = "secureboot_status",
-        Timestamp = DateTime.UtcNow,
-        Sequence = 3,
-        Data = new Dictionary<string, object>
+        var data = new Dictionary<string, object>
         {
             ["uefiCA2023Status"] = uefiCA2023Status,
             ["uefiSecureBootEnabled"] = secureBootEnabled
-        }
-    };
+        };
+        if (extraData != null)
+            foreach (var kvp in extraData)
+                data[kvp.Key] = kvp.Value;
+
+        return new EnrollmentEvent
+        {
+            EventId = Guid.NewGuid().ToString(),
+            TenantId = TenantId,
+            SessionId = SessionId,
+            EventType = "secureboot_status",
+            Timestamp = DateTime.UtcNow,
+            Sequence = 3,
+            Data = data
+        };
+    }
 
     private static async Task<AnalysisOutcome> RunAsync(AnalyzeRule rule, List<EnrollmentEvent> events)
     {

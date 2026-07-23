@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Agent.V2.Core.Security;
 using AutopilotMonitor.DecisionCore.Engine;
@@ -493,12 +494,65 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                     }
                 }
 
-                EmitDeviceInfoEvent(Constants.EventTypes.SecureBootStatus, $"SecureBoot: {data["uefiSecureBootEnabled"]}, CA2023: {data["uefiCA2023Status"]}", data);
+                // Direct firmware evidence (UEFI db/KEK variables) — authoritative for the
+                // CA-2023 rollout state. The Servicing key above only mirrors whether the
+                // Windows Update rollout ran; it lags behind when the certificate reached
+                // the firmware another way (OEM factory image, WinCS, manual deployment).
+                var firmware = UefiSecureBootCertReader.Read();
+                AppendFirmwareCertFields(data, firmware);
+
+                EmitDeviceInfoEvent(Constants.EventTypes.SecureBootStatus,
+                    $"SecureBoot: {data["uefiSecureBootEnabled"]}, CA2023: {data["uefiCA2023Status"]}, firmware: {DescribeFirmwareVerdict(firmware)}",
+                    data);
             }
             catch (Exception ex)
             {
                 _logger.Warning($"EnrollmentTracker: failed to collect SecureBoot status: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Maps a <see cref="UefiSecureBootCertSnapshot"/> onto the <c>secureboot_status</c>
+        /// payload. Certificate booleans are only emitted when the respective variable read
+        /// succeeded — an absent boolean means "firmware state unknown", never "missing".
+        /// </summary>
+        internal static void AppendFirmwareCertFields(Dictionary<string, object> data, UefiSecureBootCertSnapshot firmware)
+        {
+            if (firmware == null) return;
+
+            data["uefiFirmwareReadStatus"] = firmware.DbStatus != UefiSecureBootCertReader.StatusOk
+                ? firmware.DbStatus
+                : firmware.KekStatus;
+
+            if (firmware.DbStatus == UefiSecureBootCertReader.StatusOk)
+            {
+                data["uefiDbHasWindowsUefiCa2023"] = firmware.DbHasWindowsUefiCa2023;
+                data["uefiDbHasMicrosoftUefiCa2023"] = firmware.DbHasMicrosoftUefiCa2023;
+                data["uefiDbHasMicrosoftOptionRomCa2023"] = firmware.DbHasMicrosoftOptionRomCa2023;
+                data["uefiDbHasWindowsProductionPca2011"] = firmware.DbHasWindowsProductionPca2011;
+                data["uefiDbHasMicrosoftUefiCa2011"] = firmware.DbHasMicrosoftUefiCa2011;
+
+                // One-sided marker consumed by ANALYZE-SEC-001's not_exists precondition.
+                // The engine's not_exists passes only while the field is absent/empty, so the
+                // marker must be OMITTED (never emitted as false) unless the firmware db
+                // positively confirms the 2023 certificate — old agents and unconfirmed
+                // devices then keep evaluating the rule.
+                if (firmware.DbHasWindowsUefiCa2023)
+                    data["uefiCa2023FirmwareConfirmed"] = true;
+            }
+
+            if (firmware.KekStatus == UefiSecureBootCertReader.StatusOk)
+            {
+                data["uefiKekHasMicrosoftKek2kCa2023"] = firmware.KekHasMicrosoftKek2kCa2023;
+                data["uefiKekHasMicrosoftKekCa2011"] = firmware.KekHasMicrosoftKekCa2011;
+            }
+        }
+
+        internal static string DescribeFirmwareVerdict(UefiSecureBootCertSnapshot firmware)
+        {
+            if (firmware == null) return "unavailable";
+            if (firmware.DbStatus != UefiSecureBootCertReader.StatusOk) return firmware.DbStatus ?? "unavailable";
+            return firmware.DbHasWindowsUefiCa2023 ? "CA2023 confirmed" : "CA2023 missing";
         }
 
         private void CollectBitLockerStatus()

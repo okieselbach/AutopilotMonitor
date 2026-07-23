@@ -297,7 +297,25 @@ export default function DeviceDetailsCard({ events, latestAgentVersion }: { even
             {(bitLockerStatus || secureBootStatus || tpmStatus) && (
               <DetailSection title="Security">
                 {secureBootStatus && (
-                  <DetailRow label="SecureBoot" value={secureBootStatus.uefiSecureBootEnabled ? "Enabled" : "Disabled"} />
+                  <>
+                    <DetailRow label="SecureBoot" value={secureBootStatus.uefiSecureBootEnabled ? "Enabled" : "Disabled"} />
+                    {/* Firmware verdict (direct UEFI db read, new agents) beats the servicing
+                        registry status, which only reflects the Windows Update rollout. */}
+                    {secureBootStatus.uefiDbHasWindowsUefiCa2023 !== undefined ? (
+                      <DetailRow
+                        label="UEFI CA 2023 (firmware)"
+                        value={secureBootStatus.uefiDbHasWindowsUefiCa2023 ? "Deployed" : "Missing"}
+                      />
+                    ) : secureBootStatus.uefiFirmwareReadStatus ? (
+                      <DetailRow
+                        label="UEFI CA 2023 (firmware)"
+                        value={`Unknown (${secureBootStatus.uefiFirmwareReadStatus})`}
+                      />
+                    ) : null}
+                    {secureBootStatus.uefiCA2023Status && (
+                      <DetailRow label="UEFI CA 2023 (servicing)" value={`${secureBootStatus.uefiCA2023Status}`} />
+                    )}
+                  </>
                 )}
                 {tpmStatus && (
                   <>

@@ -249,6 +249,12 @@ export const DEVICE_PROPERTIES_CATALOG = {
   },
   secureboot_status: {
     'secureboot_status.uefiSecureBootEnabled': { type: 'boolean', description: 'Secure Boot enabled' },
+    'secureboot_status.uefiCA2023Status': { type: 'string', description: 'Windows servicing rollout status of the UEFI CA 2023 certificate (registry; "Updated" = rollout verified). Lags behind actual firmware state — prefer the firmware fields below' },
+    'secureboot_status.uefiFirmwareReadStatus': { type: 'string', description: 'Result of the direct UEFI variable read: ok, not_uefi (legacy BIOS), variable_not_found, privilege_denied, or error_<code>' },
+    'secureboot_status.uefiDbHasWindowsUefiCa2023': { type: 'boolean', description: 'Firmware db contains "Windows UEFI CA 2023" (authoritative 2023-cert deployment state; read directly from UEFI, only present when the read succeeded)' },
+    'secureboot_status.uefiDbHasWindowsProductionPca2011': { type: 'boolean', description: 'Firmware db still contains the expired "Microsoft Windows Production PCA 2011"' },
+    'secureboot_status.uefiKekHasMicrosoftKek2kCa2023': { type: 'boolean', description: 'Firmware KEK contains "Microsoft Corporation KEK 2K CA 2023" (required to keep receiving db/dbx updates after the 2011 KEK expiry)' },
+    'secureboot_status.uefiCa2023FirmwareConfirmed': { type: 'boolean', description: 'One-sided marker: present (true) only when the firmware db positively confirms the 2023 certificate — suppresses ANALYZE-SEC-001 via not_exists precondition. Never emitted as false' },
   },
   bitlocker_status: {
     'bitlocker_status.systemDriveProtected': { type: 'boolean', description: 'System drive (C:) BitLocker protection' },

@@ -21,6 +21,7 @@ https://docs.autopilotmonitor.com (separate repository).
 * [Build Counter Blob](agent/build-counter-blob.md) - How agent build numbers are minted: shared counter blob with ETag-CAS so local and CI builds never collide; CI additionally attests build provenance (Sigstore).
 * [Agent Endpoint Migration](agent/endpoint-migration.md) - How the backend re-homes agents to a new API base URL via the config channel (backend move or per-tenant region move): live-fetch-only, allowlist-validated on both sides, one hop, kill wins.
 * [MDM Reboot Coalescing](agent/mdm-reboot-coalescing.md) - Attributing the mid-ESP coalesced reboot ("second sign-in") to the device-assigned policy URIs that forced it: aggregated DM-Enterprise 2800 observations (neutral, flush-time watermark) + the ANALYZE-ESP-005 advisory gated on an actually-observed reboot.
+* [Secure Boot CA-2023 Detection](agent/secureboot-ca2023-detection.md) - Why ANALYZE-SEC-001 v3 reads the UEFI db/KEK variables directly instead of trusting the SecureBoot\Servicing registry, and how the one-sided uefiCa2023FirmwareConfirmed marker plus a not_exists precondition give absence-tolerant suppression across old and new agents.
 
 # Rules
 
