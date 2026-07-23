@@ -97,11 +97,22 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         // bootstrap marker line. Lets MCP report "which device runs which bootstrap version".
         private bool _bootstrapDetectedPosted;
 
+        // One-shot: historic script replay detected (a previous enrollment's IME log content
+        // surviving on disk) — its script events are suppressed, and a single
+        // historic_script_replay_detected Info event explains the gap in the timeline.
+        private bool _historicReplayNoted;
+        private int _suppressedHistoricScriptEvents;   // forensic count for the log line
+
         // A platform script whose observed run duration reaches this is treated as having hit the
         // IME script-execution timeout (default ~30 min). 25 min leaves headroom below 30 so clock
         // jitter / the agent's late replay window can't miss it, while staying well above any
         // legitimately long install wrapper that completes on its own.
         private static readonly TimeSpan ScriptTimeoutSuspectedThreshold = TimeSpan.FromMinutes(25);
+
+        // Source log lines older than this relative to the clock are pathological — shared by
+        // ResolveOccurredAt's staleness clamp, the historic-replay suppression and the duration
+        // plausibility backstop, one constant so the three can never drift apart.
+        private static readonly TimeSpan StaleSourceThreshold = TimeSpan.FromHours(24);
 
         // Matches the deterministic marker line the bootstrap script writes via Write-Log,
         // e.g. "Bootstrap script version: v2.0" — see scripts/Bootstrap/Install-AutopilotMonitor.ps1.
@@ -289,17 +300,11 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             rawSourceTimestamp = sourceTsOverride ?? _tracker.LastMatchedLogTimestamp;
             if (rawSourceTimestamp.HasValue)
             {
-                // CMTrace log timestamps from IME are emitted in UTC, but DateTimeKind may
-                // arrive as Unspecified depending on the parser path. Normalize via
-                // SpecifyKind=Utc rather than ToUniversalTime() to avoid double-conversion
-                // when Kind is already UTC.
-                var asUtc = rawSourceTimestamp.Value.Kind == DateTimeKind.Utc
-                    ? rawSourceTimestamp.Value
-                    : DateTime.SpecifyKind(rawSourceTimestamp.Value, DateTimeKind.Utc);
+                var asUtc = NormalizeUtc(rawSourceTimestamp.Value);
 
                 var clockNow = _clock.UtcNow;
                 var ageHours = (clockNow - asUtc).TotalHours;
-                if (ageHours > 24.0 || ageHours < -1.0)
+                if (ageHours > StaleSourceThreshold.TotalHours || ageHours < -1.0)
                 {
                     // Pathologically stale (>24h old) or in the future (>1h skew) — log,
                     // fall back, and let the caller flag the event.
@@ -323,6 +328,68 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             data["derivedTimestamp"] = "true";
             if (rawSourceTs.HasValue)
                 data["rejectedSourceTimestamp"] = rawSourceTs.Value.ToString("o", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// CMTrace log timestamps from IME are emitted in UTC, but DateTimeKind may arrive as
+        /// Unspecified depending on the parser path. Normalize via SpecifyKind=Utc rather than
+        /// ToUniversalTime() to avoid double-conversion when Kind is already UTC.
+        /// </summary>
+        private static DateTime NormalizeUtc(DateTime value) =>
+            value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
+
+        /// <summary>
+        /// True when a script event's source log line is a historic replay: the source timestamp
+        /// was rejected as stale (> <see cref="StaleSourceThreshold"/> in the PAST). Those lines
+        /// are runs from a previous enrollment whose IME log survived on disk (session eaf3d8c4:
+        /// 156 replayed script completions shown as current executions, immediate-upload flood →
+        /// ingress_backpressure). Future-skew rejections (negative age — mid-enrollment clock
+        /// jump) and clock-only fallbacks (no source timestamp at all) are NOT replay and must
+        /// still emit. Emits the one-shot <c>historic_script_replay_detected</c> summary on the
+        /// first suppression; replay is chronological, so that first suppressed line carries the
+        /// earliest rejected source timestamp.
+        /// </summary>
+        private bool SuppressIfHistoricScriptReplay(
+            bool derivedFromClock, DateTime? rawSourceTs, string eventLabel, string policyId)
+        {
+            if (!derivedFromClock || !rawSourceTs.HasValue) return false;
+            var asUtc = NormalizeUtc(rawSourceTs.Value);
+            var clockNow = _clock.UtcNow;
+            var age = clockNow - asUtc;
+            if (age <= StaleSourceThreshold) return false;   // future-skew or fresh → emit
+
+            bool emitSummary;
+            int suppressedSoFar;
+            lock (_lock)
+            {
+                suppressedSoFar = ++_suppressedHistoricScriptEvents;
+                emitSummary = !_historicReplayNoted;
+                _historicReplayNoted = true;
+            }
+
+            if (emitSummary)
+            {
+                var culture = System.Globalization.CultureInfo.InvariantCulture;
+                // Standard batch upload on purpose — no immediateUpload; the whole point of the
+                // suppression is to stop the replayed batch from flooding the ingest.
+                _post.Emit(
+                    eventType: SharedEventTypes.HistoricScriptReplayDetected,
+                    source: SourceLabel,
+                    message: "Historic script executions from a previous enrollment detected in the IME log "
+                           + $"(earliest source timestamp {asUtc:o}) — their script events are suppressed for this session.",
+                    severity: EventSeverity.Info,
+                    data: new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["decision"] = "historic_script_replay_suppressed",
+                        ["earliestRejectedSourceTimestamp"] = asUtc.ToString("o", culture),
+                        ["staleThresholdHours"] = StaleSourceThreshold.TotalHours.ToString("F0", culture),
+                    });
+            }
+
+            _logger?.Debug(
+                $"ImeAdapter: suppressed historic {eventLabel} for policy {policyId} "
+                + $"(source ts {asUtc:o}, age {age.TotalHours:F1}h, suppressed so far: {suppressedSoFar})");
+            return true;
         }
 
         private void EmitEspPhase(string phase)
@@ -910,12 +977,26 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 now = ResolveOccurredAt(script.ExitObservedAtUtc, out derivedFromClock, out rawSourceTs);
             else
                 now = ResolveOccurredAt(out derivedFromClock, out rawSourceTs);
+
+            // Historic replay (a previous enrollment's log) — do not emit at all. The early
+            // return also skips MaybeEmitBootstrapDetected / MaybeEmitScriptTimeoutSuspected,
+            // which would otherwise fire on week-old evidence.
+            if (SuppressIfHistoricScriptReplay(derivedFromClock, rawSourceTs, eventType, script.PolicyId))
+                return;
+
             TagDerivedTimestamp(data, derivedFromClock, rawSourceTs);
 
-            // Per-script run duration (start line → this completion, `now`). Surfaced on every
+            // Per-script run duration (start line → this completion). Surfaced on every
             // script completion so the UI can flag slow / inefficient scripts, not just timed-out
             // ones. Omitted when the start line was never observed (StartedAtUtc null); clamped at 0
             // against clock skew between the (possibly clock-derived) completion stamp and start.
+            //
+            // When the completion timestamp was clock-derived because the source line's timestamp
+            // was rejected (future-skew CMTrace clock jump — the stale case never reaches here),
+            // `now` lives on the clock's timeline while StartedAtUtc was captured RAW from the
+            // source log. Mixing the two produced absurd durations (session eaf3d8c4: 170 h), so
+            // the duration uses the raw source pair — both ends on the same timeline, the
+            // difference is the true runtime. The event stamp stays `now` (timeline position).
             //
             // L19 (delta review 2026-07-02): the same field name carries two different semantics —
             // start→own-end-signal (≈ script runtime) vs HS-SCRIPT-START→HS-NEW-RESULT (the whole
@@ -924,10 +1005,16 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             // consumers never compare the two as equals. The emitting handler stamps the basis on
             // the state (health-script early-signal completions are script_runtime too); the
             // scriptType fallback covers states from paths that predate the field.
+            var completionForDuration = derivedFromClock && rawSourceTs.HasValue
+                ? NormalizeUtc(rawSourceTs.Value)
+                : now;
             if (script.StartedAtUtc.HasValue)
             {
-                var durationSeconds = (now - script.StartedAtUtc.Value).TotalSeconds;
-                if (durationSeconds >= 0)
+                var durationSeconds = (completionForDuration - script.StartedAtUtc.Value).TotalSeconds;
+                // Plausibility backstop: IME's script execution timeout is ~30 min; anything above
+                // 24 h is a cross-run artifact (e.g. a stale pending start slot from a previous
+                // enrollment paired with a fresh completion) — omit rather than lie.
+                if (durationSeconds >= 0 && durationSeconds <= StaleSourceThreshold.TotalSeconds)
                 {
                     data["durationSeconds"] = durationSeconds.ToString("F2", culture);
                     data["durationBasis"] = script.DurationBasis
@@ -979,7 +1066,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 $"ImeAdapter: script completed policyId={shortId} type={script.ScriptType ?? "?"} result={script.Result ?? "?"} exit={(script.ExitCode.HasValue ? script.ExitCode.Value.ToString() : "n/a")}");
 
             MaybeEmitBootstrapDetected(script, now);
-            MaybeEmitScriptTimeoutSuspected(script, now);
+            MaybeEmitScriptTimeoutSuspected(script, now, completionForDuration);
         }
 
         /// <summary>
@@ -991,15 +1078,19 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         /// late start / pre-failed ESP. Advisory only: no state mutation, the underlying
         /// <c>script_failed</c> is still emitted separately. Health (remediation) scripts are
         /// excluded — they re-run on their own cadence and have a different timeout regime.
+        /// <paramref name="durationEndUtc"/> is the timeline-consistent completion for duration
+        /// math (raw source ts on rejected-timestamp emissions); <paramref name="occurredAtUtc"/>
+        /// stamps the emitted event.
         /// </summary>
-        private void MaybeEmitScriptTimeoutSuspected(ScriptExecutionState script, DateTime completionUtc)
+        private void MaybeEmitScriptTimeoutSuspected(ScriptExecutionState script, DateTime occurredAtUtc, DateTime durationEndUtc)
         {
             if (IsRemediation(script.ScriptType)) return;                 // platform scripts only
             if (!script.StartedAtUtc.HasValue) return;                    // no start ⇒ no duration
             if (!string.Equals(script.Result, "Failed", StringComparison.OrdinalIgnoreCase)) return;
 
-            var duration = completionUtc - script.StartedAtUtc.Value;
+            var duration = durationEndUtc - script.StartedAtUtc.Value;
             if (duration < ScriptTimeoutSuspectedThreshold) return;
+            if (duration > StaleSourceThreshold) return;                  // implausible — cross-run artifact, not a hung script
 
             if (!_tracker.TryClaimScriptTimeoutSuspected(script.PolicyId)) return; // restart-safe dedup per policyId (persisted tracker state)
 
@@ -1026,7 +1117,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 message: $"Platform script {shortId} ran {durationMinutes:F0} min and was marked Failed — suspected IME script timeout blocking the enrollment.",
                 severity: EventSeverity.Warning,
                 data: data,
-                occurredAtUtc: completionUtc);
+                occurredAtUtc: occurredAtUtc);
 
             _logger?.Info(
                 $"ImeAdapter: script_timeout_suspected policyId={shortId} duration={durationMinutes:F1}min result={script.Result} espPhase={espPhase ?? "(none)"}");
@@ -1081,6 +1172,12 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             if (!string.IsNullOrEmpty(patternId)) data["patternId"] = patternId!;
 
             var now = ResolveOccurredAt(out var derivedFromClock, out var rawSourceTs);
+
+            // Historic replay — suppressing here also kills the immediateUpload flood the
+            // replayed batch caused (session eaf3d8c4: 3× ingress_backpressure).
+            if (SuppressIfHistoricScriptReplay(derivedFromClock, rawSourceTs, SharedEventTypes.ScriptStarted, info.PolicyId))
+                return;
+
             TagDerivedTimestamp(data, derivedFromClock, rawSourceTs);
 
             var label = IsRemediation(info.ScriptType) ? "Health script" : "Platform script";

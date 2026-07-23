@@ -7,6 +7,7 @@ import {
   isDetectOnlyRow,
   isNonCompliantReport,
   mapRemediationStatus,
+  partitionHistoricScriptEvents,
   reduceScriptEvents,
   scriptItemKey,
   toNumber,
@@ -903,5 +904,84 @@ describe("groupScriptItems — card durationSeconds is the max phase run time", 
       item({ scriptPart: "post-detection", complianceResult: "False", exitCode: 1, remediationStatus: 3, reportedAfterSeconds: 480, timestamp: ts(2) }),
     ]);
     expect(cards[0].durationSeconds).toBeUndefined();
+  });
+});
+
+describe("partitionHistoricScriptEvents", () => {
+  // Agent-side clamp evidence: rejectedSourceTimestamp = the source log line's own time,
+  // timestamp = the clock-clamped event stamp. > 24 h older ⇒ replayed history from a
+  // previous enrollment (session eaf3d8c4).
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  it("drops events whose rejectedSourceTimestamp is > 24 h older than the event stamp and counts finals", () => {
+    const historicFinal = finalEvent({
+      ts: 0,
+      data: { policyId: "p1", scriptType: "remediation", rejectedSourceTimestamp: new Date(1700000000000 - 7 * DAY_MS).toISOString() },
+    });
+    const historicStart = finalEvent({
+      eventType: "script_started",
+      ts: 1,
+      data: { policyId: "p1", scriptType: "remediation", rejectedSourceTimestamp: new Date(1700000000000 - 7 * DAY_MS).toISOString() },
+    });
+    const fresh = finalEvent({ ts: 2, data: { policyId: "p2", scriptType: "platform" } });
+
+    const { current, historicCount } = partitionHistoricScriptEvents([historicFinal, historicStart, fresh]);
+    expect(current).toEqual([fresh]);
+    // Only finals count toward the "hidden executions" note — dropped starts would
+    // double-count the same run.
+    expect(historicCount).toBe(1);
+  });
+
+  it("keeps future-skew rejections (source timestamp ahead of the event stamp)", () => {
+    const skewed = finalEvent({
+      ts: 0,
+      data: { policyId: "p1", scriptType: "platform", rejectedSourceTimestamp: new Date(1700000000000 + 2 * 60 * 60 * 1000).toISOString() },
+    });
+    const { current, historicCount } = partitionHistoricScriptEvents([skewed]);
+    expect(current).toEqual([skewed]);
+    expect(historicCount).toBe(0);
+  });
+
+  it("keeps within-24h rejections and events without or with malformed rejectedSourceTimestamp", () => {
+    const within = finalEvent({
+      ts: 0,
+      data: { policyId: "p1", scriptType: "platform", rejectedSourceTimestamp: new Date(1700000000000 - 23 * 60 * 60 * 1000).toISOString() },
+    });
+    const none = finalEvent({ ts: 1, data: { policyId: "p2", scriptType: "platform" } });
+    const malformed = finalEvent({ ts: 2, data: { policyId: "p3", scriptType: "platform", rejectedSourceTimestamp: "not-a-date" } });
+
+    const { current, historicCount } = partitionHistoricScriptEvents([within, none, malformed]);
+    expect(current).toHaveLength(3);
+    expect(historicCount).toBe(0);
+  });
+
+  it("reads the snake_case wire variant too", () => {
+    const historic = finalEvent({
+      ts: 0,
+      data: { policyId: "p1", scriptType: "platform", rejected_source_timestamp: new Date(1700000000000 - 7 * DAY_MS).toISOString() },
+    });
+    const { current, historicCount } = partitionHistoricScriptEvents([historic]);
+    expect(current).toEqual([]);
+    expect(historicCount).toBe(1);
+  });
+});
+
+describe("reduceScriptEvents — implausible duration blanking", () => {
+  it("blanks durations above 24 h (mixed-timeline artifacts from legacy agents)", () => {
+    // Session eaf3d8c4: clock-clamped completion minus raw week-old start = 612225 s ≈ 170 h.
+    const items = reduceScriptEvents([
+      finalEvent({ data: { policyId: "p1", scriptType: "remediation", scriptPart: "detection", exitCode: "0", complianceResult: "True", durationSeconds: "612225.00", durationBasis: "script_runtime" } }),
+    ]);
+    expect(items[0].durationSeconds).toBeUndefined();
+    expect(items[0].reportedAfterSeconds).toBeUndefined();
+  });
+
+  it("keeps the 24 h boundary value and blanks cycle-basis values the same way", () => {
+    const items = reduceScriptEvents([
+      finalEvent({ data: { policyId: "p1", scriptType: "platform", exitCode: "0", result: "Success", durationSeconds: "86400", durationBasis: "script_runtime" } }),
+      finalEvent({ ts: 1, data: { policyId: "p2", scriptType: "remediation", scriptPart: "detection", exitCode: "0", complianceResult: "True", durationSeconds: "90000", durationBasis: "cycle_including_reporting_latency" } }),
+    ]);
+    expect(items[0].durationSeconds).toBe(86400);
+    expect(items[1].reportedAfterSeconds).toBeUndefined();
   });
 });

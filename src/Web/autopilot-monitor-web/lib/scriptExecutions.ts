@@ -120,6 +120,51 @@ export function scriptCardKey(card: Pick<ScriptCard, "policyId" | "scriptType" |
 export const STALE_RUNNING_THRESHOLD_SECONDS = 600;
 
 /**
+ * Age above which a rejectedSourceTimestamp marks the event as a historic replay from a
+ * previous enrollment (mirrors the agent's 24 h source-timestamp staleness clamp). Newer
+ * agents suppress such events at the source (historic_script_replay_detected); this
+ * client-side partition covers sessions recorded by older agents.
+ */
+export const HISTORIC_REPLAY_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+
+export interface HistoricPartition {
+  current: ScriptInputEvent[];
+  /**
+   * Count of dropped FINAL events (script_completed / script_failed) — what the user reads
+   * as "hidden executions". Dropped script_started events are removed but not counted, so
+   * the note is not inflated by start/end pairs of the same run.
+   */
+  historicCount: number;
+}
+
+/**
+ * Splits off script events that are replayed history from a previous enrollment: the agent
+ * stamps `rejectedSourceTimestamp` when it rejected the source log line's own timestamp and
+ * fell back to the clock. A source timestamp more than 24 h OLDER than the event stamp means
+ * the line predates this enrollment — the run happened days ago and must not render as a
+ * current execution (session eaf3d8c4: 156 replayed runs shown with ~170 h durations).
+ * Future-skew rejections (source timestamp AHEAD of the event stamp — mid-enrollment clock
+ * jump) are genuine current runs and stay visible.
+ */
+export function partitionHistoricScriptEvents(events: ScriptInputEvent[]): HistoricPartition {
+  const current: ScriptInputEvent[] = [];
+  let historicCount = 0;
+  for (const evt of events) {
+    const rejected = evt.data?.rejectedSourceTimestamp ?? evt.data?.rejected_source_timestamp;
+    if (typeof rejected === "string" && rejected.length > 0) {
+      const rej = Date.parse(rejected);
+      const ts = Date.parse(evt.timestamp);
+      if (Number.isFinite(rej) && Number.isFinite(ts) && ts - rej > HISTORIC_REPLAY_THRESHOLD_MS) {
+        if (evt.eventType === "script_completed" || evt.eventType === "script_failed") historicCount++;
+        continue;
+      }
+    }
+    current.push(evt);
+  }
+  return { current, historicCount };
+}
+
+/**
  * Score how complete a script item's data is (higher = better). Used by the reducer to
  * pick the best entry when re-emissions of the same script collapse into one row.
  * Counts the presence of fields that meaningfully describe the script's outcome.
@@ -261,7 +306,13 @@ export function reduceScriptEvents(events: ScriptInputEvent[]): ScriptItem[] {
     // the script's own result line (runtime), remediation durations to HS-NEW-RESULT
     // (cycle) — infer accordingly so old data is never displayed as run time when it
     // isn't one.
-    const rawDuration = toNumber(d.durationSeconds ?? d.duration_seconds);
+    // Scripts cannot run > 24 h inside an enrollment (IME's execution timeout is ~30 min);
+    // larger values are mixed-timeline artifacts from legacy agents (raw stale start paired
+    // with a clock-clamped completion — session eaf3d8c4 showed 170 h). Hide, don't lie.
+    const rawDurationUnchecked = toNumber(d.durationSeconds ?? d.duration_seconds);
+    const rawDuration = rawDurationUnchecked != null && rawDurationUnchecked <= HISTORIC_REPLAY_THRESHOLD_MS / 1000
+      ? rawDurationUnchecked
+      : undefined;
     const rawBasis = d.durationBasis ?? d.duration_basis;
     const isCycleBasis = typeof rawBasis === "string"
       ? rawBasis === "cycle_including_reporting_latency"

@@ -208,37 +208,58 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             }
             else
             {
-                // Platform script: AgentExecutor.log entries create/enrich, IME log entries also create
-                if (!_pendingPlatformScripts.ContainsKey(id))
-                {
-                    // A fresh start for this policy (no pending entry) begins a NEW execution.
-                    // Clear any emitted-marker from a prior run so IME re-evaluations / retries of
-                    // the same platform-script policy within one agent lifetime are not silently
-                    // deduped away. Within a single run the start always precedes exit/result, so
-                    // this never clears the current run's own marker.
-                    _platformScriptResultEmitted.Remove(id);
-                    _pendingPlatformScripts[id] = new ScriptExecutionState
-                    {
-                        PolicyId = id,
-                        ScriptType = "platform",
-                        // Prefer the source CMTrace timestamp so a script that started before the
-                        // agent launched (replayed log content) is dated to its real start, not now.
-                        // Set only at slot creation: the start line fires twice (agentexecutor + ime
-                        // source) but the earliest wins.
-                        StartedAtUtc = LastMatchedLogTimestamp ?? DateTime.UtcNow,
-                    };
-                    // Live "running" indicator — same signal health scripts emit. Gated on slot
-                    // creation so the duplicate start line (agentexecutor + ime source) doesn't
-                    // double-emit for the same execution.
-                    try { OnScriptStarted?.Invoke(new ScriptStartedInfo { PolicyId = id, ScriptType = "platform" }); }
-                    catch (Exception ex) { _logger.Warning($"ImeLogTracker: OnScriptStarted handler threw: {ex.Message}"); }
-                }
-                _lastPlatformScriptPolicyId = id;
-                // Started lines fire twice per script (agentexecutor + ime source) and carry no
-                // outcome — the matching `platform script completed` line below carries result+exit
-                // and stays on Info. Keep starts on Debug so Info reflects script outcomes only.
-                _logger.Debug($"ImeLogTracker: platform script started: {id} (source: {source ?? "ime"})");
+                HandlePlatformScriptStarted(id, source);
             }
+        }
+
+        // Platform script: AgentExecutor.log entries create/enrich, IME log entries also create.
+        // Internal so the stale-slot hardening is directly testable (the public path arrives via
+        // a regex Match).
+        internal void HandlePlatformScriptStarted(string id, string source = null)
+        {
+            // Stale-slot hardening (session eaf3d8c4): a replayed start line from a previous
+            // enrollment whose matching result never appeared (script was mid-run when that
+            // enrollment ended) leaves a pending slot with a days-old StartedAtUtc. When the
+            // same policy genuinely re-runs now, the fresh start must begin a NEW execution —
+            // otherwise the ancient start pairs with the fresh completion and the duration
+            // lies. > 24 h mirrors the adapter's source-timestamp staleness clamp.
+            var currentStartTs = LastMatchedLogTimestamp ?? DateTime.UtcNow;
+            if (_pendingPlatformScripts.TryGetValue(id, out var pendingSlot)
+                && pendingSlot.StartedAtUtc.HasValue
+                && currentStartTs - pendingSlot.StartedAtUtc.Value > TimeSpan.FromHours(24))
+            {
+                _logger.Debug($"ImeLogTracker: discarding stale pending platform-script slot for {id} (started {pendingSlot.StartedAtUtc:o})");
+                _pendingPlatformScripts.Remove(id);
+            }
+            if (!_pendingPlatformScripts.ContainsKey(id))
+            {
+                // A fresh start for this policy (no pending entry) begins a NEW execution.
+                // Clear any emitted-marker from a prior run so IME re-evaluations / retries of
+                // the same platform-script policy within one agent lifetime are not silently
+                // deduped away. Within a single run the start always precedes exit/result, so
+                // this never clears the current run's own marker.
+                _platformScriptResultEmitted.Remove(id);
+                _pendingPlatformScripts[id] = new ScriptExecutionState
+                {
+                    PolicyId = id,
+                    ScriptType = "platform",
+                    // Prefer the source CMTrace timestamp so a script that started before the
+                    // agent launched (replayed log content) is dated to its real start, not now.
+                    // Set only at slot creation: the start line fires twice (agentexecutor + ime
+                    // source) but the earliest wins.
+                    StartedAtUtc = currentStartTs,
+                };
+                // Live "running" indicator — same signal health scripts emit. Gated on slot
+                // creation so the duplicate start line (agentexecutor + ime source) doesn't
+                // double-emit for the same execution.
+                try { OnScriptStarted?.Invoke(new ScriptStartedInfo { PolicyId = id, ScriptType = "platform" }); }
+                catch (Exception ex) { _logger.Warning($"ImeLogTracker: OnScriptStarted handler threw: {ex.Message}"); }
+            }
+            _lastPlatformScriptPolicyId = id;
+            // Started lines fire twice per script (agentexecutor + ime source) and carry no
+            // outcome — the matching `platform script completed` line below carries result+exit
+            // and stays on Info. Keep starts on Debug so Info reflects script outcomes only.
+            _logger.Debug($"ImeLogTracker: platform script started: {id} (source: {source ?? "ime"})");
         }
 
         // Routes line-by-line script-data handlers (context / exitCode / output) to the right

@@ -10,6 +10,7 @@ import {
   isDetectOnlyRow,
   isNonCompliantReport,
   mapRemediationStatus,
+  partitionHistoricScriptEvents,
   reduceScriptEvents,
   scriptCardKey,
   scriptItemKey,
@@ -38,11 +39,15 @@ interface ScriptExecutionsProps {
 }
 
 export default function ScriptExecutions({ events, showScriptOutput, latestBootstrapVersion, displayNamesByRefKey }: ScriptExecutionsProps) {
-  const cards = useMemo(() => groupScriptItems(reduceScriptEvents(events)), [events]);
+  // Legacy-agent guard: split off script events replayed from a previous enrollment's IME
+  // log (newer agents suppress them at the source) so week-old runs never render as current
+  // executions. The muted note below keeps the gap explainable.
+  const { current, historicCount } = useMemo(() => partitionHistoricScriptEvents(events), [events]);
+  const cards = useMemo(() => groupScriptItems(reduceScriptEvents(current)), [current]);
 
   const [expanded, setExpanded] = useState(true);
 
-  if (cards.length === 0) return null;
+  if (cards.length === 0 && historicCount === 0) return null;
 
   // Header counters work on cards (one per policy), so a remediated cycle reads as
   // "1 succeeded" rather than "1 succeeded + 2 non-compliant" when its detection /
@@ -114,6 +119,14 @@ export default function ScriptExecutions({ events, showScriptOutput, latestBoots
               displayNamesByRefKey={displayNamesByRefKey}
             />
           ))}
+          {historicCount > 0 && (
+            <div
+              className="text-xs text-gray-400 italic"
+              title="These executions were replayed from IME log content that predates this enrollment by more than 24 hours — they ran during a previous enrollment on this device"
+            >
+              {historicCount} historic script execution{historicCount === 1 ? "" : "s"} from a previous enrollment hidden
+            </div>
+          )}
         </div>
       )}
     </div>
