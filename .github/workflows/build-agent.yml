@@ -231,7 +231,12 @@ jobs:
             param([string]$Local, [string]$BlobName, [string]$ContentType)
             $url = "$containerUrl/$BlobName`?$sasToken"
             $bytes = [System.IO.File]::ReadAllBytes($Local)
-            $headers = @{ "x-ms-blob-type" = "BlockBlob"; "Content-Type" = $ContentType }
+            # no-cache on EVERY blob: they all rotate in place (even the per-line ZIP is
+            # overwritten each build), and the download alias fronts them with Front Door.
+            # Route caching is disabled there, but a stale manifest paired with a fresh ZIP
+            # (independent cache entries) would fail the bootstrap SHA check -- this header
+            # keeps that class of bug impossible even if caching is ever re-enabled.
+            $headers = @{ "x-ms-blob-type" = "BlockBlob"; "Content-Type" = $ContentType; "x-ms-blob-cache-control" = "no-cache" }
             if ($ContentType -eq "application/zip") {
               $md5 = [System.Security.Cryptography.MD5]::Create()
               $headers["Content-MD5"] = [Convert]::ToBase64String($md5.ComputeHash($bytes))

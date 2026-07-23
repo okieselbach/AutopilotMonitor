@@ -60,6 +60,17 @@ backend that serves alias URLs — an old portal build rejects the alias host an
 the bootstrap flow dies client-side. Remove the legacy hostname from the
 allow-list only after the legacy account is torn down.
 
+**Front Door caching is a correctness hazard here, not a staleness nuisance.**
+The first release after the migration exposed it: the alias kept serving the
+previous `version.json` (`X-Cache: TCP_REMOTE_HIT`) while the origin was already
+updated — and because manifest and ZIP are independent cache entries, a stale
+manifest paired with a fresh ZIP fails the bootstrap's SHA-256 check. Two
+defenses, both in place since 2026-07-23: route caching on `/agent/*` is
+DISABLED, and every blob upload (CI `Send-Blob`, local `build.ps1`, the
+`versions/*.json` manifests) stamps `Cache-Control: no-cache` — all these blobs
+rotate in place, even the per-line ZIP. If caching is ever re-enabled, the
+headers keep the mismatch class impossible.
+
 Deliberately still on the legacy account: the `HealthCheckService` /
 `MaintenanceService` legacy-keepalive probes and the fail-soft mirror in
 `build-agent.yml` — they exist precisely to keep already-deployed customer

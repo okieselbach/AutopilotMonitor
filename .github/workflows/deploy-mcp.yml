@@ -141,6 +141,7 @@ jobs:
 
           $sas = '${{ secrets.AZURE_BLOB_VERSIONS_SAS_TOKEN }}'.TrimStart('?')
           $url = "${{ env.VERSIONS_CONTAINER }}/mcp.json?$sas"
-          Invoke-RestMethod -Uri $url -Method Put -Headers @{ 'x-ms-blob-type' = 'BlockBlob' } -Body $manifest -ContentType 'application/json' | Out-Null
+          # no-cache: rotating pointer, must never be served stale by any fronting cache.
+          Invoke-RestMethod -Uri $url -Method Put -Headers @{ 'x-ms-blob-type' = 'BlockBlob'; 'x-ms-blob-cache-control' = 'no-cache' } -Body $manifest -ContentType 'application/json' | Out-Null
           Write-Host "Published versions/mcp.json"
           Write-Host $manifest
