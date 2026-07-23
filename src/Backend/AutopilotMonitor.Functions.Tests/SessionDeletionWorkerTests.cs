@@ -62,7 +62,7 @@ public class SessionDeletionWorkerTests
         };
         harness.EnqueueMessage(JsonConvert.SerializeObject(envelope), dequeueCount: QueuePollingWorkerBase.DefaultMaxDequeueCount + 1);
 
-        await harness.RunForAsync(TimeSpan.FromMilliseconds(500));
+        await harness.RunUntilAsync(() => harness.OpsEventRecorded());
 
         // Poison queue received the body and main queue deleted the original.
         harness.PoisonQueue.Verify(q => q.SendMessageAsync(
@@ -121,7 +121,7 @@ public class SessionDeletionWorkerTests
                 },
                 "etag-mock"));
 
-        await harness.RunForAsync(TimeSpan.FromMilliseconds(500));
+        await harness.RunUntilAsync(() => harness.OpsEventRecorded());
 
         var poisoned = Assert.Single(harness.OpsEventCalls, e => e.EventType == "SessionDeletionPoisoned");
         Assert.Contains($"\"observedResidualCount\":{capObservation}", poisoned.RawDetails);
@@ -168,7 +168,7 @@ public class SessionDeletionWorkerTests
                 },
                 "etag-mock"));
 
-        await harness.RunForAsync(TimeSpan.FromMilliseconds(500));
+        await harness.RunUntilAsync(() => harness.OpsEventRecorded());
 
         var poisoned = Assert.Single(harness.OpsEventCalls, e => e.EventType == "SessionDeletionPoisoned");
         Assert.Contains("\"observedResidualCount\":3", poisoned.RawDetails);
@@ -307,7 +307,7 @@ public class SessionDeletionWorkerTests
                 },
                 "etag-mock"));
 
-        await harness.RunForAsync(TimeSpan.FromMilliseconds(500));
+        await harness.RunUntilAsync(() => harness.OpsEventRecorded());
 
         var poisoned = Assert.Single(harness.OpsEventCalls, e => e.EventType == "SessionDeletionPoisoned");
         Assert.True(poisoned.RawDetails.Length < 4096,
@@ -357,7 +357,7 @@ public class SessionDeletionWorkerTests
                 return Task.FromResult(Response.FromValue(receipt, new Mock<Response>().Object));
             });
 
-        await harness.RunForAsync(TimeSpan.FromMilliseconds(500));
+        await harness.RunUntilAsync(() => harness.OpsEventRecorded());
 
         var casIdx = callOrder.IndexOf("cas-running-to-poisoned");
         var poisonIdx = callOrder.IndexOf("poison-queue-send");
@@ -402,7 +402,7 @@ public class SessionDeletionWorkerTests
                 CurrentState = SessionDeletionState.Poisoned,
             });
 
-        await harness.RunForAsync(TimeSpan.FromMilliseconds(500));
+        await harness.RunUntilAsync(() => harness.OpsEventRecorded());
 
         // Both CAS attempts fired, and the poison-queue send still completed.
         harness.StorageMock.Verify(s => s.CasSetSessionDeletionStateAsync(
@@ -444,7 +444,7 @@ public class SessionDeletionWorkerTests
                 CurrentState = "Unknown",
             });
 
-        await harness.RunForAsync(TimeSpan.FromMilliseconds(500));
+        await harness.RunUntilAsync(() => harness.OpsEventRecorded());
 
         harness.PoisonQueue.Verify(q => q.SendMessageAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.AtLeastOnce);
@@ -457,7 +457,7 @@ public class SessionDeletionWorkerTests
         var harness = new Harness();
         harness.EnqueueMessage("{ \"this is not valid JSON for an envelope: garbage", dequeueCount: 1);
 
-        await harness.RunForAsync(TimeSpan.FromMilliseconds(500));
+        await harness.RunUntilAsync(() => harness.MainQueueDeleted());
 
         harness.HandlerMock.Verify(h => h.HandleAsync(
             It.IsAny<SessionDeletionEnvelope>(), It.IsAny<CancellationToken>()),
@@ -491,7 +491,7 @@ public class SessionDeletionWorkerTests
                 await Task.Delay(TimeSpan.FromMilliseconds(350), ct);
             });
 
-        await harness.RunForAsync(TimeSpan.FromMilliseconds(800));
+        await harness.RunUntilAsync(() => harness.HeartbeatCount() >= 3);
 
         // Heartbeat called at least 3× while the handler was busy (350ms / 50ms ≈ 7, minus a few
         // due to scheduling jitter). One call is enough to prove the heartbeat task is wired.
@@ -512,7 +512,7 @@ public class SessionDeletionWorkerTests
         };
         harness.EnqueueMessage(JsonConvert.SerializeObject(envelope), dequeueCount: 1);
 
-        await harness.RunForAsync(TimeSpan.FromMilliseconds(500));
+        await harness.RunUntilAsync(() => harness.MainQueueDeleted());
 
         harness.HandlerMock.Verify(h => h.HandleAsync(
             It.IsAny<SessionDeletionEnvelope>(), It.IsAny<CancellationToken>()),
@@ -663,7 +663,9 @@ public class SessionDeletionWorkerTests
             opsRepo.Setup(r => r.SaveOpsEventAsync(It.IsAny<OpsEventEntry>()))
                 .Returns<OpsEventEntry>(e =>
                 {
-                    OpsEventCalls.Add(CapturedOpsEvent.From(e));
+                    // Locked so RunUntilAsync's condition poll can read Count from the test
+                    // thread while the worker thread appends.
+                    lock (OpsEventCalls) OpsEventCalls.Add(CapturedOpsEvent.From(e));
                     return Task.CompletedTask;
                 });
             var alertDispatch = new OpsAlertDispatchService(
@@ -720,6 +722,41 @@ public class SessionDeletionWorkerTests
             catch (OperationCanceledException) { /* expected on timeout */ }
             try { await Sut.StopAsync(CancellationToken.None); }
             catch (OperationCanceledException) { /* expected */ }
+        }
+
+        /// <summary>
+        /// De-flake (CI run 30047512186): <see cref="RunForAsync"/>'s fixed wall-clock window
+        /// raced the worker's background poll loop on loaded CI runners — positive assertions
+        /// (delete issued, ops event recorded) could fire before the loop ever processed the
+        /// message. Runs the worker until <paramref name="condition"/> observes the awaited
+        /// side effect (polled every 25 ms); the ceiling only bounds a genuinely broken worker,
+        /// the asserts after this call remain the source of truth. Same pattern as the watchdog
+        /// event-gate de-flake. Only for POSITIVE expectations — Times.Never-style tests keep
+        /// the fixed window (there is no event to wait for).
+        /// </summary>
+        public async Task RunUntilAsync(Func<bool> condition, TimeSpan? timeout = null)
+        {
+            var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(10));
+            using var cts = new CancellationTokenSource();
+            try { await Sut.StartAsync(cts.Token); }
+            catch (OperationCanceledException) { /* expected */ }
+            while (!condition() && DateTime.UtcNow < deadline)
+                await Task.Delay(25);
+            cts.Cancel();
+            try { await Sut.StopAsync(CancellationToken.None); }
+            catch (OperationCanceledException) { /* expected */ }
+        }
+
+        // Condition probes for RunUntilAsync. Moq's Invocations list snapshots under its
+        // internal lock, so polling it from the test thread while the worker invokes the
+        // mock is safe. OpsEventCalls is guarded by its own lock (see the repo callback).
+        public bool MainQueueDeleted() =>
+            MainQueue.Invocations.Any(i => i.Method.Name == nameof(QueueClient.DeleteMessageAsync));
+        public int HeartbeatCount() =>
+            MainQueue.Invocations.Count(i => i.Method.Name == nameof(QueueClient.UpdateMessageAsync));
+        public bool OpsEventRecorded()
+        {
+            lock (OpsEventCalls) return OpsEventCalls.Count > 0;
         }
     }
 
