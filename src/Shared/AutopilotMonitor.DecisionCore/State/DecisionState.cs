@@ -64,7 +64,9 @@ namespace AutopilotMonitor.DecisionCore.State
             SignalFact<DateTime>? espAdvisoryFailureRecordedUtc = null,
             SignalFact<DateTime>? imeUserSessionCompletedUtc = null,
             SignalFact<string>? completionWaitingFingerprint = null,
-            SignalFact<DateTime>? helloWizardStartedUtc = null)
+            SignalFact<DateTime>? helloWizardStartedUtc = null,
+            SignalFact<DateTime>? espAdvisoryFailureResolvedUtc = null,
+            SignalFact<string>? espAdvisoryFailureCategory = null)
         {
             if (string.IsNullOrEmpty(sessionId))
             {
@@ -108,6 +110,8 @@ namespace AutopilotMonitor.DecisionCore.State
             ImeUserSessionCompletedUtc = imeUserSessionCompletedUtc;
             CompletionWaitingFingerprint = completionWaitingFingerprint;
             HelloWizardStartedUtc = helloWizardStartedUtc;
+            EspAdvisoryFailureResolvedUtc = espAdvisoryFailureResolvedUtc;
+            EspAdvisoryFailureCategory = espAdvisoryFailureCategory;
         }
 
         public string SessionId { get; }
@@ -319,6 +323,36 @@ namespace AutopilotMonitor.DecisionCore.State
         /// </para>
         /// </summary>
         public SignalFact<DateTime>? HelloWizardStartedUtc { get; }
+
+        /// <summary>
+        /// Set when the ESP category behind a recorded advisory failure
+        /// (<see cref="EspAdvisoryFailureRecordedUtc"/>) later resolves to success — i.e. the
+        /// failure demonstrably un-happened. Session 4910a5a5 (2026-07-23): DeviceSetup/Apps
+        /// failed, the user pressed "Try again" ~23 min later, the apps re-ran to 10/10 and
+        /// <c>DeviceSetupProvisioningComplete</c> arrived — yet the <c>AdvisoryCompletion</c>
+        /// window still un-defanged the stale failure and failed the live enrollment.
+        /// <para>
+        /// Set-once by the shared recovery hook in the ProvisioningComplete handlers when the
+        /// resolved category matches the <c>armFailedCategory</c> carried on the armed
+        /// <c>AdvisoryCompletion</c> deadline. Once set, the advisory variant loses its
+        /// exemption from the enforcement-progress re-arm, the reboot rebase and the Hello
+        /// promotes — those guards exist to protect live enrollments, and with this fact the
+        /// "a real ESP terminal failure does not un-happen" premise is disproven for this
+        /// session. Additive-nullable, no snapshot-schema bump.
+        /// </para>
+        /// </summary>
+        public SignalFact<DateTime>? EspAdvisoryFailureResolvedUtc { get; }
+
+        /// <summary>
+        /// The ESP category (<c>DeviceSetup</c> / <c>AccountSetup</c>) named by the advisory
+        /// failure's signal payload, recorded alongside <see cref="EspAdvisoryFailureRecordedUtc"/>.
+        /// Lives on state — not on the <c>AdvisoryCompletion</c> deadline payload — because
+        /// re-arm and reboot-rebase sites rebuild that deadline and would silently drop a
+        /// payload-carried category. Null when the arming signal carried no category (e.g.
+        /// event-log-derived failures); the recovery hook then never matches and behavior is
+        /// unchanged. Additive-nullable, no snapshot-schema bump.
+        /// </summary>
+        public SignalFact<string>? EspAdvisoryFailureCategory { get; }
 
         public string SchemaVersion { get; }
 

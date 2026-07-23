@@ -98,6 +98,12 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
     description: "ESP reported a subcategory failure but the device had already progressed to AccountSetup with ContinueAnyway enabled — non-terminal advisory, the agent continues monitoring." },
   { value: "esp_appx_failure_analysis", label: "esp_appx_failure_analysis", category: "esp",
     description: "AppX deployment log scan during the ESP failure settle window: suspected MSIX/Store package candidates behind an Apps-subcategory failure (assessment, not a confirmed root cause)." },
+  { value: "esp_failure_retry_detected", label: "esp_failure_retry_detected", category: "esp",
+    description: "After a terminally reported ESP failure, the failed subcategory left the failed state — consistent with the user pressing 'Try again' on the ESP failure page." },
+  { value: "esp_failure_recovered", label: "esp_failure_recovered", category: "esp",
+    description: "The ESP category behind a terminally reported failure later completed successfully — the earlier failure recovered (e.g. after a user retry)." },
+  { value: "esp_failure_advisory_resolved", label: "esp_failure_advisory_resolved", category: "esp",
+    description: "DecisionEngine: the category behind a defanged esp_failure_advisory resolved to success — the advisory no longer blocks completion." },
 
   // -------- App installs --------
   { value: "app_install_started", label: "app_install_started", category: "app",

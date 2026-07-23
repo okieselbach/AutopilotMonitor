@@ -98,17 +98,28 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // was already armed (or already cancelled by AccountSetup). Pass-through.
             if (state.DeviceSetupResolvedUtc != null)
             {
-                var passthroughState = state.ToBuilder()
+                var passthroughBuilder = state.ToBuilder()
                     .WithStepIndex(nextStep)
-                    .WithLastAppliedSignalOrdinal(signal.SessionSignalOrdinal)
-                    .Build();
+                    .WithLastAppliedSignalOrdinal(signal.SessionSignalOrdinal);
+                // Session 4910a5a5 recovery hook: a duplicate arrival (e.g. the post-reboot
+                // registry re-read) can still be the first evidence that the advisory's failed
+                // category recovered — set-once + category-match inside the helper keep this
+                // a no-op everywhere else.
+                var passthroughResolveEffect = TryResolveAdvisoryOnCategoryRecovery(
+                    state, passthroughBuilder, signal, resolvedCategory: "DeviceSetup");
+                var passthroughState = passthroughBuilder.Build();
                 var passthroughTransition = BuildTakenTransition(
                     before: state,
                     signal: signal,
                     toStage: state.Stage,
                     nextStepIndex: nextStep,
                     trigger: nameof(DecisionSignalKind.DeviceSetupProvisioningComplete) + ":AnchorAlreadySet");
-                return new DecisionStep(passthroughState, passthroughTransition, Array.Empty<DecisionEffect>());
+                return new DecisionStep(
+                    passthroughState,
+                    passthroughTransition,
+                    passthroughResolveEffect != null
+                        ? new[] { passthroughResolveEffect }
+                        : Array.Empty<DecisionEffect>());
             }
 
             // Step 2 — Set the DeviceSetupResolvedUtc anchor UNCONDITIONALLY. Even when Classic
@@ -118,6 +129,13 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 .WithStepIndex(nextStep)
                 .WithLastAppliedSignalOrdinal(signal.SessionSignalOrdinal);
             builder.DeviceSetupResolvedUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
+
+            // Session 4910a5a5 recovery hook: DeviceSetup resolving to success while a
+            // DeviceSetup advisory failure is on record means the failure un-happened (user
+            // "Try again" retry). Sets the set-once resolved fact + emits the
+            // esp_failure_advisory_resolved story event; no-op otherwise.
+            var advisoryResolveEffect = TryResolveAdvisoryOnCategoryRecovery(
+                state, builder, signal, resolvedCategory: "DeviceSetup");
 
             // Step 3 — Classic-path short-circuit: AccountSetup already started. The DeviceOnly
             // deadline is moot (already cancelled by HandleEspPhaseChangedV1's AccountSetup branch,
@@ -136,7 +154,12 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     toStage: state.Stage,
                     nextStepIndex: nextStep,
                     trigger: nameof(DecisionSignalKind.DeviceSetupProvisioningComplete) + ":AccountSetupAlreadyEntered");
-                return new DecisionStep(classicState, classicTransition, Array.Empty<DecisionEffect>());
+                return new DecisionStep(
+                    classicState,
+                    classicTransition,
+                    advisoryResolveEffect != null
+                        ? new[] { advisoryResolveEffect }
+                        : Array.Empty<DecisionEffect>());
             }
 
             // Step 4 — Arm the deadline. Cancel any existing DeviceOnlyEspDetection first
@@ -156,13 +179,14 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 nextStepIndex: nextStep,
                 trigger: nameof(DecisionSignalKind.DeviceSetupProvisioningComplete) + ":DeadlineArmed");
 
-            var effects = new[]
+            var effects = new List<DecisionEffect>(3)
             {
                 new DecisionEffect(DecisionEffectKind.CancelDeadline, cancelDeadlineName: DeadlineNames.DeviceOnlyEspDetection),
                 new DecisionEffect(DecisionEffectKind.ScheduleDeadline, deadline: deadline),
             };
+            if (advisoryResolveEffect != null) effects.Add(advisoryResolveEffect);
 
-            return new DecisionStep(newState, transition, effects);
+            return new DecisionStep(newState, transition, effects.ToArray());
         }
 
         /// <summary>

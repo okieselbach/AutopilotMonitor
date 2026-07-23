@@ -521,6 +521,46 @@ function EventRow({ event, showScriptOutput }: { event: EnrollmentEvent; showScr
                     subcategory: <span className="font-mono">{String(sub)}</span>
                   </span>
                 )}
+                {event.data?.likelyCulpritApps && (
+                  <span
+                    className="px-1.5 py-0.5 rounded bg-orange-100 text-orange-800 font-medium"
+                    title="Tracked app(s) ESP most likely failed on — never-started apps ranked first (snapshot at failure time)."
+                  >
+                    Likely app: {String(event.data.likelyCulpritApps)}
+                  </span>
+                )}
+              </div>
+            );
+          })()}
+          {/* Recovery-story badges (session 4910a5a5): a terminally reported ESP failure that
+              later un-happened — the user retried ("Try again"), the failed step re-ran and
+              recovered. Green/teal palette so the timeline visually closes the earlier red/amber
+              failure arc. */}
+          {(event.eventType === "esp_failure_retry_detected" || event.eventType === "esp_failure_recovered" || event.eventType === "esp_failure_advisory_resolved") && (() => {
+            const isRetry = event.eventType === "esp_failure_retry_detected";
+            const label = isRetry ? "User retry" : "Recovered";
+            const badgeCls = isRetry ? "bg-sky-100 text-sky-800" : "bg-emerald-100 text-emerald-800";
+            const cat = event.data?.category;
+            const sub = event.data?.subcategory ?? event.data?.failedSubcategory;
+            const mins = event.data?.minutesSinceFailure ?? event.data?.minutesSinceAdvisory;
+            return (
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                <span
+                  className={`px-1.5 py-0.5 rounded ${badgeCls} font-medium`}
+                  title={isRetry
+                    ? "The failed ESP step left the failed state — consistent with the user pressing 'Try again' on the ESP failure page."
+                    : "The previously failed ESP category completed successfully — the earlier failure no longer applies."}
+                >
+                  {label}
+                </span>
+                {cat && (
+                  <span className="text-gray-500">
+                    {String(cat)}{sub ? <> / <span className="font-mono">{String(sub)}</span></> : null}
+                  </span>
+                )}
+                {mins !== undefined && mins !== null && (
+                  <span className="text-gray-500">{String(mins)} min after the failure</span>
+                )}
               </div>
             );
           })()}

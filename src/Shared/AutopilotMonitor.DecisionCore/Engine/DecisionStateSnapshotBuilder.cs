@@ -63,6 +63,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 ["helloPolicyEnabled"]             = SerializeFact(state.HelloPolicyEnabled, v => (object)v),
                 ["lastFailureTrigger"]             = SerializeFact(state.LastFailureTrigger, v => v),
                 ["espAdvisoryFailureRecordedUtc"]  = SerializeFact(state.EspAdvisoryFailureRecordedUtc, FormatUtc),
+                ["espAdvisoryFailureResolvedUtc"]  = SerializeFact(state.EspAdvisoryFailureResolvedUtc, FormatUtc),
+                ["espAdvisoryFailureCategory"]     = SerializeFact(state.EspAdvisoryFailureCategory, v => v),
                 ["imeUserSessionCompletedUtc"]     = SerializeFact(state.ImeUserSessionCompletedUtc, FormatUtc),
                 ["completionWaitingFingerprint"]   = SerializeFact(state.CompletionWaitingFingerprint, v => v),
                 ["helloWizardStartedUtc"]          = SerializeFact(state.HelloWizardStartedUtc, FormatUtc),

@@ -539,6 +539,17 @@ namespace AutopilotMonitor.Shared
             public const string EspFailureSettleRecovered = "esp_failure_settle_recovered"; // The failed subcategory left the "failed" state during the settle window (e.g. ESP "Try again" retry, session c071e92b) — the terminal EspFailureDetected fire is suppressed and monitoring continues; a subsequent failure re-arms a fresh settle window.
             public const string EspAppxFailureAnalysis    = "esp_appx_failure_analysis"; // One-shot AppXDeploymentServer/Operational scan during the ESP failure settle window: candidate MSIX/Store packages behind an "Apps (0x…)" subcategory failure invisible to ImeLogTracker (session 2bc884b6). Assessment, not a confirmed root cause.
             public const string EspProvisioningRaw        = "esp_provisioning_raw";
+            // Recovery story AFTER a terminally fired ESP failure (session 4910a5a5, 2026-07-23 —
+            // DeviceSetup/Apps failed, user pressed "Try again" ~23 min later, apps re-ran to
+            // 10/10). Distinct from EspFailureSettleRecovered, which covers recovery INSIDE the
+            // 30s settle window (terminal fire suppressed); these fire when the failure already
+            // went terminal (advisory/enrollment_failed) and the registry later disproves it.
+            public const string EspFailureRetryDetected   = "esp_failure_retry_detected";   // failed subcategory left "failed" post-terminal — consistent with the user pressing "Try again"
+            public const string EspFailureRecovered       = "esp_failure_recovered";        // previously failed category reached all-subcategories-succeeded post-terminal
+            // DecisionEngine counterpart (survives reboots via snapshot, unlike the in-run tracker
+            // pair above): the category behind a defanged esp_failure_advisory later resolved to
+            // success — the advisory no longer blocks; re-arm/rebase guards apply again.
+            public const string EspFailureAdvisoryResolved = "esp_failure_advisory_resolved";
             public const string EspFailure                = "esp_failure";
             public const string EspExiting                = "esp_exiting";
 

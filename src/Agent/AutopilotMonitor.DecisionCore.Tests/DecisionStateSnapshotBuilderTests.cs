@@ -114,7 +114,10 @@ namespace AutopilotMonitor.DecisionCore.Tests
             // state-change-only dedupe anchor for the completion_waiting event → 17.
             // Session 772fe502 (2026-07-13) added `helloWizardStartedUtc` — genuine
             // Shell-Core 62404 wizard launch; vetoes the policy-disabled Hello skip → 18.
-            Assert.Equal(18, facts.Count);
+            // Session 4910a5a5 (2026-07-23) added `espAdvisoryFailureResolvedUtc` (the failed
+            // category recovered — lifts the advisory's re-arm/rebase guard exemption) and
+            // `espAdvisoryFailureCategory` (which category the advisory was for) → 20.
+            Assert.Equal(20, facts.Count);
             Assert.All(facts.Values, v => Assert.Null(v));
         }
 
@@ -236,10 +239,12 @@ namespace AutopilotMonitor.DecisionCore.Tests
             // `completionWaitingFingerprint` as the state-change-only dedupe anchor for
             // the completion_waiting event → 17. Session 772fe502 (2026-07-13) added
             // `helloWizardStartedUtc` — the genuine Shell-Core 62404 wizard-launch fact
-            // that vetoes/retracts the policy-disabled Hello skip → 18. If this number
-            // ever changes, both the count expectation AND the actual snapshot output
-            // need to evolve in lockstep.
-            Assert.Equal(18, expectedFactKeys.Count);
+            // that vetoes/retracts the policy-disabled Hello skip → 18. Session 4910a5a5
+            // (2026-07-23) added `espAdvisoryFailureResolvedUtc` + `espAdvisoryFailureCategory`
+            // — advisory-recovery facts that lift the AdvisoryCompletion guard exemption → 20.
+            // If this number ever changes, both the count expectation AND the actual snapshot
+            // output need to evolve in lockstep.
+            Assert.Equal(20, expectedFactKeys.Count);
 
             var snapshot = DecisionStateSnapshotBuilder.Build(DecisionState.CreateInitial("s", "t"));
             var facts = (Dictionary<string, object?>)snapshot["facts"]!;

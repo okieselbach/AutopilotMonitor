@@ -110,6 +110,17 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 timestamps["imeUserSessionCompleted"] = FormatUtc(state.ImeUserSessionCompletedUtc.Value);
                 evidence["imeUserSessionCompleted"] = TimestampedEvidence(state.ImeUserSessionCompletedUtc);
             }
+            // Session 4910a5a5 — the ESP category behind a defanged advisory failure later
+            // resolved to success (user "Try again" recovery). Surfaced so terminal audit
+            // trails show that the original failure demonstrably un-happened — the
+            // discriminant between "failed and stayed failed" and "failed, recovered, but
+            // produced no completion evidence".
+            if (state.EspAdvisoryFailureResolvedUtc != null)
+            {
+                seen.Add("esp_advisory_failure_resolved");
+                timestamps["espAdvisoryFailureResolved"] = FormatUtc(state.EspAdvisoryFailureResolvedUtc.Value);
+                evidence["espAdvisoryFailureResolved"] = TimestampedEvidence(state.EspAdvisoryFailureResolvedUtc);
+            }
             // Session 772fe502 — genuine Hello-wizard launch (Shell-Core 62404, CXID AADHello/
             // NGC). Surfaced in the census so terminal audit trails show whether a wizard was
             // observed — the discriminant between "Hello skipped by policy" and "Hello skipped

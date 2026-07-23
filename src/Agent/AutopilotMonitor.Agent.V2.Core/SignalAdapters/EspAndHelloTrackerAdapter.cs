@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.DecisionCore.Engine;
@@ -267,6 +268,14 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 payload["failedSubcategory"] = failedSubcategory!;
             if (!string.IsNullOrEmpty(category))
                 payload["category"] = category!;
+            // Session 4910a5a5: culprit-app names ride the signal so the DecisionEngine's
+            // esp_failure_advisory / enrollment_failed events can name them directly.
+            var culprits = args?.LikelyCulpritApps;
+            if (culprits != null && culprits.Count > 0)
+            {
+                payload["likelyCulpritApps"] = string.Join(", ", culprits);
+                payload["likelyCulpritAppCount"] = culprits.Count.ToString(CultureInfo.InvariantCulture);
+            }
 
             _ingress.Post(
                 kind: DecisionSignalKind.EspTerminalFailure,

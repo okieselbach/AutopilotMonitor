@@ -1885,6 +1885,110 @@
       ]
     },
     {
+      "ruleId": "ANALYZE-ESP-006",
+      "title": "ESP Failure Recovered After User Retry",
+      "description": "Detects the recovery story: the ESP reported a terminal failure (typically DeviceSetup/Apps), the user most likely pressed 'Try again' on the failure page, the failed step re-ran and completed successfully. The earlier failure did not stick — the enrollment continued past it.",
+      "severity": "info",
+      "category": "esp",
+      "version": "1.0.0",
+      "enabled": true,
+      "baseConfidence": 85,
+      "conditions": [
+        {
+          "signal": "advisory",
+          "source": "event_type",
+          "eventType": "esp_failure_advisory",
+          "operator": "exists",
+          "value": "",
+          "required": true
+        },
+        {
+          "signal": "recovered",
+          "source": "event_type",
+          "eventType": "esp_failure_recovered",
+          "operator": "exists",
+          "value": "",
+          "required": true
+        },
+        {
+          "signal": "retry",
+          "source": "event_type",
+          "eventType": "esp_failure_retry_detected",
+          "operator": "exists",
+          "value": "",
+          "required": false
+        },
+        {
+          "signal": "category",
+          "source": "event_type",
+          "eventType": "esp_failure_recovered",
+          "dataField": "category",
+          "operator": "exists",
+          "value": "",
+          "required": false
+        },
+        {
+          "signal": "failedSubcategory",
+          "source": "event_type",
+          "eventType": "esp_failure_recovered",
+          "dataField": "failedSubcategory",
+          "operator": "exists",
+          "value": "",
+          "required": false
+        },
+        {
+          "signal": "likelyCulpritApps",
+          "source": "event_type",
+          "eventType": "esp_failure_advisory",
+          "dataField": "likelyCulpritApps",
+          "operator": "exists",
+          "value": "",
+          "required": false
+        },
+        {
+          "signal": "minutesSinceFailure",
+          "source": "event_type",
+          "eventType": "esp_failure_recovered",
+          "dataField": "minutesSinceFailure",
+          "operator": "exists",
+          "value": "",
+          "required": false
+        }
+      ],
+      "confidenceFactors": [
+        {
+          "signal": "retry",
+          "condition": "exists",
+          "weight": 10
+        },
+        {
+          "signal": "likelyCulpritApps",
+          "condition": "exists",
+          "weight": 5
+        }
+      ],
+      "explanation": "The Enrollment Status Page reported a **failure** in the `{{category}}` phase (`{{failedSubcategory}}` subcategory, most likely app(s): `{{likelyCulpritApps}}`) — and then **recovered**: the failed step left its failed state and completed successfully about `{{minutesSinceFailure}}` min later.\n\nThat pattern is consistent with the user pressing **'Try again'** on the ESP failure page (the profile allows failure-page actions; the agent cannot observe the click itself). The failure the user saw was real, but it did not stick — the ESP re-ran the step, it succeeded, and the enrollment continued.\n\nRead the session timeline as one arc: `esp_failure_advisory` (the failure, with the likely culprit app) → `esp_failure_retry_detected` (the retry) → `esp_failure_recovered` (the recovery). If this pattern repeats across devices for the same app, that app's install is flaky on first attempt — fix the app rather than the devices. Any literal `{{…}}` placeholder means that detail was not recorded for this session.",
+      "remediation": [
+        {
+          "title": "Make the first install attempt stick",
+          "steps": [
+            "Check the likely culprit app(s) (`{{likelyCulpritApps}}`) in Intune: an app that fails on the first ESP pass but succeeds on retry usually has a dependency/ordering or detection-timing problem.",
+            "If the app shows 'never started installing' in esp_failure_settle_started, verify its assignment and applicability rules — ESP counted it as required, but IME never processed it.",
+            "If the pattern repeats across the tenant, consider removing the app from the ESP blocking list until the first-attempt install is reliable — users are seeing an avoidable failure screen.",
+            "No device-side action is needed for this session: the failure recovered and the enrollment continued."
+          ]
+        }
+      ],
+      "tags": [
+        "esp",
+        "recovery",
+        "try-again",
+        "retry",
+        "continue-anyway",
+        "enrollment"
+      ]
+    },
+    {
       "ruleId": "ANALYZE-ID-001",
       "title": "Expected Machine Certificate Not Found",
       "description": "Detects when a certificate with the configured subject is missing from the local machine personal store (LocalMachine\\My). Requires the gather rule GATHER-ID-002 (machine cert store inventory) to be enabled — the check runs against its gather_machine_cert_store output. A missing certificate may indicate that MDM enrollment certificate provisioning or SCEP certificate deployment failed.",

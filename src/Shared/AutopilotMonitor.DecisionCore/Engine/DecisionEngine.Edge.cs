@@ -73,6 +73,11 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// The advisory variant (<see cref="DecisionState.EspAdvisoryFailureRecordedUtc"/>
         /// set) is deliberately NOT touched: its anchor is a real ESP terminal failure and
         /// a reboot does not un-happen that failure — the window must still un-defang it.
+        /// EXCEPTION (session 4910a5a5, 2026-07-23): when
+        /// <see cref="DecisionState.EspAdvisoryFailureResolvedUtc"/> is set the failed
+        /// category demonstrably recovered to success — the failure DID un-happen, and a
+        /// reboot mid-recovery (ESP continuing into AccountSetup) must re-base the window
+        /// exactly like the esp-exit variant instead of letting it fail a live enrollment.
         /// </para>
         /// Returns the effects (cancel + schedule + a fingerprint-bypassing
         /// <c>completion_waiting</c> carrying the re-based due-time, mirroring the
@@ -84,7 +89,9 @@ namespace AutopilotMonitor.DecisionCore.Engine
             DecisionStateBuilder builder,
             DecisionSignal signal)
         {
-            if (state.EspAdvisoryFailureRecordedUtc != null || !HasAdvisoryCompletionDeadline(state))
+            var unresolvedAdvisoryAnchored = state.EspAdvisoryFailureRecordedUtc != null
+                && state.EspAdvisoryFailureResolvedUtc == null;
+            if (unresolvedAdvisoryAnchored || !HasAdvisoryCompletionDeadline(state))
             {
                 return Array.Empty<DecisionEffect>();
             }
@@ -139,6 +146,10 @@ namespace AutopilotMonitor.DecisionCore.Engine
             "mayHaveContinuedAnyway",
             "continueAnywayHint",
             "advisoryReason",
+            // Session 4910a5a5 — recovery story context.
+            "failureRecovered",
+            "likelyCulpritApps",
+            "likelyCulpritAppCount",
         };
 
         /// <summary>
@@ -408,10 +419,17 @@ namespace AutopilotMonitor.DecisionCore.Engine
             string reason,
             Dictionary<string, string> parameters)
         {
+            // Session 4910a5a5: remember WHICH category failed so the recovery hook
+            // (TryResolveAdvisoryOnCategoryRecovery) can later match a ProvisioningComplete
+            // signal of the same category against this advisory. Absent on event-log-derived
+            // failures — the hook then never matches.
+            string? failedCategory = null;
+            signal.Payload?.TryGetValue("category", out failedCategory);
+
             var builder = state.ToBuilder()
                 .WithStepIndex(nextStep)
                 .WithLastAppliedSignalOrdinal(signal.SessionSignalOrdinal)
-                .WithEspAdvisoryFailureRecorded(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
+                .WithEspAdvisoryFailureRecorded(signal.OccurredAtUtc, signal.SessionSignalOrdinal, failedCategory);
 
             // Stage / Outcome deliberately untouched — monitoring continues. The session's
             // normal completion paths (Hello/Desktop, IME pattern, AccountSetup provisioning
@@ -452,6 +470,63 @@ namespace AutopilotMonitor.DecisionCore.Engine
             };
 
             return new DecisionStep(newState, transition, effects);
+        }
+
+        /// <summary>
+        /// Session 4910a5a5 (2026-07-23) — recovery hook for a defanged ESP failure. When a
+        /// <c>DeviceSetupProvisioningComplete</c> / <c>AccountSetupProvisioningComplete</c>
+        /// signal reports the SAME category the advisory failure was recorded for, the failure
+        /// demonstrably un-happened (DeviceSetup/Apps failed → user pressed "Try again" ~23 min
+        /// later → apps re-ran to 10/10 → category resolved). Sets the set-once
+        /// <see cref="DecisionState.EspAdvisoryFailureResolvedUtc"/> fact on
+        /// <paramref name="builder"/> and returns an <c>esp_failure_advisory_resolved</c>
+        /// timeline effect telling the recovery story; returns null (builder untouched) when
+        /// there is no advisory, it is already resolved, or the category does not match.
+        /// <para>
+        /// The fact lifts the advisory variant's exemption from the AdvisoryCompletion
+        /// re-arm/rebase guards (see <see cref="HandleAdvisoryCompletionDeadlineFired"/> and
+        /// <see cref="RebaseEspExitVariantAdvisoryWindowOnReboot"/>) — without it the window
+        /// un-defangs the stale failure and fails a live enrollment mid-AccountSetup.
+        /// </para>
+        /// </summary>
+        private static DecisionEffect? TryResolveAdvisoryOnCategoryRecovery(
+            DecisionState state,
+            DecisionStateBuilder builder,
+            DecisionSignal signal,
+            string resolvedCategory)
+        {
+            if (state.EspAdvisoryFailureRecordedUtc == null) return null;
+            if (state.EspAdvisoryFailureResolvedUtc != null) return null;
+
+            var advisoryCategory = state.EspAdvisoryFailureCategory?.Value;
+            if (!string.Equals(advisoryCategory, resolvedCategory, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            builder.WithEspAdvisoryFailureResolved(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
+
+            var minutesSinceAdvisory = Math.Max(0,
+                (int)Math.Round((signal.OccurredAtUtc - state.EspAdvisoryFailureRecordedUtc.Value).TotalMinutes));
+            var continueAnywayAllowed = state.ScenarioObservations?.EspAllowContinueAnyway?.Value == true;
+
+            var parameters = new Dictionary<string, string>
+            {
+                ["eventType"] = SharedConstants.EventTypes.EspFailureAdvisoryResolved,
+                ["source"] = "DecisionEngine",
+                ["severity"] = "Info",
+                ["immediateUpload"] = "false",
+                ["message"] = $"ESP failure advisory resolved: {resolvedCategory} completed successfully "
+                    + $"{minutesSinceAdvisory} min after the advisory — the ESP re-ran the failed step "
+                    + "(consistent with a user-initiated retry on the ESP failure page"
+                    + (continueAnywayAllowed ? "; the profile allows Try again / Continue anyway" : "")
+                    + "). The earlier failure no longer blocks completion.",
+                ["category"] = resolvedCategory,
+                ["minutesSinceAdvisory"] = minutesSinceAdvisory.ToString(CultureInfo.InvariantCulture),
+                ["espAllowContinueAnyway"] = continueAnywayAllowed ? "true" : "false",
+            };
+
+            return new DecisionEffect(DecisionEffectKind.EmitEventTimelineEntry, parameters: parameters);
         }
 
         /// <summary>
@@ -511,6 +586,12 @@ namespace AutopilotMonitor.DecisionCore.Engine
             var deadlineStillArmed = armedDeadline != null;
 
             var hasAdvisoryAnchor = state.EspAdvisoryFailureRecordedUtc != null;
+            // Session 4910a5a5: once the failed category demonstrably recovered
+            // (TryResolveAdvisoryOnCategoryRecovery set the fact), the advisory variant's
+            // "a real ESP terminal failure does not un-happen" premise is disproven — the
+            // guards below that protect live enrollments (enforcement-progress re-arm,
+            // hello-never-observed promote) apply to it again.
+            var advisoryResolved = state.EspAdvisoryFailureResolvedUtc != null;
             // Presence-only anchor (L5, delta review 2026-07-02). The esp-exit arming site only
             // runs when AccountSetupEnteredUtc is already set, so both facts being present is
             // the anchor; `deadlineStillArmed` below is what rejects stray timer fires. The old
@@ -635,8 +716,13 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // When user-phase enforcement demonstrably progressed since arming, the dead-end
             // shape is disproven: re-arm a fresh window with updated baselines instead of
             // failing a live enrollment mid-install. The advisory variant is exempt — its
-            // anchor is a real ESP terminal failure that a busy IME does not un-happen.
-            if (!hasAdvisoryAnchor && HasEnforcementProgressSinceArming(state, armedDeadline!))
+            // anchor is a real ESP terminal failure that a busy IME does not un-happen —
+            // UNLESS the failed category later resolved to success (session 4910a5a5:
+            // DeviceSetup/Apps failed, user retried, apps reached 10/10, DeviceSetup resolved
+            // — the failure DID un-happen, so a live AccountSetup must not be failed on the
+            // stale advisory). Convergent either way: each re-arm renews the baselines, so a
+            // session that stalls after the recovery still fails one window later.
+            if ((!hasAdvisoryAnchor || advisoryResolved) && HasEnforcementProgressSinceArming(state, armedDeadline!))
             {
                 var rearmedDeadline = BuildAdvisoryCompletionDeadline(state, signal);
                 builder.AddDeadline(rearmedDeadline);
@@ -692,7 +778,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // through Finalizing. Deliberately does NOT require the IME user-session gate —
             // the FP sessions never saw an IME user-session completion (that gate guards
             // completion evidence, not user presence; presence is the DAD-validated desktop).
-            if (!hasAdvisoryAnchor
+            if ((!hasAdvisoryAnchor || advisoryResolved)
                 && desktopArrived
                 && state.HelloResolvedUtc == null
                 && state.HelloPolicyEnabled == null
@@ -741,7 +827,30 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // stays the deadline, not EspTerminalFailure).
             string reason;
             Dictionary<string, string> parameters;
-            if (hasAdvisoryAnchor)
+            if (hasAdvisoryAnchor && advisoryResolved)
+            {
+                // Session 4910a5a5: the original ESP failure demonstrably recovered (failed
+                // category resolved to success after the advisory), so claiming
+                // `esp_terminal_failure` would blame a failure that un-happened. The device
+                // recovered its device phase but then produced no completion evidence for a
+                // whole (re-armed, progress-gated) window. LastFailureTrigger stays the
+                // deadline so the EnrollmentTerminationHandler's likely-stuck app promotion
+                // stays OFF — the apps are not stuck, they succeeded.
+                reason = "esp_recovered_without_completion_evidence";
+                parameters = BuildEspFailureParameters(
+                    signal: signal,
+                    reason: reason,
+                    advisoryPath: false,
+                    observations: state.ScenarioObservations);
+                parameters["advisoryReason"] = "advisory_recovered_window_expired_without_completion_evidence";
+                parameters["failureRecovered"] = "true";
+                if (state.EspAdvisoryFailureCategory != null)
+                {
+                    parameters["category"] = state.EspAdvisoryFailureCategory.Value;
+                }
+                builder.WithLastFailureTrigger(nameof(DecisionSignalKind.DeadlineFired), signal.SessionSignalOrdinal);
+            }
+            else if (hasAdvisoryAnchor)
             {
                 // Registry-derived failure context (failureType/errorCode/...) lived on the
                 // original signal and is already on the wire via the esp_failure_advisory
@@ -885,6 +994,12 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     parameters["failedSubcategory"] = failedSubcategory;
                 if (signal.Payload.TryGetValue("category", out var category) && !string.IsNullOrEmpty(category))
                     parameters["category"] = category;
+                // Session 4910a5a5 — tracker-snapshotted culprit-app names for Apps failures,
+                // so the advisory/terminal event tells WHICH app ESP most likely failed on.
+                if (signal.Payload.TryGetValue("likelyCulpritApps", out var culpritApps) && !string.IsNullOrEmpty(culpritApps))
+                    parameters["likelyCulpritApps"] = culpritApps;
+                if (signal.Payload.TryGetValue("likelyCulpritAppCount", out var culpritCount) && !string.IsNullOrEmpty(culpritCount))
+                    parameters["likelyCulpritAppCount"] = culpritCount;
             }
 
             // FirstSync-derived ESP failure-handling settings — observable hint that

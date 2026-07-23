@@ -836,6 +836,13 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 .WithStepIndex(nextStep)
                 .WithLastAppliedSignalOrdinal(signal.SessionSignalOrdinal);
 
+            // Session 4910a5a5 recovery hook (AccountSetup counterpart): the user-phase
+            // category resolving to success while an AccountSetup advisory failure is on
+            // record means that failure un-happened. Sets the set-once resolved fact + emits
+            // the esp_failure_advisory_resolved story event; no-op otherwise.
+            var advisoryResolveEffect = TryResolveAdvisoryOnCategoryRecovery(
+                state, builder, signal, resolvedCategory: "AccountSetup");
+
             var alreadyRecorded = state.AccountSetupProvisioningSucceededUtc != null;
             if (!alreadyRecorded)
             {
@@ -876,10 +883,10 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     toStage: state.Stage,
                     nextStepIndex: nextStep,
                     trigger: nameof(DecisionSignalKind.AccountSetupProvisioningComplete));
-                return new DecisionStep(
-                    newState,
-                    transition,
-                    waitingEffect != null ? new[] { waitingEffect } : Array.Empty<DecisionEffect>());
+                var noPromoteEffects = new List<DecisionEffect>(2);
+                if (advisoryResolveEffect != null) noPromoteEffects.Add(advisoryResolveEffect);
+                if (waitingEffect != null) noPromoteEffects.Add(waitingEffect);
+                return new DecisionStep(newState, transition, noPromoteEffects.ToArray());
             }
 
             // Deferred-completion parity (session caa6cf50 fix, 2026-06-11): when the strong gate
@@ -910,14 +917,18 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     builder.CancelDeadline(DeadlineNames.HelloSafety);
                 }
 
+                var deferredLeadingEffects = new List<DecisionEffect>(2);
+                if (advisoryResolveEffect != null) deferredLeadingEffects.Add(advisoryResolveEffect);
+                if (helloSafetyCancelEffect != null) deferredLeadingEffects.Add(helloSafetyCancelEffect);
+
                 return CompleteThroughFinalizingOrDefer(
                     state: state,
                     signal: signal,
                     preparedBuilder: builder,
                     nextStepIndex: nextStep,
                     trigger: nameof(DecisionSignalKind.AccountSetupProvisioningComplete) + ":DeferredCompletion",
-                    leadingEffects: helloSafetyCancelEffect != null
-                        ? new[] { helloSafetyCancelEffect }
+                    leadingEffects: deferredLeadingEffects.Count > 0
+                        ? deferredLeadingEffects.ToArray()
                         : null);
             }
 
@@ -946,12 +957,13 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 nextStepIndex: nextStep,
                 trigger: nameof(DecisionSignalKind.AccountSetupProvisioningComplete) + ":DeferredPromote");
 
-            var promotedEffects = new[]
+            var promotedEffects = new List<DecisionEffect>(2)
             {
                 new DecisionEffect(DecisionEffectKind.ScheduleDeadline, deadline: helloSafety),
             };
+            if (advisoryResolveEffect != null) promotedEffects.Add(advisoryResolveEffect);
 
-            return new DecisionStep(promotedState, promotedTransition, promotedEffects);
+            return new DecisionStep(promotedState, promotedTransition, promotedEffects.ToArray());
         }
 
         /// <summary>

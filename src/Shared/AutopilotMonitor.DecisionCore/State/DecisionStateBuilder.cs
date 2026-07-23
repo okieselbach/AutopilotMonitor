@@ -51,6 +51,8 @@ namespace AutopilotMonitor.DecisionCore.State
             ImeUserSessionCompletedUtc = source.ImeUserSessionCompletedUtc;
             CompletionWaitingFingerprint = source.CompletionWaitingFingerprint;
             HelloWizardStartedUtc = source.HelloWizardStartedUtc;
+            EspAdvisoryFailureResolvedUtc = source.EspAdvisoryFailureResolvedUtc;
+            EspAdvisoryFailureCategory = source.EspAdvisoryFailureCategory;
         }
 
         public string SessionId { get; set; }
@@ -84,6 +86,8 @@ namespace AutopilotMonitor.DecisionCore.State
         public SignalFact<DateTime>? ImeUserSessionCompletedUtc { get; set; }
         public SignalFact<string>? CompletionWaitingFingerprint { get; set; }
         public SignalFact<DateTime>? HelloWizardStartedUtc { get; set; }
+        public SignalFact<DateTime>? EspAdvisoryFailureResolvedUtc { get; set; }
+        public SignalFact<string>? EspAdvisoryFailureCategory { get; set; }
         public string SchemaVersion { get; set; }
 
         // ---------- fluent helpers for the most common reducer operations ----------
@@ -197,9 +201,25 @@ namespace AutopilotMonitor.DecisionCore.State
         /// Fire-once gate: subsequent <c>EspTerminalFailure</c> signals see this fact set and
         /// dead-end without further effect.
         /// </summary>
-        public DecisionStateBuilder WithEspAdvisoryFailureRecorded(DateTime utc, long sourceSignalOrdinal)
+        public DecisionStateBuilder WithEspAdvisoryFailureRecorded(
+            DateTime utc, long sourceSignalOrdinal, string? failedCategory = null)
         {
             EspAdvisoryFailureRecordedUtc = new SignalFact<DateTime>(utc, sourceSignalOrdinal);
+            if (!string.IsNullOrEmpty(failedCategory))
+            {
+                EspAdvisoryFailureCategory = new SignalFact<string>(failedCategory!, sourceSignalOrdinal);
+            }
+            return this;
+        }
+
+        /// <summary>
+        /// Record that the ESP category behind the recorded advisory failure later resolved to
+        /// success (session 4910a5a5 — "Try again" recovery). Set-once; lifts the advisory
+        /// variant's exemption from the AdvisoryCompletion re-arm/rebase guards.
+        /// </summary>
+        public DecisionStateBuilder WithEspAdvisoryFailureResolved(DateTime utc, long sourceSignalOrdinal)
+        {
+            EspAdvisoryFailureResolvedUtc = new SignalFact<DateTime>(utc, sourceSignalOrdinal);
             return this;
         }
 
@@ -236,6 +256,8 @@ namespace AutopilotMonitor.DecisionCore.State
                 espAdvisoryFailureRecordedUtc: EspAdvisoryFailureRecordedUtc,
                 imeUserSessionCompletedUtc: ImeUserSessionCompletedUtc,
                 completionWaitingFingerprint: CompletionWaitingFingerprint,
-                helloWizardStartedUtc: HelloWizardStartedUtc);
+                helloWizardStartedUtc: HelloWizardStartedUtc,
+                espAdvisoryFailureResolvedUtc: EspAdvisoryFailureResolvedUtc,
+                espAdvisoryFailureCategory: EspAdvisoryFailureCategory);
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 {
@@ -38,16 +39,30 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// </summary>
         public string Category { get; }
 
+        /// <summary>
+        /// Session 4910a5a5: names of the tracked apps most likely behind an Apps-subcategory
+        /// failure (capped, never-started apps ranked first — those starve ESP's app gate
+        /// without ever producing an IME install event). Snapshot from
+        /// <c>ProvisioningStatusTracker.SnapshotTrackedAppsNotCompleted</c> at failure-arming
+        /// time; empty for non-Apps failures and event-log-derived failures. Propagated onto
+        /// the EspTerminalFailure signal payload so the DecisionEngine's
+        /// <c>esp_failure_advisory</c> / <c>enrollment_failed</c> events can name the culprit
+        /// directly.
+        /// </summary>
+        public IReadOnlyList<string> LikelyCulpritApps { get; }
+
         public EspFailureDetectedEventArgs(
             string failureType,
             string errorCode = null,
             string failedSubcategory = null,
-            string category = null)
+            string category = null,
+            IReadOnlyList<string> likelyCulpritApps = null)
         {
             FailureType = string.IsNullOrEmpty(failureType) ? "unknown" : failureType;
             ErrorCode = string.IsNullOrEmpty(errorCode) ? null : errorCode;
             FailedSubcategory = string.IsNullOrEmpty(failedSubcategory) ? null : failedSubcategory;
             Category = string.IsNullOrEmpty(category) ? null : category;
+            LikelyCulpritApps = likelyCulpritApps ?? Array.Empty<string>();
         }
     }
 }

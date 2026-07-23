@@ -116,6 +116,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         // failure details that fire after the settle window expires.
         private Dictionary<string, Timer> _provisioningFailureSettleTimers;
         private Dictionary<string, EspFailureDetectedEventArgs> _provisioningFailureSettleArgs;
+        // Session 4910a5a5 — post-terminal recovery story. Populated when the settle window
+        // expires and EspFailureDetected actually fires (terminal path); consumed by the
+        // esp_failure_retry_detected / esp_failure_recovered emitters so a late "Try again"
+        // recovery (23 min after the failure in the field session) is visible on the timeline
+        // instead of hiding inside a generic subcategory_state_change. Keyed by category-name.
+        private Dictionary<string, EspFailureDetectedEventArgs> _provisioningFailureTerminalArgs;
+        private Dictionary<string, DateTime> _provisioningFailureTerminalUtc;
+        private HashSet<string> _postFailureRetryEmitted;
+        private HashSet<string> _postFailureRecoveredEmitted;
         // Session 2bc884b6: AppX enrichment scan seams + fire-once guard. The scanner and the
         // dispatcher are injectable so tests never touch the real event log or the threadpool.
         private readonly IAppxDeploymentFailureScanner _appxScanner;
@@ -285,6 +294,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             _lastSubcategoryStates = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
             _provisioningFailureSettleTimers = new Dictionary<string, Timer>(StringComparer.OrdinalIgnoreCase);
             _provisioningFailureSettleArgs = new Dictionary<string, EspFailureDetectedEventArgs>(StringComparer.OrdinalIgnoreCase);
+            _provisioningFailureTerminalArgs = new Dictionary<string, EspFailureDetectedEventArgs>(StringComparer.OrdinalIgnoreCase);
+            _provisioningFailureTerminalUtc = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+            _postFailureRetryEmitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            _postFailureRecoveredEmitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             _deviceSetupProvisioningCompleteFired = false;
             _deviceSetupFallbackTimer = null;
             _accountSetupProvisioningCompleteFired = false;
@@ -665,6 +678,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     // null-ing here is correctness-neutral on the start-condition side.
                     ResetAccountSetupFallbackTimer();
                     _accountSetupProvisioningCompleteFired = true;
+                    MaybeEmitPostFailureRecovered("AccountSetupCategory.Status", "AccountSetup");
                     try { AccountSetupProvisioningComplete?.Invoke(this, EventArgs.Empty); }
                     catch (Exception ex) { _logger.Error("AccountSetupProvisioningComplete handler failed (fallback path)", ex); }
                 }
@@ -833,6 +847,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     // null-ing here is correctness-neutral on the start-condition side.
                     ResetDeviceSetupFallbackTimer();
                     _deviceSetupProvisioningCompleteFired = true;
+                    MaybeEmitPostFailureRecovered("DeviceSetupCategory.Status", "DeviceSetup");
                     try { DeviceSetupProvisioningComplete?.Invoke(this, EventArgs.Empty); }
                     catch (Exception ex) { _logger.Error("DeviceSetupProvisioningComplete handler failed (fallback path)", ex); }
                 }
@@ -946,11 +961,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         var severity = categorySucceeded == false ? EventSeverity.Warning : EventSeverity.Info;
                         EmitProvisioningEvent(categoryLabel, categorySucceeded, statusText, subcategories, severity);
                         EmitRawRegistryDump(categoryLabel, jsonValue, $"category_resolved_{(categorySucceeded == true ? "success" : "failed")}");
+
+                        // Session 4910a5a5: category resolving to success after a terminally
+                        // fired failure = the failure recovered (fallback-path successes call
+                        // this from their own timer handlers).
+                        if (categorySucceeded == true)
+                        {
+                            MaybeEmitPostFailureRecovered(categoryName, categoryLabel);
+                        }
                     }
                     else
                     {
                         var transitions = DetectSubcategoryTransitions(categoryName, subcategories);
                         StoreSubcategoryStates(categoryName, subcategories);
+
+                        // Session 4910a5a5: after a terminally fired failure, the failed
+                        // subcategory leaving "failed" is the ESP re-running the step —
+                        // consistent with the user pressing "Try again" on the failure page.
+                        MaybeEmitPostFailureRetry(categoryName, categoryLabel, transitions);
 
                         var failureTransitions = transitions.Where(t => t.IsFailure).ToList();
                         if (transitions.Count > 0)
@@ -1025,6 +1053,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 $"escalating as {failureTypeName} (errorCode={errorCode ?? "n/a"})");
             _logger.Warning($"Provisioning failure detected: {failureTypeName}");
 
+            // Session 4910a5a5: name the likely culprit app(s) directly on the failure args so
+            // the DecisionEngine's advisory/terminal events carry them — never-started apps
+            // first (they starve ESP's app gate without ever producing an IME install event),
+            // capped at 3 names.
+            IReadOnlyList<string> likelyCulpritApps = null;
+            if (string.Equals(failedSubcategoryName, "Apps", StringComparison.OrdinalIgnoreCase))
+            {
+                likelyCulpritApps = SnapshotTrackedAppsNotCompleted()
+                    .OrderBy(a => a["everStartedInstalling"] is bool started && started ? 1 : 0)
+                    .Select(a => a["appName"]?.ToString())
+                    .Where(n => !string.IsNullOrEmpty(n))
+                    .Take(3)
+                    .ToList();
+            }
+
             // Caller already holds _stateLock.
             ArmFailureSettleTimer(
                 categoryName: categoryName,
@@ -1032,7 +1075,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     failureType: failureTypeName,
                     errorCode: errorCode,
                     failedSubcategory: failedSubcategoryName,
-                    category: categoryLabel));
+                    category: categoryLabel,
+                    likelyCulpritApps: likelyCulpritApps));
 
             // Settle-window owns the actual EspFailureDetected fire. The legacy "fire-after-emit"
             // path in CheckProvisioningStatus is now a no-op for this code-path; it stays in place
@@ -1292,6 +1336,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                             _provisioningCategoriesResolved.Remove(categoryName);
                         }
                     }
+                    else
+                    {
+                        // Session 4910a5a5: remember the terminally fired failure so a LATE
+                        // recovery (outside the settle window — e.g. user pressing "Try again"
+                        // minutes later) can be told as esp_failure_retry_detected /
+                        // esp_failure_recovered instead of hiding in a generic state-change.
+                        _provisioningFailureTerminalArgs[categoryName] = args;
+                        _provisioningFailureTerminalUtc[categoryName] = DateTime.UtcNow;
+                    }
                 }
 
                 if (recovered)
@@ -1380,6 +1433,133 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 Data = data,
                 ImmediateUpload = true
             });
+        }
+
+        /// <summary>
+        /// Session 4910a5a5: after a terminally fired failure (settle window expired,
+        /// EspFailureDetected raised), the failed subcategory leaving the <c>failed</c> state
+        /// means the ESP re-ran the step — consistent with the user pressing "Try again" on
+        /// the ESP failure page (the agent cannot observe the click itself). Emits
+        /// <c>esp_failure_retry_detected</c> once per terminally fired category. Caller holds
+        /// <see cref="_stateLock"/>.
+        /// </summary>
+        private void MaybeEmitPostFailureRetry(string categoryName, string categoryLabel, List<SubcategoryTransition> transitions)
+        {
+            if (transitions == null || transitions.Count == 0) return;
+            if (_postFailureRetryEmitted.Contains(categoryName)) return;
+            if (_provisioningFailureTerminalArgs == null
+                || !_provisioningFailureTerminalArgs.TryGetValue(categoryName, out var terminalArgs))
+            {
+                return; // No terminal fire on record — in-window recovery is settle_recovered's job.
+            }
+
+            SubcategoryTransition? retryTransition = null;
+            foreach (var t in transitions)
+            {
+                if (string.Equals(t.OldState, "failed", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(t.NewState, "failed", StringComparison.OrdinalIgnoreCase))
+                {
+                    retryTransition = t;
+                    break;
+                }
+            }
+            if (retryTransition == null) return;
+            var retry = retryTransition.Value;
+
+            _postFailureRetryEmitted.Add(categoryName);
+
+            var minutesSinceFailure = MinutesSinceTerminalFailure(categoryName);
+            var data = new Dictionary<string, object>
+            {
+                { "category", categoryLabel },
+                { "subcategory", retry.SubcategoryName },
+                { "previousState", retry.OldState },
+                { "newState", retry.NewState },
+                { "failureType", terminalArgs.FailureType },
+                { "minutesSinceFailure", minutesSinceFailure },
+            };
+            if (!string.IsNullOrEmpty(terminalArgs.ErrorCode))
+                data["errorCode"] = terminalArgs.ErrorCode;
+
+            _post.Emit(new EnrollmentEvent
+            {
+                SessionId = _sessionId,
+                TenantId = _tenantId,
+                EventType = Constants.EventTypes.EspFailureRetryDetected,
+                Severity = EventSeverity.Info,
+                Source = "EspAndHelloTracker",
+                Phase = EnrollmentPhase.Unknown,
+                Message = $"ESP retry detected — {categoryLabel}/{retry.SubcategoryName} left the failed state " +
+                          $"({retry.OldState} → {retry.NewState}) {minutesSinceFailure} min after the failure — " +
+                          "consistent with the user pressing 'Try again' on the ESP failure page.",
+                Data = data,
+                ImmediateUpload = true
+            });
+        }
+
+        /// <summary>
+        /// Session 4910a5a5: the category behind a terminally fired failure reached success
+        /// (categorySucceeded=true or the all-subcategories-succeeded fallback) — the failure
+        /// demonstrably recovered. Emits <c>esp_failure_recovered</c> once per terminally
+        /// fired category so the timeline tells "failed → retried → recovered" instead of
+        /// leaving the stale failure as the last word. Caller holds <see cref="_stateLock"/>.
+        /// </summary>
+        private void MaybeEmitPostFailureRecovered(string categoryName, string categoryLabel)
+        {
+            if (_postFailureRecoveredEmitted == null || _postFailureRecoveredEmitted.Contains(categoryName)) return;
+            if (_provisioningFailureTerminalArgs == null
+                || !_provisioningFailureTerminalArgs.TryGetValue(categoryName, out var terminalArgs))
+            {
+                return;
+            }
+
+            _postFailureRecoveredEmitted.Add(categoryName);
+
+            var minutesSinceFailure = MinutesSinceTerminalFailure(categoryName);
+            string subcategoryStatus = null;
+            if (terminalArgs.FailedSubcategory != null
+                && _lastSubcategoryStates != null
+                && _lastSubcategoryStates.TryGetValue(categoryName, out var subs)
+                && subs.TryGetValue(terminalArgs.FailedSubcategory, out var currentState))
+            {
+                subcategoryStatus = currentState;
+            }
+
+            var data = new Dictionary<string, object>
+            {
+                { "category", categoryLabel },
+                { "failedSubcategory", terminalArgs.FailedSubcategory ?? "category-level" },
+                { "failureType", terminalArgs.FailureType },
+                { "minutesSinceFailure", minutesSinceFailure },
+            };
+            if (!string.IsNullOrEmpty(terminalArgs.ErrorCode))
+                data["errorCode"] = terminalArgs.ErrorCode;
+            if (subcategoryStatus != null)
+                data["subcategoryState"] = subcategoryStatus;
+
+            _post.Emit(new EnrollmentEvent
+            {
+                SessionId = _sessionId,
+                TenantId = _tenantId,
+                EventType = Constants.EventTypes.EspFailureRecovered,
+                Severity = EventSeverity.Info,
+                Source = "EspAndHelloTracker",
+                Phase = EnrollmentPhase.Unknown,
+                Message = $"ESP failure recovered — {categoryLabel}/{terminalArgs.FailedSubcategory ?? "category-level"} " +
+                          $"completed successfully {minutesSinceFailure} min after the failure; the earlier ESP failure no longer applies.",
+                Data = data,
+                ImmediateUpload = true
+            });
+        }
+
+        private int MinutesSinceTerminalFailure(string categoryName)
+        {
+            if (_provisioningFailureTerminalUtc != null
+                && _provisioningFailureTerminalUtc.TryGetValue(categoryName, out var firedAt))
+            {
+                return Math.Max(0, (int)Math.Round((DateTime.UtcNow - firedAt).TotalMinutes));
+            }
+            return 0;
         }
 
         private void EmitFailureSettleStarted(EspFailureDetectedEventArgs args)
@@ -1863,6 +2043,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 _provisioningFailureSettleTimers = new Dictionary<string, Timer>(StringComparer.OrdinalIgnoreCase);
             if (_provisioningFailureSettleArgs == null)
                 _provisioningFailureSettleArgs = new Dictionary<string, EspFailureDetectedEventArgs>(StringComparer.OrdinalIgnoreCase);
+            if (_provisioningFailureTerminalArgs == null)
+                _provisioningFailureTerminalArgs = new Dictionary<string, EspFailureDetectedEventArgs>(StringComparer.OrdinalIgnoreCase);
+            if (_provisioningFailureTerminalUtc == null)
+                _provisioningFailureTerminalUtc = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+            if (_postFailureRetryEmitted == null)
+                _postFailureRetryEmitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (_postFailureRecoveredEmitted == null)
+                _postFailureRecoveredEmitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         }
     }
 
