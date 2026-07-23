@@ -272,13 +272,16 @@ try {
                 $downloadAttempt++
                 try {
                     Write-Log "Download attempt ${downloadAttempt}/${maxDownloadAttempts}"
+                    $downloadStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
                     Invoke-WebRequest `
                         -Uri $AgentDownloadUrl `
                         -OutFile $zipPath `
                         -UseBasicParsing `
                         -TimeoutSec 30 `
                         -ErrorAction Stop
-                    Write-Log "Downloaded agent to $zipPath"
+                    $downloadStopwatch.Stop()
+                    $downloadSeconds = [math]::Round($downloadStopwatch.Elapsed.TotalSeconds, 1)
+                    Write-Log "Downloaded agent to $zipPath (took ${downloadSeconds}s)"
                     break
                 }
                 catch {
