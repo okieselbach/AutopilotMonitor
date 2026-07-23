@@ -104,12 +104,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         ///     permanently orphaned exe.</item>
         /// </list>
         /// </summary>
+        /// <remarks>
+        /// The timing parameters exist ONLY so integration tests can replay the incident
+        /// scenarios (locked tree, straggler process) in seconds instead of minutes —
+        /// production call sites always use the defaults.
+        /// </remarks>
         internal static string BuildCleanupScript(
             string agentProcessName,
             string agentBasePath,
             bool keepLogs,
             string scheduledTaskName,
-            bool rebootOnComplete)
+            bool rebootOnComplete,
+            int initialDelaySeconds = 2,
+            int processWaitSeconds = 60,
+            int renameRetries = 10,
+            int renameRetryDelaySeconds = 2)
         {
             return $@"
 $scriptPath = $MyInvocation.MyCommand.Path
@@ -132,8 +141,8 @@ try {{
 try {{
     # Wait for EVERY agent process to exit, by NAME (LIFE-F7 #2) — covers marker-retry
     # instances, self-update restarts and manual runs, and is immune to PID reuse.
-    Start-Sleep -Seconds 2
-    $deadline = (Get-Date).AddSeconds(60)
+    Start-Sleep -Seconds {initialDelaySeconds}
+    $deadline = (Get-Date).AddSeconds({processWaitSeconds})
     while ((Get-Date) -lt $deadline) {{
         if (-not (Get-Process -Name '{agentProcessName}' -ErrorAction SilentlyContinue)) {{ break }}
         Start-Sleep -Seconds 2
@@ -150,13 +159,13 @@ try {{
     foreach ($item in @(Get-ChildItem -Path '{agentBasePath}' -Exclude 'Logs' -ErrorAction SilentlyContinue)) {{
         $dest = $item.FullName + '.del-' + [Guid]::NewGuid().ToString('N')
         $itemOk = $false
-        for ($i = 1; $i -le 10; $i++) {{
+        for ($i = 1; $i -le {renameRetries}; $i++) {{
             try {{
                 Rename-Item -Path $item.FullName -NewName $dest -Force -ErrorAction Stop
                 $itemOk = $true
                 break
             }} catch {{
-                Start-Sleep -Seconds 2
+                Start-Sleep -Seconds {renameRetryDelaySeconds}
             }}
         }}
         if ($itemOk) {{ $renamed += @{{ Original = $item.FullName; Renamed = $dest }} }}
@@ -168,13 +177,13 @@ try {{
     # of earlier attempts.
     $renamedPath = '{agentBasePath}.del-' + [Guid]::NewGuid().ToString('N')
     $probeOk = $false
-    for ($i = 1; $i -le 10; $i++) {{
+    for ($i = 1; $i -le {renameRetries}; $i++) {{
         try {{
             Rename-Item -Path '{agentBasePath}' -NewName $renamedPath -Force -ErrorAction Stop
             $probeOk = $true
             break
         }} catch {{
-            Start-Sleep -Seconds 2
+            Start-Sleep -Seconds {renameRetryDelaySeconds}
         }}
     }}
     $renamed = @(@{{ Original = '{agentBasePath}'; Renamed = $renamedPath }})
