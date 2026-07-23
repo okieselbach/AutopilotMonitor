@@ -34,6 +34,7 @@ export const EVENT_TYPES_CATALOG = {
     'desktop_detector_started',
     'desktop_detector_first_poll',
     'desktop_detector_no_candidate',
+    'oobe_state_completed',
   ],
   whiteglove_events: [
     'whiteglove_complete',

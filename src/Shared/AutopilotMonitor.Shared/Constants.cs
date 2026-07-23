@@ -317,6 +317,12 @@ namespace AutopilotMonitor.Shared
             public const string DesktopDetectorStarted      = "desktop_detector_started";    // 1x on Start() / ResetForRealUserSwitch()
             public const string DesktopDetectorFirstPoll    = "desktop_detector_first_poll"; // 1x after first PollForDesktop() completes
             public const string DesktopDetectorNoCandidate  = "desktop_detector_no_candidate"; // 1x after threshold polls without resolution (configurable)
+            // 1x when WinRT SystemSetupInfo.OutOfBoxExperienceState flips InProgress->Completed,
+            // sampled on the DAD 30s poll. Observational only (no decision-engine involvement) —
+            // an owner-independent desktop corroboration for sessions where WTS+WMI owner
+            // resolution starves and desktop_arrived never fires. Often absent in healthy
+            // sessions: the DAD timer is disposed at desktop arrival, which is when the flip lands.
+            public const string OobeStateCompleted          = "oobe_state_completed";
             public const string CompletionCheck     = "completion_check";
             // Liveness plan PR2 — emitted (state-change-only, deduped via the
             // CompletionWaitingFingerprint state fact) whenever the DecisionEngine blocks or

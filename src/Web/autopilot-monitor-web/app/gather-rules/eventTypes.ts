@@ -32,6 +32,8 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
     description: "Pre-Provisioning Part 2 resumed after the user powered on the device." },
   { value: "desktop_arrived", label: "desktop_arrived", category: "enrollment",
     description: "User desktop detected (explorer.exe under real user)." },
+  { value: "oobe_state_completed", label: "oobe_state_completed", category: "enrollment",
+    description: "Windows OOBE state flipped InProgress→Completed (WinRT SystemSetupInfo, sampled on the desktop-arrival poll). One-shot and observational only; valuable as an owner-independent desktop corroboration in sessions where desktop_arrived never fires." },
   { value: "completion_check", label: "completion_check", category: "enrollment",
     description: "Throttled state-machine snapshot during completion evaluation." },
   { value: "completion_waiting", label: "completion_waiting", category: "enrollment",

@@ -405,5 +405,144 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
             var started = trace.Events.Find(e => e.EventType == SharedEventTypes.DesktopDetectorStarted);
             Assert.Equal(0, started.Data["noCandidateThresholdMinutes"]);
         }
+
+        // ============================================================================
+        // OOBE-state flip (oobe_state_completed) — observational one-shot on the poll
+        // ============================================================================
+        // The WinRT OutOfBoxExperienceState flip in_progress->completed is an owner-
+        // independent desktop corroboration for DAD-starved sessions (4d5a0b78 class).
+        // Tests drive polls synchronously via PollOnceForTest after Stop() so the real
+        // timer cannot race, and pin the owner seams to an excluded user so a real
+        // explorer.exe on the test machine can never set _desktopArrived (which would
+        // short-circuit PollForDesktop before the flip check).
+
+        private static DesktopArrivalDetector BuildFlipDetector(TempDirectory tmp, TraceCapture trace, System.Func<string> oobeProvider)
+        {
+            var detector = new DesktopArrivalDetector(new AgentLogger(tmp.Path, AgentLogLevel.Info), noCandidateTimeoutMinutes: 0)
+            {
+                OnTraceEvent = trace.Sink,
+                OobeStateProvider = oobeProvider,
+                SessionOwnerResolver = _ => "SYSTEM",
+                ProcessOwnerResolver = _ => "SYSTEM",
+            };
+            return detector;
+        }
+
+        /// <summary>Returns the queued states in order, then repeats the last one forever.</summary>
+        private static System.Func<string> StateQueue(params string[] states)
+        {
+            var queue = new Queue<string>(states);
+            var last = states[states.Length - 1];
+            return () => queue.Count > 0 ? queue.Dequeue() : last;
+        }
+
+        [Fact]
+        public void OobeFlip_emits_exactly_once_with_payload()
+        {
+            using var tmp = new TempDirectory();
+            var trace = new TraceCapture();
+            // Baseline sample happens synchronously inside Start()/ArmTimer.
+            using var detector = BuildFlipDetector(tmp, trace, StateQueue("in_progress", "completed"));
+
+            detector.Start();
+            detector.Stop();
+            detector.PollOnceForTest(); // reads "completed" -> flip
+            detector.PollOnceForTest(); // still "completed" -> no second emit
+
+            Assert.Equal(1, trace.CountOf(SharedEventTypes.OobeStateCompleted));
+            var flip = trace.Events.Find(e => e.EventType == SharedEventTypes.OobeStateCompleted);
+            Assert.Equal("in_progress", flip.Data["previousState"]);
+            Assert.True(flip.Data.ContainsKey("pollCount"));
+            Assert.True(flip.Data.ContainsKey("minutesSinceStart"));
+            Assert.False((bool)flip.Data["desktopArrived"]);
+            Assert.True(flip.Data.ContainsKey("wmiErrorCount"));
+            Assert.True(flip.Data.ContainsKey("wtsErrorCount"));
+        }
+
+        [Fact]
+        public void OobeFlip_does_not_emit_when_state_is_already_completed()
+        {
+            using var tmp = new TempDirectory();
+            var trace = new TraceCapture();
+            using var detector = BuildFlipDetector(tmp, trace, StateQueue("completed"));
+
+            detector.Start();
+            detector.Stop();
+            detector.PollOnceForTest();
+            detector.PollOnceForTest();
+
+            // Productive machines read "completed" from the very first sample — the flip
+            // event must never fire there (the agent_started field already records the state).
+            Assert.Equal(0, trace.CountOf(SharedEventTypes.OobeStateCompleted));
+        }
+
+        [Fact]
+        public void OobeFlip_does_not_emit_when_in_progress_was_never_seen()
+        {
+            using var tmp = new TempDirectory();
+            var trace = new TraceCapture();
+            using var detector = BuildFlipDetector(tmp, trace, StateQueue("unavailable", "completed"));
+
+            detector.Start();
+            detector.Stop();
+            detector.PollOnceForTest();
+
+            // Old builds without the WinRT contract report "unavailable"; a later
+            // "completed" without a positively observed "in_progress" is not a flip.
+            Assert.Equal(0, trace.CountOf(SharedEventTypes.OobeStateCompleted));
+        }
+
+        [Fact]
+        public void OobeFlip_survives_transient_unavailable_between_polls()
+        {
+            using var tmp = new TempDirectory();
+            var trace = new TraceCapture();
+            using var detector = BuildFlipDetector(tmp, trace, StateQueue("in_progress", "unavailable", "completed"));
+
+            detector.Start();
+            detector.Stop();
+            detector.PollOnceForTest(); // transient reflection failure — must NOT clear the baseline
+            detector.PollOnceForTest(); // "completed" -> flip still detected
+
+            Assert.Equal(1, trace.CountOf(SharedEventTypes.OobeStateCompleted));
+        }
+
+        [Fact]
+        public void OobeFlip_provider_throwing_never_emits_and_never_pollutes_wmi_error_count()
+        {
+            using var tmp = new TempDirectory();
+            var trace = new TraceCapture();
+            using var detector = BuildFlipDetector(tmp, trace, () => throw new System.InvalidOperationException("boom"));
+
+            detector.Start(); // baseline sample throws -> swallowed
+            detector.Stop();
+            detector.PollOnceForTest();
+            detector.PollOnceForTest();
+
+            Assert.Equal(0, trace.CountOf(SharedEventTypes.OobeStateCompleted));
+            // The flip check has its own try/catch — a throw must not fall into
+            // PollForDesktop's outer catch, which increments the WMI error counter the
+            // session-4d5a0b78 liveness diagnostics rely on. first_poll carries that counter.
+            var firstPoll = trace.Events.Find(e => e.EventType == SharedEventTypes.DesktopDetectorFirstPoll);
+            Assert.Equal(0, firstPoll.Data["wmiErrorCount"]);
+        }
+
+        [Fact]
+        public void OobeFlip_one_shot_flag_survives_ResetForRealUserSwitch()
+        {
+            using var tmp = new TempDirectory();
+            var trace = new TraceCapture();
+            using var detector = BuildFlipDetector(tmp, trace,
+                StateQueue("in_progress", "completed", "in_progress", "completed"));
+
+            detector.Start();
+            detector.Stop();
+            detector.PollOnceForTest(); // flip #1
+            detector.ResetForRealUserSwitch(); // re-arms + re-samples baseline ("in_progress")
+            detector.Stop();
+            detector.PollOnceForTest(); // "completed" again — must NOT re-emit
+
+            Assert.Equal(1, trace.CountOf(SharedEventTypes.OobeStateCompleted));
+        }
     }
 }

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Configuration;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Agent.V2.Core.Runtime;
@@ -93,6 +94,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         // correction between agent start and termination no longer skews bootToStartSeconds.
         private readonly ulong _bootAnchorTickMs;
         private readonly DateTime _bootAnchorUtc;
+        // WinRT OOBE state at construction (handler is built at agent start) — corroborates
+        // the late-start heuristic: "completed" here means OOBE was already over on arrival.
+        private readonly string _oobeStateAtAgentStart;
         private int _handled;
 
         public EnrollmentTerminationHandler(
@@ -129,6 +133,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
 
             _bootAnchorTickMs = ObservationCoverage.CurrentTickMs();
             _bootAnchorUtc = DateTime.UtcNow;
+            _oobeStateAtAgentStart = OobeStateReader.Read();
         }
 
         /// <summary>
@@ -658,6 +663,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                         { "agentUptimeSeconds", Math.Round(uptimeSeconds, 1) },
                         { "deviceBootUtc", deviceBootUtc.ToString("o") },
                         { "agentStartUtc", _agentStartTimeUtc.ToString("o") },
+                        { "oobeStateAtAgentStart", _oobeStateAtAgentStart },
                         { "outcome", args.Outcome.ToString() },
                         { "note", "The agent's bootstrap (an Intune platform script) ran only near the end of the enrollment, so the agent observed the already-decided end-state rather than the failure window. Treat the diagnosis as a post-mortem; check for a platform/remediation script that hung ahead of the bootstrap (see script_timeout_suspected)." },
                     },

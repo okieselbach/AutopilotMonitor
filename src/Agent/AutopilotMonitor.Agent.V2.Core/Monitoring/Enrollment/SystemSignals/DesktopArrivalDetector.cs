@@ -61,6 +61,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         internal Func<int, string> SessionOwnerResolver { get; set; }
         internal Func<int, string> ProcessOwnerResolver { get; set; }
 
+        // Test seam for the WinRT OOBE-state sample (null = OobeStateReader.Read).
+        internal Func<string> OobeStateProvider { get; set; }
+
+        // OOBE-state flip tracking (observational only — see OobeStateReader contract).
+        // _oobeCompletedEmitted is one-shot per agent lifetime and deliberately NOT reset
+        // by ResetForRealUserSwitch: the OOBE flip is a global OS transition, not per-user.
+        private string _lastOobeState;
+        private bool _oobeCompletedEmitted;
+
         /// <summary>
         /// System/service account names that should NOT be considered real users.
         /// </summary>
@@ -161,6 +170,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         {
             _startedAtUtc = DateTime.UtcNow;
 
+            // Baseline OOBE-state sample so the first poll can already detect a flip
+            // (self-contained try/catch inside, like the Emit* helpers).
+            CheckOobeStateFlip();
+
             _pollingTimer?.Dispose();
             _pollingTimer = new Timer(
                 PollForDesktop,
@@ -185,6 +198,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 return;
 
             _pollCount++;
+
+            CheckOobeStateFlip();
 
             try
             {
@@ -380,6 +395,66 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             }
             catch (Exception ex) { _logger.Verbose($"DesktopArrivalDetector: detector-started emit failed: {ex.Message}"); }
         }
+
+        /// <summary>
+        /// Samples the WinRT OOBE state (<see cref="OobeStateReader"/>) and emits the one-shot
+        /// <c>oobe_state_completed</c> trace event on the in_progress-&gt;completed flip.
+        /// Observational only — an owner-independent desktop corroboration for sessions where
+        /// WTS+WMI owner resolution starves and <c>desktop_arrived</c> never fires. Often absent
+        /// in healthy sessions: the polling timer is disposed at desktop arrival, which is when
+        /// the flip lands (empirical probe, session 9c404ae9).
+        /// <para>
+        /// Self-contained try/catch: a throw here must NOT reach <see cref="PollForDesktop"/>'s
+        /// outer catch, which would inflate <see cref="_wmiErrorCountSinceStart"/> and skew the
+        /// session-4d5a0b78 liveness diagnostics. "unavailable" readings never overwrite the last
+        /// known state, so a transient reflection failure between two polls cannot mask the flip.
+        /// One-shot flag survives <see cref="ResetForRealUserSwitch"/> — the flip is a global OS
+        /// transition, not per-user.
+        /// </para>
+        /// </summary>
+        private void CheckOobeStateFlip()
+        {
+            try
+            {
+                var current = (OobeStateProvider ?? OobeStateReader.Read)();
+                if (string.IsNullOrEmpty(current) || current == OobeStateReader.Unavailable)
+                    return;
+
+                if (!_oobeCompletedEmitted
+                    && _lastOobeState == "in_progress"
+                    && current == "completed")
+                {
+                    _oobeCompletedEmitted = true;
+                    var minutesSinceStart = Math.Round((DateTime.UtcNow - _startedAtUtc).TotalMinutes, 1);
+                    _logger.Info("DesktopArrivalDetector: OOBE state flipped in_progress->completed (WinRT SystemSetupInfo)");
+                    OnTraceEvent?.Invoke(
+                        SharedEventTypes.OobeStateCompleted,
+                        $"OOBE state flipped in_progress->completed (WinRT SystemSetupInfo, poll {_pollCount}) — owner-independent desktop corroboration.",
+                        new Dictionary<string, object>
+                        {
+                            { "previousState", "in_progress" },
+                            { "pollCount", _pollCount },
+                            { "minutesSinceStart", minutesSinceStart },
+                            { "desktopArrived", _desktopArrived },
+                            { "wmiErrorCount", _wmiErrorCountSinceStart },
+                            { "wtsErrorCount", _wtsErrorCountSinceStart },
+                        });
+                }
+
+                _lastOobeState = current;
+            }
+            catch (Exception ex)
+            {
+                _logger.Verbose($"DesktopArrivalDetector: OOBE state check failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Drives a single synchronous poll for unit tests — the production poll is private and
+        /// timer-driven with a fixed 30 s interval (precedent: <see cref="ResolveOwner"/> is
+        /// likewise internal for direct testing).
+        /// </summary>
+        internal void PollOnceForTest() => PollForDesktop(null);
 
         /// <summary>
         /// Resolves the owning user of an explorer.exe candidate. Session 4d5a0b78 fix

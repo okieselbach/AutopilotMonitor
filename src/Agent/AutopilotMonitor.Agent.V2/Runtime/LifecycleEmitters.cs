@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using AutopilotMonitor.Agent.V2.Core.Configuration;
 using AutopilotMonitor.Agent.V2.Core.Logging;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Agent.V2.Core.Security;
@@ -68,6 +69,10 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     { "configVersion", configVersion },
                     { "remoteConfigFetched", outcome == RemoteConfigFetchOutcome.Succeeded },
                     { "remoteConfigOutcome", outcome.ToString() },
+                    // WinRT OOBE state sampled at this start. Together with previousExitType
+                    // this makes late starts provable: "completed" on a first_run means OOBE
+                    // was already over when the agent arrived (e.g. IME queue blocked).
+                    { "oobeStateAtAgentStart", OobeStateReader.Read() },
                 };
 
                 if (!string.IsNullOrEmpty(previousExit?.CrashExceptionType))
