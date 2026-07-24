@@ -16,6 +16,7 @@ export interface FleetHealthStats {
   inProgress: number;
   /** Terminal, non-failure (timeout reclassification). Surfaced separately; not counted as a failure. */
   incomplete: number;
+  /** Succeeded / (succeeded + failed) — finished enrollments only. 0 when nothing finished yet. */
   successRate: number;
   avgDurationMinutes: number;
 }
@@ -30,8 +31,10 @@ export interface FleetFailureReason {
 }
 export interface FleetModelHealth {
   model: string;
+  /** All sessions on this model in the window, including in-flight ones. */
   total: number;
   succeeded: number;
+  failed: number;
 }
 export interface FleetSlowModel {
   model: string;

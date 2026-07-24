@@ -10,9 +10,10 @@ namespace AutopilotMonitor.Functions.Tests;
 /// <summary>
 /// Covers the server-side Fleet Health aggregation in
 /// <see cref="MetricsMath.BuildFleetHealthPayload"/>, the single source of truth shared by the
-/// tenant (metrics/fleet-health) and global (global/metrics/fleet-health) functions. These assert
-/// the semantics ported verbatim from the previous client-side aggregation — notably success rate
-/// over ALL sessions and average duration over non-in-progress sessions (failures included).
+/// tenant (metrics/fleet-health) and global (global/metrics/fleet-health) functions. Success and
+/// failure rates follow the SLA convention — over finished enrollments (Succeeded + Failed) only,
+/// so in-flight sessions never dilute them. Average duration stays over non-in-progress sessions
+/// that carry a duration (failures included).
 /// </summary>
 public class FleetHealthPayloadTests
 {
@@ -55,7 +56,7 @@ public class FleetHealthPayloadTests
     }
 
     [Fact]
-    public void SuccessRate_IsOverAllSessions_NotJustTerminal()
+    public void SuccessRate_IsOverFinishedSessions_InFlightAndIncompleteExcluded()
     {
         var sessions = new List<SessionSummary>
         {
@@ -63,16 +64,34 @@ public class FleetHealthPayloadTests
             S(SessionStatus.Succeeded),
             S(SessionStatus.Failed),
             S(SessionStatus.InProgress),
+            S(SessionStatus.Pending),
+            S(SessionStatus.Incomplete), // terminal but non-failure — stays out of the rate
         };
 
         var payload = MetricsMath.BuildFleetHealthPayload(sessions, days: 7);
 
-        Assert.Equal(4, payload.Stats.Total);
+        Assert.Equal(6, payload.Stats.Total);
         Assert.Equal(2, payload.Stats.Succeeded);
         Assert.Equal(1, payload.Stats.Failed);
         Assert.Equal(1, payload.Stats.InProgress);
-        // 2 / 4 = 50% (over total), NOT 2 / 3 = 66.7% (over terminal).
-        Assert.Equal(50d, payload.Stats.SuccessRate);
+        Assert.Equal(1, payload.Stats.Incomplete);
+        // 2 / (2 + 1) = 66.7% (over finished), NOT 2 / 6 = 33.3% (over total).
+        Assert.Equal(66.7d, payload.Stats.SuccessRate);
+    }
+
+    [Fact]
+    public void SuccessRate_IsZero_WhenNothingFinishedYet()
+    {
+        var sessions = new List<SessionSummary>
+        {
+            S(SessionStatus.InProgress),
+            S(SessionStatus.Pending),
+        };
+
+        var payload = MetricsMath.BuildFleetHealthPayload(sessions, days: 7);
+
+        // No finished enrollments → no rate; clients render "—" off Succeeded + Failed == 0.
+        Assert.Equal(0d, payload.Stats.SuccessRate);
     }
 
     [Fact]
@@ -112,6 +131,27 @@ public class FleetHealthPayloadTests
     }
 
     [Fact]
+    public void ModelHealth_CountsFailedSeparately_InFlightInTotalOnly()
+    {
+        var sessions = new List<SessionSummary>
+        {
+            S(SessionStatus.Succeeded, model: "X"),
+            S(SessionStatus.Failed, model: "X"),
+            S(SessionStatus.InProgress, model: "X"),
+        };
+
+        var payload = MetricsMath.BuildFleetHealthPayload(sessions, days: 7);
+
+        var m = Assert.Single(payload.ModelHealth);
+        // Total keeps the full device count; the client derives the rate from
+        // Succeeded / (Succeeded + Failed), so the in-flight session must land
+        // in Total but in neither outcome bucket.
+        Assert.Equal(3, m.Total);
+        Assert.Equal(1, m.Succeeded);
+        Assert.Equal(1, m.Failed);
+    }
+
+    [Fact]
     public void ModelKey_FallsBackToUnknown_WhenManufacturerAndModelBlank()
     {
         var payload = MetricsMath.BuildFleetHealthPayload(
@@ -147,10 +187,13 @@ public class FleetHealthPayloadTests
     {
         var sessions = new List<SessionSummary>
         {
-            // Model A: 1 failed of 2 → 50%
+            // Model A: 1 failed / 2 finished → 50%; the 2 in-flight sessions widen Total
+            // but must not dilute the rate (over-total it would read 25%).
             S(SessionStatus.Failed, model: "A"),
             S(SessionStatus.Succeeded, model: "A"),
-            // Model B: 2 failed of 2 → 100%
+            S(SessionStatus.InProgress, model: "A"),
+            S(SessionStatus.Pending, model: "A"),
+            // Model B: 2 failed of 2 finished → 100%
             S(SessionStatus.Failed, model: "B"),
             S(SessionStatus.Failed, model: "B"),
             // Model C: no failures → excluded entirely
@@ -164,6 +207,7 @@ public class FleetHealthPayloadTests
         Assert.Equal(2, payload.TopFailingModels[0].Failed);
         Assert.Equal(100, payload.TopFailingModels[0].FailureRate);
         Assert.Equal("Contoso A", payload.TopFailingModels[1].Model);
+        Assert.Equal(4, payload.TopFailingModels[1].Total);
         Assert.Equal(50, payload.TopFailingModels[1].FailureRate);
         Assert.DoesNotContain(payload.TopFailingModels, m => m.Model == "Contoso C");
     }

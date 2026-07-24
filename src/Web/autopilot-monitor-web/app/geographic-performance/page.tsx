@@ -507,17 +507,28 @@ export default function GeographicPerformancePage() {
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-700 font-medium">{loc.sessionCount}</td>
                           <td className="px-4 py-3 text-sm">
-                            <span
-                              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                loc.successRate >= 90
-                                  ? "bg-green-100 text-green-800"
-                                  : loc.successRate >= 70
-                                  ? "bg-yellow-100 text-yellow-800"
-                                  : "bg-red-100 text-red-800"
-                              }`}
-                            >
-                              {loc.successRate}%
-                            </span>
+                            {/* Rate is over finished enrollments (succeeded + failed) only; a
+                                location where everything is still in flight has no rate yet. */}
+                            {loc.succeeded + loc.failed > 0 ? (
+                              <span
+                                className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                  loc.successRate >= 90
+                                    ? "bg-green-100 text-green-800"
+                                    : loc.successRate >= 70
+                                    ? "bg-yellow-100 text-yellow-800"
+                                    : "bg-red-100 text-red-800"
+                                }`}
+                              >
+                                {loc.successRate}%
+                              </span>
+                            ) : (
+                              <span
+                                className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500"
+                                title="No finished enrollments yet"
+                              >
+                                —
+                              </span>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-sm">
                             <span

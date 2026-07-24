@@ -106,6 +106,13 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var first = group.First();
                 var succeeded = group.Where(s => s.Status == SessionStatus.Succeeded).ToList();
                 var failed = group.Where(s => s.Status == SessionStatus.Failed).ToList();
+                // Success rate is an outcome quota over finished enrollments only
+                // (Succeeded + Failed), matching the SLA convention. In-flight sessions
+                // (InProgress/Pending/Stalled/AwaitingUser) and Incomplete (terminal,
+                // non-failure) must not dilute it — a site mid-rollout would otherwise
+                // show a poor rate despite zero actual failures. 0 finished → 0; the
+                // frontend renders "—" off Succeeded+Failed instead of a 0% badge.
+                var finished = succeeded.Count + failed.Count;
 
                 // Duration stats from succeeded sessions with valid duration
                 var durations = succeeded
@@ -156,7 +163,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     SessionCount = group.Count(),
                     Succeeded = succeeded.Count,
                     Failed = failed.Count,
-                    SuccessRate = group.Count() > 0 ? Math.Round((double)succeeded.Count / group.Count() * 100, 1) : 0,
+                    SuccessRate = finished > 0 ? Math.Round((double)succeeded.Count / finished * 100, 1) : 0,
                     AvgDurationMinutes = Math.Round(avgDuration, 1),
                     MedianDurationMinutes = Math.Round(medianDuration, 1),
                     P95DurationMinutes = Math.Round(p95Duration, 1),

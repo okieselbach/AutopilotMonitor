@@ -129,6 +129,9 @@ export default function FleetHealthPage() {
     successRate: s?.successRate ?? 0,
     avgDuration: s?.avgDurationMinutes ?? 0,
   };
+  // Success rate is an outcome quota over finished enrollments (succeeded + failed);
+  // with none finished there is no rate to show — the card renders "—" instead of 0%.
+  const finishedCount = stats.succeeded + stats.failed;
   const modelHealth = data?.modelHealth ?? [];
   const slowestModels = data?.slowestModels ?? [];
 
@@ -238,10 +241,16 @@ export default function FleetHealthPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5 mb-8">
             <FleetStatCard
               title="Success Rate"
-              value={`${stats.successRate.toFixed(1)}%`}
-              subtitle={`${stats.succeeded} of ${stats.total} enrollments`}
+              value={finishedCount > 0 ? `${stats.successRate.toFixed(1)}%` : "—"}
+              subtitle={
+                finishedCount > 0
+                  ? `${stats.succeeded} of ${finishedCount} finished enrollments`
+                  : "No finished enrollments yet"
+              }
               color={
-                stats.successRate >= 95
+                finishedCount === 0
+                  ? "slate"
+                  : stats.successRate >= 95
                   ? "green"
                   : stats.successRate >= 80
                   ? "yellow"
@@ -631,10 +640,13 @@ export default function FleetHealthPage() {
             ) : (
               <div className="space-y-3">
                 {modelHealth.map((m) => {
+                  // Rate over finished enrollments only; devices still enrolling don't count
+                  // against the model. No finished enrollments → no rate ("—", neutral bar).
+                  const finished = m.succeeded + m.failed;
                   const successRate =
-                    m.total > 0
-                      ? Math.round((m.succeeded / m.total) * 100)
-                      : 0;
+                    finished > 0
+                      ? Math.round((m.succeeded / finished) * 100)
+                      : null;
                   return (
                     <Link
                       key={m.model}
@@ -645,19 +657,21 @@ export default function FleetHealthPage() {
                       <div className="flex items-baseline justify-between mb-1">
                         <span className="text-sm text-gray-700 group-hover:text-blue-600 break-words leading-snug">{m.model}</span>
                         <span className="ml-3 flex-shrink-0 text-sm font-medium text-gray-900">
-                          {successRate}% <span className="text-xs font-normal text-gray-400">({m.total} devices)</span>
+                          {successRate !== null ? `${successRate}%` : "—"} <span className="text-xs font-normal text-gray-400">({m.total} devices)</span>
                         </span>
                       </div>
                       <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
                         <div
                           className={`h-full rounded-full transition-all ${
-                            successRate >= 95
+                            successRate === null
+                              ? "bg-gray-300"
+                              : successRate >= 95
                               ? "bg-green-500"
                               : successRate >= 80
                               ? "bg-yellow-500"
                               : "bg-red-500"
                           }`}
-                          style={{ width: `${successRate}%` }}
+                          style={{ width: `${successRate ?? 0}%` }}
                         />
                       </div>
                     </Link>

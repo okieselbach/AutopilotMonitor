@@ -93,9 +93,10 @@ public static class MetricsMath
     /// Single source of truth for the tenant (<c>metrics/fleet-health</c>) and global
     /// (<c>global/metrics/fleet-health</c>) functions. Replaces the previous client-side path that
     /// drained up to 200k raw sessions into the browser and ran these aggregations on the main
-    /// thread. Semantics are preserved verbatim from that client code, notably: success rate is
-    /// over ALL sessions (not just terminal ones), and average duration counts every
-    /// non-in-progress session that carries a positive duration (failures included).
+    /// thread. Success rate follows the SLA convention: Succeeded / (Succeeded + Failed) — finished
+    /// enrollments only, so in-flight sessions and Incomplete (terminal, non-failure) never dilute
+    /// it. Average duration counts every non-in-progress session that carries a positive duration
+    /// (failures included).
     /// </summary>
     public static FleetHealthMetrics BuildFleetHealthPayload(IReadOnlyList<SessionSummary> sessions, int days)
     {
@@ -121,6 +122,7 @@ public static class MetricsMath
         }
 
         int total = sessions.Count;
+        int finished = succeeded + failed;
         var stats = new FleetHealthStats
         {
             Total = total,
@@ -128,7 +130,7 @@ public static class MetricsMath
             Failed = failed,
             InProgress = inProgress,
             Incomplete = incomplete,
-            SuccessRate = total > 0 ? Math.Round((double)succeeded / total * 100, 1) : 0,
+            SuccessRate = finished > 0 ? Math.Round((double)succeeded / finished * 100, 1) : 0,
             AvgDurationMinutes = completedWithDurationCount > 0
                 ? (int)Math.Round((double)completedDurationSeconds / completedWithDurationCount / 60.0, MidpointRounding.AwayFromZero)
                 : 0,
@@ -208,6 +210,7 @@ public static class MetricsMath
             }
             m.Total++;
             if (s.Status == SessionStatus.Succeeded) m.Succeeded++;
+            else if (s.Status == SessionStatus.Failed) m.Failed++;
         }
         return models.Values
             .OrderByDescending(m => m.Total)
@@ -240,15 +243,18 @@ public static class MetricsMath
 
     private static List<FleetFailingModel> BuildFleetTopFailingModels(IReadOnlyList<SessionSummary> sessions)
     {
-        var acc = new Dictionary<string, (int Failed, int Total)>();
+        var acc = new Dictionary<string, (int Failed, int Succeeded, int Total)>();
         foreach (var s in sessions)
         {
             var key = FleetModelKey(s);
             acc.TryGetValue(key, out var cur);
             cur.Total++;
             if (s.Status == SessionStatus.Failed) cur.Failed++;
+            else if (s.Status == SessionStatus.Succeeded) cur.Succeeded++;
             acc[key] = cur;
         }
+        // FailureRate over finished enrollments only (mirror of the success-rate convention);
+        // the Where(Failed > 0) guard also keeps the denominator non-zero.
         return acc
             .Where(kv => kv.Value.Failed > 0)
             .Select(kv => new FleetFailingModel
@@ -256,7 +262,8 @@ public static class MetricsMath
                 Model = kv.Key,
                 Failed = kv.Value.Failed,
                 Total = kv.Value.Total,
-                FailureRate = (int)Math.Round((double)kv.Value.Failed / kv.Value.Total * 100, MidpointRounding.AwayFromZero),
+                FailureRate = (int)Math.Round(
+                    (double)kv.Value.Failed / (kv.Value.Failed + kv.Value.Succeeded) * 100, MidpointRounding.AwayFromZero),
             })
             .OrderByDescending(m => m.Failed)
             .Take(5)

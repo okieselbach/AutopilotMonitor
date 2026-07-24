@@ -36,7 +36,8 @@ namespace AutopilotMonitor.Shared.Models
         public int InProgress { get; set; }
         /// <summary>Terminal, non-failure sessions (timeout reclassification). Surfaced as its own count; not a failure.</summary>
         public int Incomplete { get; set; }
-        /// <summary>Succeeded / total * 100 (one decimal). Note: over all sessions, not just terminal.</summary>
+        /// <summary>Succeeded / (Succeeded + Failed) * 100 (one decimal) — finished enrollments only,
+        /// matching the SLA convention. 0 when nothing has finished yet (clients render "—").</summary>
         public double SuccessRate { get; set; }
         /// <summary>Average duration in minutes over non-in-progress sessions that carry a duration.</summary>
         public int AvgDurationMinutes { get; set; }
@@ -58,8 +59,11 @@ namespace AutopilotMonitor.Shared.Models
     public sealed class FleetModelHealth
     {
         public string Model { get; set; } = default!;
+        /// <summary>All sessions on this model in the window, including in-flight ones.</summary>
         public int Total { get; set; }
         public int Succeeded { get; set; }
+        /// <summary>Clients derive the per-model rate as Succeeded / (Succeeded + Failed).</summary>
+        public int Failed { get; set; }
     }
 
     public sealed class FleetSlowModel
@@ -73,7 +77,9 @@ namespace AutopilotMonitor.Shared.Models
     {
         public string Model { get; set; } = default!;
         public int Failed { get; set; }
+        /// <summary>All sessions on this model in the window, including in-flight ones.</summary>
         public int Total { get; set; }
+        /// <summary>Failed / (Failed + Succeeded) * 100, rounded — finished enrollments only.</summary>
         public int FailureRate { get; set; }
     }
 }

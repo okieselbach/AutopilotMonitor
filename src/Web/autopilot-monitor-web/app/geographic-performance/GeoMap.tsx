@@ -11,8 +11,11 @@ interface LocationMetric {
   city: string;
   loc: string;
   sessionCount: number;
+  succeeded: number;
+  failed: number;
   avgDurationMinutes: number;
   appLoadScore: number;
+  /** Over finished enrollments (succeeded + failed) only; 0 when nothing finished yet. */
   successRate: number;
   avgThroughputBytesPerSec: number;
   isOutlier: boolean;
@@ -160,7 +163,10 @@ export default function GeoMap({ locations, globalAvgDuration, selectedLocation,
             <Tooltip direction="top" offset={[0, -10]} opacity={0.95}>
               <div className="text-xs">
                 <div className="font-bold text-sm mb-1">{loc.locationKey}</div>
-                <div><strong>Sessions:</strong> {loc.sessionCount} ({loc.successRate}% success)</div>
+                <div>
+                  <strong>Sessions:</strong> {loc.sessionCount}
+                  {loc.succeeded + loc.failed > 0 ? ` (${loc.successRate}% success)` : " (none finished yet)"}
+                </div>
                 <div><strong>Avg Duration:</strong> {Math.round(loc.avgDurationMinutes)} min</div>
                 {loc.appLoadScore > 0 && (
                   <div><strong>App-Load-Score:</strong> {Math.round(loc.appLoadScore)}</div>
