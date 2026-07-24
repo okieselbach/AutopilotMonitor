@@ -390,7 +390,9 @@ export default function PhaseTimeline({ currentPhase, completedPhases, events = 
             {status === 'completed' ? '✓' : status === 'failed' ? '✕' : status === 'skipped' ? '⊘' : phase.id + 1}
           </div>
           <div className="mt-3 text-center">
-            <div className={`text-xs font-medium whitespace-nowrap ${status === 'skipped' ? 'text-gray-400' : 'text-gray-700'}`}>
+            {/* No whitespace-nowrap: long names ("Device Preparation") wrap inside their own
+                column instead of overlapping the neighbours when columns get narrow. */}
+            <div className={`text-xs font-medium break-words px-0.5 ${status === 'skipped' ? 'text-gray-400' : 'text-gray-700'}`}>
               {phase.shortName}
             </div>
           {(status === 'completed' || status === 'failed') && getPhaseDuration(phase.id) && (
@@ -420,8 +422,14 @@ export default function PhaseTimeline({ currentPhase, completedPhases, events = 
     );
   };
 
+  // Mobile: below ~80px per phase the 48px circles and their labels physically overlap,
+  // so give the timeline a minimum width and let it scroll horizontally instead of
+  // squeezing. On desktop the container is wider than the minimum → no scrollbar.
+  const minTimelineWidth = phases.length * 80 + (isWhiteGloveV1 && splitIndex > 0 ? 32 : 0);
+
   return (
-    <div className="w-full py-4">
+    <div className="w-full py-4 overflow-x-auto">
+      <div style={{ minWidth: `${minTimelineWidth}px` }}>
       {/* Group labels for WhiteGlove sessions */}
       {isWhiteGloveV1 && splitIndex > 0 && (
         <div className="flex w-full mb-3">
@@ -453,6 +461,7 @@ export default function PhaseTimeline({ currentPhase, completedPhases, events = 
             </React.Fragment>
           );
         })}
+      </div>
       </div>
     </div>
   );

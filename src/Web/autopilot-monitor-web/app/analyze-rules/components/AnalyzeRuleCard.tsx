@@ -80,7 +80,9 @@ export default function AnalyzeRuleCard({
     >
       {/* Collapsed Header */}
       <div className="p-4 cursor-pointer select-none" onClick={() => { if (isEditing) return; onToggle(); }}>
-        <div className="flex items-center space-x-4">
+        {/* Mobile: badges wrap and the title drops onto its own full-width row (order-last);
+            ≥sm: single line with the title in the middle, exactly as before. */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           {isTemplateVariant ? (
             <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-amber-100 text-amber-600" title="Template — enabling creates a custom rule copy">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h9a2 2 0 002-2v-3m-9-4h6m-6 4h6m2-11l4 4m0 0l-4 4m4-4H9" /></svg>
@@ -127,8 +129,8 @@ export default function AnalyzeRuleCard({
             {rule.severity.charAt(0).toUpperCase() + rule.severity.slice(1)}
           </span>
           <span className="text-xs font-mono text-gray-400 flex-shrink-0 hidden sm:inline">{rule.ruleId}</span>
-          <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-semibold text-gray-900 truncate">{rule.title}</h3>
+          <div className="order-last w-full min-w-0 sm:order-none sm:w-auto sm:flex-1">
+            <h3 className="text-sm font-semibold text-gray-900 sm:truncate">{rule.title}</h3>
           </div>
           <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${catColor.bg} ${catColor.text} flex-shrink-0`}>
             {rule.category.charAt(0).toUpperCase() + rule.category.slice(1)}
@@ -159,7 +161,7 @@ export default function AnalyzeRuleCard({
               {hitRate}% hit rate
             </span>
           )}
-          <svg className={`w-5 h-5 text-gray-400 transition-transform flex-shrink-0 ${isExpanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+          <svg className={`w-5 h-5 text-gray-400 transition-transform flex-shrink-0 ml-auto sm:ml-0 ${isExpanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
         </div>
       </div>
 
