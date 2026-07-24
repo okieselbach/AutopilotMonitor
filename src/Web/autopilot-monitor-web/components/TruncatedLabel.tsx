@@ -21,8 +21,9 @@ interface TruncatedLabelProps {
  * - Hovering always shows the full text in a native browser tooltip (standard
  *   tooltip, no special cursor).
  * - When `interactive` (the default), clicking — or pressing Enter/Space when
- *   focused — toggles a two-line expanded view. This keeps long values readable
- *   on touch devices where hover is unavailable.
+ *   focused — toggles a fully expanded view that wraps the entire text over as
+ *   many lines as needed. This keeps long values readable on touch devices
+ *   where hover is unavailable.
  * - When `interactive={false}`, it is a plain truncated span with only the
  *   tooltip, safe to nest inside a clickable row or link.
  */
@@ -57,7 +58,7 @@ export default function TruncatedLabel({
         }
       }}
       className={`${className} min-w-0 cursor-pointer ${
-        expanded ? "line-clamp-2 break-words" : "truncate"
+        expanded ? "whitespace-normal break-words" : "truncate"
       }`}
     >
       {text}
