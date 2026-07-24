@@ -28,12 +28,34 @@ function CheckIcon({ className }: { className: string }) {
   );
 }
 
-function FeatureList({ features, checkClass }: { features: string[]; checkClass: string }) {
+function PlusIcon({ className }: { className: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function FeatureList({ features, checkClass, muted = false }: { features: string[]; checkClass: string; muted?: boolean }) {
   return (
     <ul className="space-y-2.5">
       {features.map((f) => (
-        <li key={f} className="flex items-start gap-2 text-sm text-gray-700">
+        <li key={f} className={`flex items-start gap-2 text-sm ${muted ? "text-gray-500" : "text-gray-700"}`}>
           <CheckIcon className={`w-4 h-4 mt-0.5 shrink-0 ${checkClass}`} />
+          <span>{f}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The Enterprise delta: same layout as FeatureList but "+" bullets and emphasized text. */
+function PlusList({ features }: { features: string[] }) {
+  return (
+    <ul className="space-y-2.5">
+      {features.map((f) => (
+        <li key={f} className="flex items-start gap-2 text-sm font-medium text-gray-900">
+          <PlusIcon className="w-4 h-4 mt-0.5 shrink-0 text-purple-600" />
           <span>{f}</span>
         </li>
       ))}
@@ -55,16 +77,23 @@ export function SectionPlan() {
   const canStartTrial =
     editionInfo.trialAvailable && (user?.isTenantAdmin === true || user?.isGlobalAdmin === true);
 
-  const communityFeatures = [
+  // Features shared by both plans verbatim. Plan-specific items (retention, support tier) are NOT
+  // in here — repeating "90-day retention" on the Enterprise card would be factually wrong; their
+  // Enterprise counterparts live in enterpriseExtras instead.
+  const sharedFeatures = [
     "Live session monitoring & progress portal",
     "Full rules engine, including custom rules",
     "Fleet analytics, notifications & diagnostics",
     "AI integration (MCP) within usage limits",
+  ];
+
+  const communityFeatures = [
+    ...sharedFeatures,
     `${COMMUNITY_RETENTION_DAYS}-day data retention`,
     "Community support (GitHub)",
   ];
 
-  const enterpriseFeatures = [
+  const enterpriseExtras = [
     `Extended data retention — ${ENTERPRISE_RETENTION_DAYS} days (vs ${COMMUNITY_RETENTION_DAYS})`,
     "Higher portal & agent API rate limits",
     "Larger AI (MCP) usage quota",
@@ -144,9 +173,16 @@ export function SectionPlan() {
             </div>
 
             <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-2.5">
-              Everything in Community, plus
+              Everything in Community
             </p>
-            <FeatureList features={enterpriseFeatures} checkClass="text-purple-500" />
+            <FeatureList features={sharedFeatures} checkClass="text-gray-400" muted />
+
+            <div className="flex items-center gap-3 my-4" aria-hidden="true">
+              <span className="h-px flex-1 bg-purple-200" />
+              <span className="text-xs font-semibold uppercase tracking-wide text-purple-600">Plus</span>
+              <span className="h-px flex-1 bg-purple-200" />
+            </div>
+            <PlusList features={enterpriseExtras} />
 
             {/* CTA — only meaningful while the tenant is on Community */}
             {!isEnterprise && (
