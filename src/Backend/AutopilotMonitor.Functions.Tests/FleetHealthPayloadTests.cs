@@ -213,30 +213,31 @@ public class FleetHealthPayloadTests
     }
 
     [Fact]
-    public void FailureReasons_TruncateLongReasons_AndTakeTopFive()
+    public void FailureReasons_GroupByPrefix_KeepFullestText_AndTakeTopFive()
     {
         var sessions = new List<SessionSummary>();
-        // 6 distinct reasons with descending frequency 6..1 → only top 5 kept.
-        for (int freq = 6; freq >= 1; freq--)
+        // 5 distinct short reasons with descending frequency 5..1.
+        for (int freq = 5; freq >= 1; freq--)
             for (int i = 0; i < freq; i++)
                 sessions.Add(S(SessionStatus.Failed, failureReason: $"Reason {freq}"));
-        // A null reason folds into "Unknown".
-        sessions.Add(S(SessionStatus.Failed, failureReason: null));
-        // An over-long reason is collapsed to a 50-char prefix + ellipsis.
-        var longReason = new string('x', 60);
-        sessions.Add(S(SessionStatus.Failed, failureReason: longReason));
+
+        // Two variants that share the first 50 characters collapse into one group;
+        // the longest variant is kept for display so the UI can show the full text.
+        var prefix = new string('x', 50);
+        var shortVariant = prefix + " short";
+        var longVariant = prefix + " a much longer tail that must survive intact";
+        for (int i = 0; i < 6; i++)
+            sessions.Add(S(SessionStatus.Failed, failureReason: shortVariant));
+        sessions.Add(S(SessionStatus.Failed, failureReason: longVariant));
 
         var payload = MetricsMath.BuildFleetHealthPayload(sessions, days: 30);
 
         Assert.Equal(5, payload.FailureReasons.Count);
-        Assert.Equal("Reason 6", payload.FailureReasons[0].Reason);
-        Assert.Equal(6, payload.FailureReasons[0].Count);
-        // The collapsed long reason exists in the tally (50 chars + "...").
-        var collapsed = new string('x', 50) + "...";
-        Assert.True(
-            sessions.Count(s => s.FailureReason == longReason) == 1,
-            "sanity: exactly one long-reason session");
-        Assert.Equal(53, collapsed.Length);
+        // The grouped cluster (6 + 1 = 7) outranks every "Reason N".
+        Assert.Equal(7, payload.FailureReasons[0].Count);
+        // The full, longest text survives end-to-end — no 50-char truncation.
+        Assert.Equal(longVariant, payload.FailureReasons[0].Reason);
+        Assert.DoesNotContain("...", payload.FailureReasons[0].Reason);
     }
 
     [Fact]

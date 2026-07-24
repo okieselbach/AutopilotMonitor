@@ -194,19 +194,29 @@ public static class MetricsMath
 
     private static List<FleetFailureReason> BuildFleetFailureReasons(IReadOnlyList<SessionSummary> sessions)
     {
-        var reasons = new Dictionary<string, int>();
+        // Group near-identical messages by a 50-char prefix so variants collapse
+        // into one row, but keep the longest full reason as the display value. The
+        // UI truncates and expands it on demand, so the complete text must survive.
+        var groups = new Dictionary<string, (string Display, int Count)>();
         foreach (var s in sessions)
         {
             if (s.Status != SessionStatus.Failed) continue;
             var reason = string.IsNullOrEmpty(s.FailureReason) ? "Unknown" : s.FailureReason;
-            // Collapse very long reasons to a 50-char prefix so near-identical messages group.
-            if (reason.Length > 50) reason = reason.Substring(0, 50) + "...";
-            reasons[reason] = reasons.GetValueOrDefault(reason) + 1;
+            var key = reason.Length > 50 ? reason.Substring(0, 50) : reason;
+            if (groups.TryGetValue(key, out var g))
+            {
+                var display = reason.Length > g.Display.Length ? reason : g.Display;
+                groups[key] = (display, g.Count + 1);
+            }
+            else
+            {
+                groups[key] = (reason, 1);
+            }
         }
-        return reasons
-            .OrderByDescending(kv => kv.Value)
+        return groups
+            .OrderByDescending(kv => kv.Value.Count)
             .Take(5)
-            .Select(kv => new FleetFailureReason { Reason = kv.Key, Count = kv.Value })
+            .Select(kv => new FleetFailureReason { Reason = kv.Value.Display, Count = kv.Value.Count })
             .ToList();
     }
 
