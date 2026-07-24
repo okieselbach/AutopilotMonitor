@@ -244,6 +244,7 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "audit/logs",                EndpointPolicy.MemberRead),
         new("GET",    "audit/hardware-rejected", EndpointPolicy.MemberRead),
         new("GET",    "audit/device-not-registered", EndpointPolicy.MemberRead),
+        new("GET",    "audit/tpm-pss-unsupported", EndpointPolicy.MemberRead),
         new("GET",    "diagnostics/download-url",  EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         new("POST",   "diagnostics/download-ticket", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         new("GET",    "rules/gather",              EndpointPolicy.MemberRead),

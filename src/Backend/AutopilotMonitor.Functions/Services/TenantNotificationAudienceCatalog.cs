@@ -26,6 +26,7 @@ public static class TenantNotificationAudienceCatalog
     private static readonly Dictionary<string, NotificationAudience> _map = new(System.StringComparer.OrdinalIgnoreCase)
     {
         ["hardware_rejection"]       = NotificationAudience.Admin,
+        ["tpm_pss_unsupported"]      = NotificationAudience.Admin,
         ["sla_breach"]               = NotificationAudience.Member,
         ["sla_consecutive_failures"] = NotificationAudience.Member,
         ["sla_resolved"]             = NotificationAudience.Member,

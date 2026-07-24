@@ -409,6 +409,7 @@ export const api = {
   distress: {
     hardwareRejected: () => `${API_BASE_URL}/api/audit/hardware-rejected`,
     deviceNotRegistered: () => `${API_BASE_URL}/api/audit/device-not-registered`,
+    tpmPssUnsupported: () => `${API_BASE_URL}/api/audit/tpm-pss-unsupported`,
   },
 
   // ── Ops Events ───────────────────────────────────────────────────────────

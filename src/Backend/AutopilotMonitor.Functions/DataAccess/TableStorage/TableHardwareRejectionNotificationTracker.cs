@@ -9,7 +9,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 {
     /// <summary>
     /// Table Storage implementation of <see cref="IHardwareRejectionNotificationTracker"/>.
-    /// PartitionKey = tenantId (lowercased), RowKey = "{manufacturer-lower}|{model-lower}" (trimmed).
+    /// PartitionKey = tenantId (lowercased). RowKey encodes the dedup subject:
+    ///   - hardware rejection: "{manufacturer-lower}|{model-lower}" (trimmed)
+    ///   - TPM PSS unsupported: "tpmpss|{serial-lower}" (trimmed; the literal "tpmpss" prefix
+    ///     cannot collide with a hardware key because no real manufacturer is named "tpmpss")
     /// Race-safe via AddEntityAsync: Azure Table Storage returns 409 Conflict if the entity already exists.
     /// </summary>
     public class TableHardwareRejectionNotificationTracker : IHardwareRejectionNotificationTracker
@@ -68,6 +71,44 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
         }
 
+        public async Task<bool> TryRegisterFirstTpmPssNotificationAsync(string tenantId, string serialNumber)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(serialNumber))
+                return false;
+
+            var partitionKey = tenantId.ToLowerInvariant();
+            var rowKey = BuildTpmPssRowKey(serialNumber);
+
+            var entity = new TableEntity(partitionKey, rowKey)
+            {
+                ["TenantId"] = tenantId,
+                ["SerialNumber"] = serialNumber,
+                ["FirstNotifiedAt"] = DateTime.UtcNow
+            };
+
+            try
+            {
+                await _table.AddEntityAsync(entity);
+                _logger.LogInformation(
+                    "TpmPssUnsupported tracker registered: tenant={TenantId} sn={SerialNumber}",
+                    tenantId, serialNumber);
+                return true;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 409)
+            {
+                // Already notified for this (tenant, serial) — no second bell.
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "TpmPssUnsupported tracker failed: tenant={TenantId} sn={SerialNumber}",
+                    tenantId, serialNumber);
+                // On unexpected failure, return false so we do not double-fire if the row was actually written.
+                return false;
+            }
+        }
+
         public async Task<int> DeleteOlderThanAsync(DateTime cutoffUtc)
         {
             try
@@ -110,6 +151,12 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             var mfr = (manufacturer ?? string.Empty).Trim().ToLowerInvariant();
             var mdl = (model ?? string.Empty).Trim().ToLowerInvariant();
             return $"{mfr}|{mdl}";
+        }
+
+        internal static string BuildTpmPssRowKey(string serialNumber)
+        {
+            var sn = (serialNumber ?? string.Empty).Trim().ToLowerInvariant();
+            return $"tpmpss|{sn}";
         }
     }
 }

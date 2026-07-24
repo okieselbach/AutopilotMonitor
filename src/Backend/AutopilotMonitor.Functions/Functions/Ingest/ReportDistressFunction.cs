@@ -269,6 +269,36 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     }
                 }
 
+                // In-app bell notification on first-ever TPM-PSS incompatibility per (tenant, serial).
+                // Same lifetime-dedup pattern as the hardware-rejection bell above. No webhook —
+                // volume is tiny and the remediation (TPM firmware update / device replacement)
+                // is not time-critical. Reports without a serial number cannot be deduped and
+                // fire no bell; they still appear in the tenant insights panel.
+                if (report.ErrorType == DistressErrorType.TpmPssUnsupported
+                    && !string.IsNullOrEmpty(serialNumber))
+                {
+                    try
+                    {
+                        var isFirst = await _hardwareBellTracker
+                            .TryRegisterFirstTpmPssNotificationAsync(tenantId, serialNumber);
+                        if (isFirst)
+                        {
+                            var deviceLabel = string.Join(" ",
+                                new[] { manufacturer, model }.Where(s => !string.IsNullOrEmpty(s)));
+                            await _tenantNotificationService.CreateNotificationAsync(
+                                tenantId,
+                                type: "tpm_pss_unsupported",
+                                title: "Device with incompatible TPM detected",
+                                message: $"Device {serialNumber}{(deviceLabel.Length > 0 ? $" ({deviceLabel})" : "")} reported a TPM that cannot perform RSA-PSS signing — the agent on this device cannot authenticate. A TPM firmware update or device replacement is required.",
+                                href: "/settings/tenant/hardware-whitelist");
+                        }
+                    }
+                    catch (Exception bellEx)
+                    {
+                        _logger.LogWarning(bellEx, "TpmPssUnsupported bell notification failed for tenant {TenantId}", tenantId);
+                    }
+                }
+
                 // Structured log (Warning, not Critical — data is unverified)
                 _logger.LogWarning(
                     "AgentDistress [{ErrorType}] tenant={TenantId} mfr={Manufacturer} model={Model} sn={SerialNumber} http={HttpStatusCode} ver={AgentVersion} certState={CertSourceState} thumbprint={CertThumbprint}: {Message}",

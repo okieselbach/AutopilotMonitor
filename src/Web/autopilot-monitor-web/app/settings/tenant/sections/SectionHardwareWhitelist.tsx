@@ -6,6 +6,7 @@ import { useTenantConfig } from "../../TenantConfigContext";
 import { TenantNotifications } from "../../TenantNotifications";
 import HardwareWhitelistSection from "../../components/HardwareWhitelistSection";
 import HardwareRejectionInsights from "../../components/HardwareRejectionInsights";
+import TpmIncompatibleDevicesInsights from "../../components/TpmIncompatibleDevicesInsights";
 
 function parseList(csv: string): string[] {
   return csv.split(",").map((s) => s.trim()).filter(Boolean);
@@ -65,6 +66,7 @@ export function SectionHardwareWhitelist() {
         hasWebhook={hasWebhook}
         readOnly={!canEditConfig}
       />
+      <TpmIncompatibleDevicesInsights getAccessToken={getAccessToken} />
     </>
   );
 }

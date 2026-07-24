@@ -59,4 +59,35 @@ public class HardwareRejectionNotificationTrackerKeyTests
         var key = TableHardwareRejectionNotificationTracker.BuildRowKey("", "");
         Assert.Equal("|", key);
     }
+
+    // =========================================================================
+    // TPM PSS row keys (same table, "tpmpss|" prefix — dedup per serial)
+    // =========================================================================
+
+    [Fact]
+    public void BuildTpmPssRowKey_LowercasesTrimsAndPrefixes()
+    {
+        var key = TableHardwareRejectionNotificationTracker.BuildTpmPssRowKey("  S4SQ8685 ");
+        Assert.Equal("tpmpss|s4sq8685", key);
+    }
+
+    [Theory]
+    [InlineData("S4SQ8685", "s4sq8685")]
+    [InlineData("s4Sq8685", "S4SQ8685")]
+    public void BuildTpmPssRowKey_IsCaseInsensitive(string serialA, string serialB)
+    {
+        Assert.Equal(
+            TableHardwareRejectionNotificationTracker.BuildTpmPssRowKey(serialA),
+            TableHardwareRejectionNotificationTracker.BuildTpmPssRowKey(serialB));
+    }
+
+    [Fact]
+    public void BuildTpmPssRowKey_DoesNotCollideWithHardwareKeyOfSameText()
+    {
+        // A hardware key is "{mfr}|{model}"; the TPM key's fixed "tpmpss|" prefix keeps the
+        // two key spaces disjoint within the shared table.
+        var hardwareKey = TableHardwareRejectionNotificationTracker.BuildRowKey("Lenovo", "S4SQ8685");
+        var tpmKey = TableHardwareRejectionNotificationTracker.BuildTpmPssRowKey("S4SQ8685");
+        Assert.NotEqual(hardwareKey, tpmKey);
+    }
 }

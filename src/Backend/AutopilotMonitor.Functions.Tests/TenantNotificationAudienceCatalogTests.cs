@@ -13,6 +13,7 @@ public class TenantNotificationAudienceCatalogTests
 {
     [Theory]
     [InlineData("hardware_rejection", NotificationAudience.Admin)]
+    [InlineData("tpm_pss_unsupported", NotificationAudience.Admin)]
     [InlineData("sla_breach", NotificationAudience.Member)]
     [InlineData("sla_consecutive_failures", NotificationAudience.Member)]
     [InlineData("sla_resolved", NotificationAudience.Member)]
