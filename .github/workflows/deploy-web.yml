@@ -21,6 +21,11 @@ jobs:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.action != 'closed')
     runs-on: ubuntu-latest
     name: Build and Deploy Job
+    # Dependabot PRs run without repo secrets, so the deploy token is absent.
+    # Surface it as an env var so the deploy step can gate on it — secrets
+    # cannot be referenced directly in an `if:` expression.
+    env:
+      DEPLOY_TOKEN: ${{ secrets.AZURE_SWA_DEPLOY_TOKEN }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -28,6 +33,9 @@ jobs:
           fetch-depth: 0  # Full history needed for git-based sitemap lastmod dates
       - name: Build And Deploy
         id: builddeploy
+        # Skip (green) instead of failing when the token is missing (Dependabot
+        # PRs); real deploys on main and internal PRs still have it.
+        if: env.DEPLOY_TOKEN != ''
         uses: Azure/static-web-apps-deploy@v1
         env:
           NEXT_PUBLIC_ENTRA_CLIENT_ID: ${{ vars.NEXT_PUBLIC_ENTRA_CLIENT_ID }}
@@ -39,9 +47,6 @@ jobs:
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_DEPLOY_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }} # Used for Github integrations (i.e. PR comments)
-          # Dependabot PRs run without repo secrets, so the deploy token is absent.
-          # Skip (green) instead of failing the check; real deploys on main still have the token.
-          skip_deploy_on_missing_secrets: true
           action: "upload"
           ###### Repository/Build Configurations - These values can be configured to match your app requirements. ######
           # For more information regarding Static Web App workflow configurations, please visit: https://aka.ms/swaworkflowconfig
@@ -54,9 +59,12 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     runs-on: ubuntu-latest
     name: Close Pull Request Job
+    env:
+      DEPLOY_TOKEN: ${{ secrets.AZURE_SWA_DEPLOY_TOKEN }}
     steps:
       - name: Close Pull Request
         id: closepullrequest
+        if: env.DEPLOY_TOKEN != ''
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_DEPLOY_TOKEN }}
