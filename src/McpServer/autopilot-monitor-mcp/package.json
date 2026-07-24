@@ -3,6 +3,9 @@
   "version": "1.5.1",
   "description": "MCP server for Autopilot-Monitor — enables AI agents to query enrollment sessions, device properties, events and vulnerabilities",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "bin": {
     "autopilot-monitor-mcp": "./dist/index.js"
   },

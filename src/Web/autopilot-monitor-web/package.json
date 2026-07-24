@@ -2,6 +2,9 @@
   "name": "autopilot-monitor-web",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev",
     "prebuild": "node scripts/sync-error-codes.js && node scripts/generate-lastmod.js",
