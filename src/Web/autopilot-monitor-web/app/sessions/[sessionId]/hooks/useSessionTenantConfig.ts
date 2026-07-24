@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { dedupedAuthFetch } from "@/lib/dedupedAuthFetch";
 
@@ -8,6 +8,10 @@ interface UseSessionTenantConfigReturn {
   showScriptOutput: boolean;
   enableSoftwareInventoryAnalyzer: boolean;
   enableIntegrityBypassAnalyzer: boolean;
+  /** Whether an on-demand diagnostics upload can succeed right now (drives the Collect Logs button). */
+  diagnosticsUploadConfigured: boolean;
+  /** Optimistic flip after a successful quick-config from the session page — avoids a refetch round-trip. */
+  markDiagnosticsConfigured: () => void;
 }
 
 /**
@@ -22,13 +26,14 @@ export function useSessionTenantConfig(
   const [showScriptOutput, setShowScriptOutput] = useState(true);
   const [enableSoftwareInventoryAnalyzer, setEnableSoftwareInventoryAnalyzer] = useState(false);
   const [enableIntegrityBypassAnalyzer, setEnableIntegrityBypassAnalyzer] = useState(true);
+  const [diagnosticsUploadConfigured, setDiagnosticsUploadConfigured] = useState(false);
 
   useEffect(() => {
     if (!sessionTenantId) return;
     let cancelled = false;
     (async () => {
       try {
-        // These three flags are exposed via the member-readable feature-flags endpoint so that
+        // These flags are exposed via the member-readable feature-flags endpoint so that
         // Operators and Viewers can load session details without 403'ing on the admin-only
         // full /api/config/{tenantId} response.
         const res = await dedupedAuthFetch(api.config.featureFlags(sessionTenantId), getAccessToken);
@@ -38,10 +43,19 @@ export function useSessionTenantConfig(
         setShowScriptOutput(cfg.showScriptOutput ?? true);
         setEnableSoftwareInventoryAnalyzer(cfg.enableSoftwareInventoryAnalyzer ?? false);
         setEnableIntegrityBypassAnalyzer(cfg.enableIntegrityBypassAnalyzer ?? true);
+        setDiagnosticsUploadConfigured(cfg.diagnosticsUploadConfigured ?? false);
       } catch { /* non-fatal */ }
     })();
     return () => { cancelled = true; };
   }, [sessionTenantId, getAccessToken]);
 
-  return { showScriptOutput, enableSoftwareInventoryAnalyzer, enableIntegrityBypassAnalyzer };
+  const markDiagnosticsConfigured = useCallback(() => setDiagnosticsUploadConfigured(true), []);
+
+  return {
+    showScriptOutput,
+    enableSoftwareInventoryAnalyzer,
+    enableIntegrityBypassAnalyzer,
+    diagnosticsUploadConfigured,
+    markDiagnosticsConfigured,
+  };
 }

@@ -32,6 +32,7 @@ import VulnerabilityReportSection from "./components/VulnerabilityReportSection"
 import IntegrityBypassSection from "./components/IntegrityBypassSection";
 import AdminOverrideModal from "./components/AdminOverrideModal";
 import ReportSessionModal from "./components/ReportSessionModal";
+import CollectLogsButton from "./components/CollectLogsButton";
 import { usePageSections } from "../../../hooks/usePageSections";
 import { PageSectionItem } from "../../../contexts/SidebarContext";
 import { InformationCircleIcon, ComputerDesktopIcon, PlayCircleIcon, SparklesIcon, ChartBarIcon, CodeBracketIcon, ArrowDownTrayIcon, ListBulletIcon, ClockIcon, ShieldCheckIcon } from "../../../lib/sidebarIcons";
@@ -403,6 +404,23 @@ export default function SessionDetailPage() {
             </h1>
           </div>
           <div className="flex flex-wrap items-center gap-3">
+            {/* Always rendered (also disabled): the visible button is the nudge towards
+                configuring diagnostics upload. Admin capability includes a GA viewing a
+                session in their own tenant; cross-tenant is gated inside the component. */}
+            <CollectLogsButton
+              sessionId={sessionId}
+              effectiveTenantId={sessionTenantId || tenantId}
+              sessionStatus={session?.status}
+              diagnosticsBlobName={session?.diagnosticsBlobName}
+              isCrossTenantView={isCrossTenantView}
+              isTenantAdmin={!!user?.isTenantAdmin || !!user?.isGlobalAdmin}
+              isOperator={user?.role === 'Operator'}
+              diagnosticsConfigured={tenantConfig.diagnosticsUploadConfigured}
+              onDiagnosticsConfigured={tenantConfig.markDiagnosticsConfigured}
+              events={events}
+              getAccessToken={getAccessToken}
+              addNotification={addNotification}
+            />
             {session?.diagnosticsBlobName && (
               <button
                 onClick={async () => {

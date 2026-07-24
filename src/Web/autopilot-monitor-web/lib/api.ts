@@ -54,6 +54,10 @@ export const api = {
       `${API_BASE_URL}/api/sessions/${sessionId}/mark-failed${qs({ tenantId })}`,
     markSucceeded: (sessionId: string, tenantId?: string) =>
       `${API_BASE_URL}/api/sessions/${sessionId}/mark-succeeded${qs({ tenantId })}`,
+    // POST { type, reason } — queues a ServerAction delivered with the agent's next ingest
+    // response (e.g. request_diagnostics for the "Collect Logs" button).
+    queueAction: (sessionId: string, tenantId?: string) =>
+      `${API_BASE_URL}/api/sessions/${sessionId}/actions${qs({ tenantId })}`,
     report: (sessionId: string, tenantId?: string) =>
       `${API_BASE_URL}/api/sessions/${sessionId}/report${qs({ tenantId })}`,
     quickSearch: (q: string) =>
