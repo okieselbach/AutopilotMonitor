@@ -56,6 +56,15 @@ public enum EndpointPolicy
     MemberRead,
 
     /// <summary>
+    /// Own-tenant Admin or Operator (no Viewer), OR Global Admin. Tenant-scoped OPERATIONAL write
+    /// access: actions a troubleshooting operator may take on a session/device without holding
+    /// config-level admin power. Routes on this tier whose function accepts multiple operation
+    /// kinds MUST re-gate the admin-only kinds in the function on
+    /// <c>RequestContext.IsTenantAdmin || IsGlobalAdmin</c> (see QueueSessionActionFunction).
+    /// </summary>
+    TenantAdminOrOperator,
+
+    /// <summary>
     /// Own-tenant Admin, OR a platform role (Global Admin / Global Reader). Tenant-scoped admin-tier
     /// READ access (e.g. GET config/{tenantId}). Like <see cref="TenantAdminOrGA"/> but additionally
     /// admits the read-only Global Reader — used only on GET routes so the reader gets visibility
@@ -254,7 +263,10 @@ public static class EndpointAccessPolicyCatalog
         new("PUT",    "rules/ime-log-patterns/{patternId}", EndpointPolicy.TenantAdminOrGA),
         new("POST",   "sessions/{sessionId}/mark-failed",     EndpointPolicy.TenantAdminOrGA),
         new("POST",   "sessions/{sessionId}/mark-succeeded", EndpointPolicy.TenantAdminOrGA),
-        new("POST",   "sessions/{sessionId}/actions",          EndpointPolicy.TenantAdminOrGA),
+        // Operator tier so troubleshooting staff can queue request_diagnostics ("Collect Logs" in
+        // the portal); the function re-gates the admin-only action types (terminate_session,
+        // rotate_config) on RequestContext.IsTenantAdmin || IsGlobalAdmin.
+        new("POST",   "sessions/{sessionId}/actions",          EndpointPolicy.TenantAdminOrOperator),
         new("POST",   "sessions/{sessionId}/report",        EndpointPolicy.TenantAdminOrGA),
         new("POST",   "diagnostics/files",                  EndpointPolicy.TenantAdminOrGA),
         new("DELETE", "sessions/{sessionId}",      EndpointPolicy.TenantAdminOrGA, TenantScoping.QueryParam),

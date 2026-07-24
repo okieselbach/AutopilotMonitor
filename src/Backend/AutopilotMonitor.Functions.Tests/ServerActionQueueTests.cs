@@ -1,3 +1,4 @@
+using AutopilotMonitor.Functions.Functions.Sessions;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
 using Newtonsoft.Json;
@@ -11,6 +12,35 @@ namespace AutopilotMonitor.Functions.Tests;
 /// </summary>
 public class ServerActionQueueTests
 {
+    // ── Per-type caller gate (route tier is TenantAdminOrOperator; the function must
+    //    re-gate admin-only types for Operators) ─────────────────────────────────────
+
+    [Theory]
+    // Operator (neither admin flag): only request_diagnostics
+    [InlineData(ServerActionTypes.RequestDiagnostics, false, false, true)]
+    [InlineData(ServerActionTypes.TerminateSession, false, false, false)]
+    [InlineData(ServerActionTypes.RotateConfig, false, false, false)]
+    // Tenant Admin: everything
+    [InlineData(ServerActionTypes.TerminateSession, true, false, true)]
+    [InlineData(ServerActionTypes.RotateConfig, true, false, true)]
+    [InlineData(ServerActionTypes.RequestDiagnostics, true, false, true)]
+    // Global Admin: everything
+    [InlineData(ServerActionTypes.TerminateSession, false, true, true)]
+    [InlineData(ServerActionTypes.RotateConfig, false, true, true)]
+    public void IsTypeAllowedForCaller_Matrix(
+        string actionType, bool isTenantAdmin, bool isGlobalAdmin, bool expected)
+    {
+        Assert.Equal(expected,
+            QueueSessionActionFunction.IsTypeAllowedForCaller(actionType, isTenantAdmin, isGlobalAdmin));
+    }
+
+    [Fact]
+    public void IsTypeAllowedForCaller_IsCaseInsensitive_ForOperator()
+    {
+        Assert.True(QueueSessionActionFunction.IsTypeAllowedForCaller(
+            "Request_Diagnostics", isTenantAdmin: false, isGlobalAdmin: false));
+    }
+
     [Fact]
     public void DeserializePendingActions_NullOrEmpty_ReturnsEmpty()
     {

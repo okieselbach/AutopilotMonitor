@@ -154,6 +154,80 @@ public class DiagnosticsBlobCascadeDeleterTests
         Assert.Equal(0, deleter.HostedDeleteCalls);
     }
 
+    // ── REAL DeleteAsync, Hosted branch — prefix sweep + belt-and-braces name delete ──
+    // The RecordingDeleter above replaces DeleteAsync wholesale, so these run the REAL
+    // base implementation against a fake storage service to pin the sweep behaviour.
+
+    private const string SessionGuid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+
+    [Fact]
+    public async Task RealDeleteAsync_Hosted_SweepsSessionPrefix_AndDeletesManifestBlob()
+    {
+        var storage = new RecordingHostedStorage();
+        var deleter = RealDeleter(storage);
+        var manifest = ManifestWith(blobName: $"{TenantA}/{Filename}", destination: "Hosted");
+        manifest.SessionId = SessionGuid;
+
+        var outcome = await deleter.DeleteAsync(manifest);
+
+        Assert.Equal(DiagnosticsBlobDeleteOutcome.HostedDeleted, outcome);
+        Assert.Equal((TenantA, SessionGuid), storage.SweptSession);
+        Assert.Equal($"{TenantA}/{Filename}", storage.DeletedBlobPath);
+    }
+
+    [Fact]
+    public async Task RealDeleteAsync_Hosted_NonGuidSessionId_SkipsSweep_StillDeletesManifestBlob()
+    {
+        // Legacy manifests may carry a malformed/empty SessionId — the sweep must degrade
+        // to the single-blob delete, never throw into the cascade poison path.
+        var storage = new RecordingHostedStorage();
+        var deleter = RealDeleter(storage);
+        var manifest = ManifestWith(blobName: $"{TenantA}/{Filename}", destination: "Hosted");
+        manifest.SessionId = "not-a-guid";
+
+        var outcome = await deleter.DeleteAsync(manifest);
+
+        Assert.Equal(DiagnosticsBlobDeleteOutcome.HostedDeleted, outcome);
+        Assert.Null(storage.SweptSession);
+        Assert.Equal($"{TenantA}/{Filename}", storage.DeletedBlobPath);
+    }
+
+    private static DiagnosticsBlobCascadeDeleter RealDeleter(RecordingHostedStorage storage)
+        // TenantConfigurationService is only consulted on the CustomerSas branch; the
+        // Hosted-branch tests never reach it, so null keeps the harness Azure-free.
+        => new(
+            storage,
+            tenantConfig: null!,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<DiagnosticsBlobCascadeDeleter>.Instance);
+
+    private sealed class RecordingHostedStorage : HostedDiagnosticsBlobService
+    {
+        public (string TenantId, string SessionId)? SweptSession { get; private set; }
+        public string? DeletedBlobPath { get; private set; }
+
+        public RecordingHostedStorage()
+            : base(
+                new Azure.Storage.Blobs.BlobServiceClient("UseDevelopmentStorage=true"),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<HostedDiagnosticsBlobService>.Instance,
+                usesManagedIdentity: false)
+        {
+        }
+
+        public override Task<int> DeleteBySessionPrefixAsync(
+            string tenantId, string sessionId, CancellationToken cancellationToken = default)
+        {
+            SweptSession = (tenantId, sessionId);
+            return Task.FromResult(1);
+        }
+
+        public override Task<bool> DeleteIfExistsAsync(
+            string blobPath, CancellationToken cancellationToken = default)
+        {
+            DeletedBlobPath = blobPath;
+            return Task.FromResult(true);
+        }
+    }
+
     // ── BuildBlobUrl helper (CustomerSas URL construction) ─────────────────────────
 
     [Fact]

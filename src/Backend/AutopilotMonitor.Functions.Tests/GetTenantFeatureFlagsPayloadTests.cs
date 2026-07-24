@@ -35,6 +35,7 @@ public class GetTenantFeatureFlagsPayloadTests
         Assert.Equal(new[]
         {
             "bootstrapTokenEnabled",
+            "diagnosticsUploadConfigured",
             "edition",
             "enableIntegrityBypassAnalyzer",
             "enableSoftwareInventoryAnalyzer",
@@ -112,6 +113,35 @@ public class GetTenantFeatureFlagsPayloadTests
         Assert.DoesNotContain("diagnosticsBlobSasUrl", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("teamsWebhookUrl", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("webhookUrl", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ── diagnosticsUploadConfigured (drives the session-detail "Collect Logs" button) ──
+
+    [Theory]
+    // mode Off (or unset) → never configured, regardless of destination
+    [InlineData(null, null, null, false)]
+    [InlineData("Off", "https://x.blob.core.windows.net/c?sv=1", "CustomerSas", false)]
+    [InlineData("Off", null, "Hosted", false)]
+    // mode active + Hosted destination → configured without any SAS
+    [InlineData("OnFailure", null, "Hosted", true)]
+    [InlineData("Always", null, "Hosted", true)]
+    // mode active + CustomerSas → configured only when a SAS URL is present
+    [InlineData("OnFailure", "https://x.blob.core.windows.net/c?sv=1", "CustomerSas", true)]
+    [InlineData("OnFailure", null, "CustomerSas", false)]
+    [InlineData("Always", "", null, false)]
+    public void Payload_DiagnosticsUploadConfigured_ModeAndDestinationMatrix(
+        string? mode, string? sasUrl, string? destination, bool expected)
+    {
+        // Null-forgiving: the model declares these non-nullable with defaults, but table
+        // round-trips can produce null at runtime — the payload must tolerate that shape.
+        var element = Serialize(new TenantConfiguration
+        {
+            DiagnosticsUploadMode = mode!,
+            DiagnosticsBlobSasUrl = sasUrl!,
+            DiagnosticsUploadDestination = destination!,
+        });
+
+        Assert.Equal(expected, element.GetProperty("diagnosticsUploadConfigured").GetBoolean());
     }
 
     // ── Edition / trial surface ─────────────────────────────────────────────

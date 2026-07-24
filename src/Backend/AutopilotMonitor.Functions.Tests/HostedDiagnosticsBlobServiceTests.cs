@@ -4,9 +4,12 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Services.Diagnostics;
+using Azure;
 using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
 using Azure.Storage.Sas;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using Xunit;
 
 namespace AutopilotMonitor.Functions.Tests;
@@ -170,6 +173,119 @@ public class HostedDiagnosticsBlobServiceTests
         Assert.NotEqual(a.BlobPath, b.BlobPath);
         Assert.StartsWith(TenantA + "/", a.BlobPath);
         Assert.StartsWith(TenantB + "/", b.BlobPath);
+    }
+
+    // ── DeleteBySessionPrefixAsync — cascade sweep for multi-package sessions ──────
+
+    private const string SessionA = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+
+    [Theory]
+    [InlineData("not-a-guid", SessionA)]
+    [InlineData(TenantA, "not-a-guid")]
+    public async Task DeleteBySessionPrefix_RejectsNonGuidInputs(string tenantId, string sessionId)
+    {
+        var svc = new PrefixDeleteFake(containerExists: true);
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => svc.DeleteBySessionPrefixAsync(tenantId, sessionId));
+    }
+
+    [Fact]
+    public async Task DeleteBySessionPrefix_MissingContainer_IsNoOp()
+    {
+        var svc = new PrefixDeleteFake(containerExists: false);
+        var deleted = await svc.DeleteBySessionPrefixAsync(TenantA, SessionA);
+        Assert.Equal(0, deleted);
+        Assert.Null(svc.CapturedPrefix);
+    }
+
+    [Fact]
+    public async Task DeleteBySessionPrefix_UsesSessionScopedPrefix_AndDeletesEveryMatch()
+    {
+        // Two packages for the session: an on-demand (server-requested) one and the terminal
+        // one. The sweep must issue a delete for BOTH even though the Sessions row (and thus
+        // the deletion manifest) only references the last.
+        var svc = new PrefixDeleteFake(
+            containerExists: true,
+            blobNames: new[]
+            {
+                $"{TenantA}/AgentDiagnostics-{SessionA}-20260724T100000-server-requested.zip",
+                $"{TenantA}/AgentDiagnostics-{SessionA}-20260724T113000.zip",
+            });
+
+        var deleted = await svc.DeleteBySessionPrefixAsync(TenantA, SessionA);
+
+        Assert.Equal(2, deleted);
+        Assert.Equal($"{TenantA}/AgentDiagnostics-{SessionA}-", svc.CapturedPrefix);
+        Assert.Equal(2, svc.DeletedBlobNames.Count);
+        Assert.All(svc.DeletedBlobNames, n => Assert.StartsWith(svc.CapturedPrefix!, n));
+    }
+
+    [Fact]
+    public async Task DeleteBySessionPrefix_NoMatches_ReturnsZero()
+    {
+        var svc = new PrefixDeleteFake(containerExists: true, blobNames: Array.Empty<string>());
+        var deleted = await svc.DeleteBySessionPrefixAsync(TenantA, SessionA);
+        Assert.Equal(0, deleted);
+        Assert.Equal($"{TenantA}/AgentDiagnostics-{SessionA}-", svc.CapturedPrefix);
+    }
+
+    /// <summary>
+    /// Overrides <c>GetContainerClient</c> with a Moq'd <see cref="BlobContainerClient"/> whose
+    /// enumeration returns a canned page for the CAPTURED prefix. Prefix filtering itself is
+    /// the Azure SDK's contract — these tests pin what prefix we ask for and that every
+    /// returned item is deleted.
+    /// </summary>
+    private sealed class PrefixDeleteFake : HostedDiagnosticsBlobService
+    {
+        private readonly Mock<BlobContainerClient> _container;
+
+        public string? CapturedPrefix { get; private set; }
+        public List<string> DeletedBlobNames { get; } = new();
+
+        public PrefixDeleteFake(bool containerExists, string[]? blobNames = null)
+            : base(
+                new BlobServiceClient("UseDevelopmentStorage=true"),
+                NullLogger<HostedDiagnosticsBlobService>.Instance,
+                usesManagedIdentity: false)
+        {
+            _container = new Mock<BlobContainerClient>();
+            _container
+                .Setup(c => c.ExistsAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(Response.FromValue(containerExists, Mock.Of<Response>()));
+
+            _container
+                .Setup(c => c.GetBlobsAsync(
+                    It.IsAny<BlobTraits>(), It.IsAny<BlobStates>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+                .Returns((BlobTraits _, BlobStates _, string? prefix, CancellationToken _) =>
+                {
+                    CapturedPrefix = prefix;
+                    var items = (blobNames ?? Array.Empty<string>())
+                        .Select(n => BlobsModelFactory.BlobItem(name: n))
+                        .ToList();
+                    return AsyncPageable<BlobItem>.FromPages(new[]
+                    {
+                        Page<BlobItem>.FromValues(items, continuationToken: null, Mock.Of<Response>()),
+                    });
+                });
+
+            _container
+                .Setup(c => c.GetBlobClient(It.IsAny<string>()))
+                .Returns((string name) =>
+                {
+                    var blob = new Mock<BlobClient>();
+                    blob
+                        .Setup(b => b.DeleteIfExistsAsync(
+                            It.IsAny<DeleteSnapshotsOption>(), It.IsAny<BlobRequestConditions>(), It.IsAny<CancellationToken>()))
+                        .ReturnsAsync(() =>
+                        {
+                            DeletedBlobNames.Add(name);
+                            return Response.FromValue(true, Mock.Of<Response>());
+                        });
+                    return blob.Object;
+                });
+        }
+
+        protected override BlobContainerClient GetContainerClient() => _container.Object;
     }
 
     // ── Constants ───────────────────────────────────────────────────────────────────

@@ -76,6 +76,14 @@ namespace AutopilotMonitor.Functions.Functions.Config
             return new
             {
                 bootstrapTokenEnabled = config.BootstrapTokenEnabled,
+                // Session-detail "Collect Logs" button: whether an on-demand diagnostics upload can
+                // succeed right now (mode not Off + a usable destination). Members below Admin cannot
+                // read the full config, so this boolean is their only signal. Deliberately exposes no
+                // destination detail — just "would an upload work".
+                diagnosticsUploadConfigured =
+                    !string.Equals(config.DiagnosticsUploadMode ?? "Off", "Off", StringComparison.OrdinalIgnoreCase)
+                    && GetAgentConfigFunction.ResolveDiagnosticsUploadEnabled(
+                        config.DiagnosticsBlobSasUrl, config.DiagnosticsUploadDestination),
                 // Drives the "Autopilot Device Validation disabled" dashboard banner
                 // (useTenantSecurityConfig).
                 validateAutopilotDevice = config.ValidateAutopilotDevice,

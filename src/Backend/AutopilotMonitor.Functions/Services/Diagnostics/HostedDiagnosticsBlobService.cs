@@ -166,6 +166,40 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
         }
 
         /// <summary>
+        /// Deletes every hosted diagnostics blob belonging to one session
+        /// (prefix <c>{tenantId}/AgentDiagnostics-{sessionId}-</c>). A session can leave more
+        /// than one blob behind — an on-demand ("Collect Logs" / server-requested) upload is
+        /// later overwritten on the Sessions row by the terminal package, so deleting only the
+        /// row-referenced name would strand the earlier blobs at offboarding.
+        /// Returns the number of blobs deleted. Idempotent; a missing container is a no-op.
+        /// </summary>
+        public virtual async Task<int> DeleteBySessionPrefixAsync(
+            string tenantId, string sessionId, CancellationToken cancellationToken = default)
+        {
+            SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+            SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
+
+            var containerClient = GetContainerClient();
+            if (!await containerClient.ExistsAsync(cancellationToken))
+                return 0;
+
+            // Trailing dash bounds the match to this exact session id (GUIDs are fixed-length,
+            // but the explicit separator keeps the invariant obvious and layout-proof).
+            var prefix = $"{tenantId}/AgentDiagnostics-{sessionId}-";
+            var deleted = 0;
+            await foreach (var item in containerClient.GetBlobsAsync(
+                BlobTraits.None, BlobStates.None, prefix: prefix, cancellationToken: cancellationToken))
+            {
+                var response = await containerClient.GetBlobClient(item.Name)
+                    .DeleteIfExistsAsync(cancellationToken: cancellationToken);
+                if (response.Value)
+                    deleted++;
+            }
+
+            return deleted;
+        }
+
+        /// <summary>
         /// Enumerates blobs under a single tenant's prefix (<c>{tenantId}/</c>).
         /// Used by ad-hoc operator scripts and (later) any orphan-scan job.
         /// </summary>

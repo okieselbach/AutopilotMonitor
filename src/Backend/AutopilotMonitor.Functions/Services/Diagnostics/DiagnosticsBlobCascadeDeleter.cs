@@ -75,10 +75,23 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
 
             if (destination == DestinationHosted)
             {
+                // Prefix sweep first: the session may have produced several packages (on-demand
+                // server-requested uploads plus the terminal one) while the manifest carries only
+                // the last row-referenced name. Guarded by TryParse because a malformed legacy
+                // manifest must degrade to the single-blob delete, not poison the cascade.
+                var swept = 0;
+                if (Guid.TryParse(manifest.SessionId, out _))
+                {
+                    swept = await _hostedDiagnostics.DeleteBySessionPrefixAsync(
+                        manifest.TenantId, manifest.SessionId, cancellationToken);
+                }
+
+                // Belt-and-braces: the manifest-named blob covers any shape outside the canonical
+                // {tenantId}/AgentDiagnostics-{sessionId}- layout. Idempotent (404 = no-op).
                 await _hostedDiagnostics.DeleteIfExistsAsync(manifest.DiagnosticsBlobName, cancellationToken);
                 _logger.LogInformation(
-                    "Cascade deleted hosted diagnostics blob tenant={TenantId} blob={Blob}",
-                    manifest.TenantId, manifest.DiagnosticsBlobName);
+                    "Cascade deleted hosted diagnostics blobs tenant={TenantId} blob={Blob} sweptByPrefix={Swept}",
+                    manifest.TenantId, manifest.DiagnosticsBlobName, swept);
                 return DiagnosticsBlobDeleteOutcome.HostedDeleted;
             }
 

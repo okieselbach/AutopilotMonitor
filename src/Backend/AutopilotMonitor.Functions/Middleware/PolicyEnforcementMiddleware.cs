@@ -336,6 +336,9 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
             case EndpointPolicy.TenantAdminOrGlobalReader:
                 return await EvaluateTenantAdminOrGlobalReaderAsync(tenantId, upn, principal, userIdentifier);
 
+            case EndpointPolicy.TenantAdminOrOperator:
+                return await EvaluateTenantAdminOrOperatorAsync(tenantId, upn, principal, userIdentifier);
+
             case EndpointPolicy.TenantAdminOrGA:
                 return await EvaluateTenantAdminOrGAAsync(tenantId, upn, principal, userIdentifier);
 
@@ -467,6 +470,28 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
             return CatalogDecisionResult.Allow(userIdentifier, Constants.TenantRoles.Admin, "TenantAdmin");
 
         return CatalogDecisionResult.Deny(userIdentifier, role?.Role ?? "NonMember", "NotAdminOrGA");
+    }
+
+    /// <summary>
+    /// Operational write tier: own-tenant Admin or Operator (no Viewer), or Global Admin.
+    /// The admitted member's role flows onto RequestContext.UserRole so a function that
+    /// serves multiple operation kinds can re-gate the admin-only ones on IsTenantAdmin.
+    /// The read-only Global Reader is deliberately NOT admitted — this is a write tier.
+    /// </summary>
+    private async Task<CatalogDecisionResult> EvaluateTenantAdminOrOperatorAsync(
+        string? tenantId, string? upn, ClaimsPrincipal? principal, string userIdentifier)
+    {
+        if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(upn))
+            return CatalogDecisionResult.Deny(userIdentifier, "N/A", "MissingClaims");
+
+        if (await _globalAdminService.IsGlobalAdminAsync(upn))
+            return CatalogDecisionResult.Allow(userIdentifier, "GlobalAdmin", "GABypass");
+
+        var role = await ResolveEffectiveRoleAsync(tenantId, upn, principal);
+        if (role?.Role == Constants.TenantRoles.Admin || role?.Role == Constants.TenantRoles.Operator)
+            return CatalogDecisionResult.Allow(userIdentifier, role.Role, "TenantAdminOrOperator");
+
+        return CatalogDecisionResult.Deny(userIdentifier, role?.Role ?? "NonMember", "NotAdminOperatorOrGA");
     }
 
     private async Task<CatalogDecisionResult> EvaluateBootstrapManagerOrGAAsync(

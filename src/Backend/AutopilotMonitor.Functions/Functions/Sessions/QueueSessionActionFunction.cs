@@ -32,6 +32,28 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             ServerActionTypes.RequestDiagnostics
         };
 
+        /// <summary>
+        /// Action types an Operator may queue. The route is TenantAdminOrOperator so troubleshooting
+        /// staff can trigger an on-demand diagnostics collection; everything with config or lifecycle
+        /// impact (terminate_session, rotate_config) stays Admin/GA-only via <see cref="IsTypeAllowedForCaller"/>.
+        /// </summary>
+        private static readonly HashSet<string> OperatorAllowedTypes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ServerActionTypes.RequestDiagnostics
+        };
+
+        /// <summary>
+        /// Type-level authorization on top of the route policy: Admins and Global Admins may queue
+        /// every allowed type, Operators only the types in <see cref="OperatorAllowedTypes"/>.
+        /// Internal-static so tests can pin the matrix without an HTTP host.
+        /// </summary>
+        internal static bool IsTypeAllowedForCaller(string actionType, bool isTenantAdmin, bool isGlobalAdmin)
+        {
+            if (isTenantAdmin || isGlobalAdmin)
+                return true;
+            return OperatorAllowedTypes.Contains(actionType);
+        }
+
         public QueueSessionActionFunction(
             ILogger<QueueSessionActionFunction> logger,
             ISessionRepository sessionRepo,
@@ -53,9 +75,11 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         {
             try
             {
-                // Authentication + TenantAdminOrGA authorization enforced by PolicyEnforcementMiddleware.
+                // Authentication + TenantAdminOrOperator authorization enforced by
+                // PolicyEnforcementMiddleware; per-type re-gating for Operators happens below.
                 var tenantId = TenantHelper.GetTenantId(req);
                 var userIdentifier = TenantHelper.GetUserIdentifier(req);
+                var requestCtx = req.GetRequestContext();
 
                 string body;
                 using (var reader = new StreamReader(req.Body))
@@ -77,6 +101,20 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
 
                 if (!AllowedTypes.Contains(action.Type))
                     return await BadRequestAsync(req, $"Unknown action type '{action.Type}'. Allowed: {string.Join(", ", AllowedTypes)}");
+
+                if (!IsTypeAllowedForCaller(action.Type, requestCtx.IsTenantAdmin, requestCtx.IsGlobalAdmin))
+                {
+                    _logger.LogWarning(
+                        "Operator {User} denied queueing admin-only action '{Type}' for session {SessionId}",
+                        userIdentifier, action.Type, sessionId);
+                    var forbidden = req.CreateResponse(HttpStatusCode.Forbidden);
+                    await forbidden.WriteAsJsonAsync(new
+                    {
+                        success = false,
+                        message = $"Action type '{action.Type}' requires the Tenant Admin role"
+                    });
+                    return forbidden;
+                }
 
                 // Stamp server-side fields — never trust client timestamps, and never let the caller
                 // forge a RuleId (that's reserved for the RuleEngine).

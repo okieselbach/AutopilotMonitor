@@ -205,6 +205,99 @@ public class PolicyEnforcementMiddlewareTests
         Assert.Equal(403, result.StatusCode);
     }
 
+    // ── TenantAdminOrOperator (POST sessions/{id}/actions — "Collect Logs") ────────
+
+    private const string SessionA = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+
+    private static void AsTenantMemberRole(Harness h, string tenantId, string upn, string role) =>
+        h.Repo.Setup(r => r.GetTenantMemberAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(new TenantMember { Upn = upn, TenantId = tenantId, Role = role, IsEnabled = true });
+
+    [Fact]
+    public async Task SessionActions_TenantOperator_IsAllowed_WithOperatorRoleOnContext()
+    {
+        const string upn = "operator@contoso.com";
+        var h = BuildHarness();
+        AsTenantMemberRole(h, TenantA, upn, Constants.TenantRoles.Operator);
+
+        var result = await h.Middleware.DecideAsync(
+            "POST", $"/api/sessions/{SessionA}/actions", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed);
+        // The function's per-type gate depends on these exact flags: an Operator must arrive
+        // with IsTenantAdmin=false + UserRole=Operator so terminate_session/rotate_config 403.
+        Assert.False(result.Context!.IsTenantAdmin);
+        Assert.Equal(Constants.TenantRoles.Operator, result.Context!.UserRole);
+    }
+
+    [Fact]
+    public async Task SessionActions_TenantAdmin_IsAllowed_WithAdminFlag()
+    {
+        const string upn = "admin@contoso.com";
+        var h = BuildHarness();
+        h.AsTenantAdmin(TenantA, upn);
+
+        var result = await h.Middleware.DecideAsync(
+            "POST", $"/api/sessions/{SessionA}/actions", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed);
+        Assert.True(result.Context!.IsTenantAdmin);
+    }
+
+    [Fact]
+    public async Task SessionActions_TenantViewer_IsForbidden()
+    {
+        const string upn = "viewer@contoso.com";
+        var h = BuildHarness();
+        AsTenantMemberRole(h, TenantA, upn, Constants.TenantRoles.Viewer);
+
+        var result = await h.Middleware.DecideAsync(
+            "POST", $"/api/sessions/{SessionA}/actions", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.False(result.Allowed);
+        Assert.Equal(403, result.StatusCode);
+    }
+
+    [Fact]
+    public async Task SessionActions_NonMember_IsForbidden()
+    {
+        var h = BuildHarness(); // defaults: no membership, no global role
+
+        var result = await h.Middleware.DecideAsync(
+            "POST", $"/api/sessions/{SessionA}/actions", null, AuthedPrincipal(TenantA, "outsider@contoso.com"));
+
+        Assert.False(result.Allowed);
+        Assert.Equal(403, result.StatusCode);
+    }
+
+    [Fact]
+    public async Task SessionActions_GlobalAdmin_IsAllowed()
+    {
+        const string upn = "ga@platform.com";
+        var h = BuildHarness();
+        h.AsGlobalRole(Constants.GlobalRoles.GlobalAdmin);
+
+        var result = await h.Middleware.DecideAsync(
+            "POST", $"/api/sessions/{SessionA}/actions", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed);
+        Assert.True(result.Context!.IsGlobalAdmin);
+    }
+
+    [Fact]
+    public async Task SessionActions_PureGlobalReader_IsForbidden_WriteTier()
+    {
+        const string upn = "reader@platform.com";
+        var h = BuildHarness();
+        h.AsGlobalRole(Constants.GlobalRoles.GlobalReader);
+
+        var result = await h.Middleware.DecideAsync(
+            "POST", $"/api/sessions/{SessionA}/actions", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.False(result.Allowed);
+        Assert.Equal(403, result.StatusCode);
+    }
+
     // ── config GET (TenantAdminOrGlobalReader): own-tenant admin view vs reader view ──
     // GetTenantConfigurationFunction redacts only when IsGlobalReader && !(IsTenantAdmin && Target==Tenant).
     // These lock in the RequestContext that drives that decision.
