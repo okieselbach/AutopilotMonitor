@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useTenant } from '../../contexts/TenantContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotifications } from '../../contexts/NotificationContext';
+import TruncatedLabel from '@/components/TruncatedLabel';
 import { ProtectedRoute } from '../../components/ProtectedRoute';
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
@@ -333,7 +334,7 @@ export default function SlaPage() {
                           <span className="text-xs text-gray-400 w-4">{i + 1}</span>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between mb-1">
-                              <span className="text-sm text-gray-700 dark:text-gray-300 truncate pr-2">{app.appName}</span>
+                              <TruncatedLabel text={app.appName} className="text-sm text-gray-700 dark:text-gray-300 pr-2" />
                               <span className="text-sm font-medium text-red-600 dark:text-red-400 flex-shrink-0">{app.failCount} failed</span>
                             </div>
                             <div className="w-full h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
@@ -429,7 +430,9 @@ export default function SlaPage() {
                                 {v.violationType}
                               </span>
                             </td>
-                            <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 max-w-xs truncate">{v.failureReason || "-"}</td>
+                            <td className="px-6 py-4 max-w-xs">
+                              <TruncatedLabel text={v.failureReason || "-"} className="block text-sm text-gray-500 dark:text-gray-400" />
+                            </td>
                           </tr>
                         ))}
                       </tbody>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import TruncatedLabel from "@/components/TruncatedLabel";
 import { extractContinuation } from "@/lib/paginationLink";
 import { isGuid } from "@/utils/inputValidation";
 import { trackEvent } from "@/lib/appInsights";
@@ -355,8 +356,10 @@ export function SessionReportsSection({
                     <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
                       {r.submittedBy}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 truncate max-w-xs">
-                      {r.comment || <span className="text-gray-400 italic">no comment</span>}
+                    <td className="px-4 py-3 max-w-xs">
+                      {r.comment
+                        ? <TruncatedLabel interactive={false} text={r.comment} className="block text-sm text-gray-700 dark:text-gray-300" />
+                        : <span className="text-sm text-gray-400 italic">no comment</span>}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
                       {r.adminNote ? (
@@ -364,7 +367,7 @@ export function SessionReportsSection({
                           <svg className="w-4 h-4 text-indigo-500 dark:text-indigo-400 shrink-0" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
                           </svg>
-                          <span className="truncate max-w-[140px]">{r.adminNote}</span>
+                          <TruncatedLabel interactive={false} text={r.adminNote} className="max-w-[140px]" />
                         </div>
                       ) : (
                         <span className="text-gray-300 dark:text-gray-600">—</span>

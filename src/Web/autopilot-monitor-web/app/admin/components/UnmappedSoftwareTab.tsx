@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import TruncatedLabel from "@/components/TruncatedLabel";
 import { trackEvent } from "@/lib/appInsights";
 import type { UnmatchedSoftwareEntry, AutoResolveResult } from "./SoftwareMappingTypes";
 
@@ -564,9 +565,7 @@ export function UnmappedSoftwareTab({
                                 />
                               )}
                             </div>
-                            <div className="px-3 py-3 text-sm text-gray-900 dark:text-gray-100 flex-1 min-w-0 truncate">
-                              {entry.softwareName}
-                            </div>
+                            <TruncatedLabel text={entry.softwareName} className="px-3 py-3 text-sm text-gray-900 dark:text-gray-100 flex-1" />
                             <div className="px-3 py-3 text-sm text-gray-600 dark:text-gray-400 truncate" style={{ width: "18%", flexShrink: 0 }}>
                               {entry.publisher || <span className="text-gray-300 dark:text-gray-600 italic">unknown</span>}
                             </div>

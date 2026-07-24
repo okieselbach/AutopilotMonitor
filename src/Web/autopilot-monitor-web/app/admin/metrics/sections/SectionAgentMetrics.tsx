@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import TruncatedLabel from '@/components/TruncatedLabel';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { useNotifications } from '../../../../contexts/NotificationContext';
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
@@ -705,7 +706,7 @@ export function SectionAgentMetrics() {
                           <p className="text-xs text-gray-500 mb-1">Top exceptions:</p>
                           {crashRate.topExceptions.map((e) => (
                             <div key={e.exceptionType} className="flex justify-between text-xs">
-                              <span className="text-red-600 font-mono truncate mr-2">{e.exceptionType}</span>
+                              <TruncatedLabel text={e.exceptionType} className="text-red-600 font-mono mr-2" />
                               <span className="text-gray-500">{e.count}x</span>
                             </div>
                           ))}

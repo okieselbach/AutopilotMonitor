@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { partitionHistoricReplayEvents } from "@/lib/historicReplay";
+import TruncatedLabel from "@/components/TruncatedLabel";
 import { shouldSkipLowBytesTotal, shouldSkipNoActivity } from "@/lib/downloadProgressFilters";
 import { formatBytes, formatThroughput, formatDuration } from "@/lib/formatting";
 import DoBreakdownBar from "./DoBreakdownBar";
@@ -353,7 +354,7 @@ function DownloadItem({ download: dl, progressPercent }: { download: DownloadIte
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                     </svg>
                   )}
-                  <span className={`text-sm font-medium truncate ${dl.isSkipped ? "text-gray-500" : "text-gray-900"}`}>{dl.appName}</span>
+                  <TruncatedLabel text={dl.appName} className={`text-sm font-medium ${dl.isSkipped ? "text-gray-500" : "text-gray-900"}`} />
                   {dl.isSkipped && (
                     <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600 font-medium">Skipped</span>
                   )}

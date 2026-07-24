@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import TruncatedLabel from "@/components/TruncatedLabel";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { extractContinuation } from "@/lib/paginationLink";
 import { extractSessionId, buildAutoReason } from "./opsEventSessionHelpers";
@@ -445,8 +446,8 @@ export function OpsEventsSection({
                       <td className="px-3 py-2.5 text-sm font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">
                         {evt.eventType}
                       </td>
-                      <td className="px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 max-w-[300px] truncate">
-                        {evt.message}
+                      <td className="px-3 py-2.5 max-w-[300px]">
+                        <TruncatedLabel interactive={false} text={evt.message ?? ""} className="block text-sm text-gray-700 dark:text-gray-300" />
                       </td>
                       <td className="px-3 py-2.5 text-sm font-mono text-gray-700 dark:text-gray-300">
                         {evt.tenantId ? (evt.tenantId.length > 8 ? `${evt.tenantId.slice(0, 8)}...` : evt.tenantId) : <span className="text-gray-300 dark:text-gray-600">-</span>}

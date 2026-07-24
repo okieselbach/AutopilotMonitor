@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { authenticatedFetch } from "@/lib/authenticatedFetch";
+import TruncatedLabel from "@/components/TruncatedLabel";
 import { trackEvent } from "@/lib/appInsights";
 import type { AutoResolveResult, IgnoredSoftwareEntry } from "./SoftwareMappingTypes";
 
@@ -211,8 +212,8 @@ export function IgnoredSoftwareTab({
 
                   return (
                     <tr key={key} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
-                      <td className="px-3 py-3 text-sm text-gray-900 dark:text-gray-100 truncate">
-                        {entry.softwareName}
+                      <td className="px-3 py-3">
+                        <TruncatedLabel text={entry.softwareName} className="block text-sm text-gray-900 dark:text-gray-100" />
                       </td>
                       <td className="px-3 py-3 text-sm text-gray-600 dark:text-gray-400 truncate">
                         {entry.publisher || <span className="text-gray-300 dark:text-gray-600 italic">unknown</span>}

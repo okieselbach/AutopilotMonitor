@@ -3,6 +3,7 @@
 import { useTenant } from "../../contexts/TenantContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNotifications } from "../../contexts/NotificationContext";
+import TruncatedLabel from "@/components/TruncatedLabel";
 import { useSignalR } from "../../contexts/SignalRContext";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
 import { useProgressSearch } from "./hooks/useProgressSearch";
@@ -374,13 +375,16 @@ export default function ProgressPortalPage() {
                             {isCurrent && (step.id === 3 || step.id === 5) && (
                               <div className="flex items-center space-x-1.5 mt-0.5">
                                 <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse flex-shrink-0" />
-                                <span className="text-xs text-blue-500 truncate">
-                                  {currentDownload?.active && currentDownload.appName
-                                    ? `Downloading ${currentDownload.appName}...`
-                                    : currentInstall?.active && currentInstall.appName
-                                    ? `Installing ${currentInstall.appName}...`
-                                    : "Processing..."}
-                                </span>
+                                <TruncatedLabel
+                                  className="text-xs text-blue-500"
+                                  text={
+                                    currentDownload?.active && currentDownload.appName
+                                      ? `Downloading ${currentDownload.appName}...`
+                                      : currentInstall?.active && currentInstall.appName
+                                      ? `Installing ${currentInstall.appName}...`
+                                      : "Processing..."
+                                  }
+                                />
                               </div>
                             )}
                           </div>
@@ -398,9 +402,7 @@ export default function ProgressPortalPage() {
                       <div>
                         <p className="text-xs text-blue-500 mb-1 font-medium">Downloading</p>
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm text-blue-700 font-medium truncate pr-2">
-                            {currentDownload.appName}
-                          </span>
+                          <TruncatedLabel text={currentDownload.appName} className="text-sm text-blue-700 font-medium pr-2" />
                           {currentDownload.downloadRateBps > 0 && (
                             <span className="text-xs text-blue-500 flex-shrink-0">
                               {currentDownload.downloadRateBps >= 1024 * 1024
@@ -443,9 +445,7 @@ export default function ProgressPortalPage() {
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-1.5 min-w-0">
                             <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse flex-shrink-0" />
-                            <span className="text-sm text-blue-700 font-medium truncate">
-                              {currentInstall.appName}
-                            </span>
+                            <TruncatedLabel text={currentInstall.appName} className="text-sm text-blue-700 font-medium" />
                           </div>
                           {installElapsedMs != null && installElapsedMs > 0 && (
                             <span className="text-xs text-blue-600 font-medium tabular-nums flex-shrink-0 ml-2">

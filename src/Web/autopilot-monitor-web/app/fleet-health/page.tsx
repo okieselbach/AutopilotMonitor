@@ -10,6 +10,7 @@ import { useNotifications } from "../../contexts/NotificationContext";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import FleetStatCard from "./components/FleetStatCard";
+import TruncatedLabel from "../../components/TruncatedLabel";
 import { useFleetHealth } from "./hooks/useFleetHealth";
 import { useAggregatedAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
@@ -404,9 +405,10 @@ export default function FleetHealthPage() {
                       </span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm text-gray-700 truncate pr-2">
-                            {fr.reason}
-                          </span>
+                          <TruncatedLabel
+                            text={fr.reason}
+                            className="text-sm text-gray-700 pr-2"
+                          />
                           <span className="text-sm font-medium text-gray-900 flex-shrink-0">
                             ({fr.count})
                           </span>
@@ -444,9 +446,10 @@ export default function FleetHealthPage() {
                       </span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm text-gray-700 truncate pr-2">
-                            {m.model}
-                          </span>
+                          <TruncatedLabel
+                            text={m.model}
+                            className="text-sm text-gray-700 pr-2"
+                          />
                           <span className="text-sm font-medium text-gray-900 flex-shrink-0">
                             {m.avgMinutes} min
                           </span>
@@ -479,9 +482,10 @@ export default function FleetHealthPage() {
                       </span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm text-gray-700 truncate pr-2">
-                            {m.model}
-                          </span>
+                          <TruncatedLabel
+                            text={m.model}
+                            className="text-sm text-gray-700 pr-2"
+                          />
                           <span className="text-sm font-medium text-red-600 flex-shrink-0">
                             {m.failed} failed
                           </span>
@@ -545,9 +549,10 @@ export default function FleetHealthPage() {
                         </span>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between mb-1">
-                            <span className="text-sm text-gray-700 truncate pr-2">
-                              {app.appName}
-                            </span>
+                            <TruncatedLabel
+                              text={app.appName}
+                              className="text-sm text-gray-700 pr-2"
+                            />
                             <span className="text-sm font-medium text-gray-900 flex-shrink-0">
                               {avgLabel} avg
                             </span>
@@ -595,9 +600,10 @@ export default function FleetHealthPage() {
                       </span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm text-gray-700 truncate pr-2">
-                            {app.appName}
-                          </span>
+                          <TruncatedLabel
+                            text={app.appName}
+                            className="text-sm text-gray-700 pr-2"
+                          />
                           <span className="text-sm font-medium text-red-600 flex-shrink-0">
                             {app.failed} failed
                           </span>

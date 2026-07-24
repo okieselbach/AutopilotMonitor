@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
+import TruncatedLabel from "@/components/TruncatedLabel";
 import { useTenant } from "../../contexts/TenantContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { api } from "@/lib/api";
@@ -323,18 +324,14 @@ export default function GeographicPerformancePage() {
               </div>
               <div className="bg-white rounded-lg shadow p-4">
                 <div className="text-sm font-medium text-gray-500">Fastest Location</div>
-                <div className="text-lg font-bold text-green-600 truncate" title={stats.fastest?.locationKey}>
-                  {stats.fastest?.locationKey || "—"}
-                </div>
+                <TruncatedLabel text={stats.fastest?.locationKey || "—"} className="block text-lg font-bold text-green-600" />
                 <div className="text-xs text-gray-400">
                   {stats.fastest ? `${Math.round(stats.fastest.avgDurationMinutes)} min avg` : "No data"}
                 </div>
               </div>
               <div className="bg-white rounded-lg shadow p-4">
                 <div className="text-sm font-medium text-gray-500">Slowest Location</div>
-                <div className="text-lg font-bold text-red-600 truncate" title={stats.slowest?.locationKey}>
-                  {stats.slowest?.locationKey || "—"}
-                </div>
+                <TruncatedLabel text={stats.slowest?.locationKey || "—"} className="block text-lg font-bold text-red-600" />
                 <div className="text-xs text-gray-400">
                   {stats.slowest ? `${Math.round(stats.slowest.avgDurationMinutes)} min avg` : "No data"}
                 </div>
