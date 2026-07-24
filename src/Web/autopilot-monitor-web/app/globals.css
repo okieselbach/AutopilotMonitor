@@ -124,6 +124,12 @@ body {
 .dark .hover\:bg-gray-100:hover {
   background-color: #334155 !important;
 }
+.dark .hover\:bg-gray-200:hover {
+  background-color: #334155 !important;
+}
+.dark .hover\:bg-gray-300:hover {
+  background-color: #475569 !important;
+}
 .dark .hover\:bg-indigo-100:hover {
   background-color: #312e81 !important;
 }
@@ -132,6 +138,60 @@ body {
 }
 .dark .hover\:bg-cyan-50:hover {
   background-color: #0c2a3d !important;
+}
+/* Light hover tints (50/100/200) flash near-white in dark mode without an
+   override — map each family onto its dark -50 tone (one step lighter for
+   the 100/200 variants so hovering a -50 base still gives feedback). */
+.dark .hover\:bg-blue-50:hover {
+  background-color: #1e3a5f !important;
+}
+.dark .hover\:bg-blue-100:hover,
+.dark .hover\:bg-blue-200:hover {
+  background-color: #26497a !important;
+}
+.dark .hover\:bg-purple-50:hover {
+  background-color: #2d1b4e !important;
+}
+.dark .hover\:bg-purple-100:hover,
+.dark .hover\:bg-purple-200:hover {
+  background-color: #3b2565 !important;
+}
+.dark .hover\:bg-red-50:hover {
+  background-color: #3b1c1c !important;
+}
+.dark .hover\:bg-red-100:hover,
+.dark .hover\:bg-red-200:hover {
+  background-color: #4a2424 !important;
+}
+.dark .hover\:bg-amber-50:hover,
+.dark .hover\:bg-yellow-50:hover {
+  background-color: #3d2e0a !important;
+}
+.dark .hover\:bg-amber-100:hover,
+.dark .hover\:bg-amber-200:hover,
+.dark .hover\:bg-yellow-100:hover {
+  background-color: #4d3a0e !important;
+}
+.dark .hover\:bg-green-100:hover,
+.dark .hover\:bg-green-200:hover {
+  background-color: #1a4436 !important;
+}
+.dark .hover\:bg-orange-100:hover,
+.dark .hover\:bg-orange-200:hover {
+  background-color: #4d300d !important;
+}
+.dark .hover\:bg-sky-100:hover {
+  background-color: #10394f !important;
+}
+.dark .hover\:bg-teal-50:hover {
+  background-color: #0d2e2e !important;
+}
+.dark .hover\:bg-emerald-100:hover {
+  background-color: #124430 !important;
+}
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-100:hover {
+  background-color: #334155 !important;
 }
 
 /* -- Input fields -- */
@@ -231,6 +291,35 @@ body {
 }
 .dark .bg-amber-100 {
   background-color: #3d2e0a !important;
+}
+
+/* -- Slate family (neutral chips like the "Incomplete" status filter) — mirrors gray -- */
+.dark .bg-slate-50 {
+  background-color: #0f172a !important;
+}
+.dark .bg-slate-100 {
+  background-color: #1e293b !important;
+}
+.dark .text-slate-900 {
+  color: #f1f5f9 !important;
+}
+.dark .text-slate-700 {
+  color: #cbd5e1 !important;
+}
+.dark .text-slate-600 {
+  color: #94a3b8 !important;
+}
+.dark .text-slate-500 {
+  color: #64748b !important;
+}
+.dark .text-slate-400 {
+  color: #64748b !important;
+}
+.dark .border-slate-200 {
+  border-color: #334155 !important;
+}
+.dark .border-slate-300 {
+  border-color: #475569 !important;
 }
 
 /* -- Gradient backgrounds (card headers) -- */

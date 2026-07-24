@@ -65,12 +65,12 @@ export default function ScriptExecutions({ events, showScriptOutput, latestBoots
         onClick={() => setExpanded(!expanded)}
         className="flex items-center justify-between w-full text-left"
       >
-        <div className="flex items-center space-x-2">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
           <svg className="w-5 h-5 text-violet-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
           <h2 className="text-lg font-semibold text-gray-900">Script Executions</h2>
-          <div className="flex items-center space-x-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
             {runningCount > 0 && (
               <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 font-medium">
                 {runningCount} running
@@ -215,10 +215,10 @@ function ScriptCardView({ card, showScriptOutput, latestBootstrapVersion, displa
     <div className={`rounded-lg ${containerClass}`}>
       <button
         onClick={() => setPhasesOpen(!phasesOpen)}
-        className="flex items-center justify-between w-full text-left p-3 hover:bg-black/[.02]"
+        className="flex flex-wrap items-center justify-between gap-y-1 w-full text-left p-3 hover:bg-black/[.02]"
         aria-expanded={phasesOpen}
       >
-        <div className="flex items-center space-x-2 min-w-0">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
           <CardIcon state={card.headerState} className={iconColor} />
           <span className="text-sm font-medium text-gray-900 truncate">Remediation</span>
           {cardDisplayName && (
@@ -369,8 +369,8 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
 
   return (
     <div className={`rounded-lg p-3 ${containerClass}`}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-2 min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-y-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
           {item.state === "Running" ? (
             <svg className={`w-4 h-4 text-gray-500 flex-shrink-0 ${isStale ? "" : "animate-spin"}`} fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
