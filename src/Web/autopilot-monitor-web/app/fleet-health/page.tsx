@@ -610,7 +610,7 @@ export default function FleetHealthPage() {
                             />
                           </div>
                           <span className="text-xs text-gray-400 flex-shrink-0">
-                            {app.failureRate}% of {app.totalInstalls}
+                            {app.failureRate}% of {app.succeeded + app.failed} finished
                           </span>
                         </div>
                         {app.topFailureCodes.length > 0 && (

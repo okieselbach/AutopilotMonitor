@@ -120,6 +120,24 @@ public class MetricsMathAppPayloadTests
     }
 
     [Fact]
+    public void FailureRate_IsOverFinishedInstalls_InProgressExcluded()
+    {
+        var summaries = new List<AppInstallSummary>
+        {
+            new() { AppName = "App A", Status = "Failed" },
+            new() { AppName = "App A", Status = "Succeeded", DurationSeconds = 10 },
+            new() { AppName = "App A", Status = "InProgress" },
+            new() { AppName = "App A", Status = "InProgress" },
+        };
+
+        var app = Build(summaries).GetProperty("topFailingApps")[0];
+
+        Assert.Equal(4, app.GetProperty("totalInstalls").GetInt32());
+        // 1 / (1 + 1) = 50% (over finished), NOT 1 / 4 = 25% (over all installs).
+        Assert.Equal(50d, app.GetProperty("failureRate").GetDouble());
+    }
+
+    [Fact]
     public void SlowestApps_DropsAppsBelowSampleFloor()
     {
         // App with only 1 success must be excluded from slowestApps (minSamples = 3),

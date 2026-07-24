@@ -170,11 +170,14 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
     if (!data) return { totalApps: 0, totalInstalls: 0, avgFailureRate: 0 };
     const apps = data.apps ?? [];
     const totalFailed = apps.reduce((acc, a) => acc + a.failed, 0);
-    const totalInstalls = data.totalInstalls;
+    // Terminal-only convention: rate over finished installs (succeeded + failed), so
+    // in-flight/orphaned InProgress rows don't dilute it. Matches the per-app failureRate.
+    const totalSucceeded = apps.reduce((acc, a) => acc + a.succeeded, 0);
+    const totalFinished = totalFailed + totalSucceeded;
     return {
       totalApps: data.totalApps,
-      totalInstalls,
-      avgFailureRate: totalInstalls > 0 ? Math.round((totalFailed / totalInstalls) * 1000) / 10 : 0,
+      totalInstalls: data.totalInstalls,
+      avgFailureRate: totalFinished > 0 ? Math.round((totalFailed / totalFinished) * 1000) / 10 : 0,
     };
   }, [data]);
 

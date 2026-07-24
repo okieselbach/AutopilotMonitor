@@ -1,5 +1,6 @@
 using System.Collections.Specialized;
 using System.Threading;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 
@@ -146,24 +147,11 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 var succeeded = g.Count(s => s.Status == "Succeeded");
                 var failed = g.Count(s => s.Status == "Failed");
                 var completed = g.Where(s => s.Status == "Succeeded").ToList();
-                var failureRate = total > 0 ? Math.Round((double)failed / total * 100, 1) : 0;
+                var failureRate = MetricsMath.TerminalFailureRatePct(failed, succeeded);
 
-                // Trend: compare failure rate in first half vs second half of window.
-                // Only emit non-stable trend if BOTH halves have >= 5 installs (too noisy otherwise).
                 var firstHalf = g.Where(s => s.StartedAt < midpoint).ToList();
                 var secondHalf = g.Where(s => s.StartedAt >= midpoint).ToList();
-
-                double? trendDelta = null;
-                string trend = "stable";
-                if (firstHalf.Count >= 5 && secondHalf.Count >= 5)
-                {
-                    var fhRate = (double)firstHalf.Count(s => s.Status == "Failed") / firstHalf.Count * 100;
-                    var shRate = (double)secondHalf.Count(s => s.Status == "Failed") / secondHalf.Count * 100;
-                    var delta = Math.Round(shRate - fhRate, 1);
-                    trendDelta = delta;
-                    if (delta < -1) trend = "improving";
-                    else if (delta > 1) trend = "worsening";
-                }
+                var (trend, trendDelta) = ComputeFailureTrend(firstHalf, secondHalf);
 
                 return new
                 {
@@ -275,7 +263,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             var succeeded = summaries.Count(s => s.Status == "Succeeded");
             var failed = summaries.Count(s => s.Status == "Failed");
             var completed = summaries.Where(s => s.Status == "Succeeded").ToList();
-            var failureRate = Math.Round((double)failed / total * 100, 1);
+            var failureRate = MetricsMath.TerminalFailureRatePct(failed, succeeded);
             var avgDurationSeconds = completed.Count > 0 ? Math.Round(completed.Average(s => s.DurationSeconds), 0) : 0;
             var p95DurationSeconds = Percentile(completed.Select(s => s.DurationSeconds).ToList(), 0.95);
             var avgDownloadBytes = completed.Count > 0 ? (long)completed.Average(s => s.DownloadBytes) : 0;
@@ -283,16 +271,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             // Trend (same rule as list endpoint).
             var firstHalf = summaries.Where(s => s.StartedAt < midpoint).ToList();
             var secondHalf = summaries.Where(s => s.StartedAt >= midpoint).ToList();
-            double? trendDelta = null;
-            string trend = "stable";
-            if (firstHalf.Count >= 5 && secondHalf.Count >= 5)
-            {
-                var fhRate = (double)firstHalf.Count(s => s.Status == "Failed") / firstHalf.Count * 100;
-                var shRate = (double)secondHalf.Count(s => s.Status == "Failed") / secondHalf.Count * 100;
-                trendDelta = Math.Round(shRate - fhRate, 1);
-                if (trendDelta < -1) trend = "improving";
-                else if (trendDelta > 1) trend = "worsening";
-            }
+            var (trend, trendDelta) = ComputeFailureTrend(firstHalf, secondHalf);
 
             var flakinessScore = total > 0
                 ? Math.Round((double)summaries.Count(s => s.AttemptNumber > 1) / total, 3)
@@ -308,12 +287,13 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 {
                     var vTotal = g.Count();
                     var vFailed = g.Count(s => s.Status == "Failed");
+                    var vSucceeded = g.Count(s => s.Status == "Succeeded");
                     return new
                     {
                         appVersion = g.Key,
                         installs = vTotal,
                         failed = vFailed,
-                        failureRate = vTotal > 0 ? Math.Round((double)vFailed / vTotal * 100, 1) : 0
+                        failureRate = MetricsMath.TerminalFailureRatePct(vFailed, vSucceeded)
                     };
                 })
                 .OrderByDescending(v => v.installs)
@@ -359,12 +339,16 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     Model = sessionLookup[$"{s.TenantId}|{s.SessionId}"].Model ?? "Unknown"
                 })
                 .GroupBy(x => new { x.Manufacturer, x.Model })
-                .Where(g => g.Count() >= 5)
+                // Sample floor on FINISHED installs — the displayed metric is the terminal-only
+                // failure rate, so a model with many in-flight installs but few outcomes is still
+                // too noisy to rank.
+                .Where(g => g.Count(x => x.Summary.Status == "Failed" || x.Summary.Status == "Succeeded") >= 5)
                 .Select(g =>
                 {
                     var modelTotal = g.Count();
                     var modelFailed = g.Count(x => x.Summary.Status == "Failed");
-                    var modelFailureRate = Math.Round((double)modelFailed / modelTotal * 100, 1);
+                    var modelSucceeded = g.Count(x => x.Summary.Status == "Succeeded");
+                    var modelFailureRate = MetricsMath.TerminalFailureRatePct(modelFailed, modelSucceeded);
                     var lift = failureRate > 0
                         ? Math.Round(modelFailureRate / failureRate, 2)
                         : 0;
@@ -496,6 +480,30 @@ namespace AutopilotMonitor.Functions.Functions.Apps
 
         // ── Helpers ─────────────────────────────────────────────────────────
 
+        /// <summary>
+        /// Failure-rate trend between the two halves of the window, shared by the list and
+        /// analytics endpoints. Rates follow the terminal-only convention
+        /// (<see cref="MetricsMath.TerminalFailureRatePct"/>), and a non-stable trend requires
+        /// at least 5 FINISHED installs in BOTH halves — too noisy otherwise, and a half made
+        /// up of in-flight installs has no outcome to trend on.
+        /// </summary>
+        private static (string Trend, double? TrendDelta) ComputeFailureTrend(
+            List<AppInstallSummary> firstHalf, List<AppInstallSummary> secondHalf)
+        {
+            var fhFailed = firstHalf.Count(s => s.Status == "Failed");
+            var fhSucceeded = firstHalf.Count(s => s.Status == "Succeeded");
+            var shFailed = secondHalf.Count(s => s.Status == "Failed");
+            var shSucceeded = secondHalf.Count(s => s.Status == "Succeeded");
+            if (fhFailed + fhSucceeded < 5 || shFailed + shSucceeded < 5)
+                return ("stable", null);
+
+            var delta = Math.Round(
+                MetricsMath.TerminalFailureRatePct(shFailed, shSucceeded)
+                - MetricsMath.TerminalFailureRatePct(fhFailed, fhSucceeded), 1);
+            var trend = delta < -1 ? "improving" : delta > 1 ? "worsening" : "stable";
+            return (trend, delta);
+        }
+
         private static List<object> BuildTimeSeries(List<AppInstallSummary> summaries, DateTime cutoff, DateTime now, string bucket)
         {
             var start = bucket == "week" ? StartOfWeek(cutoff) : cutoff.Date;
@@ -531,7 +539,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                         installs = bTotal,
                         succeeded = bSucceeded,
                         failed = bFailed,
-                        failureRate = bTotal > 0 ? Math.Round((double)bFailed / bTotal * 100, 1) : 0,
+                        failureRate = MetricsMath.TerminalFailureRatePct(bFailed, bSucceeded),
                         avgDurationSeconds = bCompleted.Count > 0 ? Math.Round(bCompleted.Average(s => s.DurationSeconds), 0) : 0
                     };
                 })

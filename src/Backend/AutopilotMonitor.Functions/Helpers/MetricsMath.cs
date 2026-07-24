@@ -8,6 +8,19 @@ namespace AutopilotMonitor.Functions.Helpers;
 public static class MetricsMath
 {
     /// <summary>
+    /// App-install failure rate over finished installs only: Failed / (Failed + Succeeded), one
+    /// decimal, 0 when nothing finished. The same outcome-quota convention as the enrollment
+    /// success rate — "InProgress" rows (still installing, or orphaned by a session that died
+    /// mid-install) never dilute the rate. Shared by the app-metrics payload and the Apps
+    /// dashboard aggregations so the definition can't drift between panes.
+    /// </summary>
+    public static double TerminalFailureRatePct(int failed, int succeeded)
+    {
+        var finished = failed + succeeded;
+        return finished > 0 ? Math.Round((double)failed / finished * 100, 1) : 0;
+    }
+
+    /// <summary>
     /// Builds the complete app-metrics response object from a (pre-time-filtered) set of app
     /// install summaries. Single source of truth for both the tenant (<c>metrics/app</c>) and
     /// global (<c>global/metrics/app</c>) functions, which previously carried a verbatim copy of
@@ -40,7 +53,7 @@ public static class MetricsMath
                 totalInstalls = total,
                 succeeded = completed.Count,
                 failed = failed.Count,
-                failureRate = total > 0 ? Math.Round((double)failed.Count / total * 100, 1) : 0,
+                failureRate = TerminalFailureRatePct(failed.Count, completed.Count),
                 avgDurationSeconds = completed.Count > 0 ? Math.Round(completed.Average(s => s.DurationSeconds), 0) : 0,
                 maxDurationSeconds = completed.Count > 0 ? completed.Max(s => s.DurationSeconds) : 0,
                 avgDownloadBytes = completed.Count > 0 ? (long)completed.Average(s => s.DownloadBytes) : 0,
