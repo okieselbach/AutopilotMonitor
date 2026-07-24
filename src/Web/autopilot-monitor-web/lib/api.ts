@@ -193,12 +193,19 @@ export const api = {
       `${API_BASE_URL}/api/rules/analyze/${encodeURIComponent(ruleId)}/create-from-template`,
     globalAnalyze: (tenantId?: string) =>
       `${API_BASE_URL}/api/global/rules/analyze${qs({ tenantId })}`,
+    // Cross-tenant edit/toggle/delete of an existing analyze rule (Global Admin override). PUT/DELETE
+    // to the JWT-scoped analyzeRule would misroute to the GA's OWN tenant; this carries the target tenant.
+    globalAnalyzeRule: (ruleId: string, tenantId?: string) =>
+      `${API_BASE_URL}/api/global/rules/analyze/${encodeURIComponent(ruleId)}${qs({ tenantId })}`,
     gather: (tenantId?: string) =>
       `${API_BASE_URL}/api/rules/gather${qs({ tenantId })}`,
     gatherRule: (ruleId: string, tenantId?: string) =>
       `${API_BASE_URL}/api/rules/gather/${ruleId}${qs({ tenantId })}`,
     globalGather: (tenantId?: string) =>
       `${API_BASE_URL}/api/global/rules/gather${qs({ tenantId })}`,
+    // Cross-tenant edit/toggle/delete of an existing gather rule (Global Admin override) — see globalAnalyzeRule.
+    globalGatherRule: (ruleId: string, tenantId?: string) =>
+      `${API_BASE_URL}/api/global/rules/gather/${encodeURIComponent(ruleId)}${qs({ tenantId })}`,
     reseedFromGitHub: (type: "analyze" | "gather" | "ime" | "all") =>
       `${API_BASE_URL}/api/rules/reseed-from-github${qs({ type })}`,
     imeLogPatterns: () => `${API_BASE_URL}/api/rules/ime-log-patterns`,

@@ -75,6 +75,14 @@ export default function GatherRulesPage() {
   // is read-only. Backend also enforces (rules write is TenantAdminOrGA, cross-tenant blocked for non-GA).
   const isReadOnly = !(user?.isGlobalAdmin || (user?.isTenantAdmin && !isGlobalOverride));
 
+  // Cross-tenant write routing: in a Global Admin override the JWT-scoped rules/gather/{id} route
+  // resolves the tenant from the caller's token and would silently upsert into the GA's OWN tenant
+  // (200 → false "saved"), so edit/toggle/delete MUST target the global route that carries ?tenantId=.
+  const gatherRuleWriteUrl = (ruleId: string) =>
+    isGlobalOverride
+      ? api.rules.globalGatherRule(ruleId, effectiveTenantId)
+      : api.rules.gatherRule(ruleId, effectiveTenantId);
+
   const fetchRules = useCallback(async () => {
     if (!effectiveTenantId) return;
     const url = isGlobalOverride
@@ -119,7 +127,7 @@ export default function GatherRulesPage() {
   const handleToggleRule = async (rule: GatherRule) => {
     setTogglingRule(rule.ruleId);
     const result = await mutate(
-      api.rules.gatherRule(rule.ruleId, effectiveTenantId),
+      gatherRuleWriteUrl(rule.ruleId),
       {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -142,7 +150,7 @@ export default function GatherRulesPage() {
 
     setDeletingRule(rule.ruleId);
     const result = await mutate(
-      api.rules.gatherRule(rule.ruleId, effectiveTenantId),
+      gatherRuleWriteUrl(rule.ruleId),
       { method: "DELETE" }
     );
     if (result !== null) {
@@ -323,7 +331,7 @@ export default function GatherRulesPage() {
     };
 
     const result = await mutate(
-      api.rules.gatherRule(rule.ruleId, effectiveTenantId),
+      gatherRuleWriteUrl(rule.ruleId),
       {
         method: "PUT",
         headers: { "Content-Type": "application/json" },

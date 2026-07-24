@@ -324,4 +324,42 @@ public class CrossTenantAccessTests
         Assert.NotNull(entry);
         Assert.Equal(TenantScoping.QueryParam, entry.TenantScoping);
     }
+
+    // ── Cross-tenant rule WRITES: global/rules/{gather,analyze}/{ruleId} ──
+    // Bug (2026-07-24): a Global Admin editing a foreign tenant's rule via the JWT-scoped
+    // rules/{type}/{ruleId} route silently upserted into the GA's OWN tenant (200 → false "saved");
+    // the reload re-read the foreign tenant and showed the unchanged rule. Fix: dedicated cross-tenant
+    // write routes. They MUST be GlobalAdminOnly (a write tier → no delegated-read rescue, so a
+    // tenant-admin / delegated caller can never cross into another tenant's rules) + QueryParam (the
+    // tenant is named by ?tenantId=, not the {ruleId} segment). A downgrade to a tenant tier, or a slip
+    // to TenantScoping.None (which would ignore ?tenantId= and re-introduce the home-tenant misroute),
+    // is caught here.
+
+    [Theory]
+    [InlineData("PUT",    "global/rules/gather/{ruleId}")]
+    [InlineData("DELETE", "global/rules/gather/{ruleId}")]
+    [InlineData("PUT",    "global/rules/analyze/{ruleId}")]
+    [InlineData("DELETE", "global/rules/analyze/{ruleId}")]
+    public void GlobalRuleWriteRoutes_AreGlobalAdminOnly_QueryParam(string httpMethod, string routeTemplate)
+    {
+        var entry = EndpointAccessPolicyCatalog.Entries
+            .FirstOrDefault(e => e.HttpMethod == httpMethod.ToUpperInvariant() && e.RouteTemplate == routeTemplate);
+
+        Assert.NotNull(entry);
+        Assert.Equal(EndpointPolicy.GlobalAdminOnly, entry!.Policy);
+        Assert.Equal(TenantScoping.QueryParam, entry.TenantScoping);
+    }
+
+    [Theory]
+    [InlineData("PUT",    "/api/global/rules/gather/rule-1")]
+    [InlineData("DELETE", "/api/global/rules/gather/rule-1")]
+    [InlineData("PUT",    "/api/global/rules/analyze/rule-1")]
+    [InlineData("DELETE", "/api/global/rules/analyze/rule-1")]
+    public void GlobalRuleWrite_CrossTenant_GlobalAdmin_IsAllowed(string httpMethod, string path)
+    {
+        var (isBlocked, targetTenantId) = SimulateQueryParamCheck(httpMethod, path, TenantA, hasGlobalScope: true, queryTenantId: TenantB);
+
+        Assert.False(isBlocked, $"Global Admin should reach the target tenant on the cross-tenant write route: {httpMethod} {path}");
+        Assert.Equal(TenantB, targetTenantId);
+    }
 }

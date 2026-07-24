@@ -411,6 +411,15 @@ public static class EndpointAccessPolicyCatalog
         new("PATCH",  "global/session-reports/{reportId}/note", EndpointPolicy.GlobalAdminOnly),
         new("GET",    "global/rules/gather",        EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/rules/analyze",       EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        // Cross-tenant rule WRITES (edit/toggle/delete an existing rule in a foreign tenant). GlobalAdminOnly
+        // — a write tier, so the delegated-read rescue never fires: only a platform admin may mutate another
+        // tenant's rules. QueryParam because the tenant is named by ?tenantId= (the {ruleId} segment is not a
+        // tenant). No global CREATE route: creating rules in a foreign tenant stays disabled (the portal hides
+        // Create in the cross-tenant override), so the JWT-scoped POST routes remain the only create path.
+        new("PUT",    "global/rules/gather/{ruleId}",  EndpointPolicy.GlobalAdminOnly, TenantScoping.QueryParam),
+        new("DELETE", "global/rules/gather/{ruleId}",  EndpointPolicy.GlobalAdminOnly, TenantScoping.QueryParam),
+        new("PUT",    "global/rules/analyze/{ruleId}", EndpointPolicy.GlobalAdminOnly, TenantScoping.QueryParam),
+        new("DELETE", "global/rules/analyze/{ruleId}", EndpointPolicy.GlobalAdminOnly, TenantScoping.QueryParam),
         new("GET",    "global/devices/blocked",     EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "devices/blocked",            EndpointPolicy.GlobalReadOrAdmin),
         new("POST",   "devices/block",              EndpointPolicy.GlobalAdminOnly),

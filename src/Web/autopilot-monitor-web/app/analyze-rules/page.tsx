@@ -89,6 +89,14 @@ export default function AnalyzeRulesPage() {
   // is read-only. Backend also enforces (rules write is TenantAdminOrGA, cross-tenant blocked for non-GA).
   const isReadOnly = !(user?.isGlobalAdmin || (user?.isTenantAdmin && !isGlobalOverride));
 
+  // Cross-tenant write routing: in a Global Admin override the JWT-scoped rules/analyze/{id} route
+  // resolves the tenant from the caller's token and would silently upsert into the GA's OWN tenant
+  // (200 → false "saved"), so edit/toggle/notify/delete MUST target the global route with ?tenantId=.
+  const analyzeRuleWriteUrl = (ruleId: string) =>
+    isGlobalOverride
+      ? api.rules.globalAnalyzeRule(ruleId, effectiveTenantId)
+      : api.rules.analyzeRule(ruleId);
+
   const fetchRules = useCallback(async () => {
     if (!effectiveTenantId) return;
     const url = isGlobalOverride
@@ -173,15 +181,22 @@ export default function AnalyzeRulesPage() {
 
   // Toggle rule enabled/disabled
   const handleToggleRule = async (rule: AnalyzeRule) => {
-    // Intercept: if this is a template rule being enabled, open the config modal instead
+    // Intercept: if this is a template rule being enabled, open the config modal instead.
+    // Enabling a template CREATES a new custom rule — a create, which is disabled in the
+    // cross-tenant override (like the hidden Create button), so it would misroute to the GA's
+    // own tenant. Block it with a clear message rather than silently writing to the wrong tenant.
     if ((rule.templateVariables?.length ?? 0) > 0 && !rule.enabled) {
+      if (isGlobalOverride) {
+        showError("Creating a rule from a template isn't available while viewing another tenant. Switch to that tenant to add rules.");
+        return;
+      }
       setConfigureTemplateRule(rule);
       return;
     }
 
     setTogglingRuleId(rule.ruleId);
     const result = await mutate(
-      api.rules.analyzeRule(rule.ruleId),
+      analyzeRuleWriteUrl(rule.ruleId),
       {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -211,7 +226,7 @@ export default function AnalyzeRulesPage() {
 
     setTogglingRuleId(rule.ruleId);
     const result = await mutate(
-      api.rules.analyzeRule(rule.ruleId),
+      analyzeRuleWriteUrl(rule.ruleId),
       {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -235,7 +250,7 @@ export default function AnalyzeRulesPage() {
 
     setTogglingRuleId(rule.ruleId);
     const result = await mutate(
-      api.rules.analyzeRule(rule.ruleId),
+      analyzeRuleWriteUrl(rule.ruleId),
       {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -263,7 +278,7 @@ export default function AnalyzeRulesPage() {
 
     setDeletingRuleId(rule.ruleId);
     const result = await mutate(
-      api.rules.analyzeRule(rule.ruleId),
+      analyzeRuleWriteUrl(rule.ruleId),
       { method: "DELETE" }
     );
     if (result !== null) {
@@ -359,7 +374,7 @@ export default function AnalyzeRulesPage() {
     };
 
     const result = await mutate(
-      api.rules.analyzeRule(rule.ruleId),
+      analyzeRuleWriteUrl(rule.ruleId),
       {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
