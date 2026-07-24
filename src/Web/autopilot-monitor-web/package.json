@@ -39,7 +39,7 @@
     "autoprefixer": "^10.5.4",
     "eslint": "^9.39.5",
     "eslint-config-next": "^15.5.21",
-    "postcss": "^8.5.10",
+    "postcss": "^8.5.12",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.3",
     "vitest": "^4.1.10"
@@ -48,7 +48,7 @@
     "@next/swc-win32-x64-msvc": "npm:null@*"
   },
   "overrides": {
-    "postcss": "^8.5.10",
+    "postcss": "^8.5.12",
     "@nevware21/ts-utils": "^0.14.0",
     "sharp": "^0.35.0"
   }
