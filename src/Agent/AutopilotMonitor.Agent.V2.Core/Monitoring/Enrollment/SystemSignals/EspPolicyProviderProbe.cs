@@ -35,13 +35,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
     /// (registered during Autopilot-into-co-management, see the troubleshooting registry paths in
     /// https://learn.microsoft.com/en-us/intune/configmgr/comanage/autopilot-enrollment). Microsoft
     /// warns that ESP policy providers are not aware of each other and that pre-provisioning is
-    /// unsupported with co-management. Field case that motivated this probe: a pre-provisioned
-    /// device with the ConfigMgr client installed as a blocking app ended up with ONLY
-    /// <c>ConfigMgr</c> registered under <c>Device\Setup\Apps\PolicyProviders</c> (no
-    /// <c>Sidecar</c>) and <c>TrackingPoliciesCreated</c> never set — the user ESP hung at
-    /// "Apps (Identifying)" for hours to days; manually renaming the key to <c>Sidecar</c>
-    /// unblocked it immediately. <see cref="EspPolicyProviderStallDetector"/> turns this contract
-    /// into the <c>esp_policy_provider_stalled</c> tripwire.
+    /// unsupported with co-management. Field case that motivated this probe (issue #106): a
+    /// pre-provisioned device with the ConfigMgr client installed as a blocking app ended up with
+    /// ONLY <c>ConfigMgr</c> registered under <c>Device\Setup\Apps\PolicyProviders</c> (no
+    /// <c>Sidecar</c>) — and although <c>TrackingPoliciesCreated=1</c> WAS set under it, the user
+    /// ESP hung at "Apps (Identifying)" for hours to days; manually renaming the key to
+    /// <c>Sidecar</c> unblocked it immediately. So the ESP's Apps wait is keyed to the provider
+    /// the Intune service registered at enrollment (always <c>Sidecar</c>; ConfigMgr only joins
+    /// via a co-management settings policy — see the WAP payload documented in
+    /// https://oofhours.com/2023/08/25/run-an-sccm-task-sequence-during-autopilot/), and a
+    /// foreign provider's completion values do not satisfy it. Detection therefore keys on the
+    /// provider NAME topology, not only on completeness:
+    /// <see cref="EspPolicyProviderStallDetector"/> turns this contract into the two-arm
+    /// <c>esp_policy_provider_stalled</c> tripwire.
     /// </para>
     /// <para>
     /// Fail-soft like <see cref="EspTrackingInfoProbe"/>: any failure is Debug-logged and yields

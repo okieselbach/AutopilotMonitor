@@ -37,8 +37,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
     ///     <see cref="StallProbeCollectorAdapter"/>. Owns its 60-s idle-check timer (the
     ///     collector itself has no timer — it's a pure probe invoked from outside).</item>
     ///   <item><b>EspPolicyProviderStallHost</b> — always-on 60-s wall-clock tick for the
-    ///     <c>esp_policy_provider_stalled</c> tripwire (registered EnrollmentStatusTracking CSP
-    ///     provider continuously incomplete ≥ 15 min — the no-timeout ESP wait).</item>
+    ///     two-arm <c>esp_policy_provider_stalled</c> tripwire (EnrollmentStatusTracking CSP
+    ///     provider continuously incomplete ≥ 15 min, OR Setup\Apps providers registered
+    ///     without the expected <c>Sidecar</c>/IME provider — the no-timeout ESP wait).</item>
     /// </list>
     /// Optional peripheral hosts (driven by <see cref="CollectorConfiguration"/> toggles):
     /// <list type="bullet">
@@ -307,11 +308,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             }
 
             // ESP policy-provider stall tripwire — always-on kernel host (no config gate, like
-            // disk_space_low): a registered EnrollmentStatusTracking CSP provider that never
-            // completes (e.g. co-management "ConfigMgr" without "Sidecar" on a pre-provisioned
-            // device) parks the user ESP at "Apps (Identifying)" WITHOUT any OS timeout. Wall-clock
-            // dwell, deliberately outside the StallProbe gate: the idle clock there resets on any
-            // session activity, and the stall must accrue regardless of it.
+            // disk_space_low): a provider that never completes, or co-management "ConfigMgr"
+            // registered without the expected "Sidecar"/IME provider (issue #106 — even with
+            // TrackingPoliciesCreated=1 the ESP ignores foreign provider names), parks the user
+            // ESP at "Apps (Identifying)" WITHOUT any OS timeout. Wall-clock dwell, deliberately
+            // outside the StallProbe gate: the idle clock there resets on any session activity,
+            // and the stall must accrue regardless of it.
             hosts.Add(new EspPolicyProviderStallHost(
                 sessionId: sessionId,
                 tenantId: tenantId,

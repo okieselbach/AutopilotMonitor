@@ -74,14 +74,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             var previous = new Dictionary<string, DateTime> { ["setupApps|device|ConfigMgr"] = T0 };
 
             var missing = EspPolicyProviderStallDetector.EvaluateStallTransition(
-                EspPolicyProviderSnapshot.Empty, previous, new HashSet<string>(), T0.AddHours(2), Dwell);
+                EspPolicyProviderSnapshot.Empty, previous, new HashSet<string>(), T0, false, T0.AddHours(2), Dwell);
             Assert.Empty(missing.UpdatedFirstSeenUtc);
             Assert.Empty(missing.NewlyStalled);
+            Assert.Null(missing.UpdatedSidecarMissingSinceUtc); // arm 2 resets too
+            Assert.Null(missing.SidecarMissingStalledForMinutes);
 
             var registeredButEmpty = EspPolicyProviderStallDetector.EvaluateStallTransition(
-                Snapshot(), previous, new HashSet<string>(), T0.AddHours(2), Dwell);
+                Snapshot(), previous, new HashSet<string>(), T0, false, T0.AddHours(2), Dwell);
             Assert.Empty(registeredButEmpty.UpdatedFirstSeenUtc);
             Assert.Empty(registeredButEmpty.NewlyStalled);
+            Assert.Null(registeredButEmpty.UpdatedSidecarMissingSinceUtc);
         }
 
         [Fact]
@@ -90,14 +93,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             var snapshot = Snapshot(SetupApps("ConfigMgr", tracking: null));
 
             var round1 = EspPolicyProviderStallDetector.EvaluateStallTransition(
-                snapshot, new Dictionary<string, DateTime>(), new HashSet<string>(), T0, Dwell);
+                snapshot, new Dictionary<string, DateTime>(), new HashSet<string>(), null, false, T0, Dwell);
             Assert.Equal(T0, round1.UpdatedFirstSeenUtc["setupApps|device|ConfigMgr"]);
             Assert.Empty(round1.NewlyStalled);
 
             var round2 = EspPolicyProviderStallDetector.EvaluateStallTransition(
-                snapshot, round1.UpdatedFirstSeenUtc, new HashSet<string>(), T0.AddMinutes(14), Dwell);
+                snapshot, round1.UpdatedFirstSeenUtc, new HashSet<string>(),
+                round1.UpdatedSidecarMissingSinceUtc, false, T0.AddMinutes(14), Dwell);
             Assert.Equal(T0, round2.UpdatedFirstSeenUtc["setupApps|device|ConfigMgr"]); // first-seen preserved
             Assert.Empty(round2.NewlyStalled);
+            Assert.Null(round2.SidecarMissingStalledForMinutes); // 14 min < dwell on arm 2 as well
         }
 
         [Fact]
@@ -107,7 +112,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             var seen = new Dictionary<string, DateTime> { ["setupApps|device|ConfigMgr"] = T0 };
 
             var eval = EspPolicyProviderStallDetector.EvaluateStallTransition(
-                snapshot, seen, new HashSet<string>(), T0.AddMinutes(15), Dwell);
+                snapshot, seen, new HashSet<string>(), null, false, T0.AddMinutes(15), Dwell);
 
             var stalled = Assert.Single(eval.NewlyStalled);
             Assert.Equal("ConfigMgr", stalled.Provider.Name);
@@ -122,20 +127,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
 
             // Completes mid-dwell → dropped from the map.
             var completed = EspPolicyProviderStallDetector.EvaluateStallTransition(
-                Snapshot(SetupApps("ConfigMgr", tracking: 1)), seen, new HashSet<string>(), T0.AddMinutes(10), Dwell);
+                Snapshot(SetupApps("ConfigMgr", tracking: 1)), seen, new HashSet<string>(), null, false, T0.AddMinutes(10), Dwell);
             Assert.Empty(completed.UpdatedFirstSeenUtc);
 
             // Re-appears incomplete much later → dwell restarts from the new now, no stall yet.
             var reappeared = EspPolicyProviderStallDetector.EvaluateStallTransition(
                 Snapshot(SetupApps("ConfigMgr", tracking: 0)), completed.UpdatedFirstSeenUtc,
-                new HashSet<string>(), T0.AddHours(3), Dwell);
+                new HashSet<string>(), null, false, T0.AddHours(3), Dwell);
             Assert.Equal(T0.AddHours(3), reappeared.UpdatedFirstSeenUtc[key]);
             Assert.Empty(reappeared.NewlyStalled);
 
             // Disappearance behaves the same as completion.
             var disappeared = EspPolicyProviderStallDetector.EvaluateStallTransition(
                 Snapshot(SetupApps("Sidecar", tracking: 1)), new Dictionary<string, DateTime> { [key] = T0 },
-                new HashSet<string>(), T0.AddMinutes(20), Dwell);
+                new HashSet<string>(), null, false, T0.AddMinutes(20), Dwell);
             Assert.False(disappeared.UpdatedFirstSeenUtc.ContainsKey(key));
         }
 
@@ -147,7 +152,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             var fired = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "setupApps|device|ConfigMgr" };
 
             var eval = EspPolicyProviderStallDetector.EvaluateStallTransition(
-                snapshot, seen, fired, T0.AddHours(5), Dwell);
+                snapshot, seen, fired, null, false, T0.AddHours(5), Dwell);
 
             Assert.Empty(eval.NewlyStalled);
             Assert.True(eval.UpdatedFirstSeenUtc.ContainsKey("setupApps|device|ConfigMgr")); // still tracked
@@ -162,7 +167,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
                 DevicePrep("ConfigMgr", installState: 1));
 
             var eval = EspPolicyProviderStallDetector.EvaluateStallTransition(
-                snapshot, new Dictionary<string, DateTime>(), new HashSet<string>(), T0, Dwell);
+                snapshot, new Dictionary<string, DateTime>(), new HashSet<string>(), null, false, T0, Dwell);
 
             Assert.Equal(3, eval.UpdatedFirstSeenUtc.Count);
             Assert.Contains("setupApps|device|ConfigMgr", eval.UpdatedFirstSeenUtc.Keys);
@@ -178,6 +183,71 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             Assert.False(Snapshot(SetupApps("ConfigMgr", tracking: 1)).SidecarRegistered);
             Assert.False(Snapshot(DevicePrep("Sidecar", installState: 3)).SidecarRegistered); // wrong kind
             Assert.False(EspPolicyProviderSnapshot.Empty.SidecarRegistered);
+        }
+
+        // ------------------------------------------------- arm 2: sidecar-missing transition
+
+        [Fact]
+        public void Issue106_foreign_provider_complete_but_sidecar_missing_stalls_after_dwell()
+        {
+            // The actual field case: ConfigMgr with TrackingPoliciesCreated=1 — "complete" by the
+            // CSP value contract, arm 1 never fires — yet the ESP waits on the absent Sidecar.
+            var snapshot = Snapshot(SetupApps("ConfigMgr", tracking: 1));
+
+            var round1 = EspPolicyProviderStallDetector.EvaluateStallTransition(
+                snapshot, new Dictionary<string, DateTime>(), new HashSet<string>(), null, false, T0, Dwell);
+            Assert.Empty(round1.NewlyStalled);                       // arm 1 stays silent...
+            Assert.Equal(T0, round1.UpdatedSidecarMissingSinceUtc);  // ...but arm 2 starts its clock
+            Assert.Null(round1.SidecarMissingStalledForMinutes);
+
+            var round2 = EspPolicyProviderStallDetector.EvaluateStallTransition(
+                snapshot, round1.UpdatedFirstSeenUtc, new HashSet<string>(),
+                round1.UpdatedSidecarMissingSinceUtc, false, T0.AddMinutes(15), Dwell);
+            Assert.Empty(round2.NewlyStalled);
+            Assert.Equal(15.0, round2.SidecarMissingStalledForMinutes!.Value, precision: 3);
+        }
+
+        [Fact]
+        public void Sidecar_registering_resets_the_sidecar_missing_clock()
+        {
+            // ConfigMgr first (legitimate startup ordering) → clock runs...
+            var round1 = EspPolicyProviderStallDetector.EvaluateStallTransition(
+                Snapshot(SetupApps("ConfigMgr", tracking: 1)),
+                new Dictionary<string, DateTime>(), new HashSet<string>(), null, false, T0, Dwell);
+            Assert.Equal(T0, round1.UpdatedSidecarMissingSinceUtc);
+
+            // ...Sidecar joins → condition clears, state resets.
+            var round2 = EspPolicyProviderStallDetector.EvaluateStallTransition(
+                Snapshot(SetupApps("ConfigMgr", tracking: 1), SetupApps("Sidecar", tracking: 0)),
+                round1.UpdatedFirstSeenUtc, new HashSet<string>(),
+                round1.UpdatedSidecarMissingSinceUtc, false, T0.AddMinutes(10), Dwell);
+            Assert.Null(round2.UpdatedSidecarMissingSinceUtc);
+            Assert.Null(round2.SidecarMissingStalledForMinutes);
+
+            // Sidecar gone again much later → clock restarts from the new now, no instant stall.
+            var round3 = EspPolicyProviderStallDetector.EvaluateStallTransition(
+                Snapshot(SetupApps("ConfigMgr", tracking: 1)),
+                round2.UpdatedFirstSeenUtc, new HashSet<string>(),
+                round2.UpdatedSidecarMissingSinceUtc, false, T0.AddHours(3), Dwell);
+            Assert.Equal(T0.AddHours(3), round3.UpdatedSidecarMissingSinceUtc);
+            Assert.Null(round3.SidecarMissingStalledForMinutes);
+        }
+
+        [Fact]
+        public void Sidecar_missing_one_shot_and_deviceprep_only_scoping()
+        {
+            // Already fired → never re-reported, but the clock keeps running.
+            var latched = EspPolicyProviderStallDetector.EvaluateStallTransition(
+                Snapshot(SetupApps("ConfigMgr", tracking: 1)),
+                new Dictionary<string, DateTime>(), new HashSet<string>(), T0, true, T0.AddHours(5), Dwell);
+            Assert.Null(latched.SidecarMissingStalledForMinutes);
+            Assert.Equal(T0, latched.UpdatedSidecarMissingSinceUtc);
+
+            // DevicePreparation providers alone don't constitute the Setup/Apps wait — arm 2 off.
+            var devicePrepOnly = EspPolicyProviderStallDetector.EvaluateStallTransition(
+                Snapshot(DevicePrep("ConfigMgr", installState: 1)),
+                new Dictionary<string, DateTime>(), new HashSet<string>(), null, false, T0, Dwell);
+            Assert.Null(devicePrepOnly.UpdatedSidecarMissingSinceUtc);
         }
     }
 
@@ -243,13 +313,47 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
             Assert.Equal(EspPolicyProviderStallDetector.SourceLabel, evt.Payload[SignalPayloadKeys.Source]);
 
             var data = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object>>(evt.TypedPayload);
+            // Both arms cross in the same round (ConfigMgr incomplete AND Sidecar absent) →
+            // ONE event; sidecar-missing is the dominant reason.
+            Assert.Equal(EspPolicyProviderStallDetector.ReasonSidecarMissing, data["reason"]);
             Assert.Equal(false, data["sidecarRegistered"]);
+            Assert.Equal(15.0, data["sidecarMissingForMinutes"]);
             Assert.Equal(EspPolicyProviderStallDetector.DwellMinutes, data["dwellMinutes"]);
             var stalled = Assert.IsAssignableFrom<IReadOnlyList<Dictionary<string, object>>>(data["stalledProviders"]);
             var entry = Assert.Single(stalled);
             Assert.Equal("ConfigMgr", entry["name"]);
             Assert.Equal(EspPolicyProviderProbe.KindSetupApps, entry["kind"]);
             Assert.Equal(15.0, entry["stalledForMinutes"]);
+        }
+
+        [Fact]
+        public void Issue106_configmgr_complete_without_sidecar_still_emits_sidecar_missing()
+        {
+            // Regression test for the customer's follow-up on issue #106: TrackingPoliciesCreated=1
+            // WAS present under ConfigMgr — the provider looks "complete", arm 1 never fires, yet
+            // the ESP hangs because Sidecar is absent. Arm 2 must catch exactly this.
+            var configMgrComplete = new EspPolicyProviderSnapshot(new[]
+            {
+                new PolicyProviderState("ConfigMgr", "device", EspPolicyProviderProbe.KindSetupApps,
+                    trackingPoliciesCreated: 1, installationState: null),
+            });
+            using var _probe = new EspPolicyProviderProbe.ScopedOverride(_ => configMgrComplete);
+            var (sut, sink, clock) = BuildDetector();
+
+            sut.Tick();
+            Assert.Empty(StalledEvents(sink));
+
+            clock.Advance(TimeSpan.FromMinutes(EspPolicyProviderStallDetector.DwellMinutes));
+            sut.Tick();
+
+            var evt = Assert.Single(StalledEvents(sink));
+            var data = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object>>(evt.TypedPayload);
+            Assert.Equal(EspPolicyProviderStallDetector.ReasonSidecarMissing, data["reason"]);
+            Assert.Equal(false, data["sidecarRegistered"]);
+            Assert.Equal(15.0, data["sidecarMissingForMinutes"]);
+            Assert.Empty(Assert.IsAssignableFrom<IReadOnlyList<Dictionary<string, object>>>(data["stalledProviders"]));
+            var providers = Assert.IsAssignableFrom<IReadOnlyList<Dictionary<string, object?>>>(data["providers"]);
+            Assert.Equal(true, Assert.Single(providers)["complete"]); // the misleading "complete" is visible
         }
 
         [Fact]
@@ -264,7 +368,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
 
             var evt = Assert.Single(StalledEvents(sink));
             var data = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object>>(evt.TypedPayload);
+            Assert.Equal(EspPolicyProviderStallDetector.ReasonProviderIncomplete, data["reason"]); // arm 2 off — Sidecar is there
             Assert.Equal(true, data["sidecarRegistered"]);
+            Assert.False(data.ContainsKey("sidecarMissingForMinutes"));
             var stalled = Assert.IsAssignableFrom<IReadOnlyList<Dictionary<string, object>>>(data["stalledProviders"]);
             Assert.Equal("ConfigMgr", Assert.Single(stalled)["name"]);
             var providers = Assert.IsAssignableFrom<IReadOnlyList<Dictionary<string, object?>>>(data["providers"]);

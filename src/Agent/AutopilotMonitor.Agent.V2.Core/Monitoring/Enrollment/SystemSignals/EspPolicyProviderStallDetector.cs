@@ -13,18 +13,30 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 {
     /// <summary>
     /// Turns the ESP policy-provider contract read by <see cref="EspPolicyProviderProbe"/> into
-    /// the one-shot <c>esp_policy_provider_stalled</c> Warning: a registered provider that stays
-    /// continuously incomplete for <see cref="DwellMinutes"/> minutes is reported once, with the
-    /// full provider table in the payload. See the probe's header for the CSP contract, the
-    /// official sources, and the co-management field case (ConfigMgr registered without Sidecar
-    /// → user ESP parked at "Apps (Identifying)" with no OS timeout) this tripwire exists for.
+    /// the one-shot <c>esp_policy_provider_stalled</c> Warning via two independent arms, each
+    /// with the same <see cref="DwellMinutes"/>-minute continuous-dwell rule and the full
+    /// provider table in the payload:
+    /// <list type="bullet">
+    ///   <item><b>Arm 1 — <c>reason=provider_incomplete</c></b>: a registered provider stays
+    ///     continuously incomplete (e.g. Sidecar itself never sets TrackingPoliciesCreated).</item>
+    ///   <item><b>Arm 2 — <c>reason=sidecar_provider_missing</c></b>: at least one
+    ///     <c>Setup\Apps</c> provider is registered but none of them is <c>Sidecar</c> (the IME).
+    ///     This is the actual co-management field-case signature (issue #106): the foreign
+    ///     <c>ConfigMgr</c> provider had <c>TrackingPoliciesCreated=1</c> — i.e. was "complete"
+    ///     by the CSP value contract — yet the user ESP stayed parked at "Apps (Identifying)"
+    ///     until the key was renamed to <c>Sidecar</c>. The ESP's Apps wait is keyed to the
+    ///     Intune-registered provider by NAME, so provider completeness alone must not gate this
+    ///     detection. See the probe's header for sources.</item>
+    /// </list>
     /// <para>
-    /// Dwell semantics: the dwell clock per provider starts when it is first observed incomplete
-    /// and RESETS when the provider completes or disappears — only <i>continuously</i> incomplete
-    /// providers fire. A missing root key / empty provider list is normal early enrollment and
-    /// clears all dwell state (probe D4). Purely observational: emission goes through
-    /// <see cref="InformationalEventPost"/> (InformationalEvent pass-through, dispatch-guard
-    /// exempt), never into decision state.
+    /// Dwell semantics: arm 1's clock per provider starts when it is first observed incomplete
+    /// and RESETS when the provider completes or disappears; arm 2's clock starts when the
+    /// sidecar-missing condition is first observed and RESETS when Sidecar registers (covers the
+    /// legitimate "ConfigMgr registered before Sidecar" startup ordering) — only
+    /// <i>continuously</i> bad states fire. A missing root key / empty provider list is normal
+    /// early enrollment and clears all dwell state (probe D4). Purely observational: emission
+    /// goes through <see cref="InformationalEventPost"/> (InformationalEvent pass-through,
+    /// dispatch-guard exempt), never into decision state.
     /// </para>
     /// <para>
     /// Duplicate suppression: in-process one-shot per provider key, plus a
@@ -44,6 +56,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         internal const string SourceLabel = "EspPolicyProviderStallDetector";
 
+        /// <summary>Payload <c>reason</c>: a registered provider stayed continuously incomplete (arm 1).</summary>
+        internal const string ReasonProviderIncomplete = "provider_incomplete";
+
+        /// <summary>Payload <c>reason</c>: Setup\Apps providers registered but Sidecar absent (arm 2 — dominant when both arms fire in one round).</summary>
+        internal const string ReasonSidecarMissing = "sidecar_provider_missing";
+
+        /// <summary>
+        /// Sentinel token representing the arm-2 condition in the cross-restart fingerprint.
+        /// Cannot collide with provider keys — those always contain <c>|</c> separators.
+        /// </summary>
+        private const string SidecarMissingFingerprintToken = "sidecarMissing";
+
         private readonly string _sessionId;
         private readonly string _tenantId;
         private readonly InformationalEventPost _post;
@@ -56,6 +80,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _firedKeys =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Arm-2 dwell state: first observation of "setupApps providers without Sidecar"; null = condition not active.</summary>
+        private DateTime? _sidecarMissingSinceUtc;
+
+        /// <summary>Arm-2 in-process one-shot latch (mirror of <see cref="_firedKeys"/>).</summary>
+        private bool _sidecarMissingFired;
 
         public EspPolicyProviderStallDetector(
             string sessionId,
@@ -79,13 +109,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         internal void Tick()
         {
             var snapshot = EspPolicyProviderProbe.Read(_logger);
-            var eval = EvaluateStallTransition(snapshot, _firstSeenIncompleteUtc, _firedKeys, _clock.UtcNow, _dwell);
+            var eval = EvaluateStallTransition(
+                snapshot, _firstSeenIncompleteUtc, _firedKeys,
+                _sidecarMissingSinceUtc, _sidecarMissingFired, _clock.UtcNow, _dwell);
 
             _firstSeenIncompleteUtc.Clear();
             foreach (var kv in eval.UpdatedFirstSeenUtc)
                 _firstSeenIncompleteUtc[kv.Key] = kv.Value;
+            _sidecarMissingSinceUtc = eval.UpdatedSidecarMissingSinceUtc;
 
-            if (eval.NewlyStalled.Count > 0)
+            if (eval.NewlyStalled.Count > 0 || eval.SidecarMissingStalledForMinutes != null)
                 EmitStalled(snapshot, eval);
         }
 
@@ -94,24 +127,29 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// registry, timer, or ingress (pattern: <c>PerformanceCollector.EvaluateDiskLowTransition</c>).
         /// </summary>
         /// <param name="snapshot">Current provider snapshot.</param>
-        /// <param name="firstSeenIncompleteUtc">Dwell state from the previous round (provider key → first-seen-incomplete).</param>
+        /// <param name="firstSeenIncompleteUtc">Arm-1 dwell state from the previous round (provider key → first-seen-incomplete).</param>
         /// <param name="alreadyFired">Provider keys already reported this run (never re-report).</param>
+        /// <param name="sidecarMissingSinceUtc">Arm-2 dwell state from the previous round; null = condition was not active.</param>
+        /// <param name="sidecarMissingAlreadyFired">Arm-2 one-shot latch (never re-report).</param>
         /// <param name="nowUtc">Evaluation timestamp.</param>
-        /// <param name="dwell">Continuous-incompleteness threshold.</param>
+        /// <param name="dwell">Continuous-condition threshold (shared by both arms).</param>
         internal static StallEvaluation EvaluateStallTransition(
             EspPolicyProviderSnapshot snapshot,
             IReadOnlyDictionary<string, DateTime> firstSeenIncompleteUtc,
             ISet<string> alreadyFired,
+            DateTime? sidecarMissingSinceUtc,
+            bool sidecarMissingAlreadyFired,
             DateTime nowUtc,
             TimeSpan dwell)
         {
             var result = new StallEvaluation();
 
             // Missing root key or no registered providers = normal early enrollment: clear all
-            // dwell state (a provider must be continuously OBSERVED incomplete to accrue dwell).
+            // dwell state (a condition must be continuously OBSERVED to accrue dwell).
             if (!snapshot.HasData || snapshot.Providers.Count == 0)
                 return result;
 
+            // Arm 1 — a registered provider continuously incomplete.
             foreach (var provider in snapshot.Providers)
             {
                 if (provider.IsComplete)
@@ -127,22 +165,44 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     result.NewlyStalled.Add(new StalledProvider(provider, stalledFor.TotalMinutes));
             }
 
+            // Arm 2 — Setup\Apps providers registered, but none of them is Sidecar. Deliberately
+            // ignores provider completeness: the field case (issue #106) had ConfigMgr with
+            // TrackingPoliciesCreated=1 and the ESP still waited. Sidecar registering later
+            // (legitimate startup ordering) clears the condition and resets the clock.
+            if (HasSetupAppsProvider(snapshot) && !snapshot.SidecarRegistered)
+            {
+                var since = sidecarMissingSinceUtc ?? nowUtc;
+                result.UpdatedSidecarMissingSinceUtc = since;
+
+                var missingFor = nowUtc - since;
+                if (missingFor >= dwell && !sidecarMissingAlreadyFired)
+                    result.SidecarMissingStalledForMinutes = missingFor.TotalMinutes;
+            }
+
             return result;
         }
+
+        private static bool HasSetupAppsProvider(EspPolicyProviderSnapshot snapshot)
+            => snapshot.Providers.Any(p => p.Kind == EspPolicyProviderProbe.KindSetupApps);
 
         private void EmitStalled(EspPolicyProviderSnapshot snapshot, StallEvaluation eval)
         {
             foreach (var stalled in eval.NewlyStalled)
                 _firedKeys.Add(stalled.Provider.Key);
+            if (eval.SidecarMissingStalledForMinutes != null)
+                _sidecarMissingFired = true;
 
-            // Cross-restart dedup: fingerprint = sorted set of all fired keys that are still
-            // incomplete. A restart into the same stall re-accrues dwell and lands on the same
-            // fingerprint → suppressed; a new provider joining the stall changes it → re-emitted.
+            // Cross-restart dedup: fingerprint = sorted set of all fired conditions that are
+            // still active (incomplete providers + the sidecar-missing sentinel). A restart into
+            // the same stall re-accrues dwell and lands on the same fingerprint → suppressed; a
+            // new condition joining the stall changes it → re-emitted.
             var currentlyStalledKeys = snapshot.Providers
                 .Where(p => !p.IsComplete && _firedKeys.Contains(p.Key))
                 .Select(p => p.Key)
-                .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+            if (_sidecarMissingFired && HasSetupAppsProvider(snapshot) && !snapshot.SidecarRegistered)
+                currentlyStalledKeys.Add(SidecarMissingFingerprintToken);
+            currentlyStalledKeys.Sort(StringComparer.OrdinalIgnoreCase);
             var fingerprint = StartupEventGate.HashString(string.Join(";", currentlyStalledKeys));
             if (_startupGate != null &&
                 !_startupGate.ShouldEmit(Constants.EventTypes.EspPolicyProviderStalled, fingerprint))
@@ -153,11 +213,30 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 return;
             }
 
+            // Sidecar-missing is the dominant reason when both arms fire in one round: it
+            // explains the ESP hang regardless of the foreign providers' completeness.
+            var reason = eval.SidecarMissingStalledForMinutes != null
+                ? ReasonSidecarMissing
+                : ReasonProviderIncomplete;
+
+            var messageParts = new List<string>();
+            if (eval.SidecarMissingStalledForMinutes != null)
+            {
+                var registeredNames = string.Join(", ", snapshot.Providers
+                    .Where(p => p.Kind == EspPolicyProviderProbe.KindSetupApps)
+                    .Select(p => $"{p.Name} ({p.Scope})"));
+                messageParts.Add(
+                    $"expected IME provider '{EspPolicyProviderProbe.SidecarProviderName}' not registered for " +
+                    $">= {DwellMinutes} min while Setup/Apps providers exist: {registeredNames}");
+            }
             var stalledNames = string.Join(", ",
                 eval.NewlyStalled.Select(s => $"{s.Provider.Name} ({s.Provider.Scope}/{s.Provider.Kind})"));
+            if (eval.NewlyStalled.Count > 0)
+                messageParts.Add($"provider(s) incomplete for >= {DwellMinutes} min: {stalledNames}");
 
             var data = new Dictionary<string, object>(StringComparer.Ordinal)
             {
+                ["reason"] = reason,
                 ["dwellMinutes"] = DwellMinutes,
                 ["sidecarRegistered"] = snapshot.SidecarRegistered,
                 ["providers"] = snapshot.Providers.Select(p => new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -177,6 +256,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     ["stalledForMinutes"] = Math.Round(s.StalledForMinutes, 1),
                 }).ToList(),
             };
+            if (eval.SidecarMissingStalledForMinutes != null)
+                data["sidecarMissingForMinutes"] = Math.Round(eval.SidecarMissingStalledForMinutes.Value, 1);
+
+            var message =
+                "ESP Setup/Apps tracking stalled: " + string.Join("; ", messageParts) +
+                " — the ESP waits on its app-tracking providers without any timeout";
 
             _post.Emit(new EnrollmentEvent
             {
@@ -188,27 +273,31 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 Source = SourceLabel,
                 Phase = EnrollmentPhase.Unknown,
                 ImmediateUpload = true,
-                Message = $"ESP policy provider(s) incomplete for >= {DwellMinutes} min: {stalledNames} " +
-                          $"(sidecarRegistered={snapshot.SidecarRegistered}) — the ESP waits on " +
-                          "Setup/Apps providers without any timeout",
+                Message = message,
                 Data = data
             });
             _startupGate?.MarkEmitted(Constants.EventTypes.EspPolicyProviderStalled);
 
             _logger?.Warning(
-                $"EspPolicyProviderStallDetector: {stalledNames} incomplete for >= {DwellMinutes} min " +
-                $"(sidecarRegistered={snapshot.SidecarRegistered}).");
+                $"EspPolicyProviderStallDetector: {string.Join("; ", messageParts)} " +
+                $"(reason={reason}, sidecarRegistered={snapshot.SidecarRegistered}).");
         }
 
         /// <summary>Result of one <see cref="EvaluateStallTransition"/> round.</summary>
         internal sealed class StallEvaluation
         {
-            /// <summary>Next round's dwell state — only currently-incomplete providers survive.</summary>
+            /// <summary>Next round's arm-1 dwell state — only currently-incomplete providers survive.</summary>
             public Dictionary<string, DateTime> UpdatedFirstSeenUtc { get; } =
                 new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
 
-            /// <summary>Providers that crossed the dwell threshold this round and were not yet reported.</summary>
+            /// <summary>Providers that crossed the dwell threshold this round and were not yet reported (arm 1).</summary>
             public List<StalledProvider> NewlyStalled { get; } = new List<StalledProvider>();
+
+            /// <summary>Next round's arm-2 dwell state; null = sidecar-missing condition not active (reset).</summary>
+            public DateTime? UpdatedSidecarMissingSinceUtc { get; set; }
+
+            /// <summary>Non-null when the sidecar-missing condition crossed the dwell threshold this round and was not yet reported (arm 2).</summary>
+            public double? SidecarMissingStalledForMinutes { get; set; }
         }
 
         internal readonly struct StalledProvider
