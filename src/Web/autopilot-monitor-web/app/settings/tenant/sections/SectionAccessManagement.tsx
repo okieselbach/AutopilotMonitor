@@ -6,6 +6,7 @@ import AdminManagementSection from "../../components/AdminManagementSection";
 
 export function SectionAccessManagement() {
   const {
+    canEditConfig,
     admins, loadingAdmins,
     newAdminEmail, setNewAdminEmail,
     newMemberRole, setNewMemberRole,
@@ -16,6 +17,17 @@ export function SectionAccessManagement() {
     handleAddAdmin, handleRemoveAdmin,
     handleToggleTenantAdmin, handleUpdatePermissions,
   } = useTenantConfig();
+
+  // Operators do not manage members, and the member list itself is admin-tier data
+  // (the backend never serves it to them) — hide the section instead of rendering
+  // an empty table with dead controls.
+  if (!canEditConfig) {
+    return (
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+        This page is available to tenant administrators only.
+      </div>
+    );
+  }
 
   return (
     <>

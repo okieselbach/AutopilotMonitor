@@ -5,6 +5,7 @@ import { DiagnosticsLogPath } from "../types";
 import { validateDiagnosticsPath } from "@/utils/guardValidation";
 import { ValidationIndicator } from "@/components/ValidationIndicator";
 import SaveResetBar from "./SaveResetBar";
+import ReadOnlyFieldset from "./ReadOnlyFieldset";
 import { parseSasExpiry } from "./diagnosticsSasExpiry";
 
 // Re-export for callers that still import from the section. Implementation lives
@@ -30,6 +31,8 @@ interface DiagnosticsSectionProps {
   onSave: () => Promise<void> | void;
   onReset: () => void;
   saving: boolean;
+  /** Read-only viewer (Operator): settings visible but inert, no Save/Reset bar. */
+  readOnly?: boolean;
 }
 
 export default function DiagnosticsSection({
@@ -50,6 +53,7 @@ export default function DiagnosticsSection({
   onSave,
   onReset,
   saving,
+  readOnly = false,
 }: DiagnosticsSectionProps) {
   const isHosted = diagnosticsUploadDestination === "Hosted";
   const [newDiagSubfolders, setNewDiagSubfolders] = useState(false);
@@ -77,6 +81,8 @@ export default function DiagnosticsSection({
         </div>
       </div>
       <div className="p-6 space-y-4">
+        <ReadOnlyFieldset readOnly={readOnly}>
+        <div className="space-y-4">
 
         {/* Destination selector — explicit admin choice between customer-controlled SAS
             (default, data stays in customer's storage) and hosted (opt-in, data leaves
@@ -364,7 +370,10 @@ export default function DiagnosticsSection({
           </div>
         </div>
 
-        <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />
+        </div>
+        </ReadOnlyFieldset>
+
+        {!readOnly && <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />}
       </div>
     </div>
   );

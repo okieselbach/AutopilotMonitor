@@ -6,6 +6,7 @@ import AgentAnalyzersSection from "../../components/AgentAnalyzersSection";
 
 export function SectionAgentAnalyzers() {
   const {
+    canEditConfig,
     enableLocalAdminAnalyzer, setEnableLocalAdminAnalyzer,
     localAdminAllowedAccounts, setLocalAdminAllowedAccounts,
     newAllowedAccount, setNewAllowedAccount,
@@ -41,6 +42,7 @@ export function SectionAgentAnalyzers() {
         onSave={handleSaveAgentAnalyzers}
         onReset={handleResetAgentAnalyzers}
         saving={savingSection === "agentAnalyzers"}
+        readOnly={!canEditConfig}
       />
     </>
   );

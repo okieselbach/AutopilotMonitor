@@ -183,4 +183,13 @@ public class ConfigRedactionTests
     public void CanViewSecrets_PureDelegatedReader_False()
         => Assert.False(GetTenantConfigurationFunction.CanViewSecrets(
             new RequestContext { IsDelegatedReader = true, TenantId = TenantA, TargetTenantId = TenantB }));
+
+    [Theory]
+    [InlineData(Constants.TenantRoles.Operator)]
+    [InlineData(Constants.TenantRoles.Viewer)]
+    public void CanViewSecrets_OwnTenantOperatorOrViewer_False(string role)
+        // Member-tier read-only Settings view (config GET is MemberRead): an own-tenant
+        // Operator/Viewer arrives with IsTenantAdmin=false ⇒ always the redacted copy.
+        => Assert.False(GetTenantConfigurationFunction.CanViewSecrets(
+            new RequestContext { UserRole = role, TenantId = TenantA, TargetTenantId = TenantA }));
 }

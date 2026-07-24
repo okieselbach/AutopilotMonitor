@@ -160,9 +160,9 @@ public class EndpointPolicyCatalogCompletenessTests
 
         Assert.NotNull(getConfig);
         Assert.NotNull(putConfig);
-        // GET config read is admin-tier read (own-tenant Admin / GA / read-only GlobalReader);
-        // PUT config write stays Admin/GA only.
-        Assert.Equal(EndpointPolicy.TenantAdminOrGlobalReader, getConfig.Policy);
+        // GET config read is member-tier (Operators/Viewers get the redacted read-only Settings
+        // view; the handler redacts for every non-admin caller); PUT config write stays Admin/GA only.
+        Assert.Equal(EndpointPolicy.MemberRead, getConfig.Policy);
         Assert.Equal(EndpointPolicy.TenantAdminOrGA, putConfig.Policy);
 
         var getRules = EndpointAccessPolicyCatalog.FindPolicy("GET", "/api/rules/gather");
@@ -338,7 +338,7 @@ public class EndpointPolicyCatalogCompletenessTests
     [InlineData("POST", "/api/agent/telemetry",          true)]   // DeviceOrBootstrapAuth
     [InlineData("GET",  "/api/bootstrap/validate/ABC123", true)]  // PublicAnonymous (param route)
     [InlineData("GET",  "/api/sessions",                 false)]  // MemberRead
-    [InlineData("GET",  "/api/config/00000000-0000-0000-0000-000000000001", false)] // TenantAdminOrGlobalReader
+    [InlineData("GET",  "/api/config/00000000-0000-0000-0000-000000000001", false)] // MemberRead
     [InlineData("GET",  "/api/global/sessions",          false)]  // GlobalReadOrAdmin
     [InlineData("GET",  "/api/nonexistent",              false)]  // unregistered → fail-closed
     public void SkipsJwtValidation_MatchesPolicyTier(string method, string path, bool expectedExempt)

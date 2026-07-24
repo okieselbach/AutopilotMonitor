@@ -95,6 +95,13 @@ interface TenantConfigContextValue {
   // Core
   config: TenantConfiguration | null;
   loading: boolean;
+  /**
+   * True when the current user may CHANGE tenant configuration (Tenant Admin or Global Admin).
+   * Operators reach the settings area read-only: sections must render no Save/Reset bar and
+   * disable their inputs when this is false. Mirrors the backend write gate (PUT config is
+   * TenantAdminOrGA), so hiding the affordances is UX — the server enforces regardless.
+   */
+  canEditConfig: boolean;
   savingSection: string | null;
   error: string | null;
   setError: (e: string | null) => void;
@@ -320,6 +327,11 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const { getAccessToken, user, logout } = useAuth();
   const { addNotification } = useNotifications();
 
+  // Operators reach the settings area read-only — only a Tenant Admin or Global Admin may
+  // change configuration. Drives section rendering (no Save/Reset bar, disabled inputs)
+  // and the defensive guard in saveConfiguration; the backend enforces the same gate.
+  const canEditConfig = user?.isTenantAdmin === true || user?.isGlobalAdmin === true;
+
   // --- State (mirrors old page.tsx lines 35-112) ---
   const [config, setConfig] = useState<TenantConfiguration | null>(null);
   const [admins, setAdmins] = useState<TenantAdmin[]>([]);
@@ -429,7 +441,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     if (!tenantId) return;
 
-    // Operators (non-admin) only need feature flags, not the full config
+    // Operators reach the settings area read-only (no Save affordances); admins may edit.
     const isAdminOrGA = user?.isTenantAdmin || user?.isGlobalAdmin;
 
     const fetchConfiguration = async () => {
@@ -437,33 +449,34 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         setLoading(true);
         setError(null);
 
-        if (!isAdminOrGA) {
-          // Operator with canManageBootstrapTokens — load only feature flags
-          const response = await authenticatedFetch(api.config.featureFlags(tenantId), getAccessToken);
-          if (!response.ok) {
-            throw new Error(`Failed to load feature flags: ${response.statusText}`);
-          }
-          const flags = await response.json();
-          // Create a minimal config object with just the feature flag
-          setConfig({ bootstrapTokenEnabled: flags.bootstrapTokenEnabled } as TenantConfiguration);
-          setEditionInfo(parseEditionInfo(flags));
-          return;
-        }
-
-        // Admin path: full config + feature flags in parallel — the edition surface is
-        // resolved SERVER-side (trial expiry math), so it comes from flags, not the raw config.
+        // Everyone entitled to the settings area loads the full config + feature flags in
+        // parallel — the edition surface is resolved SERVER-side (trial expiry math), so it
+        // comes from flags, not the raw config. Non-admins (Operators) receive the
+        // server-REDACTED copy: the backend clears secrets for every caller without write
+        // authority over the target tenant, so showing it read-only is safe.
         const [response, flagsResponse] = await Promise.all([
           authenticatedFetch(api.config.tenant(tenantId), getAccessToken),
           authenticatedFetch(api.config.featureFlags(tenantId), getAccessToken),
         ]);
 
+        let flags: unknown = null;
         if (flagsResponse.ok) {
           try {
-            setEditionInfo(parseEditionInfo(await flagsResponse.json()));
+            flags = await flagsResponse.json();
+            setEditionInfo(parseEditionInfo(flags));
           } catch { /* fail-closed: keep Community default */ }
         }
 
         if (!response.ok) {
+          // Deploy-order safety net: a backend that still gates the config GET admin-tier
+          // 403s an Operator. Fall back to the feature-flags minimal view (pre-change
+          // behavior for non-admins) instead of surfacing a load error.
+          if (response.status === 403 && !isAdminOrGA && flags && typeof flags === "object") {
+            setConfig({
+              bootstrapTokenEnabled: (flags as { bootstrapTokenEnabled?: boolean }).bootstrapTokenEnabled,
+            } as TenantConfiguration);
+            return;
+          }
           throw new Error(`Failed to load configuration: ${response.statusText}`);
         }
 
@@ -652,7 +665,9 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // Save configuration (shared by all sections)
   // -----------------------------------------------------------------------
   const saveConfiguration = useCallback(async (sectionName: string, overrides?: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean; validateDeviceAssociation?: boolean; unrestrictedMode?: boolean }): Promise<boolean> => {
-    if (!tenantId || !config) return false;
+    // Read-only viewers (Operators) have no save affordances; this guard covers any path
+    // that still reaches a save (the backend would 403 the PUT regardless).
+    if (!tenantId || !config || !canEditConfig) return false;
 
     try {
       setSavingSection(sectionName);
@@ -758,7 +773,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       setSavingSection(null);
     }
   }, [
-    tenantId, config, getAccessToken, addNotification,
+    tenantId, config, canEditConfig, getAccessToken, addNotification,
     manufacturerWhitelist, modelWhitelist, validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation,
     dataRetentionDays, sessionTimeoutHours, enablePerformanceCollector, performanceCollectorInterval,
     helloWaitTimeoutSeconds, selfDestructOnComplete, keepLogFile, rebootOnComplete, rebootDelaySeconds,
@@ -1494,7 +1509,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // -----------------------------------------------------------------------
   return (
     <TenantConfigContext.Provider value={{
-      config, loading, savingSection,
+      config, loading, canEditConfig, savingSection,
       error, setError, successMessage, setSuccessMessage,
 
       // Edition / trial

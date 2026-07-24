@@ -6,11 +6,21 @@ import UnrestrictedModeSection from "../../components/UnrestrictedModeSection";
 
 export function SectionUnrestrictedMode() {
   const {
-    config,
+    canEditConfig, config,
     unrestrictedMode, setUnrestrictedMode,
     handleSaveUnrestrictedMode,
     savingSection,
   } = useTenantConfig();
+
+  // Security-sensitive toggle — Operators never see it (with the unified config fetch
+  // they would otherwise see the GA-gate flag and get the section rendered).
+  if (!canEditConfig) {
+    return (
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+        This page is available to tenant administrators only.
+      </div>
+    );
+  }
 
   if (!config?.unrestrictedModeEnabled) {
     return (

@@ -1,6 +1,7 @@
 "use client";
 
 import SaveResetBar from "./SaveResetBar";
+import ReadOnlyFieldset from "./ReadOnlyFieldset";
 
 interface AgentSettingsSectionProps {
   enablePerformanceCollector: boolean;
@@ -38,6 +39,8 @@ interface AgentSettingsSectionProps {
   onSave: () => Promise<void> | void;
   onReset: () => void;
   saving: boolean;
+  /** Read-only viewer (Operator): settings visible but inert, no Save/Reset bar. */
+  readOnly?: boolean;
 }
 
 export default function AgentSettingsSection({
@@ -76,6 +79,7 @@ export default function AgentSettingsSection({
   onSave,
   onReset,
   saving,
+  readOnly = false,
 }: AgentSettingsSectionProps) {
   return (
     <>
@@ -93,6 +97,8 @@ export default function AgentSettingsSection({
           </div>
         </div>
         <div className="p-6 space-y-4">
+          <ReadOnlyFieldset readOnly={readOnly}>
+          <div className="space-y-4">
 
           {/* Self-Destruct */}
           <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-violet-200 transition-colors">
@@ -291,8 +297,10 @@ export default function AgentSettingsSection({
               </div>
             </>
           )}
+          </div>
+          </ReadOnlyFieldset>
 
-          <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />
+          {!readOnly && <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />}
         </div>
       </div>
 
@@ -310,6 +318,8 @@ export default function AgentSettingsSection({
           </div>
         </div>
         <div className="p-6 space-y-5">
+          <ReadOnlyFieldset readOnly={readOnly} notice={false}>
+          <div className="space-y-5">
           {/* Performance Collector */}
           <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-emerald-200 transition-colors">
             <div className="flex-1">
@@ -370,6 +380,8 @@ export default function AgentSettingsSection({
             </div>
           </div>
 
+          </div>
+          </ReadOnlyFieldset>
         </div>
       </div>
     </>

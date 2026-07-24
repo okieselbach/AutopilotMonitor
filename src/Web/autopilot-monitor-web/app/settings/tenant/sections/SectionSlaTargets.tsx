@@ -2,10 +2,12 @@
 
 import { useTenantConfig } from "../../TenantConfigContext";
 import SaveResetBar from "../../components/SaveResetBar";
+import ReadOnlyFieldset from "../../components/ReadOnlyFieldset";
 import { trackEvent } from "@/lib/appInsights";
 
 export function SectionSlaTargets() {
   const {
+    canEditConfig,
     slaTargetSuccessRate, setSlaTargetSuccessRate,
     slaTargetMaxDurationMinutes, setSlaTargetMaxDurationMinutes,
     slaTargetAppInstallSuccessRate, setSlaTargetAppInstallSuccessRate,
@@ -37,6 +39,8 @@ export function SectionSlaTargets() {
         </div>
       </div>
       <div className="p-6 space-y-8">
+      <ReadOnlyFieldset readOnly={!canEditConfig}>
+      <div className="space-y-8">
       {/* SLA Targets */}
       <div>
         <p className="text-sm text-gray-500 mb-4">
@@ -216,21 +220,26 @@ export function SectionSlaTargets() {
         </div>
       </div>
 
-      <SaveResetBar
-        onSave={() => {
-          trackEvent('sla_targets_saved', {
-            hasSuccessRateTarget: slaTargetSuccessRate != null,
-            hasDurationTarget: slaTargetMaxDurationMinutes != null,
-            hasAppInstallTarget: slaTargetAppInstallSuccessRate != null,
-          });
-          return handleSaveSlaTargets();
-        }}
-        onReset={() => {
-          trackEvent('sla_targets_reset');
-          return handleResetSlaTargets();
-        }}
-        saving={savingSection === "slaTargets"}
-      />
+      </div>
+      </ReadOnlyFieldset>
+
+      {canEditConfig && (
+        <SaveResetBar
+          onSave={() => {
+            trackEvent('sla_targets_saved', {
+              hasSuccessRateTarget: slaTargetSuccessRate != null,
+              hasDurationTarget: slaTargetMaxDurationMinutes != null,
+              hasAppInstallTarget: slaTargetAppInstallSuccessRate != null,
+            });
+            return handleSaveSlaTargets();
+          }}
+          onReset={() => {
+            trackEvent('sla_targets_reset');
+            return handleResetSlaTargets();
+          }}
+          saving={savingSection === "slaTargets"}
+        />
+      )}
       </div>
     </div>
   );

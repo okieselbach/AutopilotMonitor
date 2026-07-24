@@ -66,9 +66,11 @@ public enum EndpointPolicy
 
     /// <summary>
     /// Own-tenant Admin, OR a platform role (Global Admin / Global Reader). Tenant-scoped admin-tier
-    /// READ access (e.g. GET config/{tenantId}). Like <see cref="TenantAdminOrGA"/> but additionally
-    /// admits the read-only Global Reader — used only on GET routes so the reader gets visibility
-    /// without write power, while tenant Operators/Viewers still cannot read admin-tier config.
+    /// READ access (e.g. GET tenants/{tenantId}/graph-permissions/status). Like
+    /// <see cref="TenantAdminOrGA"/> but additionally admits the read-only Global Reader — used only
+    /// on GET routes so the reader gets visibility without write power, while tenant
+    /// Operators/Viewers stay excluded. (GET config/{tenantId} moved OFF this tier to MemberRead:
+    /// its handler redacts secrets for every non-admin caller, so member-tier read is safe there.)
     /// </summary>
     TenantAdminOrGlobalReader,
 
@@ -247,7 +249,12 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "rules/gather",              EndpointPolicy.MemberRead),
         new("GET",    "rules/analyze",             EndpointPolicy.MemberRead),
         new("GET",    "rules/ime-log-patterns",    EndpointPolicy.MemberRead),
-        new("GET",    "config/{tenantId}",         EndpointPolicy.TenantAdminOrGlobalReader, TenantScoping.RouteParam),
+        // Member tier so Operators/Viewers can see their tenant's configuration read-only in the
+        // Settings UI. Safe because the handler redacts by default: only a Global Admin or the
+        // tenant's OWN admin gets the unredacted secrets — every other admitted caller (Operator,
+        // Viewer, read-only Global Reader, delegated reader) receives RedactedCopyForReader()
+        // (see GetTenantConfigurationFunction.CanViewSecrets). Writes stay TenantAdminOrGA below.
+        new("GET",    "config/{tenantId}",         EndpointPolicy.MemberRead, TenantScoping.RouteParam),
         new("GET",    "config/{tenantId}/feature-flags", EndpointPolicy.MemberRead, TenantScoping.RouteParam),
 
         // ── TenantAdminOrGA ─────────────────────────────────────────────
@@ -268,7 +275,10 @@ public static class EndpointAccessPolicyCatalog
         // rotate_config) on RequestContext.IsTenantAdmin || IsGlobalAdmin.
         new("POST",   "sessions/{sessionId}/actions",          EndpointPolicy.TenantAdminOrOperator),
         new("POST",   "sessions/{sessionId}/report",        EndpointPolicy.TenantAdminOrGA),
-        new("POST",   "diagnostics/files",                  EndpointPolicy.TenantAdminOrGA),
+        // Operator tier: submitting diagnostic files to the Autopilot Monitor team is a
+        // troubleshooting action, not a config change — a support-driven Operator may use it.
+        // Viewer and the read-only Global Reader stay excluded (the tier admits no Viewer/Reader).
+        new("POST",   "diagnostics/files",                  EndpointPolicy.TenantAdminOrOperator),
         new("DELETE", "sessions/{sessionId}",      EndpointPolicy.TenantAdminOrGA, TenantScoping.QueryParam),
         new("GET",    "tenants/{tenantId}/admins",           EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("POST",   "tenants/{tenantId}/admins",           EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),

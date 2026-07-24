@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import SaveResetBar from "./SaveResetBar";
+import ReadOnlyFieldset from "./ReadOnlyFieldset";
 import { MAX_NOTIFICATION_CHANNELS, NotificationChannel } from "../types";
 
 interface NotificationsSectionProps {
@@ -13,6 +14,8 @@ interface NotificationsSectionProps {
   onSave: () => Promise<void> | void;
   onReset: () => void;
   saving: boolean;
+  /** Read-only viewer (Operator): channels visible but inert, no Save/Reset bar. */
+  readOnly?: boolean;
 }
 
 const GENERIC_PROVIDER = 20;
@@ -330,6 +333,7 @@ export default function NotificationsSection({
   onSave,
   onReset,
   saving,
+  readOnly = false,
 }: NotificationsSectionProps) {
   const addChannel = () => {
     if (channels.length >= MAX_NOTIFICATION_CHANNELS) return;
@@ -363,6 +367,8 @@ export default function NotificationsSection({
         </div>
       </div>
       <div className="p-6 space-y-4">
+        <ReadOnlyFieldset readOnly={readOnly}>
+        <div className="space-y-4">
         {channels.length === 0 && (
           <p className="text-sm text-gray-500">
             No channels configured yet. Add a channel to receive enrollment, SLA, or rule notifications.
@@ -392,8 +398,10 @@ export default function NotificationsSection({
           </svg>
           Add channel{channels.length >= MAX_NOTIFICATION_CHANNELS ? ` (max ${MAX_NOTIFICATION_CHANNELS})` : ""}
         </button>
+        </div>
+        </ReadOnlyFieldset>
 
-        <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />
+        {!readOnly && <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />}
       </div>
     </div>
   );

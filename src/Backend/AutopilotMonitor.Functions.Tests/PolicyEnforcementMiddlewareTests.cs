@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using AutopilotMonitor.Functions.Functions.Config;
 using AutopilotMonitor.Functions.Middleware;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
@@ -298,8 +299,8 @@ public class PolicyEnforcementMiddlewareTests
         Assert.Equal(403, result.StatusCode);
     }
 
-    // ── config GET (TenantAdminOrGlobalReader): own-tenant admin view vs reader view ──
-    // GetTenantConfigurationFunction redacts only when IsGlobalReader && !(IsTenantAdmin && Target==Tenant).
+    // ── config GET (MemberRead): own-tenant admin view vs redacted reader/member view ──
+    // GetTenantConfigurationFunction redacts unless GA or own-tenant Admin (CanViewSecrets).
     // These lock in the RequestContext that drives that decision.
 
     [Fact]
@@ -334,6 +335,38 @@ public class PolicyEnforcementMiddlewareTests
         Assert.True(rc.IsTenantAdmin);                  // admin of A…
         Assert.NotEqual(rc.TenantId, rc.TargetTenantId); // …but viewing B ⇒ reader view ⇒ REDACTED
         Assert.Equal(TenantB, rc.TargetTenantId);
+    }
+
+    [Fact]
+    public async Task ConfigGet_OwnTenantOperator_IsAllowed_RedactedMemberView()
+    {
+        // Read-only Settings view for troubleshooting staff: an own-tenant Operator is admitted
+        // (MemberRead) but arrives with IsTenantAdmin=false, so CanViewSecrets ⇒ redacted copy.
+        const string upn = "operator@contoso.com";
+        var h = BuildHarness();
+        AsTenantMemberRole(h, TenantA, upn, Constants.TenantRoles.Operator);
+
+        var result = await h.Middleware.DecideAsync("GET", $"/api/config/{TenantA}", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed);
+        var rc = result.Context!;
+        Assert.False(rc.IsTenantAdmin);
+        Assert.False(GetTenantConfigurationFunction.CanViewSecrets(rc));
+    }
+
+    [Fact]
+    public async Task ConfigGet_CrossTenantOperator_IsForbidden()
+    {
+        // Membership is resolved against the caller's JWT tenant — an Operator of A naming
+        // tenant B in the route is a cross-tenant read and must stay 403.
+        const string upn = "operator@contoso.com";
+        var h = BuildHarness();
+        AsTenantMemberRole(h, TenantA, upn, Constants.TenantRoles.Operator);
+
+        var result = await h.Middleware.DecideAsync("GET", $"/api/config/{TenantB}", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.False(result.Allowed);
+        Assert.Equal(403, result.StatusCode);
     }
 
     // ── Cross-tenant read: GlobalReader crosses tenants (HasGlobalScope gate) ───────

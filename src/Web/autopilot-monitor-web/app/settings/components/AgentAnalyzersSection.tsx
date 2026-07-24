@@ -1,6 +1,7 @@
 "use client";
 
 import SaveResetBar from "./SaveResetBar";
+import ReadOnlyFieldset from "./ReadOnlyFieldset";
 
 interface AgentAnalyzersSectionProps {
   enableLocalAdminAnalyzer: boolean;
@@ -22,6 +23,8 @@ interface AgentAnalyzersSectionProps {
   onSave: () => Promise<void> | void;
   onReset: () => void;
   saving: boolean;
+  /** Read-only viewer (Operator): analyzers visible but inert, no Save/Reset bar. */
+  readOnly?: boolean;
 }
 
 const BUILTIN_ACCOUNTS = [
@@ -58,6 +61,7 @@ export default function AgentAnalyzersSection({
   onSave,
   onReset,
   saving,
+  readOnly = false,
 }: AgentAnalyzersSectionProps) {
   const trimmed = newAllowedAccount.trim();
   const isDuplicate =
@@ -89,6 +93,8 @@ export default function AgentAnalyzersSection({
         </div>
       </div>
       <div className="p-6 space-y-6">
+        <ReadOnlyFieldset readOnly={readOnly}>
+        <div className="space-y-6">
 
         {/* ── Local Admin Analyzer ─────────────────────────── */}
         <div>
@@ -337,8 +343,11 @@ export default function AgentAnalyzersSection({
           </div>
         </div>
 
+        </div>
+        </ReadOnlyFieldset>
+
         {/* Save / Reset */}
-        <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />
+        {!readOnly && <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />}
       </div>
     </div>
   );

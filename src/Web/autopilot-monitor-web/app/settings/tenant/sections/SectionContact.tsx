@@ -2,9 +2,11 @@
 
 import { useTenantConfig } from "../../TenantConfigContext";
 import SaveResetBar from "../../components/SaveResetBar";
+import ReadOnlyFieldset from "../../components/ReadOnlyFieldset";
 
 export function SectionContact() {
   const {
+    canEditConfig,
     contactEmail, setContactEmail,
     handleSaveContact, handleResetContact,
     savingSection,
@@ -28,6 +30,7 @@ export function SectionContact() {
       </div>
 
       <div className="p-6 space-y-4">
+        <ReadOnlyFieldset readOnly={!canEditConfig}>
         <div>
           <label htmlFor="contactEmail" className="block text-sm font-medium text-gray-700">
             Contact email address
@@ -37,13 +40,14 @@ export function SectionContact() {
             type="email"
             value={contactEmail}
             onChange={(e) => setContactEmail(e.target.value)}
-            placeholder="it-operations@contoso.com"
-            className="mt-1 block w-full max-w-md rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+            placeholder={canEditConfig ? "it-operations@contoso.com" : "Not configured"}
+            className="mt-1 block w-full max-w-md rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-600"
           />
           {looksInvalid && (
             <p className="mt-1 text-sm text-amber-600">That does not look like an email address.</p>
           )}
         </div>
+        </ReadOnlyFieldset>
 
         <div className="rounded-md bg-blue-50 border border-blue-100 p-4">
           <p className="text-sm text-blue-900">
@@ -57,12 +61,14 @@ export function SectionContact() {
           </p>
         </div>
 
-        <SaveResetBar
-          onSave={handleSaveContact}
-          onReset={handleResetContact}
-          saving={savingSection === "contact"}
-          canSave={!looksInvalid}
-        />
+        {canEditConfig && (
+          <SaveResetBar
+            onSave={handleSaveContact}
+            onReset={handleResetContact}
+            saving={savingSection === "contact"}
+            canSave={!looksInvalid}
+          />
+        )}
       </div>
     </div>
   );

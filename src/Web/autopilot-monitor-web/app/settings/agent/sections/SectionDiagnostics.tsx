@@ -6,6 +6,7 @@ import DiagnosticsSection from "../../components/DiagnosticsSection";
 
 export function SectionDiagnostics() {
   const {
+    canEditConfig,
     diagnosticsBlobSasUrl, setDiagnosticsBlobSasUrl,
     diagnosticsUploadMode, setDiagnosticsUploadMode,
     diagnosticsUploadDestination, setDiagnosticsUploadDestination,
@@ -39,6 +40,7 @@ export function SectionDiagnostics() {
         onSave={handleSaveDiagnostics}
         onReset={handleResetDiagnostics}
         saving={savingSection === "diagnostics"}
+        readOnly={!canEditConfig}
       />
     </>
   );

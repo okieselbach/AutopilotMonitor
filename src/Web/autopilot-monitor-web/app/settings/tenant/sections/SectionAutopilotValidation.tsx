@@ -8,6 +8,7 @@ import NotRegisteredDevicesInsights from "../../components/NotRegisteredDevicesI
 
 export function SectionAutopilotValidation() {
   const {
+    canEditConfig,
     validateAutopilotDevice, setValidateAutopilotDevice,
     validateCorporateIdentifier, setValidateCorporateIdentifier,
     validateDeviceAssociation,
@@ -17,6 +18,16 @@ export function SectionAutopilotValidation() {
   } = useTenantConfig();
 
   const { user, getAccessToken } = useAuth();
+
+  // Validation gates + the Entra admin-consent flow are tenant-admin territory —
+  // Operators do not see this section at all.
+  if (!canEditConfig) {
+    return (
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+        This page is available to tenant administrators only.
+      </div>
+    );
+  }
   // DevPrep "Device association" is in Microsoft Private Preview — surface only to Global Admins
   // until it ships GA. Backend always rejects writes from non-GA callers regardless of UI.
   // TODO(devprep-followup): add vitest DOM-render test asserting toggle is hidden for

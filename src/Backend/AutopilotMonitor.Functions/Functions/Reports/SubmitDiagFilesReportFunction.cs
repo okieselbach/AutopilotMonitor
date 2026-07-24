@@ -10,8 +10,8 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Functions.Reports
 {
     /// <summary>
-    /// Tenant-admin entry point for submitting diagnostic files (logs, JSON state files,
-    /// screenshots) without a session context. Lands in the same SessionReports table +
+    /// Tenant-admin/-operator entry point for submitting diagnostic files (logs, JSON state
+    /// files, screenshots) without a session context. Lands in the same SessionReports table +
     /// session-reports blob container as session reports, distinguished by
     /// <see cref="SessionReportMetadata.ReportType"/> = "diagFiles".
     /// </summary>
@@ -45,7 +45,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
 
             try
             {
-                // Authentication + TenantAdminOrGA authorization enforced by PolicyEnforcementMiddleware
+                // Authentication + TenantAdminOrOperator authorization enforced by PolicyEnforcementMiddleware
                 var requestCtx = req.GetRequestContext();
                 var tenantId = requestCtx.TenantId;
                 var userIdentifier = requestCtx.UserPrincipalName;

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import SaveResetBar from "./SaveResetBar";
+import ReadOnlyFieldset from "./ReadOnlyFieldset";
 
 interface HardwareWhitelistSectionProps {
   manufacturerWhitelist: string;
@@ -11,6 +12,8 @@ interface HardwareWhitelistSectionProps {
   onSave: () => Promise<void> | void;
   onReset: () => void;
   saving: boolean;
+  /** Read-only viewer (Operator): inputs disabled, no Save/Reset bar. */
+  readOnly?: boolean;
 }
 
 function parseList(csv: string): string[] {
@@ -130,6 +133,7 @@ export default function HardwareWhitelistSection({
   onSave,
   onReset,
   saving,
+  readOnly = false,
 }: HardwareWhitelistSectionProps) {
   const manufacturers = parseList(manufacturerWhitelist);
   const models = parseList(modelWhitelist);
@@ -153,6 +157,8 @@ export default function HardwareWhitelistSection({
         </div>
       </div>
       <div className="p-6 space-y-5">
+        <ReadOnlyFieldset readOnly={readOnly}>
+        <div className="space-y-5">
         {/* Info */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
           <p className="text-sm text-blue-900">
@@ -190,7 +196,10 @@ export default function HardwareWhitelistSection({
           setItems={(items) => setModelWhitelist(joinList(items))}
         />
 
-        <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />
+        </div>
+        </ReadOnlyFieldset>
+
+        {!readOnly && <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />}
       </div>
     </div>
   );

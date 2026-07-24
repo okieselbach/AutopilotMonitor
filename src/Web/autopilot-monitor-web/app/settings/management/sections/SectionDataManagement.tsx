@@ -6,6 +6,7 @@ import DataManagementSection from "../../components/DataManagementSection";
 
 export function SectionDataManagement() {
   const {
+    canEditConfig,
     dataRetentionDays, setDataRetentionDays,
     sessionTimeoutHours, setSessionTimeoutHours,
     user, editionInfo,
@@ -26,6 +27,7 @@ export function SectionDataManagement() {
         onSave={handleSaveDataManagement}
         onReset={handleResetDataManagement}
         saving={savingSection === "dataManagement"}
+        readOnly={!canEditConfig}
       />
     </>
   );

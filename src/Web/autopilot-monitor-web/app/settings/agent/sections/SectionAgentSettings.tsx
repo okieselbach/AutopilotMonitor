@@ -6,6 +6,7 @@ import AgentSettingsSection from "../../components/AgentSettingsSection";
 
 export function SectionAgentSettings() {
   const {
+    canEditConfig,
     enablePerformanceCollector, setEnablePerformanceCollector,
     performanceCollectorInterval, setPerformanceCollectorInterval,
     helloWaitTimeoutSeconds, setHelloWaitTimeoutSeconds,
@@ -65,6 +66,7 @@ export function SectionAgentSettings() {
         onSave={handleSaveAgentSettings}
         onReset={handleResetAgentSettings}
         saving={savingSection === "agentSettings"}
+        readOnly={!canEditConfig}
       />
     </>
   );

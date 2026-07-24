@@ -227,6 +227,12 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
               if (sub.id === "cfg-agent-unrestricted") {
                 return isAdminLike && unrestrictedModeEnabled;
               }
+              // Tenant-admin-only sub-sections: Operators (read-only settings viewers) don't
+              // see them — matches the in-page "tenant administrators only" gates. A platform
+              // scope (GA / read-only GlobalReader) keeps the full GA-identical sidebar.
+              if (sub.id === "cfg-autopilot" || sub.id === "cfg-access-mgmt" || sub.id === "cfg-offboarding") {
+                return isAdminLike || hasGlobalScope;
+              }
               return true;
             });
             return { ...item, items: filteredSubs };

@@ -6,6 +6,7 @@ import NotificationsSection from "../../components/NotificationsSection";
 
 export function SectionNotifications() {
   const {
+    canEditConfig,
     notificationChannels, setNotificationChannels,
     handleTestChannel, testingChannelId, testChannelResult,
     handleSaveNotifications, handleResetNotifications,
@@ -24,6 +25,7 @@ export function SectionNotifications() {
         onSave={handleSaveNotifications}
         onReset={handleResetNotifications}
         saving={savingSection === "notifications"}
+        readOnly={!canEditConfig}
       />
     </>
   );

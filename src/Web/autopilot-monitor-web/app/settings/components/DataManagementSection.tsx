@@ -1,6 +1,7 @@
 "use client";
 
 import SaveResetBar from "./SaveResetBar";
+import ReadOnlyFieldset from "./ReadOnlyFieldset";
 
 interface DataManagementSectionProps {
   dataRetentionDays: number;
@@ -13,6 +14,8 @@ interface DataManagementSectionProps {
   onSave: () => Promise<void> | void;
   onReset: () => void;
   saving: boolean;
+  /** Read-only viewer (Operator): values visible but inert, no Save/Reset bar. */
+  readOnly?: boolean;
 }
 
 export default function DataManagementSection({
@@ -25,6 +28,7 @@ export default function DataManagementSection({
   onSave,
   onReset,
   saving,
+  readOnly = false,
 }: DataManagementSectionProps) {
   const isOverridden = dataRetentionDays === 0 || dataRetentionDays < 7 || dataRetentionDays > retentionCapDays;
   const isRetentionDisabled = isOverridden && !isGlobalAdmin;
@@ -43,6 +47,8 @@ export default function DataManagementSection({
         </div>
       </div>
       <div className="p-6 space-y-6">
+        <ReadOnlyFieldset readOnly={readOnly}>
+        <div className="space-y-6">
         {/* Data Retention Days */}
         <div>
           <label className="block">
@@ -106,7 +112,10 @@ export default function DataManagementSection({
           </label>
         </div>
 
-        <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />
+        </div>
+        </ReadOnlyFieldset>
+
+        {!readOnly && <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />}
       </div>
     </div>
   );

@@ -18,6 +18,7 @@ function joinList(items: string[]): string {
 export function SectionHardwareWhitelist() {
   const { getAccessToken } = useAuth();
   const {
+    canEditConfig,
     manufacturerWhitelist, setManufacturerWhitelist,
     modelWhitelist, setModelWhitelist,
     webhookNotifyOnHardwareRejection, setWebhookNotifyOnHardwareRejection,
@@ -53,14 +54,16 @@ export function SectionHardwareWhitelist() {
         onSave={handleSaveHardwareWhitelist}
         onReset={handleResetHardwareWhitelist}
         saving={savingSection === "hardwareWhitelist"}
+        readOnly={!canEditConfig}
       />
       <HardwareRejectionInsights
         getAccessToken={getAccessToken}
-        onAddManufacturer={handleAddManufacturer}
-        onAddModel={handleAddModel}
+        onAddManufacturer={canEditConfig ? handleAddManufacturer : undefined}
+        onAddModel={canEditConfig ? handleAddModel : undefined}
         webhookNotifyOnHardwareRejection={webhookNotifyOnHardwareRejection}
         onToggleNotification={setWebhookNotifyOnHardwareRejection}
         hasWebhook={hasWebhook}
+        readOnly={!canEditConfig}
       />
     </>
   );
