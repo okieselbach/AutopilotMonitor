@@ -75,8 +75,10 @@ public class IngestOnDemandDiagnosticsTests
     public void NullEventOrData_IsNotAConfirmation()
     {
         Assert.False(EventIngestProcessor.IsOnDemandDiagnosticsUploadConfirmation(null));
+        // Data is non-nullable on the model but the JSON deserializer can still hand us null
+        // for a payload without "data" — null! pins the guard the predicate actually has.
         Assert.False(EventIngestProcessor.IsOnDemandDiagnosticsUploadConfirmation(
-            new EnrollmentEvent { EventType = "server_action_executed", Data = null }));
+            new EnrollmentEvent { EventType = "server_action_executed", Data = null! }));
     }
 
     // -------- InferDiagnosticsDestination --------
