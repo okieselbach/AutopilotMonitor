@@ -44,6 +44,19 @@ namespace AutopilotMonitor.Functions.Services
                     case "diagnostics_uploaded":
                         classification.DiagnosticsUploadedEvent = evt;
                         break;
+                    case "server_action_executed":
+                        // The on-demand ("Collect Logs") path confirms its upload via
+                        // server_action_executed carrying blobName — the agent's dispatcher does
+                        // NOT emit diagnostics_uploaded there (only the terminal path does).
+                        // Treat it as the upload confirmation so the Sessions row gets stamped
+                        // and the portal's Download button flips. Null-guard: a real
+                        // diagnostics_uploaded in the same batch wins (it carries destination).
+                        if (classification.DiagnosticsUploadedEvent == null
+                            && IsOnDemandDiagnosticsUploadConfirmation(evt))
+                        {
+                            classification.DiagnosticsUploadedEvent = evt;
+                        }
+                        break;
                     case "whiteglove_complete":
                         classification.WhiteGloveEvent = evt;
                         break;
@@ -116,6 +129,43 @@ namespace AutopilotMonitor.Functions.Services
         /// reasons (decision_terminal, ctrl_c, process_exit, unhandled_exception, ...) either
         /// follow a real terminal event or imply nothing terminal.
         /// </summary>
+        /// <summary>
+        /// True for a <c>server_action_executed</c> event that confirms an on-demand
+        /// ("Collect Logs") diagnostics upload: <c>actionType=request_diagnostics</c> with a
+        /// non-empty <c>blobName</c>. The agent's ServerActionDispatcher emits no
+        /// <c>diagnostics_uploaded</c> on that path — this event IS the upload confirmation
+        /// and must stamp the Sessions row (session 8e4cc4ae: two successful uploads landed
+        /// in hosted storage but the portal never flipped because the row stayed empty).
+        /// </summary>
+        internal static bool IsOnDemandDiagnosticsUploadConfirmation(EnrollmentEvent? evt)
+        {
+            if (evt?.Data == null || !string.Equals(evt.EventType, "server_action_executed", StringComparison.Ordinal))
+                return false;
+            var actionType = evt.Data.ContainsKey("actionType") ? evt.Data["actionType"]?.ToString() : null;
+            if (!string.Equals(actionType, "request_diagnostics", StringComparison.OrdinalIgnoreCase))
+                return false;
+            var blobName = evt.Data.ContainsKey("blobName") ? evt.Data["blobName"]?.ToString() : null;
+            return !string.IsNullOrEmpty(blobName);
+        }
+
+        /// <summary>
+        /// Destination fallback for upload confirmations that carry no <c>destination</c>
+        /// (the on-demand server_action_executed path, and legacy agents). Only the Hosted
+        /// path persists the backend-built <c>{tenantId}/{filename}</c> shape
+        /// (HostedDiagnosticsBlobService.BuildBlobPath); CustomerSas blobs are bare filenames.
+        /// Returns the explicit destination when present, "Hosted" for a tenant-prefixed blob
+        /// name, otherwise null (repo leaves the column unchanged; read-time default is
+        /// CustomerSas).
+        /// </summary>
+        internal static string? InferDiagnosticsDestination(string? destination, string? blobName, string tenantId)
+        {
+            if (!string.IsNullOrEmpty(destination))
+                return destination;
+            if (blobName?.StartsWith(tenantId + "/", StringComparison.OrdinalIgnoreCase) == true)
+                return "Hosted";
+            return null;
+        }
+
         internal static bool IsMaxLifetimeAgentShutdown(EnrollmentEvent? evt)
         {
             if (evt == null || !string.Equals(evt.EventType, "agent_shutting_down", StringComparison.Ordinal))

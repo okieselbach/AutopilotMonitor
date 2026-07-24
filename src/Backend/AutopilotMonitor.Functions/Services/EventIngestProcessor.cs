@@ -300,6 +300,10 @@ namespace AutopilotMonitor.Functions.Services
                 var destination = data?.ContainsKey("destination") == true
                     ? data["destination"]?.ToString()
                     : null;
+                // server_action_executed (on-demand collection) carries no destination at all —
+                // infer Hosted from the tenant-prefixed blob-name shape. Without this the
+                // download route would look in the customer's container for a hosted blob.
+                destination = InferDiagnosticsDestination(destination, blobName, request.TenantId);
                 if (!string.IsNullOrEmpty(blobName))
                 {
                     await _sessionRepo.UpdateSessionDiagnosticsBlobAsync(
