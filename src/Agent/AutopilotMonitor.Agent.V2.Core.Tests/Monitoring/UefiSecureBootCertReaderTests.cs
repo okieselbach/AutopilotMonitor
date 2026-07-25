@@ -161,6 +161,40 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
             Assert.False(string.IsNullOrEmpty(snapshot.KekStatus));
         }
 
+        /// <summary>
+        /// SeSystemEnvironmentPrivilege is adjusted on the PROCESS token, so the enable →
+        /// read → restore sequence is a process-wide side effect. Unserialized, a second
+        /// reader observes "already enabled", skips its own restore, and then loses the
+        /// privilege mid-read when the first reader disposes — surfacing as a privilege_denied
+        /// that disagrees with the other readers. The machine's actual privilege state does
+        /// not matter here: whatever it is, every reader must report the SAME status.
+        /// </summary>
+        [Fact]
+        public void Read_is_serialized_across_concurrent_callers()
+        {
+            const int readers = 8;
+            var snapshots = new UefiSecureBootCertSnapshot[readers];
+            var failures = new System.Exception[readers];
+
+            var threads = new System.Threading.Thread[readers];
+            for (var i = 0; i < readers; i++)
+            {
+                var index = i;
+                threads[i] = new System.Threading.Thread(() =>
+                {
+                    try { snapshots[index] = UefiSecureBootCertReader.Read(); }
+                    catch (System.Exception ex) { failures[index] = ex; }
+                });
+                threads[i].Start();
+            }
+            foreach (var thread in threads) thread.Join();
+
+            Assert.All(failures, Assert.Null);
+            Assert.All(snapshots, s => Assert.False(string.IsNullOrEmpty(s.DbStatus)));
+            Assert.All(snapshots, s => Assert.Equal(snapshots[0].DbStatus, s.DbStatus));
+            Assert.All(snapshots, s => Assert.Equal(snapshots[0].KekStatus, s.KekStatus));
+        }
+
         private static byte[] Concat(params byte[][] parts)
         {
             var total = 0;

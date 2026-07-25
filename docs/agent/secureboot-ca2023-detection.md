@@ -37,6 +37,21 @@ Fail-soft contract like `OobeStateReader`: never throws; failures map to status 
 (`not_uefi` = legacy BIOS via `ERROR_INVALID_FUNCTION`, `variable_not_found`,
 `privilege_denied`, `error_<code>`).
 
+This is the repo's only privilege-adjustment code, so it also carries the ownership rules
+any future one should copy:
+
+* The process token lives in a `SafeHandle` assigned by the P/Invoke marshaler, so the CLR
+  owns it from the moment `OpenProcessToken` returns — the critical finalizer releases it
+  even if `Dispose` never runs (async exception before the instance reaches its `using`).
+* The restore obligation is recorded immediately after the successful `AdjustTokenPrivileges`,
+  and only when the privilege was not *already* enabled; nothing that can throw sits between
+  the adjustment and that assignment. `Dispose` is idempotent, swallows a failed restore, and
+  releases the handle in a `finally`.
+* The privilege is adjusted on the **process** token, so enable → read → restore is a
+  process-wide side effect and runs under a static gate. Without it a concurrent reader would
+  see "already enabled", correctly skip its own restore, and then lose the privilege mid-read
+  when the first reader disposes — a spurious `privilege_denied` on a machine that holds it.
+
 Fields land on the existing `secureboot_status` event (once per agent start,
 restart-deduped by the StartupEventGate): `uefiFirmwareReadStatus`, per-cert booleans
 (`uefiDbHasWindowsUefiCa2023`, `uefiDbHasWindowsProductionPca2011`,

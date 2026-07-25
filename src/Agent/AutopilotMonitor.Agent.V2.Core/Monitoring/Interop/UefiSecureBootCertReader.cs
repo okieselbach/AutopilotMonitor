@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
 {
@@ -56,6 +57,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
         private const int InitialBufferSize = 64 * 1024;
         private const int RetryBufferSize = 256 * 1024;
 
+        // SeSystemEnvironmentPrivilege is adjusted on the PROCESS token, so enable → read →
+        // restore is a process-wide side effect and must run as one atomic sequence. Without
+        // this gate a second reader would observe "already enabled", correctly skip its own
+        // restore, and then have the privilege disabled underneath it when the first reader
+        // finishes — a spurious privilege_denied on a machine that actually holds it.
+        private static readonly object FirmwareReadGate = new object();
+
         /// <summary>
         /// Reads db and KEK and evaluates the certificate presence flags. Never throws;
         /// per-variable failures surface as <see cref="UefiSecureBootCertSnapshot.DbStatus"/> /
@@ -67,6 +75,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
             var snapshot = new UefiSecureBootCertSnapshot();
             try
             {
+                // The critical section covers the whole privileged window, not just the
+                // adjustment — see FirmwareReadGate. Only synchronous kernel calls and byte
+                // scans run inside it, so it cannot block on anything else the agent does.
+                lock (FirmwareReadGate)
                 using (var privilege = SystemEnvironmentPrivilege.TryEnable())
                 {
                     if (!privilege.Enabled)
@@ -168,23 +180,42 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
         /// of the instance and restores the previous privilege state on dispose. SYSTEM holds
         /// the privilege (default-disabled); without elevation <see cref="Enabled"/> stays
         /// false and the caller reports <see cref="StatusPrivilegeDenied"/>.
+        /// <para>
+        /// <b>Crash-safety.</b> This is the repo's only privilege-adjustment code, so the
+        /// ownership rules are spelled out: the token is held in a <see cref="SafeHandle"/>
+        /// assigned by the P/Invoke marshaler, so the CLR owns it from the moment
+        /// <c>OpenProcessToken</c> returns — it is released by the critical finalizer even if
+        /// this instance never reaches the caller's <c>using</c> (async exception between the
+        /// call and the assignment). <see cref="Dispose"/> is idempotent, never throws, and
+        /// releases the handle in a <c>finally</c> so a failed restore cannot leak it. The
+        /// restore obligation is recorded immediately after the successful adjustment, so no
+        /// throw in between can strand the process with the privilege left enabled.
+        /// </para>
         /// </summary>
         private sealed class SystemEnvironmentPrivilege : IDisposable
         {
             public bool Enabled { get; private set; }
 
-            private IntPtr _token = IntPtr.Zero;
+            private SafeTokenHandle _token;
             private NativeMethods.TOKEN_PRIVILEGES _previousState;
             private bool _restoreNeeded;
+            private bool _disposed;
 
             public static SystemEnvironmentPrivilege TryEnable()
             {
                 var instance = new SystemEnvironmentPrivilege();
                 try
                 {
+                    SafeTokenHandle token;
                     if (!NativeMethods.OpenProcessToken(NativeMethods.GetCurrentProcess(),
-                            NativeMethods.TOKEN_ADJUST_PRIVILEGES | NativeMethods.TOKEN_QUERY, out instance._token))
+                            NativeMethods.TOKEN_ADJUST_PRIVILEGES | NativeMethods.TOKEN_QUERY, out token))
+                    {
+                        // Failed open still yields a (closed/invalid) SafeHandle instance.
+                        if (token != null) token.Dispose();
                         return instance;
+                    }
+
+                    instance._token = token;
 
                     NativeMethods.LUID luid;
                     if (!NativeMethods.LookupPrivilegeValueW(null, "SeSystemEnvironmentPrivilege", out luid))
@@ -197,52 +228,80 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
                         Attributes = NativeMethods.SE_PRIVILEGE_ENABLED
                     };
 
+                    NativeMethods.TOKEN_PRIVILEGES previousState;
                     uint returnLength;
-                    if (!NativeMethods.AdjustTokenPrivileges(instance._token, false, ref newState,
+                    if (!NativeMethods.AdjustTokenPrivileges(token, false, ref newState,
                             (uint)Marshal.SizeOf(typeof(NativeMethods.TOKEN_PRIVILEGES)),
-                            out instance._previousState, out returnLength))
+                            out previousState, out returnLength))
                         return instance;
 
                     // AdjustTokenPrivileges returns TRUE even when the privilege is not held —
-                    // the real verdict is ERROR_NOT_ALL_ASSIGNED in the last error.
+                    // the real verdict is ERROR_NOT_ALL_ASSIGNED in the last error. Nothing was
+                    // adjusted in that case, so there is nothing to restore.
                     if (Marshal.GetLastWin32Error() == ErrorNotAllAssigned)
                         return instance;
 
-                    // Restore only when the privilege was not already enabled before.
-                    instance._restoreNeeded = instance._previousState.PrivilegeCount > 0
-                        && (instance._previousState.Attributes & NativeMethods.SE_PRIVILEGE_ENABLED) == 0;
+                    // The token is now modified: record the restore obligation before anything
+                    // else can throw. Restore only when the privilege was not already enabled.
+                    instance._previousState = previousState;
+                    instance._restoreNeeded = previousState.PrivilegeCount > 0
+                        && (previousState.Attributes & NativeMethods.SE_PRIVILEGE_ENABLED) == 0;
                     instance.Enabled = true;
                 }
                 catch
                 {
-                    // Fail-soft: Enabled stays false.
+                    // Fail-soft: Enabled stays false. Whatever was acquired before the failure
+                    // is already tracked on the instance and released by Dispose.
                 }
                 return instance;
             }
 
             public void Dispose()
             {
-                if (_token != IntPtr.Zero)
+                if (_disposed) return;
+                _disposed = true;
+                Enabled = false;
+
+                var token = _token;
+                _token = null;
+                if (token == null) return;
+
+                try
                 {
-                    try
+                    if (_restoreNeeded)
                     {
-                        if (_restoreNeeded)
-                        {
-                            NativeMethods.TOKEN_PRIVILEGES ignored;
-                            uint returnLength;
-                            NativeMethods.AdjustTokenPrivileges(_token, false, ref _previousState,
-                                (uint)Marshal.SizeOf(typeof(NativeMethods.TOKEN_PRIVILEGES)),
-                                out ignored, out returnLength);
-                        }
+                        _restoreNeeded = false;
+                        NativeMethods.TOKEN_PRIVILEGES ignored;
+                        uint returnLength;
+                        NativeMethods.AdjustTokenPrivileges(token, false, ref _previousState,
+                            (uint)Marshal.SizeOf(typeof(NativeMethods.TOKEN_PRIVILEGES)),
+                            out ignored, out returnLength);
                     }
-                    catch
-                    {
-                        // Best effort — the process token privilege state is not load-bearing
-                        // for anything else the agent does.
-                    }
-                    NativeMethods.CloseHandle(_token);
-                    _token = IntPtr.Zero;
                 }
+                catch
+                {
+                    // Best effort — the process token privilege state is not load-bearing for
+                    // anything else the agent does, and Dispose must never throw.
+                }
+                finally
+                {
+                    token.Dispose();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Owns a process-token handle. <c>ReleaseHandle</c> runs on the finalizer thread when
+        /// <see cref="SystemEnvironmentPrivilege.Dispose"/> is skipped, so it must not throw —
+        /// a single <c>CloseHandle</c> P/Invoke satisfies that.
+        /// </summary>
+        private sealed class SafeTokenHandle : SafeHandleZeroOrMinusOneIsInvalid
+        {
+            public SafeTokenHandle() : base(true) { }
+
+            protected override bool ReleaseHandle()
+            {
+                return NativeMethods.CloseHandle(handle);
             }
         }
 
@@ -278,7 +337,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
 
             [DllImport("advapi32.dll", SetLastError = true)]
             [return: MarshalAs(UnmanagedType.Bool)]
-            public static extern bool OpenProcessToken(IntPtr processHandle, uint desiredAccess, out IntPtr tokenHandle);
+            public static extern bool OpenProcessToken(IntPtr processHandle, uint desiredAccess, out SafeTokenHandle tokenHandle);
 
             [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
             [return: MarshalAs(UnmanagedType.Bool)]
@@ -286,7 +345,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
 
             [DllImport("advapi32.dll", SetLastError = true)]
             [return: MarshalAs(UnmanagedType.Bool)]
-            public static extern bool AdjustTokenPrivileges(IntPtr tokenHandle, bool disableAllPrivileges,
+            public static extern bool AdjustTokenPrivileges(SafeTokenHandle tokenHandle, bool disableAllPrivileges,
                 ref TOKEN_PRIVILEGES newState, uint bufferLength, out TOKEN_PRIVILEGES previousState, out uint returnLength);
 
             [DllImport("kernel32.dll", SetLastError = true)]

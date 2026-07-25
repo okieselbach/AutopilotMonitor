@@ -40,7 +40,7 @@ function FeatureList({ features, checkClass, muted = false }: { features: string
   return (
     <ul className="space-y-2.5">
       {features.map((f) => (
-        <li key={f} className={`flex items-start gap-2 text-sm ${muted ? "text-gray-500" : "text-gray-700"}`}>
+        <li key={f} className={`flex items-start gap-2 text-sm ${muted ? "text-gray-600" : "text-gray-700"}`}>
           <CheckIcon className={`w-4 h-4 mt-0.5 shrink-0 ${checkClass}`} />
           <span>{f}</span>
         </li>
@@ -55,7 +55,7 @@ function PlusList({ features }: { features: string[] }) {
     <ul className="space-y-2.5">
       {features.map((f) => (
         <li key={f} className="flex items-start gap-2 text-sm font-medium text-gray-900">
-          <PlusIcon className="w-4 h-4 mt-0.5 shrink-0 text-purple-600" />
+          <PlusIcon className="w-4 h-4 mt-0.5 shrink-0 text-purple-600 dark:text-purple-400" />
           <span>{f}</span>
         </li>
       ))}
@@ -66,6 +66,12 @@ function PlusList({ features }: { features: string[] }) {
 /**
  * Plan section: two side-by-side plan cards (Community and Enterprise). The tenant's current plan
  * is highlighted so the edition is obvious at a glance; the Enterprise card teases what it adds.
+ *
+ * Dark mode: the tinted card surfaces use slash-opacity utilities (bg-purple-50/40), which the
+ * global `.dark .bg-*` override map in globals.css does NOT match — they are separate class tokens.
+ * Without the explicit `dark:` counterparts below the cards render as a washed-out light overlay on
+ * the dark page. Secondary copy uses text-gray-600 rather than -400/-500: both of those collapse to
+ * the same dim #64748b in dark mode, which fails contrast on a tinted card.
  */
 export function SectionPlan() {
   const { editionInfo, startTrial, startingTrial, user } = useTenantConfig();
@@ -120,16 +126,18 @@ export function SectionPlan() {
           {/* Community card */}
           <div
             className={`rounded-xl border p-6 flex flex-col ${
-              !isEnterprise ? "border-gray-800 ring-1 ring-gray-800 bg-gray-50/60" : "border-gray-200"
+              !isEnterprise
+                ? "border-gray-800 ring-1 ring-gray-800 bg-gray-50/60 dark:border-slate-500 dark:ring-slate-500 dark:bg-slate-900/40"
+                : "border-gray-200"
             }`}
           >
             <div className="flex items-start justify-between gap-2">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">Community</h3>
-                <p className="text-sm text-gray-500 mt-0.5">The full product, free</p>
+                <p className="text-sm text-gray-600 mt-0.5">The full product, free</p>
               </div>
               {!isEnterprise && (
-                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-900 text-white">
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-900 text-white dark:bg-slate-200 dark:text-slate-900">
                   Current plan
                 </span>
               )}
@@ -137,7 +145,7 @@ export function SectionPlan() {
 
             <div className="mt-4 mb-5">
               <span className="text-2xl font-bold text-gray-900">Free</span>
-              <span className="text-sm text-gray-500"> — and stays free</span>
+              <span className="text-sm text-gray-600"> — and stays free</span>
             </div>
 
             <FeatureList features={communityFeatures} checkClass="text-emerald-500" />
@@ -146,13 +154,15 @@ export function SectionPlan() {
           {/* Enterprise card */}
           <div
             className={`rounded-xl border p-6 flex flex-col ${
-              isEnterprise ? "border-purple-500 ring-1 ring-purple-500 bg-purple-50/40" : "border-purple-200 bg-purple-50/20"
+              isEnterprise
+                ? "border-purple-500 ring-1 ring-purple-500 bg-purple-50/40 dark:bg-purple-950/40"
+                : "border-purple-200 bg-purple-50/20 dark:bg-purple-950/20"
             }`}
           >
             <div className="flex items-start justify-between gap-2">
               <div>
                 <h3 className="text-lg font-semibold text-purple-900">Enterprise</h3>
-                <p className="text-sm text-gray-500 mt-0.5">Higher limits, support & MSP</p>
+                <p className="text-sm text-gray-600 mt-0.5">Higher limits, support & MSP</p>
               </div>
               {isEnterprise ? (
                 <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-600 text-white">
@@ -169,18 +179,18 @@ export function SectionPlan() {
               <span className="text-2xl font-bold text-purple-900">
                 {isEnterprise ? "Active" : "Pricing TBA"}
               </span>
-              {!isEnterprise && <span className="text-sm text-gray-500"> — to be announced</span>}
+              {!isEnterprise && <span className="text-sm text-gray-600"> — to be announced</span>}
             </div>
 
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-2.5">
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-600 mb-2.5">
               Everything in Community
             </p>
-            <FeatureList features={sharedFeatures} checkClass="text-gray-400" muted />
+            <FeatureList features={sharedFeatures} checkClass="text-gray-500" muted />
 
             <div className="flex items-center gap-3 my-4" aria-hidden="true">
-              <span className="h-px flex-1 bg-purple-200" />
-              <span className="text-xs font-semibold uppercase tracking-wide text-purple-600">Plus</span>
-              <span className="h-px flex-1 bg-purple-200" />
+              <span className="h-px flex-1 bg-purple-200 dark:bg-purple-800" />
+              <span className="text-xs font-semibold uppercase tracking-wide text-purple-600 dark:text-purple-300">Plus</span>
+              <span className="h-px flex-1 bg-purple-200 dark:bg-purple-800" />
             </div>
             <PlusList features={enterpriseExtras} />
 
@@ -188,7 +198,7 @@ export function SectionPlan() {
             {!isEnterprise && (
               <div className="mt-auto pt-5">
                 {trialConsumed ? (
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-gray-600">
                     This tenant has already used its Enterprise trial. To move to Enterprise,{" "}
                     <a
                       href="https://github.com/okieselbach/Autopilot-Monitor/issues"
@@ -246,7 +256,7 @@ export function SectionPlan() {
           </div>
         </div>
 
-        <p className="text-xs text-gray-400 mt-5">
+        <p className="text-xs text-gray-600 mt-5">
           {isEnterprise && editionInfo.isTrial
             ? "When the trial ends, the tenant returns to Community automatically."
             : "Scope, pricing and timeline for Enterprise will be announced. Community stays free."}
