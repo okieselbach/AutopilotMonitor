@@ -148,8 +148,17 @@ export default function PrivacyPage() {
           <p className="text-gray-700">
             Diagnostics upload is <strong>off by default</strong>. When enabled, the default destination is{" "}
             <strong>your own Azure storage account</strong> — the package never reaches our infrastructure. Hosted upload
-            exists as an alternative but is opt-in only and requires an explicit administrator action behind a clearly
-            marked disclosure that data leaves your tenant. It is never enabled silently.
+            exists as an alternative but is opt-in only and requires an explicit administrator action — in Settings, or
+            in the one-step dialog offered on a session — always behind a clearly marked disclosure that data leaves your
+            tenant. It is never enabled silently.
+          </p>
+          <p className="text-gray-700">
+            Once upload is configured, an <strong>Admin or Operator in your own tenant</strong> can also request a
+            package on demand from an enrollment that is still running, instead of waiting for it to finish. It collects
+            exactly what the automatic package collects — the configured paths, nothing wider — the device only acts on
+            the request when the agent next checks in, and both the request and its outcome appear as events on that
+            session&apos;s timeline. Viewers and Progress-Portal members cannot trigger it, and it does nothing on a
+            tenant that has no upload destination configured.
           </p>
 
           <h2 className="text-xl font-semibold text-gray-900 mt-6">How Long We Keep Data</h2>

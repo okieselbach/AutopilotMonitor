@@ -270,9 +270,23 @@ export default function CollectLogsButton({
                   {" "}<span className="font-semibold">hosted storage</span> (managed by AutopilotMonitor) with mode
                   {" "}<span className="font-semibold">On failure</span>, then collects the logs from this device right away.
                 </p>
+                {/* Data-boundary disclosure. This dialog is the SECOND opt-in path into hosted
+                    upload (the first is Settings → Diagnostics Package), and the privacy page and
+                    trust FAQ both promise that hosted upload is only ever enabled behind a clearly
+                    marked "data leaves your tenant" disclosure — this block is that promise here. */}
+                <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 space-y-1">
+                  <p className="text-sm text-sky-900">
+                    <span className="font-semibold">Uploaded packages leave your own Azure tenant boundary.</span>{" "}
+                    They are stored in the AutopilotMonitor backend&apos;s Azure Storage (Germany West Central),
+                    isolated per tenant, and each upload uses a fresh blob-scoped, write-only token.
+                  </p>
+                  <p className="text-xs text-sky-800">
+                    Packages are removed automatically according to your <span className="font-semibold">Data Retention Days</span> setting.
+                  </p>
+                </div>
                 <p className="text-sm text-gray-600">
                   You can change the destination (e.g. to your own Azure Blob Storage) or turn uploads off again at any
-                  time under Settings → Diagnostics Package.
+                  time under Settings → Diagnostics Package, which also lists exactly which paths are collected.
                 </p>
               </div>
               <div className="flex justify-end gap-3">

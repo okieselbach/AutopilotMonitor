@@ -114,9 +114,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             try
             {
                 // Rows are insert-once (AddEntityAsync, never updated), so FirstNotifiedAt == creation time.
-                // Pruning here resets the lifetime dedup for a given model: if the same model is rejected
-                // again after the cutoff, the bell fires once more — acceptable, since the portal only
-                // surfaces recent rejections anyway.
+                // Pruning here resets the lifetime dedup for BOTH key spaces in this table: a hardware
+                // model rejected again after the cutoff rings once more, and so does a TPM-PSS device
+                // that reports again ("tpmpss|{serial}" rows are pruned by the same sweep). Acceptable
+                // in both cases — the portal only surfaces recent rejections anyway, and a device whose
+                // TPM was never fixed is worth surfacing again after a month of silence.
                 var filter = $"FirstNotifiedAt lt datetime'{cutoffUtc:yyyy-MM-ddTHH:mm:ss}Z'";
                 var query = _table.QueryAsync<TableEntity>(filter: filter, select: new[] { "PartitionKey", "RowKey" });
 

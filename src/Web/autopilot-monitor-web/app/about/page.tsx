@@ -27,9 +27,9 @@ const FEATURES = [
   {
     title: "Diagnostics Collection",
     description:
-      "Collect agent logs, IME logs, agent state, and device information as a ZIP bundle at the end of an enrollment — then download it from the session view without touching the device.",
+      "Collect agent logs, IME logs, agent state, and device information as a ZIP bundle — automatically at the end of an enrollment, or on demand while one is still running — then download it from the session view without touching the device.",
     color: "green",
-    bullets: ["Configurable upload: off, always, or on failure", "Agent, IME & device information bundle", "Configurable additional log paths"],
+    bullets: ["Configurable upload: off, always, or on failure", "On-demand collection from a running enrollment", "Agent, IME & device information bundle", "Configurable additional log paths"],
   },
   {
     title: "Detailed Event Timeline",

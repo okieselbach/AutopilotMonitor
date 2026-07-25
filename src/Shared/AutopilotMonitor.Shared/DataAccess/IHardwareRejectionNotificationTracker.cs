@@ -30,7 +30,11 @@ namespace AutopilotMonitor.Shared.DataAccess
 
         /// <summary>
         /// Retention cleanup: deletes tracker rows whose FirstNotifiedAt is older than
-        /// <paramref name="cutoffUtc"/>. Pruning re-arms the dedup for that model. Returns rows deleted.
+        /// <paramref name="cutoffUtc"/>. Both key spaces live in one table, so pruning re-arms the
+        /// dedup for BOTH subjects: a hardware model rejected again after the cutoff rings once more,
+        /// and so does a TPM-PSS-incompatible device that reports again. That is intended — a bell
+        /// that can never ring a second time would go silent on a device the tenant never fixed.
+        /// Returns rows deleted.
         /// </summary>
         Task<int> DeleteOlderThanAsync(DateTime cutoffUtc);
     }
