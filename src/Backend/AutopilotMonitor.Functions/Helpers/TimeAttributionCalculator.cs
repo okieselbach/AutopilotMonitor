@@ -72,6 +72,20 @@ public static class TimeAttributionCalculator
     /// <summary>Bump on any semantic change so aggregates never mix definitions (truthfulness rule 8).</summary>
     public const int CurrentVersion = 1;
 
+    /// <summary>
+    /// Enrollment class for fleet aggregation — classes are NEVER mixed in one aggregate (a
+    /// WhiteGlove or WDP flow has a structurally different time profile than user-driven ESP).
+    /// Precedence: WhiteGlove (both parts live in one session row) → Windows Device Preparation
+    /// (EnrollmentType "v2" — different phase machinery) → self-deploying profile → user-driven.
+    /// </summary>
+    public static string GetEnrollmentClass(SessionSummary session)
+    {
+        if (session.IsPreProvisioned) return "whiteglove";
+        if (session.EnrollmentType == "v2") return "device_preparation";
+        if (session.IsSelfDeployingProfile) return "self_deploying";
+        return "user_driven";
+    }
+
     /// <summary>Cap for the persisted per-app interval list (spec: top 20 by duration + uncapped count).</summary>
     internal const int MaxBlockingAppIntervals = 20;
 
@@ -499,6 +513,48 @@ public static class TimeAttributionCalculator
             }
         }
         return (int)Math.Floor(total);
+    }
+
+    // ── what-if bound (fleet aggregation, F1 PR2) ───────────────────────────
+
+    /// <summary>
+    /// Upper-bound saving from removing app <paramref name="appId"/> from the ESP blocking set
+    /// of ONE session: the critical-path end (latest interval end) recomputed without the app's
+    /// interval — <c>max(0, cpEnd − cpEndWithoutX)</c> per the spec. When the app is the only
+    /// measured blocking interval, the fallback baseline is its own start (nothing else was
+    /// observed holding the path). An upper bound BY CONSTRUCTION — removing an app cannot slow
+    /// anything down, but hidden serialization may reduce real savings — so consumers must
+    /// phrase it as "up to", never as a promise (truthfulness rule 3). Returns 0 when the app
+    /// has no measured interval or does not end last.
+    /// </summary>
+    public static int WhatIfSavingSeconds(IReadOnlyList<BlockingAppInterval> intervals, string appId)
+    {
+        BlockingAppInterval? target = null;
+        DateTime? cpEnd = null, cpEndWithout = null;
+
+        foreach (var interval in intervals)
+        {
+            if (!cpEnd.HasValue || interval.EndUtc > cpEnd.Value)
+                cpEnd = interval.EndUtc;
+
+            if (string.Equals(interval.AppId, appId, StringComparison.OrdinalIgnoreCase))
+            {
+                target = interval; // one interval per app per session by construction
+            }
+            else if (!cpEndWithout.HasValue || interval.EndUtc > cpEndWithout.Value)
+            {
+                cpEndWithout = interval.EndUtc;
+            }
+        }
+
+        if (target == null || !cpEnd.HasValue) return 0;
+
+        // Spec formula verbatim: cpEnd − cpEndWithoutX. When X's removal exposes an earlier
+        // path end, the idle gap before X's start counts too — the ESP was waiting for X to
+        // START as much as to finish. Negative/zero → another app ends at or after X: no claim.
+        var baseline = cpEndWithout ?? target.StartUtc;
+        var saving = (cpEnd.Value - baseline).TotalSeconds;
+        return saving > 0 ? (int)Math.Floor(saving) : 0;
     }
 
     // ── reboot spans ────────────────────────────────────────────────────────

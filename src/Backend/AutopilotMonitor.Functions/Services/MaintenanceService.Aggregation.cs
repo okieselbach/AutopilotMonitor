@@ -260,6 +260,234 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
+        // ===== F1 TIME ATTRIBUTION (insights spec §F1, PR2) =====
+
+        /// <summary>Rolling sweep window: sessions started in the last 30 days (spec backfill horizon).</summary>
+        private const int TimeAttributionSweepDays = 30;
+
+        /// <summary>
+        /// Self-healing sweep for the F1 time attribution — deliberately NOT hooked into the
+        /// usage-snapshot catch-up (that pass skips dates whose snapshot already exists, and a
+        /// session that terminates days after it STARTED would then never reach its date's
+        /// aggregate). Owns both halves for the rolling window:
+        /// 1. Breakdown backfill: every terminal Succeeded/Failed session gets its breakdown
+        ///    computed if missing or written by an older AttributionVersion (rule 8: aggregates
+        ///    never mix algorithm versions — a stale row that cannot be recomputed, because its
+        ///    events aged out, counts as missing rather than polluting the stats). The inline
+        ///    terminal-transition compute is the primary writer; this converges to point-read
+        ///    existence checks.
+        /// 2. Daily aggregates: recomputed idempotently per (tenant × enrollment class × date)
+        ///    plus the "global" rows — late-terminating sessions and backfilled breakdowns are
+        ///    folded in on the next run by construction.
+        /// Sessions with a deletion cascade in flight are skipped so the sweep cannot write a
+        /// breakdown row after the session's deletion manifest was snapshotted.
+        /// </summary>
+        private async Task SweepTimeAttributionAsync()
+        {
+            try
+            {
+                var sw = Stopwatch.StartNew();
+                var today = DateTime.UtcNow.Date;
+                var sessions = await _maintenanceRepo.GetSessionsByDateRangeAsync(
+                    today.AddDays(-TimeAttributionSweepDays), today.AddDays(1));
+
+                var pairs = new List<(SessionSummary Session, SessionTimeBreakdown Breakdown)>();
+                var missing = new List<SessionSummary>();
+                var computed = 0;
+
+                foreach (var session in sessions)
+                {
+                    if (session.Status != SessionStatus.Succeeded && session.Status != SessionStatus.Failed)
+                        continue;
+                    if (!session.DurationSeconds.HasValue || session.DurationSeconds.Value <= 0)
+                        continue;
+                    if (!string.IsNullOrEmpty(session.DeletionState) && session.DeletionState != "None")
+                        continue;
+
+                    var breakdown = await _metricsRepo.GetSessionTimeBreakdownAsync(session.TenantId, session.SessionId);
+                    if (breakdown == null || breakdown.AttributionVersion != TimeAttributionCalculator.CurrentVersion)
+                    {
+                        breakdown = await _metricsRepo.ComputeAndStoreSessionTimeBreakdownAsync(session.TenantId, session.SessionId);
+                        if (breakdown != null) computed++;
+                    }
+
+                    if (breakdown == null)
+                        missing.Add(session); // events aged out before backfill — disclosed, never guessed
+                    else
+                        pairs.Add((session, breakdown));
+                }
+
+                var aggregates = BuildTimeAttributionAggregates(pairs, missing, DateTime.UtcNow);
+                var saved = 0;
+                foreach (var aggregate in aggregates)
+                {
+                    if (await _metricsRepo.SaveTimeAttributionAggregateAsync(aggregate))
+                        saved++;
+                }
+
+                sw.Stop();
+                _logger.LogInformation(
+                    "Time-attribution sweep: {Sessions} terminal sessions in {Days}d window, {Computed} breakdowns computed, {Missing} missing, {Aggregates} aggregate rows written in {Ms}ms",
+                    pairs.Count + missing.Count, TimeAttributionSweepDays, computed, missing.Count, saved, sw.ElapsedMilliseconds);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Time-attribution sweep failed (non-fatal)");
+            }
+        }
+
+        /// <summary>
+        /// Pure aggregation core behind <see cref="SweepTimeAttributionAsync"/> — internal static
+        /// so the bucketing/gating contract is pinned by unit tests. Per (tenant × class × date)
+        /// bucket plus mirrored "global" rows: only CLEAN breakdowns (QualityFlags == None) form
+        /// the statistics; flagged and missing ones are counted, never silently dropped (rule 7).
+        /// Rows are written even below the ≥20 UI gate — the UI needs the n (rule 4). Segment
+        /// stats always carry the five canonical segments + unattributed (a session without a
+        /// span of a segment contributes 0 — the honest "per enrollment of this class" answer).
+        /// Per-app rows gate at ≥5 sessions, order by median interval, cap 20.
+        /// </summary>
+        internal static List<TimeAttributionDailyAggregate> BuildTimeAttributionAggregates(
+            IReadOnlyList<(SessionSummary Session, SessionTimeBreakdown Breakdown)> pairs,
+            IReadOnlyList<SessionSummary> missing,
+            DateTime computedAtUtc)
+        {
+            const int minSessionsPerAppRow = 5;
+            const int maxAppRows = 20;
+
+            var buckets = new Dictionary<(string TenantId, string Date, string Class), List<SessionTimeBreakdown>>();
+            var flaggedCounts = new Dictionary<(string, string, string), int>();
+            var missingCounts = new Dictionary<(string, string, string), int>();
+
+            void Bump(Dictionary<(string, string, string), int> map, (string, string, string) key)
+            {
+                map.TryGetValue(key, out var current);
+                map[key] = current + 1;
+            }
+
+            foreach (var (session, breakdown) in pairs)
+            {
+                var date = session.StartedAt.ToString("yyyy-MM-dd");
+                var cls = TimeAttributionCalculator.GetEnrollmentClass(session);
+                foreach (var tenantKey in new[] { session.TenantId, "global" })
+                {
+                    var key = (tenantKey, date, cls);
+                    if (breakdown.QualityFlags != TimeAttributionFlags.None)
+                    {
+                        Bump(flaggedCounts, key);
+                        // Flagged sessions still materialize the bucket so a day whose sessions
+                        // were ALL flagged yields a row disclosing exactly that.
+                        if (!buckets.ContainsKey(key)) buckets[key] = new List<SessionTimeBreakdown>();
+                        continue;
+                    }
+                    if (!buckets.TryGetValue(key, out var list))
+                    {
+                        list = new List<SessionTimeBreakdown>();
+                        buckets[key] = list;
+                    }
+                    list.Add(breakdown);
+                }
+            }
+
+            foreach (var session in missing)
+            {
+                var date = session.StartedAt.ToString("yyyy-MM-dd");
+                var cls = TimeAttributionCalculator.GetEnrollmentClass(session);
+                foreach (var tenantKey in new[] { session.TenantId, "global" })
+                {
+                    var key = (tenantKey, date, cls);
+                    Bump(missingCounts, key);
+                    if (!buckets.ContainsKey(key)) buckets[key] = new List<SessionTimeBreakdown>();
+                }
+            }
+
+            var segmentKeys = new[]
+            {
+                TimeAttributionSegments.DevicePrep,
+                TimeAttributionSegments.EspApps,
+                TimeAttributionSegments.IdentityHello,
+                TimeAttributionSegments.UserEsp,
+                TimeAttributionSegments.DesktopHandoff,
+                TimeAttributionSegments.Unattributed,
+            };
+
+            var result = new List<TimeAttributionDailyAggregate>();
+            foreach (var entry in buckets)
+            {
+                var (tenantId, date, cls) = entry.Key;
+                var clean = entry.Value;
+
+                var aggregate = new TimeAttributionDailyAggregate
+                {
+                    TenantId = tenantId,
+                    Date = date,
+                    EnrollmentClass = cls,
+                    AttributionVersion = TimeAttributionCalculator.CurrentVersion,
+                    CleanSessionCount = clean.Count,
+                    FlaggedExcludedCount = flaggedCounts.TryGetValue(entry.Key, out var f) ? f : 0,
+                    MissingBreakdownCount = missingCounts.TryGetValue(entry.Key, out var m) ? m : 0,
+                    ComputedAt = computedAtUtc,
+                };
+
+                if (clean.Count > 0)
+                {
+                    var totalsPerSession = clean
+                        .Select(b =>
+                        {
+                            var totals = b.GetSegmentTotals();
+                            totals[TimeAttributionSegments.Unattributed] = b.UnattributedSeconds;
+                            return totals;
+                        })
+                        .ToList();
+
+                    foreach (var segmentKey in segmentKeys)
+                    {
+                        var values = totalsPerSession
+                            .Select(t => t.TryGetValue(segmentKey, out var v) ? (double)v : 0d)
+                            .OrderBy(v => v)
+                            .ToList();
+                        aggregate.SegmentStats.Add(new TimeAttributionSegmentStat
+                        {
+                            SegmentKey = segmentKey,
+                            MedianSeconds = (int)Math.Round(MetricsMath.Percentile(values, 50)),
+                            P75Seconds = (int)Math.Round(MetricsMath.Percentile(values, 75)),
+                            P90Seconds = (int)Math.Round(MetricsMath.Percentile(values, 90)),
+                        });
+                    }
+
+                    aggregate.TopBlockingApps = clean
+                        .SelectMany(b => b.BlockingApps.Select(interval => (Breakdown: b, Interval: interval)))
+                        .GroupBy(x => x.Interval.AppId, StringComparer.OrdinalIgnoreCase)
+                        .Where(g => g.Count() >= minSessionsPerAppRow)
+                        .Select(g =>
+                        {
+                            var seconds = g.Select(x => (double)x.Interval.Seconds).OrderBy(v => v).ToList();
+                            var savings = g
+                                .Select(x => (double)TimeAttributionCalculator.WhatIfSavingSeconds(x.Breakdown.BlockingApps, g.Key))
+                                .OrderBy(v => v)
+                                .ToList();
+                            return new TimeAttributionBlockingAppStat
+                            {
+                                AppId = g.Key,
+                                AppName = g.Select(x => x.Interval.AppName).FirstOrDefault(n => !string.IsNullOrEmpty(n)) ?? string.Empty,
+                                SessionCount = g.Count(),
+                                MedianSeconds = (int)Math.Round(MetricsMath.Percentile(seconds, 50)),
+                                P75Seconds = (int)Math.Round(MetricsMath.Percentile(seconds, 75)),
+                                MedianSavingSeconds = (int)Math.Round(MetricsMath.Percentile(savings, 50)),
+                                P75SavingSeconds = (int)Math.Round(MetricsMath.Percentile(savings, 75)),
+                            };
+                        })
+                        .OrderByDescending(a => a.MedianSeconds)
+                        .ThenBy(a => a.AppName, StringComparer.OrdinalIgnoreCase)
+                        .Take(maxAppRows)
+                        .ToList();
+                }
+
+                result.Add(aggregate);
+            }
+
+            return result;
+        }
+
         /// <summary>
         /// Deletes usage tracking records older than 90 days from UserUsageLog.
         /// </summary>
@@ -781,6 +1009,20 @@ namespace AutopilotMonitor.Functions.Services
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to cleanup old backup job records");
+            }
+
+            // Time-attribution daily aggregates: same 180d window as the usage-metrics snapshots
+            // they sit beside. (SessionTimeBreakdowns needs no age sweep — breakdown rows are
+            // deleted with their session via the deletion-manifest cascade / offboarding wipe.)
+            try
+            {
+                var deleted = await _metricsRepo.DeleteTimeAttributionAggregatesOlderThanAsync(now.AddDays(-usageMetricsRetentionDays));
+                if (deleted > 0)
+                    _logger.LogInformation("Time-attribution aggregate cleanup: deleted {Count} rows older than {Days} days", deleted, usageMetricsRetentionDays);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to cleanup old time-attribution aggregates");
             }
         }
         /// <summary>

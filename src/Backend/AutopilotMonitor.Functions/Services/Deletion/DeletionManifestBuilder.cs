@@ -114,17 +114,20 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             await AddDiscriminatorPkPropStepAsync(manifest, order: 14, table: Constants.TableNames.ClassifierVerdictsByIdLevel, tenantId, sessionId, safeTenantId, safeSessionId, cancellationToken);
             await AddDiscriminatorPkPropStepAsync(manifest, order: 15, table: Constants.TableNames.SignalsByKind, tenantId, sessionId, safeTenantId, safeSessionId, cancellationToken);
 
-            // ---- Steps 16 + 17: SoftwareInventory side-row (omit both for pre-side-row sessions). ----
+            // ---- Step 16: F1 time-attribution breakdown (PK=tenant, RK=sessionId; PR2). ----
+            await AddPkRkExactStepAsync(manifest, order: 16, table: Constants.TableNames.SessionTimeBreakdowns, partitionKey: tenantId, rowKey: sessionId, cancellationToken);
+
+            // ---- Steps 17 + 18: SoftwareInventory side-row (omit both for pre-side-row sessions). ----
             var contributionsRow = await _reader.GetEntityOrNullAsync(
                 Constants.TableNames.SessionInventoryContributions, tenantId, sessionId, cancellationToken);
             if (contributionsRow != null)
             {
-                AddSoftwareInventoryDecrementStep(manifest, order: 16, contributionsRow);
-                AddContributionsRowStep(manifest, order: 17, contributionsRow);
+                AddSoftwareInventoryDecrementStep(manifest, order: 17, contributionsRow);
+                AddContributionsRowStep(manifest, order: 18, contributionsRow);
             }
 
-            // ---- Step 18: Tombstone (SessionsIndex first, then Sessions). ----
-            AddTombstoneStep(manifest, order: 18, sessionsIndexRow, sessionRow);
+            // ---- Step 19: Tombstone (SessionsIndex first, then Sessions). ----
+            AddTombstoneStep(manifest, order: 19, sessionsIndexRow, sessionRow);
 
             // PreflightCounts derive from each step's RowCount, plus the AGGREGATE decrements length.
             manifest.PreflightCounts = ComputePreflightCounts(manifest);

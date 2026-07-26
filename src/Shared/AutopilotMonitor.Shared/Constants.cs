@@ -877,6 +877,16 @@ namespace AutopilotMonitor.Shared
             // Rule telemetry (daily per-rule fire/evaluation counters)
             public const string RuleStats           = "RuleStats";
 
+            // F1 time attribution (insights spec §F1). Breakdowns: PK=TenantId, RK=SessionId —
+            // one row per terminal session, computed once at the terminal transition (plus the
+            // 30d self-healing maintenance backfill); deleted with the session via the deletion
+            // manifest cascade + tenant offboarding partition wipe. Aggregates: PK=TenantId
+            // (or "global"), RK="{yyyy-MM-dd}|{enrollmentClass}" — daily fleet rollups
+            // (median/p75/p90 per segment, top blocking apps, what-if bounds), recomputed by the
+            // rolling maintenance sweep; 180d retention like UsageMetrics.
+            public const string SessionTimeBreakdowns    = "SessionTimeBreakdowns";
+            public const string TimeAttributionAggregates = "TimeAttributionAggregates";
+
             // Configuration tables
             public const string TenantConfiguration = "TenantConfiguration";
             public const string AdminConfiguration  = "AdminConfiguration";
@@ -1051,6 +1061,8 @@ namespace AutopilotMonitor.Shared
                 RuleStates,
                 AppInstallSummaries,
                 PlatformStats,
+                SessionTimeBreakdowns,
+                TimeAttributionAggregates,
                 TenantConfiguration,
                 AdminConfiguration,
                 GlobalAdmins,

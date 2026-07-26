@@ -95,6 +95,15 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<List<RuleStatsEntry>> GetRuleStatsAsync(string? tenantId = null, string? startDate = null,
             string? endDate = null, string? ruleType = null, int maxResults = 500);
         Task<int> DeleteRuleStatsOlderThanAsync(DateTime cutoffDate);
+
+        // --- F1 Time Attribution (insights spec §F1, PR2) ---
+        /// <summary>Computes + stores the session's time breakdown; null when not computable (non-terminal, no duration, events aged out) — fail-soft.</summary>
+        Task<SessionTimeBreakdown?> ComputeAndStoreSessionTimeBreakdownAsync(string tenantId, string sessionId);
+        Task<SessionTimeBreakdown?> GetSessionTimeBreakdownAsync(string tenantId, string sessionId);
+        Task<bool> SaveTimeAttributionAggregateAsync(TimeAttributionDailyAggregate aggregate);
+        /// <summary>Aggregate rows of one tenant partition ("global" allowed) for an inclusive date range.</summary>
+        Task<List<TimeAttributionDailyAggregate>> GetTimeAttributionAggregatesAsync(string tenantId, DateTime startDate, DateTime endDate);
+        Task<int> DeleteTimeAttributionAggregatesOlderThanAsync(DateTime cutoffDate);
     }
 
     /// <summary>

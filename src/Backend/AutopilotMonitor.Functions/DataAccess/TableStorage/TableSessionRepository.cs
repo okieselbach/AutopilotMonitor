@@ -91,6 +91,15 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 // complete. Positive evidence only (listed ⇒ EspBlocking=true, absent ⇒ stays
                 // unknown). Idempotent + fail-soft like the counter reconcile above.
                 await _storage.ResolveEspBlockingForSessionAsync(tenantId, sessionId);
+
+                // F1 PR2: compute + persist the time-attribution breakdown once, now that the
+                // terminal write stamped CompletedAt/DurationSeconds and the event stream is
+                // complete. Succeeded/Failed only — Incomplete deliberately stores no duration,
+                // so there is no wall clock to partition (the compute would no-op anyway; the
+                // gate just saves the point-reads). Fail-soft; the 30d maintenance sweep
+                // self-heals any miss.
+                if (status == SessionStatus.Succeeded || status == SessionStatus.Failed)
+                    await _storage.ComputeAndStoreSessionTimeBreakdownAsync(tenantId, sessionId);
             }
 
             return transitioned;

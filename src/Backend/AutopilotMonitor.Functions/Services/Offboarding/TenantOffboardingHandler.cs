@@ -73,6 +73,10 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             Constants.TableNames.SessionInventoryContributions,
             Constants.TableNames.SessionTombstones,
             Constants.TableNames.PreviewWhitelist,
+            // F1 time attribution (PR2): both PK=TenantId. Breakdowns also die per-session via
+            // the deletion manifest; the partition wipe covers offboarding + any stragglers.
+            Constants.TableNames.SessionTimeBreakdowns,
+            Constants.TableNames.TimeAttributionAggregates,
         };
 
         // Plan §6.4 — composite-PK "{tenantId}_..." wipes (Variant A range).

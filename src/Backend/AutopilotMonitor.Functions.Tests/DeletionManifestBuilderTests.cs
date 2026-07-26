@@ -75,8 +75,9 @@ public class DeletionManifestBuilderTests
         Assert.Equal(2,  c["classifierVerdictsByIdLevel"]);
         Assert.Equal(11, c["signalsByKind"]);
 
-        // 15 cascade tables + tombstone = 16 steps; no inventory steps when no contributions row.
-        Assert.Equal(16, manifest.Steps.Count);
+        // 16 cascade tables (incl. SessionTimeBreakdowns, F1 PR2) + tombstone = 17 steps;
+        // no inventory steps when no contributions row.
+        Assert.Equal(17, manifest.Steps.Count);
         Assert.Equal(DeletionStepClass.Final, manifest.Steps.Last().Class);
     }
 
@@ -102,7 +103,8 @@ public class DeletionManifestBuilderTests
             .WithSessionsByStage(1, propValue: "stage_marker")
             .WithDeadEndsByReason(1, propValue: "deadend_marker")
             .WithClassifierVerdictsByIdLevel(1, propValue: "classifier_marker")
-            .WithSignalsByKind(1, propValue: "signalkind_marker"));
+            .WithSignalsByKind(1, propValue: "signalkind_marker")
+            .WithSessionTimeBreakdown(propValue: "breakdown_marker"));
 
         var manifest = await NewBuilder(reader).BuildAsync(
             TenantId, SessionId, "admin_delete",
@@ -145,8 +147,8 @@ public class DeletionManifestBuilderTests
             new DeletionRetentionContext { TenantRetentionDays = 90 });
 
         var nonTombstoneSteps = manifest.Steps.Where(s => s.Class != DeletionStepClass.Final).ToList();
-        // Without a contributions row, neither inventory step is emitted → exactly 15 cascade-table steps.
-        Assert.Equal(15, nonTombstoneSteps.Count);
+        // Without a contributions row, neither inventory step is emitted → exactly 16 cascade-table steps.
+        Assert.Equal(16, nonTombstoneSteps.Count);
         foreach (var step in nonTombstoneSteps)
         {
             Assert.Equal(0, step.RowCount);
@@ -175,8 +177,8 @@ public class DeletionManifestBuilderTests
             new DeletionActor { Type = "admin", Actor = "alice@example.com" },
             new DeletionRetentionContext { TenantRetentionDays = 90 });
 
-        // Expect: 15 cascade + 2 inventory + 1 tombstone = 18 steps.
-        Assert.Equal(18, manifest.Steps.Count);
+        // Expect: 16 cascade + 2 inventory + 1 tombstone = 19 steps.
+        Assert.Equal(19, manifest.Steps.Count);
 
         var aggregate = manifest.Steps.Single(s => s.Class == DeletionStepClass.Aggregate);
         Assert.Equal(DeletionStepNames.SoftwareInventoryDecrement, aggregate.Step);
@@ -640,6 +642,7 @@ public class DeletionManifestBuilderTests
         private TableEntity? _vulnerabilityReport;
         private TableEntity? _deviceSnapshot;
         private TableEntity? _eventSessionIndex;
+        private TableEntity? _sessionTimeBreakdown;
         private TableEntity? _sessionInventoryContributions;
         private string _sessionsIndexRowKey = "INDEX_" + SessionId;
 
@@ -716,6 +719,16 @@ public class DeletionManifestBuilderTests
                 ["Marker"] = propValue,
             };
             _eventSessionIndex.ETag = new ETag("0xESI");
+            return this;
+        }
+
+        public ReaderSeed WithSessionTimeBreakdown(string propValue = "tab")
+        {
+            _sessionTimeBreakdown = new TableEntity(TenantId, SessionId)
+            {
+                ["Marker"] = propValue,
+            };
+            _sessionTimeBreakdown.ETag = new ETag("0xTAB");
             return this;
         }
 
@@ -796,6 +809,8 @@ public class DeletionManifestBuilderTests
                   .ReturnsAsync(_deviceSnapshot);
             reader.Setup(r => r.GetEntityOrNullAsync(Constants.TableNames.EventSessionIndex, TenantId, SessionId, It.IsAny<CancellationToken>()))
                   .ReturnsAsync(_eventSessionIndex);
+            reader.Setup(r => r.GetEntityOrNullAsync(Constants.TableNames.SessionTimeBreakdowns, TenantId, SessionId, It.IsAny<CancellationToken>()))
+                  .ReturnsAsync(_sessionTimeBreakdown);
             reader.Setup(r => r.GetEntityOrNullAsync(Constants.TableNames.SessionInventoryContributions, TenantId, SessionId, It.IsAny<CancellationToken>()))
                   .ReturnsAsync(_sessionInventoryContributions);
 

@@ -111,5 +111,20 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         public Task<int> DeleteRuleStatsOlderThanAsync(DateTime cutoffDate)
             => _storage.DeleteRuleStatsOlderThanAsync(cutoffDate);
+
+        public Task<SessionTimeBreakdown?> ComputeAndStoreSessionTimeBreakdownAsync(string tenantId, string sessionId)
+            => _storage.ComputeAndStoreSessionTimeBreakdownAsync(tenantId, sessionId);
+
+        public Task<SessionTimeBreakdown?> GetSessionTimeBreakdownAsync(string tenantId, string sessionId)
+            => _storage.GetSessionTimeBreakdownAsync(tenantId, sessionId);
+
+        public Task<bool> SaveTimeAttributionAggregateAsync(TimeAttributionDailyAggregate aggregate)
+            => _storage.SaveTimeAttributionAggregateAsync(aggregate);
+
+        public Task<List<TimeAttributionDailyAggregate>> GetTimeAttributionAggregatesAsync(string tenantId, DateTime startDate, DateTime endDate)
+            => _storage.GetTimeAttributionAggregatesAsync(tenantId, startDate, endDate);
+
+        public Task<int> DeleteTimeAttributionAggregatesOlderThanAsync(DateTime cutoffDate)
+            => _storage.DeleteTimeAttributionAggregatesOlderThanAsync(cutoffDate);
     }
 }
