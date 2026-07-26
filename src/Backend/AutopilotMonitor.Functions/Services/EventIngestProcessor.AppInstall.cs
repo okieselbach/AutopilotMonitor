@@ -53,6 +53,23 @@ namespace AutopilotMonitor.Functions.Services
 
             if (evt.Data != null)
             {
+                // F1 PR1 (audit Q3): the summaries dict — like the RowKey — is keyed by app NAME,
+                // but events carry the Intune app identity in `appId`. Adopt the first observed
+                // appId; if the same name later shows a DIFFERENT appId (device- + user-scope
+                // assignment, duplicate display names across rings), flag the row as a collision —
+                // its folded status/duration mixes two real apps and per-app fleet aggregates
+                // must exclude it. First-seen appId wins so the row stays deterministic.
+                if (evt.Data.TryGetValue("appId", out var appIdObj))
+                {
+                    var appId = appIdObj?.ToString()?.Trim();
+                    if (!string.IsNullOrEmpty(appId))
+                    {
+                        if (string.IsNullOrEmpty(summary.AppId))
+                            summary.AppId = appId!;
+                        else if (!string.Equals(summary.AppId, appId, StringComparison.OrdinalIgnoreCase))
+                            summary.AppIdCollision = true;
+                    }
+                }
                 if (evt.Data.TryGetValue("appVersion", out var appVersionObj))
                 {
                     var appVersion = appVersionObj?.ToString();

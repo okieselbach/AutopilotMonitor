@@ -84,7 +84,14 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             // otherwise a swept-Incomplete session keeps whatever stale live count it had.
             // Idempotent + fail-soft, so the redundancy is cheap.
             if (transitioned && (status == SessionStatus.Succeeded || status == SessionStatus.Failed || status == SessionStatus.Incomplete))
+            {
                 await _storage.ReconcileSessionCountersAsync(tenantId, sessionId);
+                // F1 PR1: same single-writer seam — join the session's app rows against its
+                // latest esp_config_detected lists exactly once, when the event stream is
+                // complete. Positive evidence only (listed ⇒ EspBlocking=true, absent ⇒ stays
+                // unknown). Idempotent + fail-soft like the counter reconcile above.
+                await _storage.ResolveEspBlockingForSessionAsync(tenantId, sessionId);
+            }
 
             return transitioned;
         }

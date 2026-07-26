@@ -1,5 +1,6 @@
 using Azure;
 using Azure.Data.Tables;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
@@ -364,6 +365,114 @@ namespace AutopilotMonitor.Functions.Services
                         if (!string.IsNullOrEmpty(existingDetection))
                             summary.DetectionResult = existingDetection;
                     }
+
+                    // F1 PR1 — AppId identity across batches (audit Q3). First-seen appId wins
+                    // (mirrors the in-batch fold rule); a later batch carrying a DIFFERENT appId
+                    // under the same name proves the name-keyed row merges two apps → collision.
+                    var existingAppId = existing.GetString("AppId");
+                    if (!string.IsNullOrEmpty(existingAppId))
+                    {
+                        if (string.IsNullOrEmpty(summary.AppId))
+                        {
+                            summary.AppId = existingAppId!;
+                        }
+                        else if (!string.Equals(summary.AppId, existingAppId, StringComparison.OrdinalIgnoreCase))
+                        {
+                            summary.AppIdCollision = true;
+                            summary.AppId = existingAppId!;
+                        }
+                    }
+                    // Collision is one-way sticky: once any batch proved the identity mix, no
+                    // later single-identity batch can unprove it.
+                    if (!summary.AppIdCollision && (existing.GetBoolean("AppIdCollision") ?? false))
+                        summary.AppIdCollision = true;
+
+                    // EspBlocking is written only by the session-terminal resolution (positive
+                    // evidence). A late app-event batch carries null → adopt the stored verdict
+                    // so the in-memory summary matches what Merge-mode preserves on disk.
+                    if (!summary.EspBlocking.HasValue)
+                    {
+                        var existingEspBlocking = existing.GetBoolean("EspBlocking");
+                        if (existingEspBlocking.HasValue)
+                            summary.EspBlocking = existingEspBlocking;
+                    }
+        }
+
+        /// <summary>
+        /// Resolves <see cref="AppInstallSummary.EspBlocking"/> for every app row of a session by
+        /// joining the rows' <c>AppId</c> against the session's LATEST <c>esp_config_detected</c>
+        /// tracking lists (F1 PR1; source-data audit Q2). Positive evidence only: listed rows are
+        /// merge-stamped <c>EspBlocking=true</c>; absent rows keep null (unknown) — never false.
+        /// Runs once per session at the terminal transition (TableSessionRepository seam — the
+        /// same funnel as the counter reconcile, covering ingest, admin marks, maintenance sweep
+        /// and rule-engine fails alike). Idempotent and fail-soft: any error is logged and
+        /// swallowed; app rows created by late batches after this ran simply stay unknown.
+        /// </summary>
+        /// <returns>Number of rows stamped (0 on no lists / nothing to stamp / error).</returns>
+        public async Task<int> ResolveEspBlockingForSessionAsync(string tenantId, string sessionId)
+        {
+            try
+            {
+                SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+                SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
+
+                // Latest emission that actually carries lists wins: the registry lists grow
+                // progressively, so later reads are supersets — but a later emission whose probe
+                // found no Diagnostics key (no espTracked* keys at all) must not erase earlier
+                // positive evidence.
+                var espEvents = await GetSessionEventsByTypeAsync(
+                    tenantId, sessionId, Constants.EventTypes.EspConfigDetected, maxResults: 50);
+                EspBlockingSets? sets = null;
+                for (var i = espEvents.Count - 1; i >= 0 && sets == null; i--)
+                    sets = EspBlockingSets.FromEventData(espEvents[i].Data);
+                if (sets == null || sets.ListedCount == 0)
+                    return 0;
+
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AppInstallSummaries);
+                var filter = $"PartitionKey eq '{tenantId}' and RowKey ge '{sessionId}_' and RowKey lt '{sessionId}`'";
+                var query = tableClient.QueryAsync<TableEntity>(
+                    filter: filter,
+                    select: new[] { "PartitionKey", "RowKey", "AppId", "EspBlocking", "AppIdCollision" });
+
+                var stamped = 0;
+                await foreach (var row in query)
+                {
+                    if (!ShouldStampEspBlocking(row, sets)) continue;
+
+                    var update = new TableEntity(row.PartitionKey, row.RowKey)
+                    {
+                        ["EspBlocking"] = true
+                    };
+                    await tableClient.UpsertEntityAsync(update, TableUpdateMode.Merge);
+                    stamped++;
+                }
+
+                if (stamped > 0)
+                    _logger.LogInformation(
+                        "Session {SessionId}: stamped EspBlocking=true on {Count} app rows ({Listed} ids in blocking set)",
+                        sessionId, stamped, sets.ListedCount);
+                return stamped;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "EspBlocking resolution failed for session {SessionId} (fail-soft)", sessionId);
+                return 0;
+            }
+        }
+
+        /// <summary>
+        /// Pure per-row stamping predicate behind <see cref="ResolveEspBlockingForSessionAsync"/> —
+        /// internal static so the join contract is pinned by unit tests: rows without an AppId and
+        /// collision rows (identity ambiguous) stay unknown; only positive membership stamps; an
+        /// already-stamped row is skipped (idempotency).
+        /// </summary>
+        internal static bool ShouldStampEspBlocking(TableEntity row, EspBlockingSets sets)
+        {
+            var appId = row.GetString("AppId");
+            if (string.IsNullOrEmpty(appId)) return false;
+            if (row.GetBoolean("AppIdCollision") ?? false) return false;
+            if (row.GetBoolean("EspBlocking") == true) return false;
+            return sets.Contains(appId);
         }
 
         /// <summary>
@@ -438,7 +547,7 @@ namespace AutopilotMonitor.Functions.Services
             "DurationSeconds", "DownloadBytes", "FailureCode",
             "DoDownloadMode", "DoTotalBytesDownloaded", "DoBytesFromPeers", "DoBytesFromHttp",
             "DoBytesFromLanPeers", "DoBytesFromGroupPeers", "DoBytesFromInternetPeers",
-            "DoBytesFromLinkLocalPeers", "DoBytesFromCacheServer"
+            "DoBytesFromLinkLocalPeers", "DoBytesFromCacheServer", "AppIdCollision"
         };
 
         /// <summary>
@@ -459,7 +568,8 @@ namespace AutopilotMonitor.Functions.Services
         {
             "PartitionKey", "RowKey", "TenantId", "SessionId", "AppName", "AppType", "AppVersion",
             "Status", "TerminalState", "StartedAt", "CompletedAt", "DurationSeconds", "DownloadBytes",
-            "AttemptNumber", "InstallerPhase", "FailureCode", "FailureMessage", "ExitCode", "DetectionResult"
+            "AttemptNumber", "InstallerPhase", "FailureCode", "FailureMessage", "ExitCode", "DetectionResult",
+            "AppId", "EspBlocking", "AppIdCollision"
         };
 
         /// <summary>
@@ -579,7 +689,11 @@ namespace AutopilotMonitor.Functions.Services
                 AttemptNumber = entity.GetInt32("AttemptNumber") ?? 0,
                 InstallerPhase = entity.GetString("InstallerPhase") ?? string.Empty,
                 ExitCode = entity.GetInt32("ExitCode"),
-                DetectionResult = entity.GetString("DetectionResult") ?? string.Empty
+                DetectionResult = entity.GetString("DetectionResult") ?? string.Empty,
+                // F1 PR1 identity/blocking columns (absent on legacy rows → sentinels)
+                AppId = entity.GetString("AppId") ?? string.Empty,
+                EspBlocking = entity.GetBoolean("EspBlocking"),
+                AppIdCollision = entity.GetBoolean("AppIdCollision") ?? false
             };
         }
 
@@ -1421,6 +1535,19 @@ namespace AutopilotMonitor.Functions.Services
                 entity["Status"] = summary.Status;
             if (!string.IsNullOrEmpty(summary.TerminalState))
                 entity["TerminalState"] = summary.TerminalState;
+            // F1 PR1 identity/blocking columns — all sentinel-gated so a batch that observed
+            // nothing about them cannot clobber a prior value under Merge-mode:
+            //   AppId        empty  = not observed in this batch
+            //   EspBlocking  null   = unknown (only the session-terminal resolution ever sets it,
+            //                        and only to true — positive evidence, never false)
+            //   AppIdCollision false = never written; the flag is one-way sticky, so only true
+            //                        is persisted (Merge cannot un-set an absent column).
+            if (!string.IsNullOrEmpty(summary.AppId))
+                entity["AppId"] = summary.AppId;
+            if (summary.EspBlocking.HasValue)
+                entity["EspBlocking"] = summary.EspBlocking.Value;
+            if (summary.AppIdCollision)
+                entity["AppIdCollision"] = true;
             if (summary.DurationSeconds > 0)
                 entity["DurationSeconds"] = summary.DurationSeconds;
             if (summary.CompletedAt.HasValue)

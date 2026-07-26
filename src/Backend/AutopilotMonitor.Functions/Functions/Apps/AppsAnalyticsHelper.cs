@@ -141,7 +141,11 @@ namespace AutopilotMonitor.Functions.Functions.Apps
 
             var summaries = allSummaries.Where(s => s.StartedAt >= cutoff).ToList();
 
-            var apps = summaries.GroupBy(s => s.AppName).Select(g =>
+            // F1 PR1 (audit Q3): appId-collision rows merge two distinct apps under one name —
+            // they are excluded from every per-app group and disclosed via collisionExcluded.
+            var collisionExcluded = summaries.Count(s => s.AppIdCollision);
+
+            var apps = summaries.Where(s => !s.AppIdCollision).GroupBy(s => s.AppName).Select(g =>
             {
                 // PR0 classification (see MetricsMath.IsSkipTerminalState / HasMeasuredDuration):
                 // skips leave the rate + durations; duration stats read measured rows only.
@@ -188,6 +192,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     success = true,
                     totalApps = apps.Count,
                     totalInstalls = summaries.Count,
+                    collisionExcluded,
                     windowDays = days,
                     apps
                 };
@@ -204,6 +209,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 success = true,
                 totalApps = apps.Count,
                 totalInstalls = summaries.Count,
+                collisionExcluded,
                 windowDays = days,
                 count = page.Count,
                 offset,
@@ -229,10 +235,15 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             var cutoff = now.AddDays(-days);
             var midpoint = now.AddDays(-days / 2.0);
 
-            var summaries = allSummaries
+            var inWindow = allSummaries
                 .Where(s => string.Equals(s.AppName, appName, StringComparison.OrdinalIgnoreCase)
                             && s.StartedAt >= cutoff)
                 .ToList();
+
+            // F1 PR1 (audit Q3): collision rows under this name mix in a second app's outcomes —
+            // excluded from every stat below, disclosed via collisionExcluded.
+            var collisionExcluded = inWindow.Count(s => s.AppIdCollision);
+            var summaries = inWindow.Where(s => !s.AppIdCollision).ToList();
 
             if (summaries.Count == 0)
             {
@@ -242,6 +253,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     appName,
                     appType = string.Empty,
                     windowDays = days,
+                    collisionExcluded,
                     bucket = "day",
                     summary = new
                     {
@@ -387,6 +399,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 appName,
                 appType,
                 windowDays = days,
+                collisionExcluded,
                 bucket,
                 summary = new
                 {

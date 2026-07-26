@@ -13,6 +13,36 @@ namespace AutopilotMonitor.Shared.Models
         public string TenantId { get; set; } = string.Empty;
 
         /// <summary>
+        /// Intune app identity from the agent's app events (<c>appId</c> payload field) —
+        /// Win32/IME apps carry the Intune app GUID in lowercase dashed form
+        /// (<c>AppPackageState.Id</c>). Empty = sentinel: written before this column existed
+        /// (2026-07 F1 PR1) or the events carried no appId. The row stays name-keyed
+        /// (RowKey = {SessionId}_{AppName}); this column adds identity without a key migration.
+        /// </summary>
+        public string AppId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Whether this app is in the ESP's own blocking/tracking set
+        /// (<c>esp_config_detected</c> lists, joined by <see cref="AppId"/> at session-terminal
+        /// processing). Tri-state by design (source-data audit Q2): <c>true</c> = listed
+        /// (positive evidence), <c>null</c> = unknown (absent from the lists, lists never
+        /// observed, or row predates the column) — NEVER <c>false</c>: the lists are read
+        /// early/partially and MSI/PFN namespaces may not match, so absence is not evidence
+        /// of non-blocking.
+        /// </summary>
+        public bool? EspBlocking { get; set; }
+
+        /// <summary>
+        /// True when the same app display name was observed with a DIFFERENT <c>appId</c> in
+        /// this session (source-data audit Q3): the name-keyed row then merges two distinct
+        /// apps (e.g. device- + user-scope assignment of "Company Portal") and its
+        /// status/duration mix is unattributable. Flagged rows are excluded from per-app
+        /// fleet aggregates (with a disclosed exclusion count) instead of attempting a RowKey
+        /// migration. Sticky once set.
+        /// </summary>
+        public bool AppIdCollision { get; set; }
+
+        /// <summary>
         /// Lifecycle status: Succeeded, Failed, InProgress, or empty.
         /// Empty (default) is a sentinel meaning "no status-relevant event observed in the current
         /// aggregation batch". Aggregators only set a real value when they see started / completed /

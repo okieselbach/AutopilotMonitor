@@ -58,7 +58,13 @@ public static class MetricsMath
     {
         var summaryList = summaries as IList<AppInstallSummary> ?? summaries.ToList();
 
-        var appGroups = summaryList.GroupBy(s => s.AppName).Select(g =>
+        // F1 PR1 (audit Q3): a name-keyed row that merged two distinct appIds carries an
+        // unattributable status/duration mix — it must not shape any per-app group. Excluded
+        // here with a disclosed count (truthfulness rule 7); the fleet-wide DO rollup below
+        // keeps every row, since transferred bytes are real regardless of identity mixing.
+        var totalCollisionExcluded = summaryList.Count(s => s.AppIdCollision);
+
+        var appGroups = summaryList.Where(s => !s.AppIdCollision).GroupBy(s => s.AppName).Select(g =>
         {
             // PR0 (2026-07-26) classification — see IsSkipTerminalState / HasMeasuredDuration:
             //   skipped    = no real install attempt (TerminalState Skipped/Postponed)
@@ -127,6 +133,7 @@ public static class MetricsMath
             totalInstalls = summaryList.Count,
             totalSkipped = appGroups.Sum(a => a.skipped),
             totalUnmeasured = appGroups.Sum(a => a.unmeasured),
+            totalCollisionExcluded,
             slowestApps,
             topFailingApps,
             deliveryOptimization = new
