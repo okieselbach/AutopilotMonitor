@@ -1,0 +1,179 @@
+using System.Net;
+using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Shared.DataAccess;
+using Microsoft.Azure.Functions.Worker;
+using Microsoft.Azure.Functions.Worker.Http;
+using Microsoft.Extensions.Logging;
+
+namespace AutopilotMonitor.Functions.Functions.Metrics
+{
+    /// <summary>
+    /// F1 time-attribution read surfaces (insights spec §F1 "Surfaces", PR3). All three
+    /// endpoints serve PRE-COMPUTED rows — the per-session breakdown written at the terminal
+    /// transition and the aggregate rows the maintenance sweep maintains. No request-time
+    /// derivation: what the calculator computed is what every consumer (web, MCP) sees.
+    /// </summary>
+    public class GetSessionTimeAttributionFunction
+    {
+        private readonly ILogger<GetSessionTimeAttributionFunction> _logger;
+        private readonly IMetricsRepository _metricsRepo;
+        private readonly ISessionRepository _sessionRepo;
+
+        public GetSessionTimeAttributionFunction(
+            ILogger<GetSessionTimeAttributionFunction> logger,
+            IMetricsRepository metricsRepo,
+            ISessionRepository sessionRepo)
+        {
+            _logger = logger;
+            _metricsRepo = metricsRepo;
+            _sessionRepo = sessionRepo;
+        }
+
+        /// <summary>
+        /// Per-session breakdown for the session-detail attribution lane. A missing row is a
+        /// NORMAL outcome (pre-feature session, non-terminal, Incomplete — no wall clock) and
+        /// returns success with breakdown=null so the UI simply omits the lane.
+        /// </summary>
+        [Function("GetSessionTimeAttribution")]
+        public async Task<HttpResponseData> Run(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "sessions/{sessionId}/time-attribution")] HttpRequestData req,
+            string sessionId)
+        {
+            try
+            {
+                // Authentication + MemberRead authorization enforced by PolicyEnforcementMiddleware;
+                // cross-tenant access via TargetTenantId (TenantScoping.QueryParam).
+                var requestCtx = req.GetRequestContext();
+
+                var breakdown = await _metricsRepo.GetSessionTimeBreakdownAsync(requestCtx.TargetTenantId, sessionId);
+
+                // Global-scope fallback (mirrors GetSessionEventsFunction): a GA/operator opening
+                // a session without an explicit tenantId query param reads their home partition —
+                // resolve the owning tenant and retry once.
+                if (breakdown == null && requestCtx.HasGlobalScope)
+                {
+                    var resolvedTenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId);
+                    if (resolvedTenantId != null &&
+                        !string.Equals(resolvedTenantId, requestCtx.TargetTenantId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        breakdown = await _metricsRepo.GetSessionTimeBreakdownAsync(resolvedTenantId, sessionId);
+                    }
+                }
+
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(new { success = true, breakdown });
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching time attribution for session {SessionId}", sessionId);
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
+                return errorResponse;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Tenant fleet view: the rolling 30-day range statistics per enrollment class (the panel's
+    /// stacked medians + top blocking apps) plus the daily rows for the per-day trend. The range
+    /// window is FIXED at the sweep's 30 days — daily medians cannot be merged into an arbitrary
+    /// range honestly, so no days parameter is offered.
+    /// </summary>
+    public class GetTimeAttributionMetricsFunction
+    {
+        private readonly ILogger<GetTimeAttributionMetricsFunction> _logger;
+        private readonly IMetricsRepository _metricsRepo;
+
+        public GetTimeAttributionMetricsFunction(
+            ILogger<GetTimeAttributionMetricsFunction> logger,
+            IMetricsRepository metricsRepo)
+        {
+            _logger = logger;
+            _metricsRepo = metricsRepo;
+        }
+
+        [Function("GetTimeAttributionMetrics")]
+        public async Task<HttpResponseData> Run(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "metrics/time-attribution")] HttpRequestData req)
+        {
+            try
+            {
+                // Authentication + MemberRead authorization enforced by PolicyEnforcementMiddleware
+                var tenantId = TenantHelper.GetTenantId(req);
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(await TimeAttributionResponse.BuildAsync(_metricsRepo, tenantId));
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching time attribution metrics");
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
+                return errorResponse;
+            }
+        }
+    }
+
+    /// <summary>Global-admin variant: tenantId filters to one tenant; absent = cross-tenant "global" rows.</summary>
+    public class GetGlobalTimeAttributionMetricsFunction
+    {
+        private readonly ILogger<GetGlobalTimeAttributionMetricsFunction> _logger;
+        private readonly IMetricsRepository _metricsRepo;
+
+        public GetGlobalTimeAttributionMetricsFunction(
+            ILogger<GetGlobalTimeAttributionMetricsFunction> logger,
+            IMetricsRepository metricsRepo)
+        {
+            _logger = logger;
+            _metricsRepo = metricsRepo;
+        }
+
+        [Function("GetGlobalTimeAttributionMetrics")]
+        public async Task<HttpResponseData> Run(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/metrics/time-attribution")] HttpRequestData req)
+        {
+            try
+            {
+                // Authentication + GlobalReadOrAdmin authorization enforced by PolicyEnforcementMiddleware
+                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                var tenantIdFilter = query["tenantId"];
+                var partition = string.IsNullOrWhiteSpace(tenantIdFilter) ? "global" : tenantIdFilter!;
+
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(await TimeAttributionResponse.BuildAsync(_metricsRepo, partition));
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching global time attribution metrics");
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
+                return errorResponse;
+            }
+        }
+    }
+
+    /// <summary>Shared response shape for the tenant and global variants (mirrors the MetricsMath single-source pattern).</summary>
+    internal static class TimeAttributionResponse
+    {
+        internal const int WindowDays = 30;
+
+        internal static async Task<object> BuildAsync(IMetricsRepository metricsRepo, string partition)
+        {
+            var rolling = await metricsRepo.GetRollingTimeAttributionAggregatesAsync(partition);
+            var today = DateTime.UtcNow.Date;
+            var daily = await metricsRepo.GetTimeAttributionAggregatesAsync(partition, today.AddDays(-WindowDays), today);
+
+            return new
+            {
+                success = true,
+                windowDays = WindowDays,
+                // Range statistics per enrollment class (never mixed) — the UI gates rendering
+                // at cleanSessionCount >= 20 and shows "insufficient data (n=…)" below it.
+                classes = rolling.OrderBy(r => r.EnrollmentClass, StringComparer.Ordinal).ToList(),
+                daily = daily.OrderBy(d => d.Date, StringComparer.Ordinal).ToList(),
+            };
+        }
+    }
+}

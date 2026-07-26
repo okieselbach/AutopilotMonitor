@@ -341,6 +341,29 @@ public class TimeAttributionPersistenceAndAggregationTests
     }
 
     [Fact]
+    public void Aggregates_RollingDateKey_MergesAllDatesIntoRangeStatistics()
+    {
+        // Two sessions on DIFFERENT days — the rolling row must merge them (a median of
+        // per-day medians would not be the range median; the rolling rows are the honest
+        // range statistics the fleet panel reads).
+        var pairs = new List<(SessionSummary, SessionTimeBreakdown)>
+        {
+            (Session(TenantA, T0), Breakdown(espAppsSeconds: 100)),
+            (Session(TenantA, T0.AddDays(-3)), Breakdown(espAppsSeconds: 300)),
+        };
+
+        var rolling = MaintenanceService.BuildTimeAttributionAggregates(
+            pairs, Array.Empty<SessionSummary>(), T0, MaintenanceService.RollingAggregateDateKey);
+
+        var row = rolling.Single(a => a.TenantId == TenantA);
+        Assert.Equal(MaintenanceService.RollingAggregateDateKey, row.Date);
+        Assert.Equal(2, row.CleanSessionCount);
+        // Rolling rows sort AFTER every "yyyy-MM-dd|…" key so date-range reads and the
+        // age-based retention filter never touch them.
+        Assert.True(string.CompareOrdinal($"{row.Date}|user_driven", "2026-12-31|zzz") > 0);
+    }
+
+    [Fact]
     public void Aggregates_PerAppRows_GateAtFiveSessions_AndCarryWhatIfBounds()
     {
         var pairs = new List<(SessionSummary, SessionTimeBreakdown)>();

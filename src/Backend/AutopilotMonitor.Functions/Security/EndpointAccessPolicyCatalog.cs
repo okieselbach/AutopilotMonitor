@@ -227,8 +227,10 @@ public static class EndpointAccessPolicyCatalog
         // (Inspector v1 — Plan §M6). Lift back to MemberRead+QueryParam at the v2 adminMode lift.
         new("GET",    "sessions/{sessionId}/analysis", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         new("GET",    "sessions/{sessionId}/vulnerability-report", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
+        new("GET",    "sessions/{sessionId}/time-attribution", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         new("GET",    "metrics/app",               EndpointPolicy.MemberRead),
         new("GET",    "metrics/fleet-health",      EndpointPolicy.MemberRead),
+        new("GET",    "metrics/time-attribution",  EndpointPolicy.MemberRead),
         new("GET",    "apps/list",                 EndpointPolicy.MemberRead),
         new("GET",    "apps/{appName}/analytics",  EndpointPolicy.MemberRead),
         new("GET",    "apps/{appName}/sessions",   EndpointPolicy.MemberRead),
@@ -394,6 +396,7 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/metrics/platform",    EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/metrics/app",         EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/fleet-health", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/metrics/time-attribution", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/apps/list",           EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/apps/{appName}/analytics", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/apps/{appName}/sessions",  EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),

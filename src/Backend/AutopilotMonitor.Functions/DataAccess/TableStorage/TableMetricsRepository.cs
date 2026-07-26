@@ -124,6 +124,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<List<TimeAttributionDailyAggregate>> GetTimeAttributionAggregatesAsync(string tenantId, DateTime startDate, DateTime endDate)
             => _storage.GetTimeAttributionAggregatesAsync(tenantId, startDate, endDate);
 
+        public Task<List<TimeAttributionDailyAggregate>> GetRollingTimeAttributionAggregatesAsync(string tenantId)
+            => _storage.GetRollingTimeAttributionAggregatesAsync(tenantId);
+
         public Task<int> DeleteTimeAttributionAggregatesOlderThanAsync(DateTime cutoffDate)
             => _storage.DeleteTimeAttributionAggregatesOlderThanAsync(cutoffDate);
     }

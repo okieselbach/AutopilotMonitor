@@ -10,6 +10,7 @@ import { useNotifications } from "../../contexts/NotificationContext";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import FleetStatCard from "./components/FleetStatCard";
+import TimeAttributionSection, { TimeAttributionResponseDto } from "./components/TimeAttributionSection";
 import TruncatedLabel from "../../components/TruncatedLabel";
 import { useFleetHealth } from "./hooks/useFleetHealth";
 import { useAggregatedAdminScope } from "@/hooks";
@@ -38,6 +39,7 @@ interface AppMetricsResponse {
 
 export default function FleetHealthPage() {
   const [appMetrics, setAppMetrics] = useState<AppMetricsResponse | null>(null);
+  const [timeAttribution, setTimeAttribution] = useState<TimeAttributionResponseDto | null>(null);
   const [timeRange, setTimeRange] = useState<"7d" | "30d" | "90d">("7d");
 
   const hasJoinedGroup = useRef(false);
@@ -75,6 +77,29 @@ export default function FleetHealthPage() {
     fetchAppMetrics(timeRange);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeInitialized, timeRange, scopeKey]);
+
+  // F1 time attribution: sweep-maintained rolling 30d rollup — independent of the page's
+  // 7/30/90d selector (per-day medians cannot be merged into arbitrary ranges honestly),
+  // so it only refetches on scope changes. Fail-soft: the section hides without data.
+  useEffect(() => {
+    if (!scopeInitialized) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const endpoint = routeGlobal
+          ? api.metrics.globalTimeAttribution(selectedTenantId || undefined)
+          : api.metrics.timeAttribution();
+        const response = await authenticatedFetch(endpoint, getAccessToken);
+        if (!response.ok) return;
+        const json = await response.json();
+        if (!cancelled) setTimeAttribution(json);
+      } catch {
+        // fail-soft: section stays hidden
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeInitialized, scopeKey]);
 
   // Join this tenant's SignalR group so its session events reach the client; the
   // useFleetHealth hook listens for newSession/newevents to trigger a debounced
@@ -639,6 +664,9 @@ export default function FleetHealthPage() {
               )}
             </div>
           </div>
+
+          {/* Time attribution (F1) — sweep-maintained rolling 30d rollup per enrollment class */}
+          <TimeAttributionSection data={timeAttribution} />
 
           {/* Health by Device Model */}
           <div className="bg-white shadow rounded-lg p-6">

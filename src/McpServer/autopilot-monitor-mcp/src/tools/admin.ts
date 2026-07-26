@@ -1155,6 +1155,53 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     })
   );
 
+  // Tool: get_time_attribution — F1 "where did the enrollment time go?" (insights spec §F1).
+  // Two modes over PRE-COMPUTED rows (nothing derived at request time): a per-session
+  // breakdown, or the fleet's rolling 30-day rollup per enrollment class. Registered for ALL
+  // callers with the usual role-aware routing.
+  server.registerTool(
+    'get_time_attribution',
+    {
+      title: 'Enrollment Time Attribution',
+      description:
+        'Answer "where did the enrollment time go?". Two modes: pass sessionId for one terminal session\'s ' +
+        'time breakdown — wall-clock partition into device_prep / esp_apps / identity_hello / user_esp / ' +
+        'desktop_handoff spans plus an EXPLICIT unattributed remainder (sums are exact against the session\'s ' +
+        'authoritative duration; the WhiteGlove pause is excluded by design), the ESP-blocking app install ' +
+        'intervals with critical-path occupancy, reboot outage spans, and data-quality flags. Omit sessionId ' +
+        'for the fleet rollup: rolling 30-day median/p75/p90 per segment per enrollment class (classes are ' +
+        'never mixed) plus the top time-consuming ESP-blocking apps with "up to" what-if savings bounds. ' +
+        'breakdown=null means the session has no computable attribution (pre-feature, non-terminal, or ' +
+        'Incomplete) — that is "unknown", never zero. ' +
+        (ga
+          ? 'Fleet mode: omit tenantId for the cross-tenant aggregate, or pass tenantId to scope to one tenant. '
+          : ''),
+      inputSchema: {
+        sessionId: SessionIdSchema.optional()
+          .describe('Session (GUID) whose breakdown to fetch. Omit for the fleet rollup.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated,
+          'Session mode: the session\'s tenant (needed cross-tenant). Fleet mode: filter to one tenant; omit for the cross-tenant aggregate.',
+          'Optional; ignored — data is scoped to your tenant.')),
+      },
+      annotations: READ_ONLY,
+    },
+    async (args) => withToolTelemetry('get_time_attribution', async () => {
+      try {
+        const { sessionId, tenantId: rawTenantId } = args;
+        const tenantId = enforceDelegatedTenant(rawTenantId);
+        if (sessionId) {
+          const data = await apiFetch(`/api/sessions/${sessionId}/time-attribution${buildQuery({ tenantId })}`);
+          return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
+        }
+        const path = pickGlobalOrTenantPath('/api/global/metrics/time-attribution', '/api/metrics/time-attribution', tenantId);
+        const data = await apiFetch(`${path}${buildQuery({ tenantId })}`);
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
+      } catch (error: unknown) {
+        return toolError('get_time_attribution', args, error);
+      }
+    })
+  );
+
   // Tool: get_software_inventory — installed-software catalog from the SoftwareInventory table.
   // Registered for ALL callers, but role-aware: a non-GA caller only ever sees their own tenant's
   // inventory (no tenantId / no cross-tenant scope in the schema — nothing to leak or tempt with).

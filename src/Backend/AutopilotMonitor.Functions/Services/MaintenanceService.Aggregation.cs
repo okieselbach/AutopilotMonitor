@@ -266,6 +266,13 @@ namespace AutopilotMonitor.Functions.Services
         private const int TimeAttributionSweepDays = 30;
 
         /// <summary>
+        /// RowKey date component of the rolling-window aggregate rows ("rolling30|{class}").
+        /// Sorts after every "yyyy-MM-dd|…" key, so date-range reads and the age-based retention
+        /// sweep never touch these perpetually-refreshed rows.
+        /// </summary>
+        internal const string RollingAggregateDateKey = "rolling30";
+
+        /// <summary>
         /// Self-healing sweep for the F1 time attribution — deliberately NOT hooked into the
         /// usage-snapshot catch-up (that pass skips dates whose snapshot already exists, and a
         /// session that terminates days after it STARTED would then never reach its date's
@@ -317,7 +324,13 @@ namespace AutopilotMonitor.Functions.Services
                         pairs.Add((session, breakdown));
                 }
 
-                var aggregates = BuildTimeAttributionAggregates(pairs, missing, DateTime.UtcNow);
+                var now = DateTime.UtcNow;
+                var aggregates = BuildTimeAttributionAggregates(pairs, missing, now);
+                // Rolling window rows (RK "rolling30|{class}"): range statistics computed over the
+                // window's actual sessions. The daily rows can NOT be merged into a range claim
+                // (a median of per-day medians is not the range median), so the fleet panel reads
+                // these; the daily rows serve the per-day trend. Refreshed whole every sweep.
+                aggregates.AddRange(BuildTimeAttributionAggregates(pairs, missing, now, RollingAggregateDateKey));
                 var saved = 0;
                 foreach (var aggregate in aggregates)
                 {
@@ -349,7 +362,8 @@ namespace AutopilotMonitor.Functions.Services
         internal static List<TimeAttributionDailyAggregate> BuildTimeAttributionAggregates(
             IReadOnlyList<(SessionSummary Session, SessionTimeBreakdown Breakdown)> pairs,
             IReadOnlyList<SessionSummary> missing,
-            DateTime computedAtUtc)
+            DateTime computedAtUtc,
+            string? fixedDateKey = null)
         {
             const int minSessionsPerAppRow = 5;
             const int maxAppRows = 20;
@@ -366,7 +380,7 @@ namespace AutopilotMonitor.Functions.Services
 
             foreach (var (session, breakdown) in pairs)
             {
-                var date = session.StartedAt.ToString("yyyy-MM-dd");
+                var date = fixedDateKey ?? session.StartedAt.ToString("yyyy-MM-dd");
                 var cls = TimeAttributionCalculator.GetEnrollmentClass(session);
                 foreach (var tenantKey in new[] { session.TenantId, "global" })
                 {
@@ -390,7 +404,7 @@ namespace AutopilotMonitor.Functions.Services
 
             foreach (var session in missing)
             {
-                var date = session.StartedAt.ToString("yyyy-MM-dd");
+                var date = fixedDateKey ?? session.StartedAt.ToString("yyyy-MM-dd");
                 var cls = TimeAttributionCalculator.GetEnrollmentClass(session);
                 foreach (var tenantKey in new[] { session.TenantId, "global" })
                 {

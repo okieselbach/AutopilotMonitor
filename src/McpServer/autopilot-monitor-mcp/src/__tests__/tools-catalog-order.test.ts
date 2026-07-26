@@ -124,6 +124,9 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'get_session_events',
     'get_session_summary',
     'get_software_inventory',
+    // Available to every role: backed by MemberRead endpoints (tenant) with role-aware
+    // routing to the GlobalReadOrAdmin variant — same placement as get_app_install_metrics.
+    'get_time_attribution',
     'get_usage_metrics',
     'get_vulnerability_summary',
     'list_blocked_devices',

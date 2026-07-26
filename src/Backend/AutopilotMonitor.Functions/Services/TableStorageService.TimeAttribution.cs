@@ -224,6 +224,35 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
+        /// <summary>
+        /// Reads the rolling-window aggregate rows (RK "rolling30|{class}") of one tenant
+        /// partition ("global" allowed) — the range statistics the fleet panel renders. The
+        /// date-range getter never returns these (its digit-prefixed upper bound sorts below
+        /// "rolling…"), and vice versa.
+        /// </summary>
+        public async Task<List<TimeAttributionDailyAggregate>> GetRollingTimeAttributionAggregatesAsync(string tenantId)
+        {
+            if (tenantId != "global")
+                SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.TimeAttributionAggregates);
+                // '}' (0x7D) sorts after '|' (0x7C) — prefix range over "rolling30|…".
+                var filter = $"PartitionKey eq '{tenantId}' and RowKey ge 'rolling30|' and RowKey lt 'rolling30}}'";
+                var results = new List<TimeAttributionDailyAggregate>();
+                await foreach (var entity in tableClient.QueryAsync<TableEntity>(filter: filter))
+                {
+                    results.Add(MapToTimeAttributionAggregate(entity));
+                }
+                return results;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to query rolling time-attribution aggregates for tenant {TenantId}", tenantId);
+                return new List<TimeAttributionDailyAggregate>();
+            }
+        }
+
         internal static TimeAttributionDailyAggregate MapToTimeAttributionAggregate(TableEntity entity)
         {
             return new TimeAttributionDailyAggregate

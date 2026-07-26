@@ -50,6 +50,10 @@ export const api = {
       `${API_BASE_URL}/api/sessions/${sessionId}/analysis${qs({ tenantId, ...(reanalyze ? { reanalyze: "true" } : {}) })}`,
     vulnerabilityReport: (sessionId: string, tenantId?: string, rescan?: boolean) =>
       `${API_BASE_URL}/api/sessions/${sessionId}/vulnerability-report${qs({ tenantId, ...(rescan ? { rescan: "true" } : {}) })}`,
+    // F1 time attribution: pre-computed breakdown row (null for pre-feature / non-terminal /
+    // Incomplete sessions — the lane is simply omitted, nothing is re-derived client-side).
+    timeAttribution: (sessionId: string, tenantId?: string) =>
+      `${API_BASE_URL}/api/sessions/${sessionId}/time-attribution${qs({ tenantId })}`,
     markFailed: (sessionId: string, tenantId?: string) =>
       `${API_BASE_URL}/api/sessions/${sessionId}/mark-failed${qs({ tenantId })}`,
     markSucceeded: (sessionId: string, tenantId?: string) =>
@@ -231,6 +235,12 @@ export const api = {
       `${API_BASE_URL}/api/metrics/fleet-health${qs({ days: String(days) })}`,
     globalFleetHealth: (days: number, tenantId?: string) =>
       `${API_BASE_URL}/api/global/metrics/fleet-health${qs({ days: String(days), tenantId })}`,
+    // F1 time attribution fleet rollups (fixed rolling 30d window — sweep-maintained;
+    // per-day medians cannot be merged into arbitrary ranges honestly).
+    timeAttribution: () =>
+      `${API_BASE_URL}/api/metrics/time-attribution`,
+    globalTimeAttribution: (tenantId?: string) =>
+      `${API_BASE_URL}/api/global/metrics/time-attribution${qs({ tenantId })}`,
     geographic: (tenantId: string, days: number, groupBy: string) =>
       `${API_BASE_URL}/api/metrics/geographic${qs({ tenantId, days: String(days), groupBy })}`,
     globalGeographic: (days: number, groupBy: string, tenantId?: string) =>

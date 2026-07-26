@@ -32,6 +32,7 @@ https://docs.autopilotmonitor.com (separate repository).
 # Backend
 
 * [Business Timestamps](backend/business-timestamps.md) - Why the Azure Tables system Timestamp is never authoritative (migrations reset it), and the OccurredUtc + RowKey-decode compensation for AuditLogs/OpsEvents/Events after the 2026-07-18 migration.
+* [Enrollment Time Attribution](backend/time-attribution.md) - How a terminal session's authoritative wall clock (DurationSeconds, WhiteGlove pause excluded) is partitioned into named segments with an explicit unattributed remainder, ESP-blocking apps as positive evidence with "up to" what-if bounds, reboot spans from event gaps, and the breakdown/aggregate tables the sweep maintains.
 * [ServerActions & On-Demand Diagnostics](backend/server-actions-on-demand-diagnostics.md) - The queue-on-session, deliver-on-ingest action channel, the TenantAdminOrOperator tier with in-function per-type re-gating, the portal's Collect Logs flow (quick-config orders rotate_config before request_diagnostics), and the hosted-prefix sweep in the offboarding cascade.
 
 # MCP Server

@@ -26,6 +26,7 @@ import { useSessionTenantConfig } from "./hooks/useSessionTenantConfig";
 
 import SessionInfoCard from "./components/SessionInfoCard";
 import PhaseTimeline from "./components/PhaseTimeline";
+import TimeAttributionLane, { SessionTimeBreakdownDto } from "./components/TimeAttributionLane";
 import EventTimeline from "./components/EventTimeline";
 import AnalysisResultsSection from "./components/AnalysisResultsSection";
 import VulnerabilityReportSection from "./components/VulnerabilityReportSection";
@@ -111,6 +112,34 @@ export default function SessionDetailPage() {
   // Convenience local aliases (keeps the JSX below readable, matches previous names)
   const { session, setSession, sessionTenantId, loading } = detail;
   const events = eventsApi.events;
+
+  // F1 time attribution: fetch the pre-computed breakdown once the session is terminal.
+  // A null breakdown is normal (pre-feature session, Incomplete — no wall clock) and simply
+  // omits the lane; the fetch is fail-soft (the phase timeline must never depend on it).
+  const [timeBreakdown, setTimeBreakdown] = useState<SessionTimeBreakdownDto | null>(null);
+  const sessionStatusForAttribution = session?.status;
+  useEffect(() => {
+    if (!sessionId) return;
+    if (sessionStatusForAttribution !== "Succeeded" && sessionStatusForAttribution !== "Failed") {
+      setTimeBreakdown(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const effectiveTenantId = sessionTenantId || tenantIdOverride || undefined;
+        const response = await authenticatedFetch(
+          api.sessions.timeAttribution(sessionId, effectiveTenantId), getAccessToken);
+        if (!response.ok) return;
+        const json = await response.json();
+        if (!cancelled) setTimeBreakdown(json?.breakdown ?? null);
+      } catch {
+        // fail-soft: no lane
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, sessionStatusForAttribution, sessionTenantId]);
 
   // Cross-tenant read-only view: a delegated ("MSP") admin viewing a MANAGED tenant's session. The backend
   // permits the reads (MemberRead + ?tenantId=, rescued by the delegated scope) but rejects the mutations
@@ -544,16 +573,19 @@ export default function SessionDetailPage() {
                 </svg>
               </button>
               {phaseTimelineExpanded && (
-                <PhaseTimeline
-                  currentPhase={session.currentPhase}
-                  completedPhases={session.status === 'Succeeded' ? [7] : []}
-                  events={events}
-                  sessionStatus={session.status}
-                  enrollmentType={session.enrollmentType}
-                  isPreProvisioned={isWhiteGloveSession}
-                  isSkipUserStatusPage={isSkipUserStatusPage}
-                  onPhaseClick={scrollToPhase}
-                />
+                <>
+                  <PhaseTimeline
+                    currentPhase={session.currentPhase}
+                    completedPhases={session.status === 'Succeeded' ? [7] : []}
+                    events={events}
+                    sessionStatus={session.status}
+                    enrollmentType={session.enrollmentType}
+                    isPreProvisioned={isWhiteGloveSession}
+                    isSkipUserStatusPage={isSkipUserStatusPage}
+                    onPhaseClick={scrollToPhase}
+                  />
+                  {timeBreakdown && <TimeAttributionLane breakdown={timeBreakdown} />}
+                </>
               )}
             </div>
           )}

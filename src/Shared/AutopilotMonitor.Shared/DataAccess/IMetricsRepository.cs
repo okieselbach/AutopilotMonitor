@@ -103,6 +103,8 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<bool> SaveTimeAttributionAggregateAsync(TimeAttributionDailyAggregate aggregate);
         /// <summary>Aggregate rows of one tenant partition ("global" allowed) for an inclusive date range.</summary>
         Task<List<TimeAttributionDailyAggregate>> GetTimeAttributionAggregatesAsync(string tenantId, DateTime startDate, DateTime endDate);
+        /// <summary>Rolling-window rows (Date "rolling30") of one tenant partition ("global" allowed) — the fleet panel's range statistics.</summary>
+        Task<List<TimeAttributionDailyAggregate>> GetRollingTimeAttributionAggregatesAsync(string tenantId);
         Task<int> DeleteTimeAttributionAggregatesOlderThanAsync(DateTime cutoffDate);
     }
 
