@@ -9,7 +9,9 @@ namespace AutopilotMonitor.Functions.Services
     /// </summary>
     public sealed partial class EventIngestProcessor
     {
-        private void AggregateAppInstallEvent(EnrollmentEvent evt, string tenantId, string sessionId, Dictionary<string, AppInstallAggregationState> summaries)
+        // internal static (was private instance): pure function over its parameters — exposed as a
+        // test seam so the TerminalState / status-fold contract is pinned by unit tests (PR0).
+        internal static void AggregateAppInstallEvent(EnrollmentEvent evt, string tenantId, string sessionId, Dictionary<string, AppInstallAggregationState> summaries)
         {
             bool isRelevant =
                 evt.EventType == "app_install_started" || evt.EventType == "app_install_start" ||
@@ -110,10 +112,21 @@ namespace AutopilotMonitor.Functions.Services
                     summary.CompletedAt = evt.Timestamp;
                     if (summary.StartedAt != DateTime.MinValue)
                         summary.DurationSeconds = Math.Max(1, EventTimestampValidator.SafeDurationSeconds(summary.StartedAt, evt.Timestamp));
+                    // PR0 (2026-07-26): the agent emits app_install_completed for EVERY terminal
+                    // transition — including Skipped/Postponed (V1 wire parity). The payload's
+                    // `state` field is the only way to tell a real install apart from a no-op
+                    // (e.g. WinGet "Update for X" policies that were not applicable). Persist it
+                    // so metrics can exclude skips from durations and rates. Unknown/absent state
+                    // leaves the sentinel empty — never guessed.
+                    var terminalStateRaw = evt.Data?.ContainsKey("state") == true
+                        ? evt.Data["state"]?.ToString() : null;
+                    if (terminalStateRaw == "Installed" || terminalStateRaw == "Skipped" || terminalStateRaw == "Postponed")
+                        summary.TerminalState = terminalStateRaw;
                     break;
 
                 case "app_install_failed":
                     summary.Status = "Failed";
+                    summary.TerminalState = "Error";
                     summary.CompletedAt = evt.Timestamp;
                     if (summary.StartedAt != DateTime.MinValue)
                         summary.DurationSeconds = Math.Max(1, EventTimestampValidator.SafeDurationSeconds(summary.StartedAt, evt.Timestamp));
@@ -143,6 +156,10 @@ namespace AutopilotMonitor.Functions.Services
                     // Empty (sentinel: no observation yet) and "InProgress" both flip to Succeeded.
                     if (summary.Status == "InProgress" || summary.Status == string.Empty)
                         summary.Status = "Succeeded";
+                    // Same guard for the terminal state: a dedicated skipped event never overrides
+                    // a stronger terminal (Installed/Error) already seen in this batch.
+                    if (string.IsNullOrEmpty(summary.TerminalState))
+                        summary.TerminalState = "Skipped";
                     break;
 
                 case "download_progress":

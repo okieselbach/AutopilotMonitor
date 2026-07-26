@@ -23,6 +23,19 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public string Status { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Terminal lifecycle state carried by the agent payload on the closing event:
+        /// "Installed", "Skipped", "Postponed" (from <c>app_install_completed</c>'s
+        /// <c>state</c> field / <c>app_install_skipped</c>) or "Error" (from
+        /// <c>app_install_failed</c>). Empty = sentinel: no terminal event observed in the
+        /// current batch, or a row written before this column existed (2026-07 PR0) —
+        /// storage omits the column on empty so Merge-mode preserves a prior value.
+        /// Skipped/Postponed rows are no real install attempt: they are excluded from
+        /// duration statistics and from the failure/success rate (PR0 decision 2026-07-26);
+        /// Status stays "Succeeded" for backward compatibility.
+        /// </summary>
+        public string TerminalState { get; set; } = string.Empty;
+
         /// <summary>Total installation duration in seconds (from start to complete/failed)</summary>
         public int DurationSeconds { get; set; }
 

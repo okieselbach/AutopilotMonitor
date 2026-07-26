@@ -216,7 +216,46 @@ namespace AutopilotMonitor.Functions.Services
                 var existingResult = await tableClient.GetEntityIfExistsAsync<TableEntity>(summary.TenantId, rowKey);
                 if (existingResult.HasValue)
                 {
-                    var existing = existingResult.Value!;
+                    ReconcileAppInstallSummaryWithExisting(summary, existingResult.Value!);
+                }
+
+                var entity = BuildAppInstallSummaryEntity(summary, rowKey);
+
+                // Merge-mode (default) preserves columns absent from the entity. Combined with the
+                // dynamic property-add inside BuildAppInstallSummaryEntity this means a batch that
+                // observed only progress / telemetry events for an app cannot clobber a prior
+                // terminal Status / CompletedAt / DurationSeconds / FailureCode / FailureMessage.
+                await tableClient.UpsertEntityAsync(entity, TableUpdateMode.Merge);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Failed to store app install summary for {summary.AppName}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Reconciles an incoming per-batch <see cref="AppInstallSummary"/> against the stored row
+        /// before the Merge-mode upsert. Extracted as an internal static seam so the cross-batch
+        /// contract (earliest StartedAt wins, terminal status is sticky, out-of-order duration
+        /// recompute, prior-batch metadata preservation) is pinned by unit tests.
+        /// </summary>
+        internal static void ReconcileAppInstallSummaryWithExisting(AppInstallSummary summary, TableEntity existing)
+        {
+                    // Terminal status is sticky (PR0 hardening, same out-of-order family as Q4):
+                    // a late or replayed batch that only observed pre-terminal events carries
+                    // Status "InProgress" — a real (non-sentinel) value that Merge-mode would
+                    // happily write over a row the terminal batch already closed. Only another
+                    // terminal observation may change a terminal status (Failed→Succeeded on a
+                    // successful retry stays legal).
+                    var existingStatus = existing.GetString("Status");
+                    if ((existingStatus == "Succeeded" || existingStatus == "Failed") &&
+                        summary.Status != "Succeeded" && summary.Status != "Failed")
+                    {
+                        summary.Status = existingStatus;
+                    }
+
                     var existingStartedAt = existing.GetDateTimeOffset("StartedAt")?.UtcDateTime;
                     if (existingStartedAt.HasValue && existingStartedAt.Value != DateTime.MinValue)
                     {
@@ -228,6 +267,21 @@ namespace AutopilotMonitor.Functions.Services
                             {
                                 summary.DurationSeconds = (int)(summary.CompletedAt.Value - summary.StartedAt).TotalSeconds;
                             }
+                        }
+                    }
+
+                    // Q4 (source-data audit 2026-07-26): out-of-order arrival — the terminal batch
+                    // landed FIRST (row already carries CompletedAt), the started batch arrives now
+                    // with the earlier StartedAt. Neither batch alone could compute the duration;
+                    // recompute it here against the stored CompletedAt so the row doesn't keep a
+                    // permanently unset duration despite both endpoints being known.
+                    if (!summary.CompletedAt.HasValue && summary.StartedAt != DateTime.MinValue)
+                    {
+                        var existingCompletedAt = existing.GetDateTimeOffset("CompletedAt")?.UtcDateTime;
+                        if (existingCompletedAt.HasValue && existingCompletedAt.Value >= summary.StartedAt)
+                        {
+                            summary.CompletedAt = existingCompletedAt.Value;
+                            summary.DurationSeconds = (int)(existingCompletedAt.Value - summary.StartedAt).TotalSeconds;
                         }
                     }
 
@@ -310,23 +364,6 @@ namespace AutopilotMonitor.Functions.Services
                         if (!string.IsNullOrEmpty(existingDetection))
                             summary.DetectionResult = existingDetection;
                     }
-
-                }
-
-                var entity = BuildAppInstallSummaryEntity(summary, rowKey);
-
-                // Merge-mode (default) preserves columns absent from the entity. Combined with the
-                // dynamic property-add inside BuildAppInstallSummaryEntity this means a batch that
-                // observed only progress / telemetry events for an app cannot clobber a prior
-                // terminal Status / CompletedAt / DurationSeconds / FailureCode / FailureMessage.
-                await tableClient.UpsertEntityAsync(entity, TableUpdateMode.Merge);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Failed to store app install summary for {summary.AppName}");
-                return false;
-            }
         }
 
         /// <summary>
@@ -421,7 +458,7 @@ namespace AutopilotMonitor.Functions.Services
         internal static readonly string[] AppsDashboardProjection =
         {
             "PartitionKey", "RowKey", "TenantId", "SessionId", "AppName", "AppType", "AppVersion",
-            "Status", "StartedAt", "CompletedAt", "DurationSeconds", "DownloadBytes",
+            "Status", "TerminalState", "StartedAt", "CompletedAt", "DurationSeconds", "DownloadBytes",
             "AttemptNumber", "InstallerPhase", "FailureCode", "FailureMessage", "ExitCode", "DetectionResult"
         };
 
@@ -514,6 +551,7 @@ namespace AutopilotMonitor.Functions.Services
                 SessionId = entity.GetString("SessionId") ?? string.Empty,
                 TenantId = entity.GetString("TenantId") ?? entity.PartitionKey,
                 Status = entity.GetString("Status") ?? "InProgress",
+                TerminalState = entity.GetString("TerminalState") ?? string.Empty,
                 DurationSeconds = entity.GetInt32("DurationSeconds") ?? 0,
                 DownloadBytes = entity.GetInt64("DownloadBytes") ?? 0,
                 DownloadDurationSeconds = entity.GetInt32("DownloadDurationSeconds") ?? 0,
@@ -1381,6 +1419,8 @@ namespace AutopilotMonitor.Functions.Services
             // Sentinel-gated lifecycle columns: only write when the current batch observed them.
             if (!string.IsNullOrEmpty(summary.Status))
                 entity["Status"] = summary.Status;
+            if (!string.IsNullOrEmpty(summary.TerminalState))
+                entity["TerminalState"] = summary.TerminalState;
             if (summary.DurationSeconds > 0)
                 entity["DurationSeconds"] = summary.DurationSeconds;
             if (summary.CompletedAt.HasValue)

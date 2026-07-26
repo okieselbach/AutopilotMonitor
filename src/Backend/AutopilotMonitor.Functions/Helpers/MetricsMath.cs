@@ -21,6 +21,28 @@ public static class MetricsMath
     }
 
     /// <summary>
+    /// True when the row's terminal state says no real install attempt happened —
+    /// Skipped (not applicable, e.g. WinGet "Update for X" with the target app absent)
+    /// or Postponed. PR0 decision (2026-07-26): such rows are excluded from duration
+    /// statistics AND from the failure/success rate; they are reported as their own
+    /// category instead. Rows written before the TerminalState column existed return
+    /// false here (empty state) — they keep the legacy rate behavior because they
+    /// cannot be reclassified honestly.
+    /// </summary>
+    public static bool IsSkipTerminalState(AppInstallSummary s)
+        => s.TerminalState == "Skipped" || s.TerminalState == "Postponed";
+
+    /// <summary>
+    /// True for a succeeded row whose install duration was actually observed. Zero /
+    /// absent duration on a non-skip succeeded row means the START was never observed
+    /// (agent attach window — audit finding, §0.5 of the insights spec): the duration is
+    /// UNKNOWN, not zero — averaging it in would understate real install times (measured
+    /// −18 % in production). Duration statistics must only read rows where this is true.
+    /// </summary>
+    public static bool HasMeasuredDuration(AppInstallSummary s)
+        => s.DurationSeconds > 0;
+
+    /// <summary>
     /// Builds the complete app-metrics response object from a (pre-time-filtered) set of app
     /// install summaries. Single source of truth for both the tenant (<c>metrics/app</c>) and
     /// global (<c>global/metrics/app</c>) functions, which previously carried a verbatim copy of
@@ -38,7 +60,16 @@ public static class MetricsMath
 
         var appGroups = summaryList.GroupBy(s => s.AppName).Select(g =>
         {
-            var completed = g.Where(s => s.Status == "Succeeded").ToList();
+            // PR0 (2026-07-26) classification — see IsSkipTerminalState / HasMeasuredDuration:
+            //   skipped    = no real install attempt (TerminalState Skipped/Postponed)
+            //   installed  = succeeded rows that are not known skips (includes legacy rows
+            //                without TerminalState — they cannot be reclassified)
+            //   measured   = installed rows with an observed duration — the ONLY duration input
+            //   unmeasured = installed rows whose start was never observed (duration unknown)
+            var succeededAll = g.Where(s => s.Status == "Succeeded").ToList();
+            var skipped = succeededAll.Where(IsSkipTerminalState).ToList();
+            var installed = succeededAll.Where(s => !IsSkipTerminalState(s)).ToList();
+            var measured = installed.Where(HasMeasuredDuration).ToList();
             var failed = g.Where(s => s.Status == "Failed").ToList();
             var total = g.Count();
 
@@ -51,12 +82,16 @@ public static class MetricsMath
             {
                 appName = g.Key,
                 totalInstalls = total,
-                succeeded = completed.Count,
+                succeeded = installed.Count,
+                skipped = skipped.Count,
+                unmeasured = installed.Count - measured.Count,
                 failed = failed.Count,
-                failureRate = TerminalFailureRatePct(failed.Count, completed.Count),
-                avgDurationSeconds = completed.Count > 0 ? Math.Round(completed.Average(s => s.DurationSeconds), 0) : 0,
-                maxDurationSeconds = completed.Count > 0 ? completed.Max(s => s.DurationSeconds) : 0,
-                avgDownloadBytes = completed.Count > 0 ? (long)completed.Average(s => s.DownloadBytes) : 0,
+                // Skips leave the rate (they are not attempts); legacy rows stay in it.
+                failureRate = TerminalFailureRatePct(failed.Count, installed.Count),
+                avgDurationSeconds = measured.Count > 0 ? Math.Round(measured.Average(s => s.DurationSeconds), 0) : 0,
+                maxDurationSeconds = measured.Count > 0 ? measured.Max(s => s.DurationSeconds) : 0,
+                measuredInstalls = measured.Count,
+                avgDownloadBytes = measured.Count > 0 ? (long)measured.Average(s => s.DownloadBytes) : 0,
                 doTotalBytesDownloaded = doG.TotalBytesDownloaded,
                 doBytesFromPeers = doG.BytesFromPeers,
                 doBytesFromCacheServer = doG.BytesFromCacheServer,
@@ -71,8 +106,10 @@ public static class MetricsMath
             };
         }).ToList();
 
+        // Slowest ranking gates on MEASURED installs — an app whose durations were mostly
+        // unobserved must not rank as "fast" on a handful of zeros (audit §0.5).
         var slowestApps = SelectSlowestApps(
-            appGroups, a => a.succeeded, a => (double)a.avgDurationSeconds, minSamples: 3, take: 10);
+            appGroups, a => a.measuredInstalls, a => (double)a.avgDurationSeconds, minSamples: 3, take: 10);
 
         var topFailingApps = appGroups
             .Where(a => a.failed > 0)
@@ -88,6 +125,8 @@ public static class MetricsMath
             success = true,
             totalApps = appGroups.Count,
             totalInstalls = summaryList.Count,
+            totalSkipped = appGroups.Sum(a => a.skipped),
+            totalUnmeasured = appGroups.Sum(a => a.unmeasured),
             slowestApps,
             topFailingApps,
             deliveryOptimization = new

@@ -23,6 +23,10 @@ interface AppRow {
   appType: string;
   totalInstalls: number;
   succeeded: number;
+  /** Not-applicable no-ops (TerminalState Skipped/Postponed) — excluded from rate + durations. */
+  skipped: number;
+  /** Succeeded installs without an observed start — duration unknown, excluded from duration stats. */
+  unmeasured: number;
   failed: number;
   failureRate: number;
   avgDurationSeconds: number;
@@ -288,7 +292,17 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
                     {appTypeBadge(row.appType)}
                   </td>
                   <td className="px-4 py-3 text-right text-gray-700">{row.totalInstalls}</td>
-                  <td className="px-4 py-3 text-right text-emerald-700">{row.succeeded}</td>
+                  <td className="px-4 py-3 text-right text-emerald-700">
+                    {row.succeeded}
+                    {row.skipped > 0 && (
+                      <span
+                        className="ml-1 text-xs text-gray-400 dark:text-gray-500"
+                        title={`${row.skipped} skipped (not applicable) — excluded from failure rate and durations`}
+                      >
+                        +{row.skipped}s
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-right text-red-700">{row.failed}</td>
                   <td className="px-4 py-3 text-right">
                     <span className={row.failureRate >= 20 ? "text-red-700 font-semibold" : row.failureRate >= 5 ? "text-amber-700" : "text-gray-700"}>

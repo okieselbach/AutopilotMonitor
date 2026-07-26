@@ -82,6 +82,10 @@ interface AnalyticsResponse {
   summary: {
     totalInstalls: number;
     succeeded: number;
+    /** Not-applicable no-ops (TerminalState Skipped/Postponed) — not attempts, excluded from rate + durations. */
+    skipped: number;
+    /** Real installs whose start was never observed — duration unknown, excluded from duration stats. */
+    unmeasured: number;
     failed: number;
     failureRate: number;
     avgDurationSeconds: number;
@@ -440,6 +444,7 @@ export default function AppDetailPage() {
                   label="Succeeded"
                   value={analytics.summary.succeeded.toString()}
                   color="text-emerald-700"
+                  hint={analytics.summary.skipped > 0 ? `+${analytics.summary.skipped} skipped (not applicable)` : undefined}
                 />
                 <SummaryCard
                   label="Failed"
@@ -460,6 +465,11 @@ export default function AppDetailPage() {
                 <SummaryCard
                   label="Avg Duration"
                   value={formatDuration(analytics.summary.avgDurationSeconds)}
+                  hint={
+                    analytics.summary.unmeasured > 0
+                      ? `measured installs only — ${analytics.summary.unmeasured} without observed start`
+                      : "measured installs only"
+                  }
                 />
                 <SummaryCard label="Trend" value={trendText(analytics.summary.trend, analytics.summary.trendDelta)} />
                 <SummaryCard

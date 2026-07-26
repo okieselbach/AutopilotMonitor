@@ -137,6 +137,92 @@ public class MetricsMathAppPayloadTests
         Assert.Equal(50d, app.GetProperty("failureRate").GetDouble());
     }
 
+    // ── PR0 (2026-07-26): skip/unmeasured classification ────────────────────
+
+    [Fact]
+    public void Skips_LeaveTheFailureRate_AndAreReportedSeparately()
+    {
+        // 1 Failed + 1 real install + 3 skips ("Update for X" not applicable).
+        // Rate must be 1/(1+1) = 50%, NOT 1/(1+4) = 20% — skips are not attempts.
+        var summaries = new List<AppInstallSummary>
+        {
+            new() { AppName = "App A", Status = "Failed", TerminalState = "Error" },
+            new() { AppName = "App A", Status = "Succeeded", TerminalState = "Installed", DurationSeconds = 30 },
+            new() { AppName = "App A", Status = "Succeeded", TerminalState = "Skipped" },
+            new() { AppName = "App A", Status = "Succeeded", TerminalState = "Skipped" },
+            new() { AppName = "App A", Status = "Succeeded", TerminalState = "Postponed" },
+        };
+
+        var root = Build(summaries);
+        var app = root.GetProperty("topFailingApps")[0];
+
+        Assert.Equal(50d, app.GetProperty("failureRate").GetDouble());
+        Assert.Equal(1, app.GetProperty("succeeded").GetInt32());
+        Assert.Equal(3, app.GetProperty("skipped").GetInt32());
+        Assert.Equal(0, app.GetProperty("unmeasured").GetInt32());
+        Assert.Equal(3, root.GetProperty("totalSkipped").GetInt32());
+    }
+
+    [Fact]
+    public void ZeroDurations_AreExcludedFromAverages_AndCountedAsUnmeasured()
+    {
+        // Two measured installs (100s, 200s) + one whose start was never observed (audit §0.5:
+        // agent attach window — duration UNKNOWN). avg must be 150, not (100+200+0)/3 = 100.
+        var summaries = new List<AppInstallSummary>
+        {
+            new() { AppName = "App A", Status = "Succeeded", TerminalState = "Installed", DurationSeconds = 100 },
+            new() { AppName = "App A", Status = "Succeeded", TerminalState = "Installed", DurationSeconds = 200 },
+            new() { AppName = "App A", Status = "Succeeded", TerminalState = "Installed", DurationSeconds = 0 },
+        };
+
+        var root = Build(summaries);
+        Assert.Equal(1, root.GetProperty("totalUnmeasured").GetInt32());
+
+        // Rebuild with a third measured row to clear the sample floor and read the average.
+        summaries.Add(new AppInstallSummary { AppName = "App A", Status = "Succeeded", TerminalState = "Installed", DurationSeconds = 150 });
+        var slowest = Build(summaries).GetProperty("slowestApps");
+        Assert.Equal(1, slowest.GetArrayLength());
+        Assert.Equal(150d, slowest[0].GetProperty("avgDurationSeconds").GetDouble());
+        Assert.Equal(1, slowest[0].GetProperty("unmeasured").GetInt32());
+    }
+
+    [Fact]
+    public void LegacyZeroDurationRows_StayInRate_ButNeverInDurations()
+    {
+        // Rows written before TerminalState existed: cannot be classified as skip vs unmeasured.
+        // They keep the legacy rate behavior (counted as succeeded) and are excluded from
+        // durations (counted as unmeasured — duration genuinely not measured).
+        var summaries = new List<AppInstallSummary>
+        {
+            new() { AppName = "App A", Status = "Failed" },
+            new() { AppName = "App A", Status = "Succeeded", DurationSeconds = 0 },   // legacy, no TerminalState
+            new() { AppName = "App A", Status = "Succeeded", DurationSeconds = 60, TerminalState = "Installed" },
+        };
+
+        var app = Build(summaries).GetProperty("topFailingApps")[0];
+
+        Assert.Equal(2, app.GetProperty("succeeded").GetInt32());      // legacy row stays in the rate
+        Assert.Equal(33.3d, app.GetProperty("failureRate").GetDouble());
+        Assert.Equal(1, app.GetProperty("unmeasured").GetInt32());
+        Assert.Equal(0, app.GetProperty("skipped").GetInt32());
+    }
+
+    [Fact]
+    public void SlowestApps_GateOnMeasuredInstalls_NotOnSucceededCount()
+    {
+        // 3 succeeded but only 2 measured → below the floor; an app must not rank "fast"
+        // (or at all) on a handful of unobserved zeros.
+        var summaries = new List<AppInstallSummary>
+        {
+            new() { AppName = "Mostly Unmeasured", Status = "Succeeded", TerminalState = "Installed", DurationSeconds = 5 },
+            new() { AppName = "Mostly Unmeasured", Status = "Succeeded", TerminalState = "Installed", DurationSeconds = 5 },
+            new() { AppName = "Mostly Unmeasured", Status = "Succeeded", TerminalState = "Installed", DurationSeconds = 0 },
+        };
+
+        var slowest = Build(summaries).GetProperty("slowestApps");
+        Assert.Equal(0, slowest.GetArrayLength());
+    }
+
     [Fact]
     public void SlowestApps_DropsAppsBelowSampleFloor()
     {

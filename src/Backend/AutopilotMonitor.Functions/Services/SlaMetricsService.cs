@@ -146,7 +146,10 @@ namespace AutopilotMonitor.Functions.Services
                 {
                     var weekApps = appInstalls
                         .Where(a => GetIsoWeekKey(a.StartedAt) == group.Key &&
-                                    (a.Status == "Succeeded" || a.Status == "Failed"))
+                                    (a.Status == "Succeeded" || a.Status == "Failed") &&
+                                    // PR0 (2026-07-26): skips are not install attempts — they must
+                                    // not pad the SLA app-install success rate.
+                                    !Helpers.MetricsMath.IsSkipTerminalState(a))
                         .ToList();
                     if (weekApps.Count >= 5)
                     {
@@ -175,7 +178,9 @@ namespace AutopilotMonitor.Functions.Services
             {
                 var currentWeekApps = appInstalls
                     .Where(a => GetIsoWeekKey(a.StartedAt) == currentWeekKey &&
-                                (a.Status == "Succeeded" || a.Status == "Failed"))
+                                (a.Status == "Succeeded" || a.Status == "Failed") &&
+                                // PR0 (2026-07-26): same convention as the weekly trend above.
+                                !Helpers.MetricsMath.IsSkipTerminalState(a))
                     .ToList();
 
                 if (currentWeekApps.Count >= 5)

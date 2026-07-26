@@ -515,6 +515,12 @@ export default function FleetHealthPage() {
             <div className="bg-white shadow rounded-lg p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">
                 Slowest Apps
+                <span
+                  className="ml-2 text-xs font-normal text-gray-400"
+                  title="Averages are computed over installs with an observed duration only. Skipped (not-applicable) installs and installs whose start was never observed are excluded."
+                >
+                  measured installs
+                </span>
               </h2>
               {!appMetrics || appMetrics.slowestApps.length === 0 ? (
                 <div className="text-center py-6 text-gray-400 text-sm">

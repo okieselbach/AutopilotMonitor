@@ -193,6 +193,9 @@ namespace AutopilotMonitor.Functions.Services
                 var raw = await _metricsRepo.GetAppInstallSummariesByTenantAsync(config.TenantId, now.AddDays(-8));
                 appInstalls = raw
                     .Where(a => (a.Status == "Succeeded" || a.Status == "Failed")
+                                // PR0 (2026-07-26): skips are not install attempts — keep the breach
+                                // evaluation on the same population as the SLA dashboard rate.
+                                && !Helpers.MetricsMath.IsSkipTerminalState(a)
                                 && SlaMetricsService.GetIsoWeekKey(a.StartedAt) == currentWeekKey)
                     .ToList();
             }

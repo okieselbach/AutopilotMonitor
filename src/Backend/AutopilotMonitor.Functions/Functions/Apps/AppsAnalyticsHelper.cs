@@ -143,11 +143,15 @@ namespace AutopilotMonitor.Functions.Functions.Apps
 
             var apps = summaries.GroupBy(s => s.AppName).Select(g =>
             {
+                // PR0 classification (see MetricsMath.IsSkipTerminalState / HasMeasuredDuration):
+                // skips leave the rate + durations; duration stats read measured rows only.
                 var total = g.Count();
-                var succeeded = g.Count(s => s.Status == "Succeeded");
+                var succeededAll = g.Where(s => s.Status == "Succeeded").ToList();
+                var skipped = succeededAll.Count(MetricsMath.IsSkipTerminalState);
+                var installed = succeededAll.Where(s => !MetricsMath.IsSkipTerminalState(s)).ToList();
+                var measured = installed.Where(MetricsMath.HasMeasuredDuration).ToList();
                 var failed = g.Count(s => s.Status == "Failed");
-                var completed = g.Where(s => s.Status == "Succeeded").ToList();
-                var failureRate = MetricsMath.TerminalFailureRatePct(failed, succeeded);
+                var failureRate = MetricsMath.TerminalFailureRatePct(failed, installed.Count);
 
                 var firstHalf = g.Where(s => s.StartedAt < midpoint).ToList();
                 var secondHalf = g.Where(s => s.StartedAt >= midpoint).ToList();
@@ -158,12 +162,14 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     appName = g.Key,
                     appType = g.Select(s => s.AppType).FirstOrDefault(t => !string.IsNullOrEmpty(t)) ?? string.Empty,
                     totalInstalls = total,
-                    succeeded,
+                    succeeded = installed.Count,
+                    skipped,
+                    unmeasured = installed.Count - measured.Count,
                     failed,
                     failureRate,
-                    avgDurationSeconds = completed.Count > 0 ? Math.Round(completed.Average(s => s.DurationSeconds), 0) : 0,
-                    maxDurationSeconds = completed.Count > 0 ? completed.Max(s => s.DurationSeconds) : 0,
-                    avgDownloadBytes = completed.Count > 0 ? (long)completed.Average(s => s.DownloadBytes) : 0,
+                    avgDurationSeconds = measured.Count > 0 ? Math.Round(measured.Average(s => s.DurationSeconds), 0) : 0,
+                    maxDurationSeconds = measured.Count > 0 ? measured.Max(s => s.DurationSeconds) : 0,
+                    avgDownloadBytes = measured.Count > 0 ? (long)measured.Average(s => s.DownloadBytes) : 0,
                     trend,
                     trendDelta,
                     lastSeenAt = g.Max(s => s.CompletedAt ?? s.StartedAt)
@@ -241,6 +247,8 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     {
                         totalInstalls = 0,
                         succeeded = 0,
+                        skipped = 0,
+                        unmeasured = 0,
                         failed = 0,
                         failureRate = 0,
                         avgDurationSeconds = 0,
@@ -260,13 +268,17 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             }
 
             var total = summaries.Count;
-            var succeeded = summaries.Count(s => s.Status == "Succeeded");
+            // PR0 classification — skips leave rate + durations; durations read measured rows only.
+            var succeededAll = summaries.Where(s => s.Status == "Succeeded").ToList();
+            var skipped = succeededAll.Count(MetricsMath.IsSkipTerminalState);
+            var installed = succeededAll.Where(s => !MetricsMath.IsSkipTerminalState(s)).ToList();
+            var measured = installed.Where(MetricsMath.HasMeasuredDuration).ToList();
+            var succeeded = installed.Count;
             var failed = summaries.Count(s => s.Status == "Failed");
-            var completed = summaries.Where(s => s.Status == "Succeeded").ToList();
             var failureRate = MetricsMath.TerminalFailureRatePct(failed, succeeded);
-            var avgDurationSeconds = completed.Count > 0 ? Math.Round(completed.Average(s => s.DurationSeconds), 0) : 0;
-            var p95DurationSeconds = Percentile(completed.Select(s => s.DurationSeconds).ToList(), 0.95);
-            var avgDownloadBytes = completed.Count > 0 ? (long)completed.Average(s => s.DownloadBytes) : 0;
+            var avgDurationSeconds = measured.Count > 0 ? Math.Round(measured.Average(s => s.DurationSeconds), 0) : 0;
+            var p95DurationSeconds = Percentile(measured.Select(s => s.DurationSeconds).ToList(), 0.95);
+            var avgDownloadBytes = measured.Count > 0 ? (long)measured.Average(s => s.DownloadBytes) : 0;
 
             // Trend (same rule as list endpoint).
             var firstHalf = summaries.Where(s => s.StartedAt < midpoint).ToList();
@@ -287,7 +299,8 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 {
                     var vTotal = g.Count();
                     var vFailed = g.Count(s => s.Status == "Failed");
-                    var vSucceeded = g.Count(s => s.Status == "Succeeded");
+                    // Same PR0 convention as the top-level rate: skips are not attempts.
+                    var vSucceeded = g.Count(s => s.Status == "Succeeded" && !MetricsMath.IsSkipTerminalState(s));
                     return new
                     {
                         appVersion = g.Key,
@@ -347,7 +360,8 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 {
                     var modelTotal = g.Count();
                     var modelFailed = g.Count(x => x.Summary.Status == "Failed");
-                    var modelSucceeded = g.Count(x => x.Summary.Status == "Succeeded");
+                    // PR0 convention: skips are not attempts (same population as the headline rate).
+                    var modelSucceeded = g.Count(x => x.Summary.Status == "Succeeded" && !MetricsMath.IsSkipTerminalState(x.Summary));
                     var modelFailureRate = MetricsMath.TerminalFailureRatePct(modelFailed, modelSucceeded);
                     var lift = failureRate > 0
                         ? Math.Round(modelFailureRate / failureRate, 2)
@@ -378,6 +392,8 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 {
                     totalInstalls = total,
                     succeeded,
+                    skipped,
+                    unmeasured = installed.Count - measured.Count,
                     failed,
                     failureRate,
                     avgDurationSeconds,
@@ -490,10 +506,13 @@ namespace AutopilotMonitor.Functions.Functions.Apps
         private static (string Trend, double? TrendDelta) ComputeFailureTrend(
             List<AppInstallSummary> firstHalf, List<AppInstallSummary> secondHalf)
         {
+            // PR0 convention: skips are not attempts — keep the trend on the same population
+            // as the headline failure rate, or a wave of not-applicable update policies would
+            // fake an "improving" trend.
             var fhFailed = firstHalf.Count(s => s.Status == "Failed");
-            var fhSucceeded = firstHalf.Count(s => s.Status == "Succeeded");
+            var fhSucceeded = firstHalf.Count(s => s.Status == "Succeeded" && !MetricsMath.IsSkipTerminalState(s));
             var shFailed = secondHalf.Count(s => s.Status == "Failed");
-            var shSucceeded = secondHalf.Count(s => s.Status == "Succeeded");
+            var shSucceeded = secondHalf.Count(s => s.Status == "Succeeded" && !MetricsMath.IsSkipTerminalState(s));
             if (fhFailed + fhSucceeded < 5 || shFailed + shSucceeded < 5)
                 return ("stable", null);
 
@@ -531,16 +550,17 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     var items = kv.Value;
                     var bTotal = items.Count;
                     var bFailed = items.Count(s => s.Status == "Failed");
-                    var bSucceeded = items.Count(s => s.Status == "Succeeded");
-                    var bCompleted = items.Where(s => s.Status == "Succeeded").ToList();
+                    // PR0 convention: skips are not attempts; durations read measured rows only.
+                    var bInstalled = items.Where(s => s.Status == "Succeeded" && !MetricsMath.IsSkipTerminalState(s)).ToList();
+                    var bMeasured = bInstalled.Where(MetricsMath.HasMeasuredDuration).ToList();
                     return (object)new
                     {
                         bucketStart = DateTime.SpecifyKind(kv.Key, DateTimeKind.Utc),
                         installs = bTotal,
-                        succeeded = bSucceeded,
+                        succeeded = bInstalled.Count,
                         failed = bFailed,
-                        failureRate = MetricsMath.TerminalFailureRatePct(bFailed, bSucceeded),
-                        avgDurationSeconds = bCompleted.Count > 0 ? Math.Round(bCompleted.Average(s => s.DurationSeconds), 0) : 0
+                        failureRate = MetricsMath.TerminalFailureRatePct(bFailed, bInstalled.Count),
+                        avgDurationSeconds = bMeasured.Count > 0 ? Math.Round(bMeasured.Average(s => s.DurationSeconds), 0) : 0
                     };
                 })
                 .ToList();

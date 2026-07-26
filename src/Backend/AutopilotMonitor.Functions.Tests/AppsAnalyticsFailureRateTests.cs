@@ -162,6 +162,58 @@ public class AppsAnalyticsFailureRateTests
         Assert.Equal(50d, todayBucket.GetProperty("failureRate").GetDouble());
     }
 
+    // ── PR0 (2026-07-26): skip / unmeasured classification ──────────────────
+
+    [Fact]
+    public void List_Skips_LeaveRateAndDurations_AndAreReportedSeparately()
+    {
+        var skip = A("Succeeded");
+        skip.TerminalState = "Skipped";
+        skip.DurationSeconds = 0;
+        var unmeasured = A("Succeeded");
+        unmeasured.TerminalState = "Installed";
+        unmeasured.DurationSeconds = 0;
+
+        var summaries = new List<AppInstallSummary> { A("Failed"), A("Succeeded"), skip, unmeasured };
+
+        var root = JsonSerializer.SerializeToElement(
+            AppsAnalyticsHelper.BuildAppsListResponse(summaries, days: 30));
+        var app = root.GetProperty("apps")[0];
+
+        Assert.Equal(4, app.GetProperty("totalInstalls").GetInt32());
+        Assert.Equal(2, app.GetProperty("succeeded").GetInt32());          // real install + unmeasured
+        Assert.Equal(1, app.GetProperty("skipped").GetInt32());
+        Assert.Equal(1, app.GetProperty("unmeasured").GetInt32());
+        // 1 / (1 + 2) — the skip is not an attempt.
+        Assert.Equal(33.3d, app.GetProperty("failureRate").GetDouble());
+        // avg over the single measured row (30s) — the zero must not drag it to 15.
+        Assert.Equal(30d, app.GetProperty("avgDurationSeconds").GetDouble());
+    }
+
+    [Fact]
+    public async Task Analytics_Summary_CarriesSkippedAndUnmeasured_AndP95OverMeasuredOnly()
+    {
+        var skip = A("Succeeded");
+        skip.TerminalState = "Skipped";
+        skip.DurationSeconds = 0;
+        var unmeasured = A("Succeeded");
+        unmeasured.TerminalState = "Installed";
+        unmeasured.DurationSeconds = 0;
+        var measured = A("Succeeded");
+        measured.TerminalState = "Installed";
+        measured.DurationSeconds = 100;
+
+        var root = await BuildAnalyticsAsync(new List<AppInstallSummary> { skip, unmeasured, measured });
+        var summary = root.GetProperty("summary");
+
+        Assert.Equal(2, summary.GetProperty("succeeded").GetInt32());
+        Assert.Equal(1, summary.GetProperty("skipped").GetInt32());
+        Assert.Equal(1, summary.GetProperty("unmeasured").GetInt32());
+        Assert.Equal(100d, summary.GetProperty("avgDurationSeconds").GetDouble());
+        Assert.Equal(100, summary.GetProperty("p95DurationSeconds").GetInt32());
+        Assert.Equal(0d, summary.GetProperty("failureRate").GetDouble());
+    }
+
     [Fact]
     public async Task Analytics_DeviceModelBreakdown_RatesAndSampleFloor_UseFinishedInstalls()
     {
