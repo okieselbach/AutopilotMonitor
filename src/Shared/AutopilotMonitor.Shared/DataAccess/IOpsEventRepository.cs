@@ -45,6 +45,8 @@ namespace AutopilotMonitor.Shared.DataAccess
         public const string Tenant = "Tenant";
         public const string Agent = "Agent";
         public const string Sla = "SLA";
+        /// <summary>Platform infrastructure alerts relayed from Azure Monitor (ops alert webhook).</summary>
+        public const string Platform = "Platform";
     }
 
     /// <summary>

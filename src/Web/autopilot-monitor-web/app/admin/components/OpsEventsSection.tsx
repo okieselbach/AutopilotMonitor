@@ -42,9 +42,10 @@ const CATEGORY_STYLES: Record<string, string> = {
   Security:    "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300",
   Tenant:      "bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300",
   Agent:       "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300",
+  Platform:    "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300",
 };
 
-const ALL_CATEGORIES = ["Consent", "Maintenance", "Security", "Tenant", "Agent"];
+const ALL_CATEGORIES = ["Consent", "Maintenance", "Security", "Tenant", "Agent", "Platform"];
 
 const PAGE_SIZE = 20;
 

@@ -594,6 +594,24 @@ namespace AutopilotMonitor.Functions.Services
                 null, "System.SlaEvaluation",
                 new { tenantsEvaluated, breachesDetected, notificationsSent, durationMs });
 
+        // ── Platform (Azure Monitor) ───────────────────────────────────────────
+
+        /// <summary>
+        /// Records an Azure Monitor alert notification delivered via the ops alert webhook
+        /// (AzureMonitorAlertWebhookFunction). severity is already mapped onto the ops scale;
+        /// azureSeverity keeps the original Sev0–Sev4 value for the details payload.
+        /// </summary>
+        public Task RecordAzureMonitorAlertAsync(string alertRule, string severity, string monitorCondition,
+            string? description, string? azureSeverity, string? monitoringService, string? targetResource,
+            double? metricValue)
+        {
+            var suffix = string.IsNullOrWhiteSpace(description) ? string.Empty : $": {description}";
+            return WriteAsync(OpsEventCategory.Platform, "AzureMonitorAlert", severity,
+                $"Azure Monitor alert '{alertRule}' {monitorCondition}{suffix}",
+                null, "System.AzureMonitor",
+                new { alertRule, monitorCondition, azureSeverity, monitoringService, targetResource, metricValue });
+        }
+
         // ── Core write method ──────────────────────────────────────────────────
 
         private async Task WriteAsync(string category, string eventType, string severity,

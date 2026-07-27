@@ -170,6 +170,11 @@ public static class EndpointAccessPolicyCatalog
         // ticket is the sole authority — authz happened at mint time (diagnostics/download-ticket,
         // MemberRead). See DiagnosticsTicketDownloadFunction.
         new("GET",    "diagnostics/download",       EndpointPolicy.PublicAnonymous),
+        // Azure Monitor action-group webhook (Common Alert Schema → ops event). Action groups
+        // cannot send custom headers, so the shared secret travels as ?secret= and is compared
+        // in constant time against the OpsAlertWebhookSecret app setting (fail-closed while
+        // unset). See AzureMonitorAlertWebhookFunction.
+        new("POST",   "ops/alert-webhook",          EndpointPolicy.PublicAnonymous),
 
         // ── DeviceOrBootstrapAuth ───────────────────────────────────────
         new("POST",   "agent/register-session",    EndpointPolicy.DeviceOrBootstrapAuth),

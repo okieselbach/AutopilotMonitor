@@ -110,6 +110,15 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // feedback_ops_event_types_dual_register.
     "AgentEmergencyBreak",
   ],
+  Platform: [
+    // Azure Monitor alerts relayed through POST ops/alert-webhook (Common Alert Schema →
+    // AzureMonitorAlertWebhookFunction → RecordAzureMonitorAlertAsync). One event type for ALL
+    // Azure Monitor alert rules — the rule name travels in the message/details. Severity is
+    // mapped Sev0→Critical, Sev1→Error, Sev2→Warning, Sev3/4→Info; both Fired and Resolved
+    // notifications carry the same mapped severity, so a rule here delivers recovery pings too.
+    // Dual-register per memory feedback_ops_event_types_dual_register.
+    "AzureMonitorAlert",
+  ],
 };
 
 const SEVERITIES = ["Info", "Warning", "Error", "Critical"];
@@ -120,6 +129,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   Security: "text-orange-700 dark:text-orange-300",
   Tenant: "text-teal-700 dark:text-teal-300",
   Agent: "text-cyan-700 dark:text-cyan-300",
+  Platform: "text-sky-700 dark:text-sky-300",
 };
 
 interface OpsAlertRulesSectionProps {
