@@ -66,15 +66,22 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                 return req.CreateResponse(HttpStatusCode.Unauthorized);
             }
 
-            if (req.Body.Length > MaxContentLength)
-            {
-                _logger.LogWarning("Azure Monitor alert webhook rejected: payload {Length} bytes exceeds cap", req.Body.Length);
-                return req.CreateResponse(HttpStatusCode.BadRequest);
-            }
-
+            // Bounded read instead of a Body.Length check: with ASP.NET Core integration the
+            // request body is a forward-only stream whose Length property throws
+            // NotSupportedException. Reading at most cap+1 chars detects oversize without ever
+            // needing to know the total size. (Char-based cap ≈ byte cap for a shape gate.)
             string body;
             using (var reader = new StreamReader(req.Body, Encoding.UTF8))
-                body = await reader.ReadToEndAsync();
+            {
+                var buffer = new char[MaxContentLength + 1];
+                var read = await reader.ReadBlockAsync(buffer, 0, buffer.Length);
+                if (read > MaxContentLength)
+                {
+                    _logger.LogWarning("Azure Monitor alert webhook rejected: payload exceeds {Cap} char cap", MaxContentLength);
+                    return req.CreateResponse(HttpStatusCode.BadRequest);
+                }
+                body = new string(buffer, 0, read);
+            }
 
             var alert = TryParse(body);
             if (alert == null)
