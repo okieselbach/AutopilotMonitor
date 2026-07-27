@@ -685,8 +685,9 @@ export default function SessionDetailPage() {
 
           {/* Install Progress (from app_install_* events, plus the office_install_* lifecycle — Office
               C2R is not an IME app but is rendered here as a first-class install with a live timer +
-              duration via its started/completed/failed events — and the realmjoin_package_* lifecycle,
-              rendered with an "RJ: " name prefix to keep mixed Intune/RealmJoin installs apart). */}
+              duration via its started/completed/failed events — and the realmjoin_package_* lifecycle.
+              Non-Intune sources are rendered with a source pill ("Click-to-Run" / "RealmJoin") and keyed
+              per source, so an admin-packaged Win32 app named like the C2R lifecycle stays its own row). */}
           {!isGatherRulesSession && (
             <div id="section-install-progress">
             <InstallProgress
