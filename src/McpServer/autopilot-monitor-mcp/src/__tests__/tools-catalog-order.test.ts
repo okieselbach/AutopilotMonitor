@@ -111,6 +111,10 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'get_api_usage',
     'get_app_install_metrics',
     'get_audit_logs',
+    // Available to every role: backed by MemberRead endpoints with TenantScoping.QueryParam /
+    // role-aware routing to the GlobalReadOrAdmin fleet variant — same placement as
+    // get_time_attribution (F2 counterpart).
+    'get_device_history',
     'get_geographic_metrics',
     'get_geographic_sessions',
     'get_ime_version_history',

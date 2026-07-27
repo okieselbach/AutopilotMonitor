@@ -1202,6 +1202,61 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     })
   );
 
+  // Tool: get_device_history — F2 device history / First-Time-Right (insights spec §F2).
+  // Two modes over rows the terminal seam + maintenance sweep maintain (journey semantics are
+  // server-side; nothing is re-derived here): a per-device terminal-enrollment chain by serial
+  // number, or the fleet FTR rollup. Registered for ALL callers with role-aware routing —
+  // same placement as get_time_attribution.
+  server.registerTool(
+    'get_device_history',
+    {
+      title: 'Device Enrollment History & First-Time-Right',
+      description:
+        'Answer "how often did this device retry?" and "how many devices enrolled right on the first try?". ' +
+        'Two modes: pass serialNumber for one device\'s enrollment history — the chain of its terminal ' +
+        'sessions (Succeeded/Failed/Incomplete; capped at the 20 most recent) with per-attempt status, ' +
+        'timestamps, the session\'s authoritative durationSeconds (WhiteGlove pause excluded; Incomplete has ' +
+        'none), plus derived journey counts (a journey = attempts until the first success; a >30-day gap ' +
+        'starts a new journey). history=null means no recorded history (unknown device, placeholder serial). ' +
+        'Omit serialNumber for the fleet First-Time-Right rollup: daily completed-journey and ' +
+        'first-time-right counts (additive — window rate = ratio of sums), attempt histogram, junk-serial ' +
+        'exclusion disclosure, and the repeat-devices list (devices whose current journey took ≥2 attempts). ' +
+        'Open journeys (device not successfully enrolled yet, incl. WhiteGlove awaiting its user session) ' +
+        'never count toward FTR. ' +
+        (ga
+          ? 'Fleet mode: omit tenantId for the cross-tenant aggregate (no repeat-devices list there), or pass ' +
+            'tenantId to scope to one tenant. Device mode: pass tenantId for cross-tenant serial lookups. '
+          : ''),
+      inputSchema: {
+        serialNumber: z.string().min(1).max(128).optional()
+          .describe('Device serial number (trimmed, case-insensitive). Omit for the fleet FTR rollup.'),
+        days: z.coerce.number().int().min(1).max(180).optional()
+          .describe('Fleet mode window in days (default 30, max 180 — aggregate retention).'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated,
+          'Device mode: the device\'s tenant (needed cross-tenant). Fleet mode: filter to one tenant; omit for the cross-tenant aggregate.',
+          'Optional; ignored — data is scoped to your tenant.')),
+      },
+      annotations: READ_ONLY,
+    },
+    async (args) => withToolTelemetry('get_device_history', async () => {
+      try {
+        const { serialNumber, days, tenantId: rawTenantId } = args;
+        const tenantId = enforceDelegatedTenant(rawTenantId);
+        if (serialNumber) {
+          // Member route with TenantScoping.QueryParam — the same route serves every role;
+          // a GA/delegated caller passes tenantId for cross-tenant reads.
+          const data = await apiFetch(`/api/metrics/device-history${buildQuery({ serialNumber, tenantId })}`);
+          return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
+        }
+        const path = pickGlobalOrTenantPath('/api/global/metrics/device-journeys', '/api/metrics/device-journeys', tenantId);
+        const data = await apiFetch(`${path}${buildQuery({ tenantId, days })}`);
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
+      } catch (error: unknown) {
+        return toolError('get_device_history', args, error);
+      }
+    })
+  );
+
   // Tool: get_software_inventory — installed-software catalog from the SoftwareInventory table.
   // Registered for ALL callers, but role-aware: a non-GA caller only ever sees their own tenant's
   // inventory (no tenantId / no cross-tenant scope in the schema — nothing to leak or tempt with).

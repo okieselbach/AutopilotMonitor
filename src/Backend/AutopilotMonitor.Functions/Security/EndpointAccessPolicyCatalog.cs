@@ -231,6 +231,10 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "metrics/app",               EndpointPolicy.MemberRead),
         new("GET",    "metrics/fleet-health",      EndpointPolicy.MemberRead),
         new("GET",    "metrics/time-attribution",  EndpointPolicy.MemberRead),
+        // F2 device history: QueryParam scoping so the session-detail banner works cross-tenant
+        // (GA/delegated drill-in) over the SAME route MCP uses — no global duplicate needed.
+        new("GET",    "metrics/device-history",    EndpointPolicy.MemberRead, TenantScoping.QueryParam),
+        new("GET",    "metrics/device-journeys",   EndpointPolicy.MemberRead),
         new("GET",    "apps/list",                 EndpointPolicy.MemberRead),
         new("GET",    "apps/{appName}/analytics",  EndpointPolicy.MemberRead),
         new("GET",    "apps/{appName}/sessions",   EndpointPolicy.MemberRead),
@@ -397,6 +401,7 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/metrics/app",         EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/fleet-health", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/time-attribution", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/metrics/device-journeys", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/apps/list",           EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/apps/{appName}/analytics", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/apps/{appName}/sessions",  EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),

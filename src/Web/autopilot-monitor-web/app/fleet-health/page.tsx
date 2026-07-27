@@ -11,6 +11,7 @@ import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import FleetStatCard from "./components/FleetStatCard";
 import TimeAttributionSection, { TimeAttributionResponseDto } from "./components/TimeAttributionSection";
+import DeviceJourneySection, { DeviceJourneyResponseDto } from "./components/DeviceJourneySection";
 import TruncatedLabel from "../../components/TruncatedLabel";
 import { useFleetHealth } from "./hooks/useFleetHealth";
 import { useAggregatedAdminScope } from "@/hooks";
@@ -40,6 +41,7 @@ interface AppMetricsResponse {
 export default function FleetHealthPage() {
   const [appMetrics, setAppMetrics] = useState<AppMetricsResponse | null>(null);
   const [timeAttribution, setTimeAttribution] = useState<TimeAttributionResponseDto | null>(null);
+  const [deviceJourneys, setDeviceJourneys] = useState<DeviceJourneyResponseDto | null>(null);
   const [timeRange, setTimeRange] = useState<"7d" | "30d" | "90d">("7d");
 
   const hasJoinedGroup = useRef(false);
@@ -100,6 +102,28 @@ export default function FleetHealthPage() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeInitialized, scopeKey]);
+
+  // F2 first-time-right: daily FTR counts are additive, so this DOES follow the 7/30/90d
+  // selector (window rate = ratio of summed daily rows). Fail-soft like the sections above.
+  useEffect(() => {
+    if (!scopeInitialized) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const endpoint = routeGlobal
+          ? api.metrics.globalDeviceJourneys(days, selectedTenantId || undefined)
+          : api.metrics.deviceJourneys(days);
+        const response = await authenticatedFetch(endpoint, getAccessToken);
+        if (!response.ok) return;
+        const json = await response.json();
+        if (!cancelled) setDeviceJourneys(json);
+      } catch {
+        // fail-soft: section stays hidden
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeInitialized, scopeKey, days]);
 
   // Join this tenant's SignalR group so its session events reach the client; the
   // useFleetHealth hook listens for newSession/newevents to trigger a debounced
@@ -667,6 +691,12 @@ export default function FleetHealthPage() {
 
           {/* Time attribution (F1) — sweep-maintained rolling 30d rollup per enrollment class */}
           <TimeAttributionSection data={timeAttribution} />
+
+          {/* First-time-right (F2) — journey-based wipe-and-retry visibility */}
+          <DeviceJourneySection
+            data={deviceJourneys}
+            linkTenantId={isGlobalAdmin && selectedTenantId ? selectedTenantId : undefined}
+          />
 
           {/* Health by Device Model */}
           <div className="bg-white shadow rounded-lg p-6">

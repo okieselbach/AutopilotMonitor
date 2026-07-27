@@ -1,3 +1,4 @@
+using AutopilotMonitor.Functions.Functions.Metrics;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
@@ -627,5 +628,172 @@ public class DeviceJourneyAndFtrTests
         var tenantRow = rows.Single(r => r.TenantId == TenantA);
         Assert.Equal(2, tenantRow.CompletedJourneyCount);
         Assert.Equal(2, tenantRow.FirstTimeRightCount);
+    }
+
+    // ── attempt number (session banner, PR5) ────────────────────────────────
+
+    [Fact]
+    public void ComputeAttemptNumber_TerminalSessionInChain_ReturnsPositionWithinItsJourney()
+    {
+        var chain = new[]
+        {
+            Ref("s-1", SessionStatus.Failed, T0),
+            Ref("s-2", SessionStatus.Succeeded, T0.AddHours(2)),
+            Ref("s-3", SessionStatus.Failed, T0.AddDays(5)), // redeployment → new journey
+        };
+
+        Assert.Equal(1, DeviceJourneyCalculator.ComputeAttemptNumber(chain, "s-1", T0));
+        Assert.Equal(2, DeviceJourneyCalculator.ComputeAttemptNumber(chain, "s-2", T0.AddHours(2)));
+        Assert.Equal(1, DeviceJourneyCalculator.ComputeAttemptNumber(chain, "s-3", T0.AddDays(5)));
+    }
+
+    [Fact]
+    public void ComputeAttemptNumber_LiveSession_ContinuesTheOpenJourney()
+    {
+        var chain = new[] { Ref("s-1", SessionStatus.Failed, T0) };
+        // s-2 is still InProgress — not a chain ref; the virtual-attempt rule places it.
+        Assert.Equal(2, DeviceJourneyCalculator.ComputeAttemptNumber(chain, "s-2", T0.AddDays(1)));
+    }
+
+    [Fact]
+    public void ComputeAttemptNumber_LiveSession_AfterCompletedJourney_IsAttemptOne()
+    {
+        var chain = new[] { Ref("s-1", SessionStatus.Succeeded, T0) };
+        Assert.Equal(1, DeviceJourneyCalculator.ComputeAttemptNumber(chain, "s-2", T0.AddDays(2)));
+    }
+
+    [Fact]
+    public void ComputeAttemptNumber_LiveSession_AfterThirtyDayGap_IsAttemptOne()
+    {
+        var prevEnd = T0.AddHours(1);
+        var chain = new[] { Ref("s-1", SessionStatus.Failed, T0, completedAt: prevEnd) };
+        Assert.Equal(1, DeviceJourneyCalculator.ComputeAttemptNumber(chain, "s-2", prevEnd.AddDays(31)));
+        // Inside the gap boundary the open journey continues instead.
+        Assert.Equal(2, DeviceJourneyCalculator.ComputeAttemptNumber(chain, "s-3", prevEnd.AddDays(29)));
+    }
+
+    [Fact]
+    public void ComputeAttemptNumber_EmptyChain_YieldsNull_NoGuessedPosition()
+    {
+        Assert.Null(DeviceJourneyCalculator.ComputeAttemptNumber(
+            Array.Empty<DeviceSessionRef>(), "s-1", T0));
+    }
+
+    // ── fleet response helpers (PR5) ────────────────────────────────────────
+
+    [Fact]
+    public void SumAggregates_SumsAdditiveCounts_AndMergesHistograms()
+    {
+        var daily = new List<DeviceJourneyDailyAggregate>
+        {
+            new()
+            {
+                CompletedJourneyCount = 2, FirstTimeRightCount = 1, ExcludedSessionCount = 1,
+                AttemptHistogram = new List<DeviceJourneyAttemptBucket>
+                {
+                    new() { Attempts = 1, JourneyCount = 1 },
+                    new() { Attempts = 2, JourneyCount = 1 },
+                },
+            },
+            new()
+            {
+                CompletedJourneyCount = 1, FirstTimeRightCount = 1, ExcludedSessionCount = 0,
+                AttemptHistogram = new List<DeviceJourneyAttemptBucket> { new() { Attempts = 1, JourneyCount = 1 } },
+            },
+        };
+
+        var totals = DeviceJourneyMetricsResponse.SumAggregates(daily);
+
+        Assert.Equal(3, totals.CompletedJourneys);
+        Assert.Equal(2, totals.FirstTimeRight);
+        Assert.Equal(66.7, totals.FtrRatePct);
+        Assert.Equal(1, totals.ExcludedSessions);
+        Assert.Equal(2, totals.AttemptHistogram.Count);
+        Assert.Equal(2, totals.AttemptHistogram.Single(b => b.Attempts == 1).JourneyCount);
+        Assert.Equal(1, totals.AttemptHistogram.Single(b => b.Attempts == 2).JourneyCount);
+    }
+
+    [Fact]
+    public void SumAggregates_NoCompletedJourneys_RateIsNull_NeverZero()
+    {
+        var totals = DeviceJourneyMetricsResponse.SumAggregates(new List<DeviceJourneyDailyAggregate>
+        {
+            new() { CompletedJourneyCount = 0, FirstTimeRightCount = 0, ExcludedSessionCount = 3 },
+        });
+
+        Assert.Equal(0, totals.CompletedJourneys);
+        Assert.Null(totals.FtrRatePct);
+        Assert.Equal(3, totals.ExcludedSessions);
+    }
+
+    [Theory]
+    [InlineData(null, 30)]     // default window
+    [InlineData("garbage", 30)]
+    [InlineData("7", 7)]
+    [InlineData("0", 1)]       // clamped low
+    [InlineData("999", 180)]   // clamped to aggregate retention
+    public void ClampDays_DefaultsAndClamps(string? raw, int expected)
+    {
+        Assert.Equal(expected, DeviceJourneyMetricsResponse.ClampDays(raw));
+    }
+
+    private static DeviceHistory RepeaterHistory(
+        string serial, int attempts, params DeviceSessionRef[] chain)
+        => new()
+        {
+            TenantId = TenantA,
+            SerialKey = serial,
+            SerialNumber = serial.ToUpperInvariant(),
+            Chain = chain.ToList(),
+            CurrentJourneyAttempts = attempts,
+            JourneyCount = 1,
+        };
+
+    [Fact]
+    public void SelectRepeatDevices_FiltersGate_WindowsOnNewestRef_AndPicksNewestFailure()
+    {
+        var histories = new List<DeviceHistory>
+        {
+            // Single attempt — not a repeat device.
+            RepeaterHistory("clean-1", attempts: 1, Ref("c1", SessionStatus.Succeeded, T0)),
+            // Repeat device, active in window: newest failed ref carries the reason lookup.
+            RepeaterHistory("hot-1", attempts: 3,
+                Ref("h1", SessionStatus.Failed, T0.AddDays(-2)),
+                Ref("h2", SessionStatus.Failed, T0.AddDays(-1)),
+                Ref("h3", SessionStatus.Incomplete, T0)),
+            // Repeat device, but its pain is OLDER than the window — current lists only.
+            RepeaterHistory("old-1", attempts: 4,
+                Ref("o1", SessionStatus.Failed, T0.AddDays(-40))),
+            // Lower attempt count → sorts after hot-1.
+            RepeaterHistory("warm-1", attempts: 2,
+                Ref("w1", SessionStatus.Failed, T0.AddDays(-3)),
+                Ref("w2", SessionStatus.Succeeded, T0.AddDays(-2))),
+        };
+
+        var selected = DeviceJourneyMetricsResponse.SelectRepeatDevices(histories, T0.AddDays(-30));
+
+        Assert.Equal(2, selected.Count);
+        Assert.Equal("hot-1", selected[0].History.SerialKey);   // attempts desc
+        Assert.Equal("h3", selected[0].Newest.SessionId);
+        Assert.Equal("h2", selected[0].NewestFailed!.SessionId); // last FAILED, not last ref
+        Assert.Equal("warm-1", selected[1].History.SerialKey);
+    }
+
+    [Fact]
+    public void SelectRepeatDevices_CapsAtTen_ByAttemptsThenRecency()
+    {
+        var histories = new List<DeviceHistory>();
+        for (var i = 0; i < 12; i++)
+        {
+            histories.Add(RepeaterHistory($"dev-{i:D2}", attempts: 2 + i,
+                Ref($"r-{i}", SessionStatus.Failed, T0.AddDays(-i))));
+        }
+
+        var selected = DeviceJourneyMetricsResponse.SelectRepeatDevices(histories, T0.AddDays(-30));
+
+        Assert.Equal(10, selected.Count);
+        Assert.Equal("dev-11", selected[0].History.SerialKey); // highest attempts first
+        Assert.DoesNotContain(selected, c => c.History.SerialKey == "dev-00");
+        Assert.DoesNotContain(selected, c => c.History.SerialKey == "dev-01");
     }
 }

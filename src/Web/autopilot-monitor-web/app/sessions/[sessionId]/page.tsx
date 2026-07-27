@@ -25,6 +25,7 @@ import { useSessionDerivedData } from "./hooks/useSessionDerivedData";
 import { useSessionTenantConfig } from "./hooks/useSessionTenantConfig";
 
 import SessionInfoCard from "./components/SessionInfoCard";
+import DeviceHistoryBanner from "./components/DeviceHistoryBanner";
 import PhaseTimeline from "./components/PhaseTimeline";
 import TimeAttributionLane, { SessionTimeBreakdownDto } from "./components/TimeAttributionLane";
 import EventTimeline from "./components/EventTimeline";
@@ -555,6 +556,19 @@ export default function SessionDetailPage() {
               configMgrDetected={configMgrDetected}
             />
             </div>
+          )}
+
+          {/* F2 device-history banner: "Attempt N for this device" when the device (by serial)
+              has prior terminal enrollments — expandable chain with links. Fail-soft; hidden
+              when the device has no history row (first enrollment, junk serial). */}
+          {!isGatherRulesSession && session?.serialNumber && (
+            <DeviceHistoryBanner
+              sessionId={sessionId}
+              serialNumber={session.serialNumber}
+              effectiveTenantId={sessionTenantId || tenantIdOverride || undefined}
+              linkTenantId={tenantIdOverride}
+              getAccessToken={getAccessToken}
+            />
           )}
 
           {/* Device Details Card (from enrollment tracker events) */}

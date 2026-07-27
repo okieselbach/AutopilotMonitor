@@ -203,4 +203,42 @@ public static class DeviceJourneyCalculator
         if (journeys.Count == 0) return (0, 0);
         return (journeys.Count, journeys[journeys.Count - 1].Attempts.Count);
     }
+
+    /// <summary>
+    /// Attempt number of one session within its journey — the "Attempt N for this device" the
+    /// session-detail banner renders, computed server-side so no consumer re-derives journey
+    /// semantics. Terminal sessions sit in the chain and take their real position. A LIVE
+    /// (non-terminal) session is not a chain ref yet, so its position is computed by inserting
+    /// a virtual non-successful attempt at the session's StartedAt — the redeploy rule (a prior
+    /// completed journey starts a new one) and the 30-day gap rule then place it exactly like
+    /// the real ref would land once terminal. Null when the chain gives no basis (empty).
+    /// </summary>
+    public static int? ComputeAttemptNumber(
+        IReadOnlyList<DeviceSessionRef> chain, string sessionId, DateTime sessionStartedAt)
+    {
+        var effectiveChain = chain;
+        if (!chain.Any(r => string.Equals(r.SessionId, sessionId, StringComparison.Ordinal)))
+        {
+            if (chain.Count == 0) return null;
+            // Virtual ref: status is a NON-successful terminal placeholder purely for position
+            // math — it never persists and never marks the journey completed.
+            var virtualRef = new DeviceSessionRef
+            {
+                SessionId = sessionId,
+                StartedAt = sessionStartedAt,
+                Status = nameof(SessionStatus.Failed),
+            };
+            effectiveChain = MergeChain(chain, new[] { virtualRef });
+        }
+
+        foreach (var journey in GroupJourneys(effectiveChain))
+        {
+            for (var i = 0; i < journey.Attempts.Count; i++)
+            {
+                if (string.Equals(journey.Attempts[i].SessionId, sessionId, StringComparison.Ordinal))
+                    return i + 1;
+            }
+        }
+        return null; // session fell off the 20-cap when merged — no honest position claim
+    }
 }

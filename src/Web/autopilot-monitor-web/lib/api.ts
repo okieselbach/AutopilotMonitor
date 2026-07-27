@@ -241,6 +241,17 @@ export const api = {
       `${API_BASE_URL}/api/metrics/time-attribution`,
     globalTimeAttribution: (tenantId?: string) =>
       `${API_BASE_URL}/api/global/metrics/time-attribution${qs({ tenantId })}`,
+    // F2 device history: one device's terminal-session chain by serial; with sessionId the
+    // response carries that session's server-computed attempt number (no client re-derivation).
+    // tenantId enables the GA/delegated cross-tenant read (TenantScoping.QueryParam).
+    deviceHistory: (serialNumber: string, sessionId?: string, tenantId?: string) =>
+      `${API_BASE_URL}/api/metrics/device-history${qs({ serialNumber, sessionId, tenantId })}`,
+    // F2 First-Time-Right rollups: daily counts are additive, so unlike time attribution the
+    // window follows the page's days selector honestly (window rate = sum of daily rows).
+    deviceJourneys: (days: number) =>
+      `${API_BASE_URL}/api/metrics/device-journeys${qs({ days: String(days) })}`,
+    globalDeviceJourneys: (days: number, tenantId?: string) =>
+      `${API_BASE_URL}/api/global/metrics/device-journeys${qs({ days: String(days), tenantId })}`,
     geographic: (tenantId: string, days: number, groupBy: string) =>
       `${API_BASE_URL}/api/metrics/geographic${qs({ tenantId, days: String(days), groupBy })}`,
     globalGeographic: (days: number, groupBy: string, tenantId?: string) =>
