@@ -132,7 +132,9 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
 
         // Plan §5 Fix 4c — per-app install-lifecycle timing captured from state transitions.
         // StartedAtUtc on first Downloading/Installing/InProgress transition (set-once);
-        // CompletedAtUtc on first terminal transition (Installed/Skipped/Postponed/Error).
+        // CompletedAtUtc on terminal transition (Installed/Skipped/Postponed/Error), re-armed
+        // to null on a terminal→active transition (IME retry, audit Q1) so the final terminal
+        // stamp reflects the last outcome instead of freezing at the first one.
         // Surfaced via <see cref="AppTimings"/> to peripheral consumers (FinalStatusBuilder,
         // app_tracking_summary emission in EnrollmentTerminationHandler).
         private readonly Dictionary<string, (DateTime? Started, DateTime? Completed)> _appTimings =
@@ -691,10 +693,20 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         }
 
         /// <summary>
-        /// Plan §5 Fix 4c — set-once per-app install-lifecycle timing. Called for every
-        /// state transition, no-op for duplicate stamps. Returns the up-to-date
+        /// Plan §5 Fix 4c — per-app install-lifecycle timing. Called for every state
+        /// transition, no-op for duplicate stamps. Returns the up-to-date
         /// <see cref="AppInstallTiming"/> so the emitter can inline the values on the
         /// current event's payload without a second dictionary lookup.
+        /// <para>
+        /// Audit Q1: a terminal→active transition (the IME retry path — <see
+        /// cref="AppPackageState.UpdateState"/> permits e.g. Error→Downloading and
+        /// Skipped→Downloading) re-arms <c>Completed</c> to <c>null</c>, so the NEXT terminal
+        /// transition stamps a fresh CompletedAt. StartedAt keeps its first value — the final
+        /// terminal payload then covers first-start → last-terminal (total occupancy across
+        /// attempts) instead of freezing at the first failure. Observed pre-fix: a user-scope
+        /// app Skipped early in DeviceSetup, retried after sign-in, emitted its final
+        /// Installed event with the stale early CompletedAt (durationSeconds=-2342).
+        /// </para>
         /// </summary>
         private AppInstallTiming UpdateAppTiming(string appId, AppInstallationState newState, DateTime now)
         {
@@ -702,13 +714,20 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             {
                 _appTimings.TryGetValue(appId, out var current);
 
+                // Terminal→active (retry): the earlier terminal stamp no longer describes this
+                // app's outcome — re-arm so the next terminal transition stamps fresh.
+                if (current.Completed != null && IsLifecycleActive(newState))
+                {
+                    current.Completed = null;
+                }
+
                 // First lifecycle-active transition → record StartedAt.
                 if (current.Started == null && IsLifecycleActive(newState))
                 {
                     current.Started = now;
                 }
 
-                // First terminal transition → record CompletedAt.
+                // Terminal transition → record CompletedAt (fresh after a re-arm).
                 if (current.Completed == null && IsCompletedState(newState))
                 {
                     current.Completed = now;

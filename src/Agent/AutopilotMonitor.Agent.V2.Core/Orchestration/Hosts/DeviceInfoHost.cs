@@ -36,6 +36,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
     ///   <item><c>CollectAtEnd</c> — once, on <c>FinalizingSetup</c> or desktop arrival
     ///   (whichever comes first; desktop arrival also covers no-ESP / WDP v2). Re-fetches
     ///   BitLocker (commonly enabled via policy DURING enrollment) + the active NIC.</item>
+    ///   <item><c>RefreshEspConfiguration</c> — audit Q2, one-shot per trigger: the ESP
+    ///   blocking lists in the registry grow progressively (device scope) and the user-scope
+    ///   lists appear only after sign-in, so the early emissions are structurally partial.
+    ///   Re-collected when the apps sub-phase opens (first app activity in DeviceSetup /
+    ///   AccountSetup — the adapter's <c>phase_transition</c> declaration) and when the
+    ///   AccountSetup ESP phase itself is detected. Phase-driven one-shots, never a timer
+    ///   (no-heartbeat policy).</item>
     /// </list>
     /// <para>
     /// Duplicate-event cost is zero: every re-collected event runs through the collector's
@@ -45,6 +52,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
     internal sealed class DeviceInfoHost : ICollectorHost
     {
         public string Name => "DeviceInfoCollector";
+
+        // ESP-config refresh trigger labels (audit Q2) — also the values passed to
+        // DeviceInfoCollector.RefreshEspConfiguration for the agent-log line.
+        internal const string EspConfigTriggerAppsDevice = "apps_phase_device";
+        internal const string EspConfigTriggerAppsUser = "apps_phase_user";
+        internal const string EspConfigTriggerAccountSetup = "account_setup_detected";
 
         private readonly Monitoring.Telemetry.DeviceInfo.DeviceInfoCollector _collector;
         private readonly AgentLogger _logger;
@@ -57,6 +70,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private int _enrollmentStartCollected;
         private int _endCollected;
         private int _disposed;
+
+        // Audit Q2 — fire-once latches per ESP-config refresh trigger. Guarded by _espConfigLock
+        // instead of three Interlocked ints so the membership test + add stays one atomic step.
+        private readonly object _espConfigLock = new object();
+        private readonly HashSet<string> _espConfigRefreshesFired = new HashSet<string>(StringComparer.Ordinal);
 
         public DeviceInfoHost(
             string sessionId,
@@ -100,6 +118,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
         private void OnSignalPosted(DecisionSignalKind kind, IReadOnlyDictionary<string, string>? payload)
         {
+            HandleEspConfigRefreshTrigger(kind, payload);
+
             var startTrigger = IsEnrollmentStartTrigger(kind, payload);
             var endTrigger = IsEndTrigger(kind, payload);
             if (!startTrigger && !endTrigger) return;
@@ -110,10 +130,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             var runStartRefresh = Interlocked.Exchange(ref _enrollmentStartCollected, 1) == 0;
             var runEndCollect = endTrigger && Interlocked.Exchange(ref _endCollected, 1) == 0;
             if (!runStartRefresh && !runEndCollect) return;
-
-            // Both one-shots done → nothing left to observe.
-            if (Volatile.Read(ref _enrollmentStartCollected) == 1 && Volatile.Read(ref _endCollected) == 1)
-                Unsubscribe();
 
             var trigger = kind == DecisionSignalKind.DesktopArrived ? "desktop_arrived" : "esp_phase_changed";
             _logger.Info($"DeviceInfoHost: trigger '{trigger}' — scheduling re-collect (enrollmentStart={runStartRefresh}, end={runEndCollect}).");
@@ -131,6 +147,32 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 {
                     _logger.Warning($"DeviceInfoHost: phase-driven re-collect threw: {ex.Message}");
                 }
+            });
+        }
+
+        /// <summary>
+        /// Audit Q2 — ESP-config refresh one-shots. Each trigger label fires at most once per
+        /// agent run; the collector's StartupEventGate keeps an unchanged payload silent, so
+        /// the worst case is one silent registry re-read per trigger. The subscription stays
+        /// armed for the host's lifetime (unlike the start/end pair there is no "all triggers
+        /// seen" point that is guaranteed to arrive — SkipUser enrollments never enter
+        /// AccountSetup); the per-signal cost is a few dictionary lookups.
+        /// </summary>
+        private void HandleEspConfigRefreshTrigger(DecisionSignalKind kind, IReadOnlyDictionary<string, string>? payload)
+        {
+            var trigger = ClassifyEspConfigRefreshTrigger(kind, payload);
+            if (trigger == null) return;
+
+            lock (_espConfigLock)
+            {
+                if (!_espConfigRefreshesFired.Add(trigger)) return;
+            }
+
+            _logger.Info($"DeviceInfoHost: ESP-config refresh trigger '{trigger}' — scheduling re-collect.");
+            Task.Run(() =>
+            {
+                try { _collector.RefreshEspConfiguration(trigger); }
+                catch (Exception ex) { _logger.Warning($"DeviceInfoHost: ESP-config refresh threw: {ex.Message}"); }
             });
         }
 
@@ -154,6 +196,45 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 && payload != null
                 && payload.TryGetValue(SignalPayloadKeys.EspPhase, out var phase)
                 && string.Equals(phase, nameof(EnrollmentPhase.FinalizingSetup), StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Audit Q2 — maps a posted signal to an ESP-config refresh trigger label, or
+        /// <c>null</c> when the signal is not one. Two trigger families:
+        /// <list type="bullet">
+        ///   <item>The adapter's apps sub-phase declaration (<c>phase_transition</c>
+        ///   InformationalEvent with phase AppsDevice/AppsUser — fired on the first app
+        ///   activity in an ESP phase): by then IME is actively processing the blocking set,
+        ///   so the device-scope ESPTrackingInfo lists are as complete as they get.</item>
+        ///   <item>The AccountSetup ESP phase (UserSetup detection): sign-in has happened, so
+        ///   the user-scope <c>S-&lt;SID&gt;</c> lists exist now — production showed 88 of 89
+        ///   sessions with an EMPTY user list at the last pre-fix emission.</item>
+        /// </list>
+        /// </summary>
+        internal static string? ClassifyEspConfigRefreshTrigger(DecisionSignalKind kind, IReadOnlyDictionary<string, string>? payload)
+        {
+            if (payload == null) return null;
+
+            if (kind == DecisionSignalKind.InformationalEvent
+                && payload.TryGetValue(SignalPayloadKeys.EventType, out var eventType)
+                && string.Equals(eventType, AutopilotMonitor.Shared.Constants.EventTypes.PhaseTransition, StringComparison.Ordinal)
+                && payload.TryGetValue(Telemetry.Events.EventTimelineEmitter.PhaseParamKey, out var declaredPhase))
+            {
+                if (string.Equals(declaredPhase, nameof(EnrollmentPhase.AppsDevice), StringComparison.Ordinal))
+                    return EspConfigTriggerAppsDevice;
+                if (string.Equals(declaredPhase, nameof(EnrollmentPhase.AppsUser), StringComparison.Ordinal))
+                    return EspConfigTriggerAppsUser;
+                return null;
+            }
+
+            if (kind == DecisionSignalKind.EspPhaseChanged
+                && payload.TryGetValue(SignalPayloadKeys.EspPhase, out var espPhase)
+                && string.Equals(espPhase, nameof(EnrollmentPhase.AccountSetup), StringComparison.Ordinal))
+            {
+                return EspConfigTriggerAccountSetup;
+            }
+
+            return null;
         }
 
         public void Stop() => Unsubscribe();

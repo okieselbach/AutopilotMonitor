@@ -243,5 +243,87 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
 
             Assert.Equal(firstStamp, adapter.AppTimings["app-P"].StartedAtUtc);
         }
+
+        [Fact]
+        public void Terminal_to_active_retry_rearms_CompletedAt_and_final_terminal_covers_total_occupancy()
+        {
+            // Audit Q1: the IME retry path (Error -> Downloading -> Installed is permitted by
+            // AppPackageState.UpdateState). Pre-fix, CompletedAt froze at the first Error, so
+            // the final Installed payload carried the first failure's completedAt/duration.
+            using var f = new ImeLogTrackerAdapterFixture(T0);
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+            var app = new AppPackageState("app-R", 0);
+
+            adapter.TriggerAppStateFromTest(app, AppInstallationState.Unknown, AppInstallationState.Installing);
+            f.Clock.Advance(TimeSpan.FromSeconds(5));
+            adapter.TriggerAppStateFromTest(app, AppInstallationState.Installing, AppInstallationState.Error);
+            f.Clock.Advance(TimeSpan.FromSeconds(10));
+            adapter.TriggerAppStateFromTest(app, AppInstallationState.Error, AppInstallationState.Downloading);
+
+            // Re-armed while active again: the retry's download event carries no completedAt,
+            // and the FIRST start stamp is kept.
+            Assert.Null(adapter.AppTimings["app-R"].CompletedAtUtc);
+            var retryDownload = f.InfoEvent(SharedEventTypes.AppDownloadStarted);
+            Assert.False(retryDownload.Payload!.ContainsKey("completedAt"));
+            Assert.False(retryDownload.Payload.ContainsKey("durationSeconds"));
+            Assert.Equal(T0.ToString("o"), retryDownload.Payload["startedAt"]);
+
+            f.Clock.Advance(TimeSpan.FromSeconds(20));
+            adapter.TriggerAppStateFromTest(app, AppInstallationState.Downloading, AppInstallationState.Installed);
+
+            var timing = adapter.AppTimings["app-R"];
+            Assert.Equal(T0, timing.StartedAtUtc);
+            Assert.Equal(T0.AddSeconds(35), timing.CompletedAtUtc);
+            Assert.Equal(35.0, timing.DurationSeconds);
+
+            var completed = Assert.Single(f.InfoEvents(SharedEventTypes.AppInstallComplete));
+            Assert.Equal("35.00", completed.Payload!["durationSeconds"]);
+            Assert.Equal(T0.AddSeconds(35).ToString("o"), completed.Payload["completedAt"]);
+        }
+
+        [Fact]
+        public void Skipped_then_retried_app_emits_positive_duration_from_retry_start()
+        {
+            // Production regression (session 66f1c5e1, audit Q1): a user-scope app evaluated
+            // Skipped during DeviceSetup (terminal, no start observed), retried after sign-in
+            // (Skipped -> Downloading is permitted), Installed later. Pre-fix payload:
+            // completedAt frozen at the early Skip + startedAt from the retry ->
+            // durationSeconds=-2342. Post-fix: retry re-arms, duration covers retry-start ->
+            // final terminal.
+            using var f = new ImeLogTrackerAdapterFixture(T0);
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+            var app = new AppPackageState("app-S", 0);
+
+            adapter.TriggerAppStateFromTest(app, AppInstallationState.Unknown, AppInstallationState.Skipped);
+            Assert.Null(adapter.AppTimings["app-S"].StartedAtUtc);
+            Assert.Equal(T0, adapter.AppTimings["app-S"].CompletedAtUtc);
+
+            f.Clock.Advance(TimeSpan.FromSeconds(60));
+            adapter.TriggerAppStateFromTest(app, AppInstallationState.Skipped, AppInstallationState.Downloading);
+            f.Clock.Advance(TimeSpan.FromSeconds(30));
+            adapter.TriggerAppStateFromTest(app, AppInstallationState.Downloading, AppInstallationState.Installed);
+
+            var timing = adapter.AppTimings["app-S"];
+            Assert.Equal(T0.AddSeconds(60), timing.StartedAtUtc);
+            Assert.Equal(T0.AddSeconds(90), timing.CompletedAtUtc);
+            Assert.Equal(30.0, timing.DurationSeconds);
+
+            var completedEvents = f.InfoEvents(SharedEventTypes.AppInstallComplete);
+            Assert.Equal(2, completedEvents.Count);
+            Assert.Equal("30.00", completedEvents[1].Payload!["durationSeconds"]);
+        }
+
+        [Fact]
+        public void Inverted_endpoints_yield_null_DurationSeconds()
+        {
+            // Negative guard (audit Q1): endpoints stamped from out-of-order source lines must
+            // never surface as a negative durationSeconds (observed -2342s in production). The
+            // payload emitter omits the field when DurationSeconds is null.
+            var inverted = new AppInstallTiming(startedAtUtc: T0.AddSeconds(100), completedAtUtc: T0);
+            Assert.Null(inverted.DurationSeconds);
+
+            var wellOrdered = new AppInstallTiming(startedAtUtc: T0, completedAtUtc: T0.AddSeconds(100));
+            Assert.Equal(100.0, wellOrdered.DurationSeconds);
+        }
     }
 }

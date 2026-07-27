@@ -115,6 +115,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
         }
 
         /// <summary>
+        /// Re-reads the ESP configuration (skip flags + ESPTrackingInfo blocking lists) and
+        /// re-emits <c>esp_config_detected</c> when the payload changed. Audit Q2: the earlier
+        /// emissions (agent start, DeviceSetup detection) fire before the registry lists are
+        /// complete — the ESP writes one timestamped subkey per CSP status write, so the
+        /// device-scope list grows progressively and the user-scope <c>S-&lt;SID&gt;</c> lists
+        /// appear only after sign-in. Called by <see cref="Orchestration.DeviceInfoHost"/> as
+        /// phase-driven one-shots (apps sub-phase opened, AccountSetup detected) — never on a
+        /// timer. The StartupEventGate keeps an unchanged payload silent, so a re-collect that
+        /// found nothing new emits nothing.
+        /// </summary>
+        public void RefreshEspConfiguration(string trigger)
+        {
+            _logger.Info($"EnrollmentTracker: re-collecting ESP configuration (trigger={trigger})");
+            CollectEspConfiguration();
+        }
+
+        /// <summary>
         /// Re-collects device info that may change during enrollment (e.g. BitLocker enabled via policy).
         /// Called at enrollment complete / FinalizingSetup transition to capture final state.
         /// </summary>

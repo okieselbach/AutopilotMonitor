@@ -93,7 +93,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                     {
                         using (obj)
                         {
-                            manufacturer = obj["Manufacturer"]?.ToString() ?? Unknown;
+                            manufacturer = NormalizeWmiValue(obj["Manufacturer"]?.ToString());
                             if (manufacturer.IndexOf("lenovo", StringComparison.OrdinalIgnoreCase) >= 0)
                             {
                                 using (var lenovoSearcher = new ManagementObjectSearcher("SELECT Version FROM Win32_ComputerSystemProduct"))
@@ -103,7 +103,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                                     {
                                         using (lenovoObj)
                                         {
-                                            model = lenovoObj["Version"]?.ToString() ?? Unknown;
+                                            model = NormalizeWmiValue(lenovoObj["Version"]?.ToString());
                                         }
                                         break;
                                     }
@@ -111,7 +111,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                             }
                             else
                             {
-                                model = obj["Model"]?.ToString() ?? Unknown;
+                                model = NormalizeWmiValue(obj["Model"]?.ToString());
                             }
                         }
                     }
@@ -132,7 +132,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                     {
                         using (obj)
                         {
-                            serialNumber = obj["SerialNumber"]?.ToString() ?? Unknown;
+                            serialNumber = NormalizeWmiValue(obj["SerialNumber"]?.ToString());
                         }
                     }
                 }
@@ -154,5 +154,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         private static bool IsResolved(string value)
             => !string.IsNullOrWhiteSpace(value)
                && !string.Equals(value, Unknown, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Trims a raw WMI string value at the source (audit Q5: BIOS serials are used as device
+        /// identity keys downstream — F2 device history joins on them — so padding must never
+        /// leave the agent). Whitespace-only and empty values collapse to the "Unknown" sentinel,
+        /// matching the null fallback so the retry logic treats them as unresolved.
+        /// </summary>
+        internal static string NormalizeWmiValue(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return Unknown;
+            return raw.Trim();
+        }
     }
 }
