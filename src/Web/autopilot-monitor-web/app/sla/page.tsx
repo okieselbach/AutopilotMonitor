@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useTenant } from '../../contexts/TenantContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotifications } from '../../contexts/NotificationContext';
@@ -121,8 +121,15 @@ export default function SlaPage() {
   const scope = useGlobalAdminScope();
   const { isGlobalOverride, effectiveTenantId, selectedTenantId, tenants } = scope;
 
+  // Latest-wins guard: a tenant switch starts a new fetch while an older one may still be in
+  // flight; only the most recently started request may write state (raw authenticatedFetch has
+  // no such guard, unlike useAuthenticatedFetch).
+  const fetchSeqRef = useRef(0);
+
   const fetchMetrics = useCallback(async (showRefreshing = false) => {
     if (!effectiveTenantId) return;
+    const seq = ++fetchSeqRef.current;
+    const isCurrent = () => fetchSeqRef.current === seq;
     try {
       if (showRefreshing) setRefreshing(true);
       else setLoading(true);
@@ -135,12 +142,16 @@ export default function SlaPage() {
         : api.metrics.sla(effectiveTenantId, months, useFresh);
 
       const response = await authenticatedFetch(url, getAccessToken);
+      if (!isCurrent()) return;
       if (!response.ok) {
         addNotification('error', 'Error', `Failed to load SLA metrics: ${response.statusText}`, 'sla-fetch-error');
         return;
       }
-      setMetrics(await response.json());
+      const data = await response.json();
+      if (!isCurrent()) return;
+      setMetrics(data);
     } catch (err) {
+      if (!isCurrent()) return;
       if (err instanceof TokenExpiredError) {
         addNotification('error', 'Session Expired', err.message, 'session-expired-error');
       } else {
@@ -152,8 +163,11 @@ export default function SlaPage() {
         error: err instanceof Error ? err.message : 'unknown',
       });
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      // A superseded request must not clear the newer request's loading/refreshing state.
+      if (isCurrent()) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [effectiveTenantId, isGlobalOverride, months, getAccessToken, addNotification]);
 

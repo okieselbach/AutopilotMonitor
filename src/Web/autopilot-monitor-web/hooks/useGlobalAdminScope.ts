@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTenant } from "@/contexts/TenantContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAdminMode } from "@/hooks/useAdminMode";
@@ -86,11 +86,13 @@ export function useGlobalAdminScope(): GlobalAdminScope {
 
   // GA/Reader: seed the selection from the tab-persisted choice, else the user's own tenant (never empty
   // in this variant). A persisted aggregated "" resolves locally to the own tenant without clearing storage.
-  useEffect(() => {
-    if (isDelegatedScope || !tenantId || selectedTenantId) return;
+  // Render-time (like the delegated seed below), NOT an effect: an effect-time seed exposes one commit
+  // where effectiveTenantId is the caller's own tenant, so pages fire an own-tenant fetch that races the
+  // override fetch — last-resolved wins and the wrong tenant's data can stick until a manual refresh.
+  if (!isDelegatedScope && tenantId && !selectedTenantId) {
     const stored = readTenantScope();
     setSelectedRaw(stored ? stored : tenantId);
-  }, [isDelegatedScope, tenantId, selectedTenantId]);
+  }
 
   // Delegated: seed from the persisted managed tenant (if still managed) or the first managed tenant once
   // the scoped list arrives; re-default if the selection falls outside the managed set. Render-time (converges).
