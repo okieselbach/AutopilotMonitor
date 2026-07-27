@@ -159,11 +159,28 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
     {
         internal const int WindowDays = 30;
 
+        /// <summary>
+        /// Rolling rows are rewritten by every 2h sweep as long as the partition has window
+        /// sessions; a partition that went fully quiet stops being rewritten, so its rows would
+        /// otherwise serve arbitrarily old numbers as "last 30 days" (Codex review). 48h
+        /// tolerates a full day of sweep outage before the panel honestly goes empty.
+        /// </summary>
+        internal static readonly TimeSpan RollingMaxAge = TimeSpan.FromHours(48);
+
+        /// <summary>
+        /// "Last N days" = exactly N calendar day keys including today — both range ends are
+        /// inclusive, so subtracting the full N would return N+1 days (Codex review).
+        /// </summary>
+        internal static DateTime InclusiveWindowStart(DateTime today, int days) => today.AddDays(-(days - 1));
+
         internal static async Task<object> BuildAsync(IMetricsRepository metricsRepo, string partition)
         {
-            var rolling = await metricsRepo.GetRollingTimeAttributionAggregatesAsync(partition);
+            var freshCutoff = DateTime.UtcNow - RollingMaxAge;
+            var rolling = (await metricsRepo.GetRollingTimeAttributionAggregatesAsync(partition))
+                .Where(r => r.ComputedAt >= freshCutoff)
+                .ToList();
             var today = DateTime.UtcNow.Date;
-            var daily = await metricsRepo.GetTimeAttributionAggregatesAsync(partition, today.AddDays(-WindowDays), today);
+            var daily = await metricsRepo.GetTimeAttributionAggregatesAsync(partition, InclusiveWindowStart(today, WindowDays), today);
 
             return new
             {

@@ -118,6 +118,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<SessionTimeBreakdown?> GetSessionTimeBreakdownAsync(string tenantId, string sessionId)
             => _storage.GetSessionTimeBreakdownAsync(tenantId, sessionId);
 
+        public Task ResolveEspBlockingForSessionAsync(string tenantId, string sessionId)
+            => _storage.ResolveEspBlockingForSessionAsync(tenantId, sessionId);
+
         public Task<bool> SaveTimeAttributionAggregateAsync(TimeAttributionDailyAggregate aggregate)
             => _storage.SaveTimeAttributionAggregateAsync(aggregate);
 
@@ -126,6 +129,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         public Task<List<TimeAttributionDailyAggregate>> GetRollingTimeAttributionAggregatesAsync(string tenantId)
             => _storage.GetRollingTimeAttributionAggregatesAsync(tenantId);
+
+        public Task DeleteTimeAttributionAggregateAsync(string tenantId, string dateKey, string enrollmentClass)
+            => _storage.DeleteTimeAttributionAggregateAsync(tenantId, dateKey, enrollmentClass);
 
         public Task<int> DeleteTimeAttributionAggregatesOlderThanAsync(DateTime cutoffDate)
             => _storage.DeleteTimeAttributionAggregatesOlderThanAsync(cutoffDate);
@@ -147,6 +153,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         public Task<List<DeviceJourneyDailyAggregate>> GetDeviceJourneyAggregatesAsync(string tenantId, DateTime startDate, DateTime endDate)
             => _storage.GetDeviceJourneyAggregatesAsync(tenantId, startDate, endDate);
+
+        public Task DeleteDeviceJourneyAggregateAsync(string tenantId, string dateKey)
+            => _storage.DeleteDeviceJourneyAggregateAsync(tenantId, dateKey);
 
         public Task<int> DeleteDeviceJourneyAggregatesOlderThanAsync(DateTime cutoffDate)
             => _storage.DeleteDeviceJourneyAggregatesOlderThanAsync(cutoffDate);

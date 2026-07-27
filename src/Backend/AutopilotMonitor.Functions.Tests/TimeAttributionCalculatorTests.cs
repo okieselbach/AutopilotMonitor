@@ -419,6 +419,109 @@ public class TimeAttributionCalculatorTests
         Assert.Equal(1200 - 300, b.GetSegmentTotals()[TimeAttributionSegments.EspApps]);
     }
 
+    // ── WhiteGlove pause vs. intervals/reboots (Codex review P1): the pause lies INSIDE
+    // the windows' hull, so hull-clamping alone would count it — a reboot bracketing the
+    // pause must contribute only its in-window flanks, never the pause itself ─────────────
+
+    [Fact]
+    public void WhiteGlove_RebootGapAcrossPause_CountsOnlyInWindowFlanks()
+    {
+        var part1End = T0.AddMinutes(20);
+        var resumedAt = T0.AddDays(2);                 // 2-day pause
+        var completedAt = resumedAt.AddMinutes(10);    // part 2 = 600 s → part 1 = 1200 s
+        var bootInsidePause = T0.AddDays(1);
+
+        var events = new List<EnrollmentEvent>
+        {
+            Evt(T0, "agent_started", EnrollmentPhase.DeviceSetup),
+            Evt(T0.AddMinutes(2), "esp_phase_changed", EnrollmentPhase.AppsDevice),
+            Evt(part1End, "whiteglove_part1_complete"),
+            // — pause: device sealed, user boots it a day later —
+            Evt(resumedAt.AddSeconds(30), "agent_started", EnrollmentPhase.AccountSetup),
+            Evt(resumedAt.AddSeconds(40), "system_reboot_detected",
+                data: new Dictionary<string, object> { ["lastBootUtc"] = bootInsidePause.ToString("o") }),
+            Evt(completedAt, "enrollment_complete"),
+        };
+
+        var b = TimeAttributionCalculator.Compute(
+            Input(events, completedAt, durationSeconds: 1800, wg: true, resumedAt: resumedAt))!;
+
+        AssertExactPartition(b);
+        var span = Assert.Single(b.RebootSpans);
+        // Gap = part1End → first post-boot event (+30 s into part 2). In-window seconds are
+        // ONLY the part-2 flank (30 s) — the ~2-day pause never counts (pre-fix: ~172 830 s
+        // of "reboot" in a 30-minute enrollment).
+        Assert.Equal(part1End, span.StartUtc);
+        Assert.Equal(resumedAt.AddSeconds(30), span.EndUtc);
+        Assert.Equal(30, span.Seconds);
+        Assert.Equal(30, b.RebootSeconds);
+    }
+
+    [Fact]
+    public void WhiteGlove_BlockingIntervalAcrossPause_CountsOnlyInWindowSeconds()
+    {
+        var part1End = T0.AddMinutes(20);
+        var resumedAt = T0.AddDays(2);
+        var completedAt = resumedAt.AddMinutes(10);
+
+        var events = new List<EnrollmentEvent>
+        {
+            Evt(T0, "agent_started", EnrollmentPhase.DeviceSetup),
+            Evt(T0.AddMinutes(1), "esp_config_detected", data: EspLists(win32Ids: new[] { AppA })),
+            Evt(T0.AddMinutes(2), "esp_phase_changed", EnrollmentPhase.AppsDevice),
+            Evt(T0.AddMinutes(10), "app_install_started", data: AppData(AppA, "App A")),
+            Evt(part1End, "whiteglove_part1_complete"),
+            // — pause —
+            Evt(resumedAt.AddSeconds(30), "agent_started", EnrollmentPhase.AccountSetup),
+            // The app's final terminal lands in part 2 (user-scope finish after resume).
+            Evt(resumedAt.AddMinutes(2), "app_install_completed", data: AppData(AppA, "App A", "Installed")),
+            Evt(completedAt, "enrollment_complete"),
+        };
+
+        var b = TimeAttributionCalculator.Compute(
+            Input(events, completedAt, durationSeconds: 1800, wg: true, resumedAt: resumedAt))!;
+
+        AssertExactPartition(b);
+        var interval = Assert.Single(b.BlockingApps);
+        // Chronological endpoints stay the real event times…
+        Assert.Equal(T0.AddMinutes(10), interval.StartUtc);
+        Assert.Equal(resumedAt.AddMinutes(2), interval.EndUtc);
+        // …but Seconds is the in-window sum: part 1 tail (10 min) + part 2 head (2 min).
+        Assert.Equal(720, interval.Seconds);
+        // Occupancy intersects with the esp_apps span (part 1 only) — pause never leaks in.
+        Assert.Equal(600, b.EspAppsOccupancySeconds);
+    }
+
+    [Fact]
+    public void WhiteGlove_IntervalWhollyInsidePause_MakesNoClaim_AndNoSkewFlag()
+    {
+        var part1End = T0.AddMinutes(20);
+        var resumedAt = T0.AddDays(2);
+        var completedAt = resumedAt.AddMinutes(10);
+
+        var events = new List<EnrollmentEvent>
+        {
+            Evt(T0, "agent_started", EnrollmentPhase.DeviceSetup),
+            Evt(T0.AddMinutes(1), "esp_config_detected", data: EspLists(win32Ids: new[] { AppA })),
+            Evt(T0.AddMinutes(2), "esp_phase_changed", EnrollmentPhase.AppsDevice),
+            Evt(part1End, "whiteglove_part1_complete"),
+            // Both endpoints inside the pause (post-seal tail activity) — observed, but in no window.
+            Evt(part1End.AddHours(1), "app_install_started", data: AppData(AppA, "App A")),
+            Evt(part1End.AddHours(2), "app_install_completed", data: AppData(AppA, "App A", "Installed")),
+            Evt(resumedAt.AddSeconds(30), "agent_started", EnrollmentPhase.AccountSetup),
+            Evt(completedAt, "enrollment_complete"),
+        };
+
+        var b = TimeAttributionCalculator.Compute(
+            Input(events, completedAt, durationSeconds: 1800, wg: true, resumedAt: resumedAt))!;
+
+        AssertExactPartition(b);
+        // No in-window observation → no interval claim; and nothing is wrong with the clocks,
+        // so the skew flag must NOT fire (it would exclude the session from fleet medians).
+        Assert.Empty(b.BlockingApps);
+        Assert.False(b.QualityFlags.HasFlag(TimeAttributionFlags.ClockSkewDropped));
+    }
+
     // ── non-computable sessions ─────────────────────────────────────────────
 
     [Theory]

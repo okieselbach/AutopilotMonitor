@@ -100,11 +100,15 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <summary>Computes + stores the session's time breakdown; null when not computable (non-terminal, no duration, events aged out) — fail-soft.</summary>
         Task<SessionTimeBreakdown?> ComputeAndStoreSessionTimeBreakdownAsync(string tenantId, string sessionId);
         Task<SessionTimeBreakdown?> GetSessionTimeBreakdownAsync(string tenantId, string sessionId);
+        /// <summary>Re-joins the session's app rows against its latest esp_config_detected lists (positive evidence only). Idempotent + fail-soft — the terminal seam runs it once; the sweep re-runs it when late events changed the stream.</summary>
+        Task ResolveEspBlockingForSessionAsync(string tenantId, string sessionId);
         Task<bool> SaveTimeAttributionAggregateAsync(TimeAttributionDailyAggregate aggregate);
         /// <summary>Aggregate rows of one tenant partition ("global" allowed) for an inclusive date range.</summary>
         Task<List<TimeAttributionDailyAggregate>> GetTimeAttributionAggregatesAsync(string tenantId, DateTime startDate, DateTime endDate);
         /// <summary>Rolling-window rows (Date "rolling30") of one tenant partition ("global" allowed) — the fleet panel's range statistics.</summary>
         Task<List<TimeAttributionDailyAggregate>> GetRollingTimeAttributionAggregatesAsync(string tenantId);
+        /// <summary>Deletes one aggregate row (daily date key or "rolling30") — the sweep's stale-bucket reconcile.</summary>
+        Task DeleteTimeAttributionAggregateAsync(string tenantId, string dateKey, string enrollmentClass);
         Task<int> DeleteTimeAttributionAggregatesOlderThanAsync(DateTime cutoffDate);
 
         // --- F2 Device History / First-Time-Right (insights spec §F2, PR4) ---
@@ -118,6 +122,8 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<bool> SaveDeviceJourneyAggregateAsync(DeviceJourneyDailyAggregate aggregate);
         /// <summary>Daily FTR rows of one tenant partition ("global" allowed), inclusive date range; counts are additive across days.</summary>
         Task<List<DeviceJourneyDailyAggregate>> GetDeviceJourneyAggregatesAsync(string tenantId, DateTime startDate, DateTime endDate);
+        /// <summary>Deletes one daily FTR row — the sweep's stale-bucket reconcile.</summary>
+        Task DeleteDeviceJourneyAggregateAsync(string tenantId, string dateKey);
         Task<int> DeleteDeviceJourneyAggregatesOlderThanAsync(DateTime cutoffDate);
     }
 

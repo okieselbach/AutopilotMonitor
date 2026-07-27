@@ -564,6 +564,7 @@ export default function SessionDetailPage() {
           {!isGatherRulesSession && session?.serialNumber && (
             <DeviceHistoryBanner
               sessionId={sessionId}
+              sessionStartedAt={session.startedAt}
               serialNumber={session.serialNumber}
               effectiveTenantId={sessionTenantId || tenantIdOverride || undefined}
               linkTenantId={tenantIdOverride}

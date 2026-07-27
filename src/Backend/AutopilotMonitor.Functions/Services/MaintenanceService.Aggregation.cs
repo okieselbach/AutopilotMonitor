@@ -312,10 +312,23 @@ namespace AutopilotMonitor.Functions.Services
                         continue;
 
                     var breakdown = await _metricsRepo.GetSessionTimeBreakdownAsync(session.TenantId, session.SessionId);
-                    if (breakdown == null || breakdown.AttributionVersion != TimeAttributionCalculator.CurrentVersion)
+                    // Recompute when the row is missing, algorithm-stale, OR computed from an
+                    // incomplete event stream: the inline terminal compute is one-shot, but
+                    // batches can arrive AFTER the terminal transition (upload lag, replays,
+                    // the agent's async esp_config re-emits) — the session's EventCount is the
+                    // change signal (Codex review finding).
+                    var eventCountMoved = breakdown != null && breakdown.EventCountAtCompute != session.EventCount;
+                    if (breakdown == null || breakdown.AttributionVersion != TimeAttributionCalculator.CurrentVersion || eventCountMoved)
                     {
+                        var hadNoRow = breakdown == null;
                         breakdown = await _metricsRepo.ComputeAndStoreSessionTimeBreakdownAsync(session.TenantId, session.SessionId);
                         if (breakdown != null) computed++;
+                        // Late batches can also carry esp_config_detected re-emits and app
+                        // events — re-join the blocking evidence from the fuller stream.
+                        // Idempotent, positive-evidence-only; also heals sessions that went
+                        // terminal before the resolution seam existed (hadNoRow backfill).
+                        if (eventCountMoved || hadNoRow)
+                            await _metricsRepo.ResolveEspBlockingForSessionAsync(session.TenantId, session.SessionId);
                     }
 
                     if (breakdown == null)
@@ -330,7 +343,13 @@ namespace AutopilotMonitor.Functions.Services
                 // window's actual sessions. The daily rows can NOT be merged into a range claim
                 // (a median of per-day medians is not the range median), so the fleet panel reads
                 // these; the daily rows serve the per-day trend. Refreshed whole every sweep.
-                aggregates.AddRange(BuildTimeAttributionAggregates(pairs, missing, now, RollingAggregateDateKey));
+                // "Last 30 days" means exactly 30 calendar days including today — the sweep's own
+                // query window is one day wider (backfill/late-heal coverage), so filter here.
+                var rollingWindowStart = today.AddDays(-(TimeAttributionSweepDays - 1));
+                aggregates.AddRange(BuildTimeAttributionAggregates(
+                    pairs.Where(p => p.Session.StartedAt >= rollingWindowStart).ToList(),
+                    missing.Where(s => s.StartedAt >= rollingWindowStart).ToList(),
+                    now, RollingAggregateDateKey));
                 var saved = 0;
                 foreach (var aggregate in aggregates)
                 {
@@ -338,10 +357,33 @@ namespace AutopilotMonitor.Functions.Services
                         saved++;
                 }
 
+                // Stale-bucket reconcile (Codex review): a bucket that existed on a previous run
+                // but was NOT regenerated now (its sessions were deleted, or its class left the
+                // window) must not keep serving old numbers — a rolling row would otherwise stay
+                // stale forever. Scope: every partition this run wrote rows for; a partition that
+                // went FULLY quiet is not enumerable here — its rolling rows are neutralized
+                // read-side by the ComputedAt age filter in TimeAttributionResponse, and its
+                // daily rows age out of every queried window by construction.
+                var generatedKeys = new HashSet<(string TenantId, string Date, string Class)>(
+                    aggregates.Select(a => (a.TenantId, a.Date, a.EnrollmentClass)));
+                var removedStale = 0;
+                foreach (var partition in aggregates.Select(a => a.TenantId).Distinct().ToList())
+                {
+                    var existingRows = await _metricsRepo.GetRollingTimeAttributionAggregatesAsync(partition);
+                    existingRows.AddRange(await _metricsRepo.GetTimeAttributionAggregatesAsync(
+                        partition, today.AddDays(-TimeAttributionSweepDays), today));
+                    foreach (var row in existingRows)
+                    {
+                        if (generatedKeys.Contains((partition, row.Date, row.EnrollmentClass))) continue;
+                        await _metricsRepo.DeleteTimeAttributionAggregateAsync(partition, row.Date, row.EnrollmentClass);
+                        removedStale++;
+                    }
+                }
+
                 sw.Stop();
                 _logger.LogInformation(
-                    "Time-attribution sweep: {Sessions} terminal sessions in {Days}d window, {Computed} breakdowns computed, {Missing} missing, {Aggregates} aggregate rows written in {Ms}ms",
-                    pairs.Count + missing.Count, TimeAttributionSweepDays, computed, missing.Count, saved, sw.ElapsedMilliseconds);
+                    "Time-attribution sweep: {Sessions} terminal sessions in {Days}d window, {Computed} breakdowns computed, {Missing} missing, {Aggregates} aggregate rows written, {Removed} stale buckets removed in {Ms}ms",
+                    pairs.Count + missing.Count, TimeAttributionSweepDays, computed, missing.Count, saved, removedStale, sw.ElapsedMilliseconds);
             }
             catch (Exception ex)
             {
@@ -476,7 +518,12 @@ namespace AutopilotMonitor.Functions.Services
                         {
                             var seconds = g.Select(x => (double)x.Interval.Seconds).OrderBy(v => v).ToList();
                             var savings = g
-                                .Select(x => (double)TimeAttributionCalculator.WhatIfSavingSeconds(x.Breakdown.BlockingApps, g.Key))
+                                // Cap at the session's wall clock: the what-if delta is computed
+                                // from raw interval endpoints, which can straddle the WhiteGlove
+                                // pause — no removal can save more than the enrollment took.
+                                .Select(x => (double)Math.Min(
+                                    TimeAttributionCalculator.WhatIfSavingSeconds(x.Breakdown.BlockingApps, g.Key),
+                                    x.Breakdown.WallClockSeconds))
                                 .OrderBy(v => v)
                                 .ToList();
                             return new TimeAttributionBlockingAppStat

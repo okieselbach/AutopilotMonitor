@@ -215,12 +215,19 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             return Math.Clamp(days, 1, MaxWindowDays);
         }
 
+        /// <summary>
+        /// "Last N days" = exactly N calendar day keys including today — both range ends are
+        /// inclusive, so subtracting the full N would return N+1 days (Codex review: days=1
+        /// summed yesterday AND today).
+        /// </summary>
+        internal static DateTime InclusiveWindowStart(DateTime today, int days) => today.AddDays(-(days - 1));
+
         internal static async Task<object> BuildAsync(
             IMetricsRepository metricsRepo, ISessionRepository sessionRepo,
             string partition, int days, bool includeRepeatDevices)
         {
             var today = DateTime.UtcNow.Date;
-            var daily = await metricsRepo.GetDeviceJourneyAggregatesAsync(partition, today.AddDays(-days), today);
+            var daily = await metricsRepo.GetDeviceJourneyAggregatesAsync(partition, InclusiveWindowStart(today, days), today);
             var totals = SumAggregates(daily);
 
             List<object>? repeatDevices = null;

@@ -149,10 +149,30 @@ namespace AutopilotMonitor.Functions.Services
                         saved++;
                 }
 
+                // Stale-bucket reconcile (Codex review): a date row that was not regenerated this
+                // run (its last completing journey was deleted or reclassified) must not keep
+                // serving old counts — FTR window rates are SUMS over these rows. Scope: every
+                // partition this run wrote rows for; fully-quiet partitions' rows age out of any
+                // queried window by construction (the FTR query is always today-anchored).
+                var generatedKeys = new HashSet<(string TenantId, string Date)>(
+                    aggregates.Select(a => (a.TenantId, a.Date)));
+                var removedStale = 0;
+                foreach (var partition in aggregates.Select(a => a.TenantId).Distinct().ToList())
+                {
+                    var existingRows = await _metricsRepo.GetDeviceJourneyAggregatesAsync(
+                        partition, windowStart, windowEnd.AddDays(-1));
+                    foreach (var row in existingRows)
+                    {
+                        if (generatedKeys.Contains((partition, row.Date))) continue;
+                        await _metricsRepo.DeleteDeviceJourneyAggregateAsync(partition, row.Date);
+                        removedStale++;
+                    }
+                }
+
                 sw.Stop();
                 _logger.LogInformation(
-                    "Device-journey sweep: {Devices} devices from {Sessions} terminal window sessions, {RefsCleaned} chains cleaned / {RowsDeleted} rows deleted (tombstones), {Excluded} junk-serial sessions excluded, {Aggregates} FTR rows written in {Ms}ms",
-                    mergedHistories.Count, byDevice.Sum(d => d.Value.Count), refsCleaned, rowsDeleted, excludedSessions.Count, saved, sw.ElapsedMilliseconds);
+                    "Device-journey sweep: {Devices} devices from {Sessions} terminal window sessions, {RefsCleaned} chains cleaned / {RowsDeleted} rows deleted (tombstones), {Excluded} junk-serial sessions excluded, {Aggregates} FTR rows written, {Removed} stale buckets removed in {Ms}ms",
+                    mergedHistories.Count, byDevice.Sum(d => d.Value.Count), refsCleaned, rowsDeleted, excludedSessions.Count, saved, removedStale, sw.ElapsedMilliseconds);
             }
             catch (Exception ex)
             {

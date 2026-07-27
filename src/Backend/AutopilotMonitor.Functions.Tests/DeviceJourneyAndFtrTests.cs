@@ -737,6 +737,16 @@ public class DeviceJourneyAndFtrTests
         Assert.Equal(expected, DeviceJourneyMetricsResponse.ClampDays(raw));
     }
 
+    [Fact]
+    public void InclusiveWindowStart_YieldsExactlyNCalendarDays()
+    {
+        // Codex review: both range ends are inclusive, so "today - days" returned N+1 keys —
+        // days=1 summed yesterday AND today.
+        var today = new DateTime(2026, 7, 27);
+        Assert.Equal(today, DeviceJourneyMetricsResponse.InclusiveWindowStart(today, 1));
+        Assert.Equal(today.AddDays(-29), DeviceJourneyMetricsResponse.InclusiveWindowStart(today, 30));
+    }
+
     private static DeviceHistory RepeaterHistory(
         string serial, int attempts, params DeviceSessionRef[] chain)
         => new()

@@ -58,6 +58,10 @@ namespace AutopilotMonitor.Functions.Services
                 });
                 if (breakdown == null) return null;
 
+                // Change signal for the sweep: a session whose EventCount moved after this
+                // write (late/replayed batches) gets recomputed from the fuller stream.
+                breakdown.EventCountAtCompute = session.EventCount;
+
                 return await StoreSessionTimeBreakdownAsync(breakdown) ? breakdown : null;
             }
             catch (Exception ex)
@@ -109,6 +113,7 @@ namespace AutopilotMonitor.Functions.Services
             var entity = new TableEntity(b.TenantId, b.SessionId)
             {
                 ["AttributionVersion"] = b.AttributionVersion,
+                ["EventCountAtCompute"] = b.EventCountAtCompute,
                 ["WallClockSeconds"] = b.WallClockSeconds,
                 ["UnattributedSeconds"] = b.UnattributedSeconds,
                 ["RebootSeconds"] = b.RebootSeconds,
@@ -133,6 +138,7 @@ namespace AutopilotMonitor.Functions.Services
                 TenantId = entity.PartitionKey,
                 SessionId = entity.RowKey,
                 AttributionVersion = entity.GetInt32("AttributionVersion") ?? 0,
+                EventCountAtCompute = entity.GetInt32("EventCountAtCompute") ?? 0,
                 WallClockSeconds = entity.GetInt32("WallClockSeconds") ?? 0,
                 UnattributedSeconds = entity.GetInt32("UnattributedSeconds") ?? 0,
                 RebootSeconds = entity.GetInt32("RebootSeconds") ?? 0,
@@ -268,6 +274,26 @@ namespace AutopilotMonitor.Functions.Services
                 TopBlockingApps = DeserializeJsonColumn<TimeAttributionBlockingAppStat>(entity.GetString("TopBlockingAppsJson")),
                 ComputedAt = entity.GetDateTimeOffset("ComputedAt")?.UtcDateTime ?? DateTime.MinValue,
             };
+        }
+
+        /// <summary>
+        /// Deletes one aggregate row (daily "{date}|{class}" or rolling "rolling30|{class}").
+        /// Used by the sweep's stale-bucket reconcile: a bucket that was not regenerated this
+        /// run (its sessions were deleted or its class left the window) must not keep serving
+        /// old numbers. Missing rows are a no-op.
+        /// </summary>
+        public async Task DeleteTimeAttributionAggregateAsync(string tenantId, string dateKey, string enrollmentClass)
+        {
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.TimeAttributionAggregates);
+                await tableClient.DeleteEntityAsync(tenantId, $"{dateKey}|{enrollmentClass}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete stale time-attribution aggregate {Date}/{Class} for tenant {TenantId}",
+                    dateKey, enrollmentClass, tenantId);
+            }
         }
 
         /// <summary>

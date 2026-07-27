@@ -287,6 +287,25 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Deletes one daily FTR row. Used by the sweep's stale-bucket reconcile: a date whose
+        /// last completing journey was deleted must not keep serving old counts. Missing rows
+        /// are a no-op.
+        /// </summary>
+        public async Task DeleteDeviceJourneyAggregateAsync(string tenantId, string dateKey)
+        {
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.DeviceJourneyAggregates);
+                await tableClient.DeleteEntityAsync(tenantId, dateKey);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete stale device-journey aggregate {Date} for tenant {TenantId}",
+                    dateKey, tenantId);
+            }
+        }
+
+        /// <summary>
         /// Retention: deletes FTR aggregate rows older than the cutoff (RowKey IS the date, so a
         /// string compare works across partitions). Mirrors the UsageMetrics 180d policy.
         /// DeviceHistories needs no age sweep — refs are pruned tombstone-driven and the rows

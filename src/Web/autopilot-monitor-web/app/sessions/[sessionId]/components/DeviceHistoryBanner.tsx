@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { authenticatedFetch } from "@/lib/authenticatedFetch";
+import { selectPriorSessions, type DeviceSessionRefDto } from "./deviceHistoryPrior";
+
+export type { DeviceSessionRefDto } from "./deviceHistoryPrior";
 
 /**
  * F2 device-history banner (insights spec §F2 "Surfaces"): shown when the device behind this
@@ -13,17 +16,6 @@ import { authenticatedFetch } from "@/lib/authenticatedFetch";
  * refs verbatim: durations are the sessions' authoritative DurationSeconds (never recomputed
  * from timestamps; Incomplete honestly has none). Fetch is fail-soft — no history, no banner.
  */
-
-export interface DeviceSessionRefDto {
-  sessionId: string;
-  startedAt: string;
-  completedAt: string | null;
-  status: string;
-  enrollmentType: string;
-  isPreProvisioned: boolean;
-  durationSeconds: number | null;
-  adminMarked: boolean;
-}
 
 export interface DeviceHistoryDto {
   tenantId: string;
@@ -59,12 +51,15 @@ const STATUS_PILL: Record<string, string> = {
 
 export default function DeviceHistoryBanner({
   sessionId,
+  sessionStartedAt,
   serialNumber,
   effectiveTenantId,
   linkTenantId,
   getAccessToken,
 }: {
   sessionId: string;
+  /** The viewed session's StartedAt — anchor for the "previous enrollments" count when the session is not (yet) in the chain. */
+  sessionStartedAt?: string;
   serialNumber: string | undefined;
   /** Tenant used for the API read (resolved session tenant / GA override); undefined = own tenant. */
   effectiveTenantId?: string;
@@ -101,7 +96,7 @@ export default function DeviceHistoryBanner({
   }, [sessionId, serialNumber, effectiveTenantId]);
 
   const chain = data?.history?.chain ?? [];
-  const priorSessions = chain.filter((r) => r.sessionId !== sessionId);
+  const priorSessions = selectPriorSessions(chain, sessionId, sessionStartedAt);
   if (priorSessions.length === 0) return null;
 
   const attemptNumber = data?.attemptNumber;

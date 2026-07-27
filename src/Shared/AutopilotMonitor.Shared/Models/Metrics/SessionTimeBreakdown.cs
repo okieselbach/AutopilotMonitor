@@ -124,6 +124,15 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>Attribution algorithm version — a definition change bumps this so aggregates never silently mix semantics (truthfulness rule 8).</summary>
         public int AttributionVersion { get; set; }
 
+        /// <summary>
+        /// The session's EventCount when this breakdown was computed — the maintenance sweep's
+        /// change signal: late or replayed event batches move the session's count, so a mismatch
+        /// means the row was computed from an incomplete stream and gets recomputed (Codex
+        /// review: the inline terminal compute is one-shot). 0 = row written before this column
+        /// existed → recomputed once by the next sweep.
+        /// </summary>
+        public int EventCountAtCompute { get; set; }
+
         /// <summary>The session's authoritative DurationSeconds at compute time.</summary>
         public int WallClockSeconds { get; set; }
 

@@ -30,6 +30,7 @@ public class TimeAttributionPersistenceAndAggregationTests
             TenantId = TenantA,
             SessionId = "s-1",
             AttributionVersion = 1,
+            EventCountAtCompute = 261,
             WallClockSeconds = 1800,
             UnattributedSeconds = 30,
             RebootSeconds = 240,
@@ -57,6 +58,9 @@ public class TimeAttributionPersistenceAndAggregationTests
         Assert.Equal(TenantA, mapped.TenantId);
         Assert.Equal("s-1", mapped.SessionId);
         Assert.Equal(1, mapped.AttributionVersion);
+        // Sweep change signal (Codex review: late batches must trigger a recompute) — a lost
+        // column would read as 0 and recompute forever OR mask real drift.
+        Assert.Equal(261, mapped.EventCountAtCompute);
         Assert.Equal(1800, mapped.WallClockSeconds);
         Assert.Equal(30, mapped.UnattributedSeconds);
         Assert.Equal(240, mapped.RebootSeconds);
@@ -393,5 +397,36 @@ public class TimeAttributionPersistenceAndAggregationTests
         Assert.Equal(5, row.SessionCount);
         Assert.Equal(600, row.MedianSeconds);
         Assert.Equal(600, row.MedianSavingSeconds); // sole blocking app → bound = full interval
+    }
+
+    // ── stale-bucket reconcile key consistency (Codex review) ───────────────
+
+    [Fact]
+    public void RollingAggregateEntity_RowKey_MatchesTargetedDeleteKey()
+    {
+        // The sweep's reconcile deletes by (Date, EnrollmentClass) — the entity builder and the
+        // delete path must agree on the RK shape for BOTH daily and rolling rows, or stale
+        // rolling rows would never be removed.
+        var rolling = new TimeAttributionDailyAggregate
+        {
+            TenantId = TenantA, Date = "rolling30", EnrollmentClass = "whiteglove",
+        };
+        Assert.Equal("rolling30|whiteglove", TableStorageService.BuildTimeAttributionAggregateEntity(rolling).RowKey);
+
+        var daily = new TimeAttributionDailyAggregate
+        {
+            TenantId = TenantA, Date = "2026-07-27", EnrollmentClass = "user_driven",
+        };
+        Assert.Equal("2026-07-27|user_driven", TableStorageService.BuildTimeAttributionAggregateEntity(daily).RowKey);
+    }
+
+    [Fact]
+    public void TimeAttribution_InclusiveWindowStart_YieldsExactly30CalendarDays()
+    {
+        // Codex review: both range ends are inclusive — subtracting the full WindowDays
+        // returned 31 day keys under a "windowDays: 30" label.
+        var today = new System.DateTime(2026, 7, 27);
+        Assert.Equal(today.AddDays(-29),
+            Functions.Metrics.TimeAttributionResponse.InclusiveWindowStart(today, Functions.Metrics.TimeAttributionResponse.WindowDays));
     }
 }

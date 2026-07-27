@@ -450,7 +450,14 @@ public static class TimeAttributionCalculator
             var clamped = ClampToWindows(activity.FirstStart.Value, activity.LastTerminal.Value, windows);
             if (!clamped.HasValue)
             {
-                flags |= TimeAttributionFlags.ClockSkewDropped;
+                // Outside the hull entirely → pathological timestamps (flagged, as before).
+                // Inside the hull but touching no window (wholly inside the WhiteGlove pause):
+                // no in-window observation → no interval claim, and nothing wrong with clocks.
+                if (activity.LastTerminal.Value < windows[0].Start ||
+                    activity.FirstStart.Value > windows[windows.Count - 1].End)
+                {
+                    flags |= TimeAttributionFlags.ClockSkewDropped;
+                }
                 continue;
             }
 
@@ -460,22 +467,37 @@ public static class TimeAttributionCalculator
                 AppName = activity.AppName,
                 StartUtc = clamped.Value.Start,
                 EndUtc = clamped.Value.End,
-                Seconds = (int)Math.Floor((clamped.Value.End - clamped.Value.Start).TotalSeconds),
+                // In-window seconds — a WG-pause-straddling interval never counts the pause.
+                Seconds = clamped.Value.Seconds,
             });
         }
 
         return (intervals, matched);
     }
 
-    /// <summary>Clips [start, end] to the windows' hull; null when it falls entirely outside observation.</summary>
-    private static (DateTime Start, DateTime End)? ClampToWindows(DateTime start, DateTime end, List<Window> windows)
+    /// <summary>
+    /// Clips [start, end] to the observation windows. Start/End are the clamped chronological
+    /// endpoints; <c>Seconds</c> counts ONLY time inside the windows — the WhiteGlove pause
+    /// between part 1 and part 2 lies inside the hull but is excluded, matching the session's
+    /// own <c>DurationSeconds</c> semantics (pause excluded by design). Null when the interval
+    /// overlaps no window at all: either it lies outside the hull entirely (pathological
+    /// timestamps) or wholly inside the pause (no in-window observation).
+    /// </summary>
+    private static (DateTime Start, DateTime End, int Seconds)? ClampToWindows(DateTime start, DateTime end, List<Window> windows)
     {
-        var hullStart = windows[0].Start;
-        var hullEnd = windows[windows.Count - 1].End;
-        var s = start < hullStart ? hullStart : start;
-        var e = end > hullEnd ? hullEnd : end;
-        if (e < s) return null;
-        return (s, e);
+        DateTime? s = null, e = null;
+        double total = 0;
+        foreach (var window in windows)
+        {
+            var ws = start < window.Start ? window.Start : start;
+            var we = end > window.End ? window.End : end;
+            if (we < ws) continue;
+            if (s == null || ws < s.Value) s = ws;
+            if (e == null || we > e.Value) e = we;
+            total += (we - ws).TotalSeconds;
+        }
+        if (s == null || e == null) return null;
+        return (s.Value, e.Value, (int)Math.Floor(total));
     }
 
     /// <summary>
@@ -615,7 +637,9 @@ public static class TimeAttributionCalculator
 
             var clamped = ClampToWindows(gapStart.Value, gapEnd.Value, windows);
             if (!clamped.HasValue) continue;
-            var seconds = (int)Math.Floor((clamped.Value.End - clamped.Value.Start).TotalSeconds);
+            // In-window seconds — a reboot gap bracketing the WhiteGlove pause contributes
+            // only its in-window flanks, never the pause itself.
+            var seconds = clamped.Value.Seconds;
             if (seconds <= 0) continue;
 
             result.Add(new RebootSpan
