@@ -31,7 +31,8 @@ export interface DeviceJourneyDailyDto {
 export interface DeviceJourneyTotalsDto {
   completedJourneys: number;
   firstTimeRight: number;
-  ftrRatePct: number | null;
+  /** Absent (WhenWritingNull) when no completed journeys — treat null and undefined alike. */
+  ftrRatePct?: number | null;
   excludedSessions: number;
   attemptHistogram: DeviceJourneyAttemptBucketDto[];
 }
@@ -53,7 +54,12 @@ export interface DeviceJourneyResponseDto {
   windowDays: number;
   totals: DeviceJourneyTotalsDto;
   daily: DeviceJourneyDailyDto[];
-  repeatDevices: RepeatDeviceDto[] | null;
+  /**
+   * Absent (not null) in the aggregated all-tenants view — the worker serializes with
+   * WhenWritingNull, so the field is omitted entirely. Absent/null = no per-device
+   * drill-down available; [] = tenant scoped but no repeat devices.
+   */
+  repeatDevices?: RepeatDeviceDto[] | null;
 }
 
 /** UI gate for the FTR rate (spec: ≥20 completed journeys). */
@@ -197,7 +203,7 @@ export default function DeviceJourneySection({
             title="Devices whose current journey took 2 or more terminal attempts, newest activity first. The failure reason is from the most recent failed attempt.">
             Repeat devices
           </div>
-          {repeatDevices === null ? (
+          {repeatDevices == null ? (
             <div className="text-sm text-gray-400 py-4">
               Select a tenant to see per-device detail — the aggregated view has no device drill-down.
             </div>
