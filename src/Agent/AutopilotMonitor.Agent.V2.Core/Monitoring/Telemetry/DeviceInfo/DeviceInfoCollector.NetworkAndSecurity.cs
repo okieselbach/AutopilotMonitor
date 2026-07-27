@@ -706,10 +706,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
         /// the desktop via "Continue anyway".
         /// </para>
         /// </summary>
+        // Serializes the ESP-config read+emit across ALL callers (CollectAll on the startup
+        // ThreadPool task, CollectAtEnrollmentStart and RefreshEspConfiguration on their own
+        // Task.Run) — without it, two concurrent collects can interleave read-before-emit and
+        // the LATER emission can carry the OLDER (smaller) registry snapshot. The backend keeps
+        // the latest list-bearing emission as positive blocking evidence, so an out-of-order
+        // emission would silently shrink it (Codex review). Inside the lock each collect is
+        // read→emit atomic: a later emission always carries an equal-or-newer snapshot.
+        private readonly object _espConfigCollectLock = new object();
+
         // Internal (not private) as a test seam: unlike CollectAll/CollectAtEnrollmentStart this
         // method touches no live system state once both probes are overridden, so tests can
         // drive the esp_config_detected event surface in isolation (InternalsVisibleTo).
         internal (bool? skipUserStatusPage, bool? skipDeviceStatusPage) CollectEspConfiguration()
+        {
+            lock (_espConfigCollectLock)
+            {
+                return CollectEspConfigurationLocked();
+            }
+        }
+
+        private (bool? skipUserStatusPage, bool? skipDeviceStatusPage) CollectEspConfigurationLocked()
         {
             bool? skipUser = null;
             bool? skipDevice = null;

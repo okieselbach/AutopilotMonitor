@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
@@ -103,6 +105,53 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.DeviceInfo
                 collector.RefreshEspConfiguration(DeviceInfoHost.EspConfigTriggerAccountSetup);
             }
             Assert.Equal(2, EspConfigEvents(ingress).Count);
+        }
+
+        [Fact]
+        public async Task Concurrent_refreshes_never_emit_an_older_snapshot_after_a_newer_one()
+        {
+            // Codex review: the refresh triggers each run on their own Task.Run — without the
+            // collector-side lock, two collects can interleave read-before-emit and the LATER
+            // emission carries the OLDER (smaller) list. The backend keeps the latest
+            // list-bearing emission as positive evidence, so that would silently shrink it.
+            // The probe returns a strictly growing list per read; with the read→emit critical
+            // section, emission order must equal read order — sizes strictly ascending.
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
+            var ingress = new FakeSignalIngressSink();
+            var clock = new VirtualClock(T0);
+            var collector = new DeviceInfoCollector(
+                "session-1", "tenant-1",
+                new InformationalEventPost(ingress, clock), logger,
+                signalIngress: null, clock: clock,
+                startupGate: new StartupEventGate(tmp.Path, logger));
+
+            using var skip = new EspSkipConfigurationProbe.ScopedFullOverride(
+                _ => new EspFirstSyncSnapshot(
+                    skipUser: false, skipDevice: false,
+                    blockInStatusPage: null, syncFailureTimeoutMinutes: null));
+
+            var readCounter = 0;
+            using var tracking = new EspTrackingInfoProbe.ScopedOverride(_ =>
+            {
+                var n = Interlocked.Increment(ref readCounter);
+                var ids = Enumerable.Range(1, n)
+                    .Select(i => $"{i:d8}-1111-2222-3333-444444444444")
+                    .ToArray();
+                return Snapshot(ids, Array.Empty<string>());
+            });
+
+            var tasks = Enumerable.Range(0, 12)
+                .Select(i => Task.Run(() => collector.RefreshEspConfiguration($"stress-{i}")))
+                .ToArray();
+            await Task.WhenAll(tasks);
+
+            var sizes = EspConfigEvents(ingress)
+                .Select(e => TypedList(e, "espTrackedWin32AppIds").Count)
+                .ToList();
+            // Every refresh saw a strictly larger list (gate never suppresses) and each
+            // read→emit is atomic, so the emission sequence is exactly 1..12.
+            Assert.Equal(Enumerable.Range(1, 12), sizes);
         }
     }
 }
