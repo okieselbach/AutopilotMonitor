@@ -70,7 +70,20 @@ ENV NODE_ENV=production
 ENV HF_CACHE_DIR=/app/.hf-cache
 
 COPY --from=build /app/package.json /app/package-lock.json ./
-RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+# npm is a BUILD-time tool only: the runtime is `node dist/index.js`, the
+# HEALTHCHECK is `node -e`, and the server never shells out (no child_process
+# anywhere in src/). But the npm that node:22-slim bundles carries its own
+# vendored dependency tree under /usr/local/lib/node_modules/npm, and a
+# container image scanner reports every CVE in it against this image —
+# @sigstore/core, brace-expansion, tar, sigstore, picomatch, ip-address, plus
+# npm itself, none of which appear in our package-lock and none of which
+# Dependabot can see.
+#
+# Removing npm clears all of them; upgrading it does not (npm 11.x still
+# vendors @sigstore/core 3.1.0, inside the vulnerable <= 3.2.0 range). The rm
+# must share this RUN so the deletion lands in the same layer as the install.
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force && \
+  rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 COPY --from=build /app/dist/ ./dist/
 COPY --from=build /app/.hf-cache/ ./.hf-cache/
