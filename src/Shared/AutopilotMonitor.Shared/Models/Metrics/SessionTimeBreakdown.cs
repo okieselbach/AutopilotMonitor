@@ -64,6 +64,34 @@ namespace AutopilotMonitor.Shared.Models
         WhiteGloveAnchorsIncomplete = 16
     }
 
+    /// <summary>
+    /// Interpretation helpers for <see cref="TimeAttributionFlags"/>. The duration mask lives
+    /// here as a const rather than as a composite enum member on purpose: the wire format
+    /// serializes flag combinations as comma-joined member names (the web splits that string),
+    /// and a composite member would hijack ToString for combinations that happen to equal it.
+    /// </summary>
+    public static class TimeAttributionFlagQuality
+    {
+        /// <summary>
+        /// Flags that make the SEGMENT DURATIONS themselves untrustworthy — dropped anchors,
+        /// underobserved early phases, best-effort WhiteGlove window boundaries. Only these
+        /// exclude a breakdown from fleet segment statistics. The blocking-set flags
+        /// (<see cref="TimeAttributionFlags.BlockingSetUnknown"/> / BlockingSetTruncated) say
+        /// nothing about the measured spans — they only limit per-app blocking evidence, which
+        /// is positive-evidence-based anyway (unknown contributes no intervals). Gating fleet
+        /// stats on ANY flag starved the aggregates in production (2026-07-27: 903/1000
+        /// breakdowns carried BlockingSetUnknown → CleanSessionCount 12 vs 331 excluded).
+        /// </summary>
+        public const TimeAttributionFlags DurationCriticalFlags =
+            TimeAttributionFlags.ClockSkewDropped |
+            TimeAttributionFlags.PartialObservation |
+            TimeAttributionFlags.WhiteGloveAnchorsIncomplete;
+
+        /// <summary>True when the breakdown's segment durations are unfit for fleet statistics.</summary>
+        public static bool ExcludesFromFleetStats(TimeAttributionFlags flags)
+            => (flags & DurationCriticalFlags) != TimeAttributionFlags.None;
+    }
+
     /// <summary>One contiguous attributed span inside an observation window.</summary>
     public class TimeAttributionSpan
     {

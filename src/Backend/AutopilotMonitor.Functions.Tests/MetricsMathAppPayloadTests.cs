@@ -208,6 +208,34 @@ public class MetricsMathAppPayloadTests
     }
 
     [Fact]
+    public void ImplausibleDurations_AreExcludedFromAverages_AndCountedAsUnmeasured()
+    {
+        // A duration beyond the agent's max observation lifetime is a back-stamped emission
+        // artifact (CompletedAt pinned at session end — production: 60 175 s app rows inside a
+        // 2 697 s session), not a slow install. It must fall out of the averages exactly like
+        // an unobserved start. Boundary: exactly 6 h is still plausible/measured.
+        var summaries = new List<AppInstallSummary>
+        {
+            new() { AppName = "App A", Status = "Succeeded", TerminalState = "Installed", DurationSeconds = 100 },
+            new() { AppName = "App A", Status = "Succeeded", TerminalState = "Installed", DurationSeconds = 200 },
+            new() { AppName = "App A", Status = "Succeeded", TerminalState = "Installed",
+                    DurationSeconds = MetricsMath.MaxPlausibleInstallDurationSeconds },       // boundary: measured
+            new() { AppName = "App A", Status = "Succeeded", TerminalState = "Installed",
+                    DurationSeconds = MetricsMath.MaxPlausibleInstallDurationSeconds + 1 },   // artifact: unmeasured
+        };
+
+        var root = Build(summaries);
+        Assert.Equal(1, root.GetProperty("totalUnmeasured").GetInt32());
+
+        var slowest = root.GetProperty("slowestApps");
+        Assert.Equal(1, slowest.GetArrayLength());
+        Assert.Equal(3, slowest[0].GetProperty("measuredInstalls").GetInt32());
+        // avg over {100, 200, 21600} — the 21601 artifact contributes nothing.
+        Assert.Equal(7300d, slowest[0].GetProperty("avgDurationSeconds").GetDouble());
+        Assert.Equal(MetricsMath.MaxPlausibleInstallDurationSeconds, slowest[0].GetProperty("maxDurationSeconds").GetInt32());
+    }
+
+    [Fact]
     public void SlowestApps_GateOnMeasuredInstalls_NotOnSucceededCount()
     {
         // 3 succeeded but only 2 measured → below the floor; an app must not rank "fast"

@@ -394,8 +394,11 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Pure aggregation core behind <see cref="SweepTimeAttributionAsync"/> — internal static
         /// so the bucketing/gating contract is pinned by unit tests. Per (tenant × class × date)
-        /// bucket plus mirrored "global" rows: only CLEAN breakdowns (QualityFlags == None) form
-        /// the statistics; flagged and missing ones are counted, never silently dropped (rule 7).
+        /// bucket plus mirrored "global" rows: only breakdowns without DURATION-critical flags
+        /// (<see cref="TimeAttributionFlagQuality.DurationCriticalFlags"/>) form the statistics —
+        /// blocking-set-only flags stay in (their spans are sound; unknown blocking simply
+        /// contributes no per-app intervals); excluded and missing ones are counted, never
+        /// silently dropped (rule 7).
         /// Rows are written even below the ≥20 UI gate — the UI needs the n (rule 4). Segment
         /// stats always carry the five canonical segments + unattributed (a session without a
         /// span of a segment contributes 0 — the honest "per enrollment of this class" answer).
@@ -427,7 +430,7 @@ namespace AutopilotMonitor.Functions.Services
                 foreach (var tenantKey in new[] { session.TenantId, "global" })
                 {
                     var key = (tenantKey, date, cls);
-                    if (breakdown.QualityFlags != TimeAttributionFlags.None)
+                    if (TimeAttributionFlagQuality.ExcludesFromFleetStats(breakdown.QualityFlags))
                     {
                         Bump(flaggedCounts, key);
                         // Flagged sessions still materialize the bucket so a day whose sessions

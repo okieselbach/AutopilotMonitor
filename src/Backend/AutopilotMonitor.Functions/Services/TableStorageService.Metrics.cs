@@ -538,12 +538,14 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>
         /// Columns MetricsMath.BuildAppMetricsPayload consumes (slowest/failing ranking + DO rollup):
-        /// grouping key, status/duration/bytes, failure code and every counter DoAggregator sums.
+        /// grouping key, status + terminal state (PR0 skip classification — dropping TerminalState
+        /// silently zeroed totalSkipped in production, found 2026-07-27), duration/bytes, failure
+        /// code and every counter DoAggregator sums.
         /// internal so AppsProjectionEquivalenceTests derives its keep-set from this array.
         /// </summary>
         internal static readonly string[] AppMetricsProjection =
         {
-            "PartitionKey", "RowKey", "AppName", "Status", "StartedAt",
+            "PartitionKey", "RowKey", "AppName", "Status", "TerminalState", "StartedAt",
             "DurationSeconds", "DownloadBytes", "FailureCode",
             "DoDownloadMode", "DoTotalBytesDownloaded", "DoBytesFromPeers", "DoBytesFromHttp",
             "DoBytesFromLanPeers", "DoBytesFromGroupPeers", "DoBytesFromInternetPeers",

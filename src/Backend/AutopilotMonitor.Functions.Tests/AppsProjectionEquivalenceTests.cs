@@ -34,6 +34,14 @@ public class AppsProjectionEquivalenceTests
             ["AppType"] = "Win32",
             ["AppVersion"] = "2.1.0",
             ["Status"] = "Failed",
+            // PR0/PR1 classification columns. The fixture MUST populate every column a Build*
+            // method reads: a column absent here passes the equivalence assert trivially (both
+            // sides map to default) — exactly how the missing TerminalState projection slipped
+            // through and zeroed totalSkipped in production (2026-07-27).
+            ["TerminalState"] = "Skipped",
+            ["AppId"] = "9e8d7c6b-5a49-4832-9182-736451234567",
+            ["EspBlocking"] = true,
+            ["AppIdCollision"] = true,
             ["StartedAt"] = new DateTimeOffset(DateTime.UtcNow.AddHours(-6)),
             ["CompletedAt"] = new DateTimeOffset(DateTime.UtcNow.AddHours(-5)),
             ["DurationSeconds"] = 340,
@@ -83,6 +91,9 @@ public class AppsProjectionEquivalenceTests
 
         Assert.Equal(fromFull.AppName, fromProjected.AppName);
         Assert.Equal(fromFull.Status, fromProjected.Status);
+        // IsSkipTerminalState / skip classification input — see the fixture comment.
+        Assert.Equal(fromFull.TerminalState, fromProjected.TerminalState);
+        Assert.Equal(fromFull.AppIdCollision, fromProjected.AppIdCollision);
         Assert.Equal(fromFull.StartedAt, fromProjected.StartedAt);
         Assert.Equal(fromFull.DurationSeconds, fromProjected.DurationSeconds);
         Assert.Equal(fromFull.DownloadBytes, fromProjected.DownloadBytes);
@@ -122,6 +133,10 @@ public class AppsProjectionEquivalenceTests
         Assert.Equal(fromFull.FailureMessage, fromProjected.FailureMessage);
         Assert.Equal(fromFull.ExitCode, fromProjected.ExitCode);
         Assert.Equal(fromFull.DetectionResult, fromProjected.DetectionResult);
+        Assert.Equal(fromFull.TerminalState, fromProjected.TerminalState);
+        Assert.Equal(fromFull.AppId, fromProjected.AppId);
+        Assert.Equal(fromFull.EspBlocking, fromProjected.EspBlocking);
+        Assert.Equal(fromFull.AppIdCollision, fromProjected.AppIdCollision);
     }
 
     [Fact]

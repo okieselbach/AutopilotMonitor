@@ -299,7 +299,7 @@ public class TimeAttributionPersistenceAndAggregationTests
     {
         var pairs = new List<(SessionSummary, SessionTimeBreakdown)>
         {
-            (Session(TenantA, T0), Breakdown(flags: TimeAttributionFlags.BlockingSetUnknown)),
+            (Session(TenantA, T0), Breakdown(flags: TimeAttributionFlags.ClockSkewDropped)),
         };
 
         var aggregate = MaintenanceService.BuildTimeAttributionAggregates(
@@ -310,6 +310,32 @@ public class TimeAttributionPersistenceAndAggregationTests
         Assert.Equal(1, aggregate.FlaggedExcludedCount);
         Assert.Empty(aggregate.SegmentStats);   // no clean sessions → no statistical claim
         Assert.Empty(aggregate.TopBlockingApps);
+    }
+
+    [Fact]
+    public void Aggregates_BlockingOnlyFlags_StayInSegmentStats()
+    {
+        // BlockingSetUnknown/Truncated limit per-app blocking EVIDENCE, not the measured spans.
+        // Gating on any flag starved the fleet aggregates in production (903/1000 breakdowns
+        // carried BlockingSetUnknown, 2026-07-27) — blocking-only flagged sessions must count
+        // as clean; only duration-critical flags exclude.
+        var pairs = new List<(SessionSummary, SessionTimeBreakdown)>
+        {
+            (Session(TenantA, T0), Breakdown(flags: TimeAttributionFlags.BlockingSetUnknown, espAppsSeconds: 100)),
+            (Session(TenantA, T0), Breakdown(flags: TimeAttributionFlags.BlockingSetTruncated, espAppsSeconds: 300)),
+            (Session(TenantA, T0), Breakdown(
+                flags: TimeAttributionFlags.BlockingSetUnknown | TimeAttributionFlags.PartialObservation,
+                espAppsSeconds: 99999)), // duration-critical bit set → still excluded
+        };
+
+        var aggregate = MaintenanceService.BuildTimeAttributionAggregates(
+                pairs, Array.Empty<SessionSummary>(), T0)
+            .Single(a => a.TenantId == TenantA);
+
+        Assert.Equal(2, aggregate.CleanSessionCount);
+        Assert.Equal(1, aggregate.FlaggedExcludedCount);
+        // Median of {100, 300} = 100 (nearest-rank, lower value — repo convention).
+        Assert.Equal(100, aggregate.SegmentStats.Single(s => s.SegmentKey == TimeAttributionSegments.EspApps).MedianSeconds);
     }
 
     [Fact]

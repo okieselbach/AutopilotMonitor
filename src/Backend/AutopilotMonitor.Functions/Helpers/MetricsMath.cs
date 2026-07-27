@@ -33,14 +33,28 @@ public static class MetricsMath
         => s.TerminalState == "Skipped" || s.TerminalState == "Postponed";
 
     /// <summary>
+    /// Upper plausibility bound for an observed install duration: 6 h, the agent's default
+    /// max observation lifetime (AgentMaxLifetimeMinutes = 360) — nothing longer can have
+    /// been continuously watched. Rows above it are emission artifacts, not slow installs:
+    /// a batch emission at session end pins CompletedAt far past the real finish (verified
+    /// in production 2026-07-27: app rows carrying 60 175 s in a session whose own wall
+    /// clock was 2 697 s; 490 rows &gt; 6 h overall, worst 117 days — dominating the
+    /// slowest-apps ranking with six-figure averages).
+    /// </summary>
+    public const int MaxPlausibleInstallDurationSeconds = 6 * 3600;
+
+    /// <summary>
     /// True for a succeeded row whose install duration was actually observed. Zero /
     /// absent duration on a non-skip succeeded row means the START was never observed
-    /// (agent attach window — audit finding, §0.5 of the insights spec): the duration is
-    /// UNKNOWN, not zero — averaging it in would understate real install times (measured
-    /// −18 % in production). Duration statistics must only read rows where this is true.
+    /// (agent attach window — audit finding, §0.5 of the insights spec); a duration above
+    /// <see cref="MaxPlausibleInstallDurationSeconds"/> means the END was never observed
+    /// (completion back-stamped at session end). Either way the duration is UNKNOWN —
+    /// averaging zeros understates (measured −18 % in production), averaging back-stamps
+    /// inflates. Duration statistics must only read rows where this is true; everything
+    /// else is reported as "unmeasured".
     /// </summary>
     public static bool HasMeasuredDuration(AppInstallSummary s)
-        => s.DurationSeconds > 0;
+        => s.DurationSeconds > 0 && s.DurationSeconds <= MaxPlausibleInstallDurationSeconds;
 
     /// <summary>
     /// Builds the complete app-metrics response object from a (pre-time-filtered) set of app
