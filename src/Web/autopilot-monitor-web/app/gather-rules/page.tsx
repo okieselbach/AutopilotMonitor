@@ -104,16 +104,19 @@ export default function GatherRulesPage() {
   // Fetch unrestrictedMode from tenant config (for validation indicators).
   // The display flag lives in the member-readable feature-flags endpoint so that
   // Operators/Viewers can load this page without 403'ing on the admin-only full config.
-  // GA-override path keeps using globalConfig.tenant (GA-only endpoint).
+  // The SAME route serves the GA-override path: MemberRead has a global-scope bypass and
+  // the route is RouteParam-scoped, so a GA reads the SELECTED tenant's flag. (The former
+  // override URL /api/global/config/{tenantId} does not exist — the swallowed 404 left the
+  // badge showing the GA's HOME-tenant mode for every foreign tenant.)
   useEffect(() => {
     if (!effectiveTenantId) return;
+    // Reset first so a failed/forbidden fetch never carries the previous tenant's mode over.
+    setUnrestrictedMode(false);
+    let stale = false;
     const fetchConfig = async () => {
       try {
-        const url = isGlobalOverride
-          ? api.globalConfig.tenant(effectiveTenantId)
-          : api.config.featureFlags(effectiveTenantId);
-        const response = await authenticatedFetch(url, getAccessToken);
-        if (response.ok) {
+        const response = await authenticatedFetch(api.config.featureFlags(effectiveTenantId), getAccessToken);
+        if (!stale && response.ok) {
           const data = await response.json();
           setUnrestrictedMode(data.unrestrictedMode ?? false);
         }
@@ -122,7 +125,8 @@ export default function GatherRulesPage() {
       }
     };
     fetchConfig();
-  }, [effectiveTenantId, isGlobalOverride, getAccessToken]);
+    return () => { stale = true; };
+  }, [effectiveTenantId, getAccessToken]);
 
   const handleToggleRule = async (rule: GatherRule) => {
     setTogglingRule(rule.ruleId);

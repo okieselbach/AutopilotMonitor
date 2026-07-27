@@ -151,7 +151,9 @@ export const api = {
   // ── Global Config (global admin) ──────────────────────────────────────────
   globalConfig: {
     get: () => `${API_BASE_URL}/api/global/config`,
-    tenant: (tenantId: string) => `${API_BASE_URL}/api/global/config/${tenantId}`,
+    // NOTE: there is deliberately no per-tenant variant — /api/global/config/{tenantId} does
+    // not exist in the backend. A tenant's member-readable flags (incl. unrestrictedMode)
+    // come from config.featureFlags, which a GA may call cross-tenant (MemberRead bypass).
   },
 
   // ── Tenants ───────────────────────────────────────────────────────────────

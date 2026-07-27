@@ -50,6 +50,17 @@ export function useAuthenticatedFetch<T = unknown>(
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
+  // Latest-wins guard: when execute() is called again while a previous request is still in
+  // flight (e.g. the tenant-scope selector seeds a persisted foreign tenant right after mount,
+  // firing an own-tenant fetch immediately followed by the override fetch), only the most
+  // recently started request may write data/error/loading. Without this the LAST-RESOLVED
+  // response wins and a stale tenant's data can overwrite the current selection's result.
+  // The stale call still returns its parsed result to its direct awaiter.
+  const requestSeqRef = useRef(0);
+  // The loading spinner is owned by the last-started NON-silent request (a later silent
+  // background refresh must not leave a superseded visible request's spinner stuck on).
+  const loadingSeqRef = useRef(0);
+
   const clearError = useCallback(() => setError(null), []);
 
   const execute = useCallback(
@@ -58,8 +69,11 @@ export function useAuthenticatedFetch<T = unknown>(
       init?: RequestInit,
       executeOptions?: ExecuteOptions<T>,
     ): Promise<T | null> => {
+      const seq = ++requestSeqRef.current;
+      const isCurrent = () => requestSeqRef.current === seq;
       try {
         if (!executeOptions?.silent) {
+          loadingSeqRef.current = seq;
           setLoading(true);
         }
         setError(null);
@@ -86,9 +100,16 @@ export function useAuthenticatedFetch<T = unknown>(
         const result = executeOptions?.transform
           ? executeOptions.transform(json)
           : (json as T);
-        setData(result);
+        if (isCurrent()) {
+          setData(result);
+        }
         return result;
       } catch (err) {
+        // A superseded request's failure is irrelevant to the current view — the newer
+        // request reports its own outcome. Swallow it entirely (no state, no callbacks).
+        if (!isCurrent()) {
+          return null;
+        }
         const opts = optionsRef.current;
         if (err instanceof TokenExpiredError) {
           if (opts?.onTokenExpired) {
@@ -112,7 +133,9 @@ export function useAuthenticatedFetch<T = unknown>(
         setError(message);
         return null;
       } finally {
-        if (!executeOptions?.silent) {
+        // Only the spinner's owner may clear it — a superseded request finishing early
+        // must not hide the loading state of the one still in flight.
+        if (!executeOptions?.silent && loadingSeqRef.current === seq) {
           setLoading(false);
         }
       }
