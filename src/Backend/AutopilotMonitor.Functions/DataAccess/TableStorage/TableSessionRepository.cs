@@ -100,6 +100,15 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 // self-heals any miss.
                 if (status == SessionStatus.Succeeded || status == SessionStatus.Failed)
                     await _storage.ComputeAndStoreSessionTimeBreakdownAsync(tenantId, sessionId);
+
+                // F2 PR4: upsert this terminal session into its device's history chain at the
+                // same seam, so the session-detail "Attempt N" banner is fresh rather than a
+                // sweep-cycle old. ALL three terminal statuses — Incomplete is a non-successful
+                // journey attempt, unlike the duration-gated breakdown above. Re-terminal
+                // reclassifications (admin mark, late completion) flow through here too and
+                // update the chain entry's status. Fail-soft + idempotent; the maintenance
+                // sweep self-heals any miss.
+                await _storage.UpdateDeviceHistoryForSessionAsync(tenantId, sessionId);
             }
 
             return transitioned;

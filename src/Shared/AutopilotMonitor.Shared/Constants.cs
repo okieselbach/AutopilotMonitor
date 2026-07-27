@@ -887,6 +887,19 @@ namespace AutopilotMonitor.Shared
             public const string SessionTimeBreakdowns    = "SessionTimeBreakdowns";
             public const string TimeAttributionAggregates = "TimeAttributionAggregates";
 
+            // F2 device history / First-Time-Right (insights spec §F2). DeviceHistories:
+            // PK=TenantId, RK=encoded normalized serial — one row per device key holding the
+            // terminal-session chain (cap 20) + derived journey counts; written inline at the
+            // session-terminal seam, healed by the rolling maintenance sweep (which also drops
+            // refs of deleted sessions tombstone-driven and deletes emptied rows). Deliberately
+            // NOT in the per-session deletion manifest (the row spans many sessions); wiped on
+            // tenant offboarding. DeviceJourneyAggregates: PK=TenantId (or "global"),
+            // RK="{yyyy-MM-dd}" — daily FTR rollups (completed journeys, first-time-right count,
+            // attempt histogram, junk-serial disclosure), additive across days; 180d retention
+            // like UsageMetrics.
+            public const string DeviceHistories         = "DeviceHistories";
+            public const string DeviceJourneyAggregates = "DeviceJourneyAggregates";
+
             // Configuration tables
             public const string TenantConfiguration = "TenantConfiguration";
             public const string AdminConfiguration  = "AdminConfiguration";
@@ -1063,6 +1076,8 @@ namespace AutopilotMonitor.Shared
                 PlatformStats,
                 SessionTimeBreakdowns,
                 TimeAttributionAggregates,
+                DeviceHistories,
+                DeviceJourneyAggregates,
                 TenantConfiguration,
                 AdminConfiguration,
                 GlobalAdmins,

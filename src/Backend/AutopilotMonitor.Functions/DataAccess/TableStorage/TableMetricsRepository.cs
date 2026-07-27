@@ -129,5 +129,26 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         public Task<int> DeleteTimeAttributionAggregatesOlderThanAsync(DateTime cutoffDate)
             => _storage.DeleteTimeAttributionAggregatesOlderThanAsync(cutoffDate);
+
+        public Task<DeviceHistory?> GetDeviceHistoryAsync(string tenantId, string serialKey)
+            => _storage.GetDeviceHistoryAsync(tenantId, serialKey);
+
+        public Task<List<DeviceHistory>> GetDeviceHistoriesByTenantAsync(string tenantId)
+            => _storage.GetDeviceHistoriesByTenantAsync(tenantId);
+
+        public Task<bool> UpsertDeviceHistoryAsync(DeviceHistory history)
+            => _storage.UpsertDeviceHistoryAsync(history);
+
+        public Task DeleteDeviceHistoryAsync(string tenantId, string serialKey)
+            => _storage.DeleteDeviceHistoryAsync(tenantId, serialKey);
+
+        public Task<bool> SaveDeviceJourneyAggregateAsync(DeviceJourneyDailyAggregate aggregate)
+            => _storage.SaveDeviceJourneyAggregateAsync(aggregate);
+
+        public Task<List<DeviceJourneyDailyAggregate>> GetDeviceJourneyAggregatesAsync(string tenantId, DateTime startDate, DateTime endDate)
+            => _storage.GetDeviceJourneyAggregatesAsync(tenantId, startDate, endDate);
+
+        public Task<int> DeleteDeviceJourneyAggregatesOlderThanAsync(DateTime cutoffDate)
+            => _storage.DeleteDeviceJourneyAggregatesOlderThanAsync(cutoffDate);
     }
 }

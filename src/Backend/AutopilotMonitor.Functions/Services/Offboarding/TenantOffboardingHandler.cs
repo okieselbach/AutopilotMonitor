@@ -77,6 +77,12 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             // the deletion manifest; the partition wipe covers offboarding + any stragglers.
             Constants.TableNames.SessionTimeBreakdowns,
             Constants.TableNames.TimeAttributionAggregates,
+            // F2 device history / FTR (PR4): both PK=TenantId. Histories are NOT in the
+            // per-session deletion manifest (a row aggregates many sessions; the maintenance
+            // sweep prunes deleted-session refs) — the partition wipe here is their only
+            // whole-row deletion besides chain-emptying.
+            Constants.TableNames.DeviceHistories,
+            Constants.TableNames.DeviceJourneyAggregates,
         };
 
         // Plan §6.4 — composite-PK "{tenantId}_..." wipes (Variant A range).

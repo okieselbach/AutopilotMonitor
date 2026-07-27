@@ -119,6 +119,14 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<List<OrphanedEventSession>> GetOrphanedEventSessionsAsync(TimeSpan gracePeriod);
         Task DeleteEventSessionIndexEntryAsync(string tenantId, string sessionId);
 
+        // --- Session Tombstones (F2 device-journey sweep input) ---
+        /// <summary>
+        /// All session-tombstone keys, including expired-but-unpruned markers: every session
+        /// deletion (cascade + retention) writes one, so these are the proof set the F2 sweep
+        /// uses to drop device-history chain refs of deleted sessions.
+        /// </summary>
+        Task<List<(string TenantId, string SessionId)>> GetAllSessionTombstoneKeysAsync();
+
         // --- Tenant Offboarding ---
 
         /// <summary>

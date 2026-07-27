@@ -106,6 +106,19 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <summary>Rolling-window rows (Date "rolling30") of one tenant partition ("global" allowed) — the fleet panel's range statistics.</summary>
         Task<List<TimeAttributionDailyAggregate>> GetRollingTimeAttributionAggregatesAsync(string tenantId);
         Task<int> DeleteTimeAttributionAggregatesOlderThanAsync(DateTime cutoffDate);
+
+        // --- F2 Device History / First-Time-Right (insights spec §F2, PR4) ---
+        /// <summary>Point-reads one device's history row by NORMALIZED serial; null when absent.</summary>
+        Task<DeviceHistory?> GetDeviceHistoryAsync(string tenantId, string serialKey);
+        /// <summary>All device-history rows of one tenant (sweep's tombstone-cleanup scan).</summary>
+        Task<List<DeviceHistory>> GetDeviceHistoriesByTenantAsync(string tenantId);
+        Task<bool> UpsertDeviceHistoryAsync(DeviceHistory history);
+        /// <summary>Deletes a device's history row (used when every chain ref belonged to deleted sessions).</summary>
+        Task DeleteDeviceHistoryAsync(string tenantId, string serialKey);
+        Task<bool> SaveDeviceJourneyAggregateAsync(DeviceJourneyDailyAggregate aggregate);
+        /// <summary>Daily FTR rows of one tenant partition ("global" allowed), inclusive date range; counts are additive across days.</summary>
+        Task<List<DeviceJourneyDailyAggregate>> GetDeviceJourneyAggregatesAsync(string tenantId, DateTime startDate, DateTime endDate);
+        Task<int> DeleteDeviceJourneyAggregatesOlderThanAsync(DateTime cutoffDate);
     }
 
     /// <summary>

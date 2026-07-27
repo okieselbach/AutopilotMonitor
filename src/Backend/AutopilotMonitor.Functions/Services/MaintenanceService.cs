@@ -139,6 +139,9 @@ namespace AutopilotMonitor.Functions.Services
                 // its own window (NOT the snapshot-gated catch-up above) so late-terminating
                 // sessions still reach their StartedAt-date's aggregate. Fail-soft internally.
                 await SweepTimeAttributionAsync();
+                // F2 PR4: device-history chain heal (incl. deleted-session ref cleanup) + daily
+                // FTR aggregates over the same rolling window. Fail-soft internally.
+                await SweepDeviceJourneysAsync();
                 // Plan §5 PR6 / §16 R14: session retention fanout extracted out of the 2h timer
                 // into the dedicated 12h SessionDeletionMaintenanceFunction so cascade-lifecycle
                 // work has independent cadence + kill-switch + OpsEvent watchdogs. The non-session
@@ -204,8 +207,10 @@ namespace AutopilotMonitor.Functions.Services
                 result.MetricsAggregated = true;
 
                 // Timer-path parity: manual maintenance also refreshes the attribution
-                // breakdowns + daily aggregates (rolling 30d window, cheap once converged).
+                // breakdowns + daily aggregates and the device-history/FTR rollups
+                // (rolling 30d windows, cheap once converged).
                 await SweepTimeAttributionAsync();
+                await SweepDeviceJourneysAsync();
 
                 if (!aggregateOnly)
                 {

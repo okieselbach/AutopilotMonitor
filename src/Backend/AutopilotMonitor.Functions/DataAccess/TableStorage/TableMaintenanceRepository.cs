@@ -99,6 +99,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task DeleteEventSessionIndexEntryAsync(string tenantId, string sessionId)
             => _storage.DeleteEventSessionIndexEntryAsync(tenantId, sessionId);
 
+        public Task<List<(string TenantId, string SessionId)>> GetAllSessionTombstoneKeysAsync()
+            => _storage.GetAllSessionTombstoneKeysAsync();
+
         /// <summary>
         /// Tenant offboarding cascade-worker session enumerator. Yields one row per session
         /// belonging to <paramref name="tenantId"/>. Storage exceptions are intentionally

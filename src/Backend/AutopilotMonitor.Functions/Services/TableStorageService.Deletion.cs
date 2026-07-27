@@ -8,6 +8,7 @@ using Azure;
 using Azure.Data.Tables;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services.Deletion;
+using Microsoft.Extensions.Logging;
 
 namespace AutopilotMonitor.Functions.Services
 {
@@ -164,6 +165,33 @@ namespace AutopilotMonitor.Functions.Services
             {
                 // Already gone — idempotent.
             }
+        }
+
+        /// <summary>
+        /// All tombstone keys, INCLUDING expired-but-unpruned rows: a tombstone proves the
+        /// session was deleted regardless of the marker's 410-gate window, and that proof is
+        /// exactly what the F2 device-journey sweep needs to drop chain refs of deleted
+        /// sessions. Cross-partition scan over the small table (one row per recently-deleted
+        /// session, physically pruned after ~7d) with a key-only projection.
+        /// </summary>
+        public virtual async Task<List<(string TenantId, string SessionId)>> GetAllSessionTombstoneKeysAsync()
+        {
+            var keys = new List<(string TenantId, string SessionId)>();
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Shared.Constants.TableNames.SessionTombstones);
+                await foreach (var entity in tableClient.QueryAsync<TableEntity>(
+                    select: new[] { "PartitionKey", "RowKey" }))
+                {
+                    keys.Add((entity.PartitionKey, entity.RowKey));
+                }
+            }
+            catch (Exception ex)
+            {
+                // Fail-soft: the sweep then simply prunes nothing this pass and retries next tick.
+                _logger.LogWarning(ex, "Failed to enumerate session tombstone keys");
+            }
+            return keys;
         }
 
         /// <summary>

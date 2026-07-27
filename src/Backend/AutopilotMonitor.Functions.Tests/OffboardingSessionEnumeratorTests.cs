@@ -125,5 +125,6 @@ public class OffboardingSessionEnumeratorTests
         public Task<bool> IsSessionIndexEmptyAsync() => throw new NotImplementedException();
         public Task<List<OrphanedEventSession>> GetOrphanedEventSessionsAsync(TimeSpan gracePeriod) => throw new NotImplementedException();
         public Task DeleteEventSessionIndexEntryAsync(string tenantId, string sessionId) => throw new NotImplementedException();
+        public Task<List<(string TenantId, string SessionId)>> GetAllSessionTombstoneKeysAsync() => throw new NotImplementedException();
     }
 }

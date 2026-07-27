@@ -1038,6 +1038,20 @@ namespace AutopilotMonitor.Functions.Services
             {
                 _logger.LogWarning(ex, "Failed to cleanup old time-attribution aggregates");
             }
+
+            // Device-journey (FTR) daily aggregates: same 180d window. (DeviceHistories needs no
+            // age sweep — chain refs of deleted sessions are pruned tombstone-driven by
+            // SweepDeviceJourneysAsync and the rows die with tenant offboarding.)
+            try
+            {
+                var deleted = await _metricsRepo.DeleteDeviceJourneyAggregatesOlderThanAsync(now.AddDays(-usageMetricsRetentionDays));
+                if (deleted > 0)
+                    _logger.LogInformation("Device-journey aggregate cleanup: deleted {Count} rows older than {Days} days", deleted, usageMetricsRetentionDays);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to cleanup old device-journey aggregates");
+            }
         }
         /// <summary>
         /// Detects and cleans up orphaned events — events stored in the Events table
