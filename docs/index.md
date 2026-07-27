@@ -41,6 +41,10 @@ https://docs.autopilotmonitor.com (separate repository).
 
 * [MCP Docs Corpus](mcp/docs-corpus.md) - How the published customer documentation becomes the `search_docs` corpus: CRLF-safe heading chunking, build-time embedding as a third precomputed section, and why a docs edit needs an MCP redeploy.
 
+# Web Portal
+
+* [Portal Navigation Prefetch & the SWA Runtime Bottleneck](web/portal-navigation-prefetch.md) - Why every navigation Link sets `prefetch={false}`: the App Router's viewport prefetch fans out one RSC request per visible link against an HTTP/1.1 Static Web Apps runtime, and its latency tail starves the six connections that also serve the document and the route chunks. Includes where browser telemetry actually lives.
+
 # Security & Identity
 
 * [MCP OAuth Flow](mcp-oauth-flow.md) - Who authenticates where when connecting an AI client to the MCP server; two identities, three parties plus Entra ID.

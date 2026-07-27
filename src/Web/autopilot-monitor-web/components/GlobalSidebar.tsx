@@ -312,6 +312,15 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
       : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200";
   };
 
+  // Every nav Link below sets prefetch={false} on purpose. The sidebar renders the whole
+  // navigation on every page, so the App Router's default viewport prefetch fires one RSC
+  // request per visible link against the SWA-hosted Next.js runtime on each page load
+  // (measured: ~10k requests / 14 days). That host speaks HTTP/1.1, so those prefetches
+  // occupy the browser's 6 connections to the SAME origin that serves the document and the
+  // route chunks — when the runtime queues them (p95 ~0.9s but a tail reaching 150s+), the
+  // portal freezes until the queue drains. Every route here is a client component behind
+  // ProtectedRoute that fetches its own data after mount, so the prefetched RSC payload
+  // buys nothing. See docs/web/portal-navigation-prefetch.md.
   // --- Render a global nav link ---
   const renderGlobalItem = (item: NavItem, isGlobal = false) => {
     const active = isNavActive(item.href);
@@ -322,6 +331,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
         <li key={item.id}>
           <Link
             href={item.href}
+            prefetch={false}
             onClick={() => setMobileDrawerOpen(false)}
             className={`${base} px-2 py-2 justify-center relative group`}
             title={item.label}
@@ -339,7 +349,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
 
     return (
       <li key={item.id}>
-        <Link href={item.href} onClick={() => setMobileDrawerOpen(false)} className={`${base} px-3 py-1.5`}>
+        <Link href={item.href} prefetch={false} onClick={() => setMobileDrawerOpen(false)} className={`${base} px-3 py-1.5`}>
           {renderIcon(item.icon, "w-4 h-4")}
           <span className="truncate">{item.label}</span>
         </Link>
@@ -362,7 +372,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
       if (pageSectionsMode === "route" && item.href) {
         return (
           <li key={item.id}>
-            <Link href={item.href} onClick={() => setMobileDrawerOpen(false)} className={`${base} px-2 py-2 justify-center relative group`} title={item.label}>
+            <Link href={item.href} prefetch={false} onClick={() => setMobileDrawerOpen(false)} className={`${base} px-2 py-2 justify-center relative group`} title={item.label}>
               {inner}
               <span className="absolute left-full ml-2 px-2 py-1 rounded bg-gray-900 text-white text-xs whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 dark:bg-gray-700">{item.label}</span>
             </Link>
@@ -384,7 +394,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
     if (pageSectionsMode === "route" && item.href) {
       return (
         <li key={item.id}>
-          <Link href={item.href} onClick={() => setMobileDrawerOpen(false)} className={`${base} px-3 py-1.5`}>
+          <Link href={item.href} prefetch={false} onClick={() => setMobileDrawerOpen(false)} className={`${base} px-3 py-1.5`}>
             {renderIcon(item.icon, "w-4 h-4")}
             <span className="truncate">{item.label}</span>
           </Link>
@@ -502,6 +512,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                       <li key={expandItem.id}>
                         <Link
                           href={firstHref}
+                          prefetch={false}
                           onClick={() => setMobileDrawerOpen(false)}
                           className={`flex items-center justify-center px-2 py-2 rounded-md text-sm transition-colors relative group ${
                             itemHasActive
@@ -567,6 +578,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                               <li key={sub.id}>
                                 <Link
                                   href={sub.href}
+                                  prefetch={false}
                                   onClick={() => setMobileDrawerOpen(false)}
                                   className={`block pl-10 pr-3 py-1 rounded-md text-[13px] transition-colors ${
                                     subActive
@@ -644,6 +656,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                   <li key={group.name}>
                     <Link
                       href={firstHref ?? "#"}
+                      prefetch={false}
                       onClick={() => setMobileDrawerOpen(false)}
                       className={`flex items-center justify-center px-2 py-2 rounded-md text-sm transition-colors relative group ${
                         groupHasActive
@@ -701,6 +714,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                             <li key={item.id}>
                               <Link
                                 href={item.href}
+                                prefetch={false}
                                 onClick={() => setMobileDrawerOpen(false)}
                                 className={`block pl-10 pr-3 py-1 rounded-md text-[13px] transition-colors ${
                                   active
