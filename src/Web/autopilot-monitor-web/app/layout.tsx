@@ -14,6 +14,7 @@ import FeedbackBubble from "../components/FeedbackBubble";
 import { SidebarProvider } from "../contexts/SidebarContext";
 import { GlobalSidebar } from "../components/GlobalSidebar";
 import AppInsightsInit from "../components/AppInsightsInit";
+import ChunkReloadRecovery from "../components/ChunkReloadRecovery";
 import { SITE_URL } from "@/utils/config";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -126,6 +127,7 @@ export default function RootLayout({
                     <TenantProvider>
                       <SidebarProvider>
                         <AppInsightsInit />
+                        <ChunkReloadRecovery />
                         <Navbar />
                         <GlobalSidebar>
                           {children}

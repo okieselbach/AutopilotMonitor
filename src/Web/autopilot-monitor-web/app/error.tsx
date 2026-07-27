@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { isChunkLoadError, tryRecoverFromChunkError } from "@/utils/chunkReloadRecovery";
 
 /**
  * Route-level error boundary — catches unhandled exceptions within page
@@ -16,6 +18,15 @@ export default function Error({
   reset: () => void;
 }) {
   const router = useRouter();
+
+  // Stale-bundle chunk failure after a deploy: reload once instead of showing the
+  // error card (utils/chunkReloadRecovery.ts — the guard prevents reload loops; a
+  // repeat inside the guard window falls through to the card below).
+  useEffect(() => {
+    if (isChunkLoadError(error)) {
+      tryRecoverFromChunkError("error-boundary");
+    }
+  }, [error]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
