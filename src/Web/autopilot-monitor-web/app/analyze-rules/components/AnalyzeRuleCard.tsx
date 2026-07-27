@@ -7,6 +7,67 @@ import AnalyzeRuleFormFields from "./AnalyzeRuleFormFields";
 import { stripInternalFields } from "@/lib/rulePageHelpers";
 import { formatInlineMarkdown } from "@/lib/formatInlineMarkdown";
 
+/** One day of rule telemetry (rule-stats `trend`; sparse — days without activity have no entry). */
+export interface RuleTrendPoint {
+  date: string;
+  fireCount: number;
+  evaluationCount: number;
+}
+
+/** Active F3 regression episode for a rule (rule-stats `regressions[]`, tracker-backed). */
+export interface RuleRegressionInfo {
+  ruleId: string;
+  windowFireCount: number;
+  windowSessionCount: number;
+  windowRatePct: number;
+  baselineFireCount: number;
+  baselineSessionCount: number;
+  baselineRatePct: number;
+  lift: number | null;
+  dimension?: {
+    dimension: string;
+    value: string;
+    hitSharePct: number;
+    allSharePct: number;
+    lift: number;
+  } | null;
+}
+
+/**
+ * 30-day fire-count sparkline (F3): densifies the sparse trend rows into one bar per day so
+ * gaps read as honest zeros. Hidden below lg — the collapsed header is already dense on mobile.
+ */
+function RuleSparkline({ trend }: { trend: RuleTrendPoint[] }) {
+  if (trend.length === 0) return null;
+  const byDate = new Map(trend.map((t) => [t.date, t.fireCount]));
+  const end = new Date(trend[trend.length - 1].date + "T00:00:00Z");
+  const values: number[] = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(end);
+    d.setUTCDate(d.getUTCDate() - i);
+    values.push(byDate.get(d.toISOString().slice(0, 10)) ?? 0);
+  }
+  const max = Math.max(...values);
+  if (max === 0) return null;
+  return (
+    <span
+      className="hidden lg:inline-flex items-end flex-shrink-0 text-gray-300"
+      title={`Daily fires, last 30 days (peak ${max}/day)`}
+      aria-hidden
+    >
+      <svg width={90} height={16}>
+        {values.map((v, i) => {
+          const h = v > 0 ? Math.max(2, Math.round((v / max) * 16)) : 1;
+          return (
+            <rect key={i} x={i * 3} y={16 - h} width={2} height={h}
+              className={v > 0 ? "fill-indigo-300" : "fill-gray-200"} />
+          );
+        })}
+      </svg>
+    </span>
+  );
+}
+
 interface AnalyzeRuleCardProps {
   rule: AnalyzeRule;
   isExpanded: boolean;
@@ -44,6 +105,10 @@ interface AnalyzeRuleCardProps {
   onScrollToCopy?: (ruleId: string) => void;
   hitRate?: number | null;
   fireCount?: number | null;
+  /** Sparse daily telemetry for the 30d sparkline (rule-stats `trend`). */
+  trend?: RuleTrendPoint[] | null;
+  /** Active regression episode → renders the F3 badge while the alert is live. */
+  regression?: RuleRegressionInfo | null;
 }
 
 export default function AnalyzeRuleCard({
@@ -57,7 +122,7 @@ export default function AnalyzeRuleCard({
   readOnly = false,
   variant = "default",
   onConfigureTemplate, templateCopyExists, templateCopyRuleId, onScrollToCopy,
-  hitRate, fireCount,
+  hitRate, fireCount, trend, regression,
 }: AnalyzeRuleCardProps) {
   const isTemplateVariant = variant === "template";
   const [showJson, setShowJson] = useState(false);
@@ -149,6 +214,7 @@ export default function AnalyzeRuleCard({
             </span>
           )}
           <span className="text-xs text-gray-500 flex-shrink-0 hidden md:inline" title="Confidence Threshold">Threshold: {rule.confidenceThreshold}%</span>
+          {trend && trend.length > 0 && <RuleSparkline trend={trend} />}
           {hitRate != null && hitRate > 0 && (
             <span
               className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 ${
@@ -159,6 +225,25 @@ export default function AnalyzeRuleCard({
               title={`Fires on ${hitRate}% of evaluated sessions (${fireCount ?? 0} total fires in last 30 days)`}
             >
               {hitRate}% hit rate
+            </span>
+          )}
+          {/* F3 regression badge — visible only while an alert episode is active (tracker row).
+              Numbers in the tooltip mirror the bell notification; correlation wording only. */}
+          {regression && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-800 border border-red-300 flex-shrink-0"
+              title={
+                `Firing more often than usual: ${regression.windowRatePct}% of evaluated sessions in the last 7 days ` +
+                `(${regression.windowFireCount}/${regression.windowSessionCount}) vs ${regression.baselineRatePct}% baseline ` +
+                `(${regression.baselineFireCount}/${regression.baselineSessionCount} over 28 days)` +
+                (regression.lift != null ? ` — lift ${regression.lift}x.` : " — new signal.") +
+                (regression.dimension
+                  ? ` ${regression.dimension.hitSharePct}% of affected sessions are on ${regression.dimension.dimension} ` +
+                    `${regression.dimension.value} vs ${regression.dimension.allSharePct}% of all sessions — correlated, not necessarily causal.`
+                  : "")
+              }
+            >
+              ↑ Regression
             </span>
           )}
           <svg className={`w-5 h-5 text-gray-400 transition-transform flex-shrink-0 ml-auto sm:ml-0 ${isExpanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>

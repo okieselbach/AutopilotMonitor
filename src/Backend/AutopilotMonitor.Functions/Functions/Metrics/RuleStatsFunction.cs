@@ -16,13 +16,16 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
     {
         private readonly ILogger<RuleStatsFunction> _logger;
         private readonly IMetricsRepository _metricsRepo;
+        private readonly IHardwareRejectionNotificationTracker _notificationTracker;
 
         public RuleStatsFunction(
             ILogger<RuleStatsFunction> logger,
-            IMetricsRepository metricsRepo)
+            IMetricsRepository metricsRepo,
+            IHardwareRejectionNotificationTracker notificationTracker)
         {
             _logger = logger;
             _metricsRepo = metricsRepo;
+            _notificationTracker = notificationTracker;
         }
 
         /// <summary>
@@ -81,6 +84,9 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var result = new
                 {
                     rules = aggregated,
+                    // F3 PR6: active regression episodes (tracker rows) — the rules-page badge
+                    // and MCP get_rule_stats read them from here. Empty list = nothing regressed.
+                    regressions = await _notificationTracker.GetRuleRegressionsAsync(tenantId),
                     summary = new
                     {
                         totalEvaluations,
@@ -165,6 +171,11 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var result = new
                 {
                     rules = aggregated,
+                    // Regression episodes are tenant-scoped: present when drilling into one
+                    // tenant, empty for the cross-tenant "global" aggregate (no episode there).
+                    regressions = queryTenantId != "global"
+                        ? await _notificationTracker.GetRuleRegressionsAsync(queryTenantId)
+                        : new List<AutopilotMonitor.Shared.Models.RuleRegressionAlert>(),
                     summary = new
                     {
                         totalEvaluations,

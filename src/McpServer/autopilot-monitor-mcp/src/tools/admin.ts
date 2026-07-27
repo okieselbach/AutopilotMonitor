@@ -1047,7 +1047,11 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'Get rule firing statistics for analyze and gather rules. Shows which rules fire most often, ' +
         'their hit rates (fires/evaluations), and daily trends. Use to identify commonly triggered rules, ' +
         'optimize rule definitions, or understand tenant-specific failure patterns. ' +
-        (ga ? 'Without tenantId returns global stats (cross-tenant). With tenantId returns tenant-specific stats. ' : '') +
+        'The tenant-scoped response also carries "regressions": active rule-frequency regression episodes ' +
+        '(analyze rules whose 7-day hit rate rose >=2x over their 28-day baseline with disjoint Wilson ' +
+        'intervals) incl. window/baseline counts and an optional dimension concentration — correlation ' +
+        'only, never causal. ' +
+        (ga ? 'Without tenantId returns global stats (cross-tenant; no regressions there). With tenantId returns tenant-specific stats. ' : '') +
         'NOTE: default window is 30 days × every rule × per-day trend rows — for 20+ rules the response ' +
         'easily exceeds 70 KB and can trip the response cap. Pass a tighter `startDate`/`endDate` window ' +
         '(7 days is usually plenty) and/or `ruleType` filter to keep responses lean.',

@@ -20,7 +20,7 @@ import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import { isTemplateRule } from "@/lib/analyzeRuleTabs";
 import { AnalyzeRule, RuleForm, EMPTY_FORM, EMPTY_CONDITION, ruleToForm } from "./types";
 import AnalyzeRuleFormFields from "./components/AnalyzeRuleFormFields";
-import AnalyzeRuleCard from "./components/AnalyzeRuleCard";
+import AnalyzeRuleCard, { RuleTrendPoint, RuleRegressionInfo } from "./components/AnalyzeRuleCard";
 import TemplateConfigModal from "./components/TemplateConfigModal";
 import { DOCS_URL } from "@/utils/config";
 
@@ -75,8 +75,13 @@ export default function AnalyzeRulesPage() {
   const [configureTemplateRule, setConfigureTemplateRule] = useState<AnalyzeRule | null>(null);
   const [creatingFromTemplate, setCreatingFromTemplate] = useState(false);
 
-  // Rule telemetry stats (hit rates)
-  const [ruleStatsMap, setRuleStatsMap] = useState<Record<string, { hitRate: number; fireCount: number }>>({});
+  // Rule telemetry stats (hit rates + 30d trend for the sparkline + active F3 regressions)
+  const [ruleStatsMap, setRuleStatsMap] = useState<Record<string, {
+    hitRate: number;
+    fireCount: number;
+    trend: RuleTrendPoint[];
+    regression?: RuleRegressionInfo;
+  }>>({});
 
   // Tenant notification channels (for the per-rule notify target selector)
   const [tenantChannels, setTenantChannels] = useState<{ id: string; name: string }[]>([]);
@@ -124,10 +129,26 @@ export default function AnalyzeRulesPage() {
         const response = await authenticatedFetch(statsUrl, getAccessToken);
         if (response.ok) {
           const data = await response.json();
-          const map: Record<string, { hitRate: number; fireCount: number }> = {};
+          const map: Record<string, {
+            hitRate: number; fireCount: number; trend: RuleTrendPoint[]; regression?: RuleRegressionInfo;
+          }> = {};
           if (data.rules && Array.isArray(data.rules)) {
             for (const r of data.rules) {
-              map[r.ruleId] = { hitRate: r.hitRate ?? 0, fireCount: r.fireCount ?? 0 };
+              map[r.ruleId] = {
+                hitRate: r.hitRate ?? 0,
+                fireCount: r.fireCount ?? 0,
+                trend: Array.isArray(r.trend) ? r.trend : [],
+              };
+            }
+          }
+          // F3: attach active regression episodes (tracker-backed) to their rules — a
+          // regression for a rule without stats rows still gets a synthetic entry so the
+          // badge renders regardless.
+          if (data.regressions && Array.isArray(data.regressions)) {
+            for (const regression of data.regressions as RuleRegressionInfo[]) {
+              const entry = map[regression.ruleId] ?? { hitRate: 0, fireCount: 0, trend: [] };
+              entry.regression = regression;
+              map[regression.ruleId] = entry;
             }
           }
           setRuleStatsMap(map);
@@ -845,6 +866,8 @@ export default function AnalyzeRulesPage() {
                       onScrollToCopy={(copyId) => setExpandedRuleId(copyId)}
                       hitRate={ruleStatsMap[rule.ruleId]?.hitRate ?? null}
                       fireCount={ruleStatsMap[rule.ruleId]?.fireCount ?? null}
+                      trend={ruleStatsMap[rule.ruleId]?.trend ?? null}
+                      regression={ruleStatsMap[rule.ruleId]?.regression ?? null}
                     />
                     </div>
                   ))}

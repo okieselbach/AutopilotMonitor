@@ -30,6 +30,9 @@ public static class TenantNotificationAudienceCatalog
         ["sla_breach"]               = NotificationAudience.Member,
         ["sla_consecutive_failures"] = NotificationAudience.Member,
         ["sla_resolved"]             = NotificationAudience.Member,
+        // F3 regression radar: rule-tuning is an admin concern (the alert deep-links into the
+        // analyze-rules page, which members cannot act on).
+        ["rule_frequency_regression"] = NotificationAudience.Admin,
     };
 
     public static NotificationAudience Resolve(string? type)

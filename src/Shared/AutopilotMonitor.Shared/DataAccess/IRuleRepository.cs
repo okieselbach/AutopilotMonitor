@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using AutopilotMonitor.Shared.Models;
@@ -13,6 +14,16 @@ namespace AutopilotMonitor.Shared.DataAccess
         // --- Rule Results ---
         Task<bool> StoreRuleResultAsync(RuleResult result);
         Task<List<RuleResult>> GetRuleResultsAsync(string tenantId, string sessionId);
+
+        /// <summary>
+        /// SessionIds where <paramref name="ruleId"/> produced a result detected at/after
+        /// <paramref name="sinceUtc"/> — the F3 radar's hit set for on-fire dimension
+        /// correlation. Tenant-scoped partition-range scan with server-side RowKey (= ruleId)
+        /// and DetectedAt filters; bounded by <paramref name="maxResults"/> and only run for
+        /// the rare fired alert. Fail-soft (empty on error — the alert then simply carries no
+        /// dimension claim).
+        /// </summary>
+        Task<List<string>> GetRuleHitSessionIdsAsync(string tenantId, string ruleId, DateTime sinceUtc, int maxResults = 2000);
 
         // --- Gather Rules ---
         Task<bool> StoreGatherRuleAsync(GatherRule rule, string tenantId = "global");

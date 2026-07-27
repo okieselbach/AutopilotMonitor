@@ -384,6 +384,38 @@ public static class MetricsMath
             .Take(take)
             .ToList();
     }
+
+    /// <summary>
+    /// Wilson score interval (95 % default) for a binomial proportion — the F3 regression
+    /// radar's statistical primitive (insights spec §F3: deterministic, unit-pinned). Bounds
+    /// are clamped to [0,1]; n = 0 yields the uninformative (0,1) so a zero-denominator
+    /// side can never claim separation.
+    /// </summary>
+    public static (double Lower, double Upper) WilsonInterval(int successes, int trials, double z = 1.96)
+    {
+        if (trials <= 0) return (0.0, 1.0);
+        var n = (double)trials;
+        var p = Math.Clamp((double)successes / n, 0.0, 1.0);
+        var z2 = z * z;
+        var denominator = 1.0 + z2 / n;
+        var center = (p + z2 / (2.0 * n)) / denominator;
+        var half = (z / denominator) * Math.Sqrt(p * (1.0 - p) / n + z2 / (4.0 * n * n));
+        return (Math.Max(0.0, center - half), Math.Min(1.0, center + half));
+    }
+
+    /// <summary>
+    /// One-sided two-proportion separation for a rate INCREASE: true when the current
+    /// window's Wilson lower bound lies strictly above the baseline's Wilson upper bound —
+    /// the intervals are disjoint in the regression direction, so the lift is statistically
+    /// real rather than small-n noise (insights spec §F3 detection gate 3).
+    /// </summary>
+    public static bool RateIncreaseSeparated(
+        int windowHits, int windowTrials, int baselineHits, int baselineTrials, double z = 1.96)
+    {
+        var window = WilsonInterval(windowHits, windowTrials, z);
+        var baseline = WilsonInterval(baselineHits, baselineTrials, z);
+        return window.Lower > baseline.Upper;
+    }
 }
 
 /// <summary>

@@ -94,6 +94,10 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     "OffboardingFeedbackReceived",
     "TenantTrialExpiring",
     "TenantTrialExpired",
+    // F3 regression radar: an analyze rule's 7d hit rate rose ≥2× over its 28d baseline
+    // (Wilson-separated). Warning-tier, once per episode (tracker-deduped). Dual-register
+    // per memory feedback_ops_event_types_dual_register.
+    "RuleFrequencyRegression",
   ],
   Agent: [
     "BlobStorageMissing",

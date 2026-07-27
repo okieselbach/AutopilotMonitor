@@ -128,6 +128,45 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
+        /// <summary>
+        /// F3 radar hit set: sessionIds where <paramref name="ruleId"/> produced a result at/after
+        /// <paramref name="sinceUtc"/>. RuleResults PK = "{tenantId}_{sessionId}", RK = ruleId, so a
+        /// tenant partition-range scan with server-side RowKey + DetectedAt filters returns exactly
+        /// the hit rows; only SessionId is transferred. Runs on-fire only (rare) and is fail-soft —
+        /// an empty result just means the alert carries no dimension claim.
+        /// </summary>
+        public async Task<List<string>> GetRuleHitSessionIdsAsync(
+            string tenantId, string ruleId, DateTime sinceUtc, int maxResults = 2000)
+        {
+            var sessionIds = new List<string>();
+            if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(ruleId))
+                return sessionIds;
+            try
+            {
+                SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.RuleResults);
+                var safeTenantId = ODataSanitizer.EscapeValue(tenantId);
+                var safeRuleId = ODataSanitizer.EscapeValue(ruleId);
+                var filter = $"PartitionKey ge '{safeTenantId}_' and PartitionKey lt '{safeTenantId}_~' " +
+                             $"and RowKey eq '{safeRuleId}' and DetectedAt ge datetime'{sinceUtc:yyyy-MM-ddTHH:mm:ss}Z'";
+
+                await foreach (var entity in tableClient.QueryAsync<TableEntity>(
+                    filter: filter, select: new[] { "SessionId" }))
+                {
+                    var sessionId = entity.GetString("SessionId");
+                    if (!string.IsNullOrEmpty(sessionId))
+                        sessionIds.Add(sessionId!);
+                    if (sessionIds.Count >= maxResults) break;
+                }
+                return sessionIds;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to get rule hit sessions for rule {RuleId} in tenant {TenantId}", ruleId, tenantId);
+                return sessionIds;
+            }
+        }
+
         // ===== GATHER RULES METHODS =====
 
         /// <summary>

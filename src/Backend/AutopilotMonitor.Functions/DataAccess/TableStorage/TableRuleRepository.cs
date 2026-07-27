@@ -30,6 +30,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<List<RuleResult>> GetRuleResultsAsync(string tenantId, string sessionId)
             => _storage.GetRuleResultsAsync(tenantId, sessionId);
 
+        public Task<List<string>> GetRuleHitSessionIdsAsync(string tenantId, string ruleId, DateTime sinceUtc, int maxResults = 2000)
+            => _storage.GetRuleHitSessionIdsAsync(tenantId, ruleId, sinceUtc, maxResults);
+
         public Task<bool> StoreGatherRuleAsync(GatherRule rule, string tenantId = "global")
             => _storage.StoreGatherRuleAsync(rule, tenantId);
 

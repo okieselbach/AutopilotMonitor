@@ -60,6 +60,9 @@ namespace AutopilotMonitor.Functions.Services
         private readonly IHardwareRejectionNotificationTracker _hardwareRejectionTracker;
         private readonly DataAccess.TableStorage.BackupJobsRepository _backupJobsRepo;
         private readonly OpsEventService _opsEventService;
+        private readonly IRuleRepository _ruleRepo;
+        private readonly AnalyzeRuleService _analyzeRuleService;
+        private readonly TenantNotificationService _tenantNotificationService;
         private readonly Analyze.IAnalyzeOnEnrollmentEndProducer _analyzeProducer;
         private readonly IAzureMonitorMetricsReader _metricsReader;
         private readonly IPoisonQueueProbe _poisonQueueProbe;
@@ -89,6 +92,9 @@ namespace AutopilotMonitor.Functions.Services
             IHardwareRejectionNotificationTracker hardwareRejectionTracker,
             DataAccess.TableStorage.BackupJobsRepository backupJobsRepo,
             OpsEventService opsEventService,
+            IRuleRepository ruleRepo,
+            AnalyzeRuleService analyzeRuleService,
+            TenantNotificationService tenantNotificationService,
             Analyze.IAnalyzeOnEnrollmentEndProducer analyzeProducer,
             IAzureMonitorMetricsReader metricsReader,
             IPoisonQueueProbe poisonQueueProbe,
@@ -113,6 +119,9 @@ namespace AutopilotMonitor.Functions.Services
             _hardwareRejectionTracker = hardwareRejectionTracker;
             _backupJobsRepo = backupJobsRepo;
             _opsEventService = opsEventService;
+            _ruleRepo = ruleRepo;
+            _analyzeRuleService = analyzeRuleService;
+            _tenantNotificationService = tenantNotificationService;
             _analyzeProducer = analyzeProducer;
             _metricsReader = metricsReader;
             _poisonQueueProbe = poisonQueueProbe;
@@ -135,6 +144,10 @@ namespace AutopilotMonitor.Functions.Services
                 await MarkStalledSessionsAsTimedOutAsync();
                 await DetectExcessiveEventSessionsAsync();
                 await AggregateMetricsWithCatchUpAsync();
+                // F3 PR6: rule-frequency regression radar, right after the rule-stats
+                // aggregation so the window rows are fresh. Anchored on YESTERDAY — whole
+                // days only, a partial today would understate the window rate. Fail-soft.
+                await RunRuleRegressionRadarAsync(DateTime.UtcNow.Date.AddDays(-1));
                 // F1 PR2: rolling 30d breakdown backfill + daily attribution aggregates. Owns
                 // its own window (NOT the snapshot-gated catch-up above) so late-terminating
                 // sessions still reach their StartedAt-date's aggregate. Fail-soft internally.
@@ -205,6 +218,10 @@ namespace AutopilotMonitor.Functions.Services
                 await AggregateMetricsForDateAsync(dateToAggregate);
                 result.AggregatedDate = dateToAggregate.ToString("yyyy-MM-dd");
                 result.MetricsAggregated = true;
+
+                // Timer-path parity: radar re-runs are idempotent (tracker dedup), so a manual
+                // aggregation also re-evaluates regressions anchored on the aggregated date.
+                await RunRuleRegressionRadarAsync(dateToAggregate);
 
                 // Timer-path parity: manual maintenance also refreshes the attribution
                 // breakdowns + daily aggregates and the device-history/FTR rollups

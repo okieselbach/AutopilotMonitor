@@ -486,6 +486,37 @@ namespace AutopilotMonitor.Functions.Services
                 tenantId, "System.TrialSweep", new { domainName, trialExpiredUtc });
         }
 
+        /// <summary>
+        /// F3 regression radar (insights spec §F3): an analyze rule's 7-day hit rate rose ≥2×
+        /// over its 28-day baseline with disjoint Wilson intervals. Fired ONCE per episode (the
+        /// notification-tracker row is the dedup); the message carries the full numbers so the
+        /// event is verifiable without a portal round-trip. Dimension wording is correlation
+        /// only — never causal. Dual-registered in the web OPS_EVENT_TYPES catalog
+        /// (memory: feedback_ops_event_types_dual_register).
+        /// </summary>
+        public Task RecordRuleFrequencyRegressionAsync(
+            string tenantId, string ruleId, string ruleTitle,
+            int windowFireCount, int windowSessionCount, double windowRatePct,
+            int baselineFireCount, int baselineSessionCount, double baselineRatePct,
+            double? lift, string? dimensionSummary)
+            => WriteAsync(OpsEventCategory.Tenant, "RuleFrequencyRegression", OpsEventSeverity.Warning,
+                $"Rule '{ruleTitle}' ({ruleId}) fired in {windowFireCount}/{windowSessionCount} sessions ({windowRatePct}%) over 7d " +
+                $"vs {baselineRatePct}% baseline ({baselineFireCount}/{baselineSessionCount} over 28d)" +
+                (lift.HasValue ? $" — lift {lift.Value}x" : " — new signal (no baseline fires)") +
+                (string.IsNullOrEmpty(dimensionSummary) ? string.Empty : $". {dimensionSummary}"),
+                tenantId, "System.Maintenance",
+                new
+                {
+                    ruleId,
+                    windowFireCount,
+                    windowSessionCount,
+                    windowRatePct,
+                    baselineFireCount,
+                    baselineSessionCount,
+                    baselineRatePct,
+                    lift,
+                });
+
         // ── Agent ──────────────────────────────────────────────────────────────
 
         public Task RecordSessionTimeoutsAsync(string tenantId, int sessionCount, int timeoutHours)

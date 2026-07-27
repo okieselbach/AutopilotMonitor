@@ -1,6 +1,8 @@
+using System.Text.Json;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Azure;
 using Azure.Data.Tables;
 using Microsoft.Extensions.Logging;
@@ -13,6 +15,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
     ///   - hardware rejection: "{manufacturer-lower}|{model-lower}" (trimmed)
     ///   - TPM PSS unsupported: "tpmpss|{serial-lower}" (trimmed; the literal "tpmpss" prefix
     ///     cannot collide with a hardware key because no real manufacturer is named "tpmpss")
+    ///   - F3 rule regression: "ruleregression|{ruleId-lower}" (trimmed; payload-carrying rows
+    ///     that are refreshed while the episode is active and deleted on re-arm)
     /// Race-safe via AddEntityAsync: Azure Table Storage returns 409 Conflict if the entity already exists.
     /// </summary>
     public class TableHardwareRejectionNotificationTracker : IHardwareRejectionNotificationTracker
@@ -109,16 +113,102 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
         }
 
+        public async Task<bool> TryRegisterRuleRegressionAsync(string tenantId, RuleRegressionAlert alert)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(alert?.RuleId))
+                return false;
+
+            try
+            {
+                await _table.AddEntityAsync(BuildRuleRegressionEntity(tenantId, alert!));
+                _logger.LogInformation(
+                    "RuleRegression tracker registered: tenant={TenantId} rule={RuleId}", tenantId, alert!.RuleId);
+                return true;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 409)
+            {
+                // Episode already active — one bell per episode.
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "RuleRegression tracker failed: tenant={TenantId} rule={RuleId}", tenantId, alert!.RuleId);
+                // Fail closed so we do not double-fire if the row was actually written.
+                return false;
+            }
+        }
+
+        public async Task RefreshRuleRegressionAsync(string tenantId, RuleRegressionAlert alert)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(alert?.RuleId))
+                return;
+            try
+            {
+                // Replace-mode upsert with the FULL payload incl. the caller-carried
+                // FirstNotifiedAt — the retention sweep re-arms on the ORIGINAL age, so a
+                // refresh must never rejuvenate the row.
+                await _table.UpsertEntityAsync(BuildRuleRegressionEntity(tenantId, alert!), TableUpdateMode.Replace);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "RuleRegression tracker refresh failed: tenant={TenantId} rule={RuleId} (stale numbers remain)",
+                    tenantId, alert!.RuleId);
+            }
+        }
+
+        public async Task DeleteRuleRegressionAsync(string tenantId, string ruleId)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(ruleId))
+                return;
+            try
+            {
+                await _table.DeleteEntityAsync(tenantId.ToLowerInvariant(), BuildRuleRegressionRowKey(ruleId));
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                // Already gone (retention sweep or concurrent pass) — idempotent.
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "RuleRegression tracker delete failed: tenant={TenantId} rule={RuleId} (episode stays until retention)",
+                    tenantId, ruleId);
+            }
+        }
+
+        public async Task<List<RuleRegressionAlert>> GetRuleRegressionsAsync(string tenantId)
+        {
+            var results = new List<RuleRegressionAlert>();
+            if (string.IsNullOrWhiteSpace(tenantId)) return results;
+            try
+            {
+                var partitionKey = tenantId.ToLowerInvariant();
+                // '}' (0x7D) sorts directly after '|' (0x7C) — prefix range over "ruleregression|…".
+                var filter = $"PartitionKey eq '{partitionKey}' and RowKey ge '{RuleRegressionRowKeyPrefix}' and RowKey lt 'ruleregression}}'";
+                await foreach (var entity in _table.QueryAsync<TableEntity>(filter: filter))
+                {
+                    results.Add(MapToRuleRegressionAlert(entity));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "RuleRegression tracker list failed for tenant {TenantId}", tenantId);
+            }
+            return results;
+        }
+
         public async Task<int> DeleteOlderThanAsync(DateTime cutoffUtc)
         {
             try
             {
-                // Rows are insert-once (AddEntityAsync, never updated), so FirstNotifiedAt == creation time.
-                // Pruning here resets the lifetime dedup for BOTH key spaces in this table: a hardware
-                // model rejected again after the cutoff rings once more, and so does a TPM-PSS device
-                // that reports again ("tpmpss|{serial}" rows are pruned by the same sweep). Acceptable
-                // in both cases — the portal only surfaces recent rejections anyway, and a device whose
-                // TPM was never fixed is worth surfacing again after a month of silence.
+                // FirstNotifiedAt == the row's first registration (rule-regression refreshes carry
+                // it forward unchanged). Pruning here resets the dedup for EVERY key space in this
+                // table: a hardware model rejected again after the cutoff rings once more, so does
+                // a TPM-PSS device that reports again ("tpmpss|{serial}" rows), and a rule
+                // regression still active after the window fires a fresh bell — a month-old
+                // still-burning regression is worth a reminder (spec §F3 retention re-arm).
                 var filter = $"FirstNotifiedAt lt datetime'{cutoffUtc:yyyy-MM-ddTHH:mm:ss}Z'";
                 var query = _table.QueryAsync<TableEntity>(filter: filter, select: new[] { "PartitionKey", "RowKey" });
 
@@ -159,6 +249,73 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         {
             var sn = (serialNumber ?? string.Empty).Trim().ToLowerInvariant();
             return $"tpmpss|{sn}";
+        }
+
+        internal const string RuleRegressionRowKeyPrefix = "ruleregression|";
+
+        internal static string BuildRuleRegressionRowKey(string ruleId)
+        {
+            var id = (ruleId ?? string.Empty).Trim().ToLowerInvariant();
+            return $"{RuleRegressionRowKeyPrefix}{id}";
+        }
+
+        // internal static: entity builder + mapper are pinned by round-trip unit tests
+        // (table-storage-serialization rule — every property must survive Store→Map).
+        internal static TableEntity BuildRuleRegressionEntity(string tenantId, RuleRegressionAlert alert)
+        {
+            var entity = new TableEntity(tenantId.ToLowerInvariant(), BuildRuleRegressionRowKey(alert.RuleId))
+            {
+                ["TenantId"] = tenantId,
+                ["RuleId"] = alert.RuleId,
+                ["RuleTitle"] = alert.RuleTitle ?? string.Empty,
+                ["WindowFireCount"] = alert.WindowFireCount,
+                ["WindowSessionCount"] = alert.WindowSessionCount,
+                ["BaselineFireCount"] = alert.BaselineFireCount,
+                ["BaselineSessionCount"] = alert.BaselineSessionCount,
+                ["WindowRatePct"] = alert.WindowRatePct,
+                ["BaselineRatePct"] = alert.BaselineRatePct,
+                ["WindowStartDate"] = alert.WindowStartDate ?? string.Empty,
+                ["WindowEndDate"] = alert.WindowEndDate ?? string.Empty,
+                ["FirstNotifiedAt"] = alert.FirstNotifiedAt,
+                ["LastEvaluatedAt"] = alert.LastEvaluatedAt,
+            };
+            // Tri-states: absent column = "no claim" — a zero-baseline alert has no finite lift,
+            // and a missing dimension means "no clear concentration", never a guessed one.
+            if (alert.Lift.HasValue)
+                entity["Lift"] = alert.Lift.Value;
+            if (alert.Dimension != null)
+                entity["DimensionJson"] = JsonSerializer.Serialize(alert.Dimension);
+            return entity;
+        }
+
+        internal static RuleRegressionAlert MapToRuleRegressionAlert(TableEntity entity)
+        {
+            RuleRegressionDimension? dimension = null;
+            var dimensionJson = entity.GetString("DimensionJson");
+            if (!string.IsNullOrEmpty(dimensionJson))
+            {
+                try { dimension = JsonSerializer.Deserialize<RuleRegressionDimension>(dimensionJson!); }
+                catch (JsonException) { dimension = null; } // corrupt column — degrade to "no claim"
+            }
+
+            return new RuleRegressionAlert
+            {
+                TenantId = entity.GetString("TenantId") ?? entity.PartitionKey,
+                RuleId = entity.GetString("RuleId") ?? entity.RowKey.Substring(RuleRegressionRowKeyPrefix.Length),
+                RuleTitle = entity.GetString("RuleTitle") ?? string.Empty,
+                WindowFireCount = entity.GetInt32("WindowFireCount") ?? 0,
+                WindowSessionCount = entity.GetInt32("WindowSessionCount") ?? 0,
+                BaselineFireCount = entity.GetInt32("BaselineFireCount") ?? 0,
+                BaselineSessionCount = entity.GetInt32("BaselineSessionCount") ?? 0,
+                WindowRatePct = entity.GetDouble("WindowRatePct") ?? 0,
+                BaselineRatePct = entity.GetDouble("BaselineRatePct") ?? 0,
+                Lift = entity.GetDouble("Lift"),
+                WindowStartDate = entity.GetString("WindowStartDate") ?? string.Empty,
+                WindowEndDate = entity.GetString("WindowEndDate") ?? string.Empty,
+                Dimension = dimension,
+                FirstNotifiedAt = entity.GetDateTimeOffset("FirstNotifiedAt")?.UtcDateTime ?? DateTime.MinValue,
+                LastEvaluatedAt = entity.GetDateTimeOffset("LastEvaluatedAt")?.UtcDateTime ?? DateTime.MinValue,
+            };
         }
     }
 }

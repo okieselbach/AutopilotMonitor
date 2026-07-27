@@ -135,7 +135,63 @@ public class HardwareRejectionNotificationTrackerDedupTests
         Assert.Equal(2, harness.Store.Count);
     }
 
+    // ── F3 rule regression: one bell per episode, keyspaces stay independent ──────
+
+    [Fact]
+    public async Task RuleRegression_SecondRegister_SameRule_ReturnsFalse_OneBellPerEpisode()
+    {
+        var harness = new Harness();
+        var alert = new AutopilotMonitor.Shared.Models.RuleRegressionAlert
+        {
+            TenantId = TenantId, RuleId = "ANALYZE-NET-001",
+            FirstNotifiedAt = DateTime.UtcNow, LastEvaluatedAt = DateTime.UtcNow,
+        };
+
+        Assert.True(await harness.Sut.TryRegisterRuleRegressionAsync(TenantId, alert));
+        Assert.False(await harness.Sut.TryRegisterRuleRegressionAsync(TenantId, alert));
+
+        var entity = Assert.Single(harness.Store.Values);
+        Assert.Equal("ruleregression|analyze-net-001", entity.RowKey);
+        Assert.NotNull(entity.GetDateTime("FirstNotifiedAt")); // the retention sweep depends on it
+    }
+
+    [Fact]
+    public async Task RuleRegression_DeleteReArms_AndDoesNotTouchOtherKeyspaces()
+    {
+        var harness = new Harness();
+        var alert = new AutopilotMonitor.Shared.Models.RuleRegressionAlert
+        {
+            TenantId = TenantId, RuleId = "ANALYZE-NET-001",
+            FirstNotifiedAt = DateTime.UtcNow, LastEvaluatedAt = DateTime.UtcNow,
+        };
+        Assert.True(await harness.Sut.TryRegisterRuleRegressionAsync(TenantId, alert));
+        Assert.True(await harness.Sut.TryRegisterFirstTpmPssNotificationAsync(TenantId, Serial));
+
+        await harness.Sut.DeleteRuleRegressionAsync(TenantId, "ANALYZE-NET-001");
+
+        // The episode re-arms; the unrelated tpmpss row survives.
+        Assert.Equal("tpmpss|s4sq8685", Assert.Single(harness.Store.Values).RowKey);
+        Assert.True(await harness.Sut.TryRegisterRuleRegressionAsync(TenantId, alert));
+    }
+
     // ── Retention sweep ───────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task DeleteOlderThanAsync_PrunesRuleRegressionRows_ReArmingLongBurningEpisodes()
+    {
+        var harness = new Harness();
+        Assert.True(await harness.Sut.TryRegisterRuleRegressionAsync(TenantId,
+            new AutopilotMonitor.Shared.Models.RuleRegressionAlert
+            {
+                TenantId = TenantId, RuleId = "ANALYZE-NET-001",
+                FirstNotifiedAt = DateTime.UtcNow, LastEvaluatedAt = DateTime.UtcNow,
+            }));
+        harness.AgeRows(TimeSpan.FromDays(31));
+
+        // Spec §F3: retention cleanup re-arms — a month-old still-burning regression rings again.
+        Assert.Equal(1, await harness.Sut.DeleteOlderThanAsync(DateTime.UtcNow.AddDays(-30)));
+        Assert.Empty(harness.Store);
+    }
 
     [Fact]
     public async Task DeleteOlderThanAsync_PrunesTpmPssRows_AndReArmsThatDevicesBell()
