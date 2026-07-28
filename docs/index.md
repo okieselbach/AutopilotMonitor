@@ -44,7 +44,7 @@ https://docs.autopilotmonitor.com (separate repository).
 
 # Web Portal
 
-* [Portal Navigation Prefetch & the SWA Runtime Bottleneck](web/portal-navigation-prefetch.md) - Why every navigation Link sets `prefetch={false}`: the App Router's viewport prefetch fans out one RSC request per visible link against an HTTP/1.1 Static Web Apps runtime, and its latency tail starves the six connections that also serve the document and the route chunks. Includes where browser telemetry actually lives.
+* [Portal Navigation Prefetch & the SWA Runtime Bottleneck](web/portal-navigation-prefetch.md) - Why every navigation Link sets `prefetch={false}`: the App Router's viewport prefetch fans out one RSC request per visible link and the Static Web Apps SSR runtime queues them server-side into a multi-minute tail. Records the follow-up measurement (the Standard plan changed nothing; the prefetch storm was an accidental keep-alive), where browser telemetry actually lives, and why this curl build cannot be trusted for HTTP versions.
 
 # Security & Identity
 

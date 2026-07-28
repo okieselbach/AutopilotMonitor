@@ -315,10 +315,9 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
   // Every nav Link below sets prefetch={false} on purpose. The sidebar renders the whole
   // navigation on every page, so the App Router's default viewport prefetch fires one RSC
   // request per visible link against the SWA-hosted Next.js runtime on each page load
-  // (measured: ~10k requests / 14 days). That host speaks HTTP/1.1, so those prefetches
-  // occupy the browser's 6 connections to the SAME origin that serves the document and the
-  // route chunks — when the runtime queues them (p95 ~0.9s but a tail reaching 150s+), the
-  // portal freezes until the queue drains. Every route here is a client component behind
+  // (measured: ~10k requests / 14 days). The SSR runtime queues that burst server-side and
+  // drains it all at once (p95 ~0.9s but a tail reaching 150s+), so the navigation the user
+  // actually wants is stuck behind it and the portal freezes. Every route here is a client component behind
   // ProtectedRoute that fetches its own data after mount, so the prefetched RSC payload
   // buys nothing. See docs/web/portal-navigation-prefetch.md.
   // --- Render a global nav link ---
