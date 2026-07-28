@@ -35,9 +35,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         /// <summary>C:\Windows\System32\tzutil.exe</summary>
         public static readonly string TzUtil = Path.Combine(System32, "tzutil.exe");
 
-        /// <summary>C:\Windows\System32\netsh.exe</summary>
-        public static readonly string Netsh = Path.Combine(System32, "netsh.exe");
-
         /// <summary>C:\Windows\System32\schtasks.exe</summary>
         public static readonly string Schtasks = Path.Combine(System32, "schtasks.exe");
 

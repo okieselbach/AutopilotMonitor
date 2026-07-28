@@ -8,8 +8,8 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Logging;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
-using AutopilotMonitor.Agent.V2.Core.Security;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 
@@ -37,7 +37,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         private const int DebounceDelayMs = 3000;
         private const int ConnectivityCheckDelayMs = 5000;
         private const int ConnectivityCheckTimeoutMs = 8000;
-        private const int WifiCollectTimeoutMs = 3000;
         private const string Source = "NetworkChangeDetector";
 
         /// <summary>
@@ -374,7 +373,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                 // Collect WiFi SSID synchronously (needed for before/after comparison)
                 if (isWifi)
                 {
-                    var wifiInfo = CollectWiFiInfo();
+                    Guid? nicGuid = Guid.TryParse(activeNic.Id, out var parsedGuid) ? parsedGuid : (Guid?)null;
+                    var wifiInfo = CollectWiFiInfo(nicGuid);
                     snapshot.WifiSsid = wifiInfo.ssid;
                     snapshot.WifiSignalPercent = wifiInfo.signal;
                     snapshot.WifiRadioType = wifiInfo.radioType;
@@ -390,73 +390,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         }
 
         /// <summary>
-        /// Collects WiFi SSID, signal, and radio type via netsh wlan show interfaces.
-        /// Synchronous with timeout — needed before emitting the event.
+        /// Collects WiFi SSID, signal, and radio type via the native WLAN API
+        /// (<see cref="WifiInfoReader"/> — language-neutral, no process spawn).
+        /// Synchronous — needed before emitting the event.
         /// </summary>
-        private (string ssid, int? signal, string radioType) CollectWiFiInfo()
+        private (string ssid, int? signal, string radioType) CollectWiFiInfo(Guid? interfaceGuid)
         {
-            string ssid = null;
-            int? signal = null;
-            string radioType = null;
-
             try
             {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = SystemPaths.Netsh,
-                    Arguments = "wlan show interfaces",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
-
-                string output;
-                using (var process = Process.Start(psi))
-                {
-                    output = process.StandardOutput.ReadToEnd();
-                    if (!process.WaitForExit(WifiCollectTimeoutMs))
-                    {
-                        try { process.Kill(); } catch { }
-                        _logger.Debug("NetworkChangeDetector: netsh timed out");
-                        return (null, null, null);
-                    }
-                }
-
-                if (string.IsNullOrEmpty(output))
-                    return (null, null, null);
-
-                foreach (var line in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-                {
-                    var trimmed = line.Trim();
-                    var colonIndex = trimmed.IndexOf(':');
-                    if (colonIndex < 0) continue;
-
-                    var key = trimmed.Substring(0, colonIndex).Trim();
-                    var value = trimmed.Substring(colonIndex + 1).Trim();
-
-                    if (key.Equals("SSID", StringComparison.OrdinalIgnoreCase) &&
-                        !key.Equals("BSSID", StringComparison.OrdinalIgnoreCase))
-                    {
-                        ssid = value;
-                    }
-                    else if (key.Equals("Signal", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (int.TryParse(value.TrimEnd('%'), out var sig))
-                            signal = sig;
-                    }
-                    else if (key.Equals("Radio type", StringComparison.OrdinalIgnoreCase))
-                    {
-                        radioType = value;
-                    }
-                }
+                var wifi = WifiInfoReader.TryGetCurrentConnection(interfaceGuid);
+                if (wifi != null)
+                    return (wifi.Ssid, wifi.SignalPercent, wifi.RadioType);
             }
             catch (Exception ex)
             {
                 _logger.Debug($"NetworkChangeDetector: WiFi info collection failed: {ex.Message}");
             }
 
-            return (ssid, signal, radioType);
+            return (null, null, null);
         }
 
         // -------------------------------------------------------------------

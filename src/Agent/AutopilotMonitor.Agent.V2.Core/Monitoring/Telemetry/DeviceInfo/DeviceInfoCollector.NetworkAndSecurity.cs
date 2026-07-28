@@ -815,7 +815,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
         /// Collects active network interface details (name, type, link speed, MAC) using
         /// System.Net.NetworkInformation — instant, no process spawn.
         /// If the active interface is WiFi, fires off a separate async task to collect
-        /// WiFi signal info via netsh (fire-and-forget, never blocks).
+        /// WiFi signal info via the native WLAN API (fire-and-forget, never blocks).
         /// </summary>
         private void CollectActiveNetworkInterfaceInfo()
         {
@@ -858,7 +858,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                 // Fire-and-forget WiFi signal collection — separate event, never blocks
                 if (isWifi)
                 {
-                    Task.Run(() => CollectWiFiSignalInfo());
+                    Guid? nicGuid = Guid.TryParse(activeNic.Id, out var parsedGuid) ? parsedGuid : (Guid?)null;
+                    Task.Run(() => CollectWiFiSignalInfo(nicGuid));
                 }
             }
             catch (Exception ex)
@@ -899,78 +900,37 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
         }
 
         /// <summary>
-        /// Collects WiFi signal info via netsh wlan show interfaces and emits a separate
-        /// wifi_signal_info event. Designed to run as fire-and-forget via Task.Run —
-        /// never blocks other collection. VMs without WiFi service simply get no event.
+        /// Collects WiFi signal info via the native WLAN API (<see cref="WifiInfoReader"/>,
+        /// language-neutral, no process spawn) and emits a separate wifi_signal_info event.
+        /// Designed to run as fire-and-forget via Task.Run — never blocks other collection.
+        /// VMs without WiFi service simply get no event.
         /// </summary>
-        private void CollectWiFiSignalInfo()
+        private void CollectWiFiSignalInfo(Guid? interfaceGuid)
         {
             try
             {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = SystemPaths.Netsh,
-                    Arguments = "wlan show interfaces",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
-
-                string output;
-                using (var process = Process.Start(psi))
-                {
-                    output = process.StandardOutput.ReadToEnd();
-                    process.WaitForExit(5000);
-                }
-
-                if (string.IsNullOrEmpty(output))
+                var wifi = WifiInfoReader.TryGetCurrentConnection(interfaceGuid);
+                if (wifi == null)
                     return;
 
-                var data = new Dictionary<string, object>();
-
-                foreach (var line in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                var data = new Dictionary<string, object>
                 {
-                    var trimmed = line.Trim();
-                    var colonIndex = trimmed.IndexOf(':');
-                    if (colonIndex < 0) continue;
+                    ["wifiSignalPercent"] = wifi.SignalPercent
+                };
+                if (wifi.Ssid != null)
+                    data["wifiSsid"] = wifi.Ssid;
+                if (wifi.RadioType != null)
+                    data["wifiRadioType"] = wifi.RadioType;
+                if (wifi.Channel.HasValue)
+                    data["wifiChannel"] = wifi.Channel.Value;
 
-                    var key = trimmed.Substring(0, colonIndex).Trim();
-                    var value = trimmed.Substring(colonIndex + 1).Trim();
+                var message = wifi.Ssid != null
+                    ? $"WiFi: {wifi.Ssid}, Signal: {wifi.SignalPercent}%"
+                    : $"WiFi signal info, Signal: {wifi.SignalPercent}%";
+                if (wifi.RadioType != null)
+                    message += $" ({wifi.RadioType})";
 
-                    if (key.Equals("SSID", StringComparison.OrdinalIgnoreCase) &&
-                        !key.Equals("BSSID", StringComparison.OrdinalIgnoreCase))
-                    {
-                        data["wifiSsid"] = value;
-                    }
-                    else if (key.Equals("Signal", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (int.TryParse(value.TrimEnd('%'), out var signal))
-                            data["wifiSignalPercent"] = signal;
-                    }
-                    else if (key.Equals("Radio type", StringComparison.OrdinalIgnoreCase))
-                    {
-                        data["wifiRadioType"] = value;
-                    }
-                    else if (key.Equals("Channel", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (int.TryParse(value, out var channel))
-                            data["wifiChannel"] = channel;
-                    }
-                }
-
-                if (data.Count > 0)
-                {
-                    var message = data.ContainsKey("wifiSsid")
-                        ? $"WiFi: {data["wifiSsid"]}"
-                        : "WiFi signal info";
-                    if (data.ContainsKey("wifiSignalPercent"))
-                        message += $", Signal: {data["wifiSignalPercent"]}%";
-                    if (data.ContainsKey("wifiRadioType"))
-                        message += $" ({data["wifiRadioType"]})";
-
-                    EmitDeviceInfoEvent(Constants.EventTypes.WifiSignalInfo, message, data);
-                }
+                EmitDeviceInfoEvent(Constants.EventTypes.WifiSignalInfo, message, data);
             }
             catch (Exception ex)
             {
