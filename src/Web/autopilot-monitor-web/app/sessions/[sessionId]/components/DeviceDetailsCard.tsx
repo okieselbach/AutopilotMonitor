@@ -162,12 +162,11 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
   const hwSpec = getEventData("hardware_spec");
 
   // Connectivity: agent→backend measurements. Latency comes from the session row (persisted
-  // at ingest from the cumulative snapshot counters); bandwidth/volume/IP from their events.
+  // at ingest from the cumulative snapshot counters); bandwidth/volume from their events.
   const bandwidthEstimate = getEventData("network_bandwidth_estimate");
   const metricsSnapshot = getEventData("agent_metrics_snapshot");
-  const outboundIp = getEventData("outbound_ip");
   const apiLatencyMs = session?.avgApiLatencyMs ?? 0;
-  const hasConnectivity = apiLatencyMs > 0 || bandwidthEstimate || metricsSnapshot || outboundIp;
+  const hasConnectivity = apiLatencyMs > 0 || bandwidthEstimate || metricsSnapshot;
 
   const hasData = agentStarted || bootTime || osInfo || networkAdapters || dnsConfig || proxyConfig || networkInterfaceInfo || wifiSignalInfo ||
                   autopilotProfile || aadJoinStatus || imeVersion || bitLockerStatus || secureBootStatus || deviceLocation || hwSpec || hasConnectivity;
@@ -322,9 +321,8 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
                 {metricsSnapshot?.net_total_bytes_up !== undefined && (
                   <DetailRow label="Telemetry Uploaded" value={formatBytesCompact(Number(metricsSnapshot.net_total_bytes_up))} />
                 )}
-                {outboundIp?.ip && (
-                  <DetailRow label="Outbound IP" value={`${outboundIp.ip}${outboundIp.source ? ` (via ${outboundIp.source})` : ""}`} />
-                )}
+                {/* Outbound IP is deliberately NOT rendered here — the outbound_ip trace event
+                    stays available for analysis (timeline, MCP). */}
               </DetailSection>
             )}
 
