@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 
 namespace AutopilotMonitor.Functions.Security
@@ -26,10 +28,72 @@ namespace AutopilotMonitor.Functions.Security
         public static string GetTrustedClientIp(HttpRequestData? req)
         {
             if (req == null) return Unknown;
-            if (!req.Headers.TryGetValues("X-Forwarded-For", out var values)) return Unknown;
-            // If a request carries multiple X-Forwarded-For headers (rare but legal),
-            // concatenate them so the rightmost entry across all headers wins.
-            return ExtractTrustedHop(string.Join(",", values));
+            if (req.Headers.TryGetValues("X-Forwarded-For", out var values))
+            {
+                // If a request carries multiple X-Forwarded-For headers (rare but legal),
+                // concatenate them so the rightmost entry across all headers wins.
+                var hop = ExtractTrustedHop(string.Join(",", values));
+                if (hop != Unknown) return hop;
+            }
+
+            // Flex Consumption does not reliably surface X-Forwarded-For to the isolated
+            // worker (observed 2026-07-28: every anonymous caller keyed as "unknown",
+            // collapsing all per-IP rate-limit buckets into one). The transport-level
+            // peer address is unspoofable and equals what the rightmost XFF hop would
+            // carry when no proxy chain exists; behind a fronting proxy it is that
+            // proxy's egress — coarse but honest, per the model above.
+            var remote = req.FunctionContext.GetHttpContext()?.Connection.RemoteIpAddress;
+            if (remote == null) return Unknown;
+            if (remote.IsIPv4MappedToIPv6) remote = remote.MapToIPv4();
+            return remote.ToString();
+        }
+
+        /// <summary>
+        /// Rate-limit key for endpoints reached through Azure Front Door (e.g.
+        /// go.autopilotmonitor.com → /api/bootstrap/go). Behind AFD the trusted hop is
+        /// AFD's egress IP, so all callers would share a handful of buckets — one abuser
+        /// could starve every legitimate technician. AFD carries the true client IP in
+        /// X-Azure-ClientIP; it is honored ONLY when the request provably traversed OUR
+        /// profile: X-Azure-FDID (which AFD overwrites on pass-through, so a client
+        /// cannot inject it across AFD) must equal the FrontDoorProfileId app setting.
+        /// Fail-closed: unset setting, missing/mismatched/multi-valued FDID, or empty
+        /// client IP all fall back to <see cref="GetTrustedClientIp"/>.
+        /// </summary>
+        public static string GetRateLimitClientIp(HttpRequestData? req)
+        {
+            if (req == null) return Unknown;
+
+            var expectedFdid = Environment.GetEnvironmentVariable("FrontDoorProfileId");
+            if (!string.IsNullOrWhiteSpace(expectedFdid)
+                && req.Headers.TryGetValues("X-Azure-FDID", out var fdidValues)
+                && FdidMatches(fdidValues, expectedFdid)
+                && req.Headers.TryGetValues("X-Azure-ClientIP", out var clientIpValues))
+            {
+                var ip = ExtractTrustedHop(string.Join(",", clientIpValues));
+                if (ip != Unknown) return ip;
+            }
+
+            return GetTrustedClientIp(req);
+        }
+
+        /// <summary>
+        /// Exactly one FDID value, equal to the configured profile ID. Multiple values
+        /// mean someone appended to what AFD set — treated as untrusted.
+        /// </summary>
+        internal static bool FdidMatches(IEnumerable<string> headerValues, string expected)
+        {
+            string? single = null;
+            foreach (var raw in headerValues)
+            {
+                foreach (var part in raw.Split(','))
+                {
+                    var trimmed = part.Trim();
+                    if (trimmed.Length == 0) continue;
+                    if (single != null) return false;
+                    single = trimmed;
+                }
+            }
+            return single != null && string.Equals(single, expected, StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>

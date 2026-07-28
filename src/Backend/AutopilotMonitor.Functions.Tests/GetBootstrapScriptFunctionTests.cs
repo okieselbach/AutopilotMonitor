@@ -68,6 +68,26 @@ public class GetBootstrapScriptFunctionTests
     {
         Assert.True(NoStoreCacheMiddleware.IsSensitive(Route));
     }
+
+    // ── AFD-aware rate-limit extraction: X-Azure-ClientIP is honored only when
+    //    X-Azure-FDID carries EXACTLY our profile ID. Multi-value headers mean
+    //    someone appended to what AFD set — untrusted, fail closed. ──
+    private const string Fdid = "3490f60d-3639-495f-902e-681b9324d2ba";
+
+    [Theory]
+    [InlineData(new[] { Fdid }, true)]
+    [InlineData(new[] { "3490F60D-3639-495F-902E-681B9324D2BA" }, true)]   // case-insensitive
+    [InlineData(new[] { " " + Fdid + " " }, true)]                          // trimmed
+    [InlineData(new[] { "other-profile-id" }, false)]
+    [InlineData(new[] { Fdid, Fdid }, false)]                               // two headers
+    [InlineData(new[] { Fdid + "," + Fdid }, false)]                        // comma-appended
+    [InlineData(new[] { "spoofed," + Fdid }, false)]
+    [InlineData(new string[0], false)]
+    [InlineData(new[] { "" }, false)]
+    public void FdidMatches_requires_exactly_our_profile_id(string[] headerValues, bool expected)
+    {
+        Assert.Equal(expected, ClientIpExtractor.FdidMatches(headerValues, Fdid));
+    }
 }
 
 /// <summary>

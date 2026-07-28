@@ -61,10 +61,12 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
             try
             {
                 // Rate limit by source IP (prevent brute-force enumeration of short codes).
-                // Own bucket, deliberately not shared with bootstrap-validate. On breach the
-                // response is still a 200 error script (irm | iex must surface the message);
-                // Retry-After is informational for non-iex clients.
-                var clientIp = ClientIpExtractor.GetTrustedClientIp(req);
+                // Own bucket, deliberately not shared with bootstrap-validate. AFD-aware
+                // extraction: traffic arrives via go.autopilotmonitor.com, where the trusted
+                // hop is Front Door egress — X-Azure-ClientIP is honored under FDID proof.
+                // On breach the response is still a 200 error script (irm | iex must surface
+                // the message); Retry-After is informational for non-iex clients.
+                var clientIp = ClientIpExtractor.GetRateLimitClientIp(req);
                 var rateLimitResult = _rateLimitService.CheckRateLimit($"bootstrap-script:{clientIp}", 20); // 20 req/min
                 if (!rateLimitResult.IsAllowed)
                 {
