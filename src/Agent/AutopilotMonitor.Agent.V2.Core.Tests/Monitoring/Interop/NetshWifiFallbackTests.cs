@@ -1,0 +1,133 @@
+#nullable enable
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
+using Xunit;
+
+namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Interop
+{
+    /// <summary>
+    /// Tests for the pure netsh-output parser of the WiFi fallback path. netsh labels follow
+    /// the OS UI language — the parser must extract SSID/signal/radio/channel from the label
+    /// variants of the languages commonly seen in enrollments, and degrade gracefully (fields
+    /// absent, never throw) on unrecognized ones.
+    /// </summary>
+    public sealed class NetshWifiFallbackTests
+    {
+        [Fact]
+        public void Parse_english_output_extracts_all_fields()
+        {
+            const string output = @"
+There is 1 interface on the system:
+
+    Name                   : Wi-Fi
+    Description            : Intel(R) Wi-Fi 6 AX201 160MHz
+    GUID                   : 754b6c07-5ae9-49d5-ba6c-4fbd6e38bbf6
+    State                  : connected
+    SSID                   : contoso-corp
+    AP BSSID               : 3c:37:12:53:c8:44
+    Band                   : 5 GHz
+    Channel                : 116
+    Radio type             : 802.11ax
+    Signal                 : 94%
+";
+            var r = NetshWifiFallback.Parse(output);
+
+            Assert.NotNull(r);
+            Assert.Equal("contoso-corp", r!.Ssid);
+            Assert.Equal(94, r.SignalPercent);
+            Assert.Equal("802.11ax", r.RadioType);
+            Assert.Equal(116, r.Channel);
+        }
+
+        [Fact]
+        public void Parse_german_output_extracts_all_fields()
+        {
+            const string output = @"
+Es ist 1 Schnittstelle auf dem System vorhanden:
+
+    Name                   : WLAN
+    Beschreibung           : Intel(R) Wi-Fi 6 AX201 160MHz
+    Status                 : Verbunden
+    SSID                   : fabrikam-wlan
+    Kanal                  : 44
+    Funktyp                : 802.11ac
+    Signal                 : 87%
+";
+            var r = NetshWifiFallback.Parse(output);
+
+            Assert.NotNull(r);
+            Assert.Equal("fabrikam-wlan", r!.Ssid);
+            Assert.Equal(87, r.SignalPercent);
+            Assert.Equal("802.11ac", r.RadioType);
+            Assert.Equal(44, r.Channel);
+        }
+
+        [Fact]
+        public void Parse_spanish_output_extracts_signal_and_channel()
+        {
+            const string output = @"
+    Nombre                 : Wi-Fi
+    SSID                   : contoso-es
+    Canal                  : 6
+    Tipo de radio          : 802.11n
+    Señal                  : 72%
+";
+            var r = NetshWifiFallback.Parse(output);
+
+            Assert.NotNull(r);
+            Assert.Equal("contoso-es", r!.Ssid);
+            Assert.Equal(72, r.SignalPercent);
+            Assert.Equal("802.11n", r.RadioType);
+            Assert.Equal(6, r.Channel);
+        }
+
+        [Fact]
+        public void Parse_signal_with_space_before_percent_is_parsed()
+        {
+            var r = NetshWifiFallback.Parse("    Signal : 81 %\r\n    SSID : x\r\n");
+
+            Assert.NotNull(r);
+            Assert.Equal(81, r!.SignalPercent);
+        }
+
+        [Fact]
+        public void Parse_ap_bssid_does_not_overwrite_ssid()
+        {
+            const string output = @"
+    SSID                   : contoso-corp
+    AP BSSID               : aa:bb:cc:dd:ee:ff
+";
+            var r = NetshWifiFallback.Parse(output);
+
+            Assert.Equal("contoso-corp", r!.Ssid);
+        }
+
+        [Fact]
+        public void Parse_unknown_language_without_ssid_returns_null()
+        {
+            // No recognizable labels at all -> nothing to report.
+            var r = NetshWifiFallback.Parse("    Yhteystila : yhdistetty\r\n    Taajuus : 5 GHz\r\n");
+
+            Assert.Null(r);
+        }
+
+        [Fact]
+        public void Parse_unknown_language_still_yields_ssid()
+        {
+            // SSID is untranslated in all locales — partial result beats none.
+            var r = NetshWifiFallback.Parse("    SSID : contoso-fi\r\n    Signaali : 90%\r\n");
+
+            Assert.NotNull(r);
+            Assert.Equal("contoso-fi", r!.Ssid);
+            Assert.Null(r.SignalPercent);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("Der WLAN-AutoKonfig-Dienst (wlansvc) wird nicht ausgeführt.")]
+        public void Parse_empty_or_error_output_returns_null(string? output)
+        {
+            Assert.Null(NetshWifiFallback.Parse(output));
+        }
+    }
+}
