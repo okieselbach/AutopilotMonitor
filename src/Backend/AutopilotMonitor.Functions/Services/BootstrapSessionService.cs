@@ -114,7 +114,8 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Validates a bootstrap code (anonymous, called by the /go/{code} route).
+        /// Validates a bootstrap code (anonymous; called by GetBootstrapScriptFunction
+        /// in-process and by the legacy validate endpoint / Next.js /go route).
         /// Returns the session if the code is valid and not expired/revoked.
         /// </summary>
         public async Task<BootstrapSession?> ValidateCodeAsync(string shortCode)

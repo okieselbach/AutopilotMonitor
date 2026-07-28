@@ -5,7 +5,7 @@ namespace AutopilotMonitor.Shared.Models
     /// <summary>
     /// Represents a time-limited bootstrap session for OOBE pre-enrollment agent deployment.
     /// Admins create these sessions in the settings UI to generate short URLs
-    /// (e.g. autopilotmonitor.com/go/abc123) that technicians can run during OOBE.
+    /// (e.g. go.autopilotmonitor.com/abc123) that technicians can run during OOBE.
     /// </summary>
     public class BootstrapSession
     {
@@ -48,7 +48,7 @@ namespace AutopilotMonitor.Shared.Models
         public bool IsRevoked { get; set; }
 
         /// <summary>
-        /// Number of times the /go/{code} URL has been used to fetch the bootstrap script
+        /// Number of times the bootstrap URL has been used to fetch the bootstrap script
         /// </summary>
         public int UsageCount { get; set; }
 

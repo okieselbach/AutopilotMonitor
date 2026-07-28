@@ -93,9 +93,10 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 {
                     Success = true,
                     ShortCode = session.ShortCode,
-                    // www directly — the bare apex is only a registrar-level 301 to www,
-                    // so pointing there just adds a redirect hop for every bootstrap.
-                    BootstrapUrl = $"{Constants.WebsiteBaseUrl}/go/{session.ShortCode}",
+                    // go domain — Front Door rewrites /{code} to /api/bootstrap/go/{code}
+                    // (GetBootstrapScriptFunction). URLs issued before the migration keep
+                    // working on the legacy www /go route until the static-export cutover.
+                    BootstrapUrl = $"{Constants.BootstrapGoBaseUrl}/{session.ShortCode}",
                     ExpiresAt = session.ExpiresAt,
                     Message = $"Bootstrap session created. Valid for {validityHours} hours."
                 };

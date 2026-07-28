@@ -1,3 +1,9 @@
+// LEGACY: superseded by GET /api/bootstrap/go/{code} on the Function App
+// (GetBootstrapScriptFunction), customer-facing as go.autopilotmonitor.com/{code}.
+// This route stays alive only for bootstrap URLs issued before the migration
+// (validity ≤ 168h); removal is tracked in the static-export PR. Keep the two
+// script templates in sync until then (OobeBootstrapScriptGenerator.cs pins
+// parity via a golden test).
 import { validateBootstrapResponse } from "@/utils/bootstrapValidation";
 import { API_URL_PROD, PORTAL_URL } from "@/utils/config";
 

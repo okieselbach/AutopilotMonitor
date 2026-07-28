@@ -1,6 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { BOOTSTRAP_GO_URL } from "@/utils/config";
+
+// Display-only: the authoritative URL comes from the backend's bootstrapUrl
+// (Constants.BootstrapGoBaseUrl); this host renders the sessions list rows.
+const GO_HOST = new URL(BOOTSTRAP_GO_URL).host;
 
 export interface BootstrapSessionItem {
   shortCode: string;
@@ -343,7 +348,7 @@ export default function BootstrapSessionsSection({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center space-x-2">
                       <code className="text-sm font-mono text-gray-800">
-                        /go/{session.shortCode}
+                        {GO_HOST}/{session.shortCode}
                       </code>
                       {getStatusBadge(session)}
                       {session.label && (

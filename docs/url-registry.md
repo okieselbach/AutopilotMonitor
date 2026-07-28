@@ -21,7 +21,7 @@ literal appears nowhere else.
 | Component | Registry | Guard test |
 |---|---|---|
 | C# (Shared/Backend/Agent) | `AutopilotMonitor.Shared.Constants` (`*BaseUrl`) | `HardcodedUrlGuardTests` |
-| Web | `utils/config.ts` (`DOCS_URL`, `SITE_URL`, `PORTAL_URL`, `ENTRA_LOGIN_URL`, `API_URL_PROD`, `BLOB_URL_PROD`, `AGENT_DOWNLOAD_HOSTNAMES`) | `utils/__tests__/hardcodedUrls.guard.test.ts` |
+| Web | `utils/config.ts` (`DOCS_URL`, `SITE_URL`, `PORTAL_URL`, `BOOTSTRAP_GO_URL`, `ENTRA_LOGIN_URL`, `API_URL_PROD`, `BLOB_URL_PROD`, `AGENT_DOWNLOAD_HOSTNAMES`) | `utils/__tests__/hardcodedUrls.guard.test.ts` |
 | MCP | `src/config.ts` (`API_BASE_URL`, `ENTRA_LOGIN_BASE_URL`, `DOCS_BASE_URL`) | `src/__tests__/hardcoded-urls.guard.test.ts` |
 
 Derived registries build on these instead of repeating hosts:
@@ -75,6 +75,32 @@ Deliberately still on the legacy account: the `HealthCheckService` /
 `MaintenanceService` legacy-keepalive probes and the fail-soft mirror in
 `build-agent.yml` — they exist precisely to keep already-deployed customer
 bootstrap scripts working until the customer migration completes.
+
+# Bootstrap go-URL (2026-07-28)
+
+The OOBE bootstrap short-URL moved from `www.autopilotmonitor.com/go/{code}`
+(Next.js route, SSR) to **`go.autopilotmonitor.com/{code}`** — a Front Door
+custom domain whose `/*` route rewrites onto `/api/bootstrap/go/{code}` on the
+Function App (`GetBootstrapScriptFunction`). Registry entries:
+`Constants.BootstrapGoBaseUrl` (C#, the single producer via
+`CreateBootstrapSessionFunction`) and `BOOTSTRAP_GO_URL` (web, display-only in
+the sessions list); `go.autopilotmonitor.com` is on both guards' enforced-host
+lists. `CreateBootstrapSessionUrlShapeTests` pins the produced URL as an
+independent oracle — before this, no test guarded the bootstrap URL shape at
+all.
+
+Front Door route caching for `bootstrap-go` is DISABLED — same hazard class as
+the `/agent/*` route above, sharpened: the script body inlines the bearer
+token, so a cache hit would replay one requester's token to another.
+`NoStoreCacheMiddleware` additionally stamps `no-store` via the
+`/api/bootstrap/go/` prefix.
+
+Transition rule: the legacy Next.js `/go/[code]` route and the `/go` public
+prefix in `middleware.ts` stay alive for URLs issued before the migration
+(validity ≤ 168 h) and are removed in the static-export PR — no earlier than
+168 h after the last www URL was issued. Until then the PS template exists
+twice; `OobeBootstrapScriptGeneratorTests` pins C#/TS parity via a golden file
+captured from the TS template.
 
 # Citations
 

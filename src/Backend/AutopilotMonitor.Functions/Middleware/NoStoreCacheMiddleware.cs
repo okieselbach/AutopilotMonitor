@@ -57,6 +57,7 @@ public class NoStoreCacheMiddleware : IFunctionsWorkerMiddleware
     private static readonly string[] _prefixRoutes =
     {
         "/api/bootstrap/validate/",  // /api/bootstrap/validate/{code} — Bearer token!
+        "/api/bootstrap/go/",        // /api/bootstrap/go/{code} — script body inlines the bearer token!
         "/api/config/",              // /api/config/{tenantId} + sub-routes
         "/api/sessions/",            // /api/sessions/{id} + sub-routes (events, signals, …)
         "/api/search/",              // /api/search/{quick,sessions,sessions-by-event,sessions-by-cve}

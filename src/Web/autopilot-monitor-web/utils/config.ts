@@ -32,6 +32,14 @@ export const SITE_URL = "https://www.autopilotmonitor.com";
 /** Customer portal (deep links rendered into generated bootstrap scripts). */
 export const PORTAL_URL = "https://portal.autopilotmonitor.com";
 
+/**
+ * Customer-facing OOBE bootstrap short-URL base (irm {BOOTSTRAP_GO_URL}/{code} | iex).
+ * Front Door rewrites onto the backend's /api/bootstrap/go/{code}; counterpart of
+ * Constants.BootstrapGoBaseUrl on the C# side, which is the single URL producer —
+ * this constant exists only for display in the sessions list.
+ */
+export const BOOTSTRAP_GO_URL = "https://go.autopilotmonitor.com";
+
 /** Entra ID login/token authority host (no trailing slash). */
 export const ENTRA_LOGIN_URL = "https://login.microsoftonline.com";
 

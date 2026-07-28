@@ -26,6 +26,7 @@ public class HardcodedUrlGuardTests
         "www.autopilotmonitor.com",
         "docs.autopilotmonitor.com",
         "download.autopilotmonitor.com",
+        "go.autopilotmonitor.com",
         "mcp.autopilotmonitor.com",
         "autopilotmonitor-api-eu.azurewebsites.net",
         "autopilotmonitor.blob.core.windows.net",

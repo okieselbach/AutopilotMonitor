@@ -13,7 +13,9 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
 {
     /// <summary>
     /// GET /api/bootstrap/validate/{code} — Validate a bootstrap code and return the token.
-    /// Anonymous endpoint — called by the Next.js /go/{code} route (server-side).
+    /// Anonymous endpoint — legacy consumer is the Next.js /go/{code} route (alive for
+    /// pre-migration URLs until the static-export cutover); the canonical script path
+    /// is GetBootstrapScriptFunction, which validates in-process instead.
     /// Rate-limited by IP to prevent brute-force enumeration.
     /// </summary>
     public class ValidateBootstrapCodeFunction

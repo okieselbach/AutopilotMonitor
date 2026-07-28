@@ -165,6 +165,9 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "health",                    EndpointPolicy.PublicAnonymous),
         new("GET",    "stats/platform",            EndpointPolicy.PublicAnonymous),
         new("GET",    "bootstrap/validate/{code}", EndpointPolicy.PublicAnonymous),
+        // OOBE bootstrap script (irm go.autopilotmonitor.com/{code} | iex — Front Door
+        // rewrites onto this route). Always-200 text/plain; self-rate-limited per IP.
+        new("GET",    "bootstrap/go/{code}",       EndpointPolicy.PublicAnonymous),
         new("POST",   "agent/distress",             EndpointPolicy.PublicAnonymous),
         // Ticket-gated diagnostics download (MCP/AI clients with no JWT). The HMAC-signed
         // ticket is the sole authority — authz happened at mint time (diagnostics/download-ticket,

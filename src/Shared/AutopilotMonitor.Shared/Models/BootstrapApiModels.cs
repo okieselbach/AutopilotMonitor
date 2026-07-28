@@ -58,7 +58,8 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
-    /// Response from validating a bootstrap code (anonymous, called by the /go/{code} route)
+    /// Response from validating a bootstrap code (anonymous; legacy consumer is the
+    /// Next.js /go route — the canonical script path is GetBootstrapScriptFunction)
     /// </summary>
     public class ValidateBootstrapCodeResponse
     {

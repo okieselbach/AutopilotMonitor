@@ -105,6 +105,18 @@ namespace AutopilotMonitor.Shared
         /// <summary>Published customer documentation.</summary>
         public const string DocsBaseUrl = "https://docs.autopilotmonitor.com";
 
+        /// <summary>
+        /// Customer-facing base URL for the OOBE bootstrap script:
+        /// <c>irm https://go.autopilotmonitor.com/{code} | iex</c>, typed by hand at
+        /// Shift+F10 during OOBE — kept deliberately short. Front Door route on the
+        /// go custom domain rewrites <c>/{code}</c> to <c>/api/bootstrap/go/{code}</c>
+        /// on the Function App (GetBootstrapScriptFunction). Deliberately NOT
+        /// <see cref="WebsiteBaseUrl"/>: the legacy www /go route stays alive only for
+        /// URLs issued before the migration, and WebsiteBaseUrl is also the base for
+        /// the SLA dashboard link.
+        /// </summary>
+        public const string BootstrapGoBaseUrl = "https://go.autopilotmonitor.com";
+
         /// <summary>Microsoft Graph API root (no version segment).</summary>
         public const string GraphBaseUrl = "https://graph.microsoft.com";
 
@@ -243,6 +255,9 @@ namespace AutopilotMonitor.Shared
             public const string ImeLogPatterns           = "/api/rules/ime-log-patterns";
             public const string ReseedFromGitHub         = "/api/rules/reseed-from-github";
             public const string ValidateBootstrapCode    = "/api/bootstrap/validate/{code}";
+            // OOBE bootstrap script (text/plain PowerShell, always HTTP 200). Reached by
+            // customers as {BootstrapGoBaseUrl}/{code} via the Front Door go-domain route.
+            public const string BootstrapScript          = "/api/bootstrap/go/{code}";
 
             // Agent generic telemetry transport (Plan §2.7a) — THE agent ingest path since the
             // legacy V1 NDJSON endpoint (/api/agent/ingest) was decommissioned. Heterogeneous
