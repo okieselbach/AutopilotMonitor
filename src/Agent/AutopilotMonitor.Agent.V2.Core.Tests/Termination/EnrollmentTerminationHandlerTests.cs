@@ -511,6 +511,88 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
                 $"network_bandwidth_estimate (@{bandwidthIdx}) must precede whiteglove_part1_complete (@{part1CompleteIdx}) so the straggler stays in Part 1.");
         }
 
+        // ===================================================== WG Part-1 preprov diagnostics
+        // V1 parity (restored 2026-07-28): the seal exit uploads the diagnostics package as a
+        // pre-provisioning intermediate under the SAME mode gating as the terminal path — the
+        // seal counts as a success, so Always uploads, OnFailure skips (a Part-1 failure
+        // terminates via the regular Failed path, which uploads), Off does nothing.
+
+        [Theory]
+        [InlineData("Always", true, 1)]
+        [InlineData("OnFailure", true, 0)]
+        [InlineData("Off", true, 0)]
+        [InlineData("Always", false, 0)]
+        public void Handle_whiteglove_part1_diagnostics_upload_respects_mode(
+            string mode, bool enabled, int expected)
+        {
+            using var rig = new Rig();
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1")) { Stage = SessionStage.WhiteGloveSealed }.Build();
+            var cfg = rig.BuildConfig(diagEnabled: enabled, diagMode: mode);
+
+            rig.Build(cfg).Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.WhiteGloveSealed));
+
+            Assert.Equal(expected, rig.DiagnosticsUploads);
+        }
+
+        [Fact]
+        public void Handle_whiteglove_part1_diagnostics_upload_uses_preprov_suffix_and_succeeded_flag()
+        {
+            using var rig = new Rig();
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1")) { Stage = SessionStage.WhiteGloveSealed }.Build();
+            var cfg = rig.BuildConfig(diagEnabled: true, diagMode: "Always");
+
+            rig.Build(cfg).Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.WhiteGloveSealed));
+
+            Assert.Equal(1, rig.DiagnosticsUploads);
+            Assert.Equal("preprov", rig.LastDiagnosticsSuffix);
+            Assert.Equal(true, rig.LastDiagnosticsSucceededFlag);
+        }
+
+        [Fact]
+        public void Handle_whiteglove_part1_diagnostics_events_precede_part1_complete_marker()
+        {
+            // whiteglove_part1_complete is the authoritative Part-1/Part-2 boundary for the
+            // web split (computeWhiteGloveSplitSequence) — diagnostics_collecting/uploaded
+            // must sequence BEFORE it or they get mis-filed into the resumed Part-2 block.
+            using var rig = new Rig();
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1")) { Stage = SessionStage.WhiteGloveSealed }.Build();
+            rig.DiagnosticsResult = new DiagnosticsUploadResult { BlobName = "diag-preprov.zip" };
+            var cfg = rig.BuildConfig(diagEnabled: true, diagMode: "Always");
+
+            rig.Build(cfg).Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.WhiteGloveSealed));
+
+            var emitted = rig.EmittedEventTypes.ToList();
+            var collectingIdx = emitted.IndexOf("diagnostics_collecting");
+            var uploadedIdx = emitted.IndexOf("diagnostics_uploaded");
+            var part1CompleteIdx = emitted.IndexOf(Constants.EventTypes.WhiteGlovePart1Complete);
+
+            Assert.True(collectingIdx >= 0, "diagnostics_collecting must have been emitted.");
+            Assert.True(uploadedIdx >= 0, "diagnostics_uploaded must have been emitted.");
+            Assert.True(part1CompleteIdx >= 0, "whiteglove_part1_complete must have been emitted.");
+            Assert.True(uploadedIdx < part1CompleteIdx,
+                $"diagnostics_uploaded (@{uploadedIdx}) must precede whiteglove_part1_complete (@{part1CompleteIdx}) so the upload stays in Part 1.");
+        }
+
+        [Fact]
+        public void Handle_whiteglove_part1_still_skips_cleanup_and_marker_when_diagnostics_enabled()
+        {
+            // The preprov upload must not change the Part-1 exit contract: no self-destruct,
+            // no enrollment-complete.marker, whiteglove.complete still written.
+            using var rig = new Rig();
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1")) { Stage = SessionStage.WhiteGloveSealed }.Build();
+            var cfg = rig.BuildConfig(diagEnabled: true, diagMode: "Always");
+
+            rig.Build(cfg).Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.WhiteGloveSealed));
+
+            Assert.Equal(0, rig.CleanupService.Invocations);
+            Assert.False(File.Exists(Path.Combine(rig.StateDir, "enrollment-complete.marker")));
+            Assert.True(rig.SessionPersistence.IsWhiteGloveResume());
+        }
+
         [Fact]
         public void Handle_standalone_reboot_fires_when_reboot_enabled_and_no_self_destruct()
         {

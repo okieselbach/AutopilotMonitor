@@ -46,8 +46,12 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     try { var _ = await remoteConfigService.FetchConfigAsync(); return true; }
                     catch (Exception ex) { logger.Warning($"ServerAction rotate_config failed: {ex.Message}"); return false; }
                 },
+                // On-demand request mid-enrollment — the session has no outcome yet. Null keeps
+                // sessioninfo.txt honest ("In Progress") and passes the OnFailure gate by
+                // semantics (there is no success to skip on) instead of the former
+                // enrollmentSucceeded:false workaround that stamped in-flight packages "Failed".
                 uploadDiagnosticsAsync: async (suffix) =>
-                    await diagnosticsService.CreateAndUploadAsync(enrollmentSucceeded: false, fileNameSuffix: suffix),
+                    await diagnosticsService.CreateAndUploadAsync(enrollmentSucceeded: null, fileNameSuffix: suffix),
                 onTerminateRequested: action => OnTerminateRequested(
                     action, agentConfig, orchestrator, terminationHandler, shutdown, shutdownComplete, logger),
                 post: post);

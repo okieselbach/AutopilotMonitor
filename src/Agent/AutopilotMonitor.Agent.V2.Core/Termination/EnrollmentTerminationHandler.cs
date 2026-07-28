@@ -39,8 +39,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
     ///     <see cref="SessionStage.WhiteGloveSealed"/> (Part-1 exit, session resumes Part 2).</item>
     ///   <item>WhiteGlove Part-1 path: stop peripheral collectors first (so their stop-time
     ///     stragglers — e.g. <c>network_bandwidth_estimate</c> — sequence BEFORE the marker),
-    ///     then emit <c>whiteglove_part1_complete</c>, drain spool, and write
-    ///     <c>whiteglove.complete</c> marker via <see cref="SessionIdPersistence.SaveWhiteGloveComplete"/>
+    ///     upload the diagnostics package as a pre-provisioning intermediate (suffix
+    ///     <c>preprov</c>, same mode gating as the terminal path — the seal counts as a
+    ///     success, so <c>OnFailure</c> skips), then emit <c>whiteglove_part1_complete</c>,
+    ///     drain spool, and write <c>whiteglove.complete</c> marker via
+    ///     <see cref="SessionIdPersistence.SaveWhiteGloveComplete"/>
     ///     so Part-2 resume is detected on the next boot.</item>
     ///   <item>Signal the caller-owned shutdown <see cref="ManualResetEventSlim"/>.</item>
     /// </list>
@@ -240,6 +243,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                     // Idempotent on the orchestrator side (StopCollectorHosts guards a flag), so
                     // the full Stop() later is a no-op for the hosts.
                     StopPeripheralCollectorsBestEffort();
+
+                    // V1 parity (restored 2026-07-28) — upload the diagnostics package as a
+                    // pre-provisioning intermediate. Between reseal and user OOBE the device
+                    // may sit boxed for weeks, and if Part 2 never uploads (never runs, or
+                    // OnFailure + success) the Part-1 forensics would be lost to self-destruct.
+                    // No dedicated flag: the existing mode semantics apply — Always uploads,
+                    // OnFailure skips (the seal is a success; a Part-1 failure terminates via
+                    // the regular Failed path below, which uploads), Off does nothing. Must run
+                    // BEFORE the whiteglove_part1_complete emit so diagnostics_* events keep a
+                    // lower sequence than the Part-1/Part-2 boundary marker. Best-effort: a
+                    // reseal-reboot racing the upload just loses the intermediate package.
+                    RunUploadDiagnosticsWithEvents(args, suffixOverride: "preprov");
 
                     EmitEventSafe(new EnrollmentEvent
                     {
@@ -777,7 +792,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 StringComparison.Ordinal);
         }
 
-        private void RunUploadDiagnosticsWithEvents(EnrollmentTerminatedEventArgs args)
+        /// <param name="args">Termination payload — outcome drives the OnFailure gate.</param>
+        /// <param name="suffixOverride">
+        /// Blob-name suffix override. Null (terminal path) derives "success"/"failure" from
+        /// the outcome; the WhiteGlove Part-1 seal passes "preprov" so the intermediate
+        /// package is distinguishable from the later Part-2 terminal upload.
+        /// </param>
+        private void RunUploadDiagnosticsWithEvents(EnrollmentTerminatedEventArgs args, string suffixOverride = null)
         {
             var mode = _configuration.DiagnosticsUploadMode ?? "Off";
             if (!_configuration.DiagnosticsUploadEnabled || string.Equals(mode, "Off", StringComparison.OrdinalIgnoreCase))
@@ -813,7 +834,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             DiagnosticsUploadResult result = null;
             try
             {
-                var suffix = enrollmentSucceeded ? "success" : "failure";
+                var suffix = suffixOverride ?? (enrollmentSucceeded ? "success" : "failure");
                 result = _uploadDiagnosticsAsync(enrollmentSucceeded, suffix).GetAwaiter().GetResult();
             }
             catch (Exception ex)

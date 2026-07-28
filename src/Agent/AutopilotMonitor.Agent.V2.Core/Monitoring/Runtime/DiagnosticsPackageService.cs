@@ -218,15 +218,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         /// This method is non-fatal: all exceptions are caught and logged.
         /// </summary>
         /// <param name="enrollmentSucceeded">
-        /// True for a successful enrollment (affects OnFailure mode check and sessioninfo.txt content).
-        /// Pass true for WhiteGlove pre-provisioning (it succeeded up to this point).
+        /// True for a successful enrollment, false for a failed one (drives the OnFailure mode
+        /// check and sessioninfo.txt content). Pass true for WhiteGlove pre-provisioning (it
+        /// succeeded up to this point). Pass <b>null</b> when the session has no outcome yet
+        /// (on-demand server-requested collection mid-enrollment): the OnFailure gate does not
+        /// apply — there is no success to skip on — and sessioninfo.txt records "In Progress".
         /// </param>
         /// <param name="fileNameSuffix">
         /// Optional suffix inserted before the .zip extension.
         /// Example: "preprov" → AgentDiagnostics-{sessionId}-{timestamp}-preprov.zip
         /// Null (default) → AgentDiagnostics-{sessionId}-{timestamp}.zip
         /// </param>
-        public virtual async Task<DiagnosticsUploadResult> CreateAndUploadAsync(bool enrollmentSucceeded, string fileNameSuffix = null)
+        public virtual async Task<DiagnosticsUploadResult> CreateAndUploadAsync(bool? enrollmentSucceeded, string fileNameSuffix = null)
         {
             try
             {
@@ -244,13 +247,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                     return null;
                 }
 
-                if (string.Equals(mode, "OnFailure", StringComparison.OrdinalIgnoreCase) && enrollmentSucceeded)
+                // Null outcome (on-demand mid-session) passes through: the OnFailure gate only
+                // skips a KNOWN success — an in-flight session has nothing to skip on.
+                if (string.Equals(mode, "OnFailure", StringComparison.OrdinalIgnoreCase) && enrollmentSucceeded == true)
                 {
                     _logger.Info("Diagnostics upload skipped: enrollment succeeded and mode=OnFailure");
                     return null;
                 }
 
-                _logger.Info($"Creating diagnostics package (mode={mode}, enrollmentSucceeded={enrollmentSucceeded}{(fileNameSuffix != null ? $", suffix={fileNameSuffix}" : "")})...");
+                _logger.Info($"Creating diagnostics package (mode={mode}, enrollmentSucceeded={(enrollmentSucceeded.HasValue ? enrollmentSucceeded.ToString() : "n/a")}{(fileNameSuffix != null ? $", suffix={fileNameSuffix}" : "")})...");
 
                 // Build ZIP in memory
                 var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
@@ -343,7 +348,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
 
         // Builds the diagnostics ZIP body in-memory. Extracted from CreateAndUploadAsync so
         // tests can assert archive contents without going through the upload path.
-        internal virtual byte[] BuildArchiveBytes(bool enrollmentSucceeded)
+        internal virtual byte[] BuildArchiveBytes(bool? enrollmentSucceeded)
         {
             var tracker = new BudgetTracker(Budget);
             using (var ms = new MemoryStream())
@@ -414,14 +419,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             }
         }
 
-        private void AddSessionInfo(ZipArchive archive, bool enrollmentSucceeded)
+        private void AddSessionInfo(ZipArchive archive, bool? enrollmentSucceeded)
         {
             var sb = new StringBuilder();
             sb.AppendLine($"Session ID: {_configuration.SessionId}");
             sb.AppendLine($"Tenant ID: {_configuration.TenantId}");
             sb.AppendLine($"Device Name: {Environment.MachineName}");
             sb.AppendLine($"Timestamp: {DateTime.UtcNow:O}");
-            sb.AppendLine($"Enrollment Result: {(enrollmentSucceeded ? "Succeeded" : "Failed")}");
+            sb.AppendLine($"Enrollment Result: {(enrollmentSucceeded == null ? "In Progress" : enrollmentSucceeded.Value ? "Succeeded" : "Failed")}");
 
             // Hardware info via existing DeviceInfoProvider (WMI)
             sb.AppendLine($"Manufacturer: {DeviceInfoProvider.GetManufacturer()}");

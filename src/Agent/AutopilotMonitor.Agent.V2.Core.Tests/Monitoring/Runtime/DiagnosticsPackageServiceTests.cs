@@ -226,6 +226,95 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Runtime
             return archive.Entries.Select(e => e.FullName).ToArray();
         }
 
+        private static string ZipEntryText(byte[] zipBytes, string entryName)
+        {
+            using var ms = new MemoryStream(zipBytes);
+            using var archive = new ZipArchive(ms, ZipArchiveMode.Read);
+            var entry = archive.GetEntry(entryName);
+            Assert.NotNull(entry);
+            using var reader = new StreamReader(entry!.Open(), Encoding.UTF8);
+            return reader.ReadToEnd();
+        }
+
+        // ── Nullable outcome (on-demand mid-session) — gate + sessioninfo semantics ──
+
+        /// <summary>
+        /// Sentinel subclass: throws before any HTTP so gate-pass-through is observable as a
+        /// non-null error result (a skip returns null BEFORE the archive is ever built).
+        /// </summary>
+        private sealed class ThrowOnBuildService : DiagnosticsPackageService
+        {
+            public ThrowOnBuildService(AgentConfiguration cfg, AgentLogger logger, BackendApiClient api)
+                : base(cfg, logger, api) { }
+            internal override byte[] BuildArchiveBytes(bool? enrollmentSucceeded) =>
+                throw new System.InvalidOperationException("gate-passed-sentinel");
+        }
+
+        private static DiagnosticsPackageService BuildGateProbe(AgentLogger logger, string mode)
+        {
+            var cfg = Cfg();
+            cfg.DiagnosticsUploadEnabled = true;
+            cfg.DiagnosticsUploadMode = mode;
+            var apiClient = new BackendApiClient(
+                httpClient: new System.Net.Http.HttpClient(),
+                baseUrl: "http://localhost",
+                manufacturer: string.Empty,
+                model: string.Empty,
+                serialNumber: string.Empty,
+                useBootstrapTokenAuth: false,
+                bootstrapToken: null,
+                agentVersion: "0.0.0",
+                logger: logger);
+            return new ThrowOnBuildService(cfg, logger, apiClient);
+        }
+
+        [Fact]
+        public async System.Threading.Tasks.Task CreateAndUploadAsync_null_outcome_passes_OnFailure_gate()
+        {
+            // On-demand mid-session (no outcome yet): the OnFailure gate must NOT skip —
+            // there is no known success to skip on. Reaching the archive build (sentinel
+            // throw → error result) proves the gate was passed; a skip would return null.
+            using var rig = new Rig();
+            var result = await BuildGateProbe(rig.Logger, "OnFailure")
+                .CreateAndUploadAsync(enrollmentSucceeded: null, fileNameSuffix: "server-requested");
+
+            Assert.NotNull(result);
+            Assert.Equal("gate-passed-sentinel", result!.ErrorCode);
+        }
+
+        [Fact]
+        public async System.Threading.Tasks.Task CreateAndUploadAsync_known_success_still_skipped_by_OnFailure_gate()
+        {
+            using var rig = new Rig();
+            var result = await BuildGateProbe(rig.Logger, "OnFailure")
+                .CreateAndUploadAsync(enrollmentSucceeded: true);
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public async System.Threading.Tasks.Task CreateAndUploadAsync_null_outcome_still_blocked_by_mode_Off()
+        {
+            using var rig = new Rig();
+            var result = await BuildGateProbe(rig.Logger, "Off")
+                .CreateAndUploadAsync(enrollmentSucceeded: null);
+
+            Assert.Null(result);
+        }
+
+        [Theory]
+        [InlineData(true, "Succeeded")]
+        [InlineData(false, "Failed")]
+        [InlineData(null, "In Progress")]
+        public void BuildArchiveBytes_sessioninfo_reflects_nullable_outcome(bool? outcome, string expected)
+        {
+            using var rig = new Rig();
+            var bytes = rig.Build().BuildArchiveBytes(outcome);
+
+            var sessionInfo = ZipEntryText(bytes, "sessioninfo.txt");
+            Assert.Contains($"Enrollment Result: {expected}", sessionInfo);
+        }
+
         // ── BuildBlobUploadUrl — destination-aware URL construction ─────────────────
 
         [Theory]
