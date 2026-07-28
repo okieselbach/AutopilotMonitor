@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeWhiteGloveSplitSequence } from "../../app/sessions/[sessionId]/utils/eventHelpers";
+import { computeWhiteGloveSplitSequence } from "../../app/sessions/utils/eventHelpers";
 import type { EnrollmentEvent } from "@/types";
 
 // Fixture builder — keeps the tests focused on sequence/eventType only.

@@ -1,5 +1,6 @@
 "use client";
 
+import { sessionUrl } from "@/lib/routes";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
@@ -466,10 +467,7 @@ function HomeContent() {
               onToggleFullWidth={toggleFullWidth}
               sessionLinkTarget={
                 crossTenant
-                  ? (s) =>
-                      s.tenantId
-                        ? `/sessions/${s.sessionId}?tenantId=${encodeURIComponent(s.tenantId)}`
-                        : `/sessions/${s.sessionId}`
+                  ? (s) => sessionUrl(s.sessionId, { tenantId: s.tenantId || undefined })
                   : undefined
               }
             />

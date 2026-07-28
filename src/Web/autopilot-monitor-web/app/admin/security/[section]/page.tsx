@@ -1,22 +1,20 @@
-"use client";
+import { SECURITY_NAV_SECTIONS } from "../securityNavSections";
+import { SectionClient } from "./SectionClient";
 
-import { useParams } from "next/navigation";
-import { notFound } from "next/navigation";
-import { SECURITY_NAV_SECTIONS, type SecuritySectionId } from "../securityNavSections";
-import { SectionDeviceBlock } from "../sections/SectionDeviceBlock";
-import { SectionVersionBlock } from "../sections/SectionVersionBlock";
-import { SectionVulnerabilityData } from "../sections/SectionVulnerabilityData";
+// Static export: prerender exactly the registered sections; anything else is a
+// build-time 404 (dynamicParams=false). The interactive body lives in
+// SectionClient — generateStaticParams cannot be exported from a client file.
+export const dynamicParams = false;
 
-const SECTION_COMPONENTS: Record<SecuritySectionId, React.ComponentType> = {
-  "device-block": SectionDeviceBlock,
-  "version-block": SectionVersionBlock,
-  "vulnerability-data": SectionVulnerabilityData,
-};
+export function generateStaticParams() {
+  return SECURITY_NAV_SECTIONS.map((s) => ({ section: s.id }));
+}
 
-export default function SecuritySectionPage() {
-  const params = useParams();
-  const section = params.section as string;
-  const SectionContent = SECTION_COMPONENTS[section as SecuritySectionId];
-  if (!SectionContent) notFound();
-  return <SectionContent />;
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ section: string }>;
+}) {
+  const { section } = await params;
+  return <SectionClient section={section} />;
 }

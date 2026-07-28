@@ -1,5 +1,9 @@
-import { redirect } from "next/navigation";
+"use client";
 
-export default function ReportsPage() {
-  redirect("/admin/reports/session-reports");
+import { ClientRedirect } from "@/components/ClientRedirect";
+
+// Index route → default section. Client-side replace: server redirect() is not
+// supported under output:'export'.
+export default function IndexRedirect() {
+  return <ClientRedirect to="/admin/reports/session-reports" />;
 }

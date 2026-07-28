@@ -1,3 +1,52 @@
 {
+  "trailingSlash": "auto",
+  "routes": [
+    { "route": "/landing", "redirect": "/", "statusCode": 301 },
+    { "route": "/docs/private-preview", "redirect": "https://docs.autopilotmonitor.com/getting-started/requirements-and-access", "statusCode": 301 },
+    { "route": "/docs/overview", "redirect": "https://docs.autopilotmonitor.com", "statusCode": 301 },
+    { "route": "/docs/general", "redirect": "https://docs.autopilotmonitor.com/concepts/roles-and-permissions", "statusCode": 301 },
+    { "route": "/docs/setup", "redirect": "https://docs.autopilotmonitor.com/getting-started/portal-setup", "statusCode": 301 },
+    { "route": "/docs/agent", "redirect": "https://docs.autopilotmonitor.com/concepts/agent-lifecycle-and-security", "statusCode": 301 },
+    { "route": "/docs/agent-setup", "redirect": "https://docs.autopilotmonitor.com/getting-started/deploy-the-agent", "statusCode": 301 },
+    { "route": "/docs/settings", "redirect": "https://docs.autopilotmonitor.com/reference/settings", "statusCode": 301 },
+    { "route": "/docs/gather-rules", "redirect": "https://docs.autopilotmonitor.com/rules/gather-rules", "statusCode": 301 },
+    { "route": "/docs/analyze-rules", "redirect": "https://docs.autopilotmonitor.com/rules/analyze-rules", "statusCode": 301 },
+    { "route": "/docs/ime-log-patterns", "redirect": "https://docs.autopilotmonitor.com/rules/ime-log-patterns", "statusCode": 301 },
+    { "route": "/docs/faq", "redirect": "https://docs.autopilotmonitor.com/troubleshooting/faq", "statusCode": 301 },
+    { "route": "/docs/known-issues", "redirect": "https://docs.autopilotmonitor.com/troubleshooting/service-announcements", "statusCode": 301 },
+    { "route": "/docs/mcp-integration", "redirect": "https://docs.autopilotmonitor.com/integrations/ai-integration-mcp", "statusCode": 301 },
+    { "route": "/docs/agent-changelog", "redirect": "https://docs.autopilotmonitor.com/changelog/agent-changelog", "statusCode": 301 },
+    { "route": "/docs", "redirect": "https://docs.autopilotmonitor.com", "statusCode": 301 },
+    { "route": "/docs/*", "redirect": "https://docs.autopilotmonitor.com", "statusCode": 301 },
+    { "route": "/changelog", "redirect": "https://docs.autopilotmonitor.com/changelog/platform-changelog", "statusCode": 301 },
+    { "route": "/roadmap", "redirect": "/", "statusCode": 302 },
 
+    { "route": "/opengraph-image", "headers": { "Content-Type": "image/png" } },
+    { "route": "/twitter-image", "headers": { "Content-Type": "image/png" } },
+    { "route": "/apple-icon", "headers": { "Content-Type": "image/png" } },
+
+    { "route": "/sessions/inspector", "rewrite": "/sessions/inspector/index.html" },
+    { "route": "/sessions/inspector/", "rewrite": "/sessions/inspector/index.html" },
+    { "route": "/sessions/*", "rewrite": "/sessions/index.html" },
+    { "route": "/diagnosis/*", "rewrite": "/diagnosis/index.html" },
+    { "route": "/apps/detail", "rewrite": "/apps/detail/index.html" },
+    { "route": "/apps/detail/", "rewrite": "/apps/detail/index.html" },
+    { "route": "/apps/*", "rewrite": "/apps/detail/index.html" },
+    { "route": "/admin/backups/detail", "rewrite": "/admin/backups/detail/index.html" },
+    { "route": "/admin/backups/detail/", "rewrite": "/admin/backups/detail/index.html" },
+    { "route": "/admin/backups/*", "rewrite": "/admin/backups/detail/index.html" },
+    { "route": "/admin/customs-archive/detail", "rewrite": "/admin/customs-archive/detail/index.html" },
+    { "route": "/admin/customs-archive/detail/", "rewrite": "/admin/customs-archive/detail/index.html" },
+    { "route": "/admin/customs-archive/*", "rewrite": "/admin/customs-archive/detail/index.html" }
+  ],
+  "responseOverrides": {
+    "404": { "rewrite": "/404.html" }
+  },
+  "globalHeaders": {
+    "X-Content-Type-Options": "nosniff",
+    "Permissions-Policy": "unload=()",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.tile.openstreetmap.org; font-src 'self'; connect-src 'self' https://autopilotmonitor-api-eu.azurewebsites.net https://autopilotmonitoreu.blob.core.windows.net https://login.microsoftonline.com https://*.service.signalr.net wss://*.service.signalr.net https://js.monitor.azure.com https://*.in.applicationinsights.azure.com; frame-ancestors 'none'"
+  }
 }

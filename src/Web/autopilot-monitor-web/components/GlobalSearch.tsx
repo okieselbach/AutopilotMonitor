@@ -1,5 +1,6 @@
 "use client";
 
+import { sessionUrl } from "@/lib/routes";
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
@@ -116,7 +117,7 @@ export default function GlobalSearch() {
     setShowDropdown(false);
     setMobileOpen(false);
     setQuery('');
-    router.push(`/sessions/${result.sessionId}`);
+    router.push(sessionUrl(result.sessionId));
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

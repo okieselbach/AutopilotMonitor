@@ -94,6 +94,12 @@ Do not benchmark this with a synthetic burst. Firing requests in quick successio
 and measures the best case: in a 25-round `curl --parallel-max 6` run, round 1 came in at p50 288 ms
 and rounds 4–25 at p50 113 ms.
 
+> **Endgame (2026-07-29).** The cold-start class was eliminated at the root: the portal became a
+> full static export (`output: 'export'`) — the SWA-managed SSR runtime no longer exists, so there
+> is nothing left to cool down. One escalation drove this: on 2026-07-28 a cold start exceeded the
+> SWA's 45-second function limit and the landing page served a hard "Backend call failure" 500.
+> The availability test that bridged the gap as a keep-alive stays as plain uptime monitoring.
+
 # Diagnosing this class of problem
 
 The backend Application Insights resource is the wrong place to look — a freeze appears there as an

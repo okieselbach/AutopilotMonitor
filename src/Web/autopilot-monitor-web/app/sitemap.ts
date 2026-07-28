@@ -1,3 +1,6 @@
+// Static export: prerender at build time (required with output: "export").
+export const dynamic = "force-static";
+
 import type { MetadataRoute } from "next";
 import { PAGE_LASTMOD } from "@/utils/page-lastmod.generated";
 import { SITE_URL } from "@/utils/config";

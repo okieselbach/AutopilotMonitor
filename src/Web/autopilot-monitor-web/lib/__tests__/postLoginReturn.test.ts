@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { savePostLoginReturnUrl, consumePostLoginReturnUrl } from "../postLoginReturn";
 
 // Guards the deep-link-after-reauth contract: ProtectedRoute stashes the page the
-// user opened (e.g. a /sessions/[id] link in a new tab) before the MSAL login
+// user opened (e.g. a /sessions?id=… link in a new tab) before the MSAL login
 // redirect, and AuthGate restores it afterwards. MSAL runs with
 // navigateToLoginRequestUrl=false, so a regression here silently drops the user
 // on /dashboard instead of where they were headed — and the open-redirect guard
@@ -29,8 +29,8 @@ describe("postLoginReturn", () => {
   });
 
   it("round-trips a safe in-app path and clears it on consume", () => {
-    savePostLoginReturnUrl("/sessions/abc-123?tab=events");
-    expect(consumePostLoginReturnUrl()).toBe("/sessions/abc-123?tab=events");
+    savePostLoginReturnUrl("/sessions?id=abc-123&tab=events");
+    expect(consumePostLoginReturnUrl()).toBe("/sessions?id=abc-123&tab=events");
     // Second consume returns null — the value is single-use.
     expect(consumePostLoginReturnUrl()).toBeNull();
   });
@@ -65,7 +65,7 @@ describe("postLoginReturn", () => {
 
   it("does not throw when sessionStorage is unavailable", () => {
     delete (globalThis as unknown as { window?: unknown }).window;
-    expect(() => savePostLoginReturnUrl("/sessions/x")).not.toThrow();
+    expect(() => savePostLoginReturnUrl("/sessions?id=x")).not.toThrow();
     expect(consumePostLoginReturnUrl()).toBeNull();
   });
 });

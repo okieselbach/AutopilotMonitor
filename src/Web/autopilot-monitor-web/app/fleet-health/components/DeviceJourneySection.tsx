@@ -1,5 +1,6 @@
 "use client";
 
+import { sessionUrl } from "@/lib/routes";
 import React, { useMemo } from "react";
 import Link from "next/link";
 import TruncatedLabel from "../../../components/TruncatedLabel";
@@ -107,7 +108,7 @@ export default function DeviceJourneySection({
   const repeatDevices = data.repeatDevices;
 
   const sessionHref = (id: string) =>
-    `/sessions/${id}${linkTenantId ? `?tenantId=${encodeURIComponent(linkTenantId)}` : ""}`;
+    sessionUrl(id, { tenantId: linkTenantId || undefined });
 
   return (
     <div className="bg-white shadow rounded-lg p-6 mb-8">

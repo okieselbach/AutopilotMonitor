@@ -52,7 +52,11 @@ jobs:
           # For more information regarding Static Web App workflow configurations, please visit: https://aka.ms/swaworkflowconfig
           app_location: "src/Web/autopilot-monitor-web" # App source code path
           api_location: "" # Api source code path - optional
-          output_location: "" # Built app content directory - optional
+          # Static export (next.config output:'export'): Oryx runs `npm run build`
+          # and uploads the exported out/ directory as plain static files — no
+          # managed SSR runtime is provisioned anymore.
+          output_location: "out" # Built app content directory - optional
+          is_static_export: true
           ###### End of Repository/Build Configurations ######
 
   close_pull_request_job:

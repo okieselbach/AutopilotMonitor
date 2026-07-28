@@ -1,5 +1,6 @@
 "use client";
 
+import { customsArchiveUrl } from "@/lib/routes";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
@@ -134,7 +135,7 @@ export default function CustomsArchivePage() {
               </div>
               <div className="flex items-center gap-2">
                 <Link
-                  href={`/admin/customs-archive/${encodeURIComponent(run.tenantId)}/${encodeURIComponent(run.historyRowKey)}`}
+                  href={customsArchiveUrl(run.tenantId, run.historyRowKey)}
                   className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white text-sm rounded-md transition-colors"
                 >
                   Inspect

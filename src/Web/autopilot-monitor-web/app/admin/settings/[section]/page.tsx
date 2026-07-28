@@ -1,32 +1,20 @@
-"use client";
+import { SETTINGS_NAV_SECTIONS } from "../settingsNavSections";
+import { SectionClient } from "./SectionClient";
 
-import { useParams } from "next/navigation";
-import { notFound } from "next/navigation";
-import { type SettingsSectionId } from "../settingsNavSections";
-import { SectionGlobalSettings } from "../sections/SectionGlobalSettings";
-import { SectionDiagnosticsLogPaths } from "../sections/SectionDiagnosticsLogPaths";
-import { SectionMcpUsers } from "../sections/SectionMcpUsers";
-import { SectionDelegatedAdmins } from "../sections/SectionDelegatedAdmins";
-import { SectionTenantGroups } from "../sections/SectionTenantGroups";
-import { SectionConfigReseed } from "../sections/SectionConfigReseed";
-import { SectionUsagePlans } from "../sections/SectionUsagePlans";
-import { SectionAlerts } from "../sections/SectionAlerts";
+// Static export: prerender exactly the registered sections; anything else is a
+// build-time 404 (dynamicParams=false). The interactive body lives in
+// SectionClient — generateStaticParams cannot be exported from a client file.
+export const dynamicParams = false;
 
-const SECTION_COMPONENTS: Record<SettingsSectionId, React.ComponentType> = {
-  "global": SectionGlobalSettings,
-  "diagnostics-log-paths": SectionDiagnosticsLogPaths,
-  "mcp-users": SectionMcpUsers,
-  "delegated-admins": SectionDelegatedAdmins,
-  "tenant-groups": SectionTenantGroups,
-  "config-reseed": SectionConfigReseed,
-  "usage-plans": SectionUsagePlans,
-  "alerts": SectionAlerts,
-};
+export function generateStaticParams() {
+  return SETTINGS_NAV_SECTIONS.map((s) => ({ section: s.id }));
+}
 
-export default function SettingsSectionPage() {
-  const params = useParams();
-  const section = params.section as string;
-  const SectionContent = SECTION_COMPONENTS[section as SettingsSectionId];
-  if (!SectionContent) notFound();
-  return <SectionContent />;
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ section: string }>;
+}) {
+  const { section } = await params;
+  return <SectionClient section={section} />;
 }

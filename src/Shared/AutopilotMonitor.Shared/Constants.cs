@@ -99,6 +99,15 @@ namespace AutopilotMonitor.Shared
         /// <summary>Customer portal (deep links in notifications and e-mails).</summary>
         public const string PortalBaseUrl = "https://portal.autopilotmonitor.com";
 
+        /// <summary>
+        /// The session deep link used in outbound notifications (Teams/Slack/webhook
+        /// "Open session" buttons). Query-string form since the portal's static-export
+        /// migration — the single definition of this shape; legacy /sessions/{id}
+        /// links in already-sent notifications are rewritten client-side by the portal.
+        /// </summary>
+        public static string PortalSessionUrl(string sessionId) =>
+            $"{PortalBaseUrl}/sessions?id={System.Uri.EscapeDataString(sessionId ?? string.Empty)}";
+
         /// <summary>Public marketing/product website.</summary>
         public const string WebsiteBaseUrl = "https://www.autopilotmonitor.com";
 

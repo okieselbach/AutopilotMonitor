@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import {
   api,
   type BackupManifest,
@@ -22,8 +22,17 @@ import { RestoreRowDiffModal } from "../components/RestoreRowDiffModal";
  * the operator restore a single row from any Ok / Empty table.
  */
 export default function BackupDetailPage() {
-  const params = useParams<{ backupId: string }>();
-  const backupId = decodeURIComponent(params?.backupId ?? "");
+  // useSearchParams() in BackupDetailContent requires a Suspense boundary for static prerender.
+  return (
+    <Suspense fallback={null}>
+      <BackupDetailContent />
+    </Suspense>
+  );
+}
+
+function BackupDetailContent() {
+  const searchParams = useSearchParams();
+  const backupId = searchParams?.get("id") ?? "";
   const { getAccessToken, setError, setSuccessMessage } = useAdminConfig();
 
   const [manifest, setManifest] = useState<BackupManifest | null>(null);

@@ -1,5 +1,6 @@
 "use client";
 
+import { sessionUrl } from "@/lib/routes";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
@@ -579,7 +580,7 @@ export function UnmappedSoftwareTab({
                             </div>
                             <div className="px-3 py-3 text-sm flex-shrink-0 w-20">
                               <a
-                                href={`/sessions/${entry.exampleSessionId}`}
+                                href={sessionUrl(entry.exampleSessionId)}
                                 className="text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 font-mono text-xs hover:underline"
                                 onClick={(e) => e.stopPropagation()}
                               >

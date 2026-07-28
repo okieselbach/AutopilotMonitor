@@ -1,6 +1,9 @@
 import { ImageResponse } from "next/og";
 import { PUBLIC_HOST } from "@/lib/hostRouting";
 
+// Static export: prerender the image at build time (required with output: "export").
+export const dynamic = "force-static";
+
 export const alt = "AutopilotMonitor – Real-Time Windows Enrollment Monitoring";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";

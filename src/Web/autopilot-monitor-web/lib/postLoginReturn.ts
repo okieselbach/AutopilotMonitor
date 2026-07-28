@@ -4,7 +4,7 @@
  * MSAL is configured with `navigateToLoginRequestUrl: false` (see lib/msalConfig.ts),
  * so after an interactive login redirect the browser lands on the bare origin (`/`)
  * and AuthGate routes the user to a role-based default (e.g. /dashboard) — losing the
- * deep link they originally tried to open (e.g. a /sessions/[id] link in a new tab).
+ * deep link they originally tried to open (e.g. a /sessions?id=… link in a new tab).
  *
  * To preserve the intended destination we stash it just before triggering the login
  * redirect and restore it once auth settles back on the landing page. sessionStorage
@@ -14,7 +14,7 @@
 const RETURN_URL_KEY = "apm:postLoginReturnUrl";
 
 /**
- * Only same-origin absolute in-app paths (e.g. "/sessions/abc") are eligible.
+ * Only same-origin absolute in-app paths (e.g. "/sessions?id=abc") are eligible.
  * Rejects protocol-relative ("//evil.com"), backslash tricks ("/\\evil.com"),
  * absolute URLs, and the bare root (nothing meaningful to restore) to avoid
  * open-redirect abuse.

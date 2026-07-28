@@ -1,5 +1,6 @@
 'use client';
 
+import { sessionUrl } from "@/lib/routes";
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useTenant } from '../../contexts/TenantContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -414,7 +415,7 @@ export default function SlaPage() {
                           <tr key={v.sessionId} className="hover:bg-gray-50 dark:hover:bg-gray-750">
                             <td className="px-6 py-4 whitespace-nowrap">
                               <Link
-                                href={`/sessions/${v.sessionId}`}
+                                href={sessionUrl(v.sessionId)}
                                 onClick={() => trackEvent('sla_violator_opened', {
                                   sessionId: v.sessionId,
                                   tenantId: v.tenantId,

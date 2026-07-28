@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState, use as usePromise } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   api,
   type CustomsArchiveEntrySummary,
@@ -9,19 +10,24 @@ import {
   type CustomsArchiveListEntriesResponse,
 } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
-import { useAdminConfig } from "../../../AdminConfigContext";
-import { AdminNotifications } from "../../../AdminNotifications";
-import { DeleteConfirmModal } from "../../components/DeleteConfirmModal";
+import { useAdminConfig } from "../../AdminConfigContext";
+import { AdminNotifications } from "../../AdminNotifications";
+import { DeleteConfirmModal } from "../components/DeleteConfirmModal";
 
-interface PageProps {
-  params: Promise<{ tenantId: string; historyRowKey: string }>;
+export default function CustomsArchiveDetailPage() {
+  // useSearchParams() in CustomsArchiveDetailContent requires a Suspense boundary
+  // for static prerender.
+  return (
+    <Suspense fallback={null}>
+      <CustomsArchiveDetailContent />
+    </Suspense>
+  );
 }
 
-export default function CustomsArchiveDetailPage({ params }: PageProps) {
-  // Next.js 15: route params are async. Resolve once.
-  const resolved = usePromise(params);
-  const tenantId = decodeURIComponent(resolved.tenantId);
-  const historyRowKey = decodeURIComponent(resolved.historyRowKey);
+function CustomsArchiveDetailContent() {
+  const searchParams = useSearchParams();
+  const tenantId = searchParams?.get("tenantId") ?? "";
+  const historyRowKey = searchParams?.get("rowKey") ?? "";
 
   const { getAccessToken, setError, setSuccessMessage } = useAdminConfig();
   const [entries, setEntries] = useState<CustomsArchiveEntrySummary[]>([]);

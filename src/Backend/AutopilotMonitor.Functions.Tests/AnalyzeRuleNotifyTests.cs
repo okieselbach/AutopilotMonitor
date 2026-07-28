@@ -189,7 +189,7 @@ public class AnalyzeRuleNotifyTests
 
         var alert = NotificationAlertBuilder.BuildRuleFiredAlert(
             result, "DESKTOP-CONTOSO1", "SN-1234",
-            "https://portal.autopilotmonitor.com/sessions/abc");
+            "https://portal.autopilotmonitor.com/sessions?id=abc");
 
         Assert.Equal("analyze_rule_fired", alert.EventType);
         Assert.Contains("Proxy blocks enrollment endpoints", alert.Title);
@@ -197,7 +197,7 @@ public class AnalyzeRuleNotifyTests
         Assert.Contains(alert.Facts, f => f.Name == "Serial" && f.Value == "SN-1234");
         Assert.Contains(alert.Facts, f => f.Name == "Rule" && f.Value.Contains("ANALYZE-NET-001"));
         Assert.Contains(alert.Facts, f => f.Name == "Confidence" && f.Value == "85%");
-        Assert.Contains(alert.Actions, a => a.Type == "openUrl" && a.Url == "https://portal.autopilotmonitor.com/sessions/abc");
+        Assert.Contains(alert.Actions, a => a.Type == "openUrl" && a.Url == "https://portal.autopilotmonitor.com/sessions?id=abc");
         Assert.Contains(alert.Sections, s => s.Text.Contains("could not reach"));
     }
 

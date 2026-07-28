@@ -1,5 +1,6 @@
 "use client";
 
+import { appDetailUrl } from "@/lib/routes";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTenant } from "../../../contexts/TenantContext";
@@ -221,9 +222,8 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
 
   function openApp(appName: string) {
     const days = rangeToDays(timeRange);
-    const params = new URLSearchParams({ days: String(days) });
     // Tenant scope is carried in sessionStorage (see useAggregatedAdminScope), so no scope params needed.
-    router.push(`/apps/${encodeURIComponent(appName)}?${params.toString()}`);
+    router.push(appDetailUrl(appName, { days: String(days) }));
   }
 
   return (

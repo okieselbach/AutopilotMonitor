@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { sessionUrl } from "@/lib/routes";
+import { Suspense, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDecisionGraph } from "./hooks/useDecisionGraph";
 import { useSessionSignals } from "./hooks/useSessionSignals";
@@ -35,14 +36,22 @@ function isTab(value: string | null): value is Tab {
 }
 
 export default function InspectorPage() {
-  const params = useParams();
-  const sessionId = (params?.sessionId as string) ?? "";
+  // useSearchParams() in InspectorContent requires a Suspense boundary for static prerender.
+  return (
+    <Suspense fallback={null}>
+      <InspectorContent />
+    </Suspense>
+  );
+}
+
+function InspectorContent() {
+  const searchParams = useSearchParams();
+  const sessionId = searchParams?.get("id") ?? "";
   const { getAccessToken } = useAuth();
 
   // Deep-link via ?tab=anchors (FailureSnapshotBlock uses this). Query is read
   // once on mount; subsequent tab clicks live in component state only — no
   // history churn for casual clicks.
-  const searchParams = useSearchParams();
   const initialTab = (() => {
     const fromQuery = searchParams?.get("tab") ?? null;
     return isTab(fromQuery) ? fromQuery : "graph";
@@ -65,7 +74,7 @@ export default function InspectorPage() {
       <header className="flex items-center justify-between">
         <div>
           <div className="text-sm text-gray-500">
-            <Link href={`/sessions/${sessionId}`} className="hover:underline">
+            <Link href={sessionUrl(sessionId)} className="hover:underline">
               ← Session {sessionId.substring(0, 8)}
             </Link>
           </div>
@@ -179,7 +188,7 @@ function NoV2DataNotice({ sessionId }: { sessionId: string }) {
         This session likely ran on the legacy (V1) agent, or the V2 telemetry
         never reached the backend. Use the regular{" "}
         <Link
-          href={`/sessions/${sessionId}`}
+          href={sessionUrl(sessionId)}
           className="underline hover:text-amber-700"
         >
           session detail page

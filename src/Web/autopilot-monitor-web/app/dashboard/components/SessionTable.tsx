@@ -1,5 +1,6 @@
 "use client";
 
+import { sessionUrl } from "@/lib/routes";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef, useMemo, useDeferredValue } from "react";
 import { Session } from "../types";
@@ -147,7 +148,7 @@ export function SessionTable({
 }: SessionTableProps) {
   const router = useRouter();
   const linkFor = (session: Session) =>
-    sessionLinkTarget ? sessionLinkTarget(session) : `/sessions/${session.sessionId}`;
+    sessionLinkTarget ? sessionLinkTarget(session) : sessionUrl(session.sessionId);
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(getInitialVisibleColumns);
   const [showColumnSelector, setShowColumnSelector] = useState(false);
   const [openFilterColumn, setOpenFilterColumn] = useState<string | null>(null);

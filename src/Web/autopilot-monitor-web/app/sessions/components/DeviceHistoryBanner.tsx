@@ -1,5 +1,6 @@
 "use client";
 
+import { sessionUrl } from "@/lib/routes";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
@@ -101,7 +102,7 @@ export default function DeviceHistoryBanner({
 
   const attemptNumber = data?.attemptNumber;
   const sessionHref = (id: string) =>
-    `/sessions/${id}${linkTenantId ? `?tenantId=${encodeURIComponent(linkTenantId)}` : ""}`;
+    sessionUrl(id, { tenantId: linkTenantId || undefined });
 
   return (
     <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-6">

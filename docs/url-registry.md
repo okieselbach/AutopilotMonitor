@@ -95,12 +95,22 @@ token, so a cache hit would replay one requester's token to another.
 `NoStoreCacheMiddleware` additionally stamps `no-store` via the
 `/api/bootstrap/go/` prefix.
 
-Transition rule: the legacy Next.js `/go/[code]` route and the `/go` public
-prefix in `middleware.ts` stay alive for URLs issued before the migration
-(validity ≤ 168 h) and are removed in the static-export PR — no earlier than
-168 h after the last www URL was issued. Until then the PS template exists
-twice; `OobeBootstrapScriptGeneratorTests` pins C#/TS parity via a golden file
-captured from the TS template.
+Transition COMPLETED with the static-export PR (2026-07-29): the legacy
+Next.js `/go/[code]` route, `utils/bootstrapValidation.ts`, and
+`middleware.ts` are deleted — verified safe because the BootstrapSessions
+table held zero active sessions predating the URL cutover (all expired
+2026-03). The backend is now the only script producer;
+`OobeBootstrapScriptGeneratorTests`' golden file remains as the pin of the
+shipped template.
+
+Portal detail routes are query-string based since the same PR
+(`/sessions?id=…` etc., builders in `lib/routes.ts`, notification producer
+`Constants.PortalSessionUrl`). Legacy PATH-shaped links in sent
+Teams/Slack/webhook notifications are rewritten forever by SWA wildcard
+rewrites + `components/LegacyPathRedirect.tsx`; `staticwebapp.config.json`
+carries the production redirects/headers and is guarded by
+`utils/__tests__/swaConfig.guard.test.ts` (registry-backed hosts, no
+unsafe-eval, route order).
 
 # Citations
 

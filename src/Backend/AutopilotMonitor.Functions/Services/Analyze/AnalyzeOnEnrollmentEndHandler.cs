@@ -177,7 +177,7 @@ namespace AutopilotMonitor.Functions.Services.Analyze
                     return;
 
                 var session = await _sessionRepo.GetSessionAsync(envelope.TenantId, envelope.SessionId).ConfigureAwait(false);
-                var sessionUrl = $"{Constants.PortalBaseUrl}/sessions/{envelope.SessionId}";
+                var sessionUrl = Constants.PortalSessionUrl(envelope.SessionId);
 
                 foreach (var (result, rule) in candidates)
                 {

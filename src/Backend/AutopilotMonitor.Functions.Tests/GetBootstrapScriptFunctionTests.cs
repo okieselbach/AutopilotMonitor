@@ -104,6 +104,26 @@ public class CreateBootstrapSessionUrlShapeTests
         Assert.Equal("https://go.autopilotmonitor.com", Constants.BootstrapGoBaseUrl);
     }
 
+    // ── Notification session deep link (Teams/Slack/webhook "Open session"): the
+    //    query-string shape the static-export portal understands. Literal is a
+    //    deliberate independent oracle; the legacy /sessions/{id} path shape is
+    //    rewritten client-side by the portal forever. ──
+    [Fact]
+    public void PortalSessionUrl_is_the_query_string_shape()
+    {
+        Assert.Equal(
+            "https://portal.autopilotmonitor.com/sessions?id=abc-123",
+            Constants.PortalSessionUrl("abc-123"));
+    }
+
+    [Fact]
+    public void PortalSessionUrl_escapes_the_session_id()
+    {
+        Assert.Equal(
+            "https://portal.autopilotmonitor.com/sessions?id=a%26b%3Dc",
+            Constants.PortalSessionUrl("a&b=c"));
+    }
+
     [Fact]
     public void CreateBootstrapSession_builds_the_url_from_the_go_constant()
     {

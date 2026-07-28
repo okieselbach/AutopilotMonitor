@@ -1,5 +1,6 @@
 "use client";
 
+import { backupUrl } from "@/lib/routes";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
@@ -165,7 +166,7 @@ export default function BackupsListPage() {
           {backupIds.map((id) => (
             <Link
               key={id}
-              href={`/admin/backups/${encodeURIComponent(id)}`}
+              href={backupUrl(id)}
               className="block bg-white dark:bg-gray-800 rounded-lg shadow p-4 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
             >
               <div className="font-mono text-sm text-gray-900 dark:text-white">{id}</div>

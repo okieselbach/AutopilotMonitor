@@ -1,3 +1,6 @@
+// Static export: prerender at build time (required with output: "export").
+export const dynamic = "force-static";
+
 import type { MetadataRoute } from "next";
 import { SITE_URL } from "@/utils/config";
 
@@ -18,8 +21,11 @@ export default function robots(): MetadataRoute.Robots {
           "/analyze-rules",
           "/ime-log-patterns",
           "/geographic-performance",
-          "/sessions/",
-          "/diagnosis/",
+          // No trailing slash: robots prefixes then cover /sessions, /sessions/…
+          // AND the query-string form /sessions?id=… (detail routes are
+          // query-based since the static export).
+          "/sessions",
+          "/diagnosis",
           "/admin/",
           "/settings",
           "/preview",

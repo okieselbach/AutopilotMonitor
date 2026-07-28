@@ -1,36 +1,20 @@
-"use client";
+import { TENANT_NAV_SECTIONS } from "../tenantNavSections";
+import { SectionClient } from "./SectionClient";
 
-import { useParams } from "next/navigation";
-import { notFound } from "next/navigation";
-import { type TenantSectionId } from "../tenantNavSections";
-import { SectionPlan } from "../sections/SectionPlan";
-import { SectionAutopilotValidation } from "../sections/SectionAutopilotValidation";
-import { SectionHardwareWhitelist } from "../sections/SectionHardwareWhitelist";
-import { SectionNotifications } from "../sections/SectionNotifications";
-import { SectionAccessManagement } from "../sections/SectionAccessManagement";
-import { SectionBootstrapSessions } from "../sections/SectionBootstrapSessions";
-import { SectionSlaTargets } from "../sections/SectionSlaTargets";
-import { SectionSubmitLogs } from "../sections/SectionSubmitLogs";
-import { SectionContact } from "../sections/SectionContact";
-import { SectionOptionalGraphCapabilities } from "../sections/SectionOptionalGraphCapabilities";
+// Static export: prerender exactly the registered sections; anything else is a
+// build-time 404 (dynamicParams=false). The interactive body lives in
+// SectionClient — generateStaticParams cannot be exported from a client file.
+export const dynamicParams = false;
 
-const SECTION_COMPONENTS: Record<TenantSectionId, React.ComponentType> = {
-  "plan": SectionPlan,
-  "autopilot": SectionAutopilotValidation,
-  "hardware-whitelist": SectionHardwareWhitelist,
-  "notifications": SectionNotifications,
-  "sla-targets": SectionSlaTargets,
-  "access-management": SectionAccessManagement,
-  "bootstrap-sessions": SectionBootstrapSessions,
-  "graph-permissions": SectionOptionalGraphCapabilities,
-  "contact": SectionContact,
-  "support": SectionSubmitLogs,
-};
+export function generateStaticParams() {
+  return TENANT_NAV_SECTIONS.map((s) => ({ section: s.id }));
+}
 
-export default function TenantSectionPage() {
-  const params = useParams();
-  const section = params.section as string;
-  const SectionContent = SECTION_COMPONENTS[section as TenantSectionId];
-  if (!SectionContent) notFound();
-  return <SectionContent />;
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ section: string }>;
+}) {
+  const { section } = await params;
+  return <SectionClient section={section} />;
 }

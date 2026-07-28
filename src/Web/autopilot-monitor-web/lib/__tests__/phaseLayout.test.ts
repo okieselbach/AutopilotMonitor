@@ -4,7 +4,7 @@ import {
   V1_PHASES,
   V1_SKIP_USER_PHASE_IDS,
   V2_PHASES,
-} from "../../app/sessions/[sessionId]/utils/phaseConstants";
+} from "../../app/sessions/utils/phaseConstants";
 
 describe("resolvePhaseLayout", () => {
   it("returns full V1 layout with no skipped phases for WhiteGlove + SkipUserStatusPage=true (user enrollment runs in Part 2)", () => {

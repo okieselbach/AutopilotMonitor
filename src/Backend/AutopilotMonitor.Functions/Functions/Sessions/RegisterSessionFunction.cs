@@ -352,7 +352,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 if (startChannels.Count == 0)
                     return;
 
-                var sessionUrl = $"{Constants.PortalBaseUrl}/sessions/{sessionId}";
+                var sessionUrl = Constants.PortalSessionUrl(sessionId);
                 var alert = NotificationAlertBuilder.BuildEnrollmentStartedAlert(
                     session.DeviceName,
                     session.SerialNumber,

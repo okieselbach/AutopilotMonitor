@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeWhiteGloveDurations } from "../../app/sessions/[sessionId]/utils/eventHelpers";
+import { computeWhiteGloveDurations } from "../../app/sessions/utils/eventHelpers";
 import type { EnrollmentEvent } from "@/types";
 
 // Fixture builder — sequence and timestamp are the only fields that matter here.

@@ -1,16 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useSignalR } from "../../../contexts/SignalRContext";
-import { useTenant } from "../../../contexts/TenantContext";
-import { useAuth } from "../../../contexts/AuthContext";
-import { useNotifications } from "../../../contexts/NotificationContext";
-import { ProtectedRoute } from '../../../components/ProtectedRoute';
-import PerformanceChart from '../../../components/PerformanceChart';
-import DownloadProgress from '../../../components/DownloadProgress';
-import InstallProgress from '../../../components/InstallProgress';
-import ScriptExecutions from '../../../components/ScriptExecutions';
+import { diagnosisUrl, inspectorUrl } from "@/lib/routes";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useSignalR } from "../../contexts/SignalRContext";
+import { useTenant } from "../../contexts/TenantContext";
+import { useAuth } from "../../contexts/AuthContext";
+import { useNotifications } from "../../contexts/NotificationContext";
+import { ProtectedRoute } from '../../components/ProtectedRoute';
+import PerformanceChart from '../../components/PerformanceChart';
+import DownloadProgress from '../../components/DownloadProgress';
+import InstallProgress from '../../components/InstallProgress';
+import ScriptExecutions from '../../components/ScriptExecutions';
 import { useLatestVersions } from '@/lib/useLatestVersions';
 import { useScriptDisplayNames } from '@/lib/scriptDisplayNames';
 import { api } from "@/lib/api";
@@ -35,19 +36,29 @@ import IntegrityBypassSection from "./components/IntegrityBypassSection";
 import AdminOverrideModal from "./components/AdminOverrideModal";
 import ReportSessionModal from "./components/ReportSessionModal";
 import CollectLogsButton from "./components/CollectLogsButton";
-import { usePageSections } from "../../../hooks/usePageSections";
-import { PageSectionItem } from "../../../contexts/SidebarContext";
-import { InformationCircleIcon, ComputerDesktopIcon, PlayCircleIcon, SparklesIcon, ChartBarIcon, CodeBracketIcon, ArrowDownTrayIcon, ListBulletIcon, ClockIcon, ShieldCheckIcon } from "../../../lib/sidebarIcons";
+import { usePageSections } from "../../hooks/usePageSections";
+import { PageSectionItem } from "../../contexts/SidebarContext";
+import { InformationCircleIcon, ComputerDesktopIcon, PlayCircleIcon, SparklesIcon, ChartBarIcon, CodeBracketIcon, ArrowDownTrayIcon, ListBulletIcon, ClockIcon, ShieldCheckIcon } from "../../lib/sidebarIcons";
 import DeviceDetailsCard from "./components/DeviceDetailsCard";
 import { generateUiExport, generateCsvExport, generateSessionCsvExport, generateRuleResultsCsvExport, SessionExportEvent } from "@/utils/sessionExportUtils";
 import { trackEvent } from "@/lib/appInsights";
 import { useAdminMode } from "@/hooks/useAdminMode";
 
 export default function SessionDetailPage() {
-  const params = useParams();
+  // useSearchParams() in SessionDetailContent requires a Suspense boundary for static prerender.
+  return (
+    <Suspense fallback={null}>
+      <SessionDetailContent />
+    </Suspense>
+  );
+}
+
+function SessionDetailContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const sessionId = params?.sessionId as string;
+  // Query-string identity (`?id=`) — path params are gone with the static export;
+  // legacy /sessions/{id} URLs are rewritten here by LegacyPathRedirect.
+  const sessionId = searchParams?.get("id") as string;
   // Explicit target tenant from the fleet drill-in (`?tenantId=`). Drives the cross-tenant reads for a
   // delegated ("MSP") admin viewing a managed tenant's session, and flips the page into read-only mode.
   const tenantIdOverride = searchParams?.get("tenantId") || undefined;
@@ -484,7 +495,7 @@ export default function SessionDetailPage() {
             )}
             {session?.status === 'Failed' && !isReadOnlyView && (
               <button
-                onClick={() => router.push(`/diagnosis/${sessionId}`)}
+                onClick={() => router.push(diagnosisUrl(sessionId))}
                 className="px-4 py-2 bg-amber-500 text-white rounded-md hover:bg-amber-600 transition-colors flex items-center gap-2 text-sm"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -528,7 +539,7 @@ export default function SessionDetailPage() {
             )}
             {user?.isGlobalAdmin && sessionId && (
               <a
-                href={`/sessions/${sessionId}/inspector`}
+                href={inspectorUrl(sessionId)}
                 className="px-4 py-2 bg-white border border-purple-300 text-purple-700 rounded-md hover:bg-purple-50 transition-colors flex items-center gap-2 text-sm"
                 title="Open Decision Inspector (Global Admin only — Plan §M6)"
               >

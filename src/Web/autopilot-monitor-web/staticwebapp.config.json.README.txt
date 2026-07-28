@@ -1,18 +1,17 @@
-Copy below content to `src/Web/autopilot-monitor-web/staticwebapp.config.json` to enable maintenance mode for the web application. 
-This will serve a maintenance page for all routes.
+Maintenance mode for the web application (static export).
 
-{
-  "routes": [
-    {
-      "route": "/*",
-      "serve": "/maintenance.html",
-      "statusCode": 503
-    }
-  ]
-}
+IMPORTANT: `staticwebapp.config.json` now carries PRODUCTION routing — the
+GitBook/docs redirects, the legacy path rewrites for old /sessions/{id}-style
+deep links, the 404 override, and all security headers (incl. the CSP). Never
+delete the file or replace it wholesale; both would take those down with it.
+The file's content is guarded by utils/__tests__/swaConfig.guard.test.ts.
 
-and for disabling maintenance mode, simply remove the `staticwebapp.config.json` file or update it to 
+To ENABLE maintenance mode, insert this object as the FIRST entry of the
+existing "routes" array (SWA evaluates routes in order, so it shadows
+everything else and serves the maintenance page for all routes):
 
-{
+    { "route": "/*", "serve": "/maintenance.html", "statusCode": 503 },
 
-}
+To DISABLE maintenance mode, remove exactly that first entry again.
+
+Deploy the change like any web change (push → deploy-web workflow).

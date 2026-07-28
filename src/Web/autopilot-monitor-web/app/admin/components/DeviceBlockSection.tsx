@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { sessionUrl } from "@/lib/routes";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
@@ -44,7 +45,18 @@ interface DeviceBlockSectionProps {
   setSuccessMessage: (message: string | null) => void;
 }
 
-export function DeviceBlockSection({
+export function DeviceBlockSection(props: DeviceBlockSectionProps) {
+  // useSearchParams() in the inner component requires a Suspense boundary for
+  // static prerender (this section renders inside the prerendered
+  // /admin/security/device-block page).
+  return (
+    <Suspense fallback={null}>
+      <DeviceBlockSectionInner {...props} />
+    </Suspense>
+  );
+}
+
+function DeviceBlockSectionInner({
   tenants,
   getAccessToken,
   setError,
@@ -513,7 +525,7 @@ export function DeviceBlockSection({
                           const count = blockedSessionCount(d.blockedSessionIds);
                           return (
                             <Link
-                              href={`/sessions/${encodeURIComponent(sessionId)}`}
+                              href={sessionUrl(sessionId)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-blue-700 dark:text-blue-300 hover:underline"

@@ -1,5 +1,6 @@
 "use client";
 
+import { sessionUrl } from "@/lib/routes";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
@@ -565,7 +566,7 @@ export function OpsEventsSection({
                     </p>
                     <div className="flex flex-wrap gap-2">
                       <Link
-                        href={`/sessions/${encodeURIComponent(sessionId)}`}
+                        href={sessionUrl(sessionId)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-900/60 border border-blue-300 dark:border-blue-700"

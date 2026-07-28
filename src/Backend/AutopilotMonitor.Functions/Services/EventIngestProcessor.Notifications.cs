@@ -36,7 +36,7 @@ namespace AutopilotMonitor.Functions.Services
                 return;
 
             var sessionUrl = updatedSession != null
-                ? $"{Constants.PortalBaseUrl}/sessions/{request.SessionId}"
+                ? Constants.PortalSessionUrl(request.SessionId)
                 : null;
 
             // A failure alert requires an actual failure-ish verdict: an agent_timeout

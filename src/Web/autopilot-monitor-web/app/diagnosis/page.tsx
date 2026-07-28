@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { useSignalR } from "../../../contexts/SignalRContext";
-import { useTenant } from "../../../contexts/TenantContext";
-import { useAuth } from "../../../contexts/AuthContext";
-import { useNotifications } from "../../../contexts/NotificationContext";
-import { ProtectedRoute } from "../../../components/ProtectedRoute";
+import { sessionUrl } from "@/lib/routes";
+import { Suspense, useEffect, useState, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useSignalR } from "../../contexts/SignalRContext";
+import { useTenant } from "../../contexts/TenantContext";
+import { useAuth } from "../../contexts/AuthContext";
+import { useNotifications } from "../../contexts/NotificationContext";
+import { ProtectedRoute } from "../../components/ProtectedRoute";
 import { api } from "@/lib/api";
 import { formatInlineMarkdown } from "@/lib/formatInlineMarkdown";
 import { interpolateRuleTemplate } from "@/lib/interpolateRuleTemplate";
@@ -17,9 +18,18 @@ import { useAdminMode } from "@/hooks/useAdminMode";
 import { isGuid } from "@/utils/inputValidation";
 
 export default function DiagnosisPage() {
-  const params = useParams();
+  // useSearchParams() in DiagnosisContent requires a Suspense boundary for static prerender.
+  return (
+    <Suspense fallback={null}>
+      <DiagnosisContent />
+    </Suspense>
+  );
+}
+
+function DiagnosisContent() {
+  const searchParams = useSearchParams();
   const router = useRouter();
-  const sessionId = params?.sessionId as string;
+  const sessionId = searchParams?.get("id") as string;
 
   const [session, setSession] = useState<Session | null>(null);
   const [sessionTenantId, setSessionTenantId] = useState<string | null>(null);
@@ -331,7 +341,7 @@ export default function DiagnosisPage() {
               <div className="flex items-center space-x-3">
                 <button
                   onClick={() =>
-                    router.push(`/sessions/${sessionId}`)
+                    router.push(sessionUrl(sessionId))
                   }
                   className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
                 >
@@ -814,7 +824,7 @@ function EvidenceEventLinks({ matchedConditions, sessionId }: { matchedCondition
       {eventLinks.map(({ signal, eventId, eventType }) => (
         <a
           key={signal}
-          href={`/sessions/${sessionId}#event-${eventId}`}
+          href={sessionUrl(sessionId, { hash: `event-${eventId}` })}
           className="inline-flex items-center space-x-1 px-2 py-1 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded transition-colors"
           title={`View event in timeline: ${eventId}`}
         >

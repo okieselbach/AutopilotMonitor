@@ -1,5 +1,6 @@
 "use client";
 
+import { sessionUrl } from "@/lib/routes";
 import { Suspense, useEffect, useState, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ProtectedRoute } from "../../../components/ProtectedRoute";
@@ -347,7 +348,7 @@ function LocationSessionsContent() {
                     {data.sessions.map((session) => (
                       <tr
                         key={session.sessionId}
-                        onClick={() => router.push(`/sessions/${session.sessionId}`)}
+                        onClick={() => router.push(sessionUrl(session.sessionId))}
                         className="hover:bg-gray-50 cursor-pointer transition-colors"
                       >
                         <td className="px-4 py-3 text-sm text-gray-900 font-medium">

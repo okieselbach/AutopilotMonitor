@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { sessionUrl } from "@/lib/routes";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { ProtectedRoute } from "../../../components/ProtectedRoute";
 import { useTenant } from "../../../contexts/TenantContext";
@@ -166,18 +167,21 @@ interface SessionsResponse {
 const SESSIONS_PAGE_SIZE = 50;
 
 export default function AppDetailPage() {
-  const params = useParams();
+  // useSearchParams() in AppDetailContent requires a Suspense boundary for static prerender.
+  return (
+    <Suspense fallback={null}>
+      <AppDetailContent />
+    </Suspense>
+  );
+}
+
+function AppDetailContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const rawAppName = (params?.appName as string) ?? "";
-  const appName = useMemo(() => {
-    try {
-      return decodeURIComponent(rawAppName);
-    } catch {
-      return rawAppName;
-    }
-  }, [rawAppName]);
+  // `?name=` carries the app name verbatim (searchParams already decodes the
+  // percent-encoding applied by appDetailUrl).
+  const appName = searchParams?.get("name") ?? "";
 
   const initialDays = (() => {
     const d = parseInt(searchParams?.get("days") ?? "30", 10);
@@ -770,7 +774,7 @@ export default function AppDetailPage() {
                           return (
                             <tr
                               key={`${row.tenantId}-${row.sessionId}`}
-                              onClick={() => router.push(`/sessions/${row.sessionId}`)}
+                              onClick={() => router.push(sessionUrl(row.sessionId))}
                               className="hover:bg-gray-50 cursor-pointer"
                             >
                               {activeSessionColumns.map((col) => {

@@ -1,24 +1,20 @@
-"use client";
+import { REPORTS_NAV_SECTIONS } from "../reportsNavSections";
+import { SectionClient } from "./SectionClient";
 
-import { useParams } from "next/navigation";
-import { notFound } from "next/navigation";
-import { REPORTS_NAV_SECTIONS, type ReportsSectionId } from "../reportsNavSections";
-import { SectionSessionReports } from "../sections/SectionSessionReports";
-import { SectionDistressReports } from "../sections/SectionDistressReports";
-import { SectionUserFeedback } from "../sections/SectionUserFeedback";
-import { SectionSessionExport } from "../sections/SectionSessionExport";
+// Static export: prerender exactly the registered sections; anything else is a
+// build-time 404 (dynamicParams=false). The interactive body lives in
+// SectionClient — generateStaticParams cannot be exported from a client file.
+export const dynamicParams = false;
 
-const SECTION_COMPONENTS: Record<ReportsSectionId, React.ComponentType> = {
-  "session-reports": SectionSessionReports,
-  "distress-reports": SectionDistressReports,
-  "user-feedback": SectionUserFeedback,
-  "session-export": SectionSessionExport,
-};
+export function generateStaticParams() {
+  return REPORTS_NAV_SECTIONS.map((s) => ({ section: s.id }));
+}
 
-export default function ReportsSectionPage() {
-  const params = useParams();
-  const section = params.section as string;
-  const SectionContent = SECTION_COMPONENTS[section as ReportsSectionId];
-  if (!SectionContent) notFound();
-  return <SectionContent />;
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ section: string }>;
+}) {
+  const { section } = await params;
+  return <SectionClient section={section} />;
 }
