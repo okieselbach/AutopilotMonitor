@@ -151,6 +151,14 @@ namespace AutopilotMonitor.Functions.Services
                         "Fire-and-forget UpdateSessionNetworkLatencyAsync failed"), TaskContinuationOptions.OnlyOnFaulted);
             }
 
+            if (TryExtractConnectionType(request.Events, out var connectionType))
+            {
+                _ = _sessionRepo.UpdateSessionConnectionTypeAsync(
+                        request.TenantId, request.SessionId, connectionType)
+                    .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
+                        "Fire-and-forget UpdateSessionConnectionTypeAsync failed"), TaskContinuationOptions.OnlyOnFaulted);
+            }
+
             var classification = ClassifyEvents(storedEvents);
 
             foreach (var summary in classification.AppInstallUpdates.Values)
@@ -429,6 +437,28 @@ namespace AutopilotMonitor.Functions.Services
 
             avgLatencyMs = Math.Round(totalLatencyMs / totalRequests, 1);
             requestCount = (int)totalRequests;
+            return true;
+        }
+
+        /// <summary>
+        /// Connection-type projection: the agent stamps connectionType ("WiFi"/"Ethernet")
+        /// into every network_interface_info emission (initial collect + re-collect), so the
+        /// LAST event of the batch carries the current media and a plain overwrite is
+        /// idempotent against replays. The no-NIC payload ({"status":"no_active_interface"})
+        /// carries no connectionType and never matches. Values outside WiFi/Ethernet are
+        /// dropped defensively. Exposed as internal for unit testing.
+        /// </summary>
+        internal static bool TryExtractConnectionType(
+            List<EnrollmentEvent> events, out string connectionType)
+        {
+            connectionType = string.Empty;
+            var nicEvent = events.LastOrDefault(e =>
+                e.EventType == Shared.Constants.EventTypes.NetworkInterfaceInfo &&
+                e.Data?.ContainsKey("connectionType") == true);
+            var raw = nicEvent?.Data?["connectionType"]?.ToString();
+            if (raw != "WiFi" && raw != "Ethernet")
+                return false;
+            connectionType = raw;
             return true;
         }
 

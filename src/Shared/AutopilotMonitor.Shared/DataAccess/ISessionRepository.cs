@@ -115,6 +115,13 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// </summary>
         Task UpdateSessionNetworkLatencyAsync(string tenantId, string sessionId,
             double avgLatencyMs, int requestCount);
+        /// <summary>
+        /// Persists the active network connection type ("WiFi" or "Ethernet") from the
+        /// latest <c>network_interface_info</c> event. Last-write-wins; fail-soft like
+        /// the other supplementary-field updaters.
+        /// </summary>
+        Task UpdateSessionConnectionTypeAsync(string tenantId, string sessionId,
+            string connectionType);
 
         // --- Server→Agent Actions ---
         /// <summary>

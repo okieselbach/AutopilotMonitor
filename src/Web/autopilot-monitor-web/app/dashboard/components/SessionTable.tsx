@@ -31,6 +31,7 @@ const ALL_COLUMNS: ColumnDef[] = [
   { key: "started", label: "Started", defaultVisible: true, sortKey: "startedAt" },
   { key: "country", label: "Country", defaultVisible: false, sortKey: "geoCountry", filterKey: "geoCountry" },
   { key: "apiLatency", label: "API Latency", defaultVisible: false, sortKey: "avgApiLatencyMs" },
+  { key: "connection", label: "Connection", defaultVisible: false, sortKey: "connectionType", filterKey: "connectionType" },
   { key: "agentVersion", label: "Agent Version", defaultVisible: false, sortKey: "agentVersion", filterKey: "agentVersion" },
   { key: "osName", label: "OS Name", defaultVisible: false, sortKey: "osName", filterKey: "osName" },
   { key: "osBuild", label: "OS Build", defaultVisible: false, sortKey: "osBuild", filterKey: "osBuild" },
@@ -641,7 +642,7 @@ export function SessionTable({
                       currentSort={sortColumn}
                       direction={sortDirection}
                       onSort={onSort}
-                      className={["eventCount", "duration", "started", "country", "apiLatency", "agentVersion", "osName", "osBuild", "osDisplayVersion", "osEdition", "osLanguage"].includes(col.key) ? "px-3" : undefined}
+                      className={["eventCount", "duration", "started", "country", "apiLatency", "connection", "agentVersion", "osName", "osBuild", "osDisplayVersion", "osEdition", "osLanguage"].includes(col.key) ? "px-3" : undefined}
                       filterKey={col.filterKey}
                       filterValues={col.filterKey ? uniqueValuesByField[col.filterKey] : undefined}
                       activeFilter={col.filterKey ? columnFilters[col.filterKey] : undefined}
@@ -915,6 +916,19 @@ function SessionCell({
           {(session.avgApiLatencyMs ?? 0) > 0 ? (
             <span title={`Agent→backend HTTP round-trip${session.apiRequestCount ? ` across ${session.apiRequestCount} requests` : ""}`}>
               {Math.round(session.avgApiLatencyMs!)} ms
+            </span>
+          ) : (
+            <span className="text-gray-300">—</span>
+          )}
+        </td>
+      );
+
+    case "connection":
+      return (
+        <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-500">
+          {session.connectionType ? (
+            <span title="Active network connection during enrollment (last reported state)">
+              {session.connectionType}
             </span>
           ) : (
             <span className="text-gray-300">—</span>

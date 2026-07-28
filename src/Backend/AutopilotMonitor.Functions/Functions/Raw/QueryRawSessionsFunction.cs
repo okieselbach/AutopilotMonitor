@@ -130,6 +130,8 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 filter.IsSelfDeployingProfile = sdp;
             if (int.TryParse(query["rebootCountMin"], out var rcMin)) filter.RebootCountMin = rcMin;
             if (int.TryParse(query["rebootCountMax"], out var rcMax)) filter.RebootCountMax = rcMax;
+            var connectionType = query["connectionType"];
+            if (!string.IsNullOrEmpty(connectionType)) filter.ConnectionType = connectionType;
 
             var callerTenantId = TenantHelper.GetTenantId(req);
 

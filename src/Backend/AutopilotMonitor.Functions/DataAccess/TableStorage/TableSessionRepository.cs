@@ -152,6 +152,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             double avgLatencyMs, int requestCount)
             => _storage.UpdateSessionNetworkLatencyAsync(tenantId, sessionId, avgLatencyMs, requestCount);
 
+        public Task UpdateSessionConnectionTypeAsync(string tenantId, string sessionId,
+            string connectionType)
+            => _storage.UpdateSessionConnectionTypeAsync(tenantId, sessionId, connectionType);
+
         public Task<List<SessionSummary>> GetSessionsWithEventCountAboveAsync(string tenantId, int threshold)
             => _storage.GetSessionsWithEventCountAboveAsync(tenantId, threshold);
 

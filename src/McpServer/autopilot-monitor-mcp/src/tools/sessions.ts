@@ -139,6 +139,10 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
                     'e.g. rebootCountMin=5. Only populated for v2 enrollments; sessions that predate the field are excluded.'),
         rebootCountMax: z.coerce.number().int().min(0).optional()
           .describe('Maximum number of reboots observed during enrollment (<=).'),
+        connectionType: z.enum(['WiFi', 'Ethernet']).optional()
+          .describe('Active network connection type during enrollment ("WiFi" or "Ethernet"), indexed for cheap exact-match ' +
+                    'filtering (e.g. "how many machines enrolled over WiFi?"). Last emission wins — a device that switches media ' +
+                    'mid-enrollment reports the most recent state. Sessions that predate the projection lack the column and are excluded.'),
         fields: z.string().optional()
           .describe('Comma-separated lean projection (e.g. "sessionId,status,agentVersion,startedAt"). ' +
                     'Use for counting / aggregation to avoid the response cap. Available: sessionId, tenantId, status, ' +
@@ -146,7 +150,8 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
                     'durationSeconds, currentPhase, failureReason, eventCount, enrollmentType, isPreProvisioned, ' +
                     'isUserDriven, isHybridJoin, isSelfDeployingProfile, agentVersion, imeAgentVersion, geoCountry, rebootCount, ' +
                     'avgApiLatencyMs, apiRequestCount (agent→backend HTTP round-trip; weight latency by apiRequestCount when aggregating, ' +
-                    'e.g. fields=geoCountry,avgApiLatencyMs,apiRequestCount for a per-country latency sweep; null on sessions from agents predating the field).'),
+                    'e.g. fields=geoCountry,avgApiLatencyMs,apiRequestCount for a per-country latency sweep; null on sessions from agents predating the field), ' +
+                    'connectionType ("WiFi"/"Ethernet"; null on sessions predating the projection).'),
         deviceProperties: z.record(z.string(), z.string()).optional().describe(
           'Dynamic device property filters. Keys use "eventType.propertyName" dot notation. ' +
           'See the device_properties catalog (call get_resource(name="device_properties")) for all available keys and types. ' +

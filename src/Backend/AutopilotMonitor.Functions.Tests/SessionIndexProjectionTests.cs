@@ -45,6 +45,12 @@ public class SessionIndexProjectionTests
             ["IsSelfDeployingProfile"] = true,
             // Device-validation path recorded at registration — shown on the session detail page.
             ["ValidatedBy"] = "AutopilotV1",
+            // Agent→backend HTTP latency projection (UpdateSessionNetworkLatencyAsync merges these).
+            ["AvgApiLatencyMs"] = 513.5,
+            ["ApiRequestCount"] = 100,
+            // Connection-type projection (UpdateSessionConnectionTypeAsync merges this) —
+            // search-filterable (connectionType= pushes an OData eq on the index).
+            ["ConnectionType"] = "Ethernet",
         };
 
         var idx = TableStorageService.BuildSessionIndexEntity(session, IndexRowKey, StartedAt);
@@ -67,6 +73,9 @@ public class SessionIndexProjectionTests
         Assert.True(idx.GetBoolean("ExcessiveEventsAutoActioned"));
         Assert.True(idx.GetBoolean("IsSelfDeployingProfile"));
         Assert.Equal("AutopilotV1", idx.GetString("ValidatedBy"));
+        Assert.Equal(513.5, idx.GetDouble("AvgApiLatencyMs"));
+        Assert.Equal(100, idx.GetInt32("ApiRequestCount"));
+        Assert.Equal("Ethernet", idx.GetString("ConnectionType"));
     }
 
     [Fact]
@@ -86,6 +95,8 @@ public class SessionIndexProjectionTests
         Assert.False(idx.ContainsKey("FailureSource"));
         Assert.False(idx.ContainsKey("StalledAt"));
         Assert.False(idx.ContainsKey("ValidatedBy"));
+        Assert.False(idx.ContainsKey("AvgApiLatencyMs"));
+        Assert.False(idx.ContainsKey("ConnectionType"));
         // Always-present counts/flags mirror the Sessions defaults.
         Assert.Equal(0, idx.GetInt32("PlatformScriptCount"));
         Assert.Equal(0, idx.GetInt32("RemediationScriptCount"));

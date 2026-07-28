@@ -47,6 +47,8 @@ export interface Session {
   avgApiLatencyMs?: number;
   /** Number of HTTP requests behind avgApiLatencyMs — the weight when averaging across sessions. */
   apiRequestCount?: number;
+  /** Active network connection type during enrollment ("WiFi" or "Ethernet", last emission wins). Absent for sessions predating the projection. */
+  connectionType?: string;
   /**
    * Compact JSON snapshot of "last known session state" written by the maintenance
    * 5h-timeout sweep when a session graduates to terminal Failed (Hybrid User-Driven

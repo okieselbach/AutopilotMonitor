@@ -37,6 +37,11 @@ namespace AutopilotMonitor.Shared.Models
         public int? RebootCountMin { get; set; }
         public int? RebootCountMax { get; set; }
 
+        // Active network connection type ("WiFi" or "Ethernet"). Exact match on the
+        // stored ConnectionType column. Sessions that predate the projection lack the
+        // property and are excluded (acceptable — they have no connection data).
+        public string? ConnectionType { get; set; }
+
         public int Limit { get; set; } = 50;
 
         // Dynamic device property filters (key = "eventType.propertyName", value = filter expression)

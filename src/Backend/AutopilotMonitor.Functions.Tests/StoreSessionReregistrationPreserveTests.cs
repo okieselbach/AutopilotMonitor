@@ -40,6 +40,7 @@ public class StoreSessionReregistrationPreserveTests
             ["PlatformScriptCount"]    = 3,
             ["RemediationScriptCount"] = 5,
             ["RebootCount"]            = 7,
+            ["ConnectionType"]         = "Ethernet",
         };
         existing.ETag = new ETag("0xEXISTING");
 
@@ -71,6 +72,9 @@ public class StoreSessionReregistrationPreserveTests
         Assert.Equal(7, harness.Written.GetInt32("RebootCount"));
         // EventCount preservation is the established sibling behaviour — assert it as a sanity anchor.
         Assert.Equal(42, harness.Written.GetInt32("EventCount"));
+        // Merge-mode field (UpdateSessionConnectionTypeAsync) — must survive the Replace so the
+        // value isn't lost in the window until the restarted agent re-emits network_interface_info.
+        Assert.Equal("Ethernet", harness.Written.GetString("ConnectionType"));
     }
 
     [Fact]

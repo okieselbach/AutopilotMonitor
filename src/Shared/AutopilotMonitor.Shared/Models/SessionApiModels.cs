@@ -276,6 +276,14 @@ namespace AutopilotMonitor.Shared.Models
         public int? ApiRequestCount { get; set; }
 
         /// <summary>
+        /// Active network connection type during enrollment: "WiFi" or "Ethernet".
+        /// Projected at ingest from the latest <c>network_interface_info</c> event
+        /// (last emission wins — a device that switches media mid-enrollment reports
+        /// the most recent state). Null for sessions that predate the projection.
+        /// </summary>
+        public string? ConnectionType { get; set; }
+
+        /// <summary>
         /// Enrollment type: "v1" (Autopilot Classic/ESP) or "v2" (Windows Device Preparation).
         /// Defaults to "v1" for sessions that predate this field.
         /// </summary>

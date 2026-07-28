@@ -140,6 +140,7 @@ public class SearchSessionsFunction
             ImeAgentVersion = query["imeAgentVersion"],
             AgentVersionPrefix = query["agentVersionPrefix"],
             ImeAgentVersionPrefix = query["imeAgentVersionPrefix"],
+            ConnectionType = query["connectionType"],
             // Limit field is a no-op in the paged path — pagination drives count.
         };
 
@@ -212,6 +213,7 @@ public class SearchSessionsFunction
             if (fields.Contains("rebootCount")) dict["rebootCount"] = s.RebootCount;
             if (fields.Contains("avgApiLatencyMs")) dict["avgApiLatencyMs"] = s.AvgApiLatencyMs;
             if (fields.Contains("apiRequestCount")) dict["apiRequestCount"] = s.ApiRequestCount;
+            if (fields.Contains("connectionType")) dict["connectionType"] = s.ConnectionType;
 
             if (dict.Count == 0)
             {

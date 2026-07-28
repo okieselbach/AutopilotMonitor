@@ -225,6 +225,12 @@ namespace AutopilotMonitor.Functions.Services
             if (apiRequestCount.HasValue)
                 indexEntity["ApiRequestCount"] = apiRequestCount.Value;
 
+            // Connection-type projection (UpdateSessionConnectionTypeAsync merges this) —
+            // must be in this superset or a StartedAt-shift full upsert drops it.
+            var connectionType = sessionEntity.GetString("ConnectionType");
+            if (!string.IsNullOrEmpty(connectionType))
+                indexEntity["ConnectionType"] = connectionType;
+
             return indexEntity;
         }
 
@@ -398,6 +404,7 @@ namespace AutopilotMonitor.Functions.Services
                 string geoRegion = string.Empty;
                 string geoCity = string.Empty;
                 string geoLoc = string.Empty;
+                string? connectionType = null;
                 string? existingIndexRowKey = null;
                 // PR3: cascade-delete state-machine columns. Re-registration MUST preserve
                 // these — losing them would silently clear the lock and let the agent's writes
@@ -444,6 +451,7 @@ namespace AutopilotMonitor.Functions.Services
                     geoRegion = existingEntity.GetString("GeoRegion") ?? string.Empty;
                     geoCity = existingEntity.GetString("GeoCity") ?? string.Empty;
                     geoLoc = existingEntity.GetString("GeoLoc") ?? string.Empty;
+                    connectionType = existingEntity.GetString("ConnectionType");
                     existingIndexRowKey = existingEntity.GetString("IndexRowKey");
                     existingDeletionState = existingEntity.GetString("DeletionState");
                     existingPendingDeletionManifestId = existingEntity.GetString("PendingDeletionManifestId");
@@ -552,6 +560,12 @@ namespace AutopilotMonitor.Functions.Services
                     entity["GeoCity"] = geoCity;
                 if (!string.IsNullOrEmpty(geoLoc))
                     entity["GeoLoc"] = geoLoc;
+
+                // Merge-mode field (UpdateSessionConnectionTypeAsync) — preserve through the
+                // Replace; the agent re-emits network_interface_info after restart, but the
+                // value must not be lost in the window until it does.
+                if (!string.IsNullOrEmpty(connectionType))
+                    entity["ConnectionType"] = connectionType;
 
                 // Preserve IndexRowKey through the Replace so that:
                 // 1. Concurrent UpdateSessionStatusAsync calls can find it (prevents index stale-status)
@@ -2714,6 +2728,52 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
+        /// <summary>
+        /// Stores the active network connection type ("WiFi"/"Ethernet") from the latest
+        /// network_interface_info event (Merge-mode, single field, last-write-wins).
+        /// Same UpdateEntity-not-Upsert rationale as <see cref="UpdateSessionNetworkLatencyAsync"/>:
+        /// a tombstoned Sessions row must stay tombstoned (404 → no-op).
+        /// Non-fatal: failures are logged as warnings and do not block ingest.
+        /// </summary>
+        public async Task UpdateSessionConnectionTypeAsync(string tenantId, string sessionId,
+            string connectionType)
+        {
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
+                var update = new TableEntity(tenantId, sessionId)
+                {
+                    ["ConnectionType"] = connectionType
+                };
+                await tableClient.UpdateEntityAsync(update, ETag.All, TableUpdateMode.Merge);
+
+                // Mirror to SessionsIndex — serves the session list and the cheap
+                // connectionType= search filter (OData eq push-down on the index).
+                var idxRef = await tableClient.GetEntityAsync<TableEntity>(
+                    tenantId, sessionId, select: new[] { "IndexRowKey" });
+                var indexRowKey = idxRef.Value.GetString("IndexRowKey");
+                if (!string.IsNullOrEmpty(indexRowKey))
+                {
+                    await MergeSessionIndexAsync(tenantId, indexRowKey,
+                        new TableEntity(tenantId, indexRowKey)
+                        {
+                            ["ConnectionType"] = connectionType
+                        });
+                }
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                _logger.LogDebug(
+                    "UpdateSessionConnectionType no-op: Sessions row {Tenant}/{Session} is absent (tombstoned or never registered)",
+                    tenantId, sessionId);
+            }
+            catch (Exception ex)
+            {
+                // Non-fatal — don't block ingest
+                _logger.LogWarning(ex, "Failed to update connection type for session {SessionId}", sessionId);
+            }
+        }
+
         // ===== SESSION/EVENT MAPPING HELPERS =====
 
         /// <summary>
@@ -2809,6 +2869,7 @@ namespace AutopilotMonitor.Functions.Services
                 DurationSeconds = ComputeEffectiveDuration(entity, status, startedAt, completedAt),
                 AvgApiLatencyMs = SafeGetDouble(entity, "AvgApiLatencyMs"),
                 ApiRequestCount = SafeGetInt32(entity, "ApiRequestCount"),
+                ConnectionType = entity.GetString("ConnectionType"),
                 EnrollmentType = entity.GetString("EnrollmentType") ?? "v1",
                 DiagnosticsBlobName = entity.GetString("DiagnosticsBlobName"),
                 // Legacy rows that predate this field surface as null → download path treats

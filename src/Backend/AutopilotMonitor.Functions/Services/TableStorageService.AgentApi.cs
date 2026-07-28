@@ -654,6 +654,11 @@ namespace AutopilotMonitor.Functions.Services
                 parts.Add($"RebootCount ge {filter.RebootCountMin.Value}");
             if (filter.RebootCountMax.HasValue)
                 parts.Add($"RebootCount le {filter.RebootCountMax.Value}");
+            // ConnectionType exact match pushed to OData. Legacy index rows that predate
+            // the projected column lack the property and are excluded by the eq (they
+            // carry no connection data, which is the intended result).
+            if (!string.IsNullOrEmpty(filter.ConnectionType))
+                parts.Add($"ConnectionType eq '{ODataSanitizer.EscapeValue(filter.ConnectionType)}'");
             return parts.Count == 0 ? null : string.Join(" and ", parts);
         }
 
@@ -670,6 +675,19 @@ namespace AutopilotMonitor.Functions.Services
             return true;
         }
 
+        /// <summary>
+        /// Client-side ConnectionType predicate — same backstop role as
+        /// <see cref="MatchesRebootCountBounds"/>: applied on the search paths that do NOT
+        /// push the filter to OData (device-snapshot batch-get, legacy unpaged scan) and
+        /// redundantly on the OData scan paths. Sessions without the projected column
+        /// (null) never match a set filter.
+        /// </summary>
+        internal static bool MatchesConnectionType(SessionSummary session, SessionSearchFilter filter)
+        {
+            if (string.IsNullOrEmpty(filter.ConnectionType)) return true;
+            return string.Equals(session.ConnectionType, filter.ConnectionType, StringComparison.OrdinalIgnoreCase);
+        }
+
         private static bool MatchesScanClientFilters(SessionSummary session, SessionSearchFilter filter)
         {
             if (!string.IsNullOrEmpty(filter.SerialNumber) &&
@@ -683,9 +701,10 @@ namespace AutopilotMonitor.Functions.Services
                 return false;
             if (filter.StartedAfter.HasValue && session.StartedAt < filter.StartedAfter.Value) return false;
             if (filter.StartedBefore.HasValue && session.StartedAt > filter.StartedBefore.Value) return false;
-            // RebootCount is also pushed to OData in BuildSearchScanFilter; this is a defensive
-            // backstop so the bound holds even if that push-down is ever weakened.
+            // RebootCount / ConnectionType are also pushed to OData in BuildSearchScanFilter;
+            // these are defensive backstops so the bound holds even if that push-down is ever weakened.
             if (!MatchesRebootCountBounds(session, filter)) return false;
+            if (!MatchesConnectionType(session, filter)) return false;
             // AgentVersion / ImeAgentVersion (exact + prefix) are pushed to OData
             // in BuildSearchScanFilter — the server has already filtered them out
             // before we see the page. No client-side check needed.
@@ -951,9 +970,11 @@ namespace AutopilotMonitor.Functions.Services
                     && (s.ImeAgentVersion == null
                         || !s.ImeAgentVersion.StartsWith(filter.ImeAgentVersionPrefix!, StringComparison.OrdinalIgnoreCase)))
                     return false;
-                // Device-snapshot path has no RebootCount OData push-down — enforce it here so a
-                // deviceProperties + rebootCountMin query can't return sub-threshold sessions.
+                // Device-snapshot path has no RebootCount/ConnectionType OData push-down —
+                // enforce them here so a deviceProperties + rebootCountMin/connectionType
+                // query can't return non-matching sessions.
                 if (!MatchesRebootCountBounds(s, filter)) return false;
+                if (!MatchesConnectionType(s, filter)) return false;
                 return true;
             }).ToList();
         }

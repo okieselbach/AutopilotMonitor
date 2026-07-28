@@ -894,6 +894,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         isPreProvisioned: z.boolean().optional().describe('Filter pre-provisioned (white-glove) sessions'),
         isHybridJoin: z.boolean().optional().describe('Filter hybrid AAD-join sessions'),
         isSelfDeployingProfile: z.boolean().optional().describe('Filter self-deploying/kiosk profile sessions (CloudAssignedOobeConfig 0x20|0x40)'),
+        connectionType: z.enum(['WiFi', 'Ethernet']).optional()
+          .describe('Active network connection type ("WiFi" or "Ethernet", exact match on the indexed column; last emission wins). Sessions predating the projection lack the column and are excluded.'),
         fields: z.string().optional().describe('Comma-separated pass-through projection over the literal stored column names (case-insensitive, PascalCase, e.g. "Status,OsEdition,ImeAgentVersion,GeoCity"); narrows the row but never drops a real column. PartitionKey + RowKey are always kept. Omit for the full raw row.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional().default(200)
           .describe('Page size (1-1000, default 200). Returns this many sessions per call; follow nextLink to fetch more.'),
@@ -906,14 +908,14 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       try {
         const { tenantId: rawTenantId, status, startedAfter, startedBefore, serialNumber, agentVersion, agentVersionPrefix,
           imeAgentVersion, imeAgentVersionPrefix, manufacturer, model, enrollmentType, deviceName, osBuild,
-          geoCountry, isPreProvisioned, isHybridJoin, isSelfDeployingProfile, fields, pageSize, continuation } = args;
+          geoCountry, isPreProvisioned, isHybridJoin, isSelfDeployingProfile, connectionType, fields, pageSize, continuation } = args;
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         const basePath = pickGlobalOrTenantPath('/api/global/raw/sessions', '/api/raw/sessions', tenantId);
         const path = followNextLink(
           basePath,
           { tenantId, status, startedAfter, startedBefore, serialNumber, agentVersion, agentVersionPrefix,
             imeAgentVersion, imeAgentVersionPrefix, manufacturer, model, enrollmentType, deviceName, osBuild,
-            geoCountry, isPreProvisioned, isHybridJoin, isSelfDeployingProfile, fields, pageSize },
+            geoCountry, isPreProvisioned, isHybridJoin, isSelfDeployingProfile, connectionType, fields, pageSize },
           continuation,
         );
         const data = await apiFetch(path);
