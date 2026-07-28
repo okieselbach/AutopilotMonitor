@@ -140,10 +140,48 @@ Es ist 1 Schnittstelle auf dem System vorhanden:
         }
 
         [Fact]
+        public void Parse_finnish_output_extracts_all_fields()
+        {
+            const string output = @"
+    Nimi                   : Wi-Fi
+    SSID                   : contoso-fi
+    Kanava                 : 100
+    Radiotyyppi            : 802.11ax
+    Signaali               : 79%
+";
+            var r = NetshWifiFallback.Parse(output);
+
+            Assert.NotNull(r);
+            Assert.Equal("contoso-fi", r!.Ssid);
+            Assert.Equal(79, r.SignalPercent);
+            Assert.Equal("802.11ax", r.RadioType);
+            Assert.Equal(100, r.Channel);
+        }
+
+        [Fact]
+        public void Parse_indonesian_output_extracts_all_fields()
+        {
+            const string output = @"
+    Nama                   : Wi-Fi
+    SSID                   : contoso-id
+    Saluran                : 11
+    Jenis radio            : 802.11n
+    Sinyal                 : 64%
+";
+            var r = NetshWifiFallback.Parse(output);
+
+            Assert.NotNull(r);
+            Assert.Equal("contoso-id", r!.Ssid);
+            Assert.Equal(64, r.SignalPercent);
+            Assert.Equal("802.11n", r.RadioType);
+            Assert.Equal(11, r.Channel);
+        }
+
+        [Fact]
         public void Parse_unknown_language_without_ssid_returns_null()
         {
-            // No recognizable labels at all -> nothing to report.
-            var r = NetshWifiFallback.Parse("    Yhteystila : yhdistetty\r\n    Taajuus : 5 GHz\r\n");
+            // Greek is not in the enrollment-geography label set -> nothing to report.
+            var r = NetshWifiFallback.Parse("    Κατάσταση : συνδεδεμένο\r\n    Σήμα : 90%\r\n");
 
             Assert.Null(r);
         }
@@ -152,10 +190,10 @@ Es ist 1 Schnittstelle auf dem System vorhanden:
         public void Parse_unknown_language_still_yields_ssid()
         {
             // SSID is untranslated in all locales — partial result beats none.
-            var r = NetshWifiFallback.Parse("    SSID : contoso-fi\r\n    Signaali : 90%\r\n");
+            var r = NetshWifiFallback.Parse("    SSID : contoso-gr\r\n    Σήμα : 90%\r\n");
 
             Assert.NotNull(r);
-            Assert.Equal("contoso-fi", r!.Ssid);
+            Assert.Equal("contoso-gr", r!.Ssid);
             Assert.Null(r.SignalPercent);
         }
 

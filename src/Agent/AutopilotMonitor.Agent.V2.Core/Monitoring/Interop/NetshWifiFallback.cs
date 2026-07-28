@@ -12,10 +12,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
     /// root-caused (suspect: Wi-Fi location gating, 24H2+), netsh stays as the safety net.
     /// <para>
     /// netsh labels follow the OS UI language, so the parser matches the label variants of
-    /// the languages commonly seen in enrollments (EN/DE/FR/ES/PT/IT/NL/PL/CS/TR/RU/JA/
-    /// ZH-CN/ZH-TW/KO + the Scandinavian ones that reuse EN/DE spellings). Unknown-language
-    /// labels fall through harmlessly — the affected field is simply absent, same as before.
-    /// "SSID" itself is untranslated in all known locales.
+    /// every language implied by the enrollment geography seen to date (see the comment on
+    /// the key arrays for the country→language derivation). Unknown-language labels fall
+    /// through harmlessly — the affected field is simply absent, same as before. "SSID"
+    /// itself is untranslated in all known locales.
     /// </para>
     /// </summary>
     internal static class NetshWifiFallback
@@ -24,56 +24,95 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
 
         // Label variants per field, by OS UI language. Matched case-insensitively against the
         // full text left of the colon, so acronym-suffixed keys ("AP BSSID") never collide.
+        // Language set derived from enrollment geography (get_geographic_metrics, 365d):
+        // US/GB/AU/CA/IE/SG/IN/ZA/NG/PH en · DE/AT/CH de · BE/NL nl · BE/FR/CH fr · DK da ·
+        // SE sv · PL pl · TR tr · CN zh-CN · HK zh-TW · ES/MX/PE/PY es · CZ cs · SK sk ·
+        // IT/CH it · ID id · MY ms · FI fi · LT lt · LV lv · HU hu · BR/PT pt · JP ja ·
+        // KR ko · TH th · VN vi · RO/MD ro · BG bg · BA/HR hr · AE/SA/EG/JO ar ·
+        // MN/GE/AZ usually en/ru images → ru.
         private static readonly string[] SignalKeys =
         {
-            "Signal",   // en, de, fr, sv, da, nb
-            "Señal",    // es
-            "Sinal",    // pt
-            "Segnale",  // it
-            "Signaal",  // nl
-            "Sygnał",   // pl
-            "Signál",   // cs
-            "Sinyal",   // tr
-            "Сигнал",   // ru
-            "シグナル",  // ja
-            "信号",      // zh-CN
-            "訊號",      // zh-TW
-            "신호",      // ko
+            "Signal",     // en, de, fr, sv, da, nb, hr
+            "Señal",      // es
+            "Sinal",      // pt
+            "Segnale",    // it
+            "Signaal",    // nl
+            "Sygnał",     // pl
+            "Signál",     // cs, sk
+            "Sinyal",     // tr, id
+            "Isyarat",    // ms
+            "Signaali",   // fi
+            "Signalas",   // lt
+            "Signāls",    // lv
+            "Jel",        // hu
+            "Semnal",     // ro
+            "Tín hiệu",   // vi
+            "สัญญาณ",     // th
+            "الإشارة",    // ar
+            "إشارة",      // ar (variant without article)
+            "Сигнал",     // ru, bg
+            "シグナル",    // ja
+            "信号",        // zh-CN
+            "訊號",        // zh-TW
+            "신호",        // ko
         };
 
         private static readonly string[] RadioTypeKeys =
         {
-            "Radio type",     // en
-            "Funktyp",        // de
-            "Type de radio",  // fr
-            "Tipo de radio",  // es
-            "Tipo de rádio",  // pt
-            "Tipo di radio",  // it
-            "Radiotype",      // nl
-            "Typ radia",      // pl
-            "Radyo türü",     // tr
-            "Тип радио",      // ru
-            "無線の種類",      // ja
-            "无线电类型",      // zh-CN
-            "無線電類型",      // zh-TW
-            "라디오 종류",     // ko
-            "무선 종류",       // ko (variant)
+            "Radio type",      // en
+            "Funktyp",         // de
+            "Type de radio",   // fr
+            "Tipo de radio",   // es
+            "Tipo de rádio",   // pt
+            "Tipo di radio",   // it
+            "Radiotype",       // nl, da
+            "Radiotyp",        // sv
+            "Typ radia",       // pl
+            "Typ rádia",       // cs, sk
+            "Radyo türü",      // tr
+            "Jenis radio",     // id, ms
+            "Radiotyyppi",     // fi
+            "Radijo tipas",    // lt
+            "Radio tips",      // lv
+            "Rádió típusa",    // hu
+            "Tip radio",       // ro
+            "Vrsta radija",    // hr, bs
+            "Loại radio",      // vi
+            "ชนิดวิทยุ",        // th
+            "نوع الراديو",     // ar
+            "Тип радио",       // ru
+            "Тип на радиото",  // bg
+            "無線の種類",       // ja
+            "无线电类型",       // zh-CN
+            "無線電類型",       // zh-TW
+            "라디오 종류",      // ko
+            "무선 종류",        // ko (variant)
         };
 
         private static readonly string[] ChannelKeys =
         {
-            "Channel",  // en
-            "Kanal",    // de, sv, da, nb, tr
-            "Canal",    // fr, es, pt
-            "Canale",   // it
-            "Kanaal",   // nl
-            "Kanał",    // pl
-            "Kanál",    // cs
-            "Канал",    // ru
-            "チャネル",  // ja
-            "信道",      // zh-CN
-            "通道",      // zh-TW / zh-CN (variant)
-            "채널",      // ko
+            "Channel",     // en
+            "Kanal",       // de, sv, da, nb, tr, hr
+            "Canal",       // fr, es, pt, ro
+            "Canale",      // it
+            "Kanaal",      // nl
+            "Kanał",       // pl
+            "Kanál",       // cs, sk
+            "Saluran",     // id, ms
+            "Kanava",      // fi
+            "Kanalas",     // lt
+            "Kanāls",      // lv
+            "Csatorna",    // hu
+            "Kênh",        // vi
+            "ช่องสัญญาณ",   // th
+            "ช่อง",         // th (variant)
+            "القناة",      // ar
+            "قناة",        // ar (variant without article)
+            "Канал",       // ru, bg
+            "チャネル",     // ja
+            "信道",         // zh-CN
+            "通道",         // zh-TW / zh-CN (variant)
+            "채널",         // ko
         };
 
         /// <summary>
