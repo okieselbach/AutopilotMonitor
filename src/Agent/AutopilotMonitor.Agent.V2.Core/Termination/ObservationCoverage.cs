@@ -1,6 +1,8 @@
 #nullable enable
 using System;
 using System.Runtime.InteropServices;
+using AutopilotMonitor.Agent.V2.Core.Orchestration;
+using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Core.Termination
 {
@@ -75,6 +77,58 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             bootToStartSeconds = Math.Max(0, bootToStart.TotalSeconds);
             uptimeSeconds = Math.Max(0, uptime.TotalSeconds);
             return bootToStart >= LateStartBootThreshold && uptime <= LowCoverageUptime;
+        }
+
+        /// <summary>
+        /// Severity + operator-facing phrasing for the <c>agent_late_start</c> event, calibrated
+        /// by fleet data (2026-07-28): the gate alone is outcome-blind and attached a
+        /// "post-mortem / check for a hung script" Warning to sessions that in fact succeeded —
+        /// there the late bootstrap is deployment hygiene, not an alarm. The OOBE state refines
+        /// the phrasing but must never gate: the canonical hung-script failure terminates on the
+        /// still-shown ESP screen, i.e. with OOBE reading <c>in_progress</c>.
+        /// </summary>
+        /// <param name="outcome">Terminal outcome the enrollment reached.</param>
+        /// <param name="oobeStateAtAgentStart"><see cref="Monitoring.Interop.OobeStateReader"/>
+        /// sample taken at THIS process's start. Only <c>completed</c> / <c>in_progress</c> are
+        /// interpreted; <c>not_started</c> flips in after mid-OOBE reboots and <c>completed</c> is
+        /// routine for post-desktop restarts, so no claim is phrased from the other values.</param>
+        /// <param name="bootToStartSeconds">From <see cref="IsLowObservationCoverage"/>.</param>
+        /// <param name="uptimeSeconds">From <see cref="IsLowObservationCoverage"/>.</param>
+        internal static void DescribeLateStart(
+            EnrollmentTerminationOutcome outcome,
+            string oobeStateAtAgentStart,
+            double bootToStartSeconds,
+            double uptimeSeconds,
+            out EventSeverity severity,
+            out string message,
+            out string note)
+        {
+            var succeeded = outcome == EnrollmentTerminationOutcome.Succeeded;
+            severity = succeeded ? EventSeverity.Info : EventSeverity.Warning;
+
+            message = $"Agent started {bootToStartSeconds / 60.0:F0} min after boot and observed only " +
+                      $"{uptimeSeconds:F0}s before terminating ({outcome}) — low coverage of the enrollment window.";
+            switch (oobeStateAtAgentStart)
+            {
+                case "completed":
+                    message += " OOBE was already completed when the agent started — the diagnosis is a " +
+                               "post-mortem reconstruction, not live observation.";
+                    break;
+                case "in_progress":
+                    message += $" OOBE was still in progress at agent start — the agent did observe the " +
+                               $"final {uptimeSeconds:F0}s live.";
+                    break;
+            }
+
+            note = succeeded
+                ? "The agent's bootstrap (an Intune platform script) ran late in the enrollment, so only the " +
+                  "final stretch was observed live; earlier timeline entries are reconstructed from IME log " +
+                  "replay. The enrollment itself succeeded. If this recurs across sessions, review which " +
+                  "platform/remediation scripts run ahead of the bootstrap (see script_timeout_suspected)."
+                : "The agent's bootstrap (an Intune platform script) ran only near the end of the enrollment, " +
+                  "so the agent observed the already-decided end-state rather than the failure window. Treat " +
+                  "the diagnosis as a post-mortem; check for a platform/remediation script that hung ahead of " +
+                  "the bootstrap (see script_timeout_suspected).";
         }
     }
 }

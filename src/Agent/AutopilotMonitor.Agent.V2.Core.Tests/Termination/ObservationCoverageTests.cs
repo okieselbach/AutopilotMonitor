@@ -1,5 +1,7 @@
 using System;
+using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Agent.V2.Core.Termination;
+using AutopilotMonitor.Shared.Models;
 using Xunit;
 
 namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
@@ -69,6 +71,83 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
             Assert.False(low);
             Assert.Equal(0, bootToStart, 0);
             Assert.Equal(10, uptime, 0);
+        }
+
+        // --- DescribeLateStart: outcome-calibrated severity + phrasing (fleet 2026-07-28) ---
+
+        private static void Describe(
+            EnrollmentTerminationOutcome outcome, string oobeState,
+            out EventSeverity severity, out string message, out string note)
+            => ObservationCoverage.DescribeLateStart(
+                outcome, oobeState, bootToStartSeconds: 34 * 60, uptimeSeconds: 30,
+                out severity, out message, out note);
+
+        [Fact]
+        public void Failed_outcome_is_a_warning_with_the_hung_script_post_mortem_note()
+        {
+            Describe(EnrollmentTerminationOutcome.Failed, "in_progress",
+                out var severity, out var message, out var note);
+
+            Assert.Equal(EventSeverity.Warning, severity);
+            Assert.Contains("low coverage of the enrollment window", message);
+            Assert.Contains("post-mortem", note);
+            Assert.Contains("hung ahead of the bootstrap", note);
+        }
+
+        [Fact]
+        public void TimedOut_outcome_is_a_warning_like_a_failure()
+        {
+            Describe(EnrollmentTerminationOutcome.TimedOut, "in_progress",
+                out var severity, out _, out var note);
+
+            Assert.Equal(EventSeverity.Warning, severity);
+            Assert.Contains("post-mortem", note);
+        }
+
+        [Fact]
+        public void Succeeded_outcome_is_an_info_about_tail_only_coverage_without_alarm_framing()
+        {
+            // The 659c3a90 shape: healthy enrollment, bootstrap merely ran late in the ESP queue.
+            Describe(EnrollmentTerminationOutcome.Succeeded, "in_progress",
+                out var severity, out _, out var note);
+
+            Assert.Equal(EventSeverity.Info, severity);
+            Assert.Contains("succeeded", note);
+            Assert.Contains("IME log replay", note);
+            Assert.DoesNotContain("post-mortem", note);
+            Assert.DoesNotContain("hung", note);
+        }
+
+        [Fact]
+        public void Oobe_completed_at_start_phrases_a_pure_post_mortem()
+        {
+            Describe(EnrollmentTerminationOutcome.Failed, "completed",
+                out _, out var message, out _);
+
+            Assert.Contains("OOBE was already completed when the agent started", message);
+        }
+
+        [Fact]
+        public void Oobe_in_progress_at_start_phrases_the_live_tail()
+        {
+            Describe(EnrollmentTerminationOutcome.Failed, "in_progress",
+                out _, out var message, out _);
+
+            Assert.Contains("OOBE was still in progress at agent start", message);
+            Assert.Contains("final 30s live", message);
+        }
+
+        [Theory]
+        [InlineData("not_started")]  // flips in after a mid-OOBE reboot — not interpretable
+        [InlineData("unavailable")]  // WinRT contract absent / read failed
+        [InlineData("unknown_3")]    // unexpected enum value
+        public void Uninterpretable_oobe_states_add_no_claim_to_the_message(string oobeState)
+        {
+            Describe(EnrollmentTerminationOutcome.Failed, oobeState,
+                out _, out var message, out _);
+
+            Assert.DoesNotContain("OOBE", message);
+            Assert.EndsWith("low coverage of the enrollment window.", message);
         }
     }
 }
