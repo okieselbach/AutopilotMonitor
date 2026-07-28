@@ -890,9 +890,9 @@ function SessionCell({
       // Two-line date/time keeps the column narrow so more columns fit on one page.
       const started = new Date(session.startedAt);
       return (
-        <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-500">
-          <div>{started.toLocaleDateString()}</div>
-          <div className="text-xs text-gray-400">{started.toLocaleTimeString()}</div>
+        <td className="px-3 py-4 whitespace-nowrap">
+          <div className="text-sm font-medium text-gray-900">{started.toLocaleDateString()}</div>
+          <div className="text-sm text-gray-500">{started.toLocaleTimeString()}</div>
         </td>
       );
     }
