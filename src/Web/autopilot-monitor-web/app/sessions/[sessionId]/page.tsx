@@ -573,7 +573,7 @@ export default function SessionDetailPage() {
           )}
 
           {/* Device Details Card (from enrollment tracker events) */}
-          {!isGatherRulesSession && <div id="section-device-details"><DeviceDetailsCard events={events} latestAgentVersion={latestAgentVersion} /></div>}
+          {!isGatherRulesSession && <div id="section-device-details"><DeviceDetailsCard events={events} latestAgentVersion={latestAgentVersion} session={session} /></div>}
 
           {/* Phase Timeline */}
           {!isGatherRulesSession && session && (

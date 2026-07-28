@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { EnrollmentEvent } from "@/types";
+import { EnrollmentEvent, Session } from "@/types";
 import OobeConfigModal from "./OobeConfigModal";
 import { compareVersions, stripGitHashSuffix } from "@/utils/bootstrapVersion";
 
-export default function DeviceDetailsCard({ events, latestAgentVersion }: { events: EnrollmentEvent[]; latestAgentVersion?: string | null }) {
+export default function DeviceDetailsCard({ events, latestAgentVersion, session }: { events: EnrollmentEvent[]; latestAgentVersion?: string | null; session?: Session | null }) {
   const [expanded, setExpanded] = useState(false);
   const [showIpv6, setShowIpv6] = useState<Record<number, boolean>>({});
   const [showOobeModal, setShowOobeModal] = useState(false);
@@ -161,8 +161,16 @@ export default function DeviceDetailsCard({ events, latestAgentVersion }: { even
   const deviceLocation = getEventData("device_location");
   const hwSpec = getEventData("hardware_spec");
 
+  // Connectivity: agent→backend measurements. Latency comes from the session row (persisted
+  // at ingest from the cumulative snapshot counters); bandwidth/volume/IP from their events.
+  const bandwidthEstimate = getEventData("network_bandwidth_estimate");
+  const metricsSnapshot = getEventData("agent_metrics_snapshot");
+  const outboundIp = getEventData("outbound_ip");
+  const apiLatencyMs = session?.avgApiLatencyMs ?? 0;
+  const hasConnectivity = apiLatencyMs > 0 || bandwidthEstimate || metricsSnapshot || outboundIp;
+
   const hasData = agentStarted || bootTime || osInfo || networkAdapters || dnsConfig || proxyConfig || networkInterfaceInfo || wifiSignalInfo ||
-                  autopilotProfile || aadJoinStatus || imeVersion || bitLockerStatus || secureBootStatus || deviceLocation || hwSpec;
+                  autopilotProfile || aadJoinStatus || imeVersion || bitLockerStatus || secureBootStatus || deviceLocation || hwSpec || hasConnectivity;
 
   if (!hasData) return null;
 
@@ -289,6 +297,33 @@ export default function DeviceDetailsCard({ events, latestAgentVersion }: { even
                     {proxyConfig.autoConfigUrl && <DetailRow label="PAC URL" value={proxyConfig.autoConfigUrl} />}
                     {proxyConfig.winHttpProxy && <DetailRow label="WinHTTP" value={proxyConfig.winHttpProxy} />}
                   </div>
+                )}
+              </DetailSection>
+            )}
+
+            {/* Connectivity: agent→backend measurements collected during the enrollment */}
+            {hasConnectivity && (
+              <DetailSection title="Connectivity">
+                {apiLatencyMs > 0 && (
+                  <DetailRow
+                    label="API Latency (avg)"
+                    value={`${Math.round(apiLatencyMs)} ms${session?.apiRequestCount ? ` (${session.apiRequestCount} requests)` : ""}`}
+                  />
+                )}
+                {bandwidthEstimate?.estimatedWanMbps !== undefined && (
+                  <DetailRow
+                    label="Est. Internet Bandwidth"
+                    value={`~${bandwidthEstimate.estimatedWanMbps} Mbit/s${bandwidthEstimate.confidence ? ` (${bandwidthEstimate.confidence} confidence)` : ""}`}
+                  />
+                )}
+                {bandwidthEstimate?.doThrottleConfigured === true && (
+                  <DetailRow label="DO Throttle Policy" value="Configured (measured rate reflects the throttle)" />
+                )}
+                {metricsSnapshot?.net_total_bytes_up !== undefined && (
+                  <DetailRow label="Telemetry Uploaded" value={formatBytesCompact(Number(metricsSnapshot.net_total_bytes_up))} />
+                )}
+                {outboundIp?.ip && (
+                  <DetailRow label="Outbound IP" value={`${outboundIp.ip}${outboundIp.source ? ` (via ${outboundIp.source})` : ""}`} />
                 )}
               </DetailSection>
             )}
@@ -541,6 +576,13 @@ function DetailSection({ title, children }: { title: string; children: React.Rea
       <div>{children}</div>
     </div>
   );
+}
+
+function formatBytesCompact(bytes: number): string {
+  if (!bytes || bytes <= 0 || isNaN(bytes)) return "—";
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024).toFixed(0)} KB`;
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
