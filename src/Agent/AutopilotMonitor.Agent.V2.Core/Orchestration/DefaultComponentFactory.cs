@@ -483,7 +483,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     logger: logger,
                     rules: _remoteConfig.GatherRules,
                     imeLogPathOverride: _agentConfig.ImeLogPathOverride,
-                    unrestrictedMode: _agentConfig.UnrestrictedMode));
+                    unrestrictedMode: _agentConfig.UnrestrictedMode,
+                    gatherDebugLogPath: _agentConfig.GatherRuleDebugLogPath));
+            }
+            else if (!string.IsNullOrEmpty(_agentConfig.GatherRuleDebugLogPath))
+            {
+                // Debug trace is on but the backend delivered zero gather rules — the trace
+                // file must say so instead of silently not existing.
+                Monitoring.Telemetry.Gather.GatherRuleDebugLog.WriteStandalone(
+                    _agentConfig.GatherRuleDebugLogPath,
+                    "no gather rules delivered by backend — nothing to execute", logger);
             }
 
             return new CollectorSurfaces(hosts, imeLogHost, espAndHelloHost, aadJoinHost);

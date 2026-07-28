@@ -60,6 +60,7 @@ export interface TenantConfiguration {
   enableGeoLocation?: boolean;
   enableTimezoneAutoSet?: boolean;
   enableImeMatchLog?: boolean;
+  enableGatherRuleDebugLog?: boolean;
   logLevel?: string;
   // Teams notifications (legacy)
   teamsWebhookUrl?: string;

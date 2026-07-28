@@ -270,12 +270,13 @@ namespace AutopilotMonitor.Functions.Functions.Config
             var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(new AgentConfigResponse
             {
-                ConfigVersion = 35, // MDM reboot-policy watcher (mdm_policy_reboot_required / esp_reboot_coalescing)
+                ConfigVersion = 36, // EnableGatherRuleDebugLog (local gather-rule evaluation trace)
                 UploadIntervalSeconds = 10,
                 SelfDestructOnComplete = tenantConfig.SelfDestructOnComplete ?? true,
                 KeepLogFile = tenantConfig.KeepLogFile ?? false,
                 EnableGeoLocation = tenantConfig.EnableGeoLocation ?? true,
                 EnableImeMatchLog = tenantConfig.EnableImeMatchLog ?? false,
+                EnableGatherRuleDebugLog = tenantConfig.EnableGatherRuleDebugLog ?? false,
                 MaxAuthFailures = tenantConfig.MaxAuthFailures ?? 5,
                 AuthFailureTimeoutMinutes = tenantConfig.AuthFailureTimeoutMinutes ?? 0,
                 LogLevel = tenantConfig.LogLevel ?? "Info",

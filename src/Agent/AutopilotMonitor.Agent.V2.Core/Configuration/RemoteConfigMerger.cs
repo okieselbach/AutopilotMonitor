@@ -135,6 +135,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
                 }
             }
 
+            // ---------------- GatherRuleDebugLog: same bool→path projection as ImeMatchLog
+            //                  above. `true` expands Constants.GatherRuleDebugLogPath, `false`
+            //                  nulls the runtime path unless a --gather-debug-log CLI override
+            //                  supplied a non-default path.
+            if (remoteConfig.EnableGatherRuleDebugLog)
+            {
+                agentConfig.GatherRuleDebugLogPath = Environment.ExpandEnvironmentVariables(Constants.GatherRuleDebugLogPath);
+            }
+            else
+            {
+                var defaultGatherDebugPath = Environment.ExpandEnvironmentVariables(Constants.GatherRuleDebugLogPath);
+                if (string.IsNullOrEmpty(agentConfig.GatherRuleDebugLogPath)
+                    || string.Equals(agentConfig.GatherRuleDebugLogPath, defaultGatherDebugPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    agentConfig.GatherRuleDebugLogPath = null;
+                }
+            }
+
             // ---------------- Upload interval / batch — direct, V1 parity (no > 0 gate so a
             //                  misconfigured tenant can in theory break uploads, but this
             //                  surfaces the config bug instead of silently masking it).

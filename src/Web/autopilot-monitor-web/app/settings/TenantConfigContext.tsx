@@ -167,6 +167,8 @@ interface TenantConfigContextValue {
   setEnableTimezoneAutoSet: (v: boolean) => void;
   enableImeMatchLog: boolean;
   setEnableImeMatchLog: (v: boolean) => void;
+  enableGatherRuleDebugLog: boolean;
+  setEnableGatherRuleDebugLog: (v: boolean) => void;
   logLevel: string;
   setLogLevel: (v: string) => void;
   showScriptOutput: boolean;
@@ -384,6 +386,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const [enableGeoLocation, setEnableGeoLocation] = useState(true);
   const [enableTimezoneAutoSet, setEnableTimezoneAutoSet] = useState(false);
   const [enableImeMatchLog, setEnableImeMatchLog] = useState(false);
+  const [enableGatherRuleDebugLog, setEnableGatherRuleDebugLog] = useState(false);
   const [logLevel, setLogLevel] = useState("Info");
   const [showScriptOutput, setShowScriptOutput] = useState(true);
   const [showEnrollmentSummary, setShowEnrollmentSummary] = useState(false);
@@ -503,6 +506,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         setEnableGeoLocation(data.enableGeoLocation ?? true);
         setEnableTimezoneAutoSet(data.enableTimezoneAutoSet ?? false);
         setEnableImeMatchLog(data.enableImeMatchLog ?? false);
+        setEnableGatherRuleDebugLog(data.enableGatherRuleDebugLog ?? false);
         setLogLevel(data.logLevel ?? "Info");
         setShowScriptOutput(data.showScriptOutput ?? true);
         setShowEnrollmentSummary(data.showEnrollmentSummary ?? false);
@@ -700,6 +704,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         enableGeoLocation,
         enableTimezoneAutoSet,
         enableImeMatchLog,
+        enableGatherRuleDebugLog,
         logLevel,
         showScriptOutput,
         showEnrollmentSummary,
@@ -777,7 +782,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     manufacturerWhitelist, modelWhitelist, validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation,
     dataRetentionDays, sessionTimeoutHours, enablePerformanceCollector, performanceCollectorInterval,
     helloWaitTimeoutSeconds, selfDestructOnComplete, keepLogFile, rebootOnComplete, rebootDelaySeconds,
-    contactEmail, enableGeoLocation, enableTimezoneAutoSet, enableImeMatchLog, logLevel, showScriptOutput, showEnrollmentSummary,
+    contactEmail, enableGeoLocation, enableTimezoneAutoSet, enableImeMatchLog, enableGatherRuleDebugLog, logLevel, showScriptOutput, showEnrollmentSummary,
     enrollmentSummaryTimeoutSeconds, enrollmentSummaryBrandingImageUrl, enrollmentSummaryLaunchRetrySeconds,
     notificationChannels,
     slaTargetSuccessRate, slaTargetMaxDurationMinutes, slaTargetAppInstallSuccessRate,
@@ -1113,6 +1118,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     setEnableGeoLocation(config.enableGeoLocation ?? true);
     setEnableTimezoneAutoSet(config.enableTimezoneAutoSet ?? false);
     setEnableImeMatchLog(config.enableImeMatchLog ?? false);
+    setEnableGatherRuleDebugLog(config.enableGatherRuleDebugLog ?? false);
     setLogLevel(config.logLevel ?? "Info");
     setShowScriptOutput(config.showScriptOutput ?? true);
     setShowEnrollmentSummary(config.showEnrollmentSummary ?? false);
@@ -1542,6 +1548,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       enableGeoLocation, setEnableGeoLocation,
       enableTimezoneAutoSet, setEnableTimezoneAutoSet,
       enableImeMatchLog, setEnableImeMatchLog,
+      enableGatherRuleDebugLog, setEnableGatherRuleDebugLog,
       logLevel, setLogLevel,
       showScriptOutput, setShowScriptOutput,
       showEnrollmentSummary, setShowEnrollmentSummary,

@@ -303,6 +303,7 @@ namespace AutopilotMonitor.Agent.V2
             var apiBaseUrl = GetArgValue(args, "--api-url", "--backend-api") ?? Constants.ApiBaseUrl;
             var imeLogPathOverride = GetArgValue(args, "--ime-log-path");
             var imeMatchLogPath = GetArgValue(args, "--ime-match-log");
+            var gatherDebugLogPath = GetArgValue(args, "--gather-debug-log");
 
             // Dev / test — IME log replay (V1 compat mode). Feeds ImeLogTracker.SimulationMode
             // + SpeedFactor so recorded raw IME logs are replayed at an accelerated rate; signal
@@ -373,6 +374,7 @@ namespace AutopilotMonitor.Agent.V2
                 EnableGeoLocation = !disableGeoLocation,
                 ImeLogPathOverride = imeLogPathOverride,
                 ImeMatchLogPath = imeMatchLogPath,
+                GatherRuleDebugLogPath = gatherDebugLogPath,
                 KeepLogFile = keepLogFile,
                 SelfDestructOnComplete = !noCleanup,
                 CommandLineArgs = FormatArgsForLog(args),
@@ -485,6 +487,7 @@ namespace AutopilotMonitor.Agent.V2
             Console.Out.WriteLine("  --api-url <URL>                   Override backend API base URL (alias: --backend-api)");
             Console.Out.WriteLine("  --ime-log-path <PATH>             Override IME logs directory");
             Console.Out.WriteLine("  --ime-match-log <PATH>            Write matched IME log lines to file (debug)");
+            Console.Out.WriteLine("  --gather-debug-log <PATH>         Write gather-rule evaluation trace to file (debug)");
             Console.Out.WriteLine();
             Console.Out.WriteLine("Dev / Test:");
             Console.Out.WriteLine("  --replay-log-dir <PATH>           Replay IME logs from this directory (simulation mode)");

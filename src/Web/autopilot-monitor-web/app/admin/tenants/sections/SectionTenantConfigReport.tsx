@@ -58,6 +58,7 @@ interface TenantConfig {
   enableTimezoneAutoSet?: boolean | null;
   ntpServer?: string | null;
   enableImeMatchLog?: boolean | null;
+  enableGatherRuleDebugLog?: boolean | null;
   logLevel?: string | null;
   maxBatchSize?: number | null;
   showEnrollmentSummary?: boolean | null;
@@ -130,6 +131,7 @@ const DEFAULTS: Record<string, unknown> = {
   enableTimezoneAutoSet: null,
   ntpServer: 'time.windows.com',
   enableImeMatchLog: null,
+  enableGatherRuleDebugLog: null,
   logLevel: null,
   maxBatchSize: null,
   showEnrollmentSummary: null,
@@ -168,6 +170,7 @@ const RUNTIME_DEFAULTS: Record<string, unknown> = {
   enableTimezoneAutoSet: false,
   ntpServer: 'time.windows.com',
   enableImeMatchLog: false,
+  enableGatherRuleDebugLog: false,
   maxAuthFailures: 5,
   authFailureTimeoutMinutes: 0,
   logLevel: 'Info',
@@ -296,6 +299,7 @@ function computeRuntime(c: TenantConfig): Record<string, unknown> {
     enableTimezoneAutoSet: c.enableTimezoneAutoSet ?? false,
     ntpServer: c.ntpServer ?? 'time.windows.com',
     enableImeMatchLog: c.enableImeMatchLog ?? false,
+    enableGatherRuleDebugLog: c.enableGatherRuleDebugLog ?? false,
     maxAuthFailures: c.maxAuthFailures ?? 5,
     authFailureTimeoutMinutes: c.authFailureTimeoutMinutes ?? 0,
     logLevel: c.logLevel ?? 'Info',
@@ -575,6 +579,7 @@ export function SectionTenantConfigReport() {
                 <ConfigRow label="Timezone Auto-Set" value={config.enableTimezoneAutoSet} configKey="enableTimezoneAutoSet" defaults={DEFAULTS} />
                 <ConfigRow label="NTP Server" value={config.ntpServer} configKey="ntpServer" defaults={DEFAULTS} />
                 <ConfigRow label="IME Match Log" value={config.enableImeMatchLog} configKey="enableImeMatchLog" defaults={DEFAULTS} />
+                <ConfigRow label="Gather Rule Debug Log" value={config.enableGatherRuleDebugLog} configKey="enableGatherRuleDebugLog" defaults={DEFAULTS} />
                 <ConfigRow label="Log Level" value={config.logLevel} configKey="logLevel" defaults={DEFAULTS} />
                 <ConfigRow label="Max Batch Size" value={config.maxBatchSize} configKey="maxBatchSize" defaults={DEFAULTS} />
                 <ConfigRow label="Show Script Output" value={config.showScriptOutput} configKey="showScriptOutput" defaults={DEFAULTS} />
@@ -647,6 +652,7 @@ export function SectionTenantConfigReport() {
                     <ConfigRow label="Timezone Auto-Set" value={runtime.enableTimezoneAutoSet} configKey="enableTimezoneAutoSet" defaults={RUNTIME_DEFAULTS} />
                     <ConfigRow label="NTP Server" value={runtime.ntpServer} configKey="ntpServer" defaults={RUNTIME_DEFAULTS} />
                     <ConfigRow label="IME Match Log" value={runtime.enableImeMatchLog} configKey="enableImeMatchLog" defaults={RUNTIME_DEFAULTS} />
+                    <ConfigRow label="Gather Rule Debug Log" value={runtime.enableGatherRuleDebugLog} configKey="enableGatherRuleDebugLog" defaults={RUNTIME_DEFAULTS} />
                     <ConfigRow label="Log Level" value={runtime.logLevel} configKey="logLevel" defaults={RUNTIME_DEFAULTS} />
                     <ConfigRow label="Send Trace Events" value={runtime.sendTraceEvents} configKey="sendTraceEvents" defaults={RUNTIME_DEFAULTS} />
                     <ConfigRow label="Unrestricted Mode" value={runtime.unrestrictedMode} configKey="unrestrictedMode" defaults={RUNTIME_DEFAULTS} />

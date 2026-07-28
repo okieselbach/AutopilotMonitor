@@ -40,6 +40,12 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public bool EnableImeMatchLog { get; set; } = false;
 
+        /// <summary>
+        /// Whether to write a local gather-rule evaluation trace file.
+        /// When true, the default path is used: Constants.GatherRuleDebugLogPath.
+        /// </summary>
+        public bool EnableGatherRuleDebugLog { get; set; } = false;
+
         public CollectorConfiguration Collectors { get; set; } = default!;
 
         /// <summary>

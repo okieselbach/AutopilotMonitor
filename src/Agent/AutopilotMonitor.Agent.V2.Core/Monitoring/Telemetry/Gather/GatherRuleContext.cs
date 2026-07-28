@@ -22,13 +22,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
         public LogFilePositionTracker FilePositionTracker { get; }
         public bool UnrestrictedMode { get; set; }
 
+        /// <summary>
+        /// Optional gather-rule debug trace writer (EnableGatherRuleDebugLog). Null when
+        /// tracing is disabled — use <see cref="DebugLog"/> for null-safe writes.
+        /// </summary>
+        public GatherRuleDebugLog DebugWriter { get; }
+
         public GatherRuleContext(
             AgentLogger logger,
             string sessionId,
             string tenantId,
             Action<EnrollmentEvent> onEventCollected,
             string imeLogPathOverride,
-            LogFilePositionTracker filePositionTracker)
+            LogFilePositionTracker filePositionTracker,
+            GatherRuleDebugLog debugLog = null)
         {
             Logger = logger ?? throw new ArgumentNullException(nameof(logger));
             SessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
@@ -36,7 +43,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             OnEventCollected = onEventCollected ?? throw new ArgumentNullException(nameof(onEventCollected));
             ImeLogPathOverride = imeLogPathOverride;
             FilePositionTracker = filePositionTracker ?? throw new ArgumentNullException(nameof(filePositionTracker));
+            DebugWriter = debugLog;
         }
+
+        /// <summary>
+        /// Null-safe write to the gather-rule debug trace. No-op when tracing is disabled.
+        /// </summary>
+        public void DebugLog(string ruleId, string stage, string message) => DebugWriter?.Write(ruleId, stage, message);
 
         /// <summary>
         /// Emits a security_warning event and returns an empty result dictionary.
@@ -45,6 +58,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
         public Dictionary<string, object> EmitSecurityWarning(GatherRule rule, string collectorType, string target)
         {
             Logger.Warning($"SECURITY: {collectorType} path blocked by guard: {target} (Rule: {rule.RuleId})");
+            DebugLog(rule.RuleId, GatherRuleDebugLog.StageGuard,
+                $"{collectorType} target blocked by allowlist guard: {target} — security_warning emitted, rule produced no data");
 
             var data = new Dictionary<string, object>
             {

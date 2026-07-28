@@ -335,6 +335,15 @@ namespace AutopilotMonitor.Shared.Models
         public bool? EnableImeMatchLog { get; set; }
 
         /// <summary>
+        /// Whether the agent writes a local gather-rule evaluation trace file so customers
+        /// can diagnose rules that produce no timeline events (scope skips, on_change
+        /// suppression, empty collector results, logparser details). When true, the agent
+        /// writes to Constants.GatherRuleDebugLogPath. The trace never leaves the device.
+        /// null = use agent default (false).
+        /// </summary>
+        public bool? EnableGatherRuleDebugLog { get; set; }
+
+        /// <summary>
         /// Log verbosity level override for this tenant's agents.
         /// null = use agent default ("Info"). Values: "Info", "Debug", "Verbose", "Trace".
         /// </summary>

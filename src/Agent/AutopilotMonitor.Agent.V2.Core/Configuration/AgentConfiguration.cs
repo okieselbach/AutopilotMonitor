@@ -122,6 +122,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
         public string ImeMatchLogPath { get; set; }
 
         /// <summary>
+        /// Optional path to write a gather-rule evaluation trace (for debugging).
+        /// If empty, no trace is written. Set from remote config (EnableGatherRuleDebugLog)
+        /// or the --gather-debug-log CLI override.
+        /// </summary>
+        public string GatherRuleDebugLogPath { get; set; }
+
+        /// <summary>
         /// Path to directory with real IME log files for log replay.
         /// When set, the agent replays these logs with time compression instead of reading live logs.
         /// </summary>

@@ -24,6 +24,8 @@ interface AgentSettingsSectionProps {
   setEnableTimezoneAutoSet: (value: boolean) => void;
   enableImeMatchLog: boolean;
   setEnableImeMatchLog: (value: boolean) => void;
+  enableGatherRuleDebugLog: boolean;
+  setEnableGatherRuleDebugLog: (value: boolean) => void;
   logLevel: string;
   setLogLevel: (value: string) => void;
   showScriptOutput: boolean;
@@ -64,6 +66,8 @@ export default function AgentSettingsSection({
   setEnableTimezoneAutoSet,
   enableImeMatchLog,
   setEnableImeMatchLog,
+  enableGatherRuleDebugLog,
+  setEnableGatherRuleDebugLog,
   logLevel,
   setLogLevel,
   showScriptOutput,
@@ -196,6 +200,21 @@ export default function AgentSettingsSection({
             <button onClick={() => setEnableImeMatchLog(!enableImeMatchLog)}
               className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${enableImeMatchLog ? 'bg-violet-500' : 'bg-gray-300'}`}>
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enableImeMatchLog ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
+
+          {/* Gather Rule Debug Log */}
+          <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-violet-200 transition-colors">
+            <div>
+              <p className="font-medium text-gray-900">Gather Rule Debug Log</p>
+              <p className="text-sm text-gray-500">
+                Trace gather rule evaluation to a local file to diagnose rules that produce no timeline events. The trace never leaves the device.
+                {enableGatherRuleDebugLog && <span className="block text-xs text-gray-400 mt-0.5 font-mono">%ProgramData%\AutopilotMonitor\Logs\gather_rules_debug.log</span>}
+              </p>
+            </div>
+            <button onClick={() => setEnableGatherRuleDebugLog(!enableGatherRuleDebugLog)}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${enableGatherRuleDebugLog ? 'bg-violet-500' : 'bg-gray-300'}`}>
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enableGatherRuleDebugLog ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
           </div>
 

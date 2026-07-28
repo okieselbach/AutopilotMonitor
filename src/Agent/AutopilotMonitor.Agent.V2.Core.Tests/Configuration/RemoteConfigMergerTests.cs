@@ -285,6 +285,54 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             Assert.Equal(@"C:\Temp\custom-ime.log", agent.ImeMatchLogPath);
         }
 
+        [Fact]
+        public void Merge_maps_enable_gather_rule_debug_log_true_to_default_path()
+        {
+            var agent = NewAgentConfig();
+            agent.GatherRuleDebugLogPath = null;
+
+            var remote = FullRemote();
+            remote.EnableGatherRuleDebugLog = true;
+
+            RemoteConfigMerger.Merge(agent, remote);
+
+            Assert.False(string.IsNullOrEmpty(agent.GatherRuleDebugLogPath));
+            Assert.Equal(
+                Environment.ExpandEnvironmentVariables(Constants.GatherRuleDebugLogPath),
+                agent.GatherRuleDebugLogPath);
+        }
+
+        [Fact]
+        public void Merge_maps_enable_gather_rule_debug_log_false_clears_path()
+        {
+            var agent = NewAgentConfig();
+            agent.GatherRuleDebugLogPath = Environment.ExpandEnvironmentVariables(Constants.GatherRuleDebugLogPath);
+
+            var remote = FullRemote();
+            remote.EnableGatherRuleDebugLog = false;
+
+            RemoteConfigMerger.Merge(agent, remote);
+
+            Assert.Null(agent.GatherRuleDebugLogPath);
+        }
+
+        [Fact]
+        public void Merge_preserves_custom_gather_rule_debug_log_path_when_remote_disables()
+        {
+            // A dev-time --gather-debug-log <custom> override seeds a non-default path on the
+            // AgentConfiguration. When the tenant remote flips EnableGatherRuleDebugLog off we
+            // keep the custom path rather than clobbering a deliberate dev override.
+            var agent = NewAgentConfig();
+            agent.GatherRuleDebugLogPath = @"C:\Temp\custom-gather.log";
+
+            var remote = FullRemote();
+            remote.EnableGatherRuleDebugLog = false;
+
+            RemoteConfigMerger.Merge(agent, remote);
+
+            Assert.Equal(@"C:\Temp\custom-gather.log", agent.GatherRuleDebugLogPath);
+        }
+
         // ============================================================= Null / partial tolerance
 
         [Fact]

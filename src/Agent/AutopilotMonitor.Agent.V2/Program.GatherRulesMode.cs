@@ -221,8 +221,18 @@ namespace AutopilotMonitor.Agent.V2
                         },
                     });
 
-                    // Step 4 — run the executor and wait.
-                    using (var executor = new GatherRuleExecutor(sessionId, tenantId, emitEvent, logger, config.ImeLogPathOverride))
+                    // Step 4 — run the executor and wait. Diagnostic mode always writes the
+                    // gather-rule debug trace (CLI override or default path) and mirrors it
+                    // to the console in --console mode.
+                    var gatherDebugLogPath = !string.IsNullOrEmpty(config.GatherRuleDebugLogPath)
+                        ? config.GatherRuleDebugLogPath
+                        : Environment.ExpandEnvironmentVariables(Constants.GatherRuleDebugLogPath);
+                    logger.Info($"--run-gather-rules: debug trace -> {gatherDebugLogPath}");
+                    if (consoleMode) Console.WriteLine($"Debug trace: {gatherDebugLogPath}");
+
+                    using (var executor = new GatherRuleExecutor(sessionId, tenantId, emitEvent, logger, config.ImeLogPathOverride,
+                        debugLogPath: gatherDebugLogPath,
+                        debugEcho: consoleMode ? (Action<string>)(line => Console.WriteLine($"  {line}")) : null))
                     {
                         // Diagnostic mode has no enrollment phase context — scoped rules
                         // (activePhases / activeFromPhase) execute unconditionally here.

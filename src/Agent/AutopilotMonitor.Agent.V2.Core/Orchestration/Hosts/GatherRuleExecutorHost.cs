@@ -39,7 +39,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             AgentLogger logger,
             List<GatherRule> rules,
             string? imeLogPathOverride,
-            bool unrestrictedMode = false)
+            bool unrestrictedMode = false,
+            string? gatherDebugLogPath = null)
         {
             if (ingress == null) throw new ArgumentNullException(nameof(ingress));
             if (clock == null) throw new ArgumentNullException(nameof(clock));
@@ -55,9 +56,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // session mode we wrap post.Emit so every session-mode gather event still
             // flows through the InformationalEvent ingress pipe before hitting the
             // telemetry spool — Rail-A semantics for ordering / replay determinism.
-            var post = new InformationalEventPost(ingress, clock);
+            var post = new InformationalEventPost(ingress, clock, logger);
             _executor = new Monitoring.Telemetry.Gather.GatherRuleExecutor(
-                sessionId, tenantId, evt => post.Emit(evt), logger, imeLogPathOverride);
+                sessionId, tenantId, evt => post.Emit(evt), logger, imeLogPathOverride,
+                debugLogPath: gatherDebugLogPath);
             _observableIngress = ingress as SignalIngress;
         }
 

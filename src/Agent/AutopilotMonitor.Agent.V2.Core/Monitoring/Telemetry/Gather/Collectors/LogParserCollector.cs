@@ -25,14 +25,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
         {
             var filePath = rule.Target;
             if (string.IsNullOrEmpty(filePath))
+            {
+                context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser, "empty target — nothing to parse");
                 return null;
+            }
 
             // Expand custom tokens (%LOGGED_ON_USER_PROFILE%) and standard environment variables
             var userProfilePath = UserProfileResolver.ContainsUserProfileToken(filePath)
                 ? UserProfileResolver.GetLoggedOnUserProfilePath() : null;
             filePath = UserProfileResolver.ExpandCustomTokens(filePath);
             if (filePath == null)
+            {
+                context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
+                    "target contains %LOGGED_ON_USER_PROFILE% but no user is logged on — skipped this run");
                 return null; // Token present but no user logged on — skip silently
+            }
 
             // Apply IME log path override if set. The override comes from the local
             // --ime-log-path flag only (never from remote config), so the operator
@@ -66,6 +73,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
                 string.IsNullOrEmpty(patternStr))
             {
                 context.Logger.Warning($"LogParser rule {rule.RuleId} has no 'pattern' parameter");
+                context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageError,
+                    "missing 'pattern' parameter — rule can never match");
                 return null;
             }
 
@@ -93,6 +102,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
             catch (Exception ex)
             {
                 context.Logger.Warning($"LogParser rule {rule.RuleId} has invalid regex: {ex.Message}");
+                context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageError,
+                    $"invalid regex pattern — rule can never match: {ex.Message}");
                 return null;
             }
 
@@ -101,6 +112,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
             if (resolvedPaths.Count == 0)
             {
                 context.Logger.Debug($"LogParser rule {rule.RuleId}: no files found for: {filePath}");
+                context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
+                    $"no files matched target {filePath}" + (HasWildcard(Path.GetFileName(filePath)) ? " (wildcard)" : "") + " — nothing to parse");
                 return null;
             }
 
@@ -144,7 +157,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
             try
             {
                 // Return matched files sorted by last write time (newest first), capped at 20
-                return Directory.GetFiles(directory, fileNamePart)
+                var allMatches = Directory.GetFiles(directory, fileNamePart);
+                if (allMatches.Length > 20)
+                    context.DebugLog(ruleId, GatherRuleDebugLog.StageLogParser,
+                        $"wildcard matched {allMatches.Length} files — capped to the 20 newest");
+                return allMatches
                     .OrderByDescending(f => new FileInfo(f).LastWriteTimeUtc)
                     .Take(20)
                     .ToList();
@@ -152,6 +169,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
             catch (Exception ex)
             {
                 context.Logger.Warning($"LogParser rule {ruleId}: wildcard expansion failed for {filePath}: {ex.Message}");
+                context.DebugLog(ruleId, GatherRuleDebugLog.StageError, $"wildcard expansion failed for {filePath}: {ex.Message}");
                 return new List<string>();
             }
         }
@@ -168,10 +186,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
 
                 // Nothing new to read
                 if (startPosition >= fileInfo.Length)
+                {
+                    context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
+                        $"{Path.GetFileName(filePath)}: no new content (position {startPosition} >= length {fileInfo.Length}) — trackPosition=true, nothing re-read");
                     return;
+                }
 
                 int matchCount = 0;
                 int linesRead = 0;
+                int parseFailCount = 0;
+                int timeoutCount = 0;
                 long endPosition = startPosition;
 
                 using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
@@ -195,6 +219,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
                                 }
                                 catch (RegexMatchTimeoutException)
                                 {
+                                    timeoutCount++;
                                     continue;
                                 }
                                 if (!match.Success)
@@ -239,7 +264,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
                                 // CMTrace mode: parse line as CMTrace format, match regex against message
                                 CmTraceLogEntry entry;
                                 if (!CmTraceLogParser.TryParseLine(line, out entry))
+                                {
+                                    parseFailCount++;
                                     continue;
+                                }
 
                                 Match match;
                                 try
@@ -248,6 +276,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
                                 }
                                 catch (RegexMatchTimeoutException)
                                 {
+                                    timeoutCount++;
                                     continue;
                                 }
                                 if (!match.Success)
@@ -301,10 +330,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
 
                 if (matchCount > 0)
                     context.Logger.Debug($"LogParser rule {rule.RuleId}: {matchCount} matches from {linesRead} lines in {Path.GetFileName(filePath)}");
+
+                // Per-file outcome — always written so a "matched 0" run is visible too.
+                context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
+                    $"{Path.GetFileName(filePath)}: read {linesRead} lines from position {startPosition}->{endPosition}, " +
+                    $"matched {matchCount}, parseFailures={parseFailCount}, regexTimeouts={timeoutCount}, mode={(isTextMode ? "text" : "cmtrace")}");
+
+                if (!isTextMode && linesRead > 0 && parseFailCount == linesRead)
+                    context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
+                        "every line failed CMTrace parsing — if this is a plain-text log, set parameter format=text");
+
+                if (linesRead == maxLines)
+                    context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
+                        $"stopped at maxLines={maxLines} — remaining content is deferred to the next run");
             }
             catch (Exception ex)
             {
                 context.Logger.Warning($"LogParser rule {rule.RuleId} failed reading {filePath}: {ex.Message}");
+                context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageError, $"failed reading {filePath}: {ex}");
             }
         }
 

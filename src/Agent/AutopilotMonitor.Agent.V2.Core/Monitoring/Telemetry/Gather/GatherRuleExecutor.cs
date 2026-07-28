@@ -22,6 +22,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
     public class GatherRuleExecutor : IDisposable
     {
         private readonly AgentLogger _logger;
+        private readonly GatherRuleDebugLog _debug;   // null unless EnableGatherRuleDebugLog / --gather-debug-log
         private readonly GatherRuleContext _context;
         private readonly Dictionary<string, IGatherRuleCollector> _collectors;
 
@@ -61,7 +62,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
         }
 
         public GatherRuleExecutor(string sessionId, string tenantId, Action<EnrollmentEvent> onEventCollected,
-            AgentLogger logger, string imeLogPathOverride = null)
+            AgentLogger logger, string imeLogPathOverride = null, string debugLogPath = null,
+            Action<string> debugEcho = null)
         {
             if (sessionId == null) throw new ArgumentNullException(nameof(sessionId));
             if (tenantId == null) throw new ArgumentNullException(nameof(tenantId));
@@ -69,9 +71,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             if (logger == null) throw new ArgumentNullException(nameof(logger));
 
             _logger = logger;
+            _debug = string.IsNullOrEmpty(debugLogPath) ? null : new GatherRuleDebugLog(debugLogPath, logger, debugEcho);
 
             var filePositionTracker = new LogFilePositionTracker();
-            _context = new GatherRuleContext(logger, sessionId, tenantId, onEventCollected, imeLogPathOverride, filePositionTracker);
+            _context = new GatherRuleContext(logger, sessionId, tenantId, onEventCollected, imeLogPathOverride, filePositionTracker, _debug);
 
             // Register all collector strategies
             var collectorList = new IGatherRuleCollector[]
@@ -97,6 +100,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
         }
 
         /// <summary>
+        /// Null-safe write to the gather-rule debug trace. Never call while holding
+        /// <see cref="_scopeLock"/> — capture the message under the lock, write after release.
+        /// </summary>
+        private void DebugLog(string ruleId, string stage, string message) => _debug?.Write(ruleId, stage, message);
+
+        /// <summary>
         /// Updates the active rules and starts/stops execution accordingly
         /// </summary>
         public void UpdateRules(List<GatherRule> rules)
@@ -111,11 +120,43 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
 
             _activeRules = rules.Where(r => r.Enabled).ToList();
 
+            // Registration summary for the debug trace: one line per delivered rule so the
+            // customer can see exactly what the agent received and how it will be triggered.
+            if (_debug != null)
+            {
+                foreach (var rule in rules)
+                {
+                    if (!rule.Enabled)
+                    {
+                        DebugLog(rule.RuleId, GatherRuleDebugLog.StageConfig, "rule disabled — will never run");
+                        continue;
+                    }
+
+                    var scope = rule.ActivePhases != null && rule.ActivePhases.Count > 0
+                        ? $"activePhases=[{string.Join(",", rule.ActivePhases)}]"
+                        : !string.IsNullOrEmpty(rule.ActiveFromPhase)
+                            ? $"activeFromPhase={rule.ActiveFromPhase}"
+                            : "unscoped";
+                    DebugLog(rule.RuleId, GatherRuleDebugLog.StageConfig,
+                        $"registered: trigger={rule.Trigger}" +
+                        (string.IsNullOrEmpty(rule.TriggerPhase) ? "" : $" triggerPhase={rule.TriggerPhase}") +
+                        (string.IsNullOrEmpty(rule.TriggerEventType) ? "" : $" triggerEventType={rule.TriggerEventType}") +
+                        $", collector={rule.CollectorType}, target={rule.Target}, {scope}" +
+                        $", emitMode={(string.IsNullOrEmpty(rule.EmitMode) ? "always" : rule.EmitMode)}" +
+                        (rule.IntervalSeconds.HasValue ? $", interval={rule.IntervalSeconds}s" : ""));
+
+                    if (rule.Trigger == "interval" && !rule.IntervalSeconds.HasValue)
+                        DebugLog(rule.RuleId, GatherRuleDebugLog.StageError,
+                            "trigger=interval but intervalSeconds is missing — rule will NEVER run");
+                }
+            }
+
             // Execute startup rules — track completion via CountdownEvent so callers can wait.
             // Scoped startup rules that are not yet in scope are deferred: they run once from
             // OnPhaseChanged when their scope activates (same _startupRulesExecuted dedup — a
             // rule runs either here or there, never both). Unscoped rules behave as before.
             List<GatherRule> pendingStartup;
+            var deferredTraces = _debug != null ? new List<KeyValuePair<string, string>>() : null;
             lock (_scopeLock)
             {
                 // A config refresh may deliver new from-phase rules after their phase was
@@ -124,13 +165,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
 
                 pendingStartup = _activeRules
                     .Where(r => r.Trigger == "startup" && !_startupRulesExecuted.Contains(r.RuleId))
-                    .Where(r => IsRuleInScopeLocked(r))
+                    .Where(r =>
+                    {
+                        string reason;
+                        var inScope = IsRuleInScopeLocked(r, out reason);
+                        if (!inScope && deferredTraces != null)
+                            deferredTraces.Add(new KeyValuePair<string, string>(r.RuleId,
+                                $"startup rule deferred — {reason}; runs once when its scope activates"));
+                        return inScope;
+                    })
                     .ToList();
 
                 foreach (var rule in pendingStartup)
                 {
                     _startupRulesExecuted.Add(rule.RuleId);
                 }
+            }
+
+            if (deferredTraces != null)
+            {
+                foreach (var trace in deferredTraces)
+                    DebugLog(trace.Key, GatherRuleDebugLog.StageScope, trace.Value);
             }
 
             if (pendingStartup.Count > 0)
@@ -158,8 +213,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                 var timer = new Timer(
                     _ =>
                     {
-                        if (!IsRuleInScope(intervalRule))
+                        string skipReason;
+                        if (!IsRuleInScope(intervalRule, out skipReason))
+                        {
+                            DebugLog(intervalRule.RuleId, GatherRuleDebugLog.StageScope, $"interval tick skipped: {skipReason}");
                             return;
+                        }
                         ExecuteRule(intervalRule);
                     },
                     null,
@@ -168,6 +227,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                 );
                 _intervalTimers[intervalRule.RuleId] = timer;
                 _logger.Info($"  Interval rule {intervalRule.RuleId} scheduled every {intervalRule.IntervalSeconds}s");
+                DebugLog(intervalRule.RuleId, GatherRuleDebugLog.StageTrigger,
+                    $"interval timer scheduled every {intervalRule.IntervalSeconds}s (first run after one full interval — no immediate execution)");
             }
 
             _logger.Info($"GatherRuleExecutor: {_activeRules.Count(r => r.Trigger == "startup")} startup, " +
@@ -187,6 +248,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             // _currentPhase moves below. A transition INTO Failed still fires the exit rules of the
             // phase that failed — that snapshot is the whole point at a failure boundary.
             List<GatherRule> exitRules = null;
+            var exitTraces = _debug != null ? new List<KeyValuePair<string, string>>() : null;
             lock (_scopeLock)
             {
                 var previousPhase = _currentPhase;
@@ -204,12 +266,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
 
                         // Scope gate before the dedup add — an out-of-scope pass must not consume
                         // the once-per-(rule, phase) slot. IsRuleInScopeLocked still sees the old phase.
-                        if (!IsRuleInScopeLocked(rule)) continue;
+                        string scopeReason;
+                        if (!IsRuleInScopeLocked(rule, out scopeReason))
+                        {
+                            if (exitTraces != null)
+                                exitTraces.Add(new KeyValuePair<string, string>(rule.RuleId,
+                                    $"phase_exit of {previousPhaseName} skipped: {scopeReason}"));
+                            continue;
+                        }
 
                         // "exit:" prefix keeps this key space disjoint from the phase_change keys.
                         if (!_phaseRulesExecuted.Add($"exit:{rule.RuleId}|{previousPhaseName}"))
                         {
                             _logger.Debug($"Phase-exit rule {rule.RuleId} already executed for exit of {previousPhaseName}, skipping");
+                            if (exitTraces != null)
+                                exitTraces.Add(new KeyValuePair<string, string>(rule.RuleId,
+                                    $"phase_exit already executed for exit of {previousPhaseName} — once per (rule, phase)"));
                             continue;
                         }
 
@@ -217,6 +289,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                         exitRules.Add(rule);
                     }
                 }
+            }
+
+            if (exitTraces != null)
+            {
+                foreach (var trace in exitTraces)
+                    DebugLog(trace.Key, GatherRuleDebugLog.StageScope, trace.Value);
             }
 
             if (exitRules != null)
@@ -252,6 +330,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             {
                 var deferredRule = rule;
                 _logger.Info($"Phase {phaseName} activated deferred startup rule {deferredRule.RuleId}");
+                DebugLog(deferredRule.RuleId, GatherRuleDebugLog.StageTrigger,
+                    $"phase {phaseName} activated deferred startup rule");
                 ThreadPool.QueueUserWorkItem(_ => ExecuteRule(deferredRule));
             }
 
@@ -262,18 +342,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                 {
                     // Scope gate BEFORE the dedup add — an out-of-scope pass must not consume
                     // the once-per-(rule, phase) execution slot.
-                    if (!IsRuleInScope(rule))
+                    string scopeReason;
+                    if (!IsRuleInScope(rule, out scopeReason))
+                    {
+                        DebugLog(rule.RuleId, GatherRuleDebugLog.StageScope,
+                            $"phase_change to {phaseName} skipped: {scopeReason}");
                         continue;
+                    }
 
                     // Deduplicate: only fire once per (ruleId, phase) combination
                     var deduplicationKey = $"{rule.RuleId}|{phaseName}";
                     if (!_phaseRulesExecuted.Add(deduplicationKey))
                     {
                         _logger.Debug($"Phase rule {rule.RuleId} already executed for phase {phaseName}, skipping");
+                        DebugLog(rule.RuleId, GatherRuleDebugLog.StageTrigger,
+                            $"phase_change already executed for phase {phaseName} — once per (rule, phase)");
                         continue;
                     }
 
                     _logger.Info($"Phase change triggered rule {rule.RuleId} (phase: {phaseName})");
+                    DebugLog(rule.RuleId, GatherRuleDebugLog.StageTrigger, $"phase_change to {phaseName} fired");
                     ThreadPool.QueueUserWorkItem(_ => ExecuteRule(rule));
                 }
             }
@@ -288,10 +376,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             {
                 if (string.Equals(rule.TriggerEventType, eventType, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!IsRuleInScope(rule))
+                    string scopeReason;
+                    if (!IsRuleInScope(rule, out scopeReason))
+                    {
+                        DebugLog(rule.RuleId, GatherRuleDebugLog.StageScope,
+                            $"on_event {eventType} skipped: {scopeReason}");
                         continue;
+                    }
 
                     _logger.Info($"Event triggered rule {rule.RuleId} (event: {eventType})");
+                    DebugLog(rule.RuleId, GatherRuleDebugLog.StageTrigger, $"on_event {eventType} fired");
                     ThreadPool.QueueUserWorkItem(_ => ExecuteRule(rule));
                 }
             }
@@ -302,6 +396,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             try
             {
                 _logger.Info($"Executing gather rule: {rule.RuleId} ({rule.Title})");
+                DebugLog(rule.RuleId, GatherRuleDebugLog.StageExec, $"executing: collector={rule.CollectorType}, target={rule.Target}");
 
                 var collectorType = rule.CollectorType?.ToLower();
 
@@ -309,6 +404,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                 if (collectorType == null || !_collectors.TryGetValue(collectorType, out collector))
                 {
                     _logger.Warning($"Unknown collector type: {rule.CollectorType} for rule {rule.RuleId}");
+                    DebugLog(rule.RuleId, GatherRuleDebugLog.StageError, $"unknown collector type '{rule.CollectorType}' — nothing emitted");
                     return;
                 }
 
@@ -316,7 +412,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
 
                 // LogParser (and potentially others) emit events directly and return null
                 if (result == null)
+                {
+                    DebugLog(rule.RuleId, GatherRuleDebugLog.StageCollector,
+                        collectorType == "logparser"
+                            ? "logparser emits per-match events directly — see logparser lines above for the per-file outcome"
+                            : "collector returned null — nothing emitted");
                     return;
+                }
+
+                if (result.Count == 0)
+                {
+                    DebugLog(rule.RuleId, GatherRuleDebugLog.StageCollector,
+                        "collector returned EMPTY result — nothing emitted (typical causes: target not found with emitOnlyIfExists, or guard block — see guard line if present)");
+                }
 
                 if (result.Count > 0)
                 {
@@ -325,8 +433,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                     // empty result never reaches this point, so an emitOnlyIfExists miss neither
                     // emits nor updates the hash — composing to "one event on appearance, then
                     // only on change".
-                    if (IsOnChangeMode(rule) && !ShouldEmitOnChange(rule, result))
-                        return;
+                    if (IsOnChangeMode(rule))
+                    {
+                        string hashPrefix;
+                        int suppressedStreak;
+                        if (!ShouldEmitOnChange(rule, result, out hashPrefix, out suppressedStreak))
+                        {
+                            DebugLog(rule.RuleId, GatherRuleDebugLog.StageSuppress,
+                                $"result unchanged (hash {hashPrefix}) — emit suppressed (on_change), suppressed streak={suppressedStreak}");
+                            return;
+                        }
+                        DebugLog(rule.RuleId, GatherRuleDebugLog.StageEmit,
+                            $"result changed (hash {hashPrefix})" + (suppressedStreak > 0 ? $" after {suppressedStreak} suppressed polls" : ""));
+                    }
 
                     result["ruleId"] = rule.RuleId;
                     result["ruleTitle"] = rule.Title;
@@ -357,11 +476,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                         Message = $"Gather: {rule.Title}",
                         Data = result
                     });
+                    DebugLog(rule.RuleId, GatherRuleDebugLog.StageEmit,
+                        $"emitted {eventType} (severity={severity}, {result.Count} fields)");
                 }
             }
             catch (Exception ex)
             {
                 _logger.Warning($"Gather rule {rule.RuleId} failed: {ex.Message}");
+                // Full exception incl. stack trace only in the debug trace — the agent log stays terse.
+                DebugLog(rule.RuleId, GatherRuleDebugLog.StageError, $"rule execution failed: {ex}");
             }
         }
 
@@ -376,14 +499,32 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
         // Internal so the scope matrix is testable synchronously (no timer/ThreadPool races).
         internal bool IsRuleInScope(GatherRule rule)
         {
+            string reason;
+            return IsRuleInScope(rule, out reason);
+        }
+
+        /// <summary>
+        /// Scope gate with a human-readable skip reason for the debug trace. The reason is
+        /// captured under the lock but must be WRITTEN outside it (never trace under _scopeLock).
+        /// </summary>
+        internal bool IsRuleInScope(GatherRule rule, out string reason)
+        {
             lock (_scopeLock)
             {
-                return IsRuleInScopeLocked(rule);
+                return IsRuleInScopeLocked(rule, out reason);
             }
         }
 
         private bool IsRuleInScopeLocked(GatherRule rule)
         {
+            string reason;
+            return IsRuleInScopeLocked(rule, out reason);
+        }
+
+        private bool IsRuleInScopeLocked(GatherRule rule, out string reason)
+        {
+            reason = null;
+
             if (!HasPhaseScope(rule))
                 return true; // unscoped — legacy behavior
 
@@ -400,7 +541,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                 // No phase signal yet (or scope tokens that never match, e.g. "Unknown"):
                 // scoped rules stay inactive.
                 if (_currentPhase == EnrollmentPhase.Unknown)
+                {
+                    reason = "currentPhase=Unknown — scoped rules stay inactive until the first phase signal";
                     return false;
+                }
 
                 var phaseName = _currentPhase.ToString();
                 foreach (var phase in rule.ActivePhases)
@@ -408,10 +552,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                     if (string.Equals(phase, phaseName, StringComparison.OrdinalIgnoreCase))
                         return true;
                 }
+                reason = $"out of scope (currentPhase={phaseName}, activePhases=[{string.Join(",", rule.ActivePhases)}])";
                 return false;
             }
 
-            return _fromPhaseLatched.Contains(rule.RuleId);
+            if (_fromPhaseLatched.Contains(rule.RuleId))
+                return true;
+
+            reason = $"activeFromPhase={rule.ActiveFromPhase} not latched yet (currentPhase={_currentPhase})";
+            return false;
         }
 
         /// <summary>
@@ -458,7 +607,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
         /// </summary>
         internal bool ShouldEmitOnChange(GatherRule rule, Dictionary<string, object> result)
         {
+            string hashPrefix;
+            int suppressedStreak;
+            return ShouldEmitOnChange(rule, result, out hashPrefix, out suppressedStreak);
+        }
+
+        /// <summary>
+        /// Overload exposing the hash prefix and suppression streak for the debug trace:
+        /// on suppress, <paramref name="suppressedStreak"/> is the updated streak count;
+        /// on emit, it is the streak that just ended (0 when none).
+        /// </summary>
+        internal bool ShouldEmitOnChange(GatherRule rule, Dictionary<string, object> result,
+            out string hashPrefix, out int suppressedStreak)
+        {
             var hash = ComputeCanonicalHash(result);
+            hashPrefix = hash.Length > 8 ? hash.Substring(0, 8) : hash;
+            suppressedStreak = 0;
             bool emit;
             lock (_scopeLock)
             {
@@ -469,6 +633,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                     _suppressed[rule.RuleId] = _suppressed.TryGetValue(rule.RuleId, out streak)
                         ? (streak.Count + 1, streak.SinceUtc)
                         : (1, DateTime.UtcNow);
+                    suppressedStreak = _suppressed[rule.RuleId].Count;
                     emit = false;
                 }
                 else
@@ -479,6 +644,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                     {
                         result["suppressedPolls"] = streak.Count;
                         result["suppressedSinceUtc"] = streak.SinceUtc.ToString("o", CultureInfo.InvariantCulture);
+                        suppressedStreak = streak.Count;
                     }
                     _suppressed.Remove(rule.RuleId);
                     emit = true;

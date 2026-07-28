@@ -113,7 +113,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
 
                         // Suppress the "not found" event when the rule only wants a positive signal.
                         if (emitOnlyIfExists)
+                        {
+                            context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageCollector,
+                                $"registry key/value not found: {path} — emitOnlyIfExists=true, empty result");
                             return new Dictionary<string, object>(); // empty → executor emits nothing
+                        }
 
                         data["exists"] = false;
                         data["path"] = path;
