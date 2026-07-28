@@ -22,7 +22,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Interop
 
             if (result != null)
             {
-                Assert.InRange(result.SignalPercent, 0, 100);
+                Assert.True(result.SignalPercent.HasValue, "native API path must always carry signal quality");
+                Assert.InRange(result.SignalPercent.Value, 0, 100);
                 if (result.Channel.HasValue)
                     Assert.True(result.Channel.Value > 0, "channel must be positive when present");
             }

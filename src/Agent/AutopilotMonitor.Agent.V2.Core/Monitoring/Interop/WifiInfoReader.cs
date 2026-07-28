@@ -13,8 +13,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
         /// <summary>SSID of the connected network; null when the AP broadcasts an empty SSID.</summary>
         public string Ssid { get; internal set; }
 
-        /// <summary>Signal quality 0–100 (same semantics as the netsh "Signal" percentage).</summary>
-        public int SignalPercent { get; internal set; }
+        /// <summary>
+        /// Signal quality 0–100 (same semantics as the netsh "Signal" percentage). Always set
+        /// on the native WLAN API path; null only when the netsh fallback could not parse it.
+        /// </summary>
+        public int? SignalPercent { get; internal set; }
 
         /// <summary>Human-readable PHY generation ("802.11ax" …); null for exotic/unknown PHYs.</summary>
         public string RadioType { get; internal set; }
@@ -37,20 +40,45 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
         /// wins. Returns null when no interface has an active connection.
         /// </summary>
         public static WifiConnectionInfo TryGetCurrentConnection(Guid? preferredInterfaceId = null)
+            => TryGetCurrentConnection(preferredInterfaceId, out _);
+
+        /// <summary>
+        /// Same as <see cref="TryGetCurrentConnection(Guid?)"/> but reports WHY the read
+        /// yielded nothing via <paramref name="diagnostics"/> (native return codes per step).
+        /// The WLAN API can fail in ways that are invisible from the outside (e.g. per-process
+        /// access gating on newer Windows builds) — callers log this at Debug so field issues
+        /// are explainable from the agent log instead of a silent missing event.
+        /// </summary>
+        public static WifiConnectionInfo TryGetCurrentConnection(Guid? preferredInterfaceId, out string diagnostics)
         {
+            var diag = new StringBuilder();
             var clientHandle = IntPtr.Zero;
             try
             {
-                if (WlanOpenHandle(WLAN_CLIENT_VERSION, IntPtr.Zero, out _, out clientHandle) != ERROR_SUCCESS)
+                var rc = WlanOpenHandle(WLAN_CLIENT_VERSION, IntPtr.Zero, out _, out clientHandle);
+                if (rc != ERROR_SUCCESS)
+                {
+                    diagnostics = $"WlanOpenHandle rc={rc}";
                     return null;
+                }
 
                 var interfaceList = IntPtr.Zero;
                 try
                 {
-                    if (WlanEnumInterfaces(clientHandle, IntPtr.Zero, out interfaceList) != ERROR_SUCCESS)
+                    rc = WlanEnumInterfaces(clientHandle, IntPtr.Zero, out interfaceList);
+                    if (rc != ERROR_SUCCESS)
+                    {
+                        diagnostics = $"WlanEnumInterfaces rc={rc}";
                         return null;
+                    }
 
                     var count = (uint)Marshal.ReadInt32(interfaceList);
+                    if (count == 0)
+                    {
+                        diagnostics = "no WLAN interfaces";
+                        return null;
+                    }
+
                     var infoSize = Marshal.SizeOf(typeof(WLAN_INTERFACE_INFO));
                     // List header: DWORD dwNumberOfItems + DWORD dwIndex, then the info array.
                     var firstEntry = new IntPtr(interfaceList.ToInt64() + 8);
@@ -61,17 +89,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
                         var entryPtr = new IntPtr(firstEntry.ToInt64() + i * infoSize);
                         var info = (WLAN_INTERFACE_INFO)Marshal.PtrToStructure(entryPtr, typeof(WLAN_INTERFACE_INFO));
 
-                        var connection = QueryCurrentConnection(clientHandle, info.InterfaceGuid);
+                        var connection = QueryCurrentConnection(clientHandle, info.InterfaceGuid, diag);
                         if (connection == null)
                             continue;
 
                         if (preferredInterfaceId.HasValue && info.InterfaceGuid == preferredInterfaceId.Value)
+                        {
+                            diagnostics = null;
                             return connection;
+                        }
 
                         if (fallback == null)
                             fallback = connection;
                     }
 
+                    diagnostics = fallback == null ? diag.ToString() : null;
                     return fallback;
                 }
                 finally
@@ -80,8 +112,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
                         WlanFreeMemory(interfaceList);
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                diagnostics = $"exception {ex.GetType().Name}: {ex.Message}";
                 return null;
             }
             finally
@@ -91,21 +124,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
             }
         }
 
-        private static WifiConnectionInfo QueryCurrentConnection(IntPtr clientHandle, Guid interfaceGuid)
+        private static WifiConnectionInfo QueryCurrentConnection(IntPtr clientHandle, Guid interfaceGuid, StringBuilder diag)
         {
             var dataPtr = IntPtr.Zero;
             try
             {
-                if (WlanQueryInterface(clientHandle, ref interfaceGuid,
+                var rc = WlanQueryInterface(clientHandle, ref interfaceGuid,
                         WLAN_INTF_OPCODE.wlan_intf_opcode_current_connection,
-                        IntPtr.Zero, out _, out dataPtr, IntPtr.Zero) != ERROR_SUCCESS)
+                        IntPtr.Zero, out _, out dataPtr, IntPtr.Zero);
+                if (rc != ERROR_SUCCESS)
+                {
+                    diag.Append($"[{interfaceGuid:D}] query(current_connection) rc={rc}; ");
                     return null;
+                }
 
                 var attributes = (WLAN_CONNECTION_ATTRIBUTES)Marshal.PtrToStructure(
                     dataPtr, typeof(WLAN_CONNECTION_ATTRIBUTES));
 
                 if (attributes.isState != WLAN_INTERFACE_STATE.wlan_interface_state_connected)
+                {
+                    diag.Append($"[{interfaceGuid:D}] state={attributes.isState}; ");
                     return null;
+                }
 
                 var assoc = attributes.wlanAssociationAttributes;
                 return new WifiConnectionInfo

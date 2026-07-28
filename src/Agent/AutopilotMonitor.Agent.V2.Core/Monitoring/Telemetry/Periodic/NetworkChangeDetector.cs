@@ -398,7 +398,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         {
             try
             {
-                var wifi = WifiInfoReader.TryGetCurrentConnection(interfaceGuid);
+                var wifi = WifiInfoReader.TryGetCurrentConnection(interfaceGuid, out var wifiDiag);
+                if (wifi == null)
+                {
+                    _logger.Debug($"NetworkChangeDetector: native WLAN API returned no WiFi info ({wifiDiag ?? "no connected WLAN interface"}) — trying netsh fallback");
+                    wifi = NetshWifiFallback.TryRead();
+                }
+
                 if (wifi != null)
                     return (wifi.Ssid, wifi.SignalPercent, wifi.RadioType);
             }

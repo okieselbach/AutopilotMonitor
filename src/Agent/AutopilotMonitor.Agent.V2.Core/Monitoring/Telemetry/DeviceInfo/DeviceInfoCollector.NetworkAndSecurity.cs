@@ -909,24 +909,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
         {
             try
             {
-                var wifi = WifiInfoReader.TryGetCurrentConnection(interfaceGuid);
+                var wifi = WifiInfoReader.TryGetCurrentConnection(interfaceGuid, out var wifiDiag);
                 if (wifi == null)
-                    return;
-
-                var data = new Dictionary<string, object>
                 {
-                    ["wifiSignalPercent"] = wifi.SignalPercent
-                };
+                    _logger.Debug($"EnrollmentTracker: native WLAN API returned no WiFi info ({wifiDiag ?? "no connected WLAN interface"}) — trying netsh fallback");
+                    wifi = NetshWifiFallback.TryRead();
+                    if (wifi == null)
+                        return;
+                }
+
+                var data = new Dictionary<string, object>();
                 if (wifi.Ssid != null)
                     data["wifiSsid"] = wifi.Ssid;
+                if (wifi.SignalPercent.HasValue)
+                    data["wifiSignalPercent"] = wifi.SignalPercent.Value;
                 if (wifi.RadioType != null)
                     data["wifiRadioType"] = wifi.RadioType;
                 if (wifi.Channel.HasValue)
                     data["wifiChannel"] = wifi.Channel.Value;
 
-                var message = wifi.Ssid != null
-                    ? $"WiFi: {wifi.Ssid}, Signal: {wifi.SignalPercent}%"
-                    : $"WiFi signal info, Signal: {wifi.SignalPercent}%";
+                var message = wifi.Ssid != null ? $"WiFi: {wifi.Ssid}" : "WiFi signal info";
+                if (wifi.SignalPercent.HasValue)
+                    message += $", Signal: {wifi.SignalPercent.Value}%";
                 if (wifi.RadioType != null)
                     message += $" ({wifi.RadioType})";
 
