@@ -295,7 +295,9 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       title: 'Geographic Metrics',
       description:
         'Get geographic distribution of enrollments — where devices are enrolling from, with performance comparisons. ' +
-        'Shows per-location: session counts, success rates, avg/median/p95 duration, throughput, and outlier detection. ' +
+        'Shows per-location: session counts, success rates, avg/median/p95 duration, throughput, outlier detection, and ' +
+        'avgApiLatencyMs (agent→backend HTTP round-trip, request-weighted — the metric for judging backend-region distance, ' +
+        'e.g. when evaluating a new backend region; apiLatencyVsGlobalPct compares against the global weighted average). ' +
         (ga ? 'Omit tenantId for cross-tenant view (Global Admin). ' : '') +
         'Use get_geographic_sessions to drill into a specific location. ' +
         'days accepts any value 1-365 (e.g. 5, 7, 12, 30, 90).',

@@ -144,7 +144,9 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
                     'Use for counting / aggregation to avoid the response cap. Available: sessionId, tenantId, status, ' +
                     'serialNumber, manufacturer, model, deviceName, osBuild, osName, startedAt, completedAt, ' +
                     'durationSeconds, currentPhase, failureReason, eventCount, enrollmentType, isPreProvisioned, ' +
-                    'isUserDriven, isHybridJoin, isSelfDeployingProfile, agentVersion, imeAgentVersion, geoCountry, rebootCount.'),
+                    'isUserDriven, isHybridJoin, isSelfDeployingProfile, agentVersion, imeAgentVersion, geoCountry, rebootCount, ' +
+                    'avgApiLatencyMs, apiRequestCount (agent→backend HTTP round-trip; weight latency by apiRequestCount when aggregating, ' +
+                    'e.g. fields=geoCountry,avgApiLatencyMs,apiRequestCount for a per-country latency sweep; null on sessions from agents predating the field).'),
         deviceProperties: z.record(z.string(), z.string()).optional().describe(
           'Dynamic device property filters. Keys use "eventType.propertyName" dot notation. ' +
           'See the device_properties catalog (call get_resource(name="device_properties")) for all available keys and types. ' +

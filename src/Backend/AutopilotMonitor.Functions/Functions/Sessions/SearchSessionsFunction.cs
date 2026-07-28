@@ -210,6 +210,8 @@ public class SearchSessionsFunction
             if (fields.Contains("imeAgentVersion")) dict["imeAgentVersion"] = s.ImeAgentVersion;
             if (fields.Contains("geoCountry")) dict["geoCountry"] = s.GeoCountry;
             if (fields.Contains("rebootCount")) dict["rebootCount"] = s.RebootCount;
+            if (fields.Contains("avgApiLatencyMs")) dict["avgApiLatencyMs"] = s.AvgApiLatencyMs;
+            if (fields.Contains("apiRequestCount")) dict["apiRequestCount"] = s.ApiRequestCount;
 
             if (dict.Count == 0)
             {
