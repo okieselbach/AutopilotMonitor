@@ -81,6 +81,44 @@ Es ist 1 Schnittstelle auf dem System vorhanden:
         }
 
         [Fact]
+        public void Parse_chinese_simplified_output_extracts_all_fields()
+        {
+            const string output = @"
+    名称                   : WLAN
+    SSID                   : contoso-cn
+    信道                   : 149
+    无线电类型             : 802.11ac
+    信号                   : 68%
+";
+            var r = NetshWifiFallback.Parse(output);
+
+            Assert.NotNull(r);
+            Assert.Equal("contoso-cn", r!.Ssid);
+            Assert.Equal(68, r.SignalPercent);
+            Assert.Equal("802.11ac", r.RadioType);
+            Assert.Equal(149, r.Channel);
+        }
+
+        [Fact]
+        public void Parse_korean_output_extracts_all_fields()
+        {
+            const string output = @"
+    이름                   : Wi-Fi
+    SSID                   : contoso-kr
+    채널                   : 36
+    라디오 종류            : 802.11ax
+    신호                   : 91%
+";
+            var r = NetshWifiFallback.Parse(output);
+
+            Assert.NotNull(r);
+            Assert.Equal("contoso-kr", r!.Ssid);
+            Assert.Equal(91, r.SignalPercent);
+            Assert.Equal("802.11ax", r.RadioType);
+            Assert.Equal(36, r.Channel);
+        }
+
+        [Fact]
         public void Parse_signal_with_space_before_percent_is_parsed()
         {
             var r = NetshWifiFallback.Parse("    Signal : 81 %\r\n    SSID : x\r\n");

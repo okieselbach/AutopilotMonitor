@@ -12,10 +12,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
     /// root-caused (suspect: Wi-Fi location gating, 24H2+), netsh stays as the safety net.
     /// <para>
     /// netsh labels follow the OS UI language, so the parser matches the label variants of
-    /// the languages commonly seen in enrollments (EN/DE/FR/ES/PT/IT/NL/PL/CS/TR + the
-    /// Scandinavian ones that reuse EN/DE spellings). Unknown-language labels fall through
-    /// harmlessly — the affected field is simply absent, same as before. "SSID" itself is
-    /// untranslated in all known locales.
+    /// the languages commonly seen in enrollments (EN/DE/FR/ES/PT/IT/NL/PL/CS/TR/RU/JA/
+    /// ZH-CN/ZH-TW/KO + the Scandinavian ones that reuse EN/DE spellings). Unknown-language
+    /// labels fall through harmlessly — the affected field is simply absent, same as before.
+    /// "SSID" itself is untranslated in all known locales.
     /// </para>
     /// </summary>
     internal static class NetshWifiFallback
@@ -34,6 +34,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
             "Sygnał",   // pl
             "Signál",   // cs
             "Sinyal",   // tr
+            "Сигнал",   // ru
+            "シグナル",  // ja
+            "信号",      // zh-CN
+            "訊號",      // zh-TW
+            "신호",      // ko
         };
 
         private static readonly string[] RadioTypeKeys =
@@ -47,6 +52,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
             "Radiotype",      // nl
             "Typ radia",      // pl
             "Radyo türü",     // tr
+            "Тип радио",      // ru
+            "無線の種類",      // ja
+            "无线电类型",      // zh-CN
+            "無線電類型",      // zh-TW
+            "라디오 종류",     // ko
+            "무선 종류",       // ko (variant)
         };
 
         private static readonly string[] ChannelKeys =
@@ -58,6 +69,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
             "Kanaal",   // nl
             "Kanał",    // pl
             "Kanál",    // cs
+            "Канал",    // ru
+            "チャネル",  // ja
+            "信道",      // zh-CN
+            "通道",      // zh-TW / zh-CN (variant)
+            "채널",      // ko
         };
 
         /// <summary>
