@@ -54,9 +54,10 @@ jobs:
           api_location: "" # Api source code path - optional
           # Static export (next.config output:'export'): Oryx runs `npm run build`
           # and uploads the exported out/ directory as plain static files — no
-          # managed SSR runtime is provisioned anymore.
+          # managed SSR runtime is provisioned anymore. (No is_static_export
+          # input on this action version; Oryx detects the export from
+          # next.config + output_location.)
           output_location: "out" # Built app content directory - optional
-          is_static_export: true
           ###### End of Repository/Build Configurations ######
 
   close_pull_request_job:

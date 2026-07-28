@@ -26,17 +26,13 @@
     { "route": "/apple-icon", "headers": { "Content-Type": "image/png" } },
 
     { "route": "/sessions/inspector", "rewrite": "/sessions/inspector/index.html" },
-    { "route": "/sessions/inspector/", "rewrite": "/sessions/inspector/index.html" },
     { "route": "/sessions/*", "rewrite": "/sessions/index.html" },
     { "route": "/diagnosis/*", "rewrite": "/diagnosis/index.html" },
     { "route": "/apps/detail", "rewrite": "/apps/detail/index.html" },
-    { "route": "/apps/detail/", "rewrite": "/apps/detail/index.html" },
     { "route": "/apps/*", "rewrite": "/apps/detail/index.html" },
     { "route": "/admin/backups/detail", "rewrite": "/admin/backups/detail/index.html" },
-    { "route": "/admin/backups/detail/", "rewrite": "/admin/backups/detail/index.html" },
     { "route": "/admin/backups/*", "rewrite": "/admin/backups/detail/index.html" },
     { "route": "/admin/customs-archive/detail", "rewrite": "/admin/customs-archive/detail/index.html" },
-    { "route": "/admin/customs-archive/detail/", "rewrite": "/admin/customs-archive/detail/index.html" },
     { "route": "/admin/customs-archive/*", "rewrite": "/admin/customs-archive/detail/index.html" }
   ],
   "responseOverrides": {
