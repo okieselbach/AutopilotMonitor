@@ -586,7 +586,8 @@ namespace AutopilotMonitor.Functions.Services
         internal static readonly string[] GeoMetricsSessionProjection =
         {
             "PartitionKey", "RowKey", "StartedAt", "CompletedAt", "Status", "DurationSeconds",
-            "IsPreProvisioned", "ResumedAt", "GeoCountry", "GeoRegion", "GeoCity", "GeoLoc"
+            "IsPreProvisioned", "ResumedAt", "GeoCountry", "GeoRegion", "GeoCity", "GeoLoc",
+            "AvgApiLatencyMs", "ApiRequestCount"
         };
 
         /// <summary>

@@ -32,6 +32,10 @@ interface SessionSummary {
   failureReason: string | null;
   durationSeconds: number | null;
   enrollmentType: string;
+  /** Session-wide average agent→backend HTTP round-trip (ms); absent for pre-feature agents. */
+  avgApiLatencyMs?: number;
+  /** Number of HTTP requests behind avgApiLatencyMs. */
+  apiRequestCount?: number;
   // Per-session Delivery Optimization aggregate (added by geographic drilldown endpoint)
   hasDoTelemetry?: boolean;
   doAppCount?: number;
@@ -170,6 +174,14 @@ function LocationSessionsContent() {
             .map((s) => s.durationSeconds!);
           return durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length / 60) : 0;
         })(),
+        // Request-weighted API latency across sessions with latency data (matches region aggregate formula)
+        latencySessions: data.sessions.filter((s) => (s.avgApiLatencyMs ?? 0) > 0 && (s.apiRequestCount ?? 0) > 0).length,
+        avgApiLatency: (() => {
+          const withLatency = data.sessions.filter((s) => (s.avgApiLatencyMs ?? 0) > 0 && (s.apiRequestCount ?? 0) > 0);
+          const totalRequests = withLatency.reduce((a, s) => a + s.apiRequestCount!, 0);
+          const weightedSum = withLatency.reduce((a, s) => a + s.avgApiLatencyMs! * s.apiRequestCount!, 0);
+          return totalRequests > 0 ? Math.round(weightedSum / totalRequests) : 0;
+        })(),
         // Weighted peer-caching % across sessions with DO telemetry (matches region aggregate formula)
         doSessions: data.sessions.filter((s) => s.hasDoTelemetry).length,
         avgDoPercent: (() => {
@@ -235,10 +247,19 @@ function LocationSessionsContent() {
         <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
           {/* Summary Stats */}
           {stats && (
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
               <div className="bg-white rounded-lg shadow p-4">
                 <div className="text-sm font-medium text-gray-500">Sessions</div>
                 <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-4" title="Agent→backend HTTP round-trip, request-weighted across sessions with latency data">
+                <div className="text-sm font-medium text-gray-500">API Latency</div>
+                <div className={`text-2xl font-bold ${stats.avgApiLatency > 0 ? "text-gray-900" : "text-gray-400"}`}>
+                  {stats.avgApiLatency > 0 ? `${stats.avgApiLatency} ms` : "—"}
+                </div>
+                <div className="text-xs text-gray-400">
+                  {stats.latencySessions > 0 ? `${stats.latencySessions} session(s) with data` : "requires latency-reporting agent"}
+                </div>
               </div>
               <div className="bg-white rounded-lg shadow p-4">
                 <div className="text-sm font-medium text-gray-500">Succeeded</div>
@@ -311,6 +332,9 @@ function LocationSessionsContent() {
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Duration
                       </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" title="Agent→backend HTTP round-trip measured on the device">
+                        API Latency
+                      </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         DO Peers
                       </th>
@@ -340,6 +364,15 @@ function LocationSessionsContent() {
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600">
                           {formatDuration(session.durationSeconds)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600">
+                          {(session.avgApiLatencyMs ?? 0) > 0 ? (
+                            <span title={`across ${session.apiRequestCount ?? "?"} requests`}>
+                              {Math.round(session.avgApiLatencyMs!)} ms
+                            </span>
+                          ) : (
+                            <span className="text-gray-300" title="No latency data (requires latency-reporting agent)">—</span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-sm">
                           {session.hasDoTelemetry ? (

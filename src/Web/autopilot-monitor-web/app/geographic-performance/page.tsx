@@ -42,6 +42,9 @@ interface LocationMetric {
   totalDownloadBytes: number;
   durationVsGlobalPct: number;
   throughputVsGlobalPct: number;
+  avgApiLatencyMs: number;
+  apiLatencySessionCount: number;
+  apiLatencyVsGlobalPct: number;
   isOutlier: boolean;
   outlierDirection: string | null;
   // Delivery Optimization
@@ -60,6 +63,7 @@ interface GlobalAverages {
   avgMinutesPerApp: number;
   avgThroughputBytesPerSec: number;
   stdDevDurationMinutes: number;
+  avgApiLatencyMs: number;
   avgDoPercentPeerCaching: number;
   totalDoBytesFromPeers: number;
   totalDoBytesFromHttp: number;
@@ -76,7 +80,7 @@ interface GeographicMetricsResponse {
 }
 
 type GroupBy = "city" | "region" | "country";
-type SortBy = "sessionCount" | "avgDurationMinutes" | "appLoadScore" | "avgThroughputBytesPerSec" | "avgDoPercentPeerCaching";
+type SortBy = "sessionCount" | "avgDurationMinutes" | "appLoadScore" | "avgThroughputBytesPerSec" | "avgApiLatencyMs" | "avgDoPercentPeerCaching";
 type TimeRange = "7d" | "30d" | "90d";
 
 const durationColor = (value: number, globalAvg: number) => {
@@ -94,6 +98,16 @@ const scoreColor = (score: number) => {
   if (score < 80) return "text-green-600";
   if (score <= 120) return "text-gray-700";
   return "text-red-600";
+};
+
+// Absolute buckets, not relative-to-global: latency encodes physical distance to the backend
+// region, and the decision it supports ("open a closer region?") needs absolute thresholds.
+const latencyColor = (ms: number) => {
+  if (ms <= 0) return "text-gray-400";
+  if (ms < 250) return "bg-green-100 text-green-800";
+  if (ms < 500) return "bg-yellow-100 text-yellow-800";
+  if (ms < 800) return "bg-orange-100 text-orange-700";
+  return "bg-red-100 text-red-800";
 };
 
 const formatThroughput = (bytesPerSec: number) => {
@@ -376,7 +390,7 @@ export default function GeographicPerformancePage() {
           {geoMetrics && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
               <div className="text-sm font-medium text-blue-800 mb-2">Global Averages (Benchmark)</div>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-sm">
                 <div>
                   <span className="text-blue-600 font-medium">Avg Duration:</span>{" "}
                   <span className="text-blue-900">{geoMetrics.globalAverages.avgDurationMinutes} min</span>
@@ -398,6 +412,14 @@ export default function GeographicPerformancePage() {
                   <span className="text-blue-900">
                     {geoMetrics.globalAverages.avgDoPercentPeerCaching > 0
                       ? `${geoMetrics.globalAverages.avgDoPercentPeerCaching}% peers`
+                      : "No data"}
+                  </span>
+                </div>
+                <div title="Agent→backend HTTP round-trip, request-weighted across sessions with latency data">
+                  <span className="text-blue-600 font-medium">API Latency:</span>{" "}
+                  <span className="text-blue-900">
+                    {geoMetrics.globalAverages.avgApiLatencyMs > 0
+                      ? `${Math.round(geoMetrics.globalAverages.avgApiLatencyMs)} ms`
                       : "No data"}
                   </span>
                 </div>
@@ -452,6 +474,13 @@ export default function GeographicPerformancePage() {
                           onClick={() => handleSort("avgThroughputBytesPerSec")}
                         >
                           Throughput <SortIcon col="avgThroughputBytesPerSec" />
+                        </th>
+                        <th
+                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
+                          onClick={() => handleSort("avgApiLatencyMs")}
+                          title="Agent→backend HTTP round-trip measured on the devices — high values indicate network distance to the backend region"
+                        >
+                          API Latency <SortIcon col="avgApiLatencyMs" />
                         </th>
                         <th
                           className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
@@ -552,6 +581,18 @@ export default function GeographicPerformancePage() {
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-700">
                             {formatThroughput(loc.avgThroughputBytesPerSec)}
+                          </td>
+                          <td className="px-4 py-3 text-sm">
+                            {loc.avgApiLatencyMs > 0 ? (
+                              <div title={`${loc.apiLatencySessionCount} session(s) with latency data${loc.apiLatencyVsGlobalPct !== 0 ? ` · ${loc.apiLatencyVsGlobalPct > 0 ? "+" : ""}${loc.apiLatencyVsGlobalPct.toFixed(0)}% vs global` : ""}`}>
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${latencyColor(loc.avgApiLatencyMs)}`}>
+                                  {Math.round(loc.avgApiLatencyMs)} ms
+                                </span>
+                                <span className="text-xs text-gray-400 ml-1">({loc.apiLatencySessionCount})</span>
+                              </div>
+                            ) : (
+                              <span className="text-gray-300" title="No sessions with latency data yet (requires agent ≥ 2.0 with latency reporting)">—</span>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-sm">
                             {loc.doSessionCount > 0 ? (

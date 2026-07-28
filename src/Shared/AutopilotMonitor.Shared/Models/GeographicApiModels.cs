@@ -54,6 +54,16 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>Percentage difference from global avg throughput (positive = faster)</summary>
         public double ThroughputVsGlobalPct { get; set; }
 
+        /// <summary>
+        /// Average agent→backend HTTP round-trip (ms) at this location, weighted per session by
+        /// its request count. 0 when no session here carries latency data (pre-feature agents).
+        /// </summary>
+        public double AvgApiLatencyMs { get; set; }
+        /// <summary>Sessions at this location that carry API-latency data</summary>
+        public int ApiLatencySessionCount { get; set; }
+        /// <summary>Percentage difference from global avg API latency (positive = slower/farther)</summary>
+        public double ApiLatencyVsGlobalPct { get; set; }
+
         public bool IsOutlier { get; set; }
         /// <summary>"fast", "slow", or null</summary>
         public string? OutlierDirection { get; set; }
@@ -142,6 +152,8 @@ namespace AutopilotMonitor.Shared.Models
                 GeoRegion = s.GeoRegion,
                 GeoCity = s.GeoCity,
                 GeoLoc = s.GeoLoc,
+                AvgApiLatencyMs = s.AvgApiLatencyMs,
+                ApiRequestCount = s.ApiRequestCount,
                 PlatformScriptCount = s.PlatformScriptCount,
                 RemediationScriptCount = s.RemediationScriptCount,
                 PendingActionsJson = s.PendingActionsJson,
@@ -173,6 +185,8 @@ namespace AutopilotMonitor.Shared.Models
         public double AvgMinutesPerApp { get; set; }
         public double AvgThroughputBytesPerSec { get; set; }
         public double StdDevDurationMinutes { get; set; }
+        /// <summary>Global request-weighted average agent→backend API latency (ms); 0 = no data yet</summary>
+        public double AvgApiLatencyMs { get; set; }
         /// <summary>Global weighted average peer caching percentage</summary>
         public double AvgDoPercentPeerCaching { get; set; }
         /// <summary>Total peer bytes across all locations with DO data</summary>

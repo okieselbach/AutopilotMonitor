@@ -50,6 +50,8 @@ public class GeoMetricsProjectionEquivalenceTests
             ["GeoCity"] = "Frankfurt",
             ["GeoLoc"] = "50.11,8.68",
             ["IsPreProvisioned"] = false,
+            ["AvgApiLatencyMs"] = 217.4,
+            ["ApiRequestCount"] = 270,
             // Noise the geo aggregation never reads.
             ["SerialNumber"] = "SN-FULL",
             ["Manufacturer"] = "Contoso",
@@ -76,6 +78,8 @@ public class GeoMetricsProjectionEquivalenceTests
         Assert.Equal(fromFull.GeoRegion, fromProjected.GeoRegion);
         Assert.Equal(fromFull.GeoCity, fromProjected.GeoCity);
         Assert.Equal(fromFull.GeoLoc, fromProjected.GeoLoc);
+        Assert.Equal(fromFull.AvgApiLatencyMs, fromProjected.AvgApiLatencyMs);
+        Assert.Equal(fromFull.ApiRequestCount, fromProjected.ApiRequestCount);
 
         // The grouping key must be identical too — it is composed from the Geo* fields.
         Assert.Equal(

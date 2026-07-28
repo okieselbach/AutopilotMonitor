@@ -213,6 +213,15 @@ namespace AutopilotMonitor.Functions.Services
 
                 var lastSnapshot = snapshots.Last();
 
+                // Prefer the exact session average from the cumulative counters (agents ≥ 2026-07-28
+                // emit net_total_latency_ms); fall back to the unweighted mean of the per-interval
+                // delta averages for older sessions.
+                var totalLatencyMs = GetDouble(lastSnapshot, "net_total_latency_ms");
+                var totalLatencyRequests = GetDouble(lastSnapshot, "net_total_requests");
+                var sessionAvgLatency = totalLatencyMs > 0 && totalLatencyRequests > 0
+                    ? totalLatencyMs / totalLatencyRequests
+                    : (latValues.Count > 0 ? latValues.Average() : 0);
+
                 // Resolve agent version: prefer from snapshot, fallback to session
                 var agentVersion = snapshots
                     .Select(s => GetString(s, "agent_version"))
@@ -239,7 +248,7 @@ namespace AutopilotMonitor.Functions.Services
                     AvgWorkingSet = wsValues.Count > 0 ? wsValues.Average() : 0,
                     MaxWorkingSet = wsValues.Count > 0 ? wsValues.Max() : 0,
                     AvgPrivateBytes = pbValues.Count > 0 ? pbValues.Average() : 0,
-                    AvgLatency = latValues.Count > 0 ? latValues.Average() : 0,
+                    AvgLatency = sessionAvgLatency,
                     AvgSpoolDepth = spoolValues.Count > 0 ? spoolValues.Average() : 0,
                     MaxSpoolDepth = spoolValues.Count > 0 ? spoolValues.Max() : 0,
                     PeakSpoolDepth = peakValues.Count > 0 ? peakValues.Last() : 0,

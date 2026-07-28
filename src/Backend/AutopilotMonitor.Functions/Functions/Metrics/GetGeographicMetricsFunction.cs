@@ -153,6 +153,18 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     .Where(s => appsBySession.ContainsKey(s.SessionId))
                     .Count(s => appsBySession[s.SessionId].Any(a => a.DoDownloadMode >= 0));
 
+                // Agent→backend API latency: weight each session's stored average by its request
+                // count so the location figure equals Σ(latency·requests)/Σ(requests) — the exact
+                // whole-population average, not an average of session averages. Sessions from
+                // agents predating the feature carry no data and drop out.
+                var latencySessions = group
+                    .Where(s => s.AvgApiLatencyMs is > 0 && s.ApiRequestCount is > 0)
+                    .ToList();
+                var latencyRequestSum = latencySessions.Sum(s => (double)s.ApiRequestCount!.Value);
+                var avgApiLatency = latencyRequestSum > 0
+                    ? latencySessions.Sum(s => s.AvgApiLatencyMs!.Value * s.ApiRequestCount!.Value) / latencyRequestSum
+                    : 0;
+
                 locations.Add(new LocationMetrics
                 {
                     LocationKey = group.Key,
@@ -171,6 +183,8 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     MinutesPerApp = Math.Round(minutesPerApp, 2),
                     AvgThroughputBytesPerSec = Math.Round(avgThroughput, 0),
                     TotalDownloadBytes = totalBytes,
+                    AvgApiLatencyMs = Math.Round(avgApiLatency, 0),
+                    ApiLatencySessionCount = latencySessions.Count,
                     // Delivery Optimization
                     DoSessionCount = doSessionCount,
                     AvgDoPercentPeerCaching = Math.Round(doAgg.PercentPeerCaching, 1),
@@ -202,6 +216,17 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 .Select(l => l.AvgThroughputBytesPerSec).ToList();
             var globalAvgThroughput = allThroughputs.Count > 0 ? allThroughputs.Average() : 0;
 
+            // Global API latency: request-weighted over ALL geo sessions (not location averages),
+            // so big sites weigh in proportionally — same Σ(latency·requests)/Σ(requests) math as
+            // the per-location figure.
+            var globalLatencySessions = geoSessions
+                .Where(s => s.AvgApiLatencyMs is > 0 && s.ApiRequestCount is > 0)
+                .ToList();
+            var globalLatencyRequestSum = globalLatencySessions.Sum(s => (double)s.ApiRequestCount!.Value);
+            var globalAvgApiLatency = globalLatencyRequestSum > 0
+                ? globalLatencySessions.Sum(s => s.AvgApiLatencyMs!.Value * s.ApiRequestCount!.Value) / globalLatencyRequestSum
+                : 0;
+
             // Global DO metrics (weighted by bytes, not simple average)
             var globalDoPeers = locations.Sum(l => l.TotalDoBytesFromPeers);
             var globalDoHttp = locations.Sum(l => l.TotalDoBytesFromHttp);
@@ -218,6 +243,10 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 // Throughput vs global
                 loc.ThroughputVsGlobalPct = globalAvgThroughput > 0
                     ? Math.Round((loc.AvgThroughputBytesPerSec - globalAvgThroughput) / globalAvgThroughput * 100, 1) : 0;
+
+                // API latency vs global (positive = slower/farther from the backend region)
+                loc.ApiLatencyVsGlobalPct = globalAvgApiLatency > 0 && loc.AvgApiLatencyMs > 0
+                    ? Math.Round((loc.AvgApiLatencyMs - globalAvgApiLatency) / globalAvgApiLatency * 100, 1) : 0;
 
                 // AppLoadScore: normalize minutesPerApp to global median = 100
                 loc.AppLoadScore = globalMedianMinutesPerApp > 0
@@ -243,6 +272,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     AvgMinutesPerApp = Math.Round(globalAvgMinutesPerApp, 2),
                     AvgThroughputBytesPerSec = Math.Round(globalAvgThroughput, 0),
                     StdDevDurationMinutes = Math.Round(globalStdDev, 1),
+                    AvgApiLatencyMs = Math.Round(globalAvgApiLatency, 0),
                     AvgDoPercentPeerCaching = Math.Round(globalDoPct, 1),
                     TotalDoBytesFromPeers = globalDoPeers,
                     TotalDoBytesFromHttp = globalDoHttp
