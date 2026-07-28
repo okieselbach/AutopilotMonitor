@@ -113,6 +113,36 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
         }
 
         [Fact]
+        public void ErrorBackfillSummary_EmitsInfoLogEvent_AnnouncingTheReplayBlock()
+        {
+            _tracker.EmitErrorBackfillSummary(replayedCount: 6, droppedOverCap: 0);
+
+            var posted = _sink.Posted.Single(p => p.Kind == DecisionSignalKind.InformationalEvent);
+            Assert.Equal("modern_deployment_log", posted.Payload![SignalPayloadKeys.EventType]);
+
+            var data = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object>>(posted.TypedPayload);
+            Assert.Equal(true, data["backfillSummary"]);
+            Assert.Equal(6, data["replayedCount"]);
+            Assert.Equal(0, data["droppedOverCap"]);
+            Assert.Equal(240, data["lookbackMinutes"]);
+
+            var message = (string)posted.Payload[SignalPayloadKeys.Message];
+            Assert.Contains("Replaying 6 error event(s)", message);
+            Assert.Contains("before the agent started", message);
+            Assert.DoesNotContain("cap", message);
+        }
+
+        [Fact]
+        public void ErrorBackfillSummary_MentionsDroppedRecords_WhenCapWasHit()
+        {
+            _tracker.EmitErrorBackfillSummary(replayedCount: 25, droppedOverCap: 7);
+
+            var posted = _sink.Posted.Single(p => p.Kind == DecisionSignalKind.InformationalEvent);
+            var message = (string)posted.Payload![SignalPayloadKeys.Message];
+            Assert.Contains("7 older record(s) beyond the 25-record cap", message);
+        }
+
+        [Fact]
         public void BackfilledHarmlessId_StillRunsThroughRollupSuppression()
         {
             // Even in a backfill scan, the harmless-downgrade + burst rollup must apply — a

@@ -631,10 +631,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// the regular <see cref="ProcessRecord"/> pipeline with isBackfill=true, so they arrive
         /// as modern_deployment_error events carrying backfilled=true plus the original
         /// timeCreated; the event's own timestamp is emission time, so session StartedAt is not
-        /// dragged backwards. Newest-first, capped, watermark-deduped across restarts.
+        /// dragged backwards. The scan reads newest-first (the cap keeps the newest records),
+        /// but replay is buffered so an Info summary event announces the block BEFORE the errors
+        /// hit the timeline (customer feedback 2026-07-28: an unannounced wall of pre-agent
+        /// Error events reads like a live failure) and the records emit oldest-first, giving the
+        /// timeline sequence the original event-log chronology. Watermark-deduped across restarts.
         /// </summary>
         private void BackfillAutopilotErrors()
         {
+            var buffered = new List<EventRecord>();
             try
             {
                 long watermark;
@@ -649,7 +654,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     ReverseDirection = true
                 };
 
-                int processed = 0, skippedWatermark = 0, droppedOverCap = 0;
+                int skippedWatermark = 0, droppedOverCap = 0;
                 long maxSeen = watermark;
 
                 using (var reader = new EventLogReader(query))
@@ -657,37 +662,48 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     EventRecord record;
                     while ((record = reader.ReadEvent()) != null)
                     {
-                        using (record)
+                        var recordId = record.RecordId ?? 0;
+                        if (recordId > maxSeen) maxSeen = recordId;
+
+                        if (recordId != 0 && recordId <= watermark)
                         {
-                            var recordId = record.RecordId ?? 0;
-                            if (recordId > maxSeen) maxSeen = recordId;
-
-                            if (recordId != 0 && recordId <= watermark)
-                            {
-                                skippedWatermark++;
-                                continue;
-                            }
-
-                            if (processed >= ErrorBackfillMaxRecords)
-                            {
-                                droppedOverCap++;
-                                continue;
-                            }
-
-                            processed++;
-                            ProcessRecord(record, "Autopilot", AutopilotChannel, isBackfill: true);
+                            skippedWatermark++;
+                            record.Dispose();
+                            continue;
                         }
+
+                        if (buffered.Count >= ErrorBackfillMaxRecords)
+                        {
+                            droppedOverCap++;
+                            record.Dispose();
+                            continue;
+                        }
+
+                        buffered.Add(record);
                     }
                 }
 
                 if (maxSeen > watermark)
                     AdvanceAutopilotErrorWatermark(maxSeen);
 
-                if (processed == 0 && droppedOverCap == 0)
+                if (buffered.Count == 0 && droppedOverCap == 0)
+                {
                     _logger.Debug($"ModernDeployment error backfill: nothing new (skippedByWatermark={skippedWatermark})");
+                }
                 else
-                    _logger.Info($"ModernDeployment error backfill: forwarded {processed} record(s) " +
+                {
+                    EmitErrorBackfillSummary(buffered.Count, droppedOverCap);
+
+                    // Scan buffered newest-first — replay in reverse so the emitted sequence
+                    // follows the original event-log chronology.
+                    for (var i = buffered.Count - 1; i >= 0; i--)
+                    {
+                        ProcessRecord(buffered[i], "Autopilot", AutopilotChannel, isBackfill: true);
+                    }
+
+                    _logger.Info($"ModernDeployment error backfill: forwarded {buffered.Count} record(s) " +
                         $"(skippedByWatermark={skippedWatermark}, droppedOverCap={droppedOverCap})");
+                }
             }
             catch (EventLogNotFoundException)
             {
@@ -701,6 +717,49 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             {
                 _logger.Warning($"ModernDeployment error backfill failed: {ex.Message}");
             }
+            finally
+            {
+                foreach (var record in buffered)
+                {
+                    try { record.Dispose(); } catch { }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Announces the error-backfill block on the session timeline BEFORE the replayed
+        /// errors, so pre-agent Error events are readable as history rather than a live
+        /// failure. The web timeline additionally badges each replayed event via its
+        /// backfilled=true payload marker; this summary carries backfillSummary=true instead —
+        /// it is a live emission, not a replayed record.
+        /// </summary>
+        internal void EmitErrorBackfillSummary(int replayedCount, int droppedOverCap)
+        {
+            var message = $"[Autopilot] Replaying {replayedCount} error event(s) recorded in the Autopilot event log " +
+                $"before the agent started (lookback {ErrorBackfillLookbackMinutes / 60}h). " +
+                "These predate monitoring — if enrollment progressed afterwards, they were already resolved by a retry.";
+            if (droppedOverCap > 0)
+            {
+                message += $" {droppedOverCap} older record(s) beyond the {ErrorBackfillMaxRecords}-record cap were not replayed.";
+            }
+
+            _post.Emit(new EnrollmentEvent
+            {
+                SessionId = _sessionId,
+                TenantId = _tenantId,
+                EventType = Constants.EventTypes.ModernDeploymentLog,
+                Severity = EventSeverity.Info,
+                Source = "ModernDeploymentWatcher",
+                Phase = EnrollmentPhase.Unknown,
+                Message = message,
+                Data = new Dictionary<string, object>
+                {
+                    { "backfillSummary", true },
+                    { "replayedCount", replayedCount },
+                    { "droppedOverCap", droppedOverCap },
+                    { "lookbackMinutes", ErrorBackfillLookbackMinutes }
+                }
+            });
         }
 
         /// <summary>

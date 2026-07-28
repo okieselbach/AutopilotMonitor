@@ -355,6 +355,24 @@ function PhaseSection({
   );
 }
 
+// Backfilled events (ModernDeploymentTracker error backfill): pre-agent event-log records
+// replayed at agent start carry backfilled=true plus the original event-log timeCreated —
+// the event's own timestamp is agent emission time, so without this the whole block renders
+// with one identical (wrong) time and full Error severity, reading like a live failure.
+function getBackfillInfo(event: EnrollmentEvent): { isBackfilled: boolean; recordedAt: Date | null } {
+  const raw = event.data?.backfilled ?? event.data?.Backfilled;
+  const isBackfilled = raw === true || raw === "true" || raw === "True";
+  if (!isBackfilled) return { isBackfilled: false, recordedAt: null };
+  const t = event.data?.timeCreated ?? event.data?.TimeCreated;
+  const recordedAt = typeof t === "string" && t !== "" && !isNaN(Date.parse(t)) ? new Date(t) : null;
+  return { isBackfilled, recordedAt };
+}
+
+const BACKFILL_TOOLTIP =
+  "Recorded by Windows before the agent started — replayed from the event log for visibility. " +
+  "If enrollment progressed afterwards, this error was already resolved by a retry. " +
+  "The timestamp shown is the original event-log time.";
+
 function EventRow({ event, showScriptOutput }: { event: EnrollmentEvent; showScriptOutput?: boolean }) {
   const [showDetails, setShowDetails] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
@@ -429,15 +447,28 @@ function EventRow({ event, showScriptOutput }: { event: EnrollmentEvent; showScr
   const hasData = isTruncated || (detailData && Object.keys(detailData).length > 0);
   const hasDetails = true; // Every event has at least the metadata block
 
+  const { isBackfilled, recordedAt } = getBackfillInfo(event);
+
   return (
     <div id={`event-${event.eventId}`} className="bg-gray-50 rounded-lg p-3 hover:bg-gray-100 transition-colors">
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3">
             <span className="text-xs text-gray-500 font-mono">
-              {new Date(event.timestamp).toLocaleTimeString()}
+              {(recordedAt ?? new Date(event.timestamp)).toLocaleTimeString()}
+              {recordedAt && (
+                <span className="text-gray-400 font-sans"> (reported {new Date(event.timestamp).toLocaleTimeString()})</span>
+              )}
             </span>
             <SeverityBadge severity={event.severity} />
+            {isBackfilled && (
+              <span
+                className="px-2 py-0.5 rounded text-xs font-medium bg-slate-200 text-slate-600"
+                title={BACKFILL_TOOLTIP}
+              >
+                ⟲ Backfilled
+              </span>
+            )}
             <span className="text-sm font-medium text-gray-900">{event.eventType}</span>
           </div>
           <p className="mt-1 text-sm text-gray-600" title={event.message || undefined}>{shortenBuildHashInMessage(event.message)}</p>
@@ -608,6 +639,15 @@ function EventRow({ event, showScriptOutput }: { event: EnrollmentEvent; showScr
               <span className="w-16 flex-shrink-0 text-gray-400">EventId</span>
               <span className="font-mono">{event.eventId}</span>
             </div>
+            {recordedAt && (
+              <div className="flex mt-0.5">
+                <span className="w-16 flex-shrink-0 text-gray-400">Recorded</span>
+                <span className="font-mono">
+                  {recordedAt.toISOString().replace('T', ' ').replace('Z', '')}
+                  <span className="text-gray-400 ml-1" title={BACKFILL_TOOLTIP}>(event log, pre-agent)</span>
+                </span>
+              </div>
+            )}
             <div className="flex mt-0.5">
               <span className="w-16 flex-shrink-0 text-gray-400">Created</span>
               <span className="font-mono">{event.timestamp}</span>
@@ -751,6 +791,7 @@ function RawEventRow({ event }: { event: EnrollmentEvent }) {
   const [expanded, setExpanded] = useState(false);
   const detailData = useMemo(() => normalizeEventDataForDisplay(event.data), [event.data]);
   const hasDetails = detailData && Object.keys(detailData).length > 0;
+  const { isBackfilled, recordedAt } = getBackfillInfo(event);
 
   const sevColor: Record<string, string> = {
     Trace: "text-purple-500",
@@ -765,8 +806,11 @@ function RawEventRow({ event }: { event: EnrollmentEvent }) {
     <div id={`event-${event.eventId}`} className="py-1.5 text-xs font-mono">
       <div className="flex items-start gap-2">
         <span className="text-gray-400 w-8 text-right flex-shrink-0">{event.sequence}</span>
-        <span className="text-gray-500 flex-shrink-0">{new Date(event.timestamp).toLocaleTimeString()}</span>
+        <span className="text-gray-500 flex-shrink-0">{(recordedAt ?? new Date(event.timestamp)).toLocaleTimeString()}</span>
         <span className={`flex-shrink-0 w-14 ${sevColor[event.severity] || "text-gray-500"}`}>{event.severity}</span>
+        {isBackfilled && (
+          <span className="text-slate-500 flex-shrink-0" title={BACKFILL_TOOLTIP}>⟲</span>
+        )}
         <span className="text-gray-900 font-medium flex-shrink-0">{event.eventType}</span>
         <span className="text-gray-500 truncate flex-1 min-w-0" title={event.message || undefined}>{shortenBuildHashInMessage(event.message)}</span>
         {hasDetails && (

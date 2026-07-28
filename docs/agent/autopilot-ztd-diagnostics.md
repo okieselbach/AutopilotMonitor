@@ -119,6 +119,19 @@ normal IME deployment flow. Spam containment, in order:
    payload; the event's own timestamp is the emission time, so the session's `StartedAt`
    (which the backend aligns to the earliest event) is not dragged backwards.
 
+Presentation (2026-07-28, customer feedback — an unannounced wall of pre-agent Error
+events read like a live failure):
+
+- The scan buffers the (capped) record set, first emits an **Info summary event**
+  (`modern_deployment_log`, payload `backfillSummary: true` + `replayedCount` /
+  `droppedOverCap` / `lookbackMinutes`) announcing the replay block, then replays the
+  records **oldest-first** so the timeline sequence follows event-log chronology.
+- The web timeline (`EventTimeline.tsx`) badges `backfilled: true` events („⟲ Backfilled",
+  slate, explanatory tooltip) and renders the original `timeCreated` as the row time with a
+  "(reported …)" suffix; the expanded metadata block gains a `Recorded` line. Severity is
+  deliberately **not** downgraded — unresolved pre-agent errors must still surface in the
+  Error filter.
+
 # Schema — Error codes (backend known-issue map)
 
 Codes documented in the known-issues / troubleshooting-FAQ pages that appear in ESP/enrollment
