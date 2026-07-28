@@ -258,6 +258,24 @@ namespace AutopilotMonitor.Shared.Models
         public int? DurationSeconds { get; set; }
 
         /// <summary>
+        /// Session-wide average HTTP round-trip latency (ms) of the agent's calls to the
+        /// backend API, as measured on the device (includes network RTT + TLS + server
+        /// processing). Projected at ingest from the cumulative counters of the latest
+        /// <c>agent_metrics_snapshot</c> (<c>net_total_latency_ms / net_total_requests</c>).
+        /// Null for V1 sessions and sessions from agents that predate the field.
+        /// Aggregate across sessions weighted by <see cref="ApiRequestCount"/> — e.g. per
+        /// GeoCountry to compare regional backend reachability.
+        /// </summary>
+        public double? AvgApiLatencyMs { get; set; }
+
+        /// <summary>
+        /// Number of HTTP requests behind <see cref="AvgApiLatencyMs"/> (the cumulative
+        /// <c>net_total_requests</c> at the latest snapshot). Needed as the weight when
+        /// averaging latency across sessions. Null whenever <see cref="AvgApiLatencyMs"/> is.
+        /// </summary>
+        public int? ApiRequestCount { get; set; }
+
+        /// <summary>
         /// Enrollment type: "v1" (Autopilot Classic/ESP) or "v2" (Windows Device Preparation).
         /// Defaults to "v1" for sessions that predate this field.
         /// </summary>

@@ -107,6 +107,14 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task UpdateSessionGeoAsync(string tenantId, string sessionId,
             string? country, string? region, string? city, string? loc);
         Task UpdateSessionImeAgentVersionAsync(string tenantId, string sessionId, string version);
+        /// <summary>
+        /// Persists the session-wide average agent→backend HTTP latency derived from the
+        /// cumulative counters of the latest <c>agent_metrics_snapshot</c>. Last-write-wins
+        /// (cumulative counters make replays idempotent); fail-soft like the other
+        /// supplementary-field updaters.
+        /// </summary>
+        Task UpdateSessionNetworkLatencyAsync(string tenantId, string sessionId,
+            double avgLatencyMs, int requestCount);
 
         // --- Server→Agent Actions ---
         /// <summary>

@@ -143,6 +143,14 @@ namespace AutopilotMonitor.Functions.Services
                 }
             }
 
+            if (TryComputeSessionApiLatency(request.Events, out var avgLatencyMs, out var apiRequestCount))
+            {
+                _ = _sessionRepo.UpdateSessionNetworkLatencyAsync(
+                        request.TenantId, request.SessionId, avgLatencyMs, apiRequestCount)
+                    .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
+                        "Fire-and-forget UpdateSessionNetworkLatencyAsync failed"), TaskContinuationOptions.OnlyOnFaulted);
+            }
+
             var classification = ClassifyEvents(storedEvents);
 
             foreach (var summary in classification.AppInstallUpdates.Values)
@@ -393,6 +401,58 @@ namespace AutopilotMonitor.Functions.Services
                 PendingActions  = pendingActions,
                 SignalRMessages = signalRMessages,
             };
+        }
+
+        /// <summary>
+        /// Session-wide API latency projection: the agent emits cumulative counters
+        /// (net_total_latency_ms / net_total_requests) in every agent_metrics_snapshot, so
+        /// the LAST snapshot of the batch carries the whole-session average up to now and a
+        /// plain overwrite is idempotent against replays. Agents predating the field simply
+        /// never match (net_total_latency_ms absent) — no fallback, fleet turns over
+        /// per-enrollment. Exposed as internal for unit testing.
+        /// </summary>
+        internal static bool TryComputeSessionApiLatency(
+            List<EnrollmentEvent> events, out double avgLatencyMs, out int requestCount)
+        {
+            avgLatencyMs = 0;
+            requestCount = 0;
+            var snapshot = events.LastOrDefault(e =>
+                e.EventType == Shared.Constants.EventTypes.AgentMetricsSnapshot &&
+                e.Data?.ContainsKey("net_total_latency_ms") == true);
+            if (snapshot?.Data == null ||
+                !TryGetDouble(snapshot.Data, "net_total_latency_ms", out var totalLatencyMs) ||
+                !TryGetDouble(snapshot.Data, "net_total_requests", out var totalRequests) ||
+                totalRequests <= 0)
+            {
+                return false;
+            }
+
+            avgLatencyMs = Math.Round(totalLatencyMs / totalRequests, 1);
+            requestCount = (int)totalRequests;
+            return true;
+        }
+
+        /// <summary>
+        /// Numeric reader for agent event Data values, which arrive as boxed Newtonsoft
+        /// primitives (integer → long, decimal → double) — same coercion ladder as
+        /// PlatformMetricsService.GetDouble (the proven parser for these snapshot fields),
+        /// plus invariant-culture string parsing. Exposed as internal for unit testing.
+        /// </summary>
+        internal static bool TryGetDouble(Dictionary<string, object> data, string key, out double value)
+        {
+            value = 0;
+            if (!data.TryGetValue(key, out var raw))
+                return false;
+            switch (raw)
+            {
+                case double d: value = d; return true;
+                case int i: value = i; return true;
+                case long l: value = l; return true;
+                case float f: value = f; return true;
+            }
+            return double.TryParse(raw?.ToString(),
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out value);
         }
 
         /// <summary>

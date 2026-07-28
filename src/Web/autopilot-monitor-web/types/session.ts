@@ -43,6 +43,10 @@ export interface Session {
   geoCountry?: string;
   geoRegion?: string;
   geoCity?: string;
+  /** Session-wide average agent→backend HTTP round-trip (ms), measured on the device. Absent for sessions from agents that predate the field. */
+  avgApiLatencyMs?: number;
+  /** Number of HTTP requests behind avgApiLatencyMs — the weight when averaging across sessions. */
+  apiRequestCount?: number;
   /**
    * Compact JSON snapshot of "last known session state" written by the maintenance
    * 5h-timeout sweep when a session graduates to terminal Failed (Hybrid User-Driven

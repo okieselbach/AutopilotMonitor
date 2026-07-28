@@ -77,11 +77,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
 
         protected override void Collect()
         {
-            // Full path writes 18 keys: agent_version + process metrics (5: cpu, ws, private,
-            // threads, handles) + spool stats (4) + network delta (8: requests, failures,
-            // bytes_up/down, avg_latency, total_up/down/requests). cap=18 → HashHelpers.GetPrime(18)=23
-            // buckets → no resize on the 18th key (cap=16 would land at 17 buckets and resize).
-            var data = new Dictionary<string, object>(capacity: 18, StringComparer.Ordinal)
+            // Full path writes 19 keys: agent_version + process metrics (5: cpu, ws, private,
+            // threads, handles) + spool stats (4) + network delta (9: requests, failures,
+            // bytes_up/down, avg_latency, total_up/down/requests/latency). cap=19 →
+            // HashHelpers.GetPrime(19)=23 buckets → no resize on the 19th key.
+            var data = new Dictionary<string, object>(capacity: 19, StringComparer.Ordinal)
             {
                 { "agent_version", _agentVersion }
             };
@@ -164,6 +164,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                 data["net_total_bytes_up"] = currentNet.TotalBytesUp;
                 data["net_total_bytes_down"] = currentNet.TotalBytesDown;
                 data["net_total_requests"] = currentNet.RequestCount;
+                // Cumulative latency sum: total/requests = session-wide average HTTP
+                // round-trip. The backend projects that average onto the Session row
+                // (AvgApiLatencyMs) — cumulative counters make the write idempotent.
+                data["net_total_latency_ms"] = currentNet.TotalLatencyMs;
             }
             catch (Exception ex)
             {

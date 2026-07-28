@@ -160,6 +160,37 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Safely reads a Double property from a TableEntity.
+        /// Returns null instead of throwing when the property has a different type (legacy data).
+        /// Also accepts Int32/Int64-typed cells — Table Storage stores a whole-number double
+        /// as Int when written via JSON paths that drop the decimal point.
+        /// </summary>
+        private double? SafeGetDouble(TableEntity entity, string key)
+        {
+            try
+            {
+                return entity.GetDouble(key);
+            }
+            catch (InvalidOperationException)
+            {
+                if (entity.TryGetValue(key, out var raw))
+                {
+                    switch (raw)
+                    {
+                        case int i: return i;
+                        case long l: return l;
+                        case string s when double.TryParse(s,
+                            System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out var parsed):
+                            return parsed;
+                    }
+                }
+                _logger.LogWarning("Property '{Key}' on entity {PK}/{RK} is not Double and could not be coerced", key, entity.PartitionKey, entity.RowKey);
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Safely reads a DateTime property from a TableEntity.
         /// Returns null instead of throwing when the property has a different type (legacy data).
         /// </summary>

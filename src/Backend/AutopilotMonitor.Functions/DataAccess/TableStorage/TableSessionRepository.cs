@@ -148,6 +148,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task UpdateSessionImeAgentVersionAsync(string tenantId, string sessionId, string version)
             => _storage.UpdateSessionImeAgentVersionAsync(tenantId, sessionId, version);
 
+        public Task UpdateSessionNetworkLatencyAsync(string tenantId, string sessionId,
+            double avgLatencyMs, int requestCount)
+            => _storage.UpdateSessionNetworkLatencyAsync(tenantId, sessionId, avgLatencyMs, requestCount);
+
         public Task<List<SessionSummary>> GetSessionsWithEventCountAboveAsync(string tenantId, int threshold)
             => _storage.GetSessionsWithEventCountAboveAsync(tenantId, threshold);
 

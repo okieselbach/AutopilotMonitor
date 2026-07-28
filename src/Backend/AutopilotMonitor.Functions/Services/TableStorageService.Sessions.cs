@@ -215,6 +215,16 @@ namespace AutopilotMonitor.Functions.Services
             if (stalledAt.HasValue)
                 indexEntity["StalledAt"] = EnsureUtc(stalledAt.Value);
 
+            // Agent→backend HTTP latency projection (UpdateSessionNetworkLatencyAsync merges
+            // these) — must be in this superset or a StartedAt-shift full upsert drops them.
+            var avgApiLatencyMs = sessionEntity.GetDouble("AvgApiLatencyMs");
+            if (avgApiLatencyMs.HasValue)
+                indexEntity["AvgApiLatencyMs"] = avgApiLatencyMs.Value;
+
+            var apiRequestCount = sessionEntity.GetInt32("ApiRequestCount");
+            if (apiRequestCount.HasValue)
+                indexEntity["ApiRequestCount"] = apiRequestCount.Value;
+
             return indexEntity;
         }
 
@@ -2655,6 +2665,55 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
+        /// <summary>
+        /// Stores the session-wide average agent→backend HTTP latency (Merge-mode, two fields).
+        /// Derived from cumulative counters, so a plain last-write-wins overwrite is idempotent
+        /// against batch replays and monotonically converges to the whole-session average.
+        /// Same UpdateEntity-not-Upsert rationale as <see cref="UpdateSessionImeAgentVersionAsync"/>:
+        /// a tombstoned Sessions row must stay tombstoned (404 → no-op).
+        /// Non-fatal: failures are logged as warnings and do not block ingest.
+        /// </summary>
+        public async Task UpdateSessionNetworkLatencyAsync(string tenantId, string sessionId,
+            double avgLatencyMs, int requestCount)
+        {
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
+                var update = new TableEntity(tenantId, sessionId)
+                {
+                    ["AvgApiLatencyMs"] = avgLatencyMs,
+                    ["ApiRequestCount"] = requestCount
+                };
+                await tableClient.UpdateEntityAsync(update, ETag.All, TableUpdateMode.Merge);
+
+                // Mirror to SessionsIndex — the index is a full denormalized mirror and serves the
+                // session list / GA cross-tenant views where per-geo latency aggregation happens.
+                var idxRef = await tableClient.GetEntityAsync<TableEntity>(
+                    tenantId, sessionId, select: new[] { "IndexRowKey" });
+                var indexRowKey = idxRef.Value.GetString("IndexRowKey");
+                if (!string.IsNullOrEmpty(indexRowKey))
+                {
+                    await MergeSessionIndexAsync(tenantId, indexRowKey,
+                        new TableEntity(tenantId, indexRowKey)
+                        {
+                            ["AvgApiLatencyMs"] = avgLatencyMs,
+                            ["ApiRequestCount"] = requestCount
+                        });
+                }
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                _logger.LogDebug(
+                    "UpdateSessionNetworkLatency no-op: Sessions row {Tenant}/{Session} is absent (tombstoned or never registered)",
+                    tenantId, sessionId);
+            }
+            catch (Exception ex)
+            {
+                // Non-fatal — don't block ingest
+                _logger.LogWarning(ex, "Failed to update network latency for session {SessionId}", sessionId);
+            }
+        }
+
         // ===== SESSION/EVENT MAPPING HELPERS =====
 
         /// <summary>
@@ -2748,6 +2807,8 @@ namespace AutopilotMonitor.Functions.Services
                 PendingActionsQueuedAt = SafeGetDateTime(entity, "PendingActionsQueuedAt"),
                 EventCount = SafeGetInt32(entity, "EventCount") ?? 0,
                 DurationSeconds = ComputeEffectiveDuration(entity, status, startedAt, completedAt),
+                AvgApiLatencyMs = SafeGetDouble(entity, "AvgApiLatencyMs"),
+                ApiRequestCount = SafeGetInt32(entity, "ApiRequestCount"),
                 EnrollmentType = entity.GetString("EnrollmentType") ?? "v1",
                 DiagnosticsBlobName = entity.GetString("DiagnosticsBlobName"),
                 // Legacy rows that predate this field surface as null → download path treats

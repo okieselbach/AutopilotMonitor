@@ -59,6 +59,13 @@ export default function SessionInfoCard({ session, enrollmentDuration, displaySt
         <InfoItem label="Duration" value={enrollmentDuration ?? `${Math.round(session.durationSeconds / 60)} min`} tooltip={lastContactTooltip} />
         <InfoItem label="Events" value={session.eventCount.toString()} tooltip={lastContactTooltip} />
         <InfoItem label="Reboots" value={(session.rebootCount ?? 0).toString()} tooltip="System reboots observed during enrollment (V2 only)" />
+        {session.avgApiLatencyMs != null && session.avgApiLatencyMs > 0 && (
+          <InfoItem
+            label="API Latency"
+            value={`${Math.round(session.avgApiLatencyMs)} ms avg`}
+            tooltip={`Average agent→backend HTTP round-trip measured on the device${session.apiRequestCount ? ` across ${session.apiRequestCount} requests` : ""} — reflects the network distance between the device and the backend region`}
+          />
+        )}
         <InfoItem label="Status" value={<StatusBadge status={displayStatus} failureReason={session.failureReason} failureSource={session.failureSource} adminMarkedAction={session.adminMarkedAction} reconcileReason={session.reconcileReason} />} />
         <InfoItem label="Enrollment Type" value={enrollmentTypeLabel(session, isGatherRulesSession)} />
         <InfoItem label="Join Type" value={joinTypeLabel(session)} />
