@@ -87,7 +87,21 @@ describe("staticwebapp.config.json guard", () => {
     // trailingSlash:auto normalizes /apps to /apps/, which the /apps/* wildcard
     // matches — without the exact entry the list page serves the DETAIL html
     // (production incident 2026-07-29: /apps rendered the app-detail view).
+    // The exported RSC payloads (<route>/index.txt) equally need exact
+    // self-rewrites before the wildcard: client navigation fetches them, and a
+    // wildcard-rewritten HTML response makes the Next router fall back to a
+    // HARD page load (production incident 2026-07-29: sidebar state reset on
+    // every /admin/backups navigation).
     const pairs: Array<[string, string]> = [
+      ["/sessions/index.txt", "/sessions/*"],
+      ["/sessions/inspector/index.txt", "/sessions/*"],
+      ["/diagnosis/index.txt", "/diagnosis/*"],
+      ["/apps/index.txt", "/apps/*"],
+      ["/apps/detail/index.txt", "/apps/*"],
+      ["/admin/backups/index.txt", "/admin/backups/*"],
+      ["/admin/backups/detail/index.txt", "/admin/backups/*"],
+      ["/admin/customs-archive/index.txt", "/admin/customs-archive/*"],
+      ["/admin/customs-archive/detail/index.txt", "/admin/customs-archive/*"],
       ["/sessions", "/sessions/*"],
       ["/sessions/inspector", "/sessions/*"],
       ["/diagnosis", "/diagnosis/*"],
