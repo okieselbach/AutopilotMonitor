@@ -22,6 +22,21 @@ interface SignalRContextType {
 
 const SignalRContext = createContext<SignalRContextType | undefined>(undefined);
 
+// The negotiated transport is not exposed by the public API. Sniff the internal transport
+// object's fields instead of constructor.name, which production minification mangles;
+// property names survive because bundlers do not mangle them. Verified against
+// @microsoft/signalr 10.x internals.
+function getTransportName(conn: signalR.HubConnection): string {
+  const transport = (conn as unknown as {
+    connection?: { transport?: Record<string, unknown> };
+  }).connection?.transport;
+  if (!transport) return 'Unknown';
+  if ('_webSocketConstructor' in transport || '_webSocket' in transport) return 'WebSockets';
+  if ('_eventSource' in transport) return 'ServerSentEvents';
+  if ('_pollAbort' in transport) return 'LongPolling';
+  return 'Unknown';
+}
+
 export function SignalRProvider({ children }: { children: React.ReactNode }) {
   const { getAccessToken, isAuthenticated } = useAuth();
   const [connection, setConnection] = useState<signalR.HubConnection | null>(null);
@@ -129,7 +144,11 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
       if (previousGroups.length > 0) {
         console.log(`[SignalR] Rejoined ${joinedGroupsRef.current.size}/${previousGroups.length} groups after reconnect`);
       }
-      trackEvent("signalr_reconnected", { rejoinedGroups: joinedGroupsRef.current.size, downtimeMs });
+      trackEvent("signalr_reconnected", {
+        rejoinedGroups: joinedGroupsRef.current.size,
+        downtimeMs,
+        transport: getTransportName(newConnection),
+      });
     });
 
     // Start connection
@@ -139,6 +158,10 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
         setConnectionState(signalR.HubConnectionState.Connected);
         setConnection(newConnection);
         retryCountRef.current = 0;
+        // Surfaces clients stuck on a fallback transport (e.g. corporate proxies blocking
+        // WebSockets) — those sessions get slower live updates and produce long-poll 404
+        // noise in dependency telemetry.
+        trackEvent("signalr_connected", { transport: getTransportName(newConnection) });
       } catch (error) {
         console.error('[SignalR] Failed to start connection:', error);
         setConnectionState(signalR.HubConnectionState.Disconnected);
