@@ -84,14 +84,14 @@ serve identical scripts during the transition.
 # Rate limiting behind Front Door
 
 The endpoint self-limits per client IP (`bootstrap-script:{ip}`, 20/min via
-`ClientIpExtractor.GetTrustedClientIp`) — anonymous routes are skipped by
+`ClientIpExtractor.GetRateLimitClientIp`) — anonymous routes are skipped by
 `UserRateLimitMiddleware` and must bring their own limiter. Because traffic
-arrives through Front Door, the rightmost X-Forwarded-For hop may resolve to
-AFD egress IPs; whether buckets collapse (the shared-bucket 429 incident class)
-must be verified post-deploy from two networks. If they do, the fix is an
-AFD-aware extraction honoring `X-Azure-ClientIP` only when `X-Azure-FDID`
-matches our profile — NOT `GetClientEgressIp`, which trusts the header
-unconditionally and is documented as unfit for rate-limit keys.
+arrives through Front Door, the rightmost X-Forwarded-For hop resolves to AFD
+egress IPs and buckets would collapse (the shared-bucket 429 incident class);
+the AFD-aware extraction therefore honors `X-Azure-ClientIP` only when
+`X-Azure-FDID` matches the `FrontDoorProfileId` app setting (fail-closed to
+the trusted-hop path otherwise). Verified post-deploy 2026-07-29: real client
+IPs are keyed, not AFD egress.
 
 Front Door route caching is DISABLED for this route: the body inlines the
 bearer token, so a cache hit would replay one requester's token to another.

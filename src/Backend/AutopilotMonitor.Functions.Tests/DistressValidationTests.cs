@@ -121,6 +121,77 @@ public class DistressValidationTests
     }
 
     // =========================================================================
+    // ClientIpExtractor.GetHeaderFromBindingDataJson — Flex Consumption strips the
+    // X-Forwarded-* family from the proxied HTTP request; the host passes the
+    // ORIGINAL header set as trigger metadata (BindingData["Headers"], JSON object).
+    // Malformed metadata must fail soft (null), never throw into request handling.
+    // =========================================================================
+
+    [Fact]
+    public void GetHeaderFromBindingDataJson_XffPresent_ReturnsValue()
+    {
+        var json = """{"Host":"example.com","X-Forwarded-For":"1.1.1.1, 203.0.113.5:443"}""";
+        Assert.Equal(
+            "1.1.1.1, 203.0.113.5:443",
+            ClientIpExtractor.GetHeaderFromBindingDataJson(json, "X-Forwarded-For"));
+    }
+
+    [Fact]
+    public void GetHeaderFromBindingDataJson_HeaderNameCaseInsensitive()
+    {
+        var json = """{"x-forwarded-for":"203.0.113.5"}""";
+        Assert.Equal(
+            "203.0.113.5",
+            ClientIpExtractor.GetHeaderFromBindingDataJson(json, "X-Forwarded-For"));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("not json")]
+    [InlineData("[]")]                                // JSON but not an object
+    [InlineData("""{"Host":"example.com"}""")]        // header absent
+    [InlineData("""{"X-Forwarded-For":42}""")]        // non-string value
+    public void GetHeaderFromBindingDataJson_MissingOrMalformed_ReturnsNull(string? json)
+    {
+        Assert.Null(ClientIpExtractor.GetHeaderFromBindingDataJson(json, "X-Forwarded-For"));
+    }
+
+    // =========================================================================
+    // ClientIpExtractor.RemoteIpToString — transport-level fallback. On Flex the
+    // worker's TCP peer is the host's LOCAL proxy: loopback means "not a client"
+    // and must map to "unknown", never be stored as a forensic SourceIp
+    // (production 2026-07-29: distress reports carried SourceIp 127.0.0.1).
+    // =========================================================================
+
+    [Fact]
+    public void RemoteIpToString_Null_ReturnsUnknown()
+    {
+        Assert.Equal("unknown", ClientIpExtractor.RemoteIpToString(null));
+    }
+
+    [Theory]
+    [InlineData("127.0.0.1")]
+    [InlineData("::1")]
+    [InlineData("::ffff:127.0.0.1")]  // IPv4-mapped loopback
+    public void RemoteIpToString_Loopback_ReturnsUnknown(string ip)
+    {
+        Assert.Equal("unknown", ClientIpExtractor.RemoteIpToString(System.Net.IPAddress.Parse(ip)));
+    }
+
+    [Fact]
+    public void RemoteIpToString_PublicIpv4_ReturnsIp()
+    {
+        Assert.Equal("203.0.113.5", ClientIpExtractor.RemoteIpToString(System.Net.IPAddress.Parse("203.0.113.5")));
+    }
+
+    [Fact]
+    public void RemoteIpToString_Ipv4MappedIpv6_FoldsToIpv4()
+    {
+        Assert.Equal("203.0.113.5", ClientIpExtractor.RemoteIpToString(System.Net.IPAddress.Parse("::ffff:203.0.113.5")));
+    }
+
+    // =========================================================================
     // Sanitize — Control character stripping and truncation
     // =========================================================================
 

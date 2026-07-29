@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
+using System.Text.Json;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 
@@ -36,28 +38,94 @@ namespace AutopilotMonitor.Functions.Security
                 if (hop != Unknown) return hop;
             }
 
-            // Flex Consumption does not reliably surface X-Forwarded-For to the isolated
-            // worker (observed 2026-07-28: every anonymous caller keyed as "unknown",
-            // collapsing all per-IP rate-limit buckets into one). The transport-level
-            // peer address is unspoofable and equals what the rightmost XFF hop would
-            // carry when no proxy chain exists; behind a fronting proxy it is that
-            // proxy's egress — coarse but honest, per the model above.
+            // Flex Consumption strips the X-Forwarded-* family from the HTTP request the
+            // host proxies to the isolated worker (Azure/azure-functions-host#10253/#11254;
+            // observed 2026-07-28: every anonymous caller keyed as "unknown"). The host does
+            // pass the ORIGINAL header set out-of-band as trigger metadata, so recover the
+            // rightmost XFF hop from there — same trust model, different transport.
+            var bindingHop = ExtractTrustedHop(
+                GetHeaderFromBindingDataJson(TryGetBindingHeadersJson(req), "X-Forwarded-For"));
+            if (bindingHop != Unknown) return bindingHop;
+
+            // Last resort: the transport-level peer address — unspoofable, and equal to the
+            // rightmost XFF hop when no proxy chain exists. On Flex the worker's peer is the
+            // host's local proxy, so loopback means "not a client" and must not be stored or
+            // used as a bucket key (a stored 127.0.0.1 is forensically misleading).
             var remote = req.FunctionContext.GetHttpContext()?.Connection.RemoteIpAddress;
-            if (remote == null) return Unknown;
-            if (remote.IsIPv4MappedToIPv6) remote = remote.MapToIPv4();
-            return remote.ToString();
+            return RemoteIpToString(remote);
         }
 
         /// <summary>
-        /// Rate-limit key for endpoints reached through Azure Front Door (e.g.
-        /// go.autopilotmonitor.com → /api/bootstrap/go). Behind AFD the trusted hop is
-        /// AFD's egress IP, so all callers would share a handful of buckets — one abuser
-        /// could starve every legitimate technician. AFD carries the true client IP in
-        /// X-Azure-ClientIP; it is honored ONLY when the request provably traversed OUR
-        /// profile: X-Azure-FDID (which AFD overwrites on pass-through, so a client
-        /// cannot inject it across AFD) must equal the FrontDoorProfileId app setting.
-        /// Fail-closed: unset setting, missing/mismatched/multi-valued FDID, or empty
-        /// client IP all fall back to <see cref="GetTrustedClientIp"/>.
+        /// Normalizes a transport-level peer address into a client-IP string:
+        /// null and loopback (the Functions host's local proxy on Flex) yield
+        /// <see cref="Unknown"/>; IPv4-mapped IPv6 is folded back to IPv4.
+        /// </summary>
+        internal static string RemoteIpToString(IPAddress? remote)
+        {
+            if (remote == null) return Unknown;
+            if (remote.IsIPv4MappedToIPv6) remote = remote.MapToIPv4();
+            if (IPAddress.IsLoopback(remote)) return Unknown;
+            return remote.ToString();
+        }
+
+        private static string? TryGetBindingHeadersJson(HttpRequestData req)
+        {
+            try
+            {
+                return req.FunctionContext.BindingContext.BindingData.TryGetValue("Headers", out var raw)
+                    ? raw as string
+                    : null;
+            }
+            catch
+            {
+                // Fail-soft: absent/odd trigger metadata must never break request handling.
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Reads one header (case-insensitive) from the JSON object the Functions host
+        /// places in BindingData["Headers"] — the request headers as the HOST saw them,
+        /// before the worker-bound proxy hop drops the X-Forwarded-* family.
+        /// Returns null for missing/malformed input.
+        /// </summary>
+        internal static string? GetHeaderFromBindingDataJson(string? headersJson, string headerName)
+        {
+            if (string.IsNullOrEmpty(headersJson)) return null;
+            try
+            {
+                using var doc = JsonDocument.Parse(headersJson);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object) return null;
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                {
+                    if (string.Equals(prop.Name, headerName, StringComparison.OrdinalIgnoreCase)
+                        && prop.Value.ValueKind == JsonValueKind.String)
+                    {
+                        return prop.Value.GetString();
+                    }
+                }
+                return null;
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Finest-grained trustworthy client IP — used both as the rate-limit key for
+        /// endpoints reached through Azure Front Door (e.g. go.autopilotmonitor.com →
+        /// /api/bootstrap/go) and as the stored forensic SourceIp (distress reports).
+        /// Behind AFD the trusted hop is AFD's egress IP, so all callers would share a
+        /// handful of buckets — one abuser could starve every legitimate technician. AFD
+        /// carries the true client IP in X-Azure-ClientIP; it is honored ONLY when the
+        /// request provably traversed OUR profile: X-Azure-FDID (which AFD overwrites on
+        /// pass-through, so a client cannot inject it across AFD) must equal the
+        /// FrontDoorProfileId app setting. The same gate keeps stored forensic IPs
+        /// unspoofable when the Function App is reached directly, where anyone could
+        /// send an X-Azure-ClientIP header. Fail-closed: unset setting,
+        /// missing/mismatched/multi-valued FDID, or empty client IP all fall back to
+        /// <see cref="GetTrustedClientIp"/>.
         /// </summary>
         public static string GetRateLimitClientIp(HttpRequestData? req)
         {
@@ -94,28 +162,6 @@ namespace AutopilotMonitor.Functions.Security
                 }
             }
             return single != null && string.Equals(single, expected, StringComparison.OrdinalIgnoreCase);
-        }
-
-        /// <summary>
-        /// Best-effort REAL client egress IP for forensic/diagnostic STORAGE (e.g. distress-report
-        /// SourceIp, audit fields). NOT for rate-limit keys — use <see cref="GetTrustedClientIp"/>
-        /// there, because the value below is spoofable when no trusted proxy populates it.
-        /// <para>
-        /// Behind Azure Front Door the trusted rightmost X-Forwarded-For hop is Front Door's own
-        /// egress IP, not the device — so a stored SourceIp taken from it is useless for identifying
-        /// origin. Front Door sets the true client IP in <c>X-Azure-ClientIP</c>; prefer that and
-        /// fall back to the trusted hop when absent (no Front Door in front).
-        /// </para>
-        /// </summary>
-        public static string GetClientEgressIp(HttpRequestData? req)
-        {
-            if (req == null) return Unknown;
-            if (req.Headers.TryGetValues("X-Azure-ClientIP", out var azValues))
-            {
-                var ip = ExtractTrustedHop(string.Join(",", azValues));
-                if (ip != Unknown) return ip;
-            }
-            return GetTrustedClientIp(req);
         }
 
         /// <summary>
