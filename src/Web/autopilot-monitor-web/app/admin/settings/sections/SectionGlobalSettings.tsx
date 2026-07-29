@@ -1,11 +1,13 @@
 "use client";
 
+import { useEffect } from "react";
 import { useAdminConfig } from "../../AdminConfigContext";
 import { AdminConfigSettingsSection } from "../../components/AdminConfigSettingsSection";
 import { AdminNotifications } from "../../AdminNotifications";
 
 export function SectionGlobalSettings() {
   const {
+    ensureAdminConfigLoaded,
     loadingConfig, savingConfig, adminConfig,
     globalRateLimit, setGlobalRateLimit,
     userRateLimit, setUserRateLimit,
@@ -22,6 +24,8 @@ export function SectionGlobalSettings() {
     sessionDeletionKillSwitch, setSessionDeletionKillSwitch,
     handleSaveAdminConfig, handleResetAdminConfig,
   } = useAdminConfig();
+
+  useEffect(() => { ensureAdminConfigLoaded(); }, [ensureAdminConfigLoaded]);
 
   return (
     <>

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useRef, useState } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
@@ -82,6 +82,12 @@ interface AdminConfigContextValue {
     excessiveEventAutoActionThreshold: number,
     excessiveEventAutoActionDurationHours: number,
   ) => Promise<void>;
+
+  // Lazy loaders — config/tenants are NOT fetched when the admin layout mounts.
+  // Sections that consume adminConfig/tenants call these once on mount; pages that
+  // only need getAccessToken/notifications (e.g. Software Mapping) pay nothing.
+  ensureAdminConfigLoaded: () => void;
+  ensureTenantsLoaded: () => void;
 
   // Tenants
   tenants: TenantConfiguration[];
@@ -170,11 +176,11 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
 
   const isGlobalAdmin = user?.isGlobalAdmin === true;
 
-  // Fetch admin configuration
-  useEffect(() => {
-    if (!isGlobalAdmin) return;
+  // Fetch admin configuration — lazy: runs once, triggered by the first section
+  // that actually consumes adminConfig (via ensureAdminConfigLoaded).
+  const adminConfigRequested = useRef(false);
 
-    const fetchAdminConfig = async () => {
+  const fetchAdminConfig = useCallback(async () => {
       try {
         setLoadingConfig(true);
         setError(null);
@@ -232,14 +238,23 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
       } finally {
         setLoadingConfig(false);
       }
-    };
+  }, [getAccessToken]);
 
+  const ensureAdminConfigLoaded = useCallback(() => {
+    // Global Reader never loads platform config (same as the old eager gate);
+    // backend would 403/redact anyway.
+    if (!isGlobalAdmin || adminConfigRequested.current) return;
+    adminConfigRequested.current = true;
     fetchAdminConfig();
-  }, [isGlobalAdmin, getAccessToken]);
+  }, [isGlobalAdmin, fetchAdminConfig]);
 
-  // Fetch tenants + preview whitelist
+  // Fetch tenants + preview whitelist. Exposed directly as the explicit refresh
+  // (post-save reloads); ensureTenantsLoaded is the idempotent on-mount trigger.
+  const tenantsRequested = useRef(false);
+
   const fetchTenants = useCallback(async () => {
     if (!isGlobalAdmin) return;
+    tenantsRequested.current = true;
     try {
       setLoadingTenants(true);
 
@@ -274,7 +289,8 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
     }
   }, [isGlobalAdmin, getAccessToken]);
 
-  useEffect(() => {
+  const ensureTenantsLoaded = useCallback(() => {
+    if (tenantsRequested.current) return;
     fetchTenants();
   }, [fetchTenants]);
 
@@ -508,6 +524,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
       excessiveEventAutoActionThreshold,
       excessiveEventAutoActionDurationHours,
       savingOpsAlerts,
+      ensureAdminConfigLoaded, ensureTenantsLoaded,
       tenants, setTenants, loadingTenants, fetchTenants,
       previewApproved, setPreviewApproved,
       error, setError, successMessage, setSuccessMessage,

@@ -57,7 +57,9 @@ interface TenantsWithManifestsResponse {
  * that opens the dialog with the selection pre-filled.
  */
 export function RestoreBrowserTab({ getAccessToken, setError, setSuccessMessage }: RestoreBrowserTabProps) {
-  const { tenants, loadingTenants } = useAdminConfig();
+  const { ensureTenantsLoaded, tenants, loadingTenants } = useAdminConfig();
+
+  useEffect(() => { ensureTenantsLoaded(); }, [ensureTenantsLoaded]);
   const [selectedTenantId, setSelectedTenantId] = useState<string>("");
   // loadedTenantId pairs the displayed sessions with the tenant they belong to. The dropdown's
   // selectedTenantId can race ahead of an in-flight fetch; rendering only when the two match

@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import { trackEvent } from "@/lib/appInsights";
+import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import type { AutoResolveResult, IgnoredSoftwareEntry } from "./SoftwareMappingTypes";
 
 interface IgnoredSoftwareTabProps {
@@ -27,7 +28,8 @@ export function IgnoredSoftwareTab({
   onCountChanged,
 }: IgnoredSoftwareTabProps) {
   const [ignoredEntries, setIgnoredEntries] = useState<IgnoredSoftwareEntry[]>([]);
-  const [ignoredLoading, setIgnoredLoading] = useState(false);
+  // true: a fetch fires on mount (TableSkeleton convention — avoids an empty-state flash)
+  const [ignoredLoading, setIgnoredLoading] = useState(true);
   const [ignoredLoaded, setIgnoredLoaded] = useState(false);
   const [ignoredPage, setIgnoredPage] = useState(0);
   const [restoringRow, setRestoringRow] = useState<string | null>(null);
@@ -56,10 +58,11 @@ export function IgnoredSoftwareTab({
 
   // Lazy load on mount
   useEffect(() => {
-    if (!ignoredLoaded && !ignoredLoading) {
+    if (!ignoredLoaded) {
       fetchIgnoredSoftware();
     }
-  }, [ignoredLoaded, ignoredLoading, fetchIgnoredSoftware]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ignoredLoaded]);
 
   // Reset when refreshTrigger changes (e.g. unmapped tab ignored an item)
   useEffect(() => {
@@ -158,11 +161,9 @@ export function IgnoredSoftwareTab({
 
   return (
     <>
-      {ignoredLoading ? (
-        <div className="flex items-center justify-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600" />
-          <span className="ml-3 text-sm text-gray-500 dark:text-gray-400">Loading ignored software...</span>
-        </div>
+      {ignoredLoading && !ignoredLoaded ? (
+        // Skeleton only on initial load; refetches (restore) keep the table visible.
+        <TableSkeleton columns={4} rows={8} className="pt-4" />
       ) : ignoredEntries.length === 0 ? (
         <div className="text-center py-8 text-gray-500 dark:text-gray-400">
           <svg className="w-12 h-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -1,11 +1,13 @@
 "use client";
 
+import { useEffect } from "react";
 import { useAdminConfig } from "../../AdminConfigContext";
 import { OpsAlertRulesSection } from "../../components/OpsAlertRulesSection";
 import { AdminNotifications } from "../../AdminNotifications";
 
 export function SectionAlerts() {
   const {
+    ensureAdminConfigLoaded,
     loadingConfig,
     savingOpsAlerts,
     adminConfig,
@@ -22,6 +24,8 @@ export function SectionAlerts() {
     excessiveEventAutoActionDurationHours,
     handleSaveOpsAlertConfig,
   } = useAdminConfig();
+
+  useEffect(() => { ensureAdminConfigLoaded(); }, [ensureAdminConfigLoaded]);
 
   return (
     <>

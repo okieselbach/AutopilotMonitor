@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import TruncatedLabel from "@/components/TruncatedLabel";
+import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { trackEvent } from "@/lib/appInsights";
 import type { UnmatchedSoftwareEntry, AutoResolveResult } from "./SoftwareMappingTypes";
 
@@ -27,7 +28,8 @@ export function UnmappedSoftwareTab({
 }: UnmappedSoftwareTabProps) {
   // Unmapped state — server-side pagination
   const pageSize = 20;
-  const [loading, setLoading] = useState(false);
+  // true: a fetch fires on mount (TableSkeleton convention — avoids an empty-state flash)
+  const [loading, setLoading] = useState(true);
   const [initialLoaded, setInitialLoaded] = useState(false);
   const [entries, setEntries] = useState<UnmatchedSoftwareEntry[]>([]);
   const [total, setTotal] = useState(0);
@@ -378,15 +380,12 @@ export function UnmappedSoftwareTab({
 
   // --- Render ---
 
-  // Full-page spinner only on initial load. Subsequent page fetches keep the table visible
+  // Table skeleton only on initial load. Subsequent page fetches keep the table visible
   // to avoid flicker; controls are disabled via the `loading` state.
   return (
     <>
       {loading && !initialLoaded ? (
-        <div className="flex items-center justify-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600" />
-          <span className="ml-3 text-sm text-gray-500 dark:text-gray-400">Loading unmatched software...</span>
-        </div>
+        <TableSkeleton columns={6} rows={8} className="pt-4" />
       ) : initialLoaded && total === 0 ? (
         <div className="text-center py-8 text-gray-500 dark:text-gray-400">
           <svg className="w-12 h-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

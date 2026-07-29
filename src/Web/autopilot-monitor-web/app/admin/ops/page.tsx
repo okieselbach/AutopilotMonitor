@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useAdminConfig } from "../AdminConfigContext";
 import { MaintenanceTriggerSection } from "../components/MaintenanceTriggerSection";
 import { OpsEventsSection } from "../components/OpsEventsSection";
@@ -7,6 +8,7 @@ import { AdminNotifications } from "../AdminNotifications";
 
 export default function OpsPage() {
   const {
+    ensureAdminConfigLoaded,
     getAccessToken,
     setError,
     setSuccessMessage,
@@ -15,6 +17,9 @@ export default function OpsPage() {
     handleSaveAdminConfig,
     savingConfig,
   } = useAdminConfig();
+
+  // opsEventRetentionDays + handleSaveAdminConfig operate on adminConfig
+  useEffect(() => { ensureAdminConfigLoaded(); }, [ensureAdminConfigLoaded]);
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">

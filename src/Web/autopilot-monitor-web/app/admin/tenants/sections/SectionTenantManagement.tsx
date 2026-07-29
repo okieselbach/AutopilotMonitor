@@ -1,10 +1,12 @@
 "use client";
 
+import { useEffect } from "react";
 import { useAdminConfig } from "../../AdminConfigContext";
 import { TenantManagementSection } from "../../components/TenantManagementSection";
 
 export function SectionTenantManagement() {
   const {
+    ensureTenantsLoaded,
     tenants,
     loadingTenants,
     fetchTenants,
@@ -15,6 +17,8 @@ export function SectionTenantManagement() {
     setError,
     setSuccessMessage,
   } = useAdminConfig();
+
+  useEffect(() => { ensureTenantsLoaded(); }, [ensureTenantsLoaded]);
 
   return (
     <TenantManagementSection

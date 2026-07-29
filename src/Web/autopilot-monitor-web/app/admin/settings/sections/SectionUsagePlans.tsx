@@ -23,7 +23,12 @@ const DEFAULT_TIER: PlanTierDefinition = {
 
 export function SectionUsagePlans() {
   const { getAccessToken } = useAuth();
-  const { tenants, userRateLimit } = useAdminConfig();
+  const { ensureAdminConfigLoaded, ensureTenantsLoaded, tenants, userRateLimit } = useAdminConfig();
+
+  useEffect(() => {
+    ensureAdminConfigLoaded();
+    ensureTenantsLoaded();
+  }, [ensureAdminConfigLoaded, ensureTenantsLoaded]);
   const [tiers, setTiers] = useState<PlanTierDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

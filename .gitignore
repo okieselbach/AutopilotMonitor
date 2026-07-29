@@ -148,3 +148,6 @@ plans/REFACTOR_AGENT_V2.md
 scripts/Backup/setup-backup-container.ps1
 docs/Introduction-AutopilotMonitor.pptx
 docs/~$Introduction-AutopilotMonitor.pptx
+
+# Playwright MCP browser artifacts (snapshots, screenshots, console logs)
+.playwright-mcp/

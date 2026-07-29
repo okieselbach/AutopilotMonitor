@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { trackEvent } from "@/lib/appInsights";
 import { CpeMappingEntry } from "./SoftwareMappingTypes";
+import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 
 interface MappedSoftwareTabProps {
   getAccessToken: () => Promise<string | null>;
@@ -22,7 +23,8 @@ export function MappedSoftwareTab({
   onCountChanged,
 }: MappedSoftwareTabProps) {
   const [mappedEntries, setMappedEntries] = useState<CpeMappingEntry[]>([]);
-  const [mappedLoading, setMappedLoading] = useState(false);
+  // true: a fetch fires on mount (TableSkeleton convention — avoids an empty-state flash)
+  const [mappedLoading, setMappedLoading] = useState(true);
   const [mappedLoaded, setMappedLoaded] = useState(false);
   const [mappedPage, setMappedPage] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
@@ -80,10 +82,11 @@ export function MappedSoftwareTab({
 
   // Lazy load on first render
   useEffect(() => {
-    if (!mappedLoaded && !mappedLoading) {
+    if (!mappedLoaded) {
       fetchCpeMappings();
     }
-  }, [mappedLoaded, mappedLoading, fetchCpeMappings]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mappedLoaded]);
 
   // Reset loaded state when refreshTrigger changes (external signal to reload)
   useEffect(() => {
@@ -285,13 +288,9 @@ export function MappedSoftwareTab({
 
   // --- Render ---
 
-  if (mappedLoading) {
-    return (
-      <div className="flex items-center justify-center py-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600" />
-        <span className="ml-3 text-sm text-gray-500 dark:text-gray-400">Loading CPE mappings...</span>
-      </div>
-    );
+  // Skeleton only on initial load; refetches (search, refresh) keep the table visible.
+  if (mappedLoading && !mappedLoaded) {
+    return <TableSkeleton columns={5} rows={8} className="pt-4" />;
   }
 
   return (
