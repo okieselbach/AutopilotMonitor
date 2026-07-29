@@ -81,12 +81,21 @@ describe("staticwebapp.config.json guard", () => {
     }
   });
 
-  it("exact detail/inspector rewrites precede their family wildcard", () => {
+  it("exact list/detail/inspector rewrites precede their family wildcard", () => {
     const routes = config.routes.map((r) => r.route);
+    // The base LIST routes must be exact entries BEFORE the wildcard: SWA's
+    // trailingSlash:auto normalizes /apps to /apps/, which the /apps/* wildcard
+    // matches — without the exact entry the list page serves the DETAIL html
+    // (production incident 2026-07-29: /apps rendered the app-detail view).
     const pairs: Array<[string, string]> = [
+      ["/sessions", "/sessions/*"],
       ["/sessions/inspector", "/sessions/*"],
+      ["/diagnosis", "/diagnosis/*"],
+      ["/apps", "/apps/*"],
       ["/apps/detail", "/apps/*"],
+      ["/admin/backups", "/admin/backups/*"],
       ["/admin/backups/detail", "/admin/backups/*"],
+      ["/admin/customs-archive", "/admin/customs-archive/*"],
       ["/admin/customs-archive/detail", "/admin/customs-archive/*"],
     ];
     for (const [exact, wildcard] of pairs) {
