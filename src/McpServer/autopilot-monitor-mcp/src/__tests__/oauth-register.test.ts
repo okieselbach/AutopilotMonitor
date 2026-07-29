@@ -74,6 +74,18 @@ describe('/.well-known/oauth-protected-resource — RFC 9728 resource identifier
   });
 });
 
+describe('/.well-known/oauth-authorization-server — RFC 8414 metadata', () => {
+  it('advertises RFC 9207 iss support with issuer matching the callback iss value', async () => {
+    const res = await fetch(`${baseUrl}/.well-known/oauth-authorization-server`);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as Record<string, unknown>;
+    // The /oauth/callback redirect stamps iss=<public base URL>; clients
+    // validate that against this issuer, so the two must agree.
+    expect(json.issuer).toBe(baseUrl);
+    expect(json.authorization_response_iss_parameter_supported).toBe(true);
+  });
+});
+
 describe('/oauth/register — dynamic client registration (RFC 7591)', () => {
   it('registers a client with a loopback redirect_uri and returns a client_id', async () => {
     const { status, json } = await register({
@@ -327,8 +339,12 @@ describe('/oauth/callback — signed state + client enforcement', () => {
     expect(res.status).toBe(302);
     const location = res.headers.get('location') ?? '';
     expect(location.startsWith(`${REDIRECT}?`)).toBe(true);
-    expect(location).toContain('code=ENTRA_CODE');
-    expect(location).toContain('state=client-state');
+    const params = new URL(location).searchParams;
+    expect(params.get('code')).toBe('ENTRA_CODE');
+    expect(params.get('state')).toBe('client-state');
+    // RFC 9207: iss must equal the issuer from the RFC 8414 metadata, or
+    // spec-2026 clients abort before redeeming the code.
+    expect(params.get('iss')).toBe(baseUrl);
   });
 
   it('rejects a forged client_id carried in the state', async () => {

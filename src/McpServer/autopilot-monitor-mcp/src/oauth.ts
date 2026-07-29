@@ -430,6 +430,11 @@ export function createOAuthRouter(): Router {
       response_types_supported: ['code'],
       grant_types_supported: ['authorization_code', 'refresh_token'],
       code_challenge_methods_supported: ['S256'],
+      // RFC 9207: the authorization response (the /oauth/callback redirect)
+      // carries an `iss` parameter; advertising it here tells clients they
+      // MUST validate it against this document's `issuer` before redeeming
+      // the code — the mix-up defense MCP spec 2026-07-28 made mandatory.
+      authorization_response_iss_parameter_supported: true,
       scopes_supported: ['openid', 'profile', 'offline_access', `api://${CLIENT_ID}/access_as_user`],
     });
   });
@@ -640,6 +645,7 @@ export function createOAuthRouter(): Router {
 
   // --- Callback: receive code from Entra ID, forward to Claude Code ---
   router.get('/oauth/callback', oauthRateLimit, (req, res) => {
+    const baseUrl = getPublicBaseUrl(req);
     const { code, state, error, error_description } = req.query as Record<string, string>;
 
     if (error) {
@@ -697,10 +703,17 @@ export function createOAuthRouter(): Router {
       }
     }
 
-    // Redirect back to Claude Code with the authorization code
+    // Redirect back to Claude Code with the authorization code. `iss` is the
+    // RFC 9207 issuer identifier — it MUST equal the `issuer` from our RFC 8414
+    // metadata (both derive from getPublicBaseUrl), and clients validate it
+    // before redeeming the code to detect authorization-server mix-up attacks.
+    // MCP spec 2026-07-28 requires clients to perform this check, so the value
+    // must be present for them; RFC 9207 clients that predate it ignore
+    // unknown response parameters (RFC 6749 §4.1.2).
     const callbackParams = new URLSearchParams({
       code,
       ...(originalState ? { state: originalState } : {}),
+      iss: baseUrl,
     });
 
     res.redirect(`${redirectUri}?${callbackParams}`);
