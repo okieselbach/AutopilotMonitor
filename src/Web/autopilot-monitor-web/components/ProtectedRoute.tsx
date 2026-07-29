@@ -2,7 +2,7 @@
 
 import { useAuth } from "../contexts/AuthContext";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { savePostLoginReturnUrl } from "../lib/postLoginReturn";
 
 interface ProtectedRouteProps {
@@ -41,6 +41,7 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
 
   // Prevent infinite redirect loops: only attempt re-login once per mount.
   const reloginAttempted = useRef(false);
+  const [loginFailed, setLoginFailed] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -54,17 +55,38 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
         // role-default route (e.g. /dashboard) instead of the page they opened.
         savePostLoginReturnUrl(window.location.pathname + window.location.search);
         login().catch((err) => {
-          console.warn('[ProtectedRoute] Login redirect failed, navigating to landing:', err);
-          router.push("/");
+          // Do NOT navigate to a public path here: auth state is per-origin, so
+          // "/" bounces (HostRoutingGuard) back to www, whose AuthGate pushes an
+          // authenticated user straight back here — a hard redirect loop
+          // (production incident 2026-07-29). Fail in place with a retry UI.
+          console.warn('[ProtectedRoute] Login redirect failed:', err);
+          setLoginFailed(true);
         });
-      } else {
-        // Login redirect already attempted — fall back to the public landing.
-        // The 100ms timeout lets any in-flight MSAL redirect settle first.
-        const id = setTimeout(() => router.push("/"), 100);
-        return () => clearTimeout(id);
       }
     }
   }, [isAuthenticated, isLoading, router, login]);
+
+  // Sign-in failed (e.g. an interrupted earlier redirect left MSAL in
+  // interaction_in_progress) — stay on this origin and offer a manual retry.
+  if (!isAuthenticated && !isLoading && loginFailed) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full text-center">
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Sign-in required</h2>
+          <p className="text-gray-600 mb-6">We couldn&apos;t sign you in automatically.</p>
+          <button
+            onClick={() => {
+              setLoginFailed(false);
+              login().catch(() => setLoginFailed(true));
+            }}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Sign in
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Show loading spinner while MSAL settles or while re-login redirect is pending.
   if (isLoading || (!isAuthenticated && wasAuthenticated.current)) {

@@ -4,6 +4,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { consumePostLoginReturnUrl } from "../../lib/postLoginReturn";
+import { PORTAL_HOST, shouldCrossOriginToPortal } from "../../lib/hostRouting";
 
 /**
  * Invisible client component that handles auth redirect logic.
@@ -19,18 +20,27 @@ export function AuthGate() {
       // Always consume (read + clear) so a stale deep link can't misroute a later
       // sign-in; only honor it when the user isn't preview-gated.
       const returnUrl = consumePostLoginReturnUrl();
+      let target: string;
       if (isPreviewBlocked) {
-        router.push("/preview");
+        target = "/preview";
       } else if (returnUrl) {
         // Restore the deep link the user originally opened before re-auth.
-        router.replace(returnUrl);
+        target = returnUrl;
       } else if (user.isDelegated && !user.isTenantAdmin && !user.isGlobalAdmin && !user.isGlobalReader && user.role !== 'Operator') {
         // A delegated ("MSP") admin with no own-tenant/platform role manages a fleet → land on /fleet.
-        router.push("/fleet");
+        target = "/fleet";
       } else if (user.isTenantAdmin || user.isGlobalAdmin || user.isGlobalReader || user.role === 'Operator') {
-        router.push("/dashboard");
+        target = "/dashboard";
       } else {
-        router.push("/progress");
+        target = "/progress";
+      }
+      // On the public host, hand over to the portal origin in ONE full-page
+      // navigation instead of router.push + HostRoutingGuard bounce. Auth state
+      // is per-origin — the portal side runs its own (silent) MSAL sign-in.
+      if (shouldCrossOriginToPortal()) {
+        window.location.href = `https://${PORTAL_HOST}${target}`;
+      } else {
+        router.replace(target);
       }
     }
   }, [isAuthenticated, isLoading, user, isPreviewBlocked, router]);
