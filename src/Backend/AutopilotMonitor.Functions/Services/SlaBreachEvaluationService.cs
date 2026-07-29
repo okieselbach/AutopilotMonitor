@@ -30,7 +30,9 @@ namespace AutopilotMonitor.Functions.Services
     /// </summary>
     public class SlaBreachEvaluationService
     {
-        private const string DashboardUrl = Constants.WebsiteBaseUrl + "/sla";
+        // Portal host — /sla is an authenticated portal page; www…/sla links in
+        // already-sent notifications reach it via the client-side host bounce.
+        private const string DashboardUrl = Constants.PortalBaseUrl + "/sla";
         private const int MaxConflictRetries = 4;
         private const int MinAppInstallSampleSize = 5;
 

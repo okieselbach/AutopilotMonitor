@@ -26,6 +26,7 @@ export default function robots(): MetadataRoute.Robots {
           // query-based since the static export).
           "/sessions",
           "/diagnosis",
+          "/sla",
           "/admin/",
           "/settings",
           "/preview",

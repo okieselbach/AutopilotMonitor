@@ -27,7 +27,13 @@ export const PUBLIC_PATH_PREFIXES = [
   "/privacy",
   "/terms",
   "/roadmap",
-  "/sla",
+  // NOTE: /sla is deliberately NOT here. It is a fully authenticated portal
+  // page (ProtectedRoute + token fetches) that only LOOKED public because SLA
+  // notifications historically linked www…/sla. As a public path it dead-ends:
+  // ProtectedRoute stands down on the public host, so the page waits forever
+  // for a sign-in (prod incident 2026-07-29). Off the list, old www…/sla links
+  // bounce to portal/sla where auth works; new notifications link portal
+  // directly (SlaBreachEvaluationService.DashboardUrl).
   "/robots.txt",
   "/sitemap.xml",
   "/IndexNow.txt",
