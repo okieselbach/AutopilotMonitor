@@ -3,6 +3,10 @@
     "autopilot-monitor": {
       "type": "http",
       "url": "https://mcp.autopilotmonitor.com/mcp"
+    },
+    "playwright": {
+      "command": "cmd",
+      "args": ["/c", "npx", "@playwright/mcp@latest"]
     }
   }
 }
