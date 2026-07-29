@@ -127,7 +127,7 @@ interface AuthContextType {
   isLoading: boolean;
   isPreviewBlocked: boolean;
   previewMessage: string;
-  login: () => Promise<void>;
+  login: (options?: { auto?: boolean }) => Promise<void>;
   logout: () => Promise<void>;
   getAccessToken: (forceRefresh?: boolean) => Promise<string | null>;
   refreshUserInfo: () => Promise<void>;
@@ -353,9 +353,15 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
   }, [accounts, inProgress, fetchUserInfo]);
 
   /**
-   * Initiates login flow
+   * Initiates login flow.
+   *
+   * `auto: true` marks a login the APP triggered (ProtectedRoute re-auth,
+   * cross-origin www → portal handover) rather than a user click: the
+   * `prompt: "select_account"` picker is dropped so Entra completes silently
+   * via its session cookie when one exists — otherwise the www → portal
+   * handover shows a second interactive sign-in for an already signed-in user.
    */
-  const login = useCallback(async () => {
+  const login = useCallback(async (options?: { auto?: boolean }) => {
     // Check if an interaction is already in progress
     if (inProgress !== InteractionStatus.None) {
       console.log('[Auth] Interaction already in progress, skipping login');
@@ -363,7 +369,10 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      await instance.loginRedirect(loginRequest);
+      const request = options?.auto
+        ? { ...loginRequest, prompt: undefined }
+        : loginRequest;
+      await instance.loginRedirect(request);
     } catch (error: unknown) {
       // Ignore interaction_in_progress errors - this can happen if user clicks button multiple times
       // or if another part of the app already triggered a redirect.

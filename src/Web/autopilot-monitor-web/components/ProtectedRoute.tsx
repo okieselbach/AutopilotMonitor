@@ -4,6 +4,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { savePostLoginReturnUrl } from "../lib/postLoginReturn";
+import { isOnPublicHost } from "../lib/hostRouting";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -45,16 +46,25 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
+      // On the PUBLIC host this page is about to be moved to portal by
+      // HostRoutingGuard — starting an MSAL interaction here would sign the
+      // user in on the WRONG origin (www) and force a second sign-in after
+      // the handover. Stand down and let the guard navigate.
+      if (isOnPublicHost()) {
+        return;
+      }
       if (!reloginAttempted.current) {
         // Trigger MSAL login redirect once. On portal this is also the
         // entry-point flow for users who arrived via a www → portal
-        // cross-origin sign-in nav with no portal-side session yet.
+        // cross-origin sign-in nav with no portal-side session yet. `auto`
+        // drops the account picker so an existing Entra session completes
+        // silently (no visible second sign-in).
         reloginAttempted.current = true;
         // Stash the deep link so AuthGate can restore it after re-auth. MSAL has
         // navigateToLoginRequestUrl=false, so without this the user lands on the
         // role-default route (e.g. /dashboard) instead of the page they opened.
         savePostLoginReturnUrl(window.location.pathname + window.location.search);
-        login().catch((err) => {
+        login({ auto: true }).catch((err) => {
           // Do NOT navigate to a public path here: auth state is per-origin, so
           // "/" bounces (HostRoutingGuard) back to www, whose AuthGate pushes an
           // authenticated user straight back here — a hard redirect loop
