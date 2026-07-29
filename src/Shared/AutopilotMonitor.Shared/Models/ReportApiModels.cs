@@ -57,6 +57,16 @@ namespace AutopilotMonitor.Shared.Models
         /// session deletion and retention cleanup.
         /// </summary>
         public bool IncludeDiagnostics { get; set; }
+
+        /// <summary>Number of events the client had loaded when it generated the exports.</summary>
+        public int? ExportedEventCount { get; set; }
+
+        /// <summary>The session's EventCount as the client saw it — compared against
+        /// <see cref="ExportedEventCount"/> this flags a partial export.</summary>
+        public int? SessionEventCount { get; set; }
+
+        /// <summary>True when the client was still streaming event pages at submit time.</summary>
+        public bool? EventStreamActive { get; set; }
     }
 
     /// <summary>

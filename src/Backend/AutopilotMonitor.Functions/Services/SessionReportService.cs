@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Azure.Storage.Blobs.Models;
@@ -26,6 +27,8 @@ namespace AutopilotMonitor.Functions.Services
         private readonly BlobStorageService _blobStorage;
         private readonly TableStorageService _tableStorage;
         private readonly SessionReportDiagnosticsArchiveCopier _diagnosticsArchiveCopier;
+        private readonly TenantConfigurationService _configService;
+        private readonly IRuleRepository _ruleRepo;
         private const string ContainerName = "session-reports";
 
         public SessionReportService(
@@ -33,6 +36,8 @@ namespace AutopilotMonitor.Functions.Services
             BlobStorageService blobStorage,
             TableStorageService tableStorage,
             SessionReportDiagnosticsArchiveCopier diagnosticsArchiveCopier,
+            TenantConfigurationService configService,
+            IRuleRepository ruleRepo,
             ILogger<SessionReportService> logger)
         {
             _notificationRepo = notificationRepo;
@@ -40,6 +45,8 @@ namespace AutopilotMonitor.Functions.Services
             _blobStorage = blobStorage;
             _tableStorage = tableStorage;
             _diagnosticsArchiveCopier = diagnosticsArchiveCopier;
+            _configService = configService;
+            _ruleRepo = ruleRepo;
         }
 
         /// <summary>
@@ -58,8 +65,12 @@ namespace AutopilotMonitor.Functions.Services
             //    Session diag blobs die with the session (user delete / retention); the copy in
             //    the session-reports container does not. Fail-soft: a failed copy never blocks
             //    the report — the status lands on the row + in report-metadata.json instead.
+            //    The source blob name/destination is recorded too: when the copy failed, the
+            //    operator can still fetch the original while the session is alive.
             string? copiedDiagnosticsBlobName = null;
             string? diagnosticsCopyStatus = null;
+            string? sourceDiagnosticsBlobName = null;
+            string? sourceDiagnosticsDestination = null;
             if (request.IncludeDiagnostics)
             {
                 var session = await _tableStorage.GetSessionAsync(request.TenantId, request.SessionId);
@@ -69,6 +80,8 @@ namespace AutopilotMonitor.Functions.Services
                 }
                 else
                 {
+                    sourceDiagnosticsBlobName = session.DiagnosticsBlobName;
+                    sourceDiagnosticsDestination = session.DiagnosticsBlobDestination;
                     var destinationName = $"{request.TenantId}_{request.SessionId}_diag_archive_{timestamp}.zip";
                     var copyResult = await _diagnosticsArchiveCopier.CopyAsync(
                         request.TenantId, request.SessionId, session.DiagnosticsBlobName, destinationName);
@@ -77,6 +90,15 @@ namespace AutopilotMonitor.Functions.Services
                         copiedDiagnosticsBlobName = destinationName;
                 }
             }
+
+            // Tenant-side detection context (custom rule/pattern state at report time — it may
+            // have changed by the time an operator investigates). Fail-soft; never blocks.
+            var tenantContext = await CollectTenantContextAsync(request.TenantId, reportId);
+
+            // Decode attachments up front so report-metadata.json can record their outcome
+            // instead of silently dropping invalid payloads.
+            var (screenshotBytes, screenshotStatus) = DecodeAttachment(request.ScreenshotBase64, reportId, "screenshot");
+            var (agentLogBytes, agentLogStatus) = DecodeAttachment(request.AgentLogBase64, reportId, "agent log");
 
             // 1. Create ZIP in memory
             using var zipStream = new MemoryStream();
@@ -116,47 +138,45 @@ namespace AutopilotMonitor.Functions.Services
                     request.Email,
                     submittedBy,
                     submittedAt = DateTime.UtcNow.ToString("O"),
+                    export = new
+                    {
+                        exportedEventCount = request.ExportedEventCount,
+                        sessionEventCount = request.SessionEventCount,
+                        eventStreamActive = request.EventStreamActive
+                    },
                     includedDiagnostics = new
                     {
                         requested = request.IncludeDiagnostics,
                         blobName = copiedDiagnosticsBlobName,
-                        status = diagnosticsCopyStatus
-                    }
+                        status = diagnosticsCopyStatus,
+                        sourceBlobName = sourceDiagnosticsBlobName,
+                        sourceDestination = sourceDiagnosticsDestination
+                    },
+                    attachments = new
+                    {
+                        screenshot = screenshotStatus,
+                        agentLog = agentLogStatus
+                    },
+                    tenantContext
                 });
 
                 // Optional screenshot
-                if (!string.IsNullOrEmpty(request.ScreenshotBase64))
+                if (screenshotBytes != null)
                 {
-                    try
-                    {
-                        var screenshotBytes = Convert.FromBase64String(request.ScreenshotBase64);
-                        var ext = Path.GetExtension(request.ScreenshotFileName ?? ".png");
-                        if (string.IsNullOrEmpty(ext)) ext = ".png";
-                        var entry = archive.CreateEntry($"screenshot{ext}", CompressionLevel.Optimal);
-                        using var entryStream = entry.Open();
-                        await entryStream.WriteAsync(screenshotBytes);
-                    }
-                    catch (FormatException ex)
-                    {
-                        _logger.LogWarning(ex, "Invalid base64 screenshot data in report {ReportId}", reportId);
-                    }
+                    var ext = Path.GetExtension(request.ScreenshotFileName ?? ".png");
+                    if (string.IsNullOrEmpty(ext)) ext = ".png";
+                    var entry = archive.CreateEntry($"screenshot{ext}", CompressionLevel.Optimal);
+                    using var entryStream = entry.Open();
+                    await entryStream.WriteAsync(screenshotBytes);
                 }
 
                 // Optional agent log file (max 5 MB enforced by frontend)
-                if (!string.IsNullOrEmpty(request.AgentLogBase64))
+                if (agentLogBytes != null)
                 {
-                    try
-                    {
-                        var logBytes = Convert.FromBase64String(request.AgentLogBase64);
-                        var logFileName = request.AgentLogFileName ?? "agent.log";
-                        var entry = archive.CreateEntry(logFileName, CompressionLevel.Optimal);
-                        using var entryStream = entry.Open();
-                        await entryStream.WriteAsync(logBytes);
-                    }
-                    catch (FormatException ex)
-                    {
-                        _logger.LogWarning(ex, "Invalid base64 agent log data in report {ReportId}", reportId);
-                    }
+                    var logFileName = SanitizeZipEntryName(request.AgentLogFileName, "agent.log");
+                    var entry = archive.CreateEntry(logFileName, CompressionLevel.Optimal);
+                    using var entryStream = entry.Open();
+                    await entryStream.WriteAsync(agentLogBytes);
                 }
             }
 
@@ -210,6 +230,9 @@ namespace AutopilotMonitor.Functions.Services
             var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
             var blobName = $"{request.TenantId}_diag_files_{timestamp}.zip";
 
+            var (screenshotBytes, screenshotStatus) = DecodeAttachment(request.ScreenshotBase64, reportId, "screenshot");
+            var (agentLogBytes, agentLogStatus) = DecodeAttachment(request.AgentLogBase64, reportId, "log payload");
+
             using var zipStream = new MemoryStream();
             using (var archive = new ZipArchive(zipStream, ZipArchiveMode.Create, leaveOpen: true))
             {
@@ -221,42 +244,29 @@ namespace AutopilotMonitor.Functions.Services
                     request.Comment,
                     request.Email,
                     submittedBy,
-                    submittedAt = DateTime.UtcNow.ToString("O")
+                    submittedAt = DateTime.UtcNow.ToString("O"),
+                    attachments = new
+                    {
+                        screenshot = screenshotStatus,
+                        agentLog = agentLogStatus
+                    }
                 });
 
-                if (!string.IsNullOrEmpty(request.ScreenshotBase64))
+                if (screenshotBytes != null)
                 {
-                    try
-                    {
-                        var screenshotBytes = Convert.FromBase64String(request.ScreenshotBase64);
-                        var ext = Path.GetExtension(request.ScreenshotFileName ?? ".png");
-                        if (string.IsNullOrEmpty(ext)) ext = ".png";
-                        var entry = archive.CreateEntry($"screenshot{ext}", CompressionLevel.Optimal);
-                        using var entryStream = entry.Open();
-                        await entryStream.WriteAsync(screenshotBytes);
-                    }
-                    catch (FormatException ex)
-                    {
-                        _logger.LogWarning(ex, "Invalid base64 screenshot data in diag-files report {ReportId}", reportId);
-                    }
+                    var ext = Path.GetExtension(request.ScreenshotFileName ?? ".png");
+                    if (string.IsNullOrEmpty(ext)) ext = ".png";
+                    var entry = archive.CreateEntry($"screenshot{ext}", CompressionLevel.Optimal);
+                    using var entryStream = entry.Open();
+                    await entryStream.WriteAsync(screenshotBytes);
                 }
 
-                if (!string.IsNullOrEmpty(request.AgentLogBase64))
+                if (agentLogBytes != null)
                 {
-                    try
-                    {
-                        var logBytes = Convert.FromBase64String(request.AgentLogBase64);
-                        var logFileName = string.IsNullOrEmpty(request.AgentLogFileName)
-                            ? "diag-files.bin"
-                            : request.AgentLogFileName;
-                        var entry = archive.CreateEntry(logFileName, CompressionLevel.Optimal);
-                        using var entryStream = entry.Open();
-                        await entryStream.WriteAsync(logBytes);
-                    }
-                    catch (FormatException ex)
-                    {
-                        _logger.LogWarning(ex, "Invalid base64 log payload in diag-files report {ReportId}", reportId);
-                    }
+                    var logFileName = SanitizeZipEntryName(request.AgentLogFileName, "diag-files.bin");
+                    var entry = archive.CreateEntry(logFileName, CompressionLevel.Optimal);
+                    using var entryStream = entry.Open();
+                    await entryStream.WriteAsync(agentLogBytes);
                 }
             }
 
@@ -313,6 +323,81 @@ namespace AutopilotMonitor.Functions.Services
         public async Task<bool> UpdateAdminNoteAsync(string reportId, string adminNote)
         {
             return await _notificationRepo.UpdateSessionReportAdminNoteAsync(reportId, adminNote);
+        }
+
+        /// <summary>
+        /// Snapshot of the tenant-side detection state relevant to a session report: upload
+        /// destination flags and the IDs of custom rules/patterns active at report time.
+        /// Deliberately excludes anything secret-bearing (SAS URLs, tokens) and full rule
+        /// definitions — IDs + timestamps are enough to correlate with the (persisted) rule
+        /// tables even after the customer edits them. Fail-soft: null on any error.
+        /// </summary>
+        private async Task<object?> CollectTenantContextAsync(string tenantId, string reportId)
+        {
+            try
+            {
+                var config = await _configService.GetConfigurationAsync(tenantId);
+                var gatherRules = await _ruleRepo.GetGatherRulesAsync(tenantId);
+                var analyzeRules = await _ruleRepo.GetAnalyzeRulesAsync(tenantId);
+                var imePatterns = await _ruleRepo.GetImeLogPatternsAsync(tenantId);
+
+                return new
+                {
+                    diagnosticsUploadMode = config.DiagnosticsUploadMode,
+                    diagnosticsUploadDestination = config.DiagnosticsUploadDestination,
+                    gatherRuleDebugLogEnabled = config.EnableGatherRuleDebugLog,
+                    customGatherRules = gatherRules
+                        .Select(r => new { ruleId = r.RuleId, updatedAt = r.UpdatedAt }).ToList(),
+                    customAnalyzeRules = analyzeRules
+                        .Select(r => new { ruleId = r.RuleId, updatedAt = r.UpdatedAt }).ToList(),
+                    customImePatternIds = imePatterns.Select(p => p.PatternId).ToList()
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Report {ReportId}: tenant-context snapshot failed — omitted from metadata", reportId);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Decodes an optional base64 attachment. Returns the bytes plus a status string
+        /// ("none" | "included" | "invalid-base64") that is persisted in report-metadata.json —
+        /// an invalid payload must be visible to the operator, not silently dropped.
+        /// </summary>
+        private (byte[]? Bytes, string Status) DecodeAttachment(string? base64, string reportId, string label)
+        {
+            if (string.IsNullOrEmpty(base64))
+                return (null, "none");
+            try
+            {
+                return (Convert.FromBase64String(base64), "included");
+            }
+            catch (FormatException ex)
+            {
+                _logger.LogWarning(ex, "Invalid base64 {Label} data in report {ReportId}", label, reportId);
+                return (null, "invalid-base64");
+            }
+        }
+
+        /// <summary>
+        /// Sanitizes a caller-supplied file name for use as a ZIP entry: strips any path
+        /// components (no traversal-shaped entries inside the archive) and falls back to
+        /// <paramref name="fallback"/> when nothing usable remains.
+        /// </summary>
+        internal static string SanitizeZipEntryName(string? fileName, string fallback)
+        {
+            if (string.IsNullOrWhiteSpace(fileName))
+                return fallback;
+            // Normalize both separator styles, then keep only the final segment.
+            var candidate = fileName.Replace('\\', '/');
+            var lastSlash = candidate.LastIndexOf('/');
+            if (lastSlash >= 0)
+                candidate = candidate[(lastSlash + 1)..];
+            candidate = candidate.Trim();
+            if (string.IsNullOrEmpty(candidate) || candidate == "." || candidate == "..")
+                return fallback;
+            return candidate;
         }
 
         private static void AddJsonEntry(ZipArchive archive, string name, object data)

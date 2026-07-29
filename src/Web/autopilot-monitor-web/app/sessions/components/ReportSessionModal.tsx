@@ -4,6 +4,10 @@ import { useState, useEffect, useRef } from "react";
 import { Session, EnrollmentEvent, RuleResult } from "@/types";
 
 const MAX_AGENT_LOG_SIZE = 5 * 1024 * 1024; // 5 MB
+// Backend caps the whole request body at 20 MB. Base64 adds ~33%, and the body also
+// carries agent logs (≤5 MB raw) plus CSV/TXT exports — 8 MB raw screenshots keeps
+// the worst case comfortably under the cap.
+const MAX_SCREENSHOT_SIZE = 8 * 1024 * 1024; // 8 MB
 
 interface ReportSessionModalProps {
   show: boolean;
@@ -18,6 +22,8 @@ interface ReportSessionModalProps {
   ) => Promise<void>;
   onCancel: () => void;
   submitting: boolean;
+  /** True while the timeline is still streaming event pages — the export would be partial. */
+  eventsStreaming?: boolean;
 }
 
 function formatFileSize(bytes: number): string {
@@ -27,11 +33,12 @@ function formatFileSize(bytes: number): string {
 }
 
 export default function ReportSessionModal({
-  show, session, events, analysisResults, onSubmit, onCancel, submitting
+  show, session, events, analysisResults, onSubmit, onCancel, submitting, eventsStreaming
 }: ReportSessionModalProps) {
   const [comment, setComment] = useState("");
   const [email, setEmail] = useState("");
   const [screenshotFiles, setScreenshotFiles] = useState<File[]>([]);
+  const [screenshotError, setScreenshotError] = useState<string | null>(null);
   const [agentLogFiles, setAgentLogFiles] = useState<File[]>([]);
   const [agentLogError, setAgentLogError] = useState<string | null>(null);
   const [includeDiagnostics, setIncludeDiagnostics] = useState(true);
@@ -77,17 +84,25 @@ export default function ReportSessionModal({
   };
 
   const addScreenshots = (newFiles: File[]) => {
+    setScreenshotError(null);
     const merged = [...screenshotFiles];
     for (const f of newFiles) {
       if (!merged.some(existing => existing.name === f.name && existing.size === f.size)) {
         merged.push(f);
       }
     }
+    const totalSize = merged.reduce((sum, f) => sum + f.size, 0);
+    if (totalSize > MAX_SCREENSHOT_SIZE) {
+      setScreenshotError(`Total size (${formatFileSize(totalSize)}) exceeds 8 MB limit. Remove some files or add smaller ones.`);
+      // Keep existing files, don't add the new ones
+      return;
+    }
     setScreenshotFiles(merged);
     if (screenshotInputRef.current) screenshotInputRef.current.value = "";
   };
 
   const removeScreenshot = (index: number) => {
+    setScreenshotError(null);
     setScreenshotFiles(prev => prev.filter((_, i) => i !== index));
   };
 
@@ -148,6 +163,7 @@ export default function ReportSessionModal({
       setComment("");
       setEmail("");
       setScreenshotFiles([]);
+      setScreenshotError(null);
       setAgentLogFiles([]);
       setAgentLogError(null);
     } catch (err: unknown) {
@@ -304,7 +320,7 @@ export default function ReportSessionModal({
               {/* Screenshots */}
               <div className="mb-6">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Screenshots <span className="text-gray-400">(optional)</span>
+                  Screenshots <span className="text-gray-400">(optional, max 8 MB total)</span>
                 </label>
                 <input
                   ref={screenshotInputRef}
@@ -315,6 +331,9 @@ export default function ReportSessionModal({
                   className="w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/40 dark:file:text-blue-300"
                   disabled={submitting}
                 />
+                {screenshotError && (
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-1">{screenshotError}</p>
+                )}
                 {screenshotFiles.length > 0 && (
                   <div className="mt-2 space-y-1">
                     {screenshotFiles.map((file, i) => (
@@ -374,6 +393,12 @@ export default function ReportSessionModal({
                   {screenshotFiles.length > 1 && <li>{screenshotFiles.length} screenshots (will be zipped)</li>}
                   {hasDiagnostics && includeDiagnostics && <li>Uploaded diagnostics archive (copied server-side)</li>}
                 </ul>
+                {eventsStreaming && (
+                  <p className="mt-2 text-amber-700 dark:text-amber-400">
+                    ⚠ The event timeline is still loading — a report submitted now will contain a
+                    partial export. Wait a moment for the complete timeline if possible.
+                  </p>
+                )}
               </div>
             </>
           )}
@@ -398,7 +423,7 @@ export default function ReportSessionModal({
                 </button>
                 <button
                   onClick={handleSubmit}
-                  disabled={submitting || !!agentLogError}
+                  disabled={submitting || !!agentLogError || !!screenshotError}
                   className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
                   {submitting ? (

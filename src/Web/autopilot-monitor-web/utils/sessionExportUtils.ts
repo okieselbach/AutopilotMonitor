@@ -103,13 +103,30 @@ export interface SessionCsvData {
   lastEventAt?: string;
   durationSeconds: number;
   diagnosticsBlobName?: string;
+  rebootCount?: number;
+  failureSource?: string;
+  reconcileReason?: string;
+  adminMarkedAction?: string;
+  validatedBy?: string;
+  isHybridJoin?: boolean;
+  isSelfDeployingProfile?: boolean;
+  connectionType?: string;
+  geoCountry?: string;
+  geoRegion?: string;
+  geoCity?: string;
+  avgApiLatencyMs?: number;
+  apiRequestCount?: number;
+  stalledAt?: string;
+  failureSnapshotJson?: string;
 }
 
 export function generateSessionCsvExport(session: SessionCsvData): string {
   const esc = (v: string | undefined | null) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  // Columns match the Sessions Azure Table Storage schema exactly
+  // Columns mirror the Sessions Azure Table Storage schema
   // PartitionKey = TenantId, RowKey = SessionId
-  const header = "PartitionKey,RowKey,SerialNumber,DeviceName,Manufacturer,Model,OsName,OsBuild,OsDisplayVersion,OsEdition,OsLanguage,IsUserDriven,IsPreProvisioned,StartedAt,CompletedAt,AgentVersion,EnrollmentType,CurrentPhase,Status,EventCount,FailureReason,LastEventAt,DurationSeconds,DiagnosticsBlobName";
+  // Newer fields are APPENDED (never inserted) so the column prefix stays stable
+  // for anything parsing older exports.
+  const header = "PartitionKey,RowKey,SerialNumber,DeviceName,Manufacturer,Model,OsName,OsBuild,OsDisplayVersion,OsEdition,OsLanguage,IsUserDriven,IsPreProvisioned,StartedAt,CompletedAt,AgentVersion,EnrollmentType,CurrentPhase,Status,EventCount,FailureReason,LastEventAt,DurationSeconds,DiagnosticsBlobName,RebootCount,FailureSource,ReconcileReason,AdminMarkedAction,ValidatedBy,IsHybridJoin,IsSelfDeployingProfile,ConnectionType,GeoCountry,GeoRegion,GeoCity,AvgApiLatencyMs,ApiRequestCount,StalledAt,FailureSnapshotJson";
   const row = [
     esc(session.tenantId),
     esc(session.sessionId),
@@ -135,6 +152,21 @@ export function generateSessionCsvExport(session: SessionCsvData): string {
     esc(session.lastEventAt),
     String(session.durationSeconds ?? ""),
     esc(session.diagnosticsBlobName),
+    String(session.rebootCount ?? ""),
+    esc(session.failureSource),
+    esc(session.reconcileReason),
+    esc(session.adminMarkedAction),
+    esc(session.validatedBy),
+    String(session.isHybridJoin ?? ""),
+    String(session.isSelfDeployingProfile ?? ""),
+    esc(session.connectionType),
+    esc(session.geoCountry),
+    esc(session.geoRegion),
+    esc(session.geoCity),
+    String(session.avgApiLatencyMs ?? ""),
+    String(session.apiRequestCount ?? ""),
+    esc(session.stalledAt),
+    esc(session.failureSnapshotJson),
   ].join(",");
   return "\uFEFF" + header + "\n" + row;
 }

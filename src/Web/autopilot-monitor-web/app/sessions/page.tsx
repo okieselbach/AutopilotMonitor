@@ -305,7 +305,12 @@ function SessionDetailContent() {
             screenshotFileName,
             agentLogBase64,
             agentLogFileName,
-            includeDiagnostics
+            includeDiagnostics,
+            // Completeness signal: lets the operator detect a partial export
+            // (client had not finished streaming all event pages at submit time).
+            exportedEventCount: events.length,
+            sessionEventCount: session?.eventCount,
+            eventStreamActive: eventsApi.isStreamingMore
           })
         }
       );
@@ -782,6 +787,7 @@ function SessionDetailContent() {
           onSubmit={handleSubmitReport}
           onCancel={() => setShowReportModal(false)}
           submitting={reportSubmitting}
+          eventsStreaming={eventsApi.isStreamingMore}
         />
 
       </main>
