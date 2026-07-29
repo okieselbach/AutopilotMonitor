@@ -21,10 +21,6 @@
     { "route": "/changelog", "redirect": "https://docs.autopilotmonitor.com/changelog/platform-changelog", "statusCode": 301 },
     { "route": "/roadmap", "redirect": "/", "statusCode": 302 },
 
-    { "route": "/opengraph-image", "headers": { "Content-Type": "image/png" } },
-    { "route": "/twitter-image", "headers": { "Content-Type": "image/png" } },
-    { "route": "/apple-icon", "headers": { "Content-Type": "image/png" } },
-
     { "route": "/sessions/inspector", "rewrite": "/sessions/inspector/index.html" },
     { "route": "/sessions/*", "rewrite": "/sessions/index.html" },
     { "route": "/diagnosis/*", "rewrite": "/diagnosis/index.html" },
