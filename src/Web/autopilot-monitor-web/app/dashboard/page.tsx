@@ -25,6 +25,7 @@ import { useDashboardFilters } from "./hooks/useDashboardFilters";
 import { useDashboardSessions } from "./hooks/useDashboardSessions";
 import { useDashboardStats } from "./hooks/useDashboardStats";
 import { DOCS_URL } from "@/utils/config";
+import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 
 export default function Home() {
   // useSearchParams() in HomeContent requires a Suspense boundary for static prerender.
@@ -425,7 +426,12 @@ function HomeContent() {
           {/* Welcome message - only show when no sessions */}
           {!loading && sessions.length === 0 && <WelcomeMessage />}
 
-          {/* Sessions List */}
+          {/* Sessions List — skeleton fills the slot on the initial fetch so
+              the page has no blank gap; once data (or the empty states above)
+              resolve, it never reappears. */}
+          {loading && sessions.length === 0 && (
+            <TableSkeleton wrapped columns={7} rows={8} className="mt-4" />
+          )}
           {sessions.length > 0 && (
             <SessionTable
               sessions={effectiveSessions}

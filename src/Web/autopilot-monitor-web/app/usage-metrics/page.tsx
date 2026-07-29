@@ -10,6 +10,7 @@ import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch"
 import { useGlobalAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
+import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
 
 interface SessionMetrics {
   total: number;
@@ -169,21 +170,6 @@ export default function UsageMetricsPage() {
     return date.toLocaleString();
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading usage metrics...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!metrics) {
-    return null;
-  }
-
   return (
 <ProtectedRoute>
     <div className="min-h-screen bg-gray-50">
@@ -198,12 +184,16 @@ export default function UsageMetricsPage() {
                   {isGlobalOverride && selectedTenantName
                     ? `Tenant: ${selectedTenantName} · `
                     : ''}
-                  Computed at {formatTimestamp(metrics.computedAt)} in {metrics.computeDurationMs}ms
-                  {metrics.fromCache && (
-                    <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">
-                      From Cache
-                    </span>
-                  )}
+                  {metrics ? (
+                    <>
+                      Computed at {formatTimestamp(metrics.computedAt)} in {metrics.computeDurationMs}ms
+                      {metrics.fromCache && (
+                        <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">
+                          From Cache
+                        </span>
+                      )}
+                    </>
+                  ) : '…'}
                 </p>
               </div>
             </div>
@@ -224,6 +214,26 @@ export default function UsageMetricsPage() {
         </div>
       </header>
       <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+        {/* Skeleton also covers a tenant switch (loading with stale metrics) so
+            the previous tenant's numbers never linger under the new scope. */}
+        {loading ? (
+          <div aria-busy="true" aria-label="Loading" className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <CardSkeleton key={i} />
+            ))}
+          </div>
+        ) : !metrics ? (
+          <div className="bg-white rounded-lg shadow p-12 text-center">
+            <p className="text-gray-500">Unable to load usage metrics.</p>
+            <button
+              onClick={() => fetchMetrics()}
+              className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        ) : (
+        <>
 
         {/* Session Statistics */}
         <div className="mb-6">
@@ -489,6 +499,8 @@ export default function UsageMetricsPage() {
             </div>
           </div>
         </div>
+        </>
+        )}
       </div>
     </div>
   </ProtectedRoute>

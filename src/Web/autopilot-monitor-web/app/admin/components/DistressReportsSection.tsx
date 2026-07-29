@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 
 interface DistressReport {
   tenantId: string;
@@ -108,7 +109,9 @@ export function DistressReportsSection({
   setError,
 }: DistressReportsSectionProps) {
   const [reports, setReports] = useState<DistressReport[]>([]);
-  const [loading, setLoading] = useState(false);
+  // true from the start: the fetch fires on mount, and a false initial value
+  // flashes the "No distress reports" empty state for one paint.
+  const [loading, setLoading] = useState(true);
   const [selectedReport, setSelectedReport] = useState<DistressReport | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [sortKey, setSortKey] = useState<SortKey>("ingestedAt");
@@ -203,7 +206,9 @@ export function DistressReportsSection({
         </div>
       </div>
 
-      {/* Summary Cards */}
+      {/* Summary Cards — intentionally hidden while loading: distress is often
+          empty on a healthy system, and a skeleton band that then vanishes
+          shifts the layout more than one that appears. */}
       {!loading && reports.length > 0 && (
         <div className="p-4 border-b border-amber-200 dark:border-amber-700 bg-amber-50/50 dark:bg-gray-800/50">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -234,10 +239,7 @@ export function DistressReportsSection({
       {/* Reports Table */}
       <div className="p-6">
         {loading ? (
-          <div className="flex items-center justify-center py-8">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-amber-600"></div>
-            <span className="ml-3 text-sm text-gray-500 dark:text-gray-400">Loading distress reports...</span>
-          </div>
+          <TableSkeleton columns={7} rows={15} />
         ) : reports.length === 0 ? (
           <div className="text-center py-8 text-gray-500 dark:text-gray-400">
             <svg className="w-12 h-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

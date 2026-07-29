@@ -3,7 +3,7 @@
 // destination's client bundle downloads and hydrates. Shared shell used by the
 // per-route loading.tsx files.
 
-function Bar({ className = "" }: { className?: string }) {
+export function Bar({ className = "" }: { className?: string }) {
   return (
     <div
       className={`animate-pulse rounded bg-gray-200 dark:bg-gray-700 ${className}`}
@@ -11,7 +11,7 @@ function Bar({ className = "" }: { className?: string }) {
   );
 }
 
-function CardSkeleton() {
+export function CardSkeleton() {
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
       <Bar className="h-3 w-24" />

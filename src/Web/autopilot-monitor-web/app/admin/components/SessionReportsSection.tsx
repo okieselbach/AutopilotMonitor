@@ -8,6 +8,7 @@ import { extractContinuation } from "@/lib/paginationLink";
 import { isGuid } from "@/utils/inputValidation";
 import { trackEvent } from "@/lib/appInsights";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
+import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 
 const PAGE_SIZE = 20;
 
@@ -83,7 +84,9 @@ export function SessionReportsSection({
   // Reader may view reports + notes but not edit them.
   const canMutate = useCanMutatePlatform();
   const [reports, setReports] = useState<SessionReport[]>([]);
-  const [loading, setLoading] = useState(false);
+  // true from the start: the fetch fires on mount, and a false initial value
+  // flashes the empty state for one paint.
+  const [loading, setLoading] = useState(true);
   const [selectedReport, setSelectedReport] = useState<SessionReport | null>(null);
   const [downloadingBlob, setDownloadingBlob] = useState<string | null>(null);
   const [adminNoteValue, setAdminNoteValue] = useState("");
@@ -310,11 +313,10 @@ export function SessionReportsSection({
 
       {/* Reports Table */}
       <div className="p-6 pt-2">
-        {loading ? (
-          <div className="flex items-center justify-center py-8">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
-            <span className="ml-3 text-sm text-gray-500 dark:text-gray-400">Loading reports...</span>
-          </div>
+        {/* Skeleton only on the initial (empty) load — a Refresh keeps the
+            populated table on screen; the button already shows "Loading...". */}
+        {loading && reports.length === 0 ? (
+          <TableSkeleton columns={7} rows={8} />
         ) : reports.length === 0 ? (
           <div className="text-center py-8 text-gray-500 dark:text-gray-400">
             <svg className="w-12 h-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

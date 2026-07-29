@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, useCallback, useEffect, useState } from 'react';
+import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotifications } from '../../contexts/NotificationContext';
@@ -237,17 +238,6 @@ export default function AuditPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600 dark:text-gray-400">Loading audit logs...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gray-50">
@@ -263,8 +253,12 @@ export default function AuditPage() {
                 <div>
                   <h1 className="text-2xl font-normal text-gray-900">Audit Log</h1>
                   <p className="text-sm text-gray-600 mt-1">
-                    {filteredLogs.length} {filteredLogs.length === 1 ? 'entry' : 'entries'} on this page
-                    {filteredLogs.length !== logs.length && ` (filtered from ${logs.length})`}
+                    {loading ? '…' : (
+                      <>
+                        {filteredLogs.length} {filteredLogs.length === 1 ? 'entry' : 'entries'} on this page
+                        {filteredLogs.length !== logs.length && ` (filtered from ${logs.length})`}
+                      </>
+                    )}
                   </p>
                 </div>
               </div>
@@ -347,9 +341,12 @@ export default function AuditPage() {
             </select>
           </div>
 
-          {/* Audit Table */}
+          {/* Audit Table — skeleton on the initial load only; refetches use
+              `refreshing` and keep the populated table on screen. */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
-            {filteredLogs.length === 0 ? (
+            {loading ? (
+              <TableSkeleton columns={6} rows={10} />
+            ) : filteredLogs.length === 0 ? (
               <div className="p-12 text-center">
                 <svg className="h-16 w-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />

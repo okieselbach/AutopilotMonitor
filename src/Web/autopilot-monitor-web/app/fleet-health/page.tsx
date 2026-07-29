@@ -17,6 +17,8 @@ import { useFleetHealth } from "./hooks/useFleetHealth";
 import { useAggregatedAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
+import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
+import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 
 interface AppMetric {
   appName: string;
@@ -224,16 +226,11 @@ export default function FleetHealthPage() {
     [failureReasons],
   );
 
-  // Spinner on the initial load and while a scope/range switch refetches (data is
-  // reset to null). On error we fall through and render the page shell — the hook
-  // surfaces the failure via a notification, matching the previous behavior.
-  if (!data && !error) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-600">Loading fleet health data...</div>
-      </div>
-    );
-  }
+  // Skeleton on the initial load and while a scope/range switch refetches (data
+  // is reset to null) — the header with the scope/range controls stays
+  // interactive. On error the shell renders with empty data; the hook surfaces
+  // the failure via a notification, matching the previous behavior.
+  const pendingInitial = !data && !error;
 
   return (
     <ProtectedRoute>
@@ -287,6 +284,17 @@ export default function FleetHealthPage() {
         </header>
 
         <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+          {pendingInitial ? (
+            <div aria-busy="true" aria-label="Loading" className="space-y-8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <CardSkeleton key={i} />
+                ))}
+              </div>
+              <TableSkeleton wrapped columns={4} rows={8} />
+            </div>
+          ) : (
+          <>
           {/* Top Stats */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5 mb-8">
             <FleetStatCard
@@ -750,6 +758,8 @@ export default function FleetHealthPage() {
               </div>
             )}
           </div>
+          </>
+          )}
         </main>
       </div>
     </ProtectedRoute>

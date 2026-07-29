@@ -28,7 +28,9 @@ interface FeedbackSectionProps {
 }
 
 export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionProps) {
-  const [loading, setLoading] = useState(false);
+  // true from the start: the fetch fires on mount, and a false initial value
+  // flashes the empty state for one paint.
+  const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState<FeedbackEntry[]>([]);
   const [activeTab, setActiveTab] = useState<FeedbackTab>("InApp");
   const [inAppFilter, setInAppFilter] = useState<InAppFilter>("all");

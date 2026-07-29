@@ -28,6 +28,7 @@ import { useGlobalAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import Link from "next/link";
+import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
 
 interface SlaSnapshot {
   week: string;
@@ -185,17 +186,6 @@ export default function SlaPage() {
     (metrics.targetSuccessRate != null || metrics.targetMaxDurationMinutes != null ||
      metrics.targetAppInstallSuccessRate != null);
 
-  if (loading && !metrics) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto" />
-          <p className="mt-4 text-gray-600 dark:text-gray-400">Loading SLA metrics...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -258,8 +248,18 @@ export default function SlaPage() {
 
         <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
 
-          {/* No targets state */}
-          {!hasTargets && (
+          {/* Initial load — header with scope/months controls stays interactive */}
+          {loading && !metrics && (
+            <div aria-busy="true" aria-label="Loading" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <CardSkeleton key={i} />
+              ))}
+            </div>
+          )}
+
+          {/* No targets state — suppressed while the initial fetch is pending
+              so it doesn't flash before metrics arrive */}
+          {!(loading && !metrics) && !hasTargets && (
             <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-8 text-center">
               <svg className="h-16 w-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />

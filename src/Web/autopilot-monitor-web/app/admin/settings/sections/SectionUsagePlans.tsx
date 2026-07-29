@@ -5,6 +5,7 @@ import { useAuth } from "../../../../contexts/AuthContext";
 import { useAdminConfig } from "../../AdminConfigContext";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { api } from "@/lib/api";
+import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 
 interface PlanTierDefinition {
   name: string;
@@ -117,15 +118,6 @@ export function SectionUsagePlans() {
     setHasChanges(true);
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600" />
-        <span className="ml-3 text-sm text-gray-500">Loading plan definitions...</span>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -139,7 +131,8 @@ export function SectionUsagePlans() {
         <div className="flex items-center gap-2">
           <button
             onClick={addTier}
-            className="px-4 py-2 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+            disabled={loading}
+            className="px-4 py-2 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             + Add Tier
           </button>
@@ -175,8 +168,11 @@ export function SectionUsagePlans() {
         </div>
       )}
 
+      {/* Initial load — header stays visible, tier list gets the skeleton */}
+      {loading && <TableSkeleton wrapped columns={4} rows={3} header={false} />}
+
       {/* Empty State */}
-      {tiers.length === 0 && (
+      {!loading && tiers.length === 0 && (
         <div className="bg-white rounded-lg shadow p-12 text-center">
           <p className="text-gray-500 mb-4">No plan tiers defined yet.</p>
           <button
