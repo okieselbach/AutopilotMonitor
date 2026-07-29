@@ -139,6 +139,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Gather
         }
 
         [Fact]
+        public void PhaseChange_writes_transition_line()
+        {
+            _executor.UpdateRules(new List<GatherRule> { Rule("GATHER-PHASE-001") });
+            _executor.WaitForStartupRules(30);
+
+            _executor.OnPhaseChanged(EnrollmentPhase.DeviceSetup);
+            _executor.OnPhaseChanged(EnrollmentPhase.AccountSetup);
+            _executor.OnPhaseChanged(EnrollmentPhase.AccountSetup); // repeat — no extra line
+
+            var trace = TraceContent();
+            Assert.Contains("- | phase | phase change: Unknown -> DeviceSetup (first phase signal", trace);
+            Assert.Contains("- | phase | phase change: DeviceSetup -> AccountSetup", trace);
+            // A repeated signal for the same phase must not produce a second transition line.
+            var marker = "phase change: DeviceSetup -> AccountSetup";
+            Assert.Equal(trace.IndexOf(marker), trace.LastIndexOf(marker));
+        }
+
+        [Fact]
         public void EmptyCollectorResult_is_traced_via_startup_execution()
         {
             _executor.UpdateRules(new List<GatherRule>

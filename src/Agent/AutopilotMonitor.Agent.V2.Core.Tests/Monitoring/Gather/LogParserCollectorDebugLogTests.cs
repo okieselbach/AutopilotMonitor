@@ -109,6 +109,54 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Gather
         }
 
         [Fact]
+        public void Match_traces_line_number_matched_text_and_groups()
+        {
+            var path = Path.Combine(_outsideUsers, "match.log");
+            File.WriteAllText(path, "boring line\nError 0x80070005 in setup\n");
+
+            new LogParserCollector().Execute(
+                Rule(path, @"Error (?<code>0x[0-9A-Fa-f]+)", format: "text"), _context);
+
+            Assert.Single(_events);
+            var trace = TraceContent();
+            Assert.Contains("match.log: line 2 matched \"Error 0x80070005\"", trace);
+            Assert.Contains("groups: code=\"0x80070005\"", trace);
+        }
+
+        [Fact]
+        public void MatchTraces_are_capped_per_file()
+        {
+            var path = Path.Combine(_outsideUsers, "many.log");
+            var sb = new System.Text.StringBuilder();
+            for (var i = 1; i <= 15; i++)
+                sb.Append("hit number ").Append(i).Append('\n');
+            File.WriteAllText(path, sb.ToString());
+
+            new LogParserCollector().Execute(Rule(path, "hit", format: "text"), _context);
+
+            Assert.Equal(15, _events.Count); // all matches still emit events
+            var trace = TraceContent();
+            Assert.Contains("many.log: line 10 matched", trace);
+            Assert.Contains("further matches not traced individually", trace);
+            Assert.DoesNotContain("many.log: line 11 matched", trace);
+            Assert.Contains("matched 15", trace); // summary still carries the full count
+        }
+
+        [Fact]
+        public void InvalidRegex_traces_the_pattern_itself()
+        {
+            var path = Path.Combine(_outsideUsers, "irrelevant.log");
+            File.WriteAllText(path, "content\n");
+
+            new LogParserCollector().Execute(Rule(path, "([unclosed", format: "text"), _context);
+
+            Assert.Empty(_events);
+            var trace = TraceContent();
+            Assert.Contains("invalid regex pattern '([unclosed'", trace);
+            Assert.Contains("rule can never match", trace);
+        }
+
+        [Fact]
         public void MissingFile_traces_no_files_matched()
         {
             var path = Path.Combine(_outsideUsers, "does-not-exist.log");

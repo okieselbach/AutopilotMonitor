@@ -248,10 +248,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             // _currentPhase moves below. A transition INTO Failed still fires the exit rules of the
             // phase that failed — that snapshot is the whole point at a failure boundary.
             List<GatherRule> exitRules = null;
+            EnrollmentPhase previousPhase;
             var exitTraces = _debug != null ? new List<KeyValuePair<string, string>>() : null;
             lock (_scopeLock)
             {
-                var previousPhase = _currentPhase;
+                previousPhase = _currentPhase;
                 if (previousPhase != EnrollmentPhase.Unknown && previousPhase != newPhase)
                 {
                     var previousPhaseName = previousPhase.ToString();
@@ -290,6 +291,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                     }
                 }
             }
+
+            // Transition marker first, so every rule-level line below reads against it.
+            // Written outside _scopeLock like all trace lines.
+            if (previousPhase != newPhase)
+                DebugLog(null, GatherRuleDebugLog.StagePhase,
+                    $"phase change: {previousPhase} -> {phaseName}" +
+                    (previousPhase == EnrollmentPhase.Unknown
+                        ? " (first phase signal — scoped rules now evaluate against this phase)"
+                        : ""));
 
             if (exitTraces != null)
             {

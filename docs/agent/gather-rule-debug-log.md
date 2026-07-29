@@ -58,14 +58,18 @@ when disabled — zero cost on the normal path). Line format:
 2026-07-28T09:15:02.123Z | RULE-ID | stage | message
 ```
 
-Stages: `config` (registration summary per rule, header, zero-rules note), `trigger`
-(timer scheduled, phase/event fired, dedup), `scope` (skips with reason incl. current
-phase), `exec` (execution start), `collector` (null/empty results with likely cause),
-`guard` (allowlist block), `emit` (event emitted, hash change), `suppress` (on_change
+Stages: `config` (registration summary per rule, header, zero-rules note), `phase`
+(enrollment-phase transition marker `phase change: Old -> New`, ruleId `-` — every
+rule-level line below it reads against the new phase), `trigger` (timer scheduled,
+phase/event fired, dedup), `scope` (skips with reason incl. current phase), `exec`
+(execution start), `collector` (null/empty results with likely cause), `guard`
+(allowlist block), `emit` (event emitted, hash change), `suppress` (on_change
 suppression with hash prefix + streak), `logparser` (per-file outcome: lines read,
 position range, match count, parse failures, regex timeouts, mode; plus the
-`format=text` hint when every line fails CMTrace parsing), `error` (full exception
-**with stack trace** — the agent log keeps only the message).
+`format=text` hint when every line fails CMTrace parsing; plus one line **per regex
+match** — line number, matched text, capture groups — capped at 10 per file per run),
+`error` (full exception **with stack trace** — the agent log keeps only the message;
+an invalid logparser regex is reported here including the offending pattern string).
 
 Volume control: 10 MB cap with a single `.old` rotation generation (~20 MB worst case).
 Every write failure is swallowed — tracing must never break gathering. The trace never
@@ -92,12 +96,26 @@ A logparser rule with `emit_mode=on_change` that "delivers nothing" becomes:
 ```
 ... | LP-01 | config | registered: trigger=interval, collector=logparser, target=C:\...\app.log, unscoped, emitMode=on_change, interval=300s
 ... | LP-01 | trigger | interval timer scheduled every 300s (first run after one full interval — no immediate execution)
+... | -     | phase | phase change: DeviceSetup -> AccountSetup
 ... | LP-01 | exec | executing: collector=logparser, target=C:\...\app.log
 ... | LP-01 | logparser | app.log: read 1000 lines from position 0->81234, matched 0, parseFailures=1000, regexTimeouts=0, mode=cmtrace
 ... | LP-01 | logparser | every line failed CMTrace parsing — if this is a plain-text log, set parameter format=text
 ```
 
 — the answer ("plain-text log parsed in CMTrace mode") is in the file.
+
+A matching rule shows *how* it matched (capped at 10 per-match lines per file per run):
+
+```
+... | LP-02 | logparser | setupact.log: line 42 matched "Error 0x80070005" — groups: code="0x80070005"
+... | LP-02 | logparser | setupact.log: read 500 lines from position 0->40123, matched 1, parseFailures=0, regexTimeouts=0, mode=text
+```
+
+and a broken regex names itself:
+
+```
+... | LP-03 | error | invalid regex pattern '([unclosed' — rule can never match: Invalid pattern '([unclosed' at offset 10. Not enough )'s.
+```
 
 ## Citations
 

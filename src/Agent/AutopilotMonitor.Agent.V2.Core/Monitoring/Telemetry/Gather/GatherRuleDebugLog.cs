@@ -14,6 +14,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
     public sealed class GatherRuleDebugLog
     {
         public const string StageConfig = "config";
+        public const string StagePhase = "phase";
         public const string StageTrigger = "trigger";
         public const string StageScope = "scope";
         public const string StageExec = "exec";

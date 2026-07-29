@@ -103,7 +103,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
             {
                 context.Logger.Warning($"LogParser rule {rule.RuleId} has invalid regex: {ex.Message}");
                 context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageError,
-                    $"invalid regex pattern — rule can never match: {ex.Message}");
+                    $"invalid regex pattern '{patternStr}' — rule can never match: {ex.Message}");
                 return null;
             }
 
@@ -131,6 +131,44 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
             }
 
             return null;
+        }
+
+        // Per-match trace lines are capped per file per run — the per-file summary line
+        // still carries the full match count, this only bounds the per-match detail.
+        private const int MaxTracedMatchesPerFile = 10;
+
+        /// <summary>
+        /// Writes one debug-trace line per regex match: the line number, the matched text,
+        /// and every capture group that will land in the emitted event (same "0" exclusion
+        /// as the event data). Stops after <see cref="MaxTracedMatchesPerFile"/> matches.
+        /// </summary>
+        private static void TraceMatch(GatherRuleContext context, GatherRule rule, string fileName,
+            int lineNumber, Match match, Regex pattern, int matchNumber)
+        {
+            if (matchNumber > MaxTracedMatchesPerFile)
+            {
+                if (matchNumber == MaxTracedMatchesPerFile + 1)
+                    context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser,
+                        $"{fileName}: further matches not traced individually (cap {MaxTracedMatchesPerFile}/file/run) — see the per-file summary for the total");
+                return;
+            }
+
+            var sb = new StringBuilder();
+            sb.Append(fileName).Append(": line ").Append(lineNumber)
+              .Append(" matched \"").Append(TruncateMessage(match.Value, 200)).Append('"');
+
+            var first = true;
+            foreach (var groupName in pattern.GetGroupNames())
+            {
+                if (groupName == "0") continue;
+                var group = match.Groups[groupName];
+                if (!group.Success) continue;
+                sb.Append(first ? " — groups: " : ", ");
+                first = false;
+                sb.Append(groupName).Append("=\"").Append(TruncateMessage(group.Value, 100)).Append('"');
+            }
+
+            context.DebugLog(rule.RuleId, GatherRuleDebugLog.StageLogParser, sb.ToString());
         }
 
         private static bool HasWildcard(string fileNamePart)
@@ -258,6 +296,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
                                 });
 
                                 matchCount++;
+                                TraceMatch(context, rule, Path.GetFileName(filePath), linesRead, match, pattern, matchCount);
                             }
                             else
                             {
@@ -317,6 +356,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
                                 });
 
                                 matchCount++;
+                                TraceMatch(context, rule, Path.GetFileName(filePath), linesRead, match, pattern, matchCount);
                             }
                         }
 
