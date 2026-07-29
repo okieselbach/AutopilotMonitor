@@ -356,27 +356,27 @@ export default function ReportSessionModal({
                 )}
               </div>
 
-              {/* Diagnostics archive opt-in — only when the session has an uploaded diag ZIP */}
-              {hasDiagnostics && (
-                <div className="mb-6">
-                  <label className="flex items-start gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={includeDiagnostics}
-                      onChange={e => setIncludeDiagnostics(e.target.checked)}
-                      disabled={submitting}
-                      className="mt-0.5 h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">
-                      Include uploaded diagnostics archive
-                      <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        A server-side copy of this session&apos;s diagnostics ZIP is stored with the
-                        report, so it stays available for analysis even after the session is deleted.
-                      </span>
+              {/* Diagnostics archive opt-in — active only when the session has an uploaded
+                  diag ZIP; rendered disabled otherwise so the option is discoverable. */}
+              <div className="mb-6">
+                <label className={`flex items-start gap-2 ${hasDiagnostics ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
+                  <input
+                    type="checkbox"
+                    checked={hasDiagnostics && includeDiagnostics}
+                    onChange={e => setIncludeDiagnostics(e.target.checked)}
+                    disabled={submitting || !hasDiagnostics}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700 dark:text-gray-300">
+                    Include uploaded diagnostics archive
+                    <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      {hasDiagnostics
+                        ? "A server-side copy of this session's diagnostics ZIP is stored with the report, so it stays available for analysis even after the session is deleted."
+                        : "No diagnostics archive has been uploaded for this session — nothing to include."}
                     </span>
-                  </label>
-                </div>
-              )}
+                  </span>
+                </label>
+              </div>
 
               {/* Data summary */}
               <div className="bg-gray-50 dark:bg-gray-700/50 rounded-md p-3 mb-6 text-xs text-gray-600 dark:text-gray-300">
