@@ -23,6 +23,10 @@ interface SessionReport {
   adminNote?: string;
   /** "session" (legacy default) or "diagFiles" (no session context) */
   reportType?: "session" | "diagFiles";
+  /** Flat name of the preserved diagnostics archive copy — present only when the copy succeeded */
+  diagnosticsBlobName?: string;
+  /** "Copied" or a "Failed:*" reason — absent when the submitter did not request the copy */
+  diagnosticsCopyStatus?: string;
 }
 
 function ReportTypeBadge({ type }: { type?: string }) {
@@ -476,6 +480,22 @@ export function SessionReportsSection({
                     {selectedReport.blobName}
                   </dd>
                 </div>
+                {selectedReport.diagnosticsBlobName && (
+                  <div>
+                    <dt className="font-medium text-gray-500 dark:text-gray-400">Diagnostics Archive</dt>
+                    <dd className="font-mono text-xs text-gray-700 dark:text-gray-300 mt-0.5 break-all bg-gray-50 dark:bg-gray-700/50 rounded p-2">
+                      {selectedReport.diagnosticsBlobName}
+                    </dd>
+                  </div>
+                )}
+                {selectedReport.diagnosticsCopyStatus && selectedReport.diagnosticsCopyStatus !== "Copied" && (
+                  <div>
+                    <dt className="font-medium text-gray-500 dark:text-gray-400">Diagnostics Copy</dt>
+                    <dd className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                      {selectedReport.diagnosticsCopyStatus}
+                    </dd>
+                  </div>
+                )}
 
                 {/* Admin Note */}
                 <div className="pt-1 border-t border-gray-100 dark:border-gray-700">
@@ -529,28 +549,54 @@ export function SessionReportsSection({
               </dl>
 
               <div className="mt-6 flex items-center justify-between">
-                <button
-                  onClick={() => handleDownload(selectedReport.blobName)}
-                  disabled={downloadingBlob === selectedReport.blobName}
-                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-md transition-colors text-sm font-medium"
-                >
-                  {downloadingBlob === selectedReport.blobName ? (
-                    <>
-                      <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                      Preparing...
-                    </>
-                  ) : (
-                    <>
-                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
-                      Download ZIP
-                    </>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleDownload(selectedReport.blobName)}
+                    disabled={downloadingBlob === selectedReport.blobName}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-md transition-colors text-sm font-medium"
+                  >
+                    {downloadingBlob === selectedReport.blobName ? (
+                      <>
+                        <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        Preparing...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        Download ZIP
+                      </>
+                    )}
+                  </button>
+                  {selectedReport.diagnosticsBlobName && (
+                    <button
+                      onClick={() => handleDownload(selectedReport.diagnosticsBlobName!)}
+                      disabled={downloadingBlob === selectedReport.diagnosticsBlobName}
+                      className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded-md transition-colors text-sm font-medium"
+                    >
+                      {downloadingBlob === selectedReport.diagnosticsBlobName ? (
+                        <>
+                          <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                          Preparing...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                          Download Diagnostics
+                        </>
+                      )}
+                    </button>
                   )}
-                </button>
+                </div>
                 <button
                   onClick={() => setSelectedReport(null)}
                   className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"

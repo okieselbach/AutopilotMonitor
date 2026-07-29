@@ -125,7 +125,9 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                             { "HasComment", (!string.IsNullOrEmpty(request.Comment)).ToString() },
                             { "HasEmail", (!string.IsNullOrEmpty(request.Email)).ToString() },
                             { "HasScreenshot", (!string.IsNullOrEmpty(request.ScreenshotBase64)).ToString() },
-                            { "HasAgentLog", (!string.IsNullOrEmpty(request.AgentLogBase64)).ToString() }
+                            { "HasAgentLog", (!string.IsNullOrEmpty(request.AgentLogBase64)).ToString() },
+                            { "IncludeDiagnostics", request.IncludeDiagnostics.ToString() },
+                            { "DiagnosticsCopyStatus", metadata.DiagnosticsCopyStatus ?? string.Empty }
                         }
                     );
                 }

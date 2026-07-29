@@ -1,7 +1,7 @@
 import { PublicPageHeader } from "../../components/PublicPageHeader";
 import { DOCS_URL } from "@/utils/config";
 
-const LAST_UPDATED = "21 July 2026";
+const LAST_UPDATED = "29 July 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
 const DOCS_DATA_FLOWS = `${DOCS_URL}/trust/data-flows`;
 
@@ -150,7 +150,9 @@ export default function PrivacyPage() {
             <strong>your own Azure storage account</strong> — the package never reaches our infrastructure. Hosted upload
             exists as an alternative but is opt-in only and requires an explicit administrator action — in Settings, or
             in the one-step dialog offered on a session — always behind a clearly marked disclosure that data leaves your
-            tenant. It is never enabled silently.
+            tenant. It is never enabled silently. One explicit exception: when an administrator submits a session report
+            for analysis and chooses to include the session&apos;s uploaded diagnostics archive, a copy of that package
+            is stored with the report so it remains available for the investigation.
           </p>
           <p className="text-gray-700">
             Once upload is configured, an <strong>Admin or Operator in your own tenant</strong> can also request a

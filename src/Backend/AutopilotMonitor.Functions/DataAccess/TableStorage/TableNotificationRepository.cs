@@ -213,6 +213,13 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                     ["ReportType"] = string.IsNullOrEmpty(metadata.ReportType) ? ReportTypes.Session : metadata.ReportType
                 };
 
+                // Diagnostics-copy columns only exist on rows where the copy was requested —
+                // legacy-shaped rows stay untouched and map back to null.
+                if (metadata.DiagnosticsBlobName != null)
+                    entity["DiagnosticsBlobName"] = metadata.DiagnosticsBlobName;
+                if (metadata.DiagnosticsCopyStatus != null)
+                    entity["DiagnosticsCopyStatus"] = metadata.DiagnosticsCopyStatus;
+
                 await _reportsTableClient.UpsertEntityAsync(entity);
                 return true;
             }
@@ -365,8 +372,15 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 SubmittedBy = entity.GetString("SubmittedBy") ?? string.Empty,
                 SubmittedAt = entity.GetDateTimeOffset("SubmittedAt")?.UtcDateTime ?? DateTime.MinValue,
                 AdminNote = entity.GetString("AdminNote") ?? string.Empty,
-                ReportType = string.IsNullOrEmpty(reportType) ? ReportTypes.Session : reportType
+                ReportType = string.IsNullOrEmpty(reportType) ? ReportTypes.Session : reportType,
+                DiagnosticsBlobName = NullIfEmpty(entity.GetString("DiagnosticsBlobName")),
+                DiagnosticsCopyStatus = NullIfEmpty(entity.GetString("DiagnosticsCopyStatus"))
             };
+        }
+
+        private static string? NullIfEmpty(string? value)
+        {
+            return string.IsNullOrEmpty(value) ? null : value;
         }
     }
 }

@@ -199,7 +199,7 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
         public static string? ValidateBlobName(string? rawBlobName, string tenantId)
             => DiagnosticsDownloadFunction.ClassifyBlobName(rawBlobName, tenantId).Reason;
 
-        private static string BuildCustomerBlobUrl(string containerSasUrl, string blobName)
+        internal static string BuildCustomerBlobUrl(string containerSasUrl, string blobName)
         {
             var questionMarkIndex = containerSasUrl.IndexOf('?');
             if (questionMarkIndex >= 0)

@@ -13,7 +13,8 @@ interface ReportSessionModalProps {
   onSubmit: (
     comment: string, email: string,
     screenshotBase64: string | null, screenshotFileName: string | null,
-    agentLogBase64: string | null, agentLogFileName: string | null
+    agentLogBase64: string | null, agentLogFileName: string | null,
+    includeDiagnostics: boolean
   ) => Promise<void>;
   onCancel: () => void;
   submitting: boolean;
@@ -33,6 +34,7 @@ export default function ReportSessionModal({
   const [screenshotFiles, setScreenshotFiles] = useState<File[]>([]);
   const [agentLogFiles, setAgentLogFiles] = useState<File[]>([]);
   const [agentLogError, setAgentLogError] = useState<string | null>(null);
+  const [includeDiagnostics, setIncludeDiagnostics] = useState(true);
   const [submitResult, setSubmitResult] = useState<'success' | 'error' | null>(null);
   const [submitErrorMessage, setSubmitErrorMessage] = useState<string | null>(null);
 
@@ -47,6 +49,9 @@ export default function ReportSessionModal({
   }, [show]);
 
   if (!show || !session) return null;
+
+  // Backend omits null fields (WhenWritingNull) — truthiness check, never `=== null`.
+  const hasDiagnostics = !!session.diagnosticsBlobName;
 
   const addAgentLogs = (newFiles: File[]) => {
     setAgentLogError(null);
@@ -135,7 +140,10 @@ export default function ReportSessionModal({
     }
 
     try {
-      await onSubmit(comment, email, screenshotBase64, screenshotFileName, agentLogBase64, agentLogFileName);
+      await onSubmit(
+        comment, email, screenshotBase64, screenshotFileName, agentLogBase64, agentLogFileName,
+        hasDiagnostics && includeDiagnostics
+      );
       setSubmitResult('success');
       setComment("");
       setEmail("");
@@ -329,6 +337,28 @@ export default function ReportSessionModal({
                 )}
               </div>
 
+              {/* Diagnostics archive opt-in — only when the session has an uploaded diag ZIP */}
+              {hasDiagnostics && (
+                <div className="mb-6">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includeDiagnostics}
+                      onChange={e => setIncludeDiagnostics(e.target.checked)}
+                      disabled={submitting}
+                      className="mt-0.5 h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-700 dark:text-gray-300">
+                      Include uploaded diagnostics archive
+                      <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        A server-side copy of this session&apos;s diagnostics ZIP is stored with the
+                        report, so it stays available for analysis even after the session is deleted.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              )}
+
               {/* Data summary */}
               <div className="bg-gray-50 dark:bg-gray-700/50 rounded-md p-3 mb-6 text-xs text-gray-600 dark:text-gray-300">
                 <p className="font-medium mb-1">Data included in report:</p>
@@ -342,6 +372,7 @@ export default function ReportSessionModal({
                   {agentLogFiles.length > 1 && <li>{agentLogFiles.length} agent logs ({formatFileSize(agentLogTotalSize)}, will be zipped)</li>}
                   {screenshotFiles.length === 1 && <li>Screenshot: {screenshotFiles[0].name}</li>}
                   {screenshotFiles.length > 1 && <li>{screenshotFiles.length} screenshots (will be zipped)</li>}
+                  {hasDiagnostics && includeDiagnostics && <li>Uploaded diagnostics archive (copied server-side)</li>}
                 </ul>
               </div>
             </>

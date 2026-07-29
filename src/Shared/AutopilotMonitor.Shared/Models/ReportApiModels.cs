@@ -50,6 +50,13 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>Original agent log file name</summary>
         public string AgentLogFileName { get; set; } = default!;
+
+        /// <summary>
+        /// When true and the session has an uploaded diagnostics archive, the backend copies
+        /// that archive server-side into the durable session-reports container so it survives
+        /// session deletion and retention cleanup.
+        /// </summary>
+        public bool IncludeDiagnostics { get; set; }
     }
 
     /// <summary>
@@ -106,5 +113,17 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>One of <see cref="ReportTypes"/>. Defaults to "session" so legacy rows map cleanly.</summary>
         public string ReportType { get; set; } = ReportTypes.Session;
+
+        /// <summary>
+        /// Flat name of the session diagnostics archive copied into the session-reports
+        /// container at submit time. Null when the copy was never requested or failed.
+        /// </summary>
+        public string? DiagnosticsBlobName { get; set; }
+
+        /// <summary>
+        /// Outcome of the diagnostics copy: "Copied" or one of the "Failed:*" reasons.
+        /// Null when the submitter did not request the copy.
+        /// </summary>
+        public string? DiagnosticsCopyStatus { get; set; }
     }
 }

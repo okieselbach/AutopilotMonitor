@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Text;
 using System.Threading.Tasks;
 using Azure.Storage.Blobs.Models;
+using AutopilotMonitor.Functions.Services.Diagnostics;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Pagination;
@@ -23,16 +24,22 @@ namespace AutopilotMonitor.Functions.Services
         private readonly INotificationRepository _notificationRepo;
         private readonly ILogger<SessionReportService> _logger;
         private readonly BlobStorageService _blobStorage;
+        private readonly TableStorageService _tableStorage;
+        private readonly SessionReportDiagnosticsArchiveCopier _diagnosticsArchiveCopier;
         private const string ContainerName = "session-reports";
 
         public SessionReportService(
             INotificationRepository notificationRepo,
             BlobStorageService blobStorage,
+            TableStorageService tableStorage,
+            SessionReportDiagnosticsArchiveCopier diagnosticsArchiveCopier,
             ILogger<SessionReportService> logger)
         {
             _notificationRepo = notificationRepo;
             _logger = logger;
             _blobStorage = blobStorage;
+            _tableStorage = tableStorage;
+            _diagnosticsArchiveCopier = diagnosticsArchiveCopier;
         }
 
         /// <summary>
@@ -46,6 +53,30 @@ namespace AutopilotMonitor.Functions.Services
             var reportId = Guid.NewGuid().ToString("N")[..12];
             var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
             var blobName = $"{request.TenantId}_{request.SessionId}_diag_request_{timestamp}.zip";
+
+            // 0. Optional: preserve the session's diagnostics ZIP alongside the report.
+            //    Session diag blobs die with the session (user delete / retention); the copy in
+            //    the session-reports container does not. Fail-soft: a failed copy never blocks
+            //    the report — the status lands on the row + in report-metadata.json instead.
+            string? copiedDiagnosticsBlobName = null;
+            string? diagnosticsCopyStatus = null;
+            if (request.IncludeDiagnostics)
+            {
+                var session = await _tableStorage.GetSessionAsync(request.TenantId, request.SessionId);
+                if (session == null)
+                {
+                    diagnosticsCopyStatus = SessionReportDiagnosticsArchiveCopier.Statuses.FailedSessionNotFound;
+                }
+                else
+                {
+                    var destinationName = $"{request.TenantId}_{request.SessionId}_diag_archive_{timestamp}.zip";
+                    var copyResult = await _diagnosticsArchiveCopier.CopyAsync(
+                        request.TenantId, request.SessionId, session.DiagnosticsBlobName, destinationName);
+                    diagnosticsCopyStatus = copyResult.Status;
+                    if (copyResult.Success)
+                        copiedDiagnosticsBlobName = destinationName;
+                }
+            }
 
             // 1. Create ZIP in memory
             using var zipStream = new MemoryStream();
@@ -84,7 +115,13 @@ namespace AutopilotMonitor.Functions.Services
                     request.Comment,
                     request.Email,
                     submittedBy,
-                    submittedAt = DateTime.UtcNow.ToString("O")
+                    submittedAt = DateTime.UtcNow.ToString("O"),
+                    includedDiagnostics = new
+                    {
+                        requested = request.IncludeDiagnostics,
+                        blobName = copiedDiagnosticsBlobName,
+                        status = diagnosticsCopyStatus
+                    }
                 });
 
                 // Optional screenshot
@@ -149,7 +186,9 @@ namespace AutopilotMonitor.Functions.Services
                 BlobName = blobName,
                 SubmittedBy = submittedBy,
                 SubmittedAt = now,
-                ReportType = ReportTypes.Session
+                ReportType = ReportTypes.Session,
+                DiagnosticsBlobName = copiedDiagnosticsBlobName,
+                DiagnosticsCopyStatus = diagnosticsCopyStatus
             };
 
             await _notificationRepo.StoreSessionReportMetadataAsync(metadata);

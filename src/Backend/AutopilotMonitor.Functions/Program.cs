@@ -270,6 +270,7 @@ builder.Services.AddSingleton<BlobStorageService>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Diagnostics.HostedDiagnosticsBlobService>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Diagnostics.DiagnosticsBlobStreamer>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Diagnostics.DiagnosticsBlobCascadeDeleter>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Diagnostics.SessionReportDiagnosticsArchiveCopier>();
 builder.Services.AddSingleton<SessionReportService>();
 builder.Services.AddSingleton<BootstrapSessionService>();
 

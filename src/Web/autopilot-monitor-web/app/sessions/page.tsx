@@ -269,7 +269,8 @@ function SessionDetailContent() {
   const handleSubmitReport = async (
     comment: string, email: string,
     screenshotBase64: string | null, screenshotFileName: string | null,
-    agentLogBase64: string | null, agentLogFileName: string | null
+    agentLogBase64: string | null, agentLogFileName: string | null,
+    includeDiagnostics: boolean
   ) => {
     const effectiveTenantId = sessionTenantId || tenantId;
     try {
@@ -303,7 +304,8 @@ function SessionDetailContent() {
             screenshotBase64,
             screenshotFileName,
             agentLogBase64,
-            agentLogFileName
+            agentLogFileName,
+            includeDiagnostics
           })
         }
       );
