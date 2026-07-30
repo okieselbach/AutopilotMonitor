@@ -43,7 +43,7 @@ const LINK_COLUMNS = [
 export function SiteFooter() {
   return (
     <footer className="border-t border-[var(--lp-line-soft)] bg-[var(--lp-surface)]">
-      <div className="max-w-6xl mx-auto px-6 py-12">
+      <div className="max-w-7xl mx-auto px-6 py-12">
         <div className="flex flex-col md:flex-row md:items-start gap-10">
           {/* Brand */}
           <div className="shrink-0 md:w-64">
