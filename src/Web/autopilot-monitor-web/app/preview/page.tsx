@@ -107,6 +107,13 @@ export default function PreviewPage() {
             </svg>
           </div>
 
+          <div className="mb-3">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--lp-warn-soft)] text-[var(--lp-warn)] text-xs font-bold uppercase tracking-wide">
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--lp-warn)]" />
+              Approval pending
+            </span>
+          </div>
+
           <h1 className="text-2xl font-bold tracking-tight text-[var(--lp-ink)] mb-2">
             Almost there — you&apos;re on the list
           </h1>
@@ -158,16 +165,17 @@ export default function PreviewPage() {
           <div className="text-left bg-[var(--lp-surface-2)] border border-[var(--lp-line-soft)] rounded-xl p-4 mb-6">
             <p className="text-sm font-semibold text-[var(--lp-ink)] mb-1">Next steps</p>
             <p className="text-sm text-[var(--lp-ink-soft)]">
-              Please sign out and contact me on LinkedIn or open a GitHub issue to request access to the
-              preview. I check incoming requests regularly and will approve them as quickly as possible
-              if I have enough capacity left.
+              Please sign out and wait a bit or contact me on LinkedIn or open a GitHub issue to request
+              access to the preview. I check incoming requests regularly and will approve them as quickly
+              as possible.
             </p>
             <p className="text-sm text-[var(--lp-ink-soft)] mt-2">
               In the meantime, you can already review the setup and configuration in the{" "}
               <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">documentation</a>.
             </p>
             <p className="text-sm text-[var(--lp-ink-soft)] mt-2">
-              When you signed-up, sign in again later to view the updated approval status on your dashboard.
+              Sign in again later to check: while your approval is pending you&apos;ll land back on this
+              page — once approved, you&apos;ll go straight into the portal.
             </p>
             <div className="flex flex-wrap gap-2 mt-3">
               {[
