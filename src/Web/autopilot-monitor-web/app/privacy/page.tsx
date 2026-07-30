@@ -1,4 +1,4 @@
-import { PublicPageHeader } from "../../components/PublicPageHeader";
+import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/utils/config";
 
@@ -12,7 +12,7 @@ function DocsLink({ href, children }: { href: string; children: React.ReactNode 
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-indigo-600 hover:text-indigo-800 underline"
+      className="text-[var(--lp-accent-ink)] hover:opacity-80 underline"
     >
       {children}
     </a>
@@ -21,8 +21,16 @@ function DocsLink({ href, children }: { href: string; children: React.ReactNode 
 
 export default function PrivacyPage() {
   return (
-    <div className="min-h-screen bg-gray-50">
-      <PublicPageHeader title="Privacy Policy" />
+    <div className="landing-v2 min-h-screen bg-[var(--lp-bg)]">
+      <LandingNavbar />
+      <header className="px-4 sm:px-6 lg:px-8 pt-14 sm:pt-16">
+        <div className="max-w-7xl mx-auto">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--lp-ink-faint)]">Legal</p>
+          <h1 className="mt-3 text-4xl sm:text-5xl font-bold tracking-tight text-[var(--lp-ink)]">
+            Privacy Policy
+          </h1>
+        </div>
+      </header>
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         <div className="bg-white rounded-lg shadow p-6 space-y-4">
           <p className="text-sm text-gray-500">Last updated: {LAST_UPDATED}</p>
@@ -46,7 +54,7 @@ export default function PrivacyPage() {
           <p className="text-gray-700">
             glueckkanja AG, a German company certified to ISO/IEC 27001, operates Autopilot Monitor for{" "}
             <strong>both plans</strong> — the same service, the same infrastructure, the same protection measures. Company
-            details are in the <a href="https://www.glueckkanja.com/en/imprint" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">Imprint</a>.
+            details are in the <a href="https://www.glueckkanja.com/en/imprint" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">Imprint</a>.
             The project is maintained by Oliver Kieselbach, who acts in that role on behalf of glueckkanja AG and is the
             contact for the open-source project and the Community edition.
           </p>
@@ -222,11 +230,11 @@ export default function PrivacyPage() {
           <h2 className="text-xl font-semibold text-gray-900 mt-6">Contact</h2>
           <p className="text-gray-700">
             For privacy questions, a data processing agreement, or a data subject request, contact glueckkanja AG using
-            the details in the <a href="https://www.glueckkanja.com/en/imprint" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">Imprint</a>.
+            the details in the <a href="https://www.glueckkanja.com/en/imprint" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">Imprint</a>.
             For the open-source project and the Community edition you can also reach the maintainer via{" "}
-            <a href="https://www.linkedin.com/in/oliver-kieselbach" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">LinkedIn</a>{" "}
+            <a href="https://www.linkedin.com/in/oliver-kieselbach" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">LinkedIn</a>{" "}
             or open a{" "}
-            <a href="https://github.com/okieselbach/Autopilot-Monitor/issues" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">GitHub issue</a>.
+            <a href="https://github.com/okieselbach/Autopilot-Monitor/issues" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">GitHub issue</a>.
           </p>
         </div>
       </main>

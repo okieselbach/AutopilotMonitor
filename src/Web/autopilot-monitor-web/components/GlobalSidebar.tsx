@@ -8,7 +8,6 @@ import { useSidebar, PageSectionItem } from "../contexts/SidebarContext";
 import { CollapseState } from "../hooks/useSidebarState";
 import { DefaultSectionIcon, BookOpenIcon, InformationCircleIcon, DocumentTextIcon, ShieldCheckIcon } from "../lib/sidebarIcons";
 import { DASHBOARD_ITEM, NAV_GROUPS, EXPANDABLE_NAV_GROUPS, REGULAR_USER_ITEMS, NavItem, NavGroup, ExpandableNavGroup, ExpandableNavItem } from "../lib/globalNavConfig";
-import { PublicSiteNavbar } from "./PublicSiteNavbar";
 import { useAdminMode } from "../hooks/useAdminMode";
 import { DOCS_URL } from "@/utils/config";
 
@@ -268,24 +267,19 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
     }
   }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // All public pages that should show sidebar + navbar
-  // (docs + changelog moved to docs.autopilotmonitor.com)
-  const PUBLIC_PATHS = ["/terms", "/privacy", "/about"];
-  const isPublicPage = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
-
   // Landing page: never show sidebar
   if (pathname === "/") {
     return <>{children}</>;
   }
 
-  // Not authenticated and not a public page: no sidebar
-  if (!isAuthenticated && !isPublicPage) {
+  // Not authenticated: no sidebar. Public pages (/about, /terms, /privacy,
+  // /get-started) bring their own landing shell (LandingNavbar + SiteFooter).
+  if (!isAuthenticated) {
     return <>{children}</>;
   }
 
   // Whether a top navbar is present (determines sidebar top offset)
-  // Authenticated users always have the app navbar; public pages have the PublicSiteNavbar
-  const hasNavbar = isAuthenticated || isPublicPage;
+  const hasNavbar = isAuthenticated;
 
   // --- Render helpers ---
 
@@ -760,9 +754,6 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
 
   return (
     <>
-      {/* ===== Public pages: show branded navbar without section links ===== */}
-      {!isAuthenticated && isPublicPage && <PublicSiteNavbar showSectionLinks={false} fullWidth />}
-
       {/* ===== Mobile: overlay ===== */}
       {mobileDrawerOpen && (
         <div

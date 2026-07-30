@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { PublicPageHeader } from "../../components/PublicPageHeader";
+import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/utils/config";
 
@@ -59,8 +59,16 @@ const colorMap: Record<string, { bg: string; text: string; dot: string }> = {
 
 export default function AboutPage() {
   return (
-    <div className="min-h-screen bg-gray-50">
-      <PublicPageHeader title="About Autopilot Monitor" />
+    <div className="landing-v2 min-h-screen bg-[var(--lp-bg)]">
+      <LandingNavbar />
+      <header className="px-4 sm:px-6 lg:px-8 pt-14 sm:pt-16">
+        <div className="max-w-7xl mx-auto">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--lp-ink-faint)]">About</p>
+          <h1 className="mt-3 text-4xl sm:text-5xl font-bold tracking-tight text-[var(--lp-ink)]">
+            About Autopilot Monitor
+          </h1>
+        </div>
+      </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10">
 
