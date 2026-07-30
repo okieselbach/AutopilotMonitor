@@ -206,7 +206,7 @@ export default function AboutPage() {
               {
                 title: "Backend",
                 items: [
-                  "Azure Functions (.NET 10 Isolated, Flex Consumption) — serverless, scalable API",
+                  "Azure Functions (.NET Isolated, Flex Consumption) — serverless, scalable API",
                   "Azure Table Storage — high-throughput event ingestion",
                   "Azure Blob Storage — diagnostics and log bundle storage",
                   "Azure SignalR Service — real-time push to the portal",
@@ -215,7 +215,7 @@ export default function AboutPage() {
               {
                 title: "Portal (Web Frontend)",
                 items: [
-                  "Next.js 15 (React 18) + TypeScript — fast, server-rendered React app",
+                  "Next.js (React) + TypeScript — fast, statically delivered web app",
                   "Microsoft Entra ID (MSAL) — secure authentication",
                   "Role-based access control (Admin / Operator / Viewer)",
                   "Multi-tenant architecture with delegated MSP access",
