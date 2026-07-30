@@ -20,8 +20,8 @@ interface UseSessionSignalRParams {
   tenantId: string;
   sessionTenantIdFromSession: string | undefined;
   globalAdminMode: boolean;
-  sessionIdRef: React.MutableRefObject<string>;
-  sessionRef: React.MutableRefObject<Session | null>;
+  sessionIdRef: React.RefObject<string>;
+  sessionRef: React.RefObject<Session | null>;
   resolveEffectiveTenantId: () => string | null;
   signalR: SignalRApi;
   scheduleFetchEvents: (delayMs?: number) => void;

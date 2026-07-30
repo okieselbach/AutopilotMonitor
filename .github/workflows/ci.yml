@@ -69,6 +69,11 @@ jobs:
 
       - run: npm ci
 
+      # next-env.d.ts + .next type stubs are gitignored (Next-managed since
+      # v16); typegen generates them so tsc sees the same types as a build.
+      - name: Generate Next.js types
+        run: npx next typegen
+
       - name: Typecheck
         run: npx tsc --noEmit
 

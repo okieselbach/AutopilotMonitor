@@ -63,7 +63,7 @@ interface UseSessionEventsParams {
   sessionTenantId: string | null;
   sessionStatus: string | null | undefined;
   resolveEffectiveTenantId: () => string | null;
-  sessionRef: React.MutableRefObject<Session | null>;
+  sessionRef: React.RefObject<Session | null>;
   fetchSessionDetails: () => Promise<void>;
   setLoading: React.Dispatch<React.SetStateAction<boolean>>;
   isConnected: boolean;

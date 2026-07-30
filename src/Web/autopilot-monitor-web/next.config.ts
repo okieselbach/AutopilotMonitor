@@ -83,8 +83,10 @@ const nextConfig: NextConfig = {
     : {}),
 };
 
-// Run `ANALYZE=1 npm run build` to emit interactive treemaps of the
-// client/server bundles into .next/analyze/ for bundle-size investigation.
+// Run `ANALYZE=1 npm run build -- --webpack` to emit interactive treemaps of
+// the client/server bundles into .next/analyze/ for bundle-size investigation.
+// (Next 16 builds with Turbopack by default; the analyzer is webpack-only and
+// no-ops with a warning under Turbopack, so analyzer runs need --webpack.)
 export default withBundleAnalyzer({ enabled: process.env.ANALYZE === "1" })(
   nextConfig,
 );

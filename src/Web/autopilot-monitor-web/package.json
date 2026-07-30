@@ -11,12 +11,12 @@
     "sync-error-codes": "node scripts/sync-error-codes.js",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "test": "vitest run"
   },
   "dependencies": {
-    "@azure/msal-browser": "^3.28.0",
-    "@azure/msal-react": "^2.1.3",
+    "@azure/msal-browser": "^4.30.0",
+    "@azure/msal-react": "^3.0.29",
     "@microsoft/applicationinsights-web": "^3.4.3",
     "@microsoft/signalr": "^10.0.0",
     "@types/leaflet": "^1.9.21",
@@ -24,9 +24,9 @@
     "dagre": "^0.8.5",
     "fflate": "^0.8.3",
     "leaflet": "^1.9.4",
-    "next": "^15.5.22",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "next": "^16.2.12",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "react-leaflet": "^5.0.0",
     "recharts": "^2.15.4"
   },
@@ -34,11 +34,11 @@
     "@next/bundle-analyzer": "^16.2.12",
     "@types/dagre": "^0.7.54",
     "@types/node": "^22.20.1",
-    "@types/react": "^18.2.48",
-    "@types/react-dom": "^18.2.18",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
     "autoprefixer": "^10.5.4",
     "eslint": "^9.39.5",
-    "eslint-config-next": "^15.5.22",
+    "eslint-config-next": "^16.2.12",
     "postcss": "^8.5.12",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.3",
@@ -50,14 +50,6 @@
   "overrides": {
     "postcss": "^8.5.12",
     "@nevware21/ts-utils": "^0.14.0",
-    "sharp": "^0.35.0",
-    "react-leaflet": {
-      "react": "$react",
-      "react-dom": "$react-dom"
-    },
-    "@react-leaflet/core": {
-      "react": "$react",
-      "react-dom": "$react-dom"
-    }
+    "sharp": "^0.35.0"
   }
 }

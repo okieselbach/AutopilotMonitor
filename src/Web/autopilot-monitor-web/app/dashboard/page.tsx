@@ -232,7 +232,7 @@ function HomeContent() {
 
   // Auto-load ALL remaining sessions when search is active and local results are insufficient.
   // Uses a 500ms debounce so rapid typing doesn't trigger unnecessary loads.
-  const autoLoadTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const autoLoadTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
     if (autoLoadTimerRef.current) clearTimeout(autoLoadTimerRef.current);
 
