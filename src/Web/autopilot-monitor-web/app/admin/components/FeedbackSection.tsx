@@ -35,6 +35,10 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
   const [activeTab, setActiveTab] = useState<FeedbackTab>("InApp");
   const [inAppFilter, setInAppFilter] = useState<InAppFilter>("all");
   const [currentPage, setCurrentPage] = useState(0);
+  // Reference clock for the "Xm ago" labels — render must stay pure
+  // (react-hooks/purity), so it's captured at mount and refreshed per fetch,
+  // keeping the labels in step with the data they describe.
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const entriesPerPage = 5;
 
   const fetchFeedback = useCallback(async () => {
@@ -56,6 +60,7 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
         return dateB - dateA;
       });
       setEntries(sorted);
+      setNowMs(Date.now());
     } catch (err) {
       if (err instanceof TokenExpiredError) {
         console.error("Session expired while fetching feedback");
@@ -114,7 +119,7 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
 
   const formatTimeAgo = (dateStr: string | null): string => {
     if (!dateStr) return "unknown";
-    const diff = Date.now() - new Date(dateStr).getTime();
+    const diff = nowMs - new Date(dateStr).getTime();
     const minutes = Math.floor(diff / 60000);
     if (minutes < 60) return `${minutes}m ago`;
     const hours = Math.floor(minutes / 60);

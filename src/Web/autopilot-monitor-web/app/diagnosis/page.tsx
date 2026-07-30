@@ -64,87 +64,8 @@ function DiagnosisContent() {
 
   const { globalAdminMode } = useAdminMode();
 
-  useEffect(() => {
-    if (!sessionId) return;
-    if (!globalAdminMode && !tenantId) return; // wait for real tenant ID
-    sessionIdRef.current = sessionId;
-    if (lastFetchedSessionId.current !== sessionId) {
-      hasInitialFetch.current = false;
-      lastFetchedSessionId.current = sessionId;
-      sessionFetchDone.current = false;
-      analysisFetchDone.current = false;
-      setSessionTenantId(null);
-      setLoading(true);
-    }
-    if (hasInitialFetch.current) return;
-    hasInitialFetch.current = true;
-
-    // Performance: eager-set sessionTenantId from TenantContext when known, so
-    // the events/analysis effect fires in parallel with fetchSessionDetails
-    // instead of waiting for its roundtrip — eliminates the fetch waterfall.
-    // Global Admins in all-tenant view fall through with null (backend resolves
-    // the tenant from the session itself).
-    if (!globalAdminMode && isGuid(tenantId)) {
-      setSessionTenantId(tenantId);
-    }
-
-    fetchSessionDetails();
-  }, [sessionId, tenantId, globalAdminMode]);
-
-  useEffect(() => {
-    if (sessionTenantId && sessionId) {
-      Promise.all([fetchEvents(), fetchAnalysisResults()]);
-    }
-  }, [sessionTenantId, sessionId]);
-
-  // SignalR groups - subscribe-then-fetch pattern
-  useEffect(() => {
-    const effectiveTenantId = sessionTenantId || tenantId;
-    if (!sessionId || !isConnected || !effectiveTenantId) return;
-    if (!hasJoinedGroups.current) {
-      const joinAndCatchUp = async () => {
-        await joinGroup(`session-${effectiveTenantId}-${sessionId}`);
-        hasJoinedGroups.current = true;
-        // Re-fetch after group join to catch any missed during join
-        Promise.all([fetchEvents(), fetchAnalysisResults()]);
-      };
-      joinAndCatchUp();
-    }
-    return () => {
-      if (hasJoinedGroups.current && effectiveTenantId) {
-        leaveGroup(`session-${effectiveTenantId}-${sessionId}`);
-        hasJoinedGroups.current = false;
-      }
-    };
-  }, [sessionId, isConnected, sessionTenantId, tenantId]);
-
-  // Real-time analysis updates
-  useEffect(() => {
-    const handleEventStream = (data: {
-      sessionId: string;
-      session: Session;
-      newRuleResults?: RuleResult[];
-    }) => {
-      if (data.sessionId !== sessionIdRef.current) return;
-      if (data.session) setSession(data.session);
-      if (data.newRuleResults?.length) {
-        setAnalysisResults((prev) => {
-          const existingIds = new Set(prev.map((r) => r.ruleId));
-          const newResults = data.newRuleResults!.filter(
-            (r) => !existingIds.has(r.ruleId)
-          );
-          return [...prev, ...newResults].sort(
-            (a, b) => b.confidenceScore - a.confidenceScore
-          );
-        });
-      }
-    };
-    on("eventStream", handleEventStream);
-    return () => {
-      off("eventStream", handleEventStream);
-    };
-  }, [on, off]);
-
+  // Declared ahead of the effects that call them (react-hooks/immutability:
+  // a later declaration would freeze the effect's view of the binding).
   const fetchSessionDetails = async () => {
     try {
       // Fetch the single session directly instead of pulling the entire session
@@ -233,6 +154,87 @@ function DiagnosisContent() {
       finishLoadingWhenSettled();
     }
   };
+
+  useEffect(() => {
+    if (!sessionId) return;
+    if (!globalAdminMode && !tenantId) return; // wait for real tenant ID
+    sessionIdRef.current = sessionId;
+    if (lastFetchedSessionId.current !== sessionId) {
+      hasInitialFetch.current = false;
+      lastFetchedSessionId.current = sessionId;
+      sessionFetchDone.current = false;
+      analysisFetchDone.current = false;
+      setSessionTenantId(null);
+      setLoading(true);
+    }
+    if (hasInitialFetch.current) return;
+    hasInitialFetch.current = true;
+
+    // Performance: eager-set sessionTenantId from TenantContext when known, so
+    // the events/analysis effect fires in parallel with fetchSessionDetails
+    // instead of waiting for its roundtrip — eliminates the fetch waterfall.
+    // Global Admins in all-tenant view fall through with null (backend resolves
+    // the tenant from the session itself).
+    if (!globalAdminMode && isGuid(tenantId)) {
+      setSessionTenantId(tenantId);
+    }
+
+    fetchSessionDetails();
+  }, [sessionId, tenantId, globalAdminMode]);
+
+  useEffect(() => {
+    if (sessionTenantId && sessionId) {
+      Promise.all([fetchEvents(), fetchAnalysisResults()]);
+    }
+  }, [sessionTenantId, sessionId]);
+
+  // SignalR groups - subscribe-then-fetch pattern
+  useEffect(() => {
+    const effectiveTenantId = sessionTenantId || tenantId;
+    if (!sessionId || !isConnected || !effectiveTenantId) return;
+    if (!hasJoinedGroups.current) {
+      const joinAndCatchUp = async () => {
+        await joinGroup(`session-${effectiveTenantId}-${sessionId}`);
+        hasJoinedGroups.current = true;
+        // Re-fetch after group join to catch any missed during join
+        Promise.all([fetchEvents(), fetchAnalysisResults()]);
+      };
+      joinAndCatchUp();
+    }
+    return () => {
+      if (hasJoinedGroups.current && effectiveTenantId) {
+        leaveGroup(`session-${effectiveTenantId}-${sessionId}`);
+        hasJoinedGroups.current = false;
+      }
+    };
+  }, [sessionId, isConnected, sessionTenantId, tenantId]);
+
+  // Real-time analysis updates
+  useEffect(() => {
+    const handleEventStream = (data: {
+      sessionId: string;
+      session: Session;
+      newRuleResults?: RuleResult[];
+    }) => {
+      if (data.sessionId !== sessionIdRef.current) return;
+      if (data.session) setSession(data.session);
+      if (data.newRuleResults?.length) {
+        setAnalysisResults((prev) => {
+          const existingIds = new Set(prev.map((r) => r.ruleId));
+          const newResults = data.newRuleResults!.filter(
+            (r) => !existingIds.has(r.ruleId)
+          );
+          return [...prev, ...newResults].sort(
+            (a, b) => b.confidenceScore - a.confidenceScore
+          );
+        });
+      }
+    };
+    on("eventStream", handleEventStream);
+    return () => {
+      off("eventStream", handleEventStream);
+    };
+  }, [on, off]);
 
   const copyRemediation = (result: RuleResult) => {
     const text = result.remediation

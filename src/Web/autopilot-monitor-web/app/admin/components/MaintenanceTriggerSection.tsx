@@ -17,6 +17,9 @@ export function MaintenanceTriggerSection({
 }: MaintenanceTriggerSectionProps) {
   const [triggeringMaintenance, setTriggeringMaintenance] = useState(false);
   const [maintenanceDate, setMaintenanceDate] = useState<string>("");
+  // Latest selectable day (yesterday), fixed at mount — render must stay pure
+  // (react-hooks/purity) and the cap doesn't need a live midnight rollover.
+  const [maxMaintenanceDate] = useState(() => new Date(Date.now() - 86400000).toISOString().split('T')[0]);
   const [refreshingVersions, setRefreshingVersions] = useState(false);
 
   const handleRefreshLatestVersions = async () => {
@@ -143,7 +146,7 @@ export function MaintenanceTriggerSection({
             type="date"
             value={maintenanceDate}
             onChange={(e) => setMaintenanceDate(e.target.value)}
-            max={new Date(Date.now() - 86400000).toISOString().split('T')[0]}
+            max={maxMaintenanceDate}
             className="w-full max-w-xs px-3 py-2 border border-purple-300 dark:border-purple-600 rounded-lg text-sm bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
           />
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">

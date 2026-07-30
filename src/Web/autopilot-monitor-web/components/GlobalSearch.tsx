@@ -17,6 +17,93 @@ interface QuickSearchResult {
   matchedField: 'sessionId' | 'serialNumber' | 'deviceName';
 }
 
+const fieldLabel = (field: string) => {
+  switch (field) {
+    case 'sessionId': return 'Session ID';
+    case 'serialNumber': return 'Serial';
+    case 'deviceName': return 'Device';
+    default: return field;
+  }
+};
+
+const statusColor = (status: string) => {
+  switch (status) {
+    case 'Succeeded': return 'text-green-600';
+    case 'Failed': return 'text-red-600';
+    case 'InProgress': return 'text-blue-600';
+    case 'Pending': return 'text-amber-600';
+    case 'Stalled': return 'text-orange-600';
+    default: return 'text-gray-500';
+  }
+};
+
+// Module-level so React keeps stable component identities across renders
+// (react-hooks/static-components: an inline component type remounts on every
+// keystroke — the dropdown subtree would be torn down and rebuilt mid-typing).
+const SearchIcon = () => (
+  <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+  </svg>
+);
+
+function ResultsDropdown({ mobile, visible, loading, results, query, selectedIndex, onNavigate }: {
+  mobile?: boolean;
+  visible: boolean;
+  loading: boolean;
+  results: QuickSearchResult[];
+  query: string;
+  selectedIndex: number;
+  onNavigate: (result: QuickSearchResult) => void;
+}) {
+  if (!visible) return null;
+  return (
+    <div className={`absolute ${mobile ? 'left-0 right-0 mx-3' : 'left-0 w-full'} top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-200 z-50 max-h-80 overflow-y-auto`}>
+      {loading ? (
+        <div className="px-4 py-3 text-sm text-gray-500 flex items-center gap-2">
+          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          Searching...
+        </div>
+      ) : results.length === 0 ? (
+        <div className="px-4 py-3 text-sm text-gray-500">
+          {query.length >= 2 ? 'No results found' : 'Type at least 2 characters'}
+        </div>
+      ) : (
+        results.map((result, idx) => (
+          <button
+            key={result.sessionId}
+            onClick={() => onNavigate(result)}
+            className={`w-full text-left px-4 py-2.5 flex items-center gap-3 transition-colors ${idx === selectedIndex ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+          >
+            <span className="text-gray-400 flex-shrink-0">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium text-gray-900 truncate">
+                  {result.deviceName || result.serialNumber || result.sessionId}
+                </p>
+                <span className={`text-[10px] font-semibold ${statusColor(result.status)}`}>
+                  {result.status}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 truncate">
+                <span className="text-gray-400">Matched: </span>
+                {fieldLabel(result.matchedField)}
+                {result.serialNumber && ` · ${result.serialNumber}`}
+              </p>
+            </div>
+          </button>
+        ))
+      )}
+    </div>
+  );
+}
+
 export default function GlobalSearch() {
   const [query, setQuery] = useState('');
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -138,82 +225,6 @@ export default function GlobalSearch() {
     }
   };
 
-  const fieldLabel = (field: string) => {
-    switch (field) {
-      case 'sessionId': return 'Session ID';
-      case 'serialNumber': return 'Serial';
-      case 'deviceName': return 'Device';
-      default: return field;
-    }
-  };
-
-  const statusColor = (status: string) => {
-    switch (status) {
-      case 'Succeeded': return 'text-green-600';
-      case 'Failed': return 'text-red-600';
-      case 'InProgress': return 'text-blue-600';
-      case 'Pending': return 'text-amber-600';
-      case 'Stalled': return 'text-orange-600';
-      default: return 'text-gray-500';
-    }
-  };
-
-  const SearchIcon = () => (
-    <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-    </svg>
-  );
-
-  const ResultsDropdown = ({ mobile }: { mobile?: boolean }) => {
-    if (!showDropdown) return null;
-    return (
-      <div className={`absolute ${mobile ? 'left-0 right-0 mx-3' : 'left-0 w-full'} top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-200 z-50 max-h-80 overflow-y-auto`}>
-        {loading ? (
-          <div className="px-4 py-3 text-sm text-gray-500 flex items-center gap-2">
-            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-            Searching...
-          </div>
-        ) : results.length === 0 ? (
-          <div className="px-4 py-3 text-sm text-gray-500">
-            {query.length >= 2 ? 'No results found' : 'Type at least 2 characters'}
-          </div>
-        ) : (
-          results.map((result, idx) => (
-            <button
-              key={result.sessionId}
-              onClick={() => navigateToResult(result)}
-              className={`w-full text-left px-4 py-2.5 flex items-center gap-3 transition-colors ${idx === selectedIndex ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
-            >
-              <span className="text-gray-400 flex-shrink-0">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium text-gray-900 truncate">
-                    {result.deviceName || result.serialNumber || result.sessionId}
-                  </p>
-                  <span className={`text-[10px] font-semibold ${statusColor(result.status)}`}>
-                    {result.status}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-500 truncate">
-                  <span className="text-gray-400">Matched: </span>
-                  {fieldLabel(result.matchedField)}
-                  {result.serialNumber && ` \u00B7 ${result.serialNumber}`}
-                </p>
-              </div>
-            </button>
-          ))
-        )}
-      </div>
-    );
-  };
-
   return (
     <div className="flex-1 flex items-center px-3">
       {/* Desktop: inline search field centered (visible md+) */}
@@ -244,7 +255,7 @@ export default function GlobalSearch() {
             </button>
           )}
         </div>
-        <ResultsDropdown />
+        <ResultsDropdown visible={showDropdown} loading={loading} results={results} query={query} selectedIndex={selectedIndex} onNavigate={navigateToResult} />
       </div>
 
       {/* Mobile: magnifying glass button pushed right (visible <md) */}
@@ -299,7 +310,7 @@ export default function GlobalSearch() {
               </svg>
             </button>
           </div>
-          <ResultsDropdown mobile />
+          <ResultsDropdown mobile visible={showDropdown} loading={loading} results={results} query={query} selectedIndex={selectedIndex} onNavigate={navigateToResult} />
         </div>
       )}
     </div>

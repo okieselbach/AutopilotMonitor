@@ -214,7 +214,11 @@ export default function DownloadProgress({ events, summaryStats }: DownloadProgr
         bytesTotal: isNaN(bytesTotal) ? 0 : bytesTotal,
         downloadRateBps: effectiveRateBps,
         lastUpdated: evt.timestamp,
-        lastUpdatedMs: Number.isFinite(eventTs) ? eventTs : (existing?.lastUpdatedMs ?? Date.now()),
+        // NaN when no event ever carried a parseable timestamp: the rate
+        // fallback above guards with Number.isFinite, and wall-clock time at
+        // memo-recompute would be an arbitrary base for event-time deltas
+        // anyway (render must also stay pure — react-hooks/purity).
+        lastUpdatedMs: Number.isFinite(eventTs) ? eventTs : (existing?.lastUpdatedMs ?? NaN),
         isComplete,
         isSkipped: isSkippedEvent || (existing?.isSkipped ?? false),
         firstSeenIndex: existing?.firstSeenIndex ?? insertionIndex++,

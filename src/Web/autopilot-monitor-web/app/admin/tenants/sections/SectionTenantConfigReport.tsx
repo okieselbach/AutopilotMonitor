@@ -335,6 +335,9 @@ export function SectionTenantConfigReport() {
 
   const [tenants, setTenants] = useState<TenantInfo[]>([]);
   const [selectedTenantId, setSelectedTenantId] = useState('');
+  // Mount-time clock for trial-expiry checks — render must stay pure
+  // (react-hooks/purity); day-granularity expiry doesn't need a live clock.
+  const [nowMs] = useState(() => Date.now());
   const [config, setConfig] = useState<TenantConfig | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingTenants, setLoadingTenants] = useState(true);
@@ -531,7 +534,7 @@ export function SectionTenantConfigReport() {
                 <ConfigRow label="Onboarded At" value={config.onboardedAt} isDate />
                 <ConfigRow
                   label="Plan Tier"
-                  value={`${config.planTier || 'free'}${config.trialExpiresUtc && new Date(config.trialExpiresUtc).getTime() > Date.now() ? ` (trial until ${formatDate(config.trialExpiresUtc)})` : ''}`}
+                  value={`${config.planTier || 'free'}${config.trialExpiresUtc && new Date(config.trialExpiresUtc).getTime() > nowMs ? ` (trial until ${formatDate(config.trialExpiresUtc)})` : ''}`}
                   configKey="planTier"
                   defaults={DEFAULTS}
                 />
