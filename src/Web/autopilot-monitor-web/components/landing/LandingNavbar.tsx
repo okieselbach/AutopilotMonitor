@@ -6,10 +6,12 @@ import { getPortalLoginUrl, shouldCrossOriginToPortal } from "../../lib/hostRout
 import { DOCS_URL } from "@/utils/config";
 import { BrandMark } from "../BrandMark";
 
+// Root-anchored (/#…) so the links also work from subpages
+// like /get-started, /about, /terms, /privacy.
 const NAV_LINKS = [
-  { href: "#story", label: "Product" },
-  { href: "#features", label: "Capabilities" },
-  { href: "#comparison", label: "Compare" },
+  { href: "/#story", label: "Product" },
+  { href: "/#features", label: "Capabilities" },
+  { href: "/#comparison", label: "Compare" },
   { href: DOCS_URL, label: "Docs", external: true },
 ];
 
