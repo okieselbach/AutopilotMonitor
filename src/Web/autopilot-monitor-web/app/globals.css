@@ -139,10 +139,13 @@ input[type="radio"] {
   color: #94a3b8 !important;
 }
 .dark .text-gray-500 {
-  color: #64748b !important;
+  /* was #64748b — too dark on raised dark surfaces (notification items,
+     hover rows); lightened for readable muted text, hierarchy kept. */
+  color: #8896ad !important;
 }
 .dark .text-gray-400 {
-  color: #64748b !important;
+  /* was #64748b — see text-gray-500 note; one step more muted than 500. */
+  color: #7b8ba3 !important;
 }
 
 /* -- Borders -- */

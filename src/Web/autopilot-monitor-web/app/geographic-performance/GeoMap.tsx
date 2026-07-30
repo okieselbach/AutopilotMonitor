@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { MapContainer, TileLayer, CircleMarker, Tooltip, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -61,22 +61,6 @@ function formatThroughput(bytesPerSec: number): string {
   return `${bytesPerSec.toFixed(0)} B/s`;
 }
 
-// Clean up Leaflet map on unmount to prevent _leaflet_pos errors during client-side navigation.
-// map.remove() fully destroys the instance, preventing stale transitionend callbacks.
-function MapCleanup() {
-  const map = useMap();
-  const mapRef = useRef(map);
-  mapRef.current = map;
-
-  useEffect(() => {
-    return () => {
-      try { mapRef.current.remove(); } catch { /* already removed by react-leaflet */ }
-    };
-  }, []);
-
-  return null;
-}
-
 // Component to auto-fit bounds when locations change
 function FitBounds({ locations }: { locations: { coords: [number, number] }[] }) {
   const map = useMap();
@@ -100,12 +84,6 @@ function FitBounds({ locations }: { locations: { coords: [number, number] }[] })
 }
 
 export default function GeoMap({ locations, globalAvgDuration, selectedLocation, onLocationSelect }: GeoMapProps) {
-  // Leaflet refuses to initialize a DOM node it has already claimed
-  // ("Map container is already initialized"): dev-mode remounts (React
-  // StrictMode re-runs, Fast Refresh over the dynamic() wrapper) hand it
-  // the same div twice. A per-mount key forces React to create a virgin
-  // container element for every (re)mount; production is unaffected.
-  const [containerKey] = useState(() => `geomap-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
   // Memoize so the derived array keeps a stable identity across re-renders. FitBounds' effect
   // depends on this list; a fresh array every render would re-run it (and re-fire the camera
   // move) on every parent re-render, not just when the location data actually changes.
@@ -132,13 +110,11 @@ export default function GeoMap({ locations, globalAvgDuration, selectedLocation,
 
   return (
     <MapContainer
-      key={containerKey}
       center={[30, 0]}
       zoom={2}
       style={{ height: "100%", width: "100%", borderRadius: "0.5rem", zIndex: 0 }}
       scrollWheelZoom={true}
     >
-      <MapCleanup />
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
