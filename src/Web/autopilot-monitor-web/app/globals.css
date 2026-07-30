@@ -800,6 +800,25 @@ html:hover ::-webkit-scrollbar-thumb {
   --lp-danger: #dc2626;
 }
 
+/* Neutralize the global .dark utility overrides inside the light-only
+   marketing surface: about/terms/privacy still use plain bg-white /
+   text-gray-* cards, which the app-wide dark overrides would otherwise
+   flip and leave those pages half dark. Dies together with the
+   light-only decision above. */
+.dark .landing-v2 .bg-white { background-color: #ffffff !important; }
+.dark .landing-v2 .bg-gray-50 { background-color: #f9fafb !important; }
+.dark .landing-v2 .bg-gray-100 { background-color: #f3f4f6 !important; }
+.dark .landing-v2 .text-gray-900 { color: #111827 !important; }
+.dark .landing-v2 .text-gray-800 { color: #1f2937 !important; }
+.dark .landing-v2 .text-gray-700 { color: #374151 !important; }
+.dark .landing-v2 .text-gray-600 { color: #4b5563 !important; }
+.dark .landing-v2 .text-gray-500 { color: #6b7280 !important; }
+.dark .landing-v2 .text-gray-400 { color: #9ca3af !important; }
+.dark .landing-v2 .border-gray-200 { border-color: #e5e7eb !important; }
+.dark .landing-v2 .border-gray-300 { border-color: #d1d5db !important; }
+.dark .landing-v2 .hover\:bg-gray-50:hover { background-color: #f9fafb !important; }
+.dark .landing-v2 .hover\:bg-gray-100:hover { background-color: #f3f4f6 !important; }
+
 /* Scroll-triggered reveal: Reveal.tsx adds .lp-in when the element
    enters the viewport. Reduced motion renders everything visible. */
 .lp-reveal {

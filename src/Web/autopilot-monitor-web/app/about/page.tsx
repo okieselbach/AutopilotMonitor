@@ -279,7 +279,7 @@ export default function AboutPage() {
           </p>
           <div className="flex flex-wrap gap-3 mt-5">
             <a
-              href="https://github.com/okieselbach/Autopilot-Monitor"
+              href="https://github.com/okieselbach/AutopilotMonitor"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-100 transition-colors"
@@ -290,7 +290,7 @@ export default function AboutPage() {
               View on GitHub
             </a>
             <a
-              href="https://github.com/okieselbach/Autopilot-Monitor/issues"
+              href="https://github.com/okieselbach/AutopilotMonitor/issues"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-100 transition-colors"

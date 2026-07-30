@@ -145,7 +145,7 @@ export function Story() {
 
   return (
     <section id="story" className="py-20 sm:py-28 px-6 scroll-mt-20">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-7xl mx-auto">
         <Reveal className="max-w-2xl mx-auto text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--lp-accent-ink)]">The story</p>
           <h2 className="mt-3 text-3xl sm:text-5xl font-bold tracking-tight text-[var(--lp-ink)] text-balance">

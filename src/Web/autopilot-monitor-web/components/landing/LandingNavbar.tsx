@@ -72,7 +72,7 @@ export function LandingNavbar() {
 
         <div className="ml-auto flex items-center gap-1.5 sm:gap-2 shrink-0">
           <a
-            href="https://github.com/okieselbach/Autopilot-Monitor"
+            href="https://github.com/okieselbach/AutopilotMonitor"
             target="_blank"
             rel="noopener noreferrer"
             className="p-2 rounded-lg text-[var(--lp-ink-faint)] hover:text-[var(--lp-ink)] hover:bg-[var(--lp-surface-2)] transition-colors"

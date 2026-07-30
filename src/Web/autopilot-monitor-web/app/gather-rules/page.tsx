@@ -449,7 +449,7 @@ export default function GatherRulesPage() {
                 </svg>
                 <p className="text-sm text-blue-800">
                   Missing a rule, found a bug, or have an improvement idea? Help make Autopilot Monitor better —{" "}
-                  <a href="https://github.com/okieselbach/Autopilot-Monitor/issues" target="_blank" rel="noopener noreferrer" className="font-medium underline hover:text-blue-900">
+                  <a href="https://github.com/okieselbach/AutopilotMonitor/issues" target="_blank" rel="noopener noreferrer" className="font-medium underline hover:text-blue-900">
                     open a GitHub issue
                   </a>.
                 </p>

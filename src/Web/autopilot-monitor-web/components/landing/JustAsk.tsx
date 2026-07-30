@@ -3,7 +3,7 @@ import { McpTerminalDemo } from "./McpTerminalDemo";
 export function JustAsk() {
   return (
     <section className="py-16 sm:py-20 px-6">
-      <div className="max-w-6xl mx-auto grid lg:grid-cols-[1fr_1.7fr] gap-6 lg:gap-10 items-center">
+      <div className="max-w-7xl mx-auto grid lg:grid-cols-[1fr_1.7fr] gap-6 lg:gap-10 items-center">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--lp-accent-ink)]">
             Built-in MCP server

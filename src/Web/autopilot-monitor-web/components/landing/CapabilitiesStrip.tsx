@@ -42,7 +42,7 @@ const CAPABILITIES = [
 export function CapabilitiesStrip() {
   return (
     <section id="features" className="py-20 sm:py-24 px-6 scroll-mt-20 border-y border-[var(--lp-line-soft)] bg-[var(--lp-surface)]">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-7xl mx-auto">
         <Reveal className="max-w-2xl">
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--lp-accent-ink)]">Capabilities</p>
           <h2 className="mt-3 text-3xl sm:text-4xl font-bold tracking-tight text-[var(--lp-ink)]">

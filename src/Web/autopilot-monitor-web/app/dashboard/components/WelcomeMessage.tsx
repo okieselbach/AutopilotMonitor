@@ -66,7 +66,7 @@ export function WelcomeMessage() {
             </svg>
           </a>
           <a
-            href="https://github.com/okieselbach/Autopilot-Monitor"
+            href="https://github.com/okieselbach/AutopilotMonitor"
             target="_blank"
             rel="noopener noreferrer"
             className="group flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 hover:border-gray-400 hover:bg-gray-100 transition-colors"

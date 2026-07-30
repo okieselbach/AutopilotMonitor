@@ -315,7 +315,7 @@ function HomeContent() {
               .{" "}
               Feedback or bug report?{" "}
               <a
-                href="https://github.com/okieselbach/Autopilot-Monitor/issues"
+                href="https://github.com/okieselbach/AutopilotMonitor/issues"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline font-medium hover:text-blue-600 dark:hover:text-blue-200"

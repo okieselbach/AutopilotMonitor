@@ -234,7 +234,7 @@ export default function PrivacyPage() {
             For the open-source project and the Community edition you can also reach the maintainer via{" "}
             <a href="https://www.linkedin.com/in/oliver-kieselbach" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">LinkedIn</a>{" "}
             or open a{" "}
-            <a href="https://github.com/okieselbach/Autopilot-Monitor/issues" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">GitHub issue</a>.
+            <a href="https://github.com/okieselbach/AutopilotMonitor/issues" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">GitHub issue</a>.
           </p>
         </div>
       </main>

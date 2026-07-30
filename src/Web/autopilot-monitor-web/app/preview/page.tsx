@@ -176,7 +176,7 @@ export default function PreviewPage() {
                 </svg>
               </a>
               <a
-                href="https://github.com/okieselbach/Autopilot-Monitor/issues"
+                href="https://github.com/okieselbach/AutopilotMonitor/issues"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-100 rounded-md hover:bg-blue-200 transition-colors"

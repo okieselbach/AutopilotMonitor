@@ -23,8 +23,8 @@ const STEPS = [
   {
     title: "Request access",
     description:
-      "Autopilot Monitor is in private preview: your tenant is queued and approved — you'll see the status right after signing in.",
-    note: "Private preview approval",
+      "Autopilot Monitor is in preview: your tenant is queued and approved — you'll see the status right after signing in.",
+    note: "Preview approval",
   },
   {
     title: "Grant consent once",

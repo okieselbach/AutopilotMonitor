@@ -5,7 +5,7 @@ import { DOCS_URL } from "@/utils/config";
 const LAST_UPDATED = "21 July 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
 const DOCS_PLANS = `${DOCS_URL}/plans`;
-const GITHUB_ADVISORY = "https://github.com/okieselbach/Autopilot-Monitor/security/advisories/new";
+const GITHUB_ADVISORY = "https://github.com/okieselbach/AutopilotMonitor/security/advisories/new";
 
 export default function TermsPage() {
   return (
@@ -100,7 +100,7 @@ export default function TermsPage() {
         <div className="bg-white rounded-lg shadow p-6 space-y-4">
           <h2 className="text-lg font-semibold text-gray-900">Intellectual Property &amp; Licensing</h2>
           <div className="space-y-2 text-gray-700">
-            <p><strong>Open source.</strong> The Autopilot Monitor source code is published on <a href="https://github.com/okieselbach/Autopilot-Monitor" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">GitHub</a> under the licence stated in that repository. That licence governs the code — it does not grant rights to the hosted service, its infrastructure, its data, or the Autopilot Monitor name and branding.</p>
+            <p><strong>Open source.</strong> The Autopilot Monitor source code is published on <a href="https://github.com/okieselbach/AutopilotMonitor" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">GitHub</a> under the licence stated in that repository. That licence governs the code — it does not grant rights to the hosted service, its infrastructure, its data, or the Autopilot Monitor name and branding.</p>
             <p><strong>Your data stays yours.</strong> Enrollment telemetry, configuration, and diagnostics belong to your organization. Using the service grants only the rights needed to operate it for you, as described in the <a href="/privacy" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">Privacy Policy</a>.</p>
             <p><strong>Rules you contribute</strong> are covered by the licence grant described under &quot;Your Data, Suspension and Termination&quot; below.</p>
             <p><strong>Third-party components</strong> remain the property of their respective owners and are used under their own licences; see the attributions below.</p>
@@ -137,7 +137,7 @@ export default function TermsPage() {
 
           <div className="space-y-2 text-gray-700">
             <p><strong>Availability.</strong> The Community plan carries no uptime or availability commitment; interruptions, maintenance, and changes can occur without prior notice. The Enterprise plan carries the availability commitments set out in its agreement.</p>
-            <p><strong>Support.</strong> Community support is best-effort via <a href="https://github.com/okieselbach/Autopilot-Monitor/issues" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">GitHub issues</a>, provided by the project maintainer and the community, with no guaranteed response or resolution time; built-in rules and IME log patterns are community-maintained. Enterprise support follows the response commitments in its agreement.</p>
+            <p><strong>Support.</strong> Community support is best-effort via <a href="https://github.com/okieselbach/AutopilotMonitor/issues" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">GitHub issues</a>, provided by the project maintainer and the community, with no guaranteed response or resolution time; built-in rules and IME log patterns are community-maintained. Enterprise support follows the response commitments in its agreement.</p>
             <p><strong>Data durability.</strong> Autopilot Monitor is a monitoring system, not a system of record. Configuration, authorization, and rule data is backed up daily; session and event telemetry is time-bounded operational data and is <strong>not</strong> backed up. Retain anything you need for compliance or reporting purposes in your own systems.</p>
             <p><strong>Liability.</strong> To the extent permitted by law, glueckkanja AG is not liable for indirect, incidental, special, consequential, or punitive damages, or for loss of data, profit, or business, arising from use of or inability to use the service. For the Community plan, which is provided free of charge, liability is limited to intent and gross negligence. Liability for injury to life, body or health and under mandatory statutory provisions remains unaffected. For the Enterprise plan, the liability provisions of the written agreement apply.</p>
             <p><strong>Use at your own risk.</strong> The service reports on enrollments; it does not perform them. Operational decisions you take based on its output remain your responsibility.</p>
@@ -207,7 +207,7 @@ export default function TermsPage() {
             <p><strong>Changes.</strong> These terms may be updated; the &quot;last updated&quot; date above reflects the current version, and material changes are announced through the service announcements in the portal. Continued use after a change constitutes acceptance.</p>
             <p><strong>Governing law.</strong> These terms are governed by German law. For the Enterprise plan, the governing-law and venue provisions of the written agreement apply.</p>
             <p><strong>Severability.</strong> If a provision is found unenforceable, the remaining provisions stay in effect.</p>
-            <p><strong>Contact.</strong> Company details are in the <a href="https://www.glueckkanja.com/en/imprint" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">Imprint</a>. For the project and the Community edition, reach the maintainer via <a href="https://www.linkedin.com/in/oliver-kieselbach" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">LinkedIn</a> or open a <a href="https://github.com/okieselbach/Autopilot-Monitor/issues" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">GitHub issue</a>.</p>
+            <p><strong>Contact.</strong> Company details are in the <a href="https://www.glueckkanja.com/en/imprint" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">Imprint</a>. For the project and the Community edition, reach the maintainer via <a href="https://www.linkedin.com/in/oliver-kieselbach" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">LinkedIn</a> or open a <a href="https://github.com/okieselbach/AutopilotMonitor/issues" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">GitHub issue</a>.</p>
           </div>
         </div>
       </main>

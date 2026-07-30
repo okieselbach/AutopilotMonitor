@@ -15,8 +15,8 @@ const LINK_COLUMNS = [
     title: "Resources",
     links: [
       { label: "Documentation", href: DOCS_URL, external: true },
-      { label: "Feedback", href: "https://github.com/okieselbach/Autopilot-Monitor/issues", external: true },
-      { label: "GitHub", href: "https://github.com/okieselbach/Autopilot-Monitor", external: true },
+      { label: "Feedback", href: "https://github.com/okieselbach/AutopilotMonitor/issues", external: true },
+      { label: "GitHub", href: "https://github.com/okieselbach/AutopilotMonitor", external: true },
     ],
   },
   {
@@ -70,7 +70,7 @@ export function SiteFooter() {
                 </svg>
               </a>
               <a
-                href="https://github.com/okieselbach/Autopilot-Monitor"
+                href="https://github.com/okieselbach/AutopilotMonitor"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[var(--lp-ink-faint)] hover:text-[var(--lp-ink)] transition-colors"
@@ -117,7 +117,7 @@ export function SiteFooter() {
           <p className="text-[11px] text-[var(--lp-ink-faint)]">
             Open source. Star us on{" "}
             <a
-              href="https://github.com/okieselbach/Autopilot-Monitor"
+              href="https://github.com/okieselbach/AutopilotMonitor"
               target="_blank"
               rel="noopener noreferrer"
               className="text-[var(--lp-ink-soft)] hover:text-[var(--lp-accent-ink)] transition-colors"

@@ -250,7 +250,7 @@ export default function HealthCheckPage() {
                   <dd className="mt-1 font-mono text-gray-900 dark:text-gray-100">
                     {healthResult.commitHash ? (
                       <a
-                        href={`https://github.com/okieselbach/Autopilot-Monitor/commit/${healthResult.commitHash}`}
+                        href={`https://github.com/okieselbach/AutopilotMonitor/commit/${healthResult.commitHash}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-indigo-600 dark:text-indigo-400 hover:underline"

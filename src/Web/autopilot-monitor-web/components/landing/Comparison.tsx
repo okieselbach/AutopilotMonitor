@@ -51,7 +51,7 @@ const ROWS = [
 export function Comparison() {
   return (
     <section id="comparison" className="py-20 sm:py-24 px-6 scroll-mt-20">
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-7xl mx-auto">
         <Reveal className="max-w-2xl mx-auto text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--lp-accent-ink)]">Compare</p>
           <h2 className="mt-3 text-3xl sm:text-4xl font-bold tracking-tight text-[var(--lp-ink)]">

@@ -103,7 +103,7 @@ const jsonLd = {
     url: "https://www.linkedin.com/in/oliver-kieselbach/",
   },
   url: SITE_URL,
-  codeRepository: "https://github.com/okieselbach/Autopilot-Monitor",
+  codeRepository: "https://github.com/okieselbach/AutopilotMonitor",
   keywords:
     "Windows Autopilot, Intune, enrollment monitoring, autopilot troubleshooting, Windows deployment",
 };
