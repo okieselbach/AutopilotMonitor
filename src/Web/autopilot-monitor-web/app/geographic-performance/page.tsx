@@ -13,6 +13,7 @@ import { useAggregatedAdminScope } from "@/hooks";
 import { useFetchProgress } from "@/hooks/useFetchProgress";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
+import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedControl";
 import { CalculatingCard } from "@/components/CalculatingCard";
 
 // A cross-tenant geo aggregation can take tens of seconds server-side; the default 30s fetch
@@ -257,37 +258,21 @@ export default function GeographicPerformancePage() {
               <div className="flex flex-wrap items-center gap-2">
                 <TenantScopeSelector scope={scope} allowAggregated />
                 {/* Time Range Toggle */}
-                <div className="flex bg-gray-100 rounded-lg p-1">
-                  {(["7d", "30d", "90d"] as TimeRange[]).map((range) => (
-                    <button
-                      key={range}
-                      onClick={() => setTimeRange(range)}
-                      className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                        timeRange === range
-                          ? "bg-white text-gray-900 shadow-sm"
-                          : "text-gray-500 hover:text-gray-700"
-                      }`}
-                    >
-                      {range === "7d" ? "7 Days" : range === "30d" ? "30 Days" : "90 Days"}
-                    </button>
-                  ))}
-                </div>
+                <SegmentedControl
+                  options={TIME_RANGE_OPTIONS}
+                  value={timeRange}
+                  onChange={(v) => setTimeRange(v as TimeRange)}
+                />
                 {/* Group By Toggle */}
-                <div className="flex bg-gray-100 rounded-lg p-1">
-                  {(["city", "region", "country"] as GroupBy[]).map((g) => (
-                    <button
-                      key={g}
-                      onClick={() => setGroupBy(g)}
-                      className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors capitalize ${
-                        groupBy === g
-                          ? "bg-white text-gray-900 shadow-sm"
-                          : "text-gray-500 hover:text-gray-700"
-                      }`}
-                    >
-                      {g}
-                    </button>
-                  ))}
-                </div>
+                <SegmentedControl
+                  options={[
+                    { value: "city", label: "City" },
+                    { value: "region", label: "Region" },
+                    { value: "country", label: "Country" },
+                  ]}
+                  value={groupBy}
+                  onChange={(v) => setGroupBy(v as GroupBy)}
+                />
               </div>
             </div>
           </div>

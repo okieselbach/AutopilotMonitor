@@ -27,6 +27,7 @@ import { trackEvent } from "@/lib/appInsights";
 import { useGlobalAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
+import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedControl";
 import Link from "next/link";
 import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
 
@@ -215,19 +216,18 @@ export default function SlaPage() {
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <TenantScopeSelector scope={scope} themed />
-                <select
+                <SegmentedControl
+                  options={[
+                    { value: 1, label: "1 Month" },
+                    { value: 3, label: "3 Months" },
+                    { value: 6, label: "6 Months" },
+                  ]}
                   value={months}
-                  onChange={(e) => {
-                    const next = Number(e.target.value);
+                  onChange={(next) => {
                     trackEvent('sla_months_changed', { months: next });
                     setMonths(next);
                   }}
-                  className="text-sm border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1.5 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                >
-                  <option value={1}>Last month</option>
-                  <option value={3}>Last 3 months</option>
-                  <option value={6}>Last 6 months</option>
-                </select>
+                />
                 <button
                   onClick={() => {
                     trackEvent('sla_refresh_clicked', { months });

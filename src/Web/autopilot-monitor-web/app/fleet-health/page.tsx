@@ -17,6 +17,7 @@ import { useFleetHealth } from "./hooks/useFleetHealth";
 import { useAggregatedAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
+import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedControl";
 import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 
@@ -261,23 +262,11 @@ export default function FleetHealthPage() {
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <TenantScopeSelector scope={scope} allowAggregated />
-                {(["7d", "30d", "90d"] as const).map((range) => (
-                  <button
-                    key={range}
-                    onClick={() => setTimeRange(range)}
-                    className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                      timeRange === range
-                        ? "bg-green-600 text-white"
-                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                    }`}
-                  >
-                    {range === "7d"
-                      ? "Last 7 Days"
-                      : range === "30d"
-                      ? "Last 30 Days"
-                      : "Last 90 Days"}
-                  </button>
-                ))}
+                <SegmentedControl
+                  options={TIME_RANGE_OPTIONS}
+                  value={timeRange}
+                  onChange={(v) => setTimeRange(v as typeof timeRange)}
+                />
               </div>
             </div>
           </div>

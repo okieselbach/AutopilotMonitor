@@ -7,6 +7,7 @@ import { ProtectedRoute } from "../../components/ProtectedRoute";
 import { useAggregatedAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
+import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedControl";
 import InstallsTab from "./components/InstallsTab";
 import InventoryTab from "./components/InventoryTab";
 import VulnerabilitiesTab from "./components/VulnerabilitiesTab";
@@ -48,17 +49,11 @@ function SoftwareHub() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <TenantScopeSelector scope={scope} allowAggregated />
-              {(["7d", "30d", "90d"] as const).map((range) => (
-                <button
-                  key={range}
-                  onClick={() => setTimeRange(range)}
-                  className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                    timeRange === range ? "bg-green-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  }`}
-                >
-                  {range === "7d" ? "7 Days" : range === "30d" ? "30 Days" : "90 Days"}
-                </button>
-              ))}
+              <SegmentedControl
+                options={TIME_RANGE_OPTIONS}
+                value={timeRange}
+                onChange={(v) => setTimeRange(v as typeof timeRange)}
+              />
             </div>
           </div>
 
