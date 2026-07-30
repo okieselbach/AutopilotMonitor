@@ -777,6 +777,29 @@ html:hover ::-webkit-scrollbar-thumb {
 
 /* ===== LANDING V2 (scroll reveals, event stream, terminal) ===== */
 
+/* The marketing surface is light-only for now: product screenshots are
+   light, and a half-dark landing reads unfinished. Re-declare the light
+   tokens inside .landing-v2 so a dark OS/portal preference does not
+   flip the landing. Remove this block to re-enable dark marketing. */
+.dark .landing-v2 {
+  --lp-bg: #fafafa;
+  --lp-surface: #ffffff;
+  --lp-surface-2: #f4f4f5;
+  --lp-nav: rgba(255, 255, 255, 0.72);
+  --lp-ink: #18181b;
+  --lp-ink-soft: #52525b;
+  --lp-ink-faint: #9ca3af;
+  --lp-line: #e4e4e7;
+  --lp-line-soft: #ededf0;
+  --lp-accent: #33b161;
+  --lp-accent-ink: #1e8a4c;
+  --lp-accent-soft: rgba(51, 177, 97, 0.1);
+  --lp-accent-line: rgba(51, 177, 97, 0.35);
+  --lp-warn: #d97706;
+  --lp-warn-soft: rgba(217, 119, 6, 0.1);
+  --lp-danger: #dc2626;
+}
+
 /* Scroll-triggered reveal: Reveal.tsx adds .lp-in when the element
    enters the viewport. Reduced motion renders everything visible. */
 .lp-reveal {

@@ -24,9 +24,9 @@ export function StoryAction() {
             <span className="font-semibold text-[var(--lp-ink)]">CONTOSO-4711</span> — Device Setup
             running 39 min, blocking app <span className="font-medium">Contoso VPN Client</span> stalled at 87%.
           </p>
+          {/* The real Teams card carries exactly one action: "Open session" */}
           <div className="mt-3 flex items-center gap-2">
-            <span className="px-3 py-1.5 rounded-lg bg-[var(--lp-accent)] text-white text-[11px] font-semibold">View session</span>
-            <span className="px-3 py-1.5 rounded-lg border border-[var(--lp-line)] text-[11px] font-semibold text-[var(--lp-ink-soft)]">Collect diagnostics</span>
+            <span className="px-3 py-1.5 rounded-lg bg-[var(--lp-accent)] text-white text-[11px] font-semibold">Open session</span>
           </div>
         </div>
       </div>

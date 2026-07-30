@@ -1,4 +1,3 @@
-import { LoginButton } from "./LoginButton";
 import { HeroShots } from "./HeroShots";
 import { DOCS_URL } from "@/utils/config";
 
@@ -22,9 +21,12 @@ export function Hero() {
           </p>
           <div className="shrink-0">
             <div className="flex items-center gap-3">
-              <LoginButton className="px-6 py-3 rounded-lg bg-[var(--lp-accent)] hover:brightness-105 text-white font-semibold shadow-md shadow-[var(--lp-accent-soft)] transition-all hover:-translate-y-0.5">
+              <a
+                href="/get-started"
+                className="px-6 py-3 rounded-lg bg-[var(--lp-accent)] hover:brightness-105 hover:shadow-lg text-white font-semibold shadow-md transition-all"
+              >
                 Get started
-              </LoginButton>
+              </a>
               <a
                 href={DOCS_URL}
                 target="_blank"

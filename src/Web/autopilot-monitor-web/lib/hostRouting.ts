@@ -24,6 +24,7 @@ export const PUBLIC_PATH_PREFIXES = [
   "/about",
   "/changelog",
   "/docs",
+  "/get-started",
   "/privacy",
   "/terms",
   "/roadmap",
