@@ -34,7 +34,12 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
   } = useSidebar();
 
   const { isAuthenticated, user, hasGlobalScope, hasFleetScope } = useAuth();
-  const pathname = usePathname();
+  // With trailingSlash: true the canonical client-nav URL is /foo/ while a
+  // hard load can still surface /foo — normalize to the slash-less form all
+  // nav-config hrefs use, so exact matches (active item, auto-expand) hold
+  // for both.
+  const rawPathname = usePathname();
+  const pathname = rawPathname.length > 1 ? rawPathname.replace(/\/+$/, "") : rawPathname;
 
   // Track desktop breakpoint
   const [isDesktop, setIsDesktop] = useState(false);
@@ -243,7 +248,11 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdminOrOperator, hasGlobalScope, isGlobalAdmin, globalAdminMode, hasMcpAccess, isAdminLike, canManageBootstrapTokens, bootstrapTokenEnabled, unrestrictedModeEnabled]);
 
-  // Auto-expand the group containing the current pathname
+  // Auto-expand the group containing the current pathname. Depends on
+  // visibleExpandableGroups too: on a hard load (deep link, F5, post-deploy
+  // chunk-recovery reload) this effect first runs while MSAL is still
+  // resolving and the groups array is empty — without the dep it would never
+  // re-run once auth lands, leaving the active group collapsed.
   useEffect(() => {
     for (const group of visibleExpandableGroups) {
       for (const item of group.items) {
@@ -265,7 +274,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
         }
       }
     }
-  }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pathname, visibleExpandableGroups]);
 
   // Landing page: never show sidebar
   if (pathname === "/") {
