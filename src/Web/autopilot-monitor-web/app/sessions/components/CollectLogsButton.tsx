@@ -267,7 +267,7 @@ export default function CollectLogsButton({
                 </p>
                 <p className="text-sm text-gray-700">
                   <span className="font-semibold">Enable &amp; Collect</span> switches the upload destination to
-                  {" "}<span className="font-semibold">hosted storage</span> (managed by AutopilotMonitor) with mode
+                  {" "}<span className="font-semibold">hosted storage</span> (managed by Autopilot Monitor) with mode
                   {" "}<span className="font-semibold">On failure</span>, then collects the logs from this device right away.
                 </p>
                 {/* Data-boundary disclosure. This dialog is the SECOND opt-in path into hosted
@@ -277,7 +277,7 @@ export default function CollectLogsButton({
                 <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 space-y-1">
                   <p className="text-sm text-sky-900">
                     <span className="font-semibold">Uploaded packages leave your own Azure tenant boundary.</span>{" "}
-                    They are stored in the AutopilotMonitor backend&apos;s Azure Storage (Germany West Central),
+                    They are stored in the Autopilot Monitor backend&apos;s Azure Storage (Germany West Central),
                     isolated per tenant, and each upload uses a fresh blob-scoped, write-only token.
                   </p>
                   <p className="text-xs text-sky-800">

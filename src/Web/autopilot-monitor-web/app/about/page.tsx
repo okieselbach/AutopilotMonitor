@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PublicPageHeader } from "../../components/PublicPageHeader";
+import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/utils/config";
 
 const FEATURES = [
@@ -309,6 +310,7 @@ export default function AboutPage() {
         </section>
 
       </main>
+      <SiteFooter />
     </div>
   );
 }

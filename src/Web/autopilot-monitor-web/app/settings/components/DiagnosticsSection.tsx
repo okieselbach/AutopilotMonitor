@@ -132,7 +132,7 @@ export default function DiagnosticsSection({
                   </span>
                 </p>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Uploads go to the AutopilotMonitor backend's Azure Storage. Per-upload, blob-scoped tokens; 15-min TTL.
+                  Uploads go to the Autopilot Monitor backend's Azure Storage. Per-upload, blob-scoped tokens; 15-min TTL.
                 </p>
               </div>
             </label>
@@ -215,7 +215,7 @@ export default function DiagnosticsSection({
               Hosted storage
             </p>
             <p className="text-sm text-sky-900 mb-2">
-              Diagnostics packages are uploaded to the AutopilotMonitor backend's Azure Storage (operated by the Autopilot Monitor Team). Blobs are isolated per tenant via a <code className="font-mono text-xs bg-sky-100 px-1 rounded">&#123;tenantId&#125;/</code> prefix, and each upload uses a fresh blob-scoped, write-only token (15-min TTL).
+              Diagnostics packages are uploaded to the Autopilot Monitor backend's Azure Storage (operated by the Autopilot Monitor Team). Blobs are isolated per tenant via a <code className="font-mono text-xs bg-sky-100 px-1 rounded">&#123;tenantId&#125;/</code> prefix, and each upload uses a fresh blob-scoped, write-only token (15-min TTL).
             </p>
             <p className="text-xs text-sky-800">
               Heads-up: with this option, uploaded contents leave your own Azure tenant boundary. Retention follows your tenant's <strong>Data Retention Days</strong> setting and is enforced by the cascade-delete pipeline — old packages are removed automatically. Review the diagnostics paths section below to see what is collected.

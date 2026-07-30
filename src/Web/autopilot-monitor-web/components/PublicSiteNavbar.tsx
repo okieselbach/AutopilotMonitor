@@ -5,6 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useTheme } from "../contexts/ThemeContext";
 import { getPortalLoginUrl, shouldCrossOriginToPortal } from "../lib/hostRouting";
 import { DOCS_URL } from "@/utils/config";
+import { BrandMark } from "./BrandMark";
 
 export function PublicSiteNavbar({ showSectionLinks, fullWidth = false }: { showSectionLinks: boolean; fullWidth?: boolean }) {
   const { login, isAuthenticated } = useAuth();
@@ -34,18 +35,10 @@ export function PublicSiteNavbar({ showSectionLinks, fullWidth = false }: { show
     >
       <div className={`${fullWidth ? "" : "max-w-7xl mx-auto"} px-4 sm:px-6 flex items-center justify-between h-14`}>
         <Link href="/" className="flex items-center space-x-2.5 shrink-0">
-          <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
-            <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none">
-              <rect x="5.0" y="12.2" width="2.8" height="7.8" rx="0.9" fill="currentColor" />
-              <rect x="10.6" y="10.9" width="2.8" height="9.1" rx="0.9" fill="currentColor" />
-              <rect x="16.2" y="8.6" width="2.8" height="11.4" rx="0.9" fill="currentColor" />
-              <path d="M4.4 8.9L8.6 6.8L12.0 7.4L15.4 5.5L18.8 4.9" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M17.8 4.2L19.1 4.9L17.9 5.9" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </div>
-          <span className="text-lg font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-            <span className="hidden md:inline">AutopilotMonitor</span>
-            <span className="md:hidden">AP Monitor</span>
+          <BrandMark className="w-6 h-6" />
+          <span className="text-lg font-bold tracking-tight text-[var(--lp-ink)]">
+            <span className="hidden md:inline">Autopilot <span className="text-[var(--lp-accent-ink)]">Monitor</span></span>
+            <span className="md:hidden">AP <span className="text-[var(--lp-accent-ink)]">Monitor</span></span>
           </span>
         </Link>
 

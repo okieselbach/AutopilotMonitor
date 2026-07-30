@@ -164,7 +164,7 @@ export default function Navbar() {
                   <path d="M0 180.201L208.401 190.502L188.157 76.2438L5.48363e-06 0L0 180.201Z" fill="#33B161" />
                 </svg>
                 <span className="text-lg font-bold text-gray-600 dark:text-gray-400">
-                  <span className="hidden md:inline">AutopilotMonitor</span>
+                  <span className="hidden md:inline">Autopilot Monitor</span>
                   <span className="md:hidden">AP Monitor</span>
                 </span>
               </Link>
@@ -220,7 +220,7 @@ export default function Navbar() {
                 <path d="M0 180.201L208.401 190.502L188.157 76.2438L5.48363e-06 0L0 180.201Z" fill="#33B161" />
               </svg>
               <span className="text-lg font-bold text-gray-600 dark:text-gray-400">
-                <span className="hidden lg:inline">AutopilotMonitor</span>
+                <span className="hidden lg:inline">Autopilot Monitor</span>
                 <span className="hidden md:inline lg:hidden">AP Monitor</span>
                 <span className="md:hidden">AP Mon</span>
               </span>

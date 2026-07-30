@@ -26,13 +26,13 @@ export const metadata: Metadata = {
     "Autopilot Monitor overview",
   ],
   openGraph: {
-    title: "About AutopilotMonitor – Real-Time Windows Autopilot Monitoring",
+    title: "About Autopilot Monitor – Real-Time Windows Autopilot Monitoring",
     description:
       "Free, open-source real-time monitoring and troubleshooting for Windows Autopilot enrollments. Track every phase, run analyze rules, and resolve issues faster — built by Oliver Kieselbach.",
     url: `${SITE_URL}/about`,
   },
   twitter: {
-    title: "About AutopilotMonitor – Real-Time Windows Autopilot Monitoring",
+    title: "About Autopilot Monitor – Real-Time Windows Autopilot Monitoring",
     description:
       "Free, open-source real-time monitoring and troubleshooting for Windows Autopilot enrollments. Track every phase, run analyze rules, and resolve issues faster.",
   },

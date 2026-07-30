@@ -167,9 +167,9 @@ function SessionDetailContent() {
   // title. Falls back to the serial number, then to the bare app name while the session is still loading.
   useEffect(() => {
     const label = session?.deviceName || session?.serialNumber;
-    document.title = label ? `${label} | AutopilotMonitor` : "AutopilotMonitor";
+    document.title = label ? `${label} | Autopilot Monitor` : "Autopilot Monitor";
     return () => {
-      document.title = "AutopilotMonitor";
+      document.title = "Autopilot Monitor";
     };
   }, [session?.deviceName, session?.serialNumber]);
 

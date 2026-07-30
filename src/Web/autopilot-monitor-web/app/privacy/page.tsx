@@ -1,4 +1,5 @@
 import { PublicPageHeader } from "../../components/PublicPageHeader";
+import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/utils/config";
 
 const LAST_UPDATED = "29 July 2026";
@@ -229,6 +230,7 @@ export default function PrivacyPage() {
           </p>
         </div>
       </main>
+      <SiteFooter />
     </div>
   );
 }

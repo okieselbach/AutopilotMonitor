@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description:
     "Privacy Policy for Autopilot Monitor. Learn how we collect, store, and protect your data when using the Windows Autopilot monitoring platform.",
   openGraph: {
-    title: "Privacy Policy | AutopilotMonitor",
+    title: "Privacy Policy | Autopilot Monitor",
     description:
       "Privacy Policy for Autopilot Monitor. Learn how we collect, store, and protect your data.",
     url: `${SITE_URL}/privacy`,
