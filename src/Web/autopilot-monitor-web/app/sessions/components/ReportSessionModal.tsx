@@ -365,7 +365,7 @@ export default function ReportSessionModal({
                     checked={hasDiagnostics && includeDiagnostics}
                     onChange={e => setIncludeDiagnostics(e.target.checked)}
                     disabled={submitting || !hasDiagnostics}
-                    className="mt-0.5 h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-green-500"
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-green-600 focus:ring-green-500"
                   />
                   <span className="text-sm text-gray-700 dark:text-gray-300">
                     Include uploaded diagnostics archive

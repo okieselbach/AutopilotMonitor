@@ -399,7 +399,7 @@ export function SessionTable({
                         type="checkbox"
                         checked={visibleColumns.has(col.key)}
                         onChange={() => toggleColumn(col.key)}
-                        className="rounded border-gray-300 text-blue-600 focus:ring-green-500 h-3.5 w-3.5"
+                        className="rounded border-gray-300 text-green-600 focus:ring-green-500 h-3.5 w-3.5"
                       />
                       {col.label}
                     </label>
@@ -1148,7 +1148,7 @@ function SortableHeader({
                       }
                       onFilterChange(filterKey, next);
                     }}
-                    className="rounded border-gray-300 text-blue-600 focus:ring-green-500 h-3 w-3"
+                    className="rounded border-gray-300 text-green-600 focus:ring-green-500 h-3 w-3"
                   />
                   <span className="truncate">{value}</span>
                 </label>

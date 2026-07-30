@@ -264,7 +264,7 @@ export function AdminConfigSettingsSection({
                   type="checkbox"
                   checked={allowAgentDowngrade}
                   onChange={(e) => setAllowAgentDowngrade(e.target.checked)}
-                  className="mt-1 h-5 w-5 rounded border-indigo-300 dark:border-indigo-600 text-indigo-600 focus:ring-green-500"
+                  className="mt-1 h-5 w-5 rounded border-indigo-300 dark:border-indigo-600 text-green-600 focus:ring-green-500"
                 />
                 <span>
                   <span className="text-indigo-900 dark:text-indigo-100 font-medium">Allow agent downgrade</span>
@@ -300,7 +300,7 @@ export function AdminConfigSettingsSection({
                   type="checkbox"
                   checked={enableIndexDualWrite}
                   onChange={(e) => setEnableIndexDualWrite(e.target.checked)}
-                  className="mt-1 h-5 w-5 rounded border-indigo-300 dark:border-indigo-600 text-indigo-600 focus:ring-green-500"
+                  className="mt-1 h-5 w-5 rounded border-indigo-300 dark:border-indigo-600 text-green-600 focus:ring-green-500"
                 />
                 <span>
                   <span className="text-indigo-900 dark:text-indigo-100 font-medium">V2 Decision Engine: Enable index-table dual-write</span>

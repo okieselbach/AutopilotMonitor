@@ -532,7 +532,7 @@ export function UnmappedSoftwareTab({
                       checked={allOnPageSelected && entries.length > 0}
                       onChange={allOnPageSelected ? deselectAll : selectAllOnPage}
                       disabled={autoResolving}
-                      className="h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500 disabled:opacity-40"
+                      className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500 disabled:opacity-40"
                     />
                   </th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Software Name</th>
@@ -561,7 +561,7 @@ export function UnmappedSoftwareTab({
                                   checked={selectedEntries.has(key)}
                                   onChange={() => toggleRowSelection(entry)}
                                   disabled={autoResolving}
-                                  className="h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500 disabled:opacity-40"
+                                  className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500 disabled:opacity-40"
                                 />
                               )}
                             </div>

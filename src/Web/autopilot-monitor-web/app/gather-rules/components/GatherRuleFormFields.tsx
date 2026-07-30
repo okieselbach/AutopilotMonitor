@@ -161,7 +161,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
               type="checkbox"
               checked={form.listSubkeys}
               onChange={(e) => setForm({ ...form, listSubkeys: e.target.checked, valueName: e.target.checked ? "" : form.valueName })}
-              className="rounded border-gray-300 text-indigo-600 focus:ring-green-500"
+              className="rounded border-gray-300 text-green-600 focus:ring-green-500"
             />
             <span>List subkeys instead of values</span>
           </label>
@@ -235,7 +235,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
               type="checkbox"
               checked={form.readContent}
               onChange={(e) => setForm({ ...form, readContent: e.target.checked })}
-              className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-green-500"
+              className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
             />
             <span className="text-sm font-medium text-gray-700">Read file content</span>
           </label>
@@ -298,7 +298,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
                   type="checkbox"
                   checked={form.trackPosition}
                   onChange={(e) => setForm({ ...form, trackPosition: e.target.checked })}
-                  className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-green-500"
+                  className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
                 />
                 <span className="text-sm font-medium text-gray-700">Track position</span>
               </label>
@@ -576,7 +576,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
                         : form.activePhases.filter((x) => x !== p.value),
                     })
                   }
-                  className="rounded border-gray-300 text-indigo-600 focus:ring-green-500"
+                  className="rounded border-gray-300 text-green-600 focus:ring-green-500"
                 />
                 <span>{p.label}</span>
               </label>

@@ -149,7 +149,7 @@ export default function AnalyzeRuleFormFields({ form, setForm, showRuleId, exist
                   </select>
                   <input type="text" value={cond.value} onChange={(e) => updateCond({ value: e.target.value })} placeholder={isCorrelation ? "Filter value on Event B" : isArray ? "Value / allow-list regex" : "Value"} autoComplete="off" className="px-3 py-1.5 border border-gray-300 rounded text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-green-500" />
                   <label className="flex items-center space-x-2 text-sm text-gray-700">
-                    <input type="checkbox" checked={cond.required} onChange={(e) => updateCond({ required: e.target.checked })} className="rounded border-gray-300 text-indigo-600 focus:ring-green-500" />
+                    <input type="checkbox" checked={cond.required} onChange={(e) => updateCond({ required: e.target.checked })} className="rounded border-gray-300 text-green-600 focus:ring-green-500" />
                     <span>Required</span>
                   </label>
                 </div>
