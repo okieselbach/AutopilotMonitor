@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { PUBLIC_PATH_PREFIXES, isPublicPath } from "../hostRouting";
+import { PUBLIC_PATH_PREFIXES, decideHostBounce, isPublicPath } from "../hostRouting";
 
 /**
  * Guards the public/portal split in hostRouting.ts.
@@ -132,5 +132,60 @@ describe("hostRouting public/portal guard", () => {
     expect(isPublicPath("/opengraph-image.png")).toBe(true);
     // …but sibling names that merely share a prefix string do not.
     expect(isPublicPath("/aboutx")).toBe(false);
+  });
+
+  /**
+   * Pins the HostRoutingGuard safety rules (prod incident 2026-07-30: sign-ins
+   * landed back on the www landing page). The guard's effect can run before
+   * MSAL settles — bouncing portal root during that window destroys a
+   * completing sign-in and locks authenticated users out of portal entirely.
+   */
+  describe("decideHostBounce", () => {
+    const portal = { onPublicHost: false, onPortalHost: true };
+    const www = { onPublicHost: true, onPortalHost: false };
+    const anon = { hasAuthResponse: false, isAuthLoading: false, isAuthenticated: false };
+
+    it("never bounces while the URL carries an MSAL auth response", () => {
+      expect(
+        decideHostBounce({ ...portal, ...anon, pathname: "/", hasAuthResponse: true }),
+      ).toBeNull();
+      expect(
+        decideHostBounce({ ...www, ...anon, pathname: "/dashboard", hasAuthResponse: true }),
+      ).toBeNull();
+    });
+
+    it("portal → www waits for auth to settle (incident pin)", () => {
+      // MSAL still initializing / redeeming the auth code: MUST NOT bounce.
+      expect(
+        decideHostBounce({ ...portal, ...anon, pathname: "/", isAuthLoading: true }),
+      ).toBeNull();
+      // Signed-in user on portal root: AuthGate routes them; MUST NOT bounce.
+      expect(
+        decideHostBounce({ ...portal, ...anon, pathname: "/", isAuthenticated: true }),
+      ).toBeNull();
+      // Settled and anonymous: the landing page lives on www.
+      expect(decideHostBounce({ ...portal, ...anon, pathname: "/" })).toBe("to-www");
+    });
+
+    it("www → portal is auth-independent (www cannot serve portal paths)", () => {
+      expect(decideHostBounce({ ...www, ...anon, pathname: "/dashboard" })).toBe("to-portal");
+      expect(
+        decideHostBounce({ ...www, ...anon, pathname: "/dashboard", isAuthLoading: true }),
+      ).toBe("to-portal");
+    });
+
+    it("right host, right surface: no bounce", () => {
+      expect(decideHostBounce({ ...www, ...anon, pathname: "/" })).toBeNull();
+      expect(decideHostBounce({ ...portal, ...anon, pathname: "/dashboard" })).toBeNull();
+      // Dev/preview hosts match neither branch.
+      expect(
+        decideHostBounce({
+          onPublicHost: false,
+          onPortalHost: false,
+          ...anon,
+          pathname: "/dashboard",
+        }),
+      ).toBeNull();
+    });
   });
 });

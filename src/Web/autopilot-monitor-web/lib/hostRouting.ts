@@ -89,3 +89,37 @@ export function getPortalLoginUrl(path: string = DEFAULT_PORTAL_LANDING): string
   const normalized = path.startsWith("/") ? path : `/${path}`;
   return `https://${PORTAL_HOST}${normalized}`;
 }
+
+export type HostBounce = "to-portal" | "to-www" | null;
+
+/**
+ * Pure decision core of HostRoutingGuard — where a page load belongs given
+ * host, path, and auth state. Kept side-effect free so the safety rules are
+ * unit-testable (see hostRouting.guard.test.ts).
+ *
+ * - hasAuthResponse: the URL still carries an MSAL #code/#state/#error
+ *   fragment. Never move it — the sign-in would be destroyed.
+ * - Portal → www requires SETTLED, UNAUTHENTICATED state (2026-07-30 prod
+ *   incident): the guard's effect can run before MSAL restores a session or
+ *   while it is still redeeming an auth code whose hash it already stripped.
+ *   Bouncing then throws away a valid sign-in; an authenticated user must
+ *   never be pushed off the portal origin.
+ * - www → portal is auth-independent: www cannot serve portal paths for
+ *   anyone, so it may fire while auth is still loading.
+ */
+export function decideHostBounce(input: {
+  onPublicHost: boolean;
+  onPortalHost: boolean;
+  pathname: string;
+  hasAuthResponse: boolean;
+  isAuthLoading: boolean;
+  isAuthenticated: boolean;
+}): HostBounce {
+  if (input.hasAuthResponse) return null;
+  if (input.onPublicHost && !isPublicPath(input.pathname)) return "to-portal";
+  if (input.onPortalHost && isPublicPath(input.pathname)) {
+    if (input.isAuthLoading || input.isAuthenticated) return null;
+    return "to-www";
+  }
+  return null;
+}
