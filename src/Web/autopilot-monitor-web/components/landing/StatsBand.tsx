@@ -51,6 +51,12 @@ interface StatItem {
   value: string;
 }
 
+/** 8,341,206 → "8.3M"; smaller values keep their grouped form. */
+function compact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  return n.toLocaleString("en-US");
+}
+
 /**
  * Sample values for local development only, where no stats blob is
  * configured. Production NEVER shows these: real numbers or no band —
@@ -58,16 +64,17 @@ interface StatItem {
  */
 const DEV_SAMPLE_STATS: StatItem[] = [
   { label: "enrollments monitored", value: "12,481" },
-  { label: "success rate", value: "94.1%" },
+  { label: "issues detected", value: "1,847" },
   { label: "organisations", value: "87" },
   { label: "device models", value: "214" },
-  { label: "events processed", value: "8,341,206" },
+  { label: "events processed", value: "8.3M" },
 ];
 
 /**
- * Live platform stats under the hero. Skeleton while loading; on fetch
- * failure the band shows dev sample data locally and disappears entirely
- * in production (never an endless skeleton, never fake numbers).
+ * Full-bleed platform stats band under the hero shot. Skeleton while
+ * loading; on fetch failure it shows dev sample data locally and
+ * disappears entirely in production (never an endless skeleton, never
+ * fake numbers).
  */
 export function StatsBand() {
   const [stats, setStats] = useState<StatItem[] | null>(null);
@@ -104,9 +111,8 @@ export function StatsBand() {
         if (payload.totalEnrollments) {
           items.push({ label: "enrollments monitored", value: payload.totalEnrollments.toLocaleString("en-US") });
         }
-        if (payload.totalEnrollments && payload.successfulEnrollments) {
-          const rate = (payload.successfulEnrollments / payload.totalEnrollments) * 100;
-          items.push({ label: "success rate", value: `${rate.toFixed(1)}%` });
+        if (payload.issuesDetected) {
+          items.push({ label: "issues detected", value: payload.issuesDetected.toLocaleString("en-US") });
         }
         if (payload.totalSignedUpTenants) {
           items.push({ label: "organisations", value: payload.totalSignedUpTenants.toLocaleString("en-US") });
@@ -115,7 +121,7 @@ export function StatsBand() {
           items.push({ label: "device models", value: payload.uniqueDeviceModels.toLocaleString("en-US") });
         }
         if (payload.totalEventsProcessed) {
-          items.push({ label: "events processed", value: payload.totalEventsProcessed.toLocaleString("en-US") });
+          items.push({ label: "events processed", value: compact(payload.totalEventsProcessed) });
         }
         if (items.length > 0) {
           setStats(items);
@@ -139,20 +145,22 @@ export function StatsBand() {
   }
 
   return (
-    <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-4">
-      {stats
-        ? stats.map(item => (
-            <div key={item.label} className="lp-event-in text-center">
-              <p className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--lp-ink)]">{item.value}</p>
-              <p className="mt-0.5 text-[11px] uppercase tracking-[0.14em] text-[var(--lp-ink-faint)]">{item.label}</p>
+    <section className="border-y border-[var(--lp-line-soft)] bg-[var(--lp-surface-2)]">
+      <div className="max-w-7xl mx-auto px-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-y-6 py-8 lg:divide-x lg:divide-[var(--lp-line)]">
+        {(stats ?? Array.from({ length: 5 }, () => null)).map((item, i) =>
+          item ? (
+            <div key={item.label} className="lg:px-8 lg:first:pl-0">
+              <p className="text-2xl sm:text-3xl font-bold tracking-tight text-[var(--lp-ink)]">{item.value}</p>
+              <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-[var(--lp-ink-faint)]">{item.label}</p>
             </div>
-          ))
-        : Array.from({ length: 5 }, (_, i) => (
-            <div key={i} className="text-center animate-pulse">
-              <div className="h-7 w-16 mx-auto rounded bg-[var(--lp-surface-2)]" />
-              <div className="mt-1.5 h-3 w-24 mx-auto rounded bg-[var(--lp-surface-2)]" />
+          ) : (
+            <div key={i} className="lg:px-8 lg:first:pl-0 animate-pulse">
+              <div className="h-8 w-20 rounded bg-[var(--lp-line-soft)]" />
+              <div className="mt-2 h-3 w-28 rounded bg-[var(--lp-line-soft)]" />
             </div>
-          ))}
-    </div>
+          )
+        )}
+      </div>
+    </section>
   );
 }

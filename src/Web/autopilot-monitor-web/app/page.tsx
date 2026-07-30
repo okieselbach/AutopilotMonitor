@@ -1,6 +1,8 @@
 import { AuthGate } from "../components/landing/AuthGate";
-import { PillNavbar } from "../components/landing/PillNavbar";
+import { LandingNavbar } from "../components/landing/LandingNavbar";
 import { Hero } from "../components/landing/Hero";
+import { StatsBand } from "../components/landing/StatsBand";
+import { JustAsk } from "../components/landing/JustAsk";
 import { Story } from "../components/landing/Story";
 import { CapabilitiesStrip } from "../components/landing/CapabilitiesStrip";
 import { Comparison } from "../components/landing/Comparison";
@@ -19,8 +21,10 @@ export default function LandingPage() {
     <div className="landing-v2 min-h-screen bg-[var(--lp-bg)]">
       {/* Client component: handles auth redirect + loading overlay */}
       <AuthGate />
-      <PillNavbar />
+      <LandingNavbar />
       <Hero />
+      <StatsBand />
+      <JustAsk />
       <Story />
       <CapabilitiesStrip />
       <Comparison />

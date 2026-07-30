@@ -8,18 +8,18 @@ import { DOCS_URL } from "@/utils/config";
 import { BrandMark } from "../BrandMark";
 
 const NAV_LINKS = [
-  { href: "#story", label: "The Story" },
+  { href: "#story", label: "Product" },
   { href: "#features", label: "Capabilities" },
   { href: "#comparison", label: "Compare" },
   { href: DOCS_URL, label: "Docs", external: true },
 ];
 
 /**
- * Floating pill navigation for the landing page. Fixed, centered, glassy.
- * Same auth handoff behavior as PublicSiteNavbar: on www/apex, sign-in is
- * delegated to the portal origin so MSAL fires there.
+ * Full-width landing navigation. Same auth handoff behavior as
+ * PublicSiteNavbar: on www/apex, sign-in is delegated to the portal
+ * origin so MSAL fires there.
  */
-export function PillNavbar() {
+export function LandingNavbar() {
   const { login, isAuthenticated } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
@@ -37,16 +37,16 @@ export function PillNavbar() {
   }
 
   return (
-    <div className="fixed top-3 inset-x-0 z-40 flex justify-center px-3 pointer-events-none">
-      <nav className="pointer-events-auto flex items-center gap-1 sm:gap-2 h-12 pl-3 pr-2 rounded-full border border-[var(--lp-line)] bg-[var(--lp-nav)] backdrop-blur-xl shadow-lg shadow-black/5 max-w-full">
-        <Link href="/" className="flex items-center gap-2 pr-1 sm:pr-2 shrink-0">
-          <BrandMark className="w-5 h-5" />
-          <span className="text-sm font-bold tracking-tight text-[var(--lp-ink)] whitespace-nowrap">
+    <nav className="sticky top-0 z-40 bg-[var(--lp-nav)] backdrop-blur-xl border-b border-[var(--lp-line-soft)]">
+      <div className="max-w-7xl mx-auto px-6 h-16 flex items-center gap-8">
+        <Link href="/" className="flex items-center gap-2.5 shrink-0">
+          <BrandMark className="w-6 h-6" />
+          <span className="text-[15px] font-bold tracking-tight text-[var(--lp-ink)] whitespace-nowrap">
             Autopilot Monitor
           </span>
         </Link>
 
-        <div className="hidden md:flex items-center">
+        <div className="hidden md:flex items-center gap-1">
           {NAV_LINKS.map(link =>
             link.external ? (
               <a
@@ -54,7 +54,7 @@ export function PillNavbar() {
                 href={link.href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-3 py-1.5 text-[13px] font-medium rounded-full text-[var(--lp-ink-soft)] hover:text-[var(--lp-ink)] hover:bg-[var(--lp-surface-2)] transition-colors whitespace-nowrap"
+                className="px-3 py-2 text-sm font-medium rounded-lg text-[var(--lp-ink-soft)] hover:text-[var(--lp-ink)] hover:bg-[var(--lp-surface-2)] transition-colors"
               >
                 {link.label}
               </a>
@@ -62,7 +62,7 @@ export function PillNavbar() {
               <a
                 key={link.label}
                 href={link.href}
-                className="px-3 py-1.5 text-[13px] font-medium rounded-full text-[var(--lp-ink-soft)] hover:text-[var(--lp-ink)] hover:bg-[var(--lp-surface-2)] transition-colors whitespace-nowrap"
+                className="px-3 py-2 text-sm font-medium rounded-lg text-[var(--lp-ink-soft)] hover:text-[var(--lp-ink)] hover:bg-[var(--lp-surface-2)] transition-colors"
               >
                 {link.label}
               </a>
@@ -70,10 +70,10 @@ export function PillNavbar() {
           )}
         </div>
 
-        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+        <div className="ml-auto flex items-center gap-1.5 sm:gap-2 shrink-0">
           <button
             onClick={toggleTheme}
-            className="p-2 rounded-full text-[var(--lp-ink-faint)] hover:text-[var(--lp-ink)] hover:bg-[var(--lp-surface-2)] transition-colors"
+            className="p-2 rounded-lg text-[var(--lp-ink-faint)] hover:text-[var(--lp-ink)] hover:bg-[var(--lp-surface-2)] transition-colors"
             title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
           >
             {theme === "dark" ? (
@@ -90,7 +90,7 @@ export function PillNavbar() {
             href="https://github.com/okieselbach/Autopilot-Monitor"
             target="_blank"
             rel="noopener noreferrer"
-            className="p-2 rounded-full text-[var(--lp-ink-faint)] hover:text-[var(--lp-ink)] hover:bg-[var(--lp-surface-2)] transition-colors"
+            className="p-2 rounded-lg text-[var(--lp-ink-faint)] hover:text-[var(--lp-ink)] hover:bg-[var(--lp-surface-2)] transition-colors"
             title="GitHub"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
@@ -99,12 +99,18 @@ export function PillNavbar() {
           </a>
           <button
             onClick={handleSignIn}
-            className="ml-0.5 px-4 py-1.5 rounded-full bg-[var(--lp-accent)] hover:brightness-105 text-white text-[13px] font-semibold shadow-sm transition-all whitespace-nowrap"
+            className="hidden sm:block px-3 py-2 text-sm font-semibold text-[var(--lp-ink)] hover:text-[var(--lp-accent-ink)] transition-colors"
           >
-            Sign In
+            Sign in
+          </button>
+          <button
+            onClick={handleSignIn}
+            className="px-4 py-2 rounded-lg bg-[var(--lp-accent)] hover:brightness-105 text-white text-sm font-semibold shadow-sm transition-all whitespace-nowrap"
+          >
+            Get started
           </button>
         </div>
-      </nav>
-    </div>
+      </div>
+    </nav>
   );
 }

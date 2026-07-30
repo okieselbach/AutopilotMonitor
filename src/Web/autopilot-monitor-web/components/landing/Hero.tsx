@@ -1,73 +1,48 @@
 import { LoginButton } from "./LoginButton";
 import { HeroShots } from "./HeroShots";
-import { McpTerminalDemo } from "./McpTerminalDemo";
-import { StatsBand } from "./StatsBand";
 import { DOCS_URL } from "@/utils/config";
 
 export function Hero() {
   return (
-    <header className="relative pt-24 sm:pt-28 pb-16 px-6 overflow-hidden">
-      {/* Soft accent glow behind the product shot */}
-      <div className="absolute top-40 left-1/2 -translate-x-1/2 w-[1100px] h-[520px] bg-[radial-gradient(ellipse_at_center,var(--lp-accent-soft),transparent_65%)] pointer-events-none" />
+    <header className="pt-16 sm:pt-20 pb-0 px-6">
+      <div className="max-w-7xl mx-auto">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--lp-ink-faint)]">
+          Windows Autopilot monitoring
+        </p>
 
-      <div className="relative max-w-6xl mx-auto">
-        {/* Compact, refined headline block */}
-        <div className="max-w-3xl">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--lp-accent-ink)]">
-            Windows Autopilot monitoring
+        <h1 className="mt-5 text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight text-[var(--lp-ink)] leading-[1.04] max-w-4xl text-balance">
+          See every Autopilot enrollment. Live.
+        </h1>
+
+        {/* Sub left, CTAs right */}
+        <div className="mt-8 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+          <p className="text-lg sm:text-xl text-[var(--lp-ink-soft)] leading-relaxed max-w-xl">
+            Real-time monitoring, automated root-cause analysis, and on-demand diagnostics for
+            Windows Autopilot — deployed once via Intune, live minutes later.
           </p>
-          <h1 className="mt-4 text-4xl sm:text-5xl font-bold tracking-tight text-[var(--lp-ink)] leading-[1.08] text-balance">
-            Your Autopilot rollout is a black box.{" "}
-            <span className="text-[var(--lp-accent-ink)]">Not anymore.</span>
-          </h1>
-          <p className="mt-4 text-lg text-[var(--lp-ink-soft)] leading-relaxed max-w-xl">
-            Every enrollment live. Every failure explained — automatically. And an AI you can
-            ask <em className="not-italic font-semibold text-[var(--lp-ink)]">why</em>.
-          </p>
-          <div className="mt-6 flex flex-wrap items-center gap-3">
-            <LoginButton className="px-6 py-2.5 rounded-lg bg-[var(--lp-accent)] hover:brightness-105 text-white font-semibold shadow-md shadow-[var(--lp-accent-soft)] transition-all hover:-translate-y-0.5">
-              Get Started
-            </LoginButton>
-            <a
-              href={DOCS_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-6 py-2.5 rounded-lg border border-[var(--lp-line)] bg-[var(--lp-surface)] text-[var(--lp-ink)] font-semibold hover:border-[var(--lp-ink-faint)] transition-colors"
-            >
-              View Docs
-            </a>
-            <span className="text-sm text-[var(--lp-ink-faint)]">
-              Free &amp; open source · deploy once via Intune
-            </span>
+          <div className="shrink-0">
+            <div className="flex items-center gap-3">
+              <LoginButton className="px-6 py-3 rounded-lg bg-[var(--lp-accent)] hover:brightness-105 text-white font-semibold shadow-md shadow-[var(--lp-accent-soft)] transition-all hover:-translate-y-0.5">
+                Get started
+              </LoginButton>
+              <a
+                href={DOCS_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-6 py-3 rounded-lg border border-[var(--lp-line)] bg-[var(--lp-surface)] text-[var(--lp-ink)] font-semibold hover:border-[var(--lp-ink-faint)] transition-colors"
+              >
+                View docs
+              </a>
+            </div>
+            <p className="mt-3 text-sm text-[var(--lp-ink-faint)] lg:text-right">
+              Free &amp; open source · no infrastructure on your side
+            </p>
           </div>
         </div>
 
-        {/* The real product */}
-        <div className="mt-10 sm:mt-12">
+        {/* The portal, front and center */}
+        <div className="mt-12 sm:mt-14 pb-16 sm:pb-20">
           <HeroShots />
-        </div>
-
-        {/* …and the AI on top of it */}
-        <div className="mt-10 sm:mt-14 grid lg:grid-cols-[1fr_1.7fr] gap-6 lg:gap-10 items-center">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--lp-accent-ink)]">
-              Built-in MCP server
-            </p>
-            <h2 className="mt-3 text-2xl sm:text-3xl font-bold tracking-tight text-[var(--lp-ink)]">
-              Then just ask.
-            </h2>
-            <p className="mt-3 text-[15px] text-[var(--lp-ink-soft)] leading-relaxed">
-              Your AI assistant reads the whole session for you — and finds the root cause a
-              human would dig for all afternoon. This analysis is real.
-            </p>
-          </div>
-          <div className="min-w-0">
-            <McpTerminalDemo />
-          </div>
-        </div>
-
-        <div className="mt-14">
-          <StatsBand />
         </div>
       </div>
     </header>
