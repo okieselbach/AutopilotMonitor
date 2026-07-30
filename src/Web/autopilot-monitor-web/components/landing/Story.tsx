@@ -3,7 +3,7 @@ import { StoryAnalysis } from "./StoryAnalysis";
 import { McpTerminalDemo } from "./McpTerminalDemo";
 import { StoryFleet } from "./StoryFleet";
 
-function ActHeader({
+function ActText({
   time,
   title,
   children,
@@ -23,11 +23,127 @@ function ActHeader({
   );
 }
 
+/** Act 1 visual — the session pops up on the dashboard. */
+function SessionAppeared() {
+  return (
+    <div className="rounded-2xl border border-[var(--lp-line)] bg-[var(--lp-surface)] shadow-xl shadow-black/[0.06] overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--lp-line-soft)] bg-[var(--lp-surface-2)]">
+        <span className="text-xs font-semibold text-[var(--lp-ink)]">Sessions</span>
+        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full text-[var(--lp-accent-ink)] bg-[var(--lp-accent-soft)]">
+          1 new
+        </span>
+      </div>
+      <div className="p-4">
+        <div className="rounded-xl border border-[var(--lp-accent-line)] bg-[var(--lp-accent-soft)] p-3.5">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-[var(--lp-accent)] lp-live-dot shrink-0" />
+            <span className="text-[13px] font-semibold text-[var(--lp-ink)] truncate">CONTOSO-4711</span>
+            <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[var(--lp-surface)] border border-[var(--lp-line)] text-[var(--lp-ink-soft)] shrink-0">
+              Enrolling
+            </span>
+          </div>
+          <div className="mt-2 flex items-center gap-2 text-[11px] text-[var(--lp-ink-faint)]">
+            <span className="font-mono">ThinkPad X1 Carbon G12</span>
+            <span>·</span>
+            <span>User-driven</span>
+            <span>·</span>
+            <span>Berlin, DE</span>
+          </div>
+          <div className="mt-3 space-y-1 font-mono text-[10px] text-[var(--lp-ink-faint)]">
+            <p>09:02:14  phase_transition      Device Preparation started</p>
+            <p>09:02:31  enrollment_type_detected  User-driven deployment</p>
+          </div>
+        </div>
+        <div className="mt-3 flex items-center justify-between text-[11px] text-[var(--lp-ink-faint)] px-1">
+          <span>No remote session. No guessing.</span>
+          <span className="text-[var(--lp-accent-ink)] font-medium">Live ↗</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
- * The scroll story: one enrollment, four acts. The reader experiences
- * exactly what they would experience in the product.
+ * The scroll story: one enrollment, four acts on a single vertical
+ * timeline. Reading order is strictly top-down — text left, visual
+ * right, time rail connecting the acts.
  */
 export function Story() {
+  const acts: { time: string; title: string; text: React.ReactNode; visual: React.ReactNode }[] = [
+    {
+      time: "09:02",
+      title: "A device powers on somewhere.",
+      text: (
+        <>
+          <p>
+            A new hire unboxes their laptop three time zones away. The bootstrapper you assigned
+            once in Intune kicks in, and the enrollment appears on your dashboard — live.
+          </p>
+          <p>
+            Every phase, every app install, every reboot streams in as it happens. No remote
+            session, no guessing, no &ldquo;can you send a photo of the screen?&rdquo;
+          </p>
+        </>
+      ),
+      visual: <SessionAppeared />,
+    },
+    {
+      time: "09:41",
+      title: "Something's wrong.",
+      text: (
+        <>
+          <p>
+            Device Setup has been running for 39 minutes. Without monitoring, this is where you
+            stare at a frozen ESP spinner and start guessing.
+          </p>
+          <p>
+            Instead, an analyze rule fires and names the stuck app —{" "}
+            <span className="font-semibold text-[var(--lp-ink)]">before anyone opens a ticket</span>.
+            Rules are community-driven and fully customizable.
+          </p>
+        </>
+      ),
+      visual: <StoryAnalysis />,
+    },
+    {
+      time: "09:43",
+      title: "Just ask.",
+      text: (
+        <>
+          <p>
+            Your AI assistant is connected to Autopilot Monitor through the built-in MCP server.
+            One question — and it reads the whole session for you.
+          </p>
+          <p>
+            Phase durations, time attribution, unexplained gaps, detected issues, the likely root
+            cause and what to do about it. A complete debrief in seconds, from tools like{" "}
+            <code className="font-mono text-[13px] px-1.5 py-0.5 rounded bg-[var(--lp-surface-2)] text-[var(--lp-accent-ink)]">get_session_summary</code>{" "}
+            and{" "}
+            <code className="font-mono text-[13px] px-1.5 py-0.5 rounded bg-[var(--lp-surface-2)] text-[var(--lp-accent-ink)]">get_time_attribution</code>.
+          </p>
+        </>
+      ),
+      visual: <McpTerminalDemo />,
+    },
+    {
+      time: "Later",
+      title: "Now multiply by 500.",
+      text: (
+        <>
+          <p>
+            One device is a story. Five hundred are a pattern. Fleet health shows success rates,
+            duration trends, and which app or hardware model is quietly costing you the most.
+          </p>
+          <p>
+            The VPN client from this morning? It&apos;s in 62% of your slow enrollments. Now you
+            know what to fix first — with data, not anecdotes.
+          </p>
+        </>
+      ),
+      visual: <StoryFleet />,
+    },
+  ];
+
   return (
     <section id="story" className="py-20 sm:py-28 px-6 scroll-mt-20">
       <div className="max-w-6xl mx-auto">
@@ -41,78 +157,30 @@ export function Story() {
           </p>
         </Reveal>
 
-        {/* Act 1 + 2 — device powers on, something goes wrong */}
-        <div className="mt-16 sm:mt-20 grid md:grid-cols-2 gap-8 md:gap-14 items-center">
-          <Reveal>
-            <ActHeader time="09:02" title="A device powers on somewhere.">
-              <p>
-                A new hire unboxes their laptop three time zones away. The bootstrapper you assigned
-                once in Intune kicks in, and the enrollment appears on your dashboard — live.
-              </p>
-              <p>
-                Every phase, every app install, every reboot streams in as it happens. No remote
-                session, no guessing, no &ldquo;can you send a photo of the screen?&rdquo;
-              </p>
-            </ActHeader>
-          </Reveal>
-          <Reveal delayMs={120}>
-            <ActHeader time="09:41" title="Something's wrong.">
-              <p>
-                Device Setup has been running for 39 minutes. Without monitoring, this is where you
-                stare at a frozen ESP spinner and start guessing.
-              </p>
-              <p>
-                Instead, an analyze rule fires and names the stuck app —{" "}
-                <span className="font-semibold text-[var(--lp-ink)]">before anyone opens a ticket</span>. Rules are
-                community-driven and fully customizable.
-              </p>
-            </ActHeader>
-          </Reveal>
-        </div>
+        {/* One vertical timeline, strict top-down reading order */}
+        <div className="relative mt-16 sm:mt-20">
+          {/* Rail */}
+          <div className="hidden md:block absolute left-[7px] top-2 bottom-2 w-px bg-[var(--lp-line)]" aria-hidden="true" />
 
-        <Reveal className="mt-10 max-w-2xl mx-auto md:ml-auto md:mr-0">
-          <StoryAnalysis />
-        </Reveal>
+          <div className="space-y-16 sm:space-y-24">
+            {acts.map(act => (
+              <div key={act.time + act.title} className="relative md:pl-14">
+                {/* Rail dot */}
+                <span className="hidden md:flex absolute left-0 top-1.5 w-[15px] h-[15px] rounded-full border-[3px] border-[var(--lp-accent)] bg-[var(--lp-bg)]" aria-hidden="true" />
 
-        {/* Act 3 — just ask */}
-        <div className="mt-20 sm:mt-24 grid md:grid-cols-[1fr_1.2fr] gap-8 md:gap-14 items-center">
-          <Reveal>
-            <ActHeader time="09:43" title="Just ask.">
-              <p>
-                Your AI assistant is connected to Autopilot Monitor through the built-in MCP server.
-                One question — and it reads the whole session for you.
-              </p>
-              <p>
-                Phase durations, time attribution, unexplained gaps, detected issues, the likely
-                root cause and what to do about it. A complete debrief in seconds, from tools like{" "}
-                <code className="font-mono text-[13px] px-1.5 py-0.5 rounded bg-[var(--lp-surface-2)] text-[var(--lp-accent-ink)]">get_session_summary</code>{" "}
-                and{" "}
-                <code className="font-mono text-[13px] px-1.5 py-0.5 rounded bg-[var(--lp-surface-2)] text-[var(--lp-accent-ink)]">get_time_attribution</code>.
-              </p>
-            </ActHeader>
-          </Reveal>
-          <Reveal delayMs={120} className="min-w-0">
-            <McpTerminalDemo />
-          </Reveal>
-        </div>
-
-        {/* Act 4 — multiply by 500 */}
-        <div className="mt-20 sm:mt-24 grid md:grid-cols-[1.2fr_1fr] gap-8 md:gap-14 items-center">
-          <Reveal className="order-2 md:order-1 min-w-0">
-            <StoryFleet />
-          </Reveal>
-          <Reveal delayMs={120} className="order-1 md:order-2">
-            <ActHeader time="Later" title="Now multiply by 500.">
-              <p>
-                One device is a story. Five hundred are a pattern. Fleet health shows success rates,
-                duration trends, and which app or hardware model is quietly costing you the most.
-              </p>
-              <p>
-                The VPN client from this morning? It&apos;s in 62% of your slow enrollments. Now you
-                know what to fix first — with data, not anecdotes.
-              </p>
-            </ActHeader>
-          </Reveal>
+                <div className="grid md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] gap-8 md:gap-12 items-start">
+                  <Reveal>
+                    <ActText time={act.time} title={act.title}>
+                      {act.text}
+                    </ActText>
+                  </Reveal>
+                  <Reveal delayMs={120} className="min-w-0">
+                    {act.visual}
+                  </Reveal>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </section>

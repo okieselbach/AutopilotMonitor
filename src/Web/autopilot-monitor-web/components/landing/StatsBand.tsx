@@ -52,27 +52,50 @@ interface StatItem {
 }
 
 /**
- * Live platform stats under the hero. Skeleton while loading; hidden
- * fields degrade gracefully (the blob is published by the daily
- * maintenance recompute and can be briefly unreachable).
+ * Sample values for local development only, where no stats blob is
+ * configured. Production NEVER shows these: real numbers or no band —
+ * fabricated figures must not appear as facts (customer-facing claims).
+ */
+const DEV_SAMPLE_STATS: StatItem[] = [
+  { label: "enrollments monitored", value: "12,481" },
+  { label: "success rate", value: "94.1%" },
+  { label: "organisations", value: "87" },
+  { label: "device models", value: "214" },
+  { label: "events processed", value: "8,341,206" },
+];
+
+/**
+ * Live platform stats under the hero. Skeleton while loading; on fetch
+ * failure the band shows dev sample data locally and disappears entirely
+ * in production (never an endless skeleton, never fake numbers).
  */
 export function StatsBand() {
   const [stats, setStats] = useState<StatItem[] | null>(null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
+    const fail = () => {
+      if (cancelled) return;
+      if (process.env.NODE_ENV === "development") {
+        setStats(DEV_SAMPLE_STATS);
+      } else {
+        setFailed(true);
+      }
+    };
+
     const loadPlatformStats = async () => {
       try {
         const manifestResponse = await fetch(PLATFORM_STATS_MANIFEST_URL, { cache: "no-store" });
-        if (!manifestResponse.ok) return;
+        if (!manifestResponse.ok) return fail();
 
         const manifest = (await manifestResponse.json()) as PlatformStatsManifest;
-        if (!manifest?.latest) return;
+        if (!manifest?.latest) return fail();
 
         const versionedUrl = new URL(manifest.latest, manifestResponse.url).toString();
         const statsResponse = await fetch(versionedUrl, { cache: "force-cache" });
-        if (!statsResponse.ok) return;
+        if (!statsResponse.ok) return fail();
 
         const payload = (await statsResponse.json()) as PlatformStatsPayload;
         if (cancelled) return;
@@ -96,10 +119,12 @@ export function StatsBand() {
         }
         if (items.length > 0) {
           setStats(items);
+        } else {
+          fail();
         }
       } catch {
-        // Stats stay in skeleton state if the blob is unreachable; the
-        // band is decorative and must never break the page.
+        // The band is decorative and must never break the page.
+        fail();
       }
     };
 
@@ -108,6 +133,10 @@ export function StatsBand() {
       cancelled = true;
     };
   }, []);
+
+  if (failed) {
+    return null;
+  }
 
   return (
     <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-4">

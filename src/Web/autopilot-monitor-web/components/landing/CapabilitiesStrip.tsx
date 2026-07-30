@@ -15,7 +15,7 @@ const CAPABILITIES = [
   },
   {
     title: "On-demand diagnostics",
-    detail: "Pull ETL and event logs from any enrolled device — no ticket ping-pong.",
+    detail: "Pull a diagnostics package from any enrolled device — no ticket ping-pong.",
   },
   {
     title: "Event timeline",

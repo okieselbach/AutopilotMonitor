@@ -16,17 +16,17 @@ interface StreamEvent {
  * enrollment_complete) so the demo is faithful to the product.
  */
 const EVENTS: StreamEvent[] = [
-  { time: "09:02:14", type: "phase_transition", message: "Device Preparation started", severity: "info", phase: "Device Preparation" },
-  { time: "09:02:31", type: "enrollment_type_detected", message: "User-driven Autopilot deployment", severity: "info" },
-  { time: "09:03:05", type: "phase_transition", message: "Device Setup started", severity: "info", phase: "Device Setup" },
-  { time: "09:03:22", type: "app_install_started", message: "Company Portal (blocking)", severity: "info" },
-  { time: "09:04:48", type: "download_progress", message: "Company Portal — 64% · 8.2 MB/s", severity: "info" },
-  { time: "09:06:11", type: "app_install_completed", message: "Company Portal — 2m 49s", severity: "success" },
-  { time: "09:06:12", type: "app_install_started", message: "Defender for Endpoint (blocking)", severity: "info" },
-  { time: "09:09:37", type: "app_install_completed", message: "Defender for Endpoint — 3m 25s", severity: "success" },
-  { time: "09:12:03", type: "phase_transition", message: "Account Setup started", severity: "info", phase: "Account Setup" },
-  { time: "09:14:29", type: "completion_check", message: "All blocking apps installed", severity: "success" },
-  { time: "09:15:02", type: "enrollment_complete", message: "Enrollment completed — 12m 48s", severity: "success" },
+  { time: "11:04:12", type: "phase_transition", message: "Device Preparation started", severity: "info", phase: "Device Preparation" },
+  { time: "11:04:29", type: "enrollment_type_detected", message: "User-driven Autopilot deployment", severity: "info" },
+  { time: "11:05:03", type: "phase_transition", message: "Device Setup started", severity: "info", phase: "Device Setup" },
+  { time: "11:05:21", type: "app_install_started", message: "Company Portal (blocking)", severity: "info" },
+  { time: "11:06:40", type: "download_progress", message: "Company Portal — 64% · 8.2 MB/s", severity: "info" },
+  { time: "11:08:10", type: "app_install_completed", message: "Company Portal — 2m 49s", severity: "success" },
+  { time: "11:08:11", type: "app_install_started", message: "Microsoft 365 Apps (blocking)", severity: "info" },
+  { time: "11:14:02", type: "app_install_completed", message: "Microsoft 365 Apps — 5m 51s", severity: "success" },
+  { time: "11:14:40", type: "phase_transition", message: "Account Setup started", severity: "info", phase: "Account Setup" },
+  { time: "11:16:55", type: "completion_check", message: "All blocking apps installed", severity: "success" },
+  { time: "11:17:26", type: "enrollment_complete", message: "Enrollment completed — 13m 14s", severity: "success" },
 ];
 
 const PHASES = ["Device Preparation", "Device Setup", "Account Setup"];
@@ -84,8 +84,8 @@ export function LiveTimeline() {
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--lp-line-soft)] bg-[var(--lp-surface-2)]">
         <div className="flex items-center gap-2 min-w-0">
           <span className={`w-2 h-2 rounded-full shrink-0 ${done ? "bg-[var(--lp-accent)]" : "bg-[var(--lp-accent)] lp-live-dot"}`} />
-          <span className="text-xs font-semibold text-[var(--lp-ink)] truncate">CONTOSO-4711</span>
-          <span className="hidden sm:inline text-[10px] text-[var(--lp-ink-faint)] font-mono truncate">Lenovo ThinkPad X1 Carbon G12</span>
+          <span className="text-xs font-semibold text-[var(--lp-ink)] truncate">CONTOSO-0912</span>
+          <span className="hidden sm:inline text-[10px] text-[var(--lp-ink-faint)] font-mono truncate">Surface Laptop 7</span>
         </div>
         <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${done ? "text-[var(--lp-accent-ink)] bg-[var(--lp-accent-soft)]" : "text-[var(--lp-ink-soft)] bg-[var(--lp-surface)] border border-[var(--lp-line)]"}`}>
           {done ? "Completed" : "Enrolling"}
