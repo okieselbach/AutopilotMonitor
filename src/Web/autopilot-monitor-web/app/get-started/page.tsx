@@ -99,6 +99,20 @@ export default function GetStartedPage() {
               Read the docs
             </a>
           </div>
+
+          <p className="mt-6 text-sm text-[var(--lp-ink-faint)] leading-relaxed max-w-xl">
+            When you need more later: the{" "}
+            <a
+              href={`${DOCS_URL}/plans`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[var(--lp-accent-ink)] hover:opacity-80 underline"
+            >
+              Enterprise plan
+            </a>{" "}
+            adds SLAs, support commitments, MSP delegation, and higher operating limits — same
+            service, nothing to migrate.
+          </p>
         </div>
       </main>
 

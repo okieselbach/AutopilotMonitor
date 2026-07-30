@@ -1,3 +1,5 @@
+import { DOCS_URL } from "@/utils/config";
+
 export function FinalCta() {
   return (
     <section className="py-20 sm:py-24 px-6 border-t border-[var(--lp-line-soft)]">
@@ -14,6 +16,18 @@ export function FinalCta() {
           </a>
           <p className="mt-3 text-sm text-[var(--lp-ink-faint)] lg:text-right">
             Free, open source, deployed in minutes.
+            <span className="block mt-0.5">
+              Need SLAs, support, or MSP delegation?{" "}
+              <a
+                href={`${DOCS_URL}/plans`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[var(--lp-accent-ink)] hover:opacity-80 underline"
+              >
+                There&apos;s an Enterprise plan
+              </a>
+              .
+            </span>
           </p>
         </div>
       </div>

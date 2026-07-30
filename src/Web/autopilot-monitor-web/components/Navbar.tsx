@@ -8,6 +8,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { BrandMark } from './BrandMark';
 import { trackEvent } from '@/lib/appInsights';
 import { useAdminMode } from '@/hooks/useAdminMode';
 import GlobalSearch from './GlobalSearch';
@@ -160,10 +161,8 @@ export default function Navbar() {
           <div className="flex justify-between h-14">
             <div className="flex items-center">
               <Link href="/progress" prefetch={false} className="flex items-center space-x-2.5">
-                <svg className="w-7 h-7" viewBox="0 0 209 191" fill="none">
-                  <path d="M0 180.201L208.401 190.502L188.157 76.2438L5.48363e-06 0L0 180.201Z" fill="#33B161" />
-                </svg>
-                <span className="text-lg font-bold text-gray-600 dark:text-gray-400">
+                <BrandMark className="w-6 h-6" />
+                <span className="text-[15px] font-bold tracking-tight text-gray-900 dark:text-gray-100">
                   <span className="hidden md:inline">Autopilot Monitor</span>
                   <span className="md:hidden">AP Monitor</span>
                 </span>
@@ -216,10 +215,8 @@ export default function Navbar() {
           {/* Logo and Title */}
           <div className="flex items-center">
             <Link href="/" prefetch={false} className="flex items-center space-x-2.5">
-              <svg className="w-7 h-7" viewBox="0 0 209 191" fill="none">
-                <path d="M0 180.201L208.401 190.502L188.157 76.2438L5.48363e-06 0L0 180.201Z" fill="#33B161" />
-              </svg>
-              <span className="text-lg font-bold text-gray-600 dark:text-gray-400">
+              <BrandMark className="w-6 h-6" />
+              <span className="text-[15px] font-bold tracking-tight text-gray-900 dark:text-gray-100">
                 <span className="hidden lg:inline">Autopilot Monitor</span>
                 <span className="hidden md:inline lg:hidden">AP Monitor</span>
                 <span className="md:hidden">AP Mon</span>
