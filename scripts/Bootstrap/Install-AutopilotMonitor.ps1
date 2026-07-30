@@ -5,18 +5,28 @@
 .DESCRIPTION
     Designed to be deployed via Intune as a PowerShell Script during Autopilot.
     Runs very early in the enrollment process (first Intune action) and:
-      1. Runs five pre-flight guards to skip productive devices and ghost re-installs
+      1. Runs pre-flight guards to skip productive devices and ghost re-installs.
+         An OOBE-relax exemption allows install when a single freshly-created profile
+         appears DURING OOBE (the "Windows Backup for Organizations" restore case).
       2. Downloads the monitoring agent ZIP from Azure Blob Storage
-      3. Verifies integrity via SHA-256 hash from the version manifest
-         (legacy fallback: Content-MD5 header from the blob response)
+      3. Verifies integrity via SHA-256 hash from the version manifest (mandatory)
       4. Extracts the agent into %ProgramData%\AutopilotMonitor\Agent
       5. Runs the agent in --install mode (registers Scheduled Task, spawns the runtime)
       6. Verifies the runtime process actually launched
     Agent self-destructs when enrollment completes.
 
+    OOBE-relax flow (guards 2+3): a real user profile (or a real LastLoggedOnUser)
+    normally means "productive -> skip". Windows Backup for Organizations breaks that
+    by restoring settings and creating ONE profile while still in OOBE. We relax guards
+    2+3 ONLY when all three positives hold, and nothing else:
+      (a) the OS positively reports OOBE InProgress (Test-OobeInProgress), AND
+      (b) there is exactly ONE real user profile, AND
+      (c) that profile was created within $OobeProfileMaxAgeMinutes minutes.
+    Any miss keeps the original skip (SKIP-safe: we never install on uncertainty).
+
 .PARAMETER AgentDownloadUrl
-    URL to download the agent ZIP from. Defaults to the production blob; override only
-    for parallel lab/dev assignments that point at a separate pre-release ZIP.
+    URL to download the agent ZIP from. Defaults to the production download endpoint;
+    override only for parallel lab/dev assignments that point at a separate pre-release ZIP.
 
 .PARAMETER VersionJsonName
     Filename of the integrity manifest in the same blob container as the agent ZIP.
@@ -27,16 +37,35 @@
     valid. Devices booted more than this many hours ago are skipped because we no
     longer trust their OOBE state. Default: 12.
 
+.PARAMETER OobeProfileMaxAgeMinutes
+    Maximum age (minutes) of the single profile that may appear during OOBE for the
+    OOBE-relax exemption to apply. The restore->bootstrap gap is always minutes; an
+    older profile is treated as a productive device. Default: 15.
+
 .NOTES
     - Agent is temporary and auto-removes after enrollment.
     - All files live under C:\ProgramData\AutopilotMonitor (easy cleanup).
     - One registry key remains after removal: HKLM\SOFTWARE\AutopilotMonitor\Deployed
       (prevents ghost re-installs on re-Autopilot of the same device).
     - Scheduled Task survives reboots during enrollment.
+    - OOBE detection uses Windows.System.Profile.SystemSetupInfo.OutOfBoxExperienceState.
+      Requires Windows 10, version 1809 (introduced in 10.0.17763.0). Older builds lack
+      the class -> Test-OobeInProgress returns $false -> original (skip) behaviour. Docs:
+      https://learn.microsoft.com/en-us/uwp/api/windows.system.profile.systemsetupinfo
     - This script MUST remain pure ASCII (no Unicode/UTF-8 special chars).
       PowerShell 5.1 (IME) reads scripts without BOM as ANSI, corrupting multi-byte chars.
 
 .CHANGELOG
+    2026-07-20  v2.2  Switched default download endpoint from the legacy blob
+                      (autopilotmonitor.blob.core.windows.net) to the Front Door alias
+                      https://download.autopilotmonitor.com/agent/ (route /agent/*).
+                      version.json is still derived from the same container.
+    2026-06-25  v2.1  OOBE-relax: detect genuine OOBE via WinRT
+                      SystemSetupInfo.OutOfBoxExperienceState and exempt guards 2+3 when a
+                      single freshly-created profile appears in OOBE (Windows Backup for
+                      Organizations). SKIP-safe when the API is absent (< 1809).
+                      Removed legacy Content-MD5 fallback; SHA-256 manifest verification is
+                      now mandatory (no hash -> bootstrap aborts, no unverified install).
     2026-05-09  v2.0  Generic bootstrap: agent owns its own defaults (e.g. 600 s
                       TenantId-wait), so the script only calls `--install` plain.
                       Hardened post-install with a 10 s runtime-process verify.
@@ -55,17 +84,20 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]
-    [string]$AgentDownloadUrl = "https://autopilotmonitor.blob.core.windows.net/agent/AutopilotMonitor-Agent.zip",
+    [string]$AgentDownloadUrl = "https://download.autopilotmonitor.com/agent/AutopilotMonitor-Agent.zip",
 
     [Parameter(Mandatory = $false)]
     [string]$VersionJsonName = "version.json",
 
     [Parameter(Mandatory = $false)]
-    [int]$MaxBootstrapWindowHours = 12
+    [int]$MaxBootstrapWindowHours = 12,
+
+    [Parameter(Mandatory = $false)]
+    [int]$OobeProfileMaxAgeMinutes = 15
 )
 
 # Script version (bump on meaningful changes; see .CHANGELOG above)
-$ScriptVersion = "2.0"
+$ScriptVersion = "2.2"
 
 # Configuration - Everything in ProgramData for easy cleanup
 $AgentBasePath = "$env:ProgramData\AutopilotMonitor"
@@ -85,26 +117,19 @@ function Write-Log {
     Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
-function Get-FileMd5Base64 {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path
-    )
-
-    $md5 = [System.Security.Cryptography.MD5]::Create()
+# Positive OOBE check via the documented WinRT API
+# Windows.System.Profile.SystemSetupInfo.OutOfBoxExperienceState.
+# Returns $true ONLY when the OS reports InProgress. Any other state (Completed/NotStarted),
+# an older OS without the class (< Win10 1809 / 10.0.17763.0), or any error returns $false
+# -> SKIP-safe (we never relax a guard on uncertainty).
+# Docs: https://learn.microsoft.com/en-us/uwp/api/windows.system.profile.systemsetupinfo
+function Test-OobeInProgress {
     try {
-        $stream = [System.IO.File]::OpenRead($Path)
-        try {
-            $hashBytes = $md5.ComputeHash($stream)
-        }
-        finally {
-            $stream.Dispose()
-        }
-
-        return [Convert]::ToBase64String($hashBytes)
+        $null = [Windows.System.Profile.SystemSetupInfo, Windows.System.Profile, ContentType = WindowsRuntime]
+        return ([Windows.System.Profile.SystemSetupInfo]::OutOfBoxExperienceState).ToString() -eq 'InProgress'
     }
-    finally {
-        $md5.Dispose()
+    catch {
+        return $false
     }
 }
 
@@ -119,30 +144,65 @@ try {
         exit 0
     }
 
-    # Guard 2: No real user profile should exist yet (primary productive-device guard).
-    # Combines WMI (Win32_UserProfile.Special flag) and filesystem for maximum reliability.
-    $excludePattern = '^(defaultuser\d*|Public|Default( User)?|All Users)$'
+    # Collect real (non-special) user profiles as full paths (WMI Special flag + filesystem).
+    $excludePattern = '^(defaultuser\d*|Public|Default( User)?|All Users|WDAGUtilityAccount)$'
 
-    $profileNames = @(
+    # NOTE: the outer @() is required. Without it the trailing Where/Select pipeline
+    # unwraps a single result back to a scalar string, so $profilePaths[0] would index
+    # into the string and return its first char ('C') instead of the full path.
+    $profilePaths = @(
+        @(
+            try {
+                Get-CimInstance Win32_UserProfile -ErrorAction Stop |
+                    Where-Object { -not $_.Special -and $_.LocalPath -like 'C:\Users\*' } |
+                    ForEach-Object { $_.LocalPath }
+            } catch { Write-Log "INFO: WMI profile query failed, continuing with filesystem check." }
+
+            (Get-ChildItem 'C:\Users' -Directory -ErrorAction SilentlyContinue).FullName
+        ) | Where-Object { $_ -and (Split-Path $_ -Leaf) -notmatch $excludePattern } |
+            Select-Object -Unique
+    )
+
+    # OOBE-relax: the ONLY exemption to guards 2+3. Matches exactly the Windows Backup for
+    # Organizations restore (one user signs in + restores DURING OOBE). All three must hold:
+    #   OOBE InProgress  AND  exactly one profile  AND  that profile created < N minutes ago.
+    $oobeRelax = $false
+    $oobeInProgress = Test-OobeInProgress
+    if ($profilePaths.Count -eq 1 -and $oobeInProgress) {
         try {
-            Get-CimInstance Win32_UserProfile -ErrorAction Stop |
-                Where-Object { -not $_.Special -and $_.LocalPath -like 'C:\Users\*' } |
-                ForEach-Object { Split-Path $_.LocalPath -Leaf }
-        } catch { Write-Log "INFO: WMI profile query failed, continuing with filesystem check." }
+            $created = (Get-Item -LiteralPath $profilePaths[0] -Force -ErrorAction Stop).CreationTimeUtc
+            $ageMin = ((Get-Date).ToUniversalTime() - $created).TotalMinutes
+            if ($ageMin -ge 0 -and $ageMin -lt $OobeProfileMaxAgeMinutes) {
+                $oobeRelax = $true
+                Write-Log ("OOBE-relax active: OOBE InProgress + single profile created {0:N1}min ago (< {1}min). Guards 2+3 relaxed (Windows Backup restore case)." -f $ageMin, $OobeProfileMaxAgeMinutes)
+            } else {
+                Write-Log ("OOBE-relax NOT applied: OOBE InProgress + single profile '{0}', but profile created {1:N1}min ago (created {2:u}) is outside the [0, {3})min window." -f (Split-Path $profilePaths[0] -Leaf), $ageMin, $created, $OobeProfileMaxAgeMinutes)
+            }
+        } catch { Write-Log "INFO: profile age check failed; OOBE-relax not applied. $($_.Exception.Message)" }
+    } elseif ($profilePaths.Count -eq 1 -and -not $oobeInProgress) {
+        Write-Log "OOBE-relax NOT applied: single profile present but OutOfBoxExperienceState != InProgress (OOBE already finished / not detectable)."
+    } elseif ($profilePaths.Count -gt 1) {
+        Write-Log ("OOBE-relax NOT applied: {0} real profiles present (relax requires exactly one)." -f $profilePaths.Count)
+    }
 
-        (Get-ChildItem 'C:\Users' -Directory -ErrorAction SilentlyContinue).Name
-    ) | Where-Object { $_ -and $_ -notmatch $excludePattern } |
-        Select-Object -Unique
-
-    if ($profileNames) {
-        $names = ($profileNames | Select-Object -First 3) -join ', '
-        Write-Log "SKIP: Real user profile(s) found ($names). Device appears productive."
+    # Guard 2: No real user profile should exist yet (primary productive-device guard),
+    # unless the OOBE-relax signature holds.
+    if ($profilePaths.Count -gt 0 -and -not $oobeRelax) {
+        $details = (($profilePaths | ForEach-Object {
+            $leaf = Split-Path $_ -Leaf
+            try {
+                $c = (Get-Item -LiteralPath $_ -Force -ErrorAction Stop).CreationTimeUtc
+                "{0} (created {1:u}, {2:N1}min ago)" -f $leaf, $c, ((Get-Date).ToUniversalTime() - $c).TotalMinutes
+            } catch { "$leaf (age unknown)" }
+        }) | Select-Object -First 3) -join '; '
+        Write-Log "SKIP: Real user profile(s) found ($details). OOBE InProgress=$oobeInProgress. Device appears productive."
         exit 0
     }
 
-    # Guard 3: LastLoggedOnUser - during Device ESP no real user has logged on yet.
+    # Guard 3: LastLoggedOnUser - during Device ESP no real user has logged on yet
+    # (same OOBE-relax exemption: the restoring user signs in during OOBE).
     $lastLoggedOnUser = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI' -Name 'LastLoggedOnUser' -EA SilentlyContinue).LastLoggedOnUser
-    if ($lastLoggedOnUser -and $lastLoggedOnUser -notmatch 'defaultuser\d*') {
+    if ($lastLoggedOnUser -and $lastLoggedOnUser -notmatch 'defaultuser\d*' -and -not $oobeRelax) {
         Write-Log "SKIP: LastLoggedOnUser found ($lastLoggedOnUser). Device appears productive."
         exit 0
     }
@@ -166,7 +226,7 @@ try {
         }
     }
 
-    Write-Log "Pre-flight checks passed -- no prior deployment, no real user profiles, no logged-on user, within bootstrap window"
+    Write-Log "Pre-flight checks passed -- no prior deployment, no productive-device signals, within bootstrap window (oobeRelax=$oobeRelax)"
 
     # Download and extract agent binaries
     $agentExePath = Join-Path $AgentBinPath "AutopilotMonitor.Agent.exe"
@@ -181,38 +241,47 @@ try {
             # Derive manifest URL from the agent download URL (same blob container)
             $versionJsonUrl = $AgentDownloadUrl -replace '[^/]+$', $VersionJsonName
             $expectedSha256 = $null
+            $manifestAttempts = 3
+            $manifestDelays = @(1, 2)   # short backoff between attempts; do not block enrollment
 
-            try {
-                Write-Log "Fetching $VersionJsonName from $versionJsonUrl for integrity verification..."
-                $versionJsonResponse = Invoke-RestMethod -Uri $versionJsonUrl -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
-                if ($versionJsonResponse.sha256) {
-                    $expectedSha256 = $versionJsonResponse.sha256.ToLowerInvariant()
-                    Write-Log "SHA-256 hash from manifest: $expectedSha256 (version: $($versionJsonResponse.version))"
-                } else {
-                    Write-Log "Manifest has no sha256 field - falling back to legacy MD5 check (older build)"
+            for ($attempt = 1; $attempt -le $manifestAttempts; $attempt++) {
+                try {
+                    Write-Log "Fetching $VersionJsonName (attempt ${attempt}/${manifestAttempts}) from $versionJsonUrl for integrity verification..."
+                    $versionJsonResponse = Invoke-RestMethod -Uri $versionJsonUrl -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+                    if ($versionJsonResponse.sha256) {
+                        $expectedSha256 = $versionJsonResponse.sha256.ToLowerInvariant()
+                        Write-Log "SHA-256 hash from manifest: $expectedSha256 (version: $($versionJsonResponse.version))"
+                    } else {
+                        Write-Log "WARNING: Manifest has no sha256 field - integrity cannot be verified."
+                    }
+                    break   # manifest reached (with or without hash); retrying would not help
                 }
-            }
-            catch {
-                Write-Log "WARNING: Could not fetch manifest - falling back to legacy MD5 check: $($_.Exception.Message)"
+                catch {
+                    Write-Log "WARNING: Could not fetch integrity manifest (attempt $attempt): $($_.Exception.Message)"
+                    if ($attempt -lt $manifestAttempts) {
+                        Start-Sleep -Seconds $manifestDelays[$attempt - 1]
+                    }
+                }
             }
 
             $zipPath = Join-Path $env:TEMP "AutopilotMonitor-Agent.zip"
             $maxDownloadAttempts = 3
             $downloadAttempt = 0
-            $downloadResponse = $null
 
             do {
                 $downloadAttempt++
                 try {
                     Write-Log "Download attempt ${downloadAttempt}/${maxDownloadAttempts}"
-                    $downloadResponse = Invoke-WebRequest `
+                    $downloadStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+                    Invoke-WebRequest `
                         -Uri $AgentDownloadUrl `
                         -OutFile $zipPath `
                         -UseBasicParsing `
                         -TimeoutSec 30 `
-                        -ErrorAction Stop `
-                        -PassThru
-                    Write-Log "Downloaded agent to $zipPath"
+                        -ErrorAction Stop
+                    $downloadStopwatch.Stop()
+                    $downloadSeconds = [math]::Round($downloadStopwatch.Elapsed.TotalSeconds, 1)
+                    Write-Log "Downloaded agent to $zipPath (took ${downloadSeconds}s)"
                     break
                 }
                 catch {
@@ -227,29 +296,17 @@ try {
                 }
             } while ($downloadAttempt -lt $maxDownloadAttempts)
 
-            if ($expectedSha256) {
-                $actualSha256 = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
-                Write-Log "Validating SHA-256 hash against manifest"
-                if ($actualSha256 -ne $expectedSha256) {
-                    throw "SHA-256 integrity check FAILED. Expected='$expectedSha256', Actual='$actualSha256'. Download may be tampered or corrupted."
-                }
-                Write-Log "SHA-256 integrity check passed"
+            # SHA-256 from the version manifest is the only accepted integrity proof.
+            # No hash -> refuse to install an unverified ZIP (SKIP-safe security posture).
+            if (-not $expectedSha256) {
+                throw "No SHA-256 hash available from manifest - refusing to install unverified agent ZIP."
             }
-            else {
-                $expectedMd5Header = $downloadResponse.Headers["Content-MD5"]
-                $expectedMd5 = if ($expectedMd5Header -is [System.Array]) { "$($expectedMd5Header[0])".Trim() } else { "$expectedMd5Header".Trim() }
-                if ($expectedMd5 -notmatch '\S') {
-                    Write-Log "WARNING: No SHA-256 and no Content-MD5 header - skipping integrity validation"
-                }
-                else {
-                    $actualMd5 = Get-FileMd5Base64 -Path $zipPath
-                    Write-Log "Validating Content-MD5 header against downloaded ZIP"
-                    if ($actualMd5 -ne $expectedMd5) {
-                        throw "MD5 integrity check failed. Expected (Content-MD5)='$expectedMd5', Actual='$actualMd5'"
-                    }
-                    Write-Log "MD5 integrity check passed"
-                }
+            $actualSha256 = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-Log "Validating SHA-256 hash against manifest"
+            if ($actualSha256 -ne $expectedSha256) {
+                throw "SHA-256 integrity check FAILED. Expected='$expectedSha256', Actual='$actualSha256'. Download may be tampered or corrupted."
             }
+            Write-Log "SHA-256 integrity check passed"
 
             Expand-Archive -Path $zipPath -DestinationPath $AgentBinPath -Force
             Write-Log "Extracted agent to $AgentBinPath"
