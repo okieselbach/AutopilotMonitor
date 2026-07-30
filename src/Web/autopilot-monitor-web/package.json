@@ -11,7 +11,7 @@
     "sync-error-codes": "node scripts/sync-error-codes.js",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "test": "vitest run"
   },
   "dependencies": {
