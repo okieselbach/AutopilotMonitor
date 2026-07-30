@@ -27,7 +27,7 @@ import { trackEvent } from "@/lib/appInsights";
 import { useGlobalAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
-import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedControl";
+import { SegmentedControl } from "@/components/SegmentedControl";
 import Link from "next/link";
 import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
 

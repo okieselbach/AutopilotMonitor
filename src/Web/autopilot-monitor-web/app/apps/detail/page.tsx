@@ -376,11 +376,6 @@ function AppDetailContent() {
     return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
   }
 
-  const failureCodeBarColor = (row: Record<string, unknown>): string => {
-    const c = Number(row.count);
-    return c >= 5 ? chartColors.danger : c >= 2 ? chartColors.warning : chartColors.muted;
-  };
-
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gray-50">

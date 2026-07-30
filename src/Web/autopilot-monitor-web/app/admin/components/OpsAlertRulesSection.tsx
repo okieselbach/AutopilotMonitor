@@ -232,14 +232,6 @@ export function OpsAlertRulesSection({
   const enabledRulesCount = rules.filter(r => r.enabled).length;
   const enabledProviders = [telegramEnabled, teamsEnabled, slackEnabled].filter(Boolean).length;
 
-  // Get category for a given event type
-  const getCategoryForEvent = (eventType: string): string => {
-    for (const [cat, types] of Object.entries(OPS_EVENT_TYPES)) {
-      if (types.includes(eventType)) return cat;
-    }
-    return "Unknown";
-  };
-
   return (
     <div className="space-y-6">
       {/* Alert Rules */}

@@ -90,7 +90,7 @@ export function RestoreRowDiffModal({
                 This is an <strong>authentication / authorization</strong> table
                 (<code className="font-mono">GlobalAdmins</code>, <code className="font-mono">TenantAdmins</code>,{" "}
                 <code className="font-mono">McpUsers</code>). Restoring this row will overwrite the live{" "}
-                <code className="font-mono">IsEnabled</code> flag — confirm that the backup row's enable/disable
+                <code className="font-mono">IsEnabled</code> flag — confirm that the backup row&apos;s enable/disable
                 state is what you intend.
               </div>
             </div>

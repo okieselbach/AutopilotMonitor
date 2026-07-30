@@ -90,9 +90,8 @@ function HomeContent() {
   const mainClassName = fullWidth
     ? "w-full px-4 sm:px-6 lg:px-8 py-4"
     : "max-w-7xl mx-auto py-4 sm:px-6 lg:px-8";
-  const { user, logout, getAccessToken, isPreviewBlocked, hasGlobalScope } = useAuth();
+  const { user, getAccessToken, isPreviewBlocked, hasGlobalScope } = useAuth();
   const { addNotification } = useNotifications();
-  const [apiStatus, setApiStatus] = useState<"unchecked" | "checking" | "healthy" | "error">("unchecked");
   // `?tenant=<id>` deep-links a cross-tenant view onto one tenant — used by the /fleet card grid to drill
   // a managed tenant into this dashboard. Ignored for non-cross-tenant users (the filter is unused there).
   const initialTenantFilter = searchParams?.get("tenant") ?? "";
@@ -109,7 +108,7 @@ function HomeContent() {
   // Drives the stats refetch — server-side stats follow the submitted scope so
   // typing into the filter input doesn't trigger a backend round-trip per keystroke.
   const [submittedTenantIdFilter, setSubmittedTenantIdFilter] = useState(initialTenantFilter);
-  const { adminMode, setAdminMode, globalAdminMode, setGlobalAdminMode } = useAdminMode();
+  const { adminMode, globalAdminMode, setGlobalAdminMode } = useAdminMode();
 
   const signalR = useSignalR();
   const { tenantId } = useTenant();

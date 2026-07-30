@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import TruncatedLabel from '@/components/TruncatedLabel';
 import { useAuth } from '../../../../contexts/AuthContext';
@@ -138,9 +137,7 @@ function pN(values: number[], percentile: number): number {
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export function SectionAgentMetrics() {
-  const router = useRouter();
-
-  const { getAccessToken, user } = useAuth();
+  const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
 
   const [loading, setLoading] = useState(true);
@@ -845,8 +842,6 @@ function StatCard({ label, value, detail, color }: { label: string; value: strin
 function FootprintBadge({
   value,
   thresholds,
-  unit,
-  formatFn,
 }: {
   value: number;
   thresholds: [number, number, number];

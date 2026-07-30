@@ -10,7 +10,7 @@ export interface EnrollmentEvent {
   message: string;
   sequence: number;
   receivedAt?: string;
-  data?: Record<string, any>;
+  data?: Record<string, unknown>;
 }
 
 export interface RuleResult {
@@ -25,6 +25,6 @@ export interface RuleResult {
   explanation: string;
   remediation: { title: string; steps: string[] }[];
   relatedDocs: { title: string; url: string }[];
-  matchedConditions: Record<string, any>;
+  matchedConditions: Record<string, unknown>;
   detectedAt: string;
 }

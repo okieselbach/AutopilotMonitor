@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
 import { useAuth } from "../../contexts/AuthContext";
 import { api } from "@/lib/api";
@@ -25,8 +23,6 @@ import TemplateConfigModal from "./components/TemplateConfigModal";
 import { DOCS_URL } from "@/utils/config";
 
 export default function AnalyzeRulesPage() {
-  const router = useRouter();
-
   const { user, getAccessToken } = useAuth();
 
   const { successMessage, error, showSuccess, showError } = useNotificationMessages();

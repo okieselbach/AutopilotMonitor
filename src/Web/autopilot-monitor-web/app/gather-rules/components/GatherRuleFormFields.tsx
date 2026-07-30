@@ -363,7 +363,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
             />
             <p className="text-xs text-gray-400 mt-1">
               XPath query to extract values. Examples: <code className="bg-gray-100 px-1 rounded">/root/element</code> (path),{" "}
-              <code className="bg-gray-100 px-1 rounded">//element</code> (anywhere),{" "}
+              <code className="bg-gray-100 px-1 rounded">{"//element"}</code> (anywhere),{" "}
               <code className="bg-gray-100 px-1 rounded">/root/item[@attr=&apos;value&apos;]</code> (filter),{" "}
               <code className="bg-gray-100 px-1 rounded">/root/element/text()</code> (text content).
             </p>

@@ -5,7 +5,37 @@
 export interface InstallEvent {
   timestamp: string;
   eventType?: string;
-  data?: Record<string, any>;
+  data?: Record<string, unknown>;
+}
+
+// Minimal structural view of the event-data payload: only the fields this aggregation
+// reads are declared (the agent serializes them as strings); everything else stays
+// `unknown` via the index signature.
+interface InstallEventData {
+  [key: string]: unknown;
+  appName?: string;
+  app_name?: string;
+  appId?: string;
+  app_id?: string;
+  displayName?: string;
+  display_name?: string;
+  packageId?: string;
+  package_id?: string;
+  exitCode?: string;
+  exit_code?: string;
+  lastExitCode?: string;
+  last_exit_code?: string;
+  hresultFromWin32?: string;
+  hresult_from_win32?: string;
+  failureType?: string;
+  failure_type?: string;
+  confidence?: string;
+  errorDetail?: string;
+  error_detail?: string;
+  errorPatternId?: string;
+  error_pattern_id?: string;
+  errorCode?: string;
+  error_code?: string;
 }
 
 // Where an install row was observed. `ime` is the default and stays unlabelled in the UI —
@@ -54,7 +84,7 @@ export interface InstallItem {
   isDetectionFailure: boolean;
   isInstallFailure: boolean;
   firstSeenIndex: number;
-  eventData?: Record<string, any>;
+  eventData?: Record<string, unknown>;
 }
 
 // Canonical V2 agent `failureType` identifiers — mirrors
@@ -98,7 +128,7 @@ export function buildInstallItems(events: InstallEvent[]): InstallItem[] {
   let insertionIndex = 0;
 
   for (const evt of sortedEvents) {
-    const d = evt.data;
+    const d = evt.data as InstallEventData | undefined;
     if (!d) continue;
 
     const type = evt.eventType;

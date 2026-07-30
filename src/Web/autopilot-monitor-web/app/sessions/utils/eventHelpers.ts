@@ -219,7 +219,7 @@ export function normalizeJsonLikeValue(value: unknown): any {
   }
 
   if (value && typeof value === "object") {
-    const normalized: Record<string, any> = {};
+    const normalized: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {
       normalized[k] = normalizeJsonLikeValue(v);
     }
@@ -229,7 +229,7 @@ export function normalizeJsonLikeValue(value: unknown): any {
   return value;
 }
 
-export function normalizeEventDataForDisplay(data?: Record<string, any>): Record<string, any> | null {
+export function normalizeEventDataForDisplay(data?: Record<string, unknown>): Record<string, unknown> | null {
   if (!data) return null;
   return normalizeJsonLikeValue(data);
 }

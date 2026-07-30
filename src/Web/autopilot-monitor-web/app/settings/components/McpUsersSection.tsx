@@ -36,7 +36,7 @@ const POLICY_DESCRIPTIONS: Record<McpPolicy, string> = {
 };
 
 export default function McpUsersSection() {
-  const { getAccessToken, user } = useAuth();
+  const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
 
   const [users, setUsers] = useState<McpUser[]>([]);

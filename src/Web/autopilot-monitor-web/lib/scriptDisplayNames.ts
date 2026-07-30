@@ -191,7 +191,6 @@ export function useScriptDisplayNames(
         setByRefKey(refsMap);
       } catch (err) {
         if (err instanceof TokenExpiredError) return; // user signed out / token expired
-        // eslint-disable-next-line no-console
         console.warn("useScriptDisplayNames: lookup failed", err);
       }
     })();

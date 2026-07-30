@@ -4,11 +4,7 @@ import {
   DocumentTextIcon,
   ShieldCheckIcon,
   BuildingOfficeIcon,
-  NoSymbolIcon,
-  KeyIcon,
   SparklesIcon,
-  ArrowDownTrayIcon,
-  ArrowPathIcon,
   FolderIcon,
   WrenchScrewdriverIcon,
 } from "./sidebarIcons";

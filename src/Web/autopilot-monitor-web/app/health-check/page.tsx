@@ -14,7 +14,7 @@ interface HealthCheck {
   description: string;
   status: string;
   message: string;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
 }
 
 interface HealthCheckResult {
@@ -427,8 +427,8 @@ export default function HealthCheckPage() {
                 updates in place without blocking any of the cards above. */}
             {(() => {
               const display = mcpLoading
-                ? { name: 'MCP Server', description: 'AI query interface availability', status: 'checking', message: 'Probing MCP server — waking it from idle if needed…', details: undefined as Record<string, any> | undefined }
-                : (mcpCheck ?? { name: 'MCP Server', description: 'AI query interface availability', status: 'unknown', message: 'Not checked yet', details: undefined as Record<string, any> | undefined });
+                ? { name: 'MCP Server', description: 'AI query interface availability', status: 'checking', message: 'Probing MCP server — waking it from idle if needed…', details: undefined as Record<string, unknown> | undefined }
+                : (mcpCheck ?? { name: 'MCP Server', description: 'AI query interface availability', status: 'unknown', message: 'Not checked yet', details: undefined as Record<string, unknown> | undefined });
               const colors = getStatusColor(display.status);
               return (
                 <div className={`bg-white dark:bg-gray-800 rounded-lg shadow border-l-4 ${colors.accent}`}>

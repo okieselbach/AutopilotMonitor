@@ -7,7 +7,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useSidebar, PageSectionItem } from "../contexts/SidebarContext";
 import { CollapseState } from "../hooks/useSidebarState";
 import { DefaultSectionIcon, BookOpenIcon, InformationCircleIcon, DocumentTextIcon, ShieldCheckIcon } from "../lib/sidebarIcons";
-import { DASHBOARD_ITEM, NAV_GROUPS, EXPANDABLE_NAV_GROUPS, REGULAR_USER_ITEMS, NavItem, NavGroup, ExpandableNavGroup, ExpandableNavItem } from "../lib/globalNavConfig";
+import { DASHBOARD_ITEM, NAV_GROUPS, EXPANDABLE_NAV_GROUPS, REGULAR_USER_ITEMS, NavItem, NavGroup, ExpandableNavGroup } from "../lib/globalNavConfig";
 import { useAdminMode } from "../hooks/useAdminMode";
 import { DOCS_URL } from "@/utils/config";
 
@@ -17,8 +17,6 @@ export const SIDEBAR_PX: Record<CollapseState, number> = {
   icons: 56,   // w-14
   hidden: 0,
 };
-
-const CHEVRON_W = 16;
 
 const sidebarWidthClass: Record<CollapseState, string> = {
   full: "w-56",

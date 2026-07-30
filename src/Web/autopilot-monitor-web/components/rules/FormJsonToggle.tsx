@@ -16,7 +16,6 @@ interface FormJsonToggleProps {
 
 export function FormJsonToggle({
   jsonMode,
-  onToggleMode,
   jsonText,
   onJsonTextChange,
   jsonError,

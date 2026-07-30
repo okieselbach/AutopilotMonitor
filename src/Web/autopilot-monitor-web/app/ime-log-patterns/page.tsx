@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
 import { useTenant } from "../../contexts/TenantContext";
 import { useAuth } from "../../contexts/AuthContext";
@@ -18,8 +17,6 @@ import ImePatternCard from "./components/ImePatternCard";
 import { trackEvent } from "@/lib/appInsights";
 
 export default function ImeLogPatternsPage() {
-  const router = useRouter();
-
   const { tenantId } = useTenant();
   const { user } = useAuth();
   const isGlobalAdmin = user?.isGlobalAdmin ?? false;

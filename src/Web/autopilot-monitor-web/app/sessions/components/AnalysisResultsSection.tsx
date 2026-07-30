@@ -304,12 +304,14 @@ function scrollToEvent(eventId: string) {
   }
 }
 
-function EvidenceEventLinks({ matchedConditions }: { matchedConditions: Record<string, any> }) {
+function EvidenceEventLinks({ matchedConditions }: { matchedConditions: Record<string, unknown> }) {
   const eventLinks: { signal: string; eventId: string; eventType?: string }[] = [];
   const seenEventIds = new Set<string>();
 
-  for (const [signal, evidence] of Object.entries(matchedConditions)) {
+  for (const [signal, evidenceRaw] of Object.entries(matchedConditions)) {
     if (signal.startsWith("factor_")) continue;
+    // Evidence values are rule-engine JSON; only object-shaped entries carry event links.
+    const evidence = evidenceRaw as { eventId?: string; eventType?: string } | string | null;
     if (evidence && typeof evidence === "object" && evidence.eventId) {
       // Multiple matched conditions can extract different fields from the
       // same event — one chip per distinct event, not per condition.

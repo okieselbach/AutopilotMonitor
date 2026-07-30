@@ -77,6 +77,13 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      # Errors fail outright. Warnings are ratcheted: the cap is the current
+      # count of accepted warnings (React-Compiler hooks-rule findings demoted
+      # in eslint.config.mjs + exhaustive-deps) — when you fix warnings, lower
+      # the cap to match; never raise it.
+      - name: Lint
+        run: npm run lint -- --max-warnings 163
+
       - name: Tests
         run: npm test
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { notFound } from "next/navigation";
-import { SECURITY_NAV_SECTIONS, type SecuritySectionId } from "../securityNavSections";
+import { type SecuritySectionId } from "../securityNavSections";
 import { SectionDeviceBlock } from "../sections/SectionDeviceBlock";
 import { SectionVersionBlock } from "../sections/SectionVersionBlock";
 import { SectionVulnerabilityData } from "../sections/SectionVulnerabilityData";
