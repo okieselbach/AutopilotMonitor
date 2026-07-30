@@ -180,11 +180,14 @@ input[type="radio"] {
 }
 
 /* -- Hover states -- */
+/* Subtle, DARK hover surfaces: the former #334155 washed out muted text
+   (notification timestamps, table metadata) on hovered rows. One step
+   above the card surface (#1e293b) is enough as a hover signal. */
 .dark .hover\:bg-gray-50:hover {
-  background-color: #334155 !important;
+  background-color: #283548 !important;
 }
 .dark .hover\:bg-gray-100:hover {
-  background-color: #334155 !important;
+  background-color: #2e3c52 !important;
 }
 .dark .hover\:bg-gray-200:hover {
   background-color: #334155 !important;
