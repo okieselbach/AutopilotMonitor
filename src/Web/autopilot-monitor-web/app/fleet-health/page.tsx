@@ -238,11 +238,11 @@ export default function FleetHealthPage() {
         <GlobalAdminBanner show={scope.isGlobalAdmin} delegated={scope.isDelegatedScope} subtitle={globalAdminSubtitle(scope)} />
         <header className="bg-white shadow">
           <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-y-3">
               <div>
                 <div className="flex items-center space-x-3">
                   <svg
-                    className="w-8 h-8 text-blue-600"
+                    className="w-8 h-8 text-green-600"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -259,15 +259,15 @@ export default function FleetHealthPage() {
                   </h1>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2">
                 <TenantScopeSelector scope={scope} allowAggregated />
                 {(["7d", "30d", "90d"] as const).map((range) => (
                   <button
                     key={range}
                     onClick={() => setTimeRange(range)}
-                    className={`px-4 py-2 text-sm rounded-md transition-colors ${
+                    className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
                       timeRange === range
-                        ? "bg-blue-600 text-white"
+                        ? "bg-green-600 text-white"
                         : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                     }`}
                   >

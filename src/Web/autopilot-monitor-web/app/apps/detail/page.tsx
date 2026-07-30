@@ -420,7 +420,7 @@ function AppDetailContent() {
                     onClick={() => setDays(d)}
                     className={`px-4 py-2 text-sm rounded-md transition-colors ${
                       days === d
-                        ? "bg-blue-600 text-white"
+                        ? "bg-green-600 text-white"
                         : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                     }`}
                   >
@@ -693,7 +693,7 @@ function AppDetailContent() {
                       }}
                       className={`px-3 py-1 text-xs rounded-md ${
                         statusFilter === s
-                          ? "bg-blue-600 text-white"
+                          ? "bg-green-600 text-white"
                           : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                       }`}
                     >

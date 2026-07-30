@@ -176,7 +176,7 @@ export default function UsageMetricsPage() {
       <GlobalAdminBanner show={scope.isGlobalAdmin} delegated={scope.isDelegatedScope} subtitle={globalAdminSubtitle(scope)} />
       <header className="bg-white shadow">
         <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-y-3">
             <div>
               <div>
                 <h1 className="text-2xl font-normal text-gray-900">Usage Metrics</h1>
@@ -197,7 +197,7 @@ export default function UsageMetricsPage() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <TenantScopeSelector scope={scope} />
               <button
                 onClick={() => fetchMetrics(true)}

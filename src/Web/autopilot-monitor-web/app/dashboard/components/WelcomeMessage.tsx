@@ -25,7 +25,7 @@ export function WelcomeMessage() {
         {/* Steps */}
         <ol className="space-y-3 mb-7">
           <li className="flex items-start gap-3">
-            <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">1</span>
+            <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-green-600 text-white text-[10px] font-bold flex items-center justify-center">1</span>
             <p className="text-sm text-gray-700">
               Follow the{" "}
               <a href={`${DOCS_URL}/getting-started/portal-setup`} target="_blank" rel="noopener noreferrer" className="text-green-700 hover:underline font-medium">setup guide</a>
@@ -33,7 +33,7 @@ export function WelcomeMessage() {
             </p>
           </li>
           <li className="flex items-start gap-3">
-            <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">2</span>
+            <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-green-600 text-white text-[10px] font-bold flex items-center justify-center">2</span>
             <p className="text-sm text-gray-700">
               Deploy the{" "}
               <a href={`${DOCS_URL}/getting-started/deploy-the-agent`} target="_blank" rel="noopener noreferrer" className="text-green-700 hover:underline font-medium">Intune bootstrapper</a>
@@ -41,7 +41,7 @@ export function WelcomeMessage() {
             </p>
           </li>
           <li className="flex items-start gap-3">
-            <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">3</span>
+            <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-green-600 text-white text-[10px] font-bold flex items-center justify-center">3</span>
             <p className="text-sm text-gray-700">Enrollment sessions will appear here in real time as devices go through the enrollment process.</p>
           </li>
         </ol>

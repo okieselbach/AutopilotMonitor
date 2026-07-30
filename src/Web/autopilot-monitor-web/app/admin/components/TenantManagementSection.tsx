@@ -349,7 +349,7 @@ export function TenantManagementSection({
                   onClick={() => { setShowOnlyReady(v => !v); setCurrentPage(0); }}
                   className={`flex items-center space-x-1 px-3 py-2 text-sm rounded-lg border transition-colors whitespace-nowrap ${
                     showOnlyReady
-                      ? 'bg-blue-600 text-white border-blue-600'
+                      ? 'bg-green-600 text-white border-blue-600'
                       : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
                   }`}
                 >

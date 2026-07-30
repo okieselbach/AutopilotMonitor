@@ -128,7 +128,7 @@ export function SectionMcpUsage() {
                 onClick={() => setDateRange(range)}
                 className={`px-3 py-1.5 text-sm font-medium border ${
                   dateRange === range
-                    ? "bg-indigo-600 text-white border-indigo-600 z-10"
+                    ? "bg-green-600 text-white border-green-600 z-10"
                     : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
                 } ${range === "7d" ? "rounded-l-md" : ""} ${range === "90d" ? "rounded-r-md" : ""} -ml-px first:ml-0`}
               >

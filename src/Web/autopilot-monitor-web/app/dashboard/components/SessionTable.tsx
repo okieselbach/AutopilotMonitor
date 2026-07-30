@@ -574,7 +574,7 @@ export function SessionTable({
         {(["Succeeded", "InProgress", "Pending", "Stalled", "AwaitingUser", "Failed", "Incomplete"] as const).map((status) => {
           const config: Record<string, { bg: string; bgActive: string; text: string; label: string }> = {
             Succeeded: { bg: "bg-green-50 text-green-700 border-green-200 hover:bg-green-100", bgActive: "bg-green-600 text-white border-green-600", text: "text-green-600", label: "Succeeded" },
-            InProgress: { bg: "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100", bgActive: "bg-blue-600 text-white border-blue-600", text: "text-blue-600", label: "In Progress" },
+            InProgress: { bg: "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100", bgActive: "bg-green-600 text-white border-blue-600", text: "text-blue-600", label: "In Progress" },
             Pending: { bg: "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100", bgActive: "bg-amber-500 text-white border-amber-500", text: "text-amber-600", label: "Pending" },
             Stalled: { bg: "bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100", bgActive: "bg-orange-600 text-white border-orange-600", text: "text-orange-600", label: "Stalled" },
             // Non-terminal reclassification state (Device Setup done, waiting on user) — sky, mirrors SessionStatusBadge.

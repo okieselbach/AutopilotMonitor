@@ -144,7 +144,7 @@ export function SectionUsagePlans() {
           <button
             onClick={handleSave}
             disabled={saving || !hasChanges}
-            className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="px-4 py-2 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {saving ? "Saving..." : "Save Changes"}
           </button>
@@ -182,7 +182,7 @@ export function SectionUsagePlans() {
           <p className="text-gray-500 mb-4">No plan tiers defined yet.</p>
           <button
             onClick={addTier}
-            className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
+            className="px-4 py-2 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
           >
             Create First Plan Tier
           </button>
