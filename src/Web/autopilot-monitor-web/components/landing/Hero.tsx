@@ -1,5 +1,5 @@
 import { LoginButton } from "./LoginButton";
-import { HeroCockpit } from "./HeroCockpit";
+import { HeroShots } from "./HeroShots";
 import { StatsBand } from "./StatsBand";
 import { DOCS_URL } from "@/utils/config";
 
@@ -45,9 +45,9 @@ export function Hero() {
           </div>
         </div>
 
-        {/* Mission control — the product, running */}
+        {/* The real product — dashboard + analysis finding */}
         <div className="mt-10 sm:mt-12">
-          <HeroCockpit />
+          <HeroShots />
         </div>
 
         <div className="mt-12">
