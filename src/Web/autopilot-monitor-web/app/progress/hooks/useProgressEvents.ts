@@ -25,7 +25,7 @@ interface UseProgressEventsParams {
 export interface UseProgressEventsReturn {
   events: EnrollmentEvent[];
   setEvents: React.Dispatch<React.SetStateAction<EnrollmentEvent[]>>;
-  sessionRef: React.MutableRefObject<Session | null>;
+  sessionRef: React.RefObject<Session | null>;
   scheduleFetchEvents: (delayMs?: number) => void;
 }
 

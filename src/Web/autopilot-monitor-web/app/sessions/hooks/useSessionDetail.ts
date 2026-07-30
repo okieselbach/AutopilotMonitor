@@ -46,8 +46,8 @@ export interface UseSessionDetailReturn {
   setLoading: React.Dispatch<React.SetStateAction<boolean>>;
   fetchSessionDetails: () => Promise<void>;
   resolveEffectiveTenantId: () => string | null;
-  sessionRef: React.MutableRefObject<Session | null>;
-  sessionIdRef: React.MutableRefObject<string>;
+  sessionRef: React.RefObject<Session | null>;
+  sessionIdRef: React.RefObject<string>;
 }
 
 /**

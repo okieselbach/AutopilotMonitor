@@ -113,8 +113,11 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // data-scroll-behavior: Next 16 no longer auto-suppresses CSS smooth-scroll
+  // during route navigation; without the opt-in, globals.css's
+  // `scroll-behavior: smooth` would animate every route change to top.
   return (
-    <html lang="en">
+    <html lang="en" data-scroll-behavior="smooth">
       <body className={inter.className}>
         <script
           type="application/ld+json"

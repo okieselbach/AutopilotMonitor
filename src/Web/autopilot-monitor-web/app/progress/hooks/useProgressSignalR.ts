@@ -15,7 +15,7 @@ interface SignalRApi {
 
 interface UseProgressSignalRParams {
   session: Session | null;
-  sessionRef: React.MutableRefObject<Session | null>;
+  sessionRef: React.RefObject<Session | null>;
   signalR: SignalRApi;
   scheduleFetchEvents: (delayMs?: number) => void;
 }

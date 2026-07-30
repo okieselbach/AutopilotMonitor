@@ -31,6 +31,8 @@ export const msalConfig: Configuration = {
   },
   cache: {
     cacheLocation: "sessionStorage", // Using sessionStorage for better XSS protection
+    // Deprecated in msal-browser v4 (console warning expected) but still functional;
+    // removed only in v5 — keep until the msal v5 / redirect-bridge migration.
     storeAuthStateInCookie: true, // Required for Safari ITP compatibility during auth redirects
   },
   system: {
@@ -59,7 +61,7 @@ export const msalConfig: Configuration = {
       logLevel: LogLevel.Info,
       piiLoggingEnabled: false,
     },
-    allowNativeBroker: false, // Disables WAM Broker
+    allowPlatformBroker: false, // Disables WAM Broker (renamed from allowNativeBroker in msal-browser v4)
   },
 };
 
