@@ -98,8 +98,9 @@ export function Story() {
           </p>
           <p>
             Instead, an analyze rule fires and names the stuck app —{" "}
-            <span className="font-semibold text-[var(--lp-ink)]">before anyone opens a ticket</span>.
-            Rules are community-driven and fully customizable.
+            <span className="font-semibold text-[var(--lp-ink)]">before anyone opens a ticket</span>.{" "}
+            <span className="font-semibold text-[var(--lp-ink)]">40+ built-in rules</span>,
+            community-driven and fully customizable.
           </p>
         </>
       ),

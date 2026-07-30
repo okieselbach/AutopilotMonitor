@@ -25,7 +25,14 @@ export function StoryAnalysis() {
         </div>
 
         <h4 className="mt-2.5 text-base font-bold text-[var(--lp-ink)]">ESP Blocking App Timeout</h4>
-        <p className="mt-1.5 text-sm text-[var(--lp-ink-soft)] leading-relaxed">
+        <div className="mt-1.5 flex items-center gap-2">
+          <span className="text-[11px] text-[var(--lp-ink-faint)]">Confidence:</span>
+          <div className="w-24 h-1.5 rounded-full bg-[var(--lp-line)] overflow-hidden">
+            <div className="h-full w-[80%] rounded-full bg-[#ff7a45]" />
+          </div>
+          <span className="text-[11px] font-semibold text-[var(--lp-ink-soft)]">80%</span>
+        </div>
+        <p className="mt-2 text-sm text-[var(--lp-ink-soft)] leading-relaxed">
           Device Setup has been running for <span className="font-semibold text-[var(--lp-ink)]">39 minutes</span> — a
           blocking app is stuck, downloading very slowly, or in a retry loop.
         </p>
