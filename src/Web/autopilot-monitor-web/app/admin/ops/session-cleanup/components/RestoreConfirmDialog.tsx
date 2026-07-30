@@ -174,7 +174,7 @@ export function RestoreConfirmDialog({
             <button
               onClick={() => submit(true)}
               disabled={submitting}
-              className="px-3 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+              className="px-3 py-2 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
             >
               {submitting ? "Running…" : dryRunResult ? "Run dry-run again" : "Run dry-run"}
             </button>

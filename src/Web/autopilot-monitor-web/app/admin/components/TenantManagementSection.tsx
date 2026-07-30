@@ -432,7 +432,7 @@ export function TenantManagementSection({
                                 className={`px-3 py-2 text-sm rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                                   previewApproved.has(tenant.tenantId)
                                     ? 'bg-amber-500 text-white hover:bg-amber-600'
-                                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                                    : 'bg-green-600 text-white hover:bg-green-700'
                                 }`}
                               >
                                 {togglingPreviewTenant === tenant.tenantId

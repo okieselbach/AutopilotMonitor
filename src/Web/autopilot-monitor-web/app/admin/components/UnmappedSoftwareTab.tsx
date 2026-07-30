@@ -472,7 +472,7 @@ export function UnmappedSoftwareTab({
           {autoResolving && autoResolveProgress && (
             <div className="mb-3 px-4 py-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md text-sm">
               <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600" />
                 <span>
                   Auto-resolving... Batch {autoResolveProgress.batchIndex}/{autoResolveProgress.totalBatches}
                   {autoResolveProgress.resolvedSoFar > 0 && <> &middot; Resolved: {autoResolveProgress.resolvedSoFar}</>}

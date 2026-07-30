@@ -403,7 +403,7 @@ function OffboardingInProgressBanner({
                 <button
                   onClick={handleSubmitFeedback}
                   disabled={submitting || feedbackText.trim().length === 0}
-                  className="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                  className="px-3 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
                 >
                   {submitting ? "Submitting…" : "Submit feedback"}
                 </button>

@@ -189,7 +189,7 @@ export function SectionOptionalGraphCapabilities() {
               <button
                 onClick={onRefresh}
                 disabled={refreshing}
-                className="px-3 py-1.5 text-sm rounded-md bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-50"
+                className="px-3 py-1.5 text-sm rounded-md bg-green-600 text-white font-medium hover:bg-green-700 disabled:opacity-50"
               >
                 {refreshing ? "Refreshing …" : "Refresh permission status"}
               </button>
