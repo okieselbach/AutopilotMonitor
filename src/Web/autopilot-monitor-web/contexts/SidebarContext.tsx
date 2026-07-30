@@ -1,13 +1,14 @@
 "use client";
 
 import { createContext, useContext, useState, useCallback, ReactNode } from "react";
+import type { Route } from "next";
 import { useSidebarState, CollapseState } from "../hooks/useSidebarState";
 
 export interface PageSectionItem {
   id: string;
   label: string;
   icon?: ReactNode;
-  href?: string;
+  href?: Route;
   /** Optional group name — items sharing the same group are rendered under a collapsible header */
   group?: string;
   /** Icon for the group header (only needs to be set on the first item of a group) */

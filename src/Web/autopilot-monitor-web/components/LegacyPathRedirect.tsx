@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import type { Route } from "next";
 import {
   appDetailUrl,
   backupUrl,
@@ -27,7 +28,7 @@ import {
  * the target shapes.
  */
 
-function legacyTarget(pathname: string, search: URLSearchParams, hash: string): string | null {
+function legacyTarget(pathname: string, search: URLSearchParams, hash: string): Route | null {
   const seg = pathname.replace(/\/+$/, "").split("/").filter(Boolean).map(decodeURIComponent);
 
   // /sessions/{id}/inspector

@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { usePageSections } from "../../hooks/usePageSections";
 import { PageSectionItem } from "../../contexts/SidebarContext";
+import { route } from "../../lib/routes";
 import {
   GearIcon,
   NoSymbolIcon,
@@ -47,29 +48,29 @@ function GlobeIcon({ className = "w-5 h-5" }: { className?: string }) {
 export function AdminPageSections() {
   const items: PageSectionItem[] = useMemo(() => [
     // Tenants
-    { id: "management", label: "Tenant Management", href: "/admin/tenants/management", group: "Tenants", groupIcon: <BuildingOfficeIcon /> },
-    { id: "config-report", label: "Config Report", href: "/admin/tenants/config-report", group: "Tenants" },
+    { id: "management", label: "Tenant Management", href: route("/admin/tenants/management"), group: "Tenants", groupIcon: <BuildingOfficeIcon /> },
+    { id: "config-report", label: "Config Report", href: route("/admin/tenants/config-report"), group: "Tenants" },
 
     // Metrics
-    { id: "platform-metrics", label: "Platform Metrics", href: "/admin/metrics/platform-metrics", group: "Metrics", groupIcon: <ChartBarIcon /> },
-    { id: "usage", label: "Platform Usage", href: "/admin/metrics/usage", group: "Metrics" },
-    { id: "mcp-usage", label: "MCP Usage", href: "/admin/metrics/mcp-usage", group: "Metrics" },
+    { id: "platform-metrics", label: "Platform Metrics", href: route("/admin/metrics/platform-metrics"), group: "Metrics", groupIcon: <ChartBarIcon /> },
+    { id: "usage", label: "Platform Usage", href: route("/admin/metrics/usage"), group: "Metrics" },
+    { id: "mcp-usage", label: "MCP Usage", href: route("/admin/metrics/mcp-usage"), group: "Metrics" },
 
     // Reports
-    { id: "session-reports", label: "Session Reports", href: "/admin/reports/session-reports", group: "Reports", groupIcon: <DocumentTextIcon /> },
-    { id: "user-feedback", label: "User Feedback", href: "/admin/reports/user-feedback", group: "Reports" },
-    { id: "session-export", label: "Session Export", href: "/admin/reports/session-export", group: "Reports" },
+    { id: "session-reports", label: "Session Reports", href: route("/admin/reports/session-reports"), group: "Reports", groupIcon: <DocumentTextIcon /> },
+    { id: "user-feedback", label: "User Feedback", href: route("/admin/reports/user-feedback"), group: "Reports" },
+    { id: "session-export", label: "Session Export", href: route("/admin/reports/session-export"), group: "Reports" },
 
     // Security
-    { id: "device-block", label: "Device Block", href: "/admin/security/device-block", group: "Security", groupIcon: <ShieldCheckIcon /> },
-    { id: "version-block", label: "Version Block", href: "/admin/security/version-block", group: "Security" },
-    { id: "vulnerability-data", label: "Vulnerability Data", href: "/admin/security/vulnerability-data", group: "Security" },
+    { id: "device-block", label: "Device Block", href: route("/admin/security/device-block"), group: "Security", groupIcon: <ShieldCheckIcon /> },
+    { id: "version-block", label: "Version Block", href: route("/admin/security/version-block"), group: "Security" },
+    { id: "vulnerability-data", label: "Vulnerability Data", href: route("/admin/security/vulnerability-data"), group: "Security" },
 
     // Settings
-    { id: "global", label: "Global Settings", href: "/admin/settings/global", group: "Settings", groupIcon: <GearIcon /> },
-    { id: "diagnostics-log-paths", label: "Diagnostics Log Paths", href: "/admin/settings/diagnostics-log-paths", group: "Settings" },
-    { id: "config-reseed", label: "Config Reseed", href: "/admin/settings/config-reseed", group: "Settings" },
-    { id: "usage-plans", label: "Usage Plans", href: "/admin/settings/usage-plans", group: "Settings" },
+    { id: "global", label: "Global Settings", href: route("/admin/settings/global"), group: "Settings", groupIcon: <GearIcon /> },
+    { id: "diagnostics-log-paths", label: "Diagnostics Log Paths", href: route("/admin/settings/diagnostics-log-paths"), group: "Settings" },
+    { id: "config-reseed", label: "Config Reseed", href: route("/admin/settings/config-reseed"), group: "Settings" },
+    { id: "usage-plans", label: "Usage Plans", href: route("/admin/settings/usage-plans"), group: "Settings" },
 
     // Ops (single page)
     { id: "ops", label: "Maintenance", href: "/admin/ops", group: "Ops", groupIcon: <WrenchIcon /> },

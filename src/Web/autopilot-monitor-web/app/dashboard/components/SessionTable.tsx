@@ -2,6 +2,7 @@
 
 import { sessionUrl } from "@/lib/routes";
 import { useRouter } from "next/navigation";
+import type { Route } from "next";
 import { useState, useEffect, useRef, useMemo, useDeferredValue } from "react";
 import { Session } from "../types";
 import { trackEvent } from "@/lib/appInsights";
@@ -103,7 +104,7 @@ interface SessionTableProps {
   /** Builds the row's navigation target. Defaults to `/sessions/{id}`; a cross-tenant viewer overrides it to
    * append `?tenantId=` so a delegated viewer opens the session in the managed tenant's (read-only) context.
    * Receives the whole session because the target tenant is per-row (session.tenantId), not derivable from id. */
-  sessionLinkTarget?: (session: Session) => string;
+  sessionLinkTarget?: (session: Session) => Route;
 }
 
 export function SessionTable({

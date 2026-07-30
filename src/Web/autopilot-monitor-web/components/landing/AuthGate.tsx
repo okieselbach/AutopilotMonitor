@@ -3,6 +3,8 @@
 import { useAuth } from "../../contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import type { Route } from "next";
+import { trustedRoute } from "../../lib/routes";
 import { consumePostLoginReturnUrl } from "../../lib/postLoginReturn";
 import { PORTAL_HOST, shouldCrossOriginToPortal } from "../../lib/hostRouting";
 
@@ -20,12 +22,12 @@ export function AuthGate() {
       // Always consume (read + clear) so a stale deep link can't misroute a later
       // sign-in; only honor it when the user isn't preview-gated.
       const returnUrl = consumePostLoginReturnUrl();
-      let target: string;
+      let target: Route;
       if (isPreviewBlocked) {
         target = "/preview";
       } else if (returnUrl) {
         // Restore the deep link the user originally opened before re-auth.
-        target = returnUrl;
+        target = trustedRoute(returnUrl);
       } else if (user.isDelegated && !user.isTenantAdmin && !user.isGlobalAdmin && !user.isGlobalReader && user.role !== 'Operator') {
         // A delegated ("MSP") admin with no own-tenant/platform role manages a fleet → land on /fleet.
         target = "/fleet";
