@@ -89,7 +89,7 @@ export default function ProgressPortalPage() {
             >
               <div className="flex items-center space-x-2 min-w-0">
                 <svg
-                  className="w-4 h-4 text-blue-600 flex-shrink-0"
+                  className="w-4 h-4 text-green-600 flex-shrink-0"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -106,9 +106,9 @@ export default function ProgressPortalPage() {
                 </span>
               </div>
               <div className="flex items-center space-x-1.5 flex-shrink-0 ml-3">
-                <span className="text-xs text-blue-600 font-medium">Change device</span>
+                <span className="text-xs text-green-700 font-medium">Change device</span>
                 <svg
-                  className="w-3.5 h-3.5 text-blue-600"
+                  className="w-3.5 h-3.5 text-green-700"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -147,9 +147,9 @@ export default function ProgressPortalPage() {
                     <span>Collapse</span>
                   </button>
                 )}
-                <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full mb-4">
+                <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 rounded-full mb-4">
                   <svg
-                    className="w-8 h-8 text-blue-600"
+                    className="w-8 h-8 text-green-600"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -185,7 +185,7 @@ export default function ProgressPortalPage() {
                 <button
                   onClick={searchBySerial}
                   disabled={searching || !serialInput.trim()}
-                  className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                  className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 >
                   {searching ? "Searching..." : "Check Status"}
                 </button>
