@@ -37,8 +37,8 @@ export function PublicSiteNavbar({ showSectionLinks, fullWidth = false }: { show
         <Link href="/" className="flex items-center space-x-2.5 shrink-0">
           <BrandMark className="w-6 h-6" />
           <span className="text-lg font-bold tracking-tight text-[var(--lp-ink)]">
-            <span className="hidden md:inline">Autopilot <span className="text-[var(--lp-accent-ink)]">Monitor</span></span>
-            <span className="md:hidden">AP <span className="text-[var(--lp-accent-ink)]">Monitor</span></span>
+            <span className="hidden md:inline">Autopilot Monitor</span>
+            <span className="md:hidden">AP Monitor</span>
           </span>
         </Link>
 

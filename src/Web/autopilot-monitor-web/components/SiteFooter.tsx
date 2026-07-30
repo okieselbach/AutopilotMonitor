@@ -49,7 +49,7 @@ export function SiteFooter() {
             <div className="flex items-center gap-2.5 mb-3">
               <BrandMark className="w-6 h-6" />
               <span className="text-sm font-bold tracking-tight text-[var(--lp-ink)]">
-                Autopilot <span className="text-[var(--lp-accent-ink)]">Monitor</span>
+                Autopilot Monitor
               </span>
             </div>
             <p className="text-xs text-[var(--lp-ink-faint)] leading-relaxed mb-4">

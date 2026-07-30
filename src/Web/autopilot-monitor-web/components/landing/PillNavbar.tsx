@@ -42,7 +42,7 @@ export function PillNavbar() {
         <Link href="/" className="flex items-center gap-2 pr-1 sm:pr-2 shrink-0">
           <BrandMark className="w-5 h-5" />
           <span className="text-sm font-bold tracking-tight text-[var(--lp-ink)] whitespace-nowrap">
-            Autopilot <span className="text-[var(--lp-accent-ink)]">Monitor</span>
+            Autopilot Monitor
           </span>
         </Link>
 

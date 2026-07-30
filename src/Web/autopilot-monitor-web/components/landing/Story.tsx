@@ -1,6 +1,5 @@
 import { Reveal } from "./Reveal";
 import { StoryAnalysis } from "./StoryAnalysis";
-import { McpTerminalDemo } from "./McpTerminalDemo";
 import { StoryFleet } from "./StoryFleet";
 
 function ActText({
@@ -106,24 +105,34 @@ export function Story() {
       visual: <StoryAnalysis />,
     },
     {
-      time: "09:43",
-      title: "Just ask.",
+      time: "09:50",
+      title: "See where the minutes went.",
       text: (
         <>
           <p>
-            Your AI assistant is connected to Autopilot Monitor through the built-in MCP server.
-            One question — and it reads the whole session for you.
+            The enrollment finished — but why did it take 39 minutes in Device Setup? Time
+            attribution breaks the session down cost by cost: which blocking app, which reboot,
+            which wait actually consumed the time.
           </p>
           <p>
-            Phase durations, time attribution, unexplained gaps, detected issues, the likely root
-            cause and what to do about it. A complete debrief in seconds, from tools like{" "}
-            <code className="font-mono text-[13px] px-1.5 py-0.5 rounded bg-[var(--lp-surface-2)] text-[var(--lp-accent-ink)]">get_session_summary</code>{" "}
-            and{" "}
-            <code className="font-mono text-[13px] px-1.5 py-0.5 rounded bg-[var(--lp-surface-2)] text-[var(--lp-accent-ink)]">get_time_attribution</code>.
+            No more &ldquo;it felt slow&rdquo;. You see exactly what to cut to make every
+            following rollout faster.
           </p>
         </>
       ),
-      visual: <McpTerminalDemo />,
+      visual: (
+        <div className="rounded-2xl border border-[var(--lp-line)] shadow-xl shadow-black/[0.06] overflow-hidden bg-white">
+          {/* Static export: next/image is not configured, plain img is intentional */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/landing/time-attribution.png"
+            alt="Time attribution breakdown of a real enrollment session"
+            width={1216}
+            height={403}
+            className="w-full h-auto block"
+          />
+        </div>
+      ),
     },
     {
       time: "Later",

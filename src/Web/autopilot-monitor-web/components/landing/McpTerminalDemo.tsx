@@ -9,27 +9,32 @@ type Step =
   | { kind: "gap" };
 
 /**
- * Scripted MCP session: the real power use case — one question, a full
- * enrollment debrief. Tool names and response fields mirror the actual
- * MCP server (get_session_summary, get_time_attribution).
+ * Scripted MCP session, based on a real production analysis (anonymized):
+ * a failed first attempt whose ESP HRESULT decodes to an unmapped
+ * installer exit code — the kind of root cause that costs a human an
+ * afternoon. Tool names mirror the actual MCP server.
  */
 const SCRIPT: Step[] = [
-  { kind: "user", text: "Analyze the enrollment of CONTOSO-4711 — full report." },
-  { kind: "tool", text: 'get_session_summary({ sessionId: "…-4711" })' },
-  { kind: "tool", text: 'get_time_attribution({ sessionId: "…-4711" })' },
+  { kind: "user", text: "CONTOSO-3812 failed enrollment this morning — what happened?" },
+  { kind: "tool", text: 'search_sessions({ device: "CONTOSO-3812" })' },
+  { kind: "tool", text: 'get_session_summary({ sessionId: "e6a1…f43b" })' },
+  { kind: "tool", text: 'get_session_summary({ sessionId: "98db…16af" })' },
   { kind: "gap" },
-  { kind: "out", text: "Session report — CONTOSO-4711 · user-driven · ThinkPad X1 Carbon G12" },
-  { kind: "out", text: "✔ Completed in 47 min — 18 min over the 7-day fleet average", accent: "success" },
+  { kind: "out", text: "Two attempts on Jul 29 — first failed, the retry succeeded:" },
+  { kind: "out", text: "  #1  11:05–11:17  ✗ esp_terminal_failure (0x8007EA61) · 7/8 apps", accent: "high" },
+  { kind: "out", text: "  #2  12:05–12:20  ✓ Succeeded · 8/8 apps · same network, same package", accent: "success" },
   { kind: "gap" },
-  { kind: "out", text: "Phases   Device Prep 4 min · Device Setup 39 min ⚠ · Account Setup 4 min" },
-  { kind: "out", text: "Time     31 of 47 min spent in blocking app installs" },
-  { kind: "out", text: "         top cost: Contoso VPN Client — 23 min (download stalled twice)", accent: "dim" },
-  { kind: "out", text: "Gap      ~6 min unaccounted around the mid-ESP reboot", accent: "warn" },
-  { kind: "out", text: "Issues   1 × HIGH — ANALYZE-ESP-001 · ESP Blocking App Timeout", accent: "high" },
+  { kind: "out", text: "Root cause — Contoso PCL6 Print Driver:" },
+  { kind: "out", text: '  11:14:58  IME: "Admin did NOT set mapping for lpExitCode: 60001"', accent: "dim" },
+  { kind: "out", text: "  ESP HRESULT 0x8007EA61 = Win32 error 0xEA61 = 60001 decimal — the ESP", accent: "warn" },
+  { kind: "out", text: "  escalated the unmapped installer exit code to a terminal failure.", accent: "warn" },
+  { kind: "out", text: "  60001 is PSADT's generic unhandled-exception code. It's transient:", accent: "dim" },
+  { kind: "out", text: "  the same package installed cleanly in 75 s on the retry.", accent: "dim" },
   { kind: "gap" },
-  { kind: "out", text: "Likely cause    Content download stall for Contoso VPN Client" },
-  { kind: "out", text: "Recommendation  Make the app non-blocking, or pre-cache its", accent: "success" },
-  { kind: "out", text: "                content with Delivery Optimization peers", accent: "success" },
+  { kind: "out", text: "Recommendation  Map exit code 60001 in the Win32 app — better, fix the", accent: "success" },
+  { kind: "out", text: "                PSADT package to log and handle the underlying error.", accent: "success" },
+  { kind: "gap" },
+  { kind: "out", text: "Want me to pull the diagnostics ZIP and extract the installer log?" },
 ];
 
 const TYPE_MS = 32;
@@ -149,7 +154,7 @@ export function McpTerminalDemo() {
           AI assistant — connected to Autopilot Monitor MCP
         </span>
       </div>
-      <div className="px-4 sm:px-5 py-4 font-mono text-[11px] sm:text-[12.5px] leading-[1.7] h-[380px] sm:h-[400px] overflow-y-hidden overflow-x-auto">
+      <div className="px-4 sm:px-5 py-4 font-mono text-[11px] sm:text-[12.5px] leading-[1.7] h-[430px] sm:h-[460px] overflow-y-hidden overflow-x-auto">
         {SCRIPT.map(renderStep)}
         {finished && !reduced && (
           <div className="mt-2 flex gap-2">
