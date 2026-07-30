@@ -194,8 +194,8 @@ jobs:
           # Dev variant = literal-string substitution of the two URL/manifest defaults.
           # Both are uploaded only on -PublishAsStable runs (versioned namespace doesn't carry bootstrap).
           if ('${{ inputs.publish_as_stable }}' -eq 'true') {
-            $stableUrl = '$AgentDownloadUrl = "https://autopilotmonitor.blob.core.windows.net/agent/AutopilotMonitor-Agent.zip"'
-            $devUrl    = '$AgentDownloadUrl = "https://autopilotmonitor.blob.core.windows.net/agent/AutopilotMonitor-Agent-dev.zip"'
+            $stableUrl = '$AgentDownloadUrl = "https://download.autopilotmonitor.com/agent/AutopilotMonitor-Agent.zip"'
+            $devUrl    = '$AgentDownloadUrl = "https://download.autopilotmonitor.com/agent/AutopilotMonitor-Agent-dev.zip"'
             $stableMan = '$VersionJsonName = "version.json"'
             $devMan    = '$VersionJsonName = "version-dev.json"'
 
