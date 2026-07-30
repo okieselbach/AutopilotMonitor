@@ -8,7 +8,7 @@ export function FinalCta() {
           Your next enrollment doesn&apos;t have to be a black box.
         </h2>
         <div className="shrink-0">
-          <LoginButton className="px-7 py-3 rounded-lg bg-[var(--lp-accent)] hover:brightness-105 hover:shadow-lg text-white font-semibold shadow-md transition-all">
+          <LoginButton className="px-7 py-3 rounded-lg bg-[var(--lp-accent-ink)] hover:brightness-110 hover:shadow-lg text-white font-semibold shadow-md transition-all">
             Start monitoring now
           </LoginButton>
           <p className="mt-3 text-sm text-[var(--lp-ink-faint)] lg:text-right">

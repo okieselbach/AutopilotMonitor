@@ -90,7 +90,7 @@ export function LandingNavbar() {
           </button>
           <Link
             href="/get-started"
-            className="px-4 py-2 rounded-lg bg-[var(--lp-accent)] hover:brightness-105 hover:shadow-md text-white text-sm font-semibold shadow-sm transition-all whitespace-nowrap"
+            className="px-4 py-2 rounded-lg bg-[var(--lp-accent-ink)] hover:brightness-110 hover:shadow-md text-white text-sm font-semibold shadow-sm transition-all whitespace-nowrap"
           >
             Get started
           </Link>

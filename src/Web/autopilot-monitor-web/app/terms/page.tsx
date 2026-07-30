@@ -14,12 +14,12 @@ export default function TermsPage() {
       <header className="px-4 sm:px-6 lg:px-8 pt-14 sm:pt-16">
         <div className="max-w-7xl mx-auto">
           <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--lp-ink-faint)]">Legal</p>
-          <h1 className="mt-3 text-4xl sm:text-5xl font-bold tracking-tight text-[var(--lp-ink)]">
+          <h1 className="mt-3 text-3xl sm:text-4xl font-bold tracking-tight text-[var(--lp-ink)]">
             Terms of Use
           </h1>
         </div>
       </header>
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 text-[15px]">
         <div className="bg-white rounded-lg shadow p-6 space-y-4">
           <p className="text-sm text-gray-500">Last updated: {LAST_UPDATED}</p>
           <p className="text-gray-700">
@@ -69,7 +69,7 @@ export default function TermsPage() {
         </div>
 
         <div className="bg-white rounded-lg shadow p-6 space-y-4">
-          <h2 className="text-xl font-semibold text-gray-900">Acceptable Use</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Acceptable Use</h2>
           <p className="text-gray-700">By using this service, you agree that:</p>
           <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
             <li>The service is used to monitor and troubleshoot Windows Autopilot deployments for devices your organization is entitled to manage.</li>
@@ -98,7 +98,7 @@ export default function TermsPage() {
         </div>
 
         <div className="bg-white rounded-lg shadow p-6 space-y-4">
-          <h2 className="text-xl font-semibold text-gray-900">Intellectual Property &amp; Licensing</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Intellectual Property &amp; Licensing</h2>
           <div className="space-y-2 text-gray-700">
             <p><strong>Open source.</strong> The Autopilot Monitor source code is published on <a href="https://github.com/okieselbach/Autopilot-Monitor" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">GitHub</a> under the licence stated in that repository. That licence governs the code — it does not grant rights to the hosted service, its infrastructure, its data, or the Autopilot Monitor name and branding.</p>
             <p><strong>Your data stays yours.</strong> Enrollment telemetry, configuration, and diagnostics belong to your organization. Using the service grants only the rights needed to operate it for you, as described in the <a href="/privacy" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">Privacy Policy</a>.</p>
@@ -108,7 +108,7 @@ export default function TermsPage() {
         </div>
 
         <div className="bg-white rounded-lg shadow p-6 space-y-4">
-          <h2 className="text-xl font-semibold text-gray-900">Delegated (MSP) Administration</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Delegated (MSP) Administration</h2>
           <p className="text-gray-700">
             Delegated administration lets a managing organization see a defined set of customer tenants from one place. It
             is an Enterprise capability and applies only where access has been granted.
@@ -123,7 +123,7 @@ export default function TermsPage() {
         </div>
 
         <div className="bg-white rounded-lg shadow p-6 space-y-4">
-          <h2 className="text-xl font-semibold text-gray-900">Availability, Support and Data</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Availability, Support and Data</h2>
 
           <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded">
             <h3 className="font-semibold text-amber-900 mb-2">Community plan: provided &quot;AS-IS&quot;, no warranty</h3>
@@ -145,7 +145,7 @@ export default function TermsPage() {
         </div>
 
         <div className="bg-white rounded-lg shadow p-6 space-y-4">
-          <h2 className="text-xl font-semibold text-gray-900">Your Data, Suspension and Termination</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Your Data, Suspension and Termination</h2>
           <div className="space-y-2 text-gray-700">
             <p><strong>Ownership.</strong> Your enrollment telemetry remains yours. Autopilot Monitor processes it to provide the service, as described in the <a href="/privacy" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">Privacy Policy</a>.</p>
             <p><strong>Your controls.</strong> You set the retention period, delete individual sessions, and offboard your tenant entirely at any time — no support ticket required.</p>
@@ -157,7 +157,7 @@ export default function TermsPage() {
         </div>
 
         <div className="bg-white rounded-lg shadow p-6 space-y-4">
-          <h2 className="text-xl font-semibold text-gray-900">Security and Transparency</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Security and Transparency</h2>
           <p className="text-gray-700">
             The security architecture, data residency, external services, retention and deletion behaviour, and an explicit
             statement of what the service does <em>not</em> do are published in the{" "}
@@ -167,7 +167,7 @@ export default function TermsPage() {
         </div>
 
         <div className="bg-white rounded-lg shadow p-6 space-y-4">
-          <h2 className="text-xl font-semibold text-gray-900">Third-Party Data Sources &amp; Attributions</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Third-Party Data Sources &amp; Attributions</h2>
           <p className="text-gray-700">
             The vulnerability correlation feature uses the following external data sources to identify known
             vulnerabilities in installed software. These are inbound reference-data pulls — no customer data is sent to
@@ -202,7 +202,7 @@ export default function TermsPage() {
         </div>
 
         <div className="bg-white rounded-lg shadow p-6 space-y-4">
-          <h2 className="text-xl font-semibold text-gray-900">Changes and Governing Law</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Changes and Governing Law</h2>
           <div className="space-y-2 text-gray-700">
             <p><strong>Changes.</strong> These terms may be updated; the &quot;last updated&quot; date above reflects the current version, and material changes are announced through the service announcements in the portal. Continued use after a change constitutes acceptance.</p>
             <p><strong>Governing law.</strong> These terms are governed by German law. For the Enterprise plan, the governing-law and venue provisions of the written agreement apply.</p>

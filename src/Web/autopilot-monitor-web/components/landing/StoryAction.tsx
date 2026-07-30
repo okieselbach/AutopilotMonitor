@@ -26,7 +26,7 @@ export function StoryAction() {
           </p>
           {/* The real Teams card carries exactly one action: "Open session" */}
           <div className="mt-3 flex items-center gap-2">
-            <span className="px-3 py-1.5 rounded-lg bg-[var(--lp-accent)] text-white text-[11px] font-semibold">Open session</span>
+            <span className="px-3 py-1.5 rounded-lg bg-[var(--lp-accent-ink)] text-white text-[11px] font-semibold">Open session</span>
           </div>
         </div>
       </div>

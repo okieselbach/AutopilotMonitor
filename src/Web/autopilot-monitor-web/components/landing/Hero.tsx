@@ -23,7 +23,7 @@ export function Hero() {
             <div className="flex items-center gap-3">
               <a
                 href="/get-started"
-                className="px-6 py-3 rounded-lg bg-[var(--lp-accent)] hover:brightness-105 hover:shadow-lg text-white font-semibold shadow-md transition-all"
+                className="px-6 py-3 rounded-lg bg-[var(--lp-accent-ink)] hover:brightness-110 hover:shadow-lg text-white font-semibold shadow-md transition-all"
               >
                 Get started
               </a>
