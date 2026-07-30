@@ -161,7 +161,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Monitoring",
     visibility: "adminOrOperator",
     items: [
-      { id: "progress", label: "Progress Portal", href: "/progress", icon: <MonitorIcon className="w-5 h-5 text-green-600 dark:text-green-400" /> },
+      { id: "progress", label: "Progress Portal", href: "/progress", icon: <MonitorIcon /> },
       { id: "geographic-performance", label: "Geographic Perf.", href: "/geographic-performance", icon: <GlobeAltIcon /> },
       { id: "fleet-health", label: "Fleet Health", href: "/fleet-health", icon: <ChartBarIcon /> },
       { id: "sla", label: "SLA Compliance", href: "/sla", icon: <ShieldCheckIcon /> },
@@ -316,5 +316,5 @@ export const EXPANDABLE_NAV_GROUPS: ExpandableNavGroup[] = [
 // --- Regular user nav (minimal) ---
 
 export const REGULAR_USER_ITEMS: NavItem[] = [
-  { id: "progress", label: "Progress Portal", href: "/progress", icon: <MonitorIcon className="w-5 h-5 text-green-600 dark:text-green-400" /> },
+  { id: "progress", label: "Progress Portal", href: "/progress", icon: <MonitorIcon /> },
 ];
