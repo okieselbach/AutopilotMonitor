@@ -326,7 +326,8 @@ public class AuthFunction
         _ = _globalNotificationService.CreateNotificationAsync(
             "preview_signup",
             "New Preview Signup",
-            $"Tenant {tenantId} ({domain}), UPN: {upn}");
+            $"Tenant {tenantId} ({domain}), UPN: {upn}",
+            href: $"/admin/tenants/management?tenantId={Uri.EscapeDataString(tenantId)}");
     }
 
     /// <summary>

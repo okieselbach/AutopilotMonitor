@@ -7,7 +7,7 @@ import { useTenantNotifications } from '@/contexts/TenantNotificationContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { BrandMark } from './BrandMark';
 import { trackEvent } from '@/lib/appInsights';
 import { useAdminMode } from '@/hooks/useAdminMode';
@@ -21,6 +21,7 @@ export default function Navbar() {
   const { tenantNotifications, dismissTenantNotification, dismissAllTenant } = useTenantNotifications();
   const { theme, toggleTheme } = useTheme();
   const pathname = usePathname();
+  const router = useRouter();
 
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -131,6 +132,13 @@ export default function Navbar() {
     const diffHours = Math.floor(diffMins / 60);
     if (diffHours < 24) return `${diffHours}h ago`;
     return `${Math.floor(diffHours / 24)}d ago`;
+  };
+
+  // Notification rows with an href navigate on click — close the dropdown first
+  // so it doesn't linger over the target page.
+  const openNotificationHref = (href: string) => {
+    setShowNotifications(false);
+    router.push(href);
   };
 
   const getUserInitials = () => {
@@ -311,7 +319,7 @@ export default function Navbar() {
                       <div className="divide-y divide-gray-100">
                         {/* Tenant-scoped persistent notifications (e.g. hardware rejections) — top */}
                         {tenantNotifications.map((tn) => (
-                          <div key={`tn-${tn.id}`} className="px-4 py-3 hover:bg-blue-50/50 dark:hover:bg-blue-900/45 transition-colors border-l-4 border-blue-500 bg-blue-50/30 dark:bg-blue-900/20">
+                          <div key={`tn-${tn.id}`} className={`px-4 py-3 hover:bg-blue-50/50 dark:hover:bg-blue-900/45 transition-colors border-l-4 border-blue-500 bg-blue-50/30 dark:bg-blue-900/20 ${tn.href ? 'cursor-pointer' : ''}`} onClick={() => { if (tn.href) openNotificationHref(tn.href); }}>
                             <div className="flex items-start justify-between">
                               <div className="flex items-start space-x-2.5 flex-1">
                                 <span className="text-lg">{tn.type === 'hardware_rejection' ? '🖥️' : '🔔'}</span>
@@ -324,7 +332,7 @@ export default function Navbar() {
                                       <Link
                                         href={tn.href}
                                         prefetch={false}
-                                        onClick={(e) => { e.stopPropagation(); }}
+                                        onClick={(e) => { e.stopPropagation(); setShowNotifications(false); }}
                                         className="text-[10px] text-green-700 hover:text-green-800 font-medium underline"
                                       >
                                         View
@@ -345,7 +353,7 @@ export default function Navbar() {
                         ))}
                         {/* Persistent Global Admin Notifications */}
                         {visibleGlobal.map((gn) => (
-                          <div key={`ga-${gn.id}`} className="px-4 py-3 hover:bg-purple-50/50 dark:hover:bg-purple-900/45 transition-colors border-l-4 border-purple-500 bg-purple-50/30 dark:bg-purple-900/20">
+                          <div key={`ga-${gn.id}`} className={`px-4 py-3 hover:bg-purple-50/50 dark:hover:bg-purple-900/45 transition-colors border-l-4 border-purple-500 bg-purple-50/30 dark:bg-purple-900/20 ${gn.href ? 'cursor-pointer' : ''}`} onClick={() => { if (gn.href) openNotificationHref(gn.href); }}>
                             <div className="flex items-start justify-between">
                               <div className="flex items-start space-x-2.5 flex-1">
                                 <span className="text-lg">{gn.type === 'session_report' ? '\uD83D\uDCCB' : '\uD83C\uDF1F'}</span>
@@ -355,7 +363,19 @@ export default function Navbar() {
                                     <span className="text-[9px] font-semibold text-purple-700 bg-purple-100 px-1 py-0.5 rounded">GA</span>
                                   </div>
                                   <p className="text-xs text-gray-600 mt-0.5">{gn.message}</p>
-                                  <p className="text-[10px] text-gray-400 mt-1">{formatTime(new Date(gn.createdAt))}</p>
+                                  <div className="flex items-center gap-3 mt-1">
+                                    <p className="text-[10px] text-gray-400">{formatTime(new Date(gn.createdAt))}</p>
+                                    {gn.href && (
+                                      <Link
+                                        href={gn.href}
+                                        prefetch={false}
+                                        onClick={(e) => { e.stopPropagation(); setShowNotifications(false); }}
+                                        className="text-[10px] text-green-700 hover:text-green-800 font-medium underline"
+                                      >
+                                        View
+                                      </Link>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                               {user?.isGlobalAdmin && (
@@ -370,7 +390,7 @@ export default function Navbar() {
                         ))}
                         {/* Ephemeral Notifications */}
                         {notifications.map((notification) => (
-                          <div key={notification.id} className={`px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer ${!notification.read ? 'bg-blue-50' : ''}`} onClick={() => { if (!notification.read) { markAsRead(notification.id); } }}>
+                          <div key={notification.id} className={`px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer ${!notification.read ? 'bg-blue-50' : ''}`} onClick={() => { if (!notification.read) { markAsRead(notification.id); } if (notification.href) { openNotificationHref(notification.href); } }}>
                             <div className="flex items-start justify-between">
                               <div className="flex items-start space-x-2.5 flex-1">
                                 <span className="text-lg">{getNotificationIcon(notification.type)}</span>
@@ -383,7 +403,7 @@ export default function Navbar() {
                                       <Link
                                         href={notification.href}
                                         prefetch={false}
-                                        onClick={(e) => { e.stopPropagation(); markAsRead(notification.id); }}
+                                        onClick={(e) => { e.stopPropagation(); markAsRead(notification.id); setShowNotifications(false); }}
                                         className="text-[10px] text-green-700 hover:text-green-800 font-medium underline"
                                       >
                                         View

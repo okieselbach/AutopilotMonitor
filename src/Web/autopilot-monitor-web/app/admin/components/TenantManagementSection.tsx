@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { TenantAdminSection } from "./TenantAdminSection";
@@ -48,7 +49,18 @@ export interface TenantManagementSectionProps {
   setSuccessMessage: (message: string | null) => void;
 }
 
-export function TenantManagementSection({
+export function TenantManagementSection(props: TenantManagementSectionProps) {
+  // useSearchParams() in the inner component requires a Suspense boundary for
+  // static prerender (this section renders inside the prerendered
+  // /admin/tenants/management page).
+  return (
+    <Suspense fallback={null}>
+      <TenantManagementSectionInner {...props} />
+    </Suspense>
+  );
+}
+
+function TenantManagementSectionInner({
   tenants,
   loadingTenants,
   fetchTenants,
@@ -62,6 +74,18 @@ export function TenantManagementSection({
   // Read-only Global Readers may view tenants (incl. config report) but not edit them.
   const canMutate = useCanMutatePlatform();
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Deep link from GA notifications: ?tenantId=… seeds the search box once, so the
+  // list opens filtered to the tenant the notification is about.
+  const searchParams = useSearchParams();
+  const seededSearchRef = useRef(false);
+  useEffect(() => {
+    if (seededSearchRef.current) return;
+    const tenantIdParam = searchParams?.get("tenantId");
+    if (!tenantIdParam) return;
+    seededSearchRef.current = true;
+    setSearchQuery(tenantIdParam);
+  }, [searchParams]);
   const [showOnlyWaitlist, setShowOnlyWaitlist] = useState(false);
   const [showOnlyReady, setShowOnlyReady] = useState(false);
   const [tenantSectionExpanded, setTenantSectionExpanded] = useState(false);

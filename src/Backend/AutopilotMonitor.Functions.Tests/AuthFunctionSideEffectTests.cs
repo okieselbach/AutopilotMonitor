@@ -131,7 +131,7 @@ public class AuthFunctionSideEffectTests
         _globalNotificationMock.Verify(x => x.CreateNotificationAsync(
             "preview_signup", "New Preview Signup",
             It.Is<string>(m => m.Contains(TenantId) && m.Contains("contoso.com") && m.Contains(Upn)),
-            null), Times.Once);
+            $"/admin/tenants/management?tenantId={TenantId}"), Times.Once);
     }
 
     [Fact]

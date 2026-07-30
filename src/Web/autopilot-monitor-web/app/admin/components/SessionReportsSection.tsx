@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import TruncatedLabel from "@/components/TruncatedLabel";
@@ -76,7 +77,18 @@ function CopyButton({ value }: { value: string }) {
   );
 }
 
-export function SessionReportsSection({
+export function SessionReportsSection(props: SessionReportsSectionProps) {
+  // useSearchParams() in the inner component requires a Suspense boundary for
+  // static prerender (this section renders inside the prerendered
+  // /admin/reports/session-reports page).
+  return (
+    <Suspense fallback={null}>
+      <SessionReportsSectionInner {...props} />
+    </Suspense>
+  );
+}
+
+function SessionReportsSectionInner({
   getAccessToken,
   setError,
 }: SessionReportsSectionProps) {
@@ -100,6 +112,25 @@ export function SessionReportsSection({
   const [nextLink, setNextLink] = useState<string | null>(null);
   const [continuationStack, setContinuationStack] = useState<Array<string | null>>([]);
   const [pageNumber, setPageNumber] = useState(1);
+
+  // Deep link from GA notifications: ?reportId=… auto-opens the report modal once
+  // the first page has loaded. Reports are listed newest-first, so a report reached
+  // via a fresh notification is on page 1; older ones get a hint instead.
+  const searchParams = useSearchParams();
+  const autoOpenedRef = useRef(false);
+
+  useEffect(() => {
+    if (autoOpenedRef.current || loading) return;
+    const reportIdParam = searchParams?.get("reportId");
+    if (!reportIdParam) return;
+    autoOpenedRef.current = true;
+    const match = reports.find((r) => r.reportId === reportIdParam);
+    if (match) {
+      setSelectedReport(match);
+    } else {
+      setError(`Report ${reportIdParam} is not on the first page — it may be older. Page through or filter by tenant to find it.`);
+    }
+  }, [loading, reports, searchParams, setError]);
 
   useEffect(() => {
     if (selectedReport) {
