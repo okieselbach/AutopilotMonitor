@@ -205,7 +205,7 @@ export function SectionSubmitLogs() {
           value={comment}
           onChange={e => setComment(e.target.value)}
           placeholder="What's going on? Which device / scenario do these files relate to?"
-          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
           rows={3}
           disabled={submitting}
         />
@@ -221,7 +221,7 @@ export function SectionSubmitLogs() {
           value={email}
           onChange={e => setEmail(e.target.value)}
           placeholder="your.email@company.com"
-          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
           disabled={submitting}
         />
         <p className="text-xs text-gray-500 mt-1">

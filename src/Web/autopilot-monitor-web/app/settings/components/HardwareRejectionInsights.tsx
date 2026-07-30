@@ -80,7 +80,7 @@ function WebhookToggle({
           disabled={!interactive}
           className="sr-only peer"
         />
-        <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:bg-blue-600 peer-disabled:opacity-50 transition-colors" />
+        <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-green-500 rounded-full peer peer-checked:bg-blue-600 peer-disabled:opacity-50 transition-colors" />
         <div className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-4" />
       </div>
     </label>
@@ -143,7 +143,7 @@ export default function HardwareRejectionInsights({
           <p className="text-sm text-red-600">Failed to load hardware rejections: {error}</p>
           <button
             onClick={fetchData}
-            className="mt-2 text-sm text-blue-600 hover:text-blue-800 underline"
+            className="mt-2 text-sm text-green-700 hover:text-green-800 underline"
           >
             Retry
           </button>
@@ -234,7 +234,7 @@ export default function HardwareRejectionInsights({
                         <td className="py-3 pr-4">
                           <button
                             onClick={() => setExpandedRow(isExpanded ? null : rowKey)}
-                            className="text-left font-medium text-gray-900 hover:text-blue-600 transition-colors"
+                            className="text-left font-medium text-gray-900 hover:text-green-600 transition-colors"
                             title="Toggle details"
                           >
                             {row.manufacturer || "\u2013"}

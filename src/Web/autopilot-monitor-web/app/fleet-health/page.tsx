@@ -733,7 +733,7 @@ export default function FleetHealthPage() {
                       title={`Show failed enrollments for ${m.model}`}
                     >
                       <div className="flex items-baseline justify-between mb-1">
-                        <span className="text-sm text-gray-700 group-hover:text-blue-600 break-words leading-snug">{m.model}</span>
+                        <span className="text-sm text-gray-700 group-hover:text-green-600 break-words leading-snug">{m.model}</span>
                         <span className="ml-3 flex-shrink-0 text-sm font-medium text-gray-900">
                           {successRate !== null ? `${successRate}%` : "—"} <span className="text-xs font-normal text-gray-400">({m.total} devices)</span>
                         </span>

@@ -179,7 +179,7 @@ export default function ProgressPortalPage() {
                     onChange={(e) => setSerialInput(e.target.value)}
                     onKeyDown={handleKeyDown}
                     placeholder="Enter serial number or device name..."
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 text-lg"
                   />
                 </div>
                 <button

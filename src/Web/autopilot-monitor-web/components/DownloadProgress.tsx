@@ -366,7 +366,7 @@ function DownloadItem({ download: dl, progressPercent }: { download: DownloadIte
                   {dl.eventData && Object.keys(dl.eventData).length > 0 && (
                     <button
                       onClick={() => setShowDetails(!showDetails)}
-                      className="text-xs text-blue-600 hover:text-blue-800"
+                      className="text-xs text-green-700 hover:text-green-800"
                     >
                       {showDetails ? 'Hide' : 'Details'}
                     </button>
@@ -411,7 +411,7 @@ function DownloadItem({ download: dl, progressPercent }: { download: DownloadIte
                 <div className="mt-2">
                   <button
                     onClick={() => setShowDoStats(!showDoStats)}
-                    className="flex items-center space-x-1 text-xs text-blue-600 hover:text-blue-800"
+                    className="flex items-center space-x-1 text-xs text-green-700 hover:text-green-800"
                   >
                     <svg className="w-3.5 h-3.5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />

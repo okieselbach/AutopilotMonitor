@@ -392,7 +392,7 @@ function AppDetailContent() {
                 // Tenant scope is carried in sessionStorage, so the list restores it on its own.
                 router.push("/apps");
               }}
-              className="text-sm text-blue-600 hover:underline mb-2 inline-flex items-center"
+              className="text-sm text-green-700 hover:underline mb-2 inline-flex items-center"
             >
               ← Back to all apps
             </button>
@@ -738,7 +738,7 @@ function AppDetailContent() {
                                 type="checkbox"
                                 checked={visibleSessionColumns.has(col.key)}
                                 onChange={() => toggleSessionColumn(col.key)}
-                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
+                                className="rounded border-gray-300 text-blue-600 focus:ring-green-500 h-3.5 w-3.5"
                               />
                               <span className="flex-1">{col.label}</span>
                               {col.globalOnly && (

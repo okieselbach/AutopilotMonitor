@@ -230,7 +230,7 @@ export default function GlobalSearch() {
             onKeyDown={handleKeyDown}
             onFocus={() => { if (query.length >= 2) setShowDropdown(true); }}
             placeholder="Search serial, device, session... (Ctrl+K)"
-            className="w-full pl-9 pr-8 py-1.5 text-sm bg-gray-100 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent focus:bg-white transition-colors"
+            className="w-full pl-9 pr-8 py-1.5 text-sm bg-gray-100 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent focus:bg-white transition-colors"
           />
           {query && (
             <button
@@ -276,7 +276,7 @@ export default function GlobalSearch() {
                 onChange={(e) => handleInputChange(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Search serial, device, session..."
-                className="w-full pl-9 pr-8 py-1.5 text-sm bg-gray-100 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent focus:bg-white transition-colors"
+                className="w-full pl-9 pr-8 py-1.5 text-sm bg-gray-100 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent focus:bg-white transition-colors"
               />
               {query && (
                 <button

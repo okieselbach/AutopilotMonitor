@@ -41,7 +41,7 @@ export function SectionContact() {
             value={contactEmail}
             onChange={(e) => setContactEmail(e.target.value)}
             placeholder={canEditConfig ? "it-operations@contoso.com" : "Not configured"}
-            className="mt-1 block w-full max-w-md rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-50 disabled:text-gray-600"
+            className="mt-1 block w-full max-w-md rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-green-500 focus:ring-green-500 disabled:bg-gray-50 disabled:text-gray-600"
           />
           {looksInvalid && (
             <p className="mt-1 text-sm text-amber-600">That does not look like an email address.</p>

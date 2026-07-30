@@ -299,7 +299,7 @@ function HomeContent() {
                 href={`${DOCS_URL}/changelog/platform-changelog`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="underline font-medium hover:text-blue-600 dark:hover:text-blue-200"
+                className="underline font-medium hover:text-green-600 dark:hover:text-blue-200"
               >
                 Private Preview Changelog
               </a>{" "}
@@ -308,7 +308,7 @@ function HomeContent() {
                 href={`${DOCS_URL}/troubleshooting/service-announcements`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="underline font-medium hover:text-blue-600 dark:hover:text-blue-200"
+                className="underline font-medium hover:text-green-600 dark:hover:text-blue-200"
               >
                 Service Announcements
               </a>
@@ -318,7 +318,7 @@ function HomeContent() {
                 href="https://github.com/okieselbach/AutopilotMonitor/issues"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="underline font-medium hover:text-blue-600 dark:hover:text-blue-200"
+                className="underline font-medium hover:text-green-600 dark:hover:text-blue-200"
               >
                 Open a GitHub issue
               </a>
@@ -327,7 +327,7 @@ function HomeContent() {
                 href="https://www.linkedin.com/in/oliver-kieselbach/"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="underline font-medium hover:text-blue-600 dark:hover:text-blue-200"
+                className="underline font-medium hover:text-green-600 dark:hover:text-blue-200"
               >
                 LinkedIn
               </a>

@@ -17,7 +17,7 @@ export function EmptyState({ message, onClearFilters, showClearButton = true }: 
       {showClearButton && (
         <button
           onClick={onClearFilters}
-          className="mt-2 text-sm text-indigo-600 hover:text-indigo-800 transition-colors"
+          className="mt-2 text-sm text-green-700 hover:text-green-800 transition-colors"
         >
           Clear all filters
         </button>

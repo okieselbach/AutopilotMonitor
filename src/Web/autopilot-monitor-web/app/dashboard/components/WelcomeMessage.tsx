@@ -28,7 +28,7 @@ export function WelcomeMessage() {
             <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">1</span>
             <p className="text-sm text-gray-700">
               Follow the{" "}
-              <a href={`${DOCS_URL}/getting-started/portal-setup`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-medium">setup guide</a>
+              <a href={`${DOCS_URL}/getting-started/portal-setup`} target="_blank" rel="noopener noreferrer" className="text-green-700 hover:underline font-medium">setup guide</a>
               {" "}to configure your tenant and grant the required permissions.
             </p>
           </li>
@@ -36,7 +36,7 @@ export function WelcomeMessage() {
             <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">2</span>
             <p className="text-sm text-gray-700">
               Deploy the{" "}
-              <a href={`${DOCS_URL}/getting-started/deploy-the-agent`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-medium">Intune bootstrapper</a>
+              <a href={`${DOCS_URL}/getting-started/deploy-the-agent`} target="_blank" rel="noopener noreferrer" className="text-green-700 hover:underline font-medium">Intune bootstrapper</a>
               {" "}to your Autopilot device groups — the agent installs automatically on first boot.
             </p>
           </li>

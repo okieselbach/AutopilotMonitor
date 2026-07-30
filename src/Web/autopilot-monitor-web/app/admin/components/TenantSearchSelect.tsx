@@ -16,7 +16,7 @@ export function TenantSearchSelect({
   value,
   onChange,
   placeholder = "Search tenant by name or ID\u2026",
-  focusRingClass = "focus:ring-blue-500 focus:border-blue-500",
+  focusRingClass = "focus:ring-green-500 focus:border-green-500",
 }: TenantSearchSelectProps) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);

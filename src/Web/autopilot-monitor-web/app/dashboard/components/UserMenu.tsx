@@ -68,7 +68,7 @@ export function UserMenu({
                 <div className="text-xs text-gray-500 truncate">
                   {email}
                 </div>
-                <button className="text-xs text-blue-600 hover:text-blue-800 mt-1">
+                <button className="text-xs text-green-700 hover:text-green-800 mt-1">
                   View account
                 </button>
               </div>

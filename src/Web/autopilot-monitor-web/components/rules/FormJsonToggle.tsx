@@ -36,7 +36,7 @@ export function FormJsonToggle({
             <button
               type="button"
               onClick={onApplyJson}
-              className="text-xs text-indigo-600 hover:text-indigo-800 font-medium whitespace-nowrap ml-4"
+              className="text-xs text-green-700 hover:text-green-800 font-medium whitespace-nowrap ml-4"
             >
               Apply JSON &rarr;
             </button>
@@ -49,7 +49,7 @@ export function FormJsonToggle({
             onChange={(e) => onJsonTextChange(e.target.value)}
             rows={textareaRows}
             spellCheck={false}
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm font-mono text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-y"
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm font-mono text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-y"
           />
         </div>
       ) : (
@@ -86,7 +86,7 @@ export function ReadOnlyJsonView({
         <button
           type="button"
           onClick={handleCopy}
-          className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 rounded-md transition-colors whitespace-nowrap ml-4"
+          className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium text-green-700 hover:text-green-800 bg-indigo-50 hover:bg-indigo-100 rounded-md transition-colors whitespace-nowrap ml-4"
         >
           {copied ? (
             <>
@@ -106,7 +106,7 @@ export function ReadOnlyJsonView({
         readOnly
         rows={textareaRows}
         spellCheck={false}
-        className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm font-mono text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-y cursor-default"
+        className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm font-mono text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-y cursor-default"
       />
     </div>
   );

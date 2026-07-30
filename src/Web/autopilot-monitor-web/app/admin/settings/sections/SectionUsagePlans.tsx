@@ -203,7 +203,7 @@ export function SectionUsagePlans() {
                     value={tier.name}
                     onChange={(e) => updateTier(index, "name", e.target.value)}
                     placeholder="e.g., free, pro, enterprise"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                   />
                 </div>
                 {/* Daily Limit */}
@@ -214,7 +214,7 @@ export function SectionUsagePlans() {
                     min={0}
                     value={tier.dailyRequestLimit}
                     onChange={(e) => updateTier(index, "dailyRequestLimit", parseInt(e.target.value) || 0)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                   />
                 </div>
                 {/* Monthly Limit */}
@@ -225,7 +225,7 @@ export function SectionUsagePlans() {
                     min={0}
                     value={tier.monthlyRequestLimit}
                     onChange={(e) => updateTier(index, "monthlyRequestLimit", parseInt(e.target.value) || 0)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                   />
                 </div>
                 {/* Description */}
@@ -236,7 +236,7 @@ export function SectionUsagePlans() {
                     value={tier.description}
                     onChange={(e) => updateTier(index, "description", e.target.value)}
                     placeholder="Brief description"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                   />
                 </div>
               </div>

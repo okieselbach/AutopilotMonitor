@@ -63,7 +63,7 @@ export default function DataManagementSection({
               value={dataRetentionDays}
               disabled={isRetentionDisabled}
               onChange={(e) => setDataRetentionDays(parseInt(e.target.value) || 90)}
-              className={`mt-1 block w-full px-4 py-2 border rounded-lg placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
+              className={`mt-1 block w-full px-4 py-2 border rounded-lg placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
                 isRetentionDisabled
                   ? "bg-gray-100 text-gray-500 border-gray-200 cursor-not-allowed"
                   : "border-gray-300 text-gray-900"
@@ -106,7 +106,7 @@ export default function DataManagementSection({
               max="12"
               value={sessionTimeoutHours}
               onChange={(e) => setSessionTimeoutHours(parseInt(e.target.value) || 5)}
-              className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+              className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
             />
             <p className="text-xs text-gray-400 mt-1">Default: 5 hours (ESP default). Minimum: 1 hour, Maximum: 12 hours</p>
           </label>

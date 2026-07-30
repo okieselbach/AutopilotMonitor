@@ -521,7 +521,7 @@ function DiagnosisContent() {
                           href={primaryResult.relatedDocs[0].url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center space-x-1 text-sm text-blue-600 hover:text-blue-800"
+                          className="inline-flex items-center space-x-1 text-sm text-green-700 hover:text-green-800"
                         >
                           <svg
                             className="w-4 h-4"
@@ -654,7 +654,7 @@ function DiagnosisContent() {
                                       e.stopPropagation();
                                       copyRemediation(result);
                                     }}
-                                    className="text-xs text-blue-600 hover:text-blue-800"
+                                    className="text-xs text-green-700 hover:text-green-800"
                                   >
                                     {copiedId === result.ruleId
                                       ? "Copied!"
@@ -719,7 +719,7 @@ function DiagnosisContent() {
                                     href={doc.url}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="text-xs text-blue-600 hover:text-blue-800 underline"
+                                    className="text-xs text-green-700 hover:text-green-800 underline"
                                   >
                                     {doc.title}
                                   </a>

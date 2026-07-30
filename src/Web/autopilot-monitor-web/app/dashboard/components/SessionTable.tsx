@@ -333,7 +333,7 @@ export function SessionTable({
           <select
             value={sessionsPerPage}
             onChange={(e) => onSessionsPerPageChange(Number(e.target.value))}
-            className="px-2 py-1.5 rounded-lg text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 border border-gray-200 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-2 py-1.5 rounded-lg text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 border border-gray-200 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-green-500"
             title="Sessions per page"
           >
             {[10, 15, 20, 50, 100].map((n) => (
@@ -399,7 +399,7 @@ export function SessionTable({
                         type="checkbox"
                         checked={visibleColumns.has(col.key)}
                         onChange={() => toggleColumn(col.key)}
-                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
+                        className="rounded border-gray-300 text-blue-600 focus:ring-green-500 h-3.5 w-3.5"
                       />
                       {col.label}
                     </label>
@@ -462,7 +462,7 @@ export function SessionTable({
               }
             }
           }}
-          className="w-full px-4 py-2 pr-10 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+          className="w-full px-4 py-2 pr-10 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
         />
         {searchQuery && (
           <button
@@ -557,7 +557,7 @@ export function SessionTable({
                         setShowSearchSuggestions(false);
                         onLoadAll();
                       }}
-                      className="text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors"
+                      className="text-xs font-medium text-green-700 hover:text-green-800 transition-colors"
                     >
                       Search all sessions
                     </button>
@@ -803,7 +803,7 @@ function SessionCell({
               e.stopPropagation();
               navigator.clipboard.writeText(session.tenantId);
             }}
-            className="group flex items-center gap-1 text-xs font-mono text-gray-600 hover:text-blue-600 transition-colors"
+            className="group flex items-center gap-1 text-xs font-mono text-gray-600 hover:text-green-600 transition-colors"
             title={session.tenantId}
           >
             <span>{session.tenantId.split('-').slice(0, 2).join('-')}...</span>
@@ -1098,7 +1098,7 @@ function SortableHeader({
               e.stopPropagation();
               onFilterToggle();
             }}
-            className={`p-0.5 rounded transition-colors ${hasActiveFilter ? "text-blue-600 hover:text-blue-800" : "text-gray-300 hover:text-gray-500"}`}
+            className={`p-0.5 rounded transition-colors ${hasActiveFilter ? "text-green-700 hover:text-green-800" : "text-gray-300 hover:text-gray-500"}`}
             title={hasActiveFilter ? `Filtered (${activeFilter!.size} selected)` : "Filter this column"}
           >
             <svg className="w-3 h-3" fill={hasActiveFilter ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
@@ -1123,7 +1123,7 @@ function SortableHeader({
                 placeholder="Search..."
                 value={filterSearch}
                 onChange={(e) => setFilterSearch(e.target.value)}
-                className="w-full px-2 py-1 text-xs border border-gray-200 rounded text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full px-2 py-1 text-xs border border-gray-200 rounded text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-green-500"
                 onClick={(e) => e.stopPropagation()}
               />
             </div>
@@ -1148,7 +1148,7 @@ function SortableHeader({
                       }
                       onFilterChange(filterKey, next);
                     }}
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-3 w-3"
+                    className="rounded border-gray-300 text-blue-600 focus:ring-green-500 h-3 w-3"
                   />
                   <span className="truncate">{value}</span>
                 </label>

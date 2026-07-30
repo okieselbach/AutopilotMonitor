@@ -605,6 +605,9 @@ html:hover ::-webkit-scrollbar-thumb {
 .dark .text-blue-700 {
   color: #60a5fa !important; /* blue-400 — step icons etc. on dark surfaces */
 }
+.dark .text-green-700 {
+  color: #4ade80 !important; /* green-400 — brand links/accents on dark surfaces */
+}
 .dark .text-indigo-700 {
   color: #a5b4fc !important; /* indigo-300 — category badge, correlation labels, doc links */
 }

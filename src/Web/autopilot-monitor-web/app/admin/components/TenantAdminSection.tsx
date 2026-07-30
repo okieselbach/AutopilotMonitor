@@ -423,7 +423,7 @@ export function TenantAdminSection({
                 onChange={(e) => setNewAdminEmail(e.target.value)}
                 placeholder="admin@tenant.com"
                 autoComplete="off"
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();

@@ -397,7 +397,7 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
           {/* shortId only on standalone rows — inside a cycle the parent header already shows it. */}
           {!nested && (
             intuneUrl ? (
-              <a href={intuneUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-mono text-blue-600 hover:text-blue-800 hover:underline" title="Open in Intune portal">{shortId}…</a>
+              <a href={intuneUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-mono text-green-700 hover:text-green-800 hover:underline" title="Open in Intune portal">{shortId}…</a>
             ) : (
               <span className="text-xs font-mono text-gray-500">{shortId}…</span>
             )
@@ -470,7 +470,7 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
           {item.state !== "Running" && (
             <button
               onClick={() => setShowDetails(!showDetails)}
-              className="text-xs text-blue-600 hover:text-blue-800"
+              className="text-xs text-green-700 hover:text-green-800"
             >
               {showDetails ? 'Hide' : 'Details'}
             </button>
@@ -484,7 +484,7 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600">
             {!nested && (
               <span><span className="font-medium text-gray-700">Policy ID:</span> {intuneUrl ? (
-                <a href={intuneUrl} target="_blank" rel="noopener noreferrer" className="font-mono text-blue-600 hover:text-blue-800 hover:underline">{item.policyId}</a>
+                <a href={intuneUrl} target="_blank" rel="noopener noreferrer" className="font-mono text-green-700 hover:text-green-800 hover:underline">{item.policyId}</a>
               ) : (
                 <span className="font-mono">{item.policyId}</span>
               )}</span>

@@ -331,7 +331,7 @@ export function TenantManagementSection({
                     placeholder={'Search by domain or tenant ID (use "..." for exact match)'}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                    className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
                   />
                   {searchQuery && (
                     <button
@@ -670,7 +670,7 @@ export function TenantManagementSection({
                     value={notificationEmail}
                     onChange={(e) => setNotificationEmail(e.target.value)}
                     placeholder="user@example.com"
-                    className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                    className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
                   />
                   <button
                     onClick={() => handleSendWelcomeEmail(editingTenant.tenantId, notificationEmail)}
@@ -718,7 +718,7 @@ export function TenantManagementSection({
                     const v = e.target.value.trim();
                     setEditingTenant({ ...editingTenant, customRateLimitRequestsPerMinute: v === "" ? null : (parseInt(v) || null) });
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
                 />
                 <p className="mt-1 text-xs text-gray-500">Per-device (agent/cert) limit. Leave blank to inherit the global default.</p>
               </div>
@@ -736,7 +736,7 @@ export function TenantManagementSection({
                     const v = e.target.value.trim();
                     setEditingTenant({ ...editingTenant, customUserRateLimitRequestsPerMinute: v === "" ? null : (parseInt(v) || null) });
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
                 />
                 <p className="mt-1 text-xs text-gray-500">Per-user (portal) limit for standard users. Leave blank to inherit the global default. Does not apply to Global Admins.</p>
               </div>
@@ -787,7 +787,7 @@ export function TenantManagementSection({
                     const val = parseInt(e.target.value);
                     setEditingTenant({ ...editingTenant, dataRetentionDays: isNaN(val) ? 90 : val });
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
                 />
                 {editingTenant.dataRetentionDays === 0 ? (
                   <p className="text-xs text-amber-600 mt-1 font-medium">⚠ Infinite retention — data will never be automatically deleted</p>

@@ -271,7 +271,7 @@ function AnalysisResultCard({ result, hitRate }: { result: RuleResult; hitRate?:
                     href={doc.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sm text-blue-600 hover:text-blue-800 underline"
+                    className="text-sm text-green-700 hover:text-green-800 underline"
                   >
                     {doc.title}
                   </a>

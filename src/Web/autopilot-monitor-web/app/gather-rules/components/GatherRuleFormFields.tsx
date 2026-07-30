@@ -55,7 +55,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
               onChange={(e) => setForm({ ...form, ruleId: e.target.value })}
               placeholder="e.g., custom-network-check"
               autoComplete="off"
-              className={`w-full px-4 py-2 border rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 transition-colors ${isDuplicate ? "border-red-400 focus:ring-red-300 focus:border-red-400" : "border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"}`}
+              className={`w-full px-4 py-2 border rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 transition-colors ${isDuplicate ? "border-red-400 focus:ring-red-300 focus:border-red-400" : "border-gray-300 focus:ring-green-500 focus:border-green-500"}`}
             />
             {isDuplicate && (
               <p className="mt-1 text-xs text-red-600">A rule with this ID already exists. Please choose a unique Rule ID.</p>
@@ -72,7 +72,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
             onChange={(e) => setForm({ ...form, title: e.target.value })}
             placeholder="e.g., Custom Network Check"
             autoComplete="off"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
           />
         </div>
       </div>
@@ -85,7 +85,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
           onChange={(e) => setForm({ ...form, description: e.target.value })}
           placeholder="Describe what this rule collects and why..."
           rows={2}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors resize-none"
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors resize-none"
         />
       </div>
 
@@ -96,7 +96,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
           <select
             value={form.category}
             onChange={(e) => setForm({ ...form, category: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
           >
             {CATEGORIES.map((cat) => (
               <option key={cat} value={cat}>
@@ -110,7 +110,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
           <select
             value={form.collectorType}
             onChange={(e) => setForm({ ...form, collectorType: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
           >
             {COLLECTOR_TYPES.map((ct) => (
               <option key={ct} value={ct}>
@@ -132,7 +132,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
           onChange={(e) => setForm({ ...form, target: e.target.value })}
           placeholder={TARGET_PLACEHOLDERS[form.collectorType] || "Target for data collection"}
           autoComplete="off"
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
         />
         <div className="flex items-center gap-2 mt-1">
           <p className="text-xs text-gray-400">{TARGET_HINTS[form.collectorType] || "Registry path, WMI class, event log name, file path, or command depending on collector type"}</p>
@@ -152,7 +152,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
               placeholder="e.g., IsRecoveryAllowed (leave empty to read all values)"
               autoComplete="off"
               disabled={form.listSubkeys}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors disabled:opacity-50 disabled:bg-gray-50"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors disabled:opacity-50 disabled:bg-gray-50"
             />
             <p className="text-xs text-gray-400 mt-1">Specific registry value to read. Leave empty to read all values in the key.</p>
           </div>
@@ -161,7 +161,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
               type="checkbox"
               checked={form.listSubkeys}
               onChange={(e) => setForm({ ...form, listSubkeys: e.target.checked, valueName: e.target.checked ? "" : form.valueName })}
-              className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              className="rounded border-gray-300 text-indigo-600 focus:ring-green-500"
             />
             <span>List subkeys instead of values</span>
           </label>
@@ -180,7 +180,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
                 onChange={(e) => setForm({ ...form, eventId: e.target.value })}
                 placeholder="e.g., 62407 (leave empty for all events)"
                 autoComplete="off"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
               />
               <p className="text-xs text-gray-400 mt-1">Filter by specific Event ID. Leave empty to collect all events.</p>
             </div>
@@ -193,7 +193,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
                 value={form.maxEntries}
                 onChange={(e) => setForm({ ...form, maxEntries: e.target.value })}
                 placeholder="10"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
               />
               <p className="text-xs text-gray-400 mt-1">Maximum number of events to return (1-50, default: 10).</p>
             </div>
@@ -207,7 +207,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
                 onChange={(e) => setForm({ ...form, source: e.target.value })}
                 placeholder="e.g., Microsoft-Windows-Kernel-General"
                 autoComplete="off"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
               />
               <p className="text-xs text-gray-400 mt-1">Filter by event provider/source name. Leave empty for all sources.</p>
             </div>
@@ -219,7 +219,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
                 onChange={(e) => setForm({ ...form, messageFilter: e.target.value })}
                 placeholder="e.g., *ESPProgress* (leave empty for no filter)"
                 autoComplete="off"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
               />
               <p className="text-xs text-gray-400 mt-1">Filter by message text. Use * as wildcard prefix/suffix.</p>
             </div>
@@ -235,7 +235,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
               type="checkbox"
               checked={form.readContent}
               onChange={(e) => setForm({ ...form, readContent: e.target.checked })}
-              className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-green-500"
             />
             <span className="text-sm font-medium text-gray-700">Read file content</span>
           </label>
@@ -251,7 +251,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
             <select
               value={form.logFormat}
               onChange={(e) => setForm({ ...form, logFormat: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
             >
               <option value="cmtrace">CMTrace (default)</option>
               <option value="text">Plain Text</option>
@@ -274,7 +274,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
                 ? `e.g., (?<timestamp>\\d{4}-\\d{2}-\\d{2}).*(?<level>ERROR|WARN|INFO).*(?<message>.*)`
                 : `e.g., (?<action>Install|Uninstall).*(?<appName>[A-Za-z0-9_-]+)`}
               autoComplete="off"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 font-mono focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
             />
             <p className="text-xs text-gray-400 mt-1">Regex with named capture groups. Each match emits a separate event. Named groups become event data fields.</p>
           </div>
@@ -288,7 +288,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
                 value={form.maxLines}
                 onChange={(e) => setForm({ ...form, maxLines: e.target.value })}
                 placeholder="1000"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
               />
               <p className="text-xs text-gray-400 mt-1">Max lines to parse per file per execution (default: 1000).</p>
             </div>
@@ -298,7 +298,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
                   type="checkbox"
                   checked={form.trackPosition}
                   onChange={(e) => setForm({ ...form, trackPosition: e.target.checked })}
-                  className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-green-500"
                 />
                 <span className="text-sm font-medium text-gray-700">Track position</span>
               </label>
@@ -321,7 +321,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
               onChange={(e) => setForm({ ...form, jsonPath: e.target.value })}
               placeholder="e.g., $.settings.tenantId or $..errorCode"
               autoComplete="off"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 font-mono focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
             />
             <p className="text-xs text-gray-400 mt-1">
               JSONPath query to extract values. Examples: <code className="bg-gray-100 px-1 rounded">$.key</code> (root property),{" "}
@@ -339,7 +339,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
               value={form.maxResults}
               onChange={(e) => setForm({ ...form, maxResults: e.target.value })}
               placeholder="20"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
             />
             <p className="text-xs text-gray-400 mt-1">Maximum number of matches to return (1-100, default: 20).</p>
           </div>
@@ -359,7 +359,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
               onChange={(e) => setForm({ ...form, xpath: e.target.value })}
               placeholder="e.g., /configuration/appSettings/add[@key='Setting1']/@value"
               autoComplete="off"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 font-mono focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
             />
             <p className="text-xs text-gray-400 mt-1">
               XPath query to extract values. Examples: <code className="bg-gray-100 px-1 rounded">/root/element</code> (path),{" "}
@@ -377,7 +377,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
                 onChange={(e) => setForm({ ...form, xmlNamespaces: e.target.value })}
                 placeholder="e.g., ns=http://schemas.example.com/config"
                 autoComplete="off"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
               />
               <p className="text-xs text-gray-400 mt-1">
                 Optional. Format: <code className="bg-gray-100 px-1 rounded">prefix=uri;prefix2=uri2</code>
@@ -392,7 +392,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
                 value={form.maxResults}
                 onChange={(e) => setForm({ ...form, maxResults: e.target.value })}
                 placeholder="20"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
               />
               <p className="text-xs text-gray-400 mt-1">Max matches to return (1-100, default: 20).</p>
             </div>
@@ -406,7 +406,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
         <select
           value={form.trigger}
           onChange={(e) => setForm({ ...form, trigger: e.target.value })}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
         >
           {TRIGGERS.map((t) => (
             <option key={t} value={t}>{formatTrigger(t)}</option>
@@ -424,7 +424,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
             max={3600}
             value={form.intervalSeconds}
             onChange={(e) => setForm({ ...form, intervalSeconds: parseInt(e.target.value) || 60 })}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
           />
           <p className="text-xs text-gray-400 mt-1">How often to run this rule (5 - 3600 seconds)</p>
         </div>
@@ -436,7 +436,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
           <select
             value={form.triggerPhase}
             onChange={(e) => setForm({ ...form, triggerPhase: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
           >
             <option value="">Any phase</option>
             {form.triggerPhase && !GATHER_PHASES.some((p) => p.value === form.triggerPhase) && (
@@ -469,7 +469,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
             onChange={(e) => setForm({ ...form, triggerEventType: e.target.value })}
             placeholder="e.g., session_stalled, enrollment_failed, modern_deployment_error"
             autoComplete="off"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
           />
           <datalist id="gather-rule-event-types">
             {KNOWN_EVENT_TYPES.map((et) => (
@@ -528,7 +528,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
                 activeFromPhase: scopeMode === "from" ? form.activeFromPhase : "",
               });
             }}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
           >
             <option value="always">All phases (always)</option>
             <option value="during">Only during specific phases</option>
@@ -547,7 +547,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
           <select
             value={form.emitMode}
             onChange={(e) => setForm({ ...form, emitMode: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
           >
             {EMIT_MODES.map((m) => (
               <option key={m.value} value={m.value}>{m.label}</option>
@@ -576,7 +576,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
                         : form.activePhases.filter((x) => x !== p.value),
                     })
                   }
-                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  className="rounded border-gray-300 text-indigo-600 focus:ring-green-500"
                 />
                 <span>{p.label}</span>
               </label>
@@ -596,7 +596,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
           <select
             value={form.activeFromPhase}
             onChange={(e) => setForm({ ...form, activeFromPhase: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
           >
             <option value="">Select a phase…</option>
             {GATHER_PHASES.map((p) => (
@@ -623,7 +623,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
             onChange={(e) => setForm({ ...form, outputEventType: e.target.value })}
             placeholder="e.g., CustomNetworkStatus"
             autoComplete="off"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
           />
         </div>
         <div>
@@ -631,7 +631,7 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
           <select
             value={form.outputSeverity}
             onChange={(e) => setForm({ ...form, outputSeverity: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
           >
             {SEVERITIES.map((s) => (
               <option key={s} value={s}>

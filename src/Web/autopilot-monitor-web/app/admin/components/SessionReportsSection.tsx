@@ -279,7 +279,7 @@ export function SessionReportsSection({
           onKeyDown={(e) => {
             if (e.key === "Enter") handleApplyTenantFilter();
           }}
-          className="w-72 px-2 py-1 text-xs font-mono border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+          className="w-72 px-2 py-1 text-xs font-mono border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-green-500 focus:border-green-500"
         />
         <button
           onClick={handleApplyTenantFilter}
@@ -514,7 +514,7 @@ export function SessionReportsSection({
                       readOnly={!canMutate}
                       rows={3}
                       placeholder={canMutate ? "Add an internal note about this report..." : "No note"}
-                      className="w-full text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none placeholder:text-gray-400 read-only:opacity-60 read-only:cursor-not-allowed"
+                      className="w-full text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 resize-none placeholder:text-gray-400 read-only:opacity-60 read-only:cursor-not-allowed"
                     />
                     <div className="flex items-center justify-between mt-1.5">
                       <div className="text-xs">

@@ -138,7 +138,7 @@ export default function InventoryTab({ scope }: { scope: SoftwareTabScope }) {
           placeholder="Search software by name or publisher…"
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(0); }}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
         />
       </div>
 

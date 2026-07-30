@@ -86,7 +86,7 @@ export default function NotRegisteredDevicesInsights({
           <p className="text-sm text-red-600">Failed to load unregistered devices: {error}</p>
           <button
             onClick={fetchData}
-            className="mt-2 text-sm text-blue-600 hover:text-blue-800 underline"
+            className="mt-2 text-sm text-green-700 hover:text-green-800 underline"
           >
             Retry
           </button>

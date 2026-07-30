@@ -287,7 +287,7 @@ export default function Navbar() {
                     {(unreadCount > 0 || hasClearable) && (
                       <div className="flex space-x-2">
                         {unreadCount > 0 && (
-                          <button onClick={markAllAsRead} className="text-xs text-blue-600 hover:text-blue-800">
+                          <button onClick={markAllAsRead} className="text-xs text-green-700 hover:text-green-800">
                             Mark all read
                           </button>
                         )}
@@ -325,7 +325,7 @@ export default function Navbar() {
                                         href={tn.href}
                                         prefetch={false}
                                         onClick={(e) => { e.stopPropagation(); }}
-                                        className="text-[10px] text-blue-600 hover:text-blue-800 font-medium underline"
+                                        className="text-[10px] text-green-700 hover:text-green-800 font-medium underline"
                                       >
                                         View
                                       </Link>
@@ -384,7 +384,7 @@ export default function Navbar() {
                                         href={notification.href}
                                         prefetch={false}
                                         onClick={(e) => { e.stopPropagation(); markAsRead(notification.id); }}
-                                        className="text-[10px] text-blue-600 hover:text-blue-800 font-medium underline"
+                                        className="text-[10px] text-green-700 hover:text-green-800 font-medium underline"
                                       >
                                         View
                                       </Link>
