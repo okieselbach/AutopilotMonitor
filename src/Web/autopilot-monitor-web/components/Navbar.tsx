@@ -172,7 +172,7 @@ export default function Navbar() {
               {/* User Menu */}
               <div className="relative" ref={userMenuRef}>
                 <button onClick={() => setShowUserMenu(!showUserMenu)} className="flex items-center space-x-1.5 p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-                  <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold text-xs">
+                  <div className="w-7 h-7 rounded-full bg-green-600 flex items-center justify-center text-white font-semibold text-xs">
                     {getUserInitials()}
                   </div>
                   <svg className="w-3.5 h-3.5 text-gray-500" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
@@ -182,7 +182,7 @@ export default function Navbar() {
                 {showUserMenu && (
                   <div className="absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
                     <div className="px-3 py-2.5 border-b border-gray-200 flex items-start space-x-2.5">
-                      <div className="w-8 h-8 rounded-full bg-blue-600 flex-shrink-0 flex items-center justify-center text-white font-semibold text-xs">
+                      <div className="w-8 h-8 rounded-full bg-green-600 flex-shrink-0 flex items-center justify-center text-white font-semibold text-xs">
                         {getUserInitials()}
                       </div>
                       <div className="min-w-0">
@@ -729,7 +729,7 @@ export default function Navbar() {
             {/* User Menu */}
             <div className="relative" ref={userMenuRef}>
               <button onClick={() => setShowUserMenu(!showUserMenu)} className="flex items-center space-x-1.5 p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-                <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold text-xs">
+                <div className="w-7 h-7 rounded-full bg-green-600 flex items-center justify-center text-white font-semibold text-xs">
                   {getUserInitials()}
                 </div>
                 <svg className="w-3.5 h-3.5 text-gray-500" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
@@ -741,7 +741,7 @@ export default function Navbar() {
               {showUserMenu && (
                 <div className="absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
                   <div className="px-3 py-2.5 border-b border-gray-200 flex items-start space-x-2.5">
-                    <div className="w-8 h-8 rounded-full bg-blue-600 flex-shrink-0 flex items-center justify-center text-white font-semibold text-xs">
+                    <div className="w-8 h-8 rounded-full bg-green-600 flex-shrink-0 flex items-center justify-center text-white font-semibold text-xs">
                       {getUserInitials()}
                     </div>
                     <div className="min-w-0">

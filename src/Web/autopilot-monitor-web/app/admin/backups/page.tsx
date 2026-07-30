@@ -134,7 +134,7 @@ export default function BackupsListPage() {
             type="button"
             onClick={triggerBackup}
             disabled={triggering || activeJob !== null}
-            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm rounded-md transition-colors"
+            className="px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm rounded-md transition-colors"
           >
             {triggering ? "Triggering…" : "Run backup now"}
           </button>

@@ -533,7 +533,7 @@ export function SessionReportsSection({
                       <button
                         onClick={handleSaveAdminNote}
                         disabled={!canMutate || savingNote}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-md transition-colors text-xs font-medium disabled:cursor-not-allowed"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:bg-indigo-400 text-white rounded-md transition-colors text-xs font-medium disabled:cursor-not-allowed"
                       >
                         {savingNote ? (
                           <>
@@ -555,7 +555,7 @@ export function SessionReportsSection({
                   <button
                     onClick={() => handleDownload(selectedReport.blobName)}
                     disabled={downloadingBlob === selectedReport.blobName}
-                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-md transition-colors text-sm font-medium"
+                    className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-indigo-400 text-white rounded-md transition-colors text-sm font-medium"
                   >
                     {downloadingBlob === selectedReport.blobName ? (
                       <>
