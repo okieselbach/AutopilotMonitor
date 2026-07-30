@@ -24,7 +24,7 @@ const SCRIPT: Step[] = [
   { kind: "out", text: "  #1  11:05–11:17  ✗ esp_terminal_failure (0x8007EA61) · 7/8 apps", accent: "high" },
   { kind: "out", text: "  #2  12:05–12:20  ✓ Succeeded · 8/8 apps · same network, same package", accent: "success" },
   { kind: "gap" },
-  { kind: "out", text: "Root cause — Contoso PCL6 Print Driver:" },
+  { kind: "out", text: "Root cause — Contoso CRM App:" },
   { kind: "out", text: '  11:14:58  IME: "Admin did NOT set mapping for lpExitCode: 60001"', accent: "dim" },
   { kind: "out", text: "  ESP HRESULT 0x8007EA61 = Win32 error 0xEA61 = 60001 decimal — the ESP", accent: "warn" },
   { kind: "out", text: "  escalated the unmapped installer exit code to a terminal failure.", accent: "warn" },
