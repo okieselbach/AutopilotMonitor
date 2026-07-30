@@ -1,5 +1,6 @@
 import { Reveal } from "./Reveal";
 import { StoryAnalysis } from "./StoryAnalysis";
+import { StoryAction } from "./StoryAction";
 import { StoryFleet } from "./StoryFleet";
 
 function ActText({
@@ -105,34 +106,22 @@ export function Story() {
       visual: <StoryAnalysis />,
     },
     {
-      time: "09:50",
-      title: "See where the minutes went.",
+      time: "09:42",
+      title: "You knew before anyone called.",
       text: (
         <>
           <p>
-            The enrollment finished — but why did it take 39 minutes in Device Setup? Time
-            attribution breaks the session down cost by cost: which blocking app, which reboot,
-            which wait actually consumed the time.
+            The moment the rule fired, it pinged your team — Teams or webhook, your choice. No
+            dashboard-watching required.
           </p>
           <p>
-            No more &ldquo;it felt slow&rdquo;. You see exactly what to cut to make every
-            following rollout faster.
+            And instead of asking the user to hunt for logs, one click pulls the complete
+            diagnostics package straight from the device while it&apos;s still enrolling. By the
+            time anyone would have opened a ticket, you&apos;re already reading the evidence.
           </p>
         </>
       ),
-      visual: (
-        <div className="rounded-2xl border border-[var(--lp-line)] shadow-xl shadow-black/[0.06] overflow-hidden bg-white">
-          {/* Static export: next/image is not configured, plain img is intentional */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/landing/time-attribution.png"
-            alt="Time attribution breakdown of a real enrollment session"
-            width={1216}
-            height={403}
-            className="w-full h-auto block"
-          />
-        </div>
-      ),
+      visual: <StoryAction />,
     },
     {
       time: "Later",
