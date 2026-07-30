@@ -7,7 +7,7 @@ export function FinalCta() {
         <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-[var(--lp-ink)] max-w-2xl text-balance">
           Your next enrollment doesn&apos;t have to be a black box.
         </h2>
-        <div className="shrink-0">
+        <div className="shrink-0 lg:text-right">
           <a
             href="/get-started"
             className="inline-block px-7 py-3 rounded-lg bg-[var(--lp-accent-ink)] hover:brightness-110 hover:shadow-lg text-white font-semibold shadow-md transition-all"

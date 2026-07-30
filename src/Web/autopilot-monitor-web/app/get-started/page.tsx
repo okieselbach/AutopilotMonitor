@@ -110,8 +110,8 @@ export default function GetStartedPage() {
             >
               Enterprise plan
             </a>{" "}
-            adds SLAs, support commitments, MSP delegation, and higher operating limits — same
-            service, nothing to migrate.
+            adds SLAs, support commitments, MSP delegation, higher operating limits and more —
+            same service, nothing to migrate.
           </p>
         </div>
       </main>
