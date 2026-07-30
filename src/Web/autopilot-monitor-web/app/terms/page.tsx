@@ -57,8 +57,8 @@ export default function TermsPage() {
             <a href={DOCS_PLANS} target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">Plans</a>.
           </p>
 
-          <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded">
-            <p className="text-blue-900 text-sm">
+          <div className="bg-[var(--lp-accent-soft)] border-l-4 border-[var(--lp-accent)] p-4 rounded">
+            <p className="text-[var(--lp-ink-soft)] text-sm [&_strong]:text-[var(--lp-ink)]">
               <strong>Who can use it.</strong> Autopilot Monitor requires a Microsoft Entra ID tenant with Intune and
               registered Autopilot devices. The <strong>Community</strong> plan is open to anyone with such a tenant —
               organizations, non-profits, and individuals running their own lab or personal tenant alike. The{" "}
@@ -125,9 +125,9 @@ export default function TermsPage() {
         <div className="bg-white rounded-lg shadow p-6 space-y-4">
           <h2 className="text-lg font-semibold text-gray-900">Availability, Support and Data</h2>
 
-          <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded">
-            <h3 className="font-semibold text-amber-900 mb-2">Community plan: provided &quot;AS-IS&quot;, no warranty</h3>
-            <p className="text-amber-800 text-sm">
+          <div className="bg-[var(--lp-warn-soft)] border-l-4 border-[var(--lp-warn)] p-4 rounded">
+            <h3 className="font-semibold text-[var(--lp-ink)] mb-2">Community plan: provided &quot;AS-IS&quot;, no warranty</h3>
+            <p className="text-[var(--lp-ink-soft)] text-sm">
               The Community plan is provided free of charge, &quot;AS-IS&quot;, and without warranty of any kind, express
               or implied, including the implied warranties of merchantability and fitness for a particular purpose. It is
               currently in Private Preview: updates are frequent, availability is not guaranteed, and data structures may
