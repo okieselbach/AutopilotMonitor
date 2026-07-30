@@ -7,6 +7,7 @@ import { useTenantNotifications } from '@/contexts/TenantNotificationContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
+import { trustedRoute } from '@/lib/routes';
 import { usePathname, useRouter } from 'next/navigation';
 import { BrandMark } from './BrandMark';
 import { trackEvent } from '@/lib/appInsights';
@@ -138,7 +139,7 @@ export default function Navbar() {
   // so it doesn't linger over the target page.
   const openNotificationHref = (href: string) => {
     setShowNotifications(false);
-    router.push(href);
+    router.push(trustedRoute(href));
   };
 
   const getUserInitials = () => {
@@ -330,7 +331,7 @@ export default function Navbar() {
                                     <p className="text-[10px] text-gray-400">{formatTime(new Date(tn.createdAt))}</p>
                                     {tn.href && (
                                       <Link
-                                        href={tn.href}
+                                        href={trustedRoute(tn.href)}
                                         prefetch={false}
                                         onClick={(e) => { e.stopPropagation(); setShowNotifications(false); }}
                                         className="text-[10px] text-green-700 hover:text-green-800 font-medium underline"
@@ -367,7 +368,7 @@ export default function Navbar() {
                                     <p className="text-[10px] text-gray-400">{formatTime(new Date(gn.createdAt))}</p>
                                     {gn.href && (
                                       <Link
-                                        href={gn.href}
+                                        href={trustedRoute(gn.href)}
                                         prefetch={false}
                                         onClick={(e) => { e.stopPropagation(); setShowNotifications(false); }}
                                         className="text-[10px] text-green-700 hover:text-green-800 font-medium underline"
@@ -401,7 +402,7 @@ export default function Navbar() {
                                     <p className="text-[10px] text-gray-400">{formatTime(notification.timestamp)}</p>
                                     {notification.href && (
                                       <Link
-                                        href={notification.href}
+                                        href={trustedRoute(notification.href)}
                                         prefetch={false}
                                         onClick={(e) => { e.stopPropagation(); markAsRead(notification.id); setShowNotifications(false); }}
                                         className="text-[10px] text-green-700 hover:text-green-800 font-medium underline"

@@ -25,6 +25,10 @@ const nextConfig: NextConfig = {
   // all client state (e.g. the sidebar collapses on each click).
   ...(isDev ? { skipTrailingSlashRedirect: true } : {}),
   reactStrictMode: true,
+  // Statically typed links: `next typegen` derives a Route union from the app
+  // tree, so a broken internal <Link>/router.push target is a compile error —
+  // the failure class behind the recent RSC/routing incidents.
+  typedRoutes: true,
   experimental: {
     // Rewrite these heavy packages to per-module imports so unused exports are
     // tree-shaken out of the route chunks that touch them.

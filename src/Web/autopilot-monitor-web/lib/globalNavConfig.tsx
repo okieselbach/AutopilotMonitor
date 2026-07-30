@@ -12,6 +12,8 @@ import {
   FolderIcon,
   WrenchScrewdriverIcon,
 } from "./sidebarIcons";
+import type { Route } from "next";
+import { route } from "./routes";
 
 // --- Icons defined inline (not in sidebarIcons) ---
 
@@ -84,7 +86,7 @@ function WrenchIcon({ className = "w-5 h-5" }: { className?: string }) {
 export interface NavItem {
   id: string;
   label: string;
-  href: string;
+  href: Route;
   icon: React.ReactNode;
 }
 
@@ -92,7 +94,7 @@ export interface NavItem {
 export interface ExpandableSubItem {
   id: string;
   label: string;
-  href: string;
+  href: Route;
 }
 
 /** An expandable group with icon + chevron, containing sub-items */
@@ -201,38 +203,38 @@ export const EXPANDABLE_NAV_GROUPS: ExpandableNavGroup[] = [
       {
         id: "cfg-tenant", label: "Tenant", icon: <BuildingOfficeIcon />,
         items: [
-          { id: "cfg-access-mgmt", label: "Access Management", href: "/settings/tenant/access-management" },
-          { id: "cfg-autopilot", label: "Autopilot Validation", href: "/settings/tenant/autopilot" },
-          { id: "cfg-hardware", label: "Hardware Whitelist", href: "/settings/tenant/hardware-whitelist" },
-          { id: "cfg-notifications", label: "Notifications", href: "/settings/tenant/notifications" },
-          { id: "cfg-sla-targets", label: "SLA Targets", href: "/settings/tenant/sla-targets" },
-          { id: "cfg-bootstrap-sessions", label: "Bootstrap Sessions", href: "/settings/tenant/bootstrap-sessions" },
-          { id: "cfg-graph-permissions", label: "Optional Graph capabilities", href: "/settings/tenant/graph-permissions" },
-          { id: "cfg-support", label: "Submit Logs", href: "/settings/tenant/support" },
-          { id: "cfg-plan", label: "Plan", href: "/settings/tenant/plan" },
-          { id: "cfg-contact", label: "Contact", href: "/settings/tenant/contact" },
+          { id: "cfg-access-mgmt", label: "Access Management", href: route("/settings/tenant/access-management") },
+          { id: "cfg-autopilot", label: "Autopilot Validation", href: route("/settings/tenant/autopilot") },
+          { id: "cfg-hardware", label: "Hardware Whitelist", href: route("/settings/tenant/hardware-whitelist") },
+          { id: "cfg-notifications", label: "Notifications", href: route("/settings/tenant/notifications") },
+          { id: "cfg-sla-targets", label: "SLA Targets", href: route("/settings/tenant/sla-targets") },
+          { id: "cfg-bootstrap-sessions", label: "Bootstrap Sessions", href: route("/settings/tenant/bootstrap-sessions") },
+          { id: "cfg-graph-permissions", label: "Optional Graph capabilities", href: route("/settings/tenant/graph-permissions") },
+          { id: "cfg-support", label: "Submit Logs", href: route("/settings/tenant/support") },
+          { id: "cfg-plan", label: "Plan", href: route("/settings/tenant/plan") },
+          { id: "cfg-contact", label: "Contact", href: route("/settings/tenant/contact") },
         ],
       },
       {
         id: "cfg-agent", label: "Agent", icon: <GearIcon />,
         items: [
-          { id: "cfg-agent-settings", label: "Agent Settings", href: "/settings/agent/settings" },
-          { id: "cfg-agent-analyzers", label: "Agent Analyzers", href: "/settings/agent/analyzers" },
-          { id: "cfg-diagnostics", label: "Diagnostics Package", href: "/settings/agent/diagnostics" },
-          { id: "cfg-agent-unrestricted", label: "Unrestricted Mode", href: "/settings/agent/unrestricted-mode" },
+          { id: "cfg-agent-settings", label: "Agent Settings", href: route("/settings/agent/settings") },
+          { id: "cfg-agent-analyzers", label: "Agent Analyzers", href: route("/settings/agent/analyzers") },
+          { id: "cfg-diagnostics", label: "Diagnostics Package", href: route("/settings/agent/diagnostics") },
+          { id: "cfg-agent-unrestricted", label: "Unrestricted Mode", href: route("/settings/agent/unrestricted-mode") },
         ],
       },
       {
         id: "cfg-maintenance", label: "Maintenance", icon: <WrenchScrewdriverIcon />,
         items: [
-          { id: "cfg-data", label: "Data Management", href: "/settings/management/data" },
-          { id: "cfg-offboarding", label: "Offboarding", href: "/settings/management/offboarding" },
+          { id: "cfg-data", label: "Data Management", href: route("/settings/management/data") },
+          { id: "cfg-offboarding", label: "Offboarding", href: route("/settings/management/offboarding") },
         ],
       },
       {
         id: "cfg-reporting", label: "Reporting", icon: <ChartBarIcon />,
         items: [
-          { id: "cfg-mcp-usage", label: "MCP Usage", href: "/settings/reporting/mcp-usage" },
+          { id: "cfg-mcp-usage", label: "MCP Usage", href: route("/settings/reporting/mcp-usage") },
         ],
       },
     ],
@@ -246,34 +248,34 @@ export const EXPANDABLE_NAV_GROUPS: ExpandableNavGroup[] = [
       {
         id: "ga-tenants", label: "Tenants", icon: <BuildingOfficeIcon />,
         items: [
-          { id: "ga-tenant-mgmt", label: "Tenant Management", href: "/admin/tenants/management" },
-          { id: "ga-config-report", label: "Config Report", href: "/admin/tenants/config-report" },
+          { id: "ga-tenant-mgmt", label: "Tenant Management", href: route("/admin/tenants/management") },
+          { id: "ga-config-report", label: "Config Report", href: route("/admin/tenants/config-report") },
         ],
       },
       {
         id: "ga-metrics", label: "Metrics", icon: <ChartBarIcon />,
         items: [
-          { id: "ga-platform-metrics", label: "Platform Metrics", href: "/admin/metrics/platform-metrics" },
-          { id: "ga-usage", label: "Platform Usage", href: "/admin/metrics/usage" },
+          { id: "ga-platform-metrics", label: "Platform Metrics", href: route("/admin/metrics/platform-metrics") },
+          { id: "ga-usage", label: "Platform Usage", href: route("/admin/metrics/usage") },
           { id: "ga-active-users", label: "Active Users", href: "/admin/presence" },
-          { id: "ga-mcp-usage", label: "MCP Usage", href: "/admin/metrics/mcp-usage" },
+          { id: "ga-mcp-usage", label: "MCP Usage", href: route("/admin/metrics/mcp-usage") },
         ],
       },
       {
         id: "ga-reports", label: "Reports", icon: <DocumentTextIcon />,
         items: [
-          { id: "ga-session-reports", label: "Session Reports", href: "/admin/reports/session-reports" },
-          { id: "ga-distress-reports", label: "Distress Reports", href: "/admin/reports/distress-reports" },
-          { id: "ga-user-feedback", label: "User Feedback", href: "/admin/reports/user-feedback" },
-          { id: "ga-session-export", label: "Session Export", href: "/admin/reports/session-export" },
+          { id: "ga-session-reports", label: "Session Reports", href: route("/admin/reports/session-reports") },
+          { id: "ga-distress-reports", label: "Distress Reports", href: route("/admin/reports/distress-reports") },
+          { id: "ga-user-feedback", label: "User Feedback", href: route("/admin/reports/user-feedback") },
+          { id: "ga-session-export", label: "Session Export", href: route("/admin/reports/session-export") },
         ],
       },
       {
         id: "ga-security", label: "Security", icon: <ShieldCheckIcon />,
         items: [
-          { id: "ga-device-block", label: "Device Block", href: "/admin/security/device-block" },
-          { id: "ga-version-block", label: "Version Block", href: "/admin/security/version-block" },
-          { id: "ga-vulnerability", label: "Vulnerability Data", href: "/admin/security/vulnerability-data" },
+          { id: "ga-device-block", label: "Device Block", href: route("/admin/security/device-block") },
+          { id: "ga-version-block", label: "Version Block", href: route("/admin/security/version-block") },
+          { id: "ga-vulnerability", label: "Vulnerability Data", href: route("/admin/security/vulnerability-data") },
         ],
       },
       {
@@ -281,13 +283,13 @@ export const EXPANDABLE_NAV_GROUPS: ExpandableNavGroup[] = [
         // are mutation surfaces; the reader gets redacted/read-only tenant config elsewhere).
         id: "ga-settings", label: "Settings", icon: <GearIcon />, visibility: "globalAdminOnly",
         items: [
-          { id: "ga-global", label: "Global Settings", href: "/admin/settings/global" },
-          { id: "ga-diag-paths", label: "Diagnostics Log Paths", href: "/admin/settings/diagnostics-log-paths" },
-          { id: "ga-mcp-users", label: "MCP Users", href: "/admin/settings/mcp-users" },
-          { id: "ga-delegated-admins", label: "Delegated Admins", href: "/admin/settings/delegated-admins" },
-          { id: "ga-tenant-groups", label: "Tenant Groups", href: "/admin/settings/tenant-groups" },
-          { id: "ga-config-reseed", label: "Config Reseed", href: "/admin/settings/config-reseed" },
-          { id: "ga-usage-plans", label: "Usage Plans", href: "/admin/settings/usage-plans" },
+          { id: "ga-global", label: "Global Settings", href: route("/admin/settings/global") },
+          { id: "ga-diag-paths", label: "Diagnostics Log Paths", href: route("/admin/settings/diagnostics-log-paths") },
+          { id: "ga-mcp-users", label: "MCP Users", href: route("/admin/settings/mcp-users") },
+          { id: "ga-delegated-admins", label: "Delegated Admins", href: route("/admin/settings/delegated-admins") },
+          { id: "ga-tenant-groups", label: "Tenant Groups", href: route("/admin/settings/tenant-groups") },
+          { id: "ga-config-reseed", label: "Config Reseed", href: route("/admin/settings/config-reseed") },
+          { id: "ga-usage-plans", label: "Usage Plans", href: route("/admin/settings/usage-plans") },
         ],
       },
       {
