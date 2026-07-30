@@ -144,7 +144,7 @@ export default function GeographicPerformancePage() {
   // Global admin tenant scope (aggregated-capable): tenant list, selection ("" = all tenants),
   // and scope flags. Default selection is the GA's own tenant.
   const scope = useAggregatedAdminScope();
-  const { isGlobalAdmin, routeGlobal, selectedTenantId, isAggregatedGlobalView, scopeInitialized, scopeKey } = scope;
+  const { routeGlobal, selectedTenantId, isAggregatedGlobalView, scopeInitialized, scopeKey } = scope;
 
   const progress = useFetchProgress("geoPerf.lastFetchMs");
   const { begin: progressBegin, finish: progressFinish } = progress;

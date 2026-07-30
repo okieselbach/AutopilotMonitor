@@ -40,7 +40,8 @@ export default function PhaseTimeline({ currentPhase, completedPhases, events = 
     // Check for app_tracking_summary events (new strategic events)
     const trackingSummary = phaseEvents.find(e => e.eventType === "app_tracking_summary");
     if (trackingSummary?.data) {
-      const d = trackingSummary.data;
+      // Counters are serialized as strings on the wire.
+      const d = trackingSummary.data as Record<string, string | undefined>;
       const completed = parseInt(d.completedApps ?? d.appsCompleted ?? "0", 10);
       const total = parseInt(d.totalApps ?? "0", 10);
       if (total > 0) {
@@ -51,7 +52,7 @@ export default function PhaseTimeline({ currentPhase, completedPhases, events = 
     // Check for esp_ui_state events (legacy) to show app install progress
     const espState = phaseEvents.find(e => e.eventType === "esp_ui_state");
     if (espState?.data) {
-      const d = espState.data;
+      const d = espState.data as Record<string, string | undefined>;
       const completed = parseInt(d.blocking_apps_completed ?? d.blockingAppsCompleted ?? "0", 10);
       const total = parseInt(d.blocking_apps_total ?? d.blockingAppsTotal ?? "0", 10);
       const currentItem = d.current_item ?? d.currentItem ?? d.status_text ?? d.statusText;
@@ -76,7 +77,7 @@ export default function PhaseTimeline({ currentPhase, completedPhases, events = 
     // Check for download_progress to show active download (legacy)
     const downloadEvt = phaseEvents.find(e => e.eventType === "download_progress");
     if (downloadEvt?.data) {
-      const d = downloadEvt.data;
+      const d = downloadEvt.data as Record<string, string | undefined>;
       const appName = d.app_name ?? d.appName ?? "content";
       const pct = d.bytes_total && d.bytes_downloaded
         ? Math.round((parseInt(d.bytes_downloaded) / parseInt(d.bytes_total)) * 100)

@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import { EnrollmentEvent, Session } from "@/types";
 import { normalizeEventDataForDisplay, shortenBuildHashInMessage } from "../utils/eventHelpers";
-import { getErrorCodeEntry, getEnrichedOrLookup, formatErrorCode } from "@/utils/errorCodeMap";
+import { getEnrichedOrLookup, formatErrorCode, type ErrorCodeEntry } from "@/utils/errorCodeMap";
 
 interface EventTimelineProps {
   filteredEvents: EnrollmentEvent[];
@@ -44,7 +44,6 @@ export default function EventTimeline({
   expandAll,
   collapseAll,
   isWhiteGloveSession,
-  whiteGloveSplitSequence,
   orderedPhases,
   eventsByPhase,
   preProvGrouped,
@@ -342,7 +341,7 @@ function PhaseSection({
 
       {isExpanded && (
         <div className="space-y-3">
-          {events.map((event, index) => (
+          {events.map((event) => (
             <EventRow
               key={event.eventId || `${event.sessionId}-${event.sequence}`}
               event={event}
@@ -444,7 +443,6 @@ function EventRow({ event, showScriptOutput }: { event: EnrollmentEvent; showScr
     }
   };
 
-  const hasData = isTruncated || (detailData && Object.keys(detailData).length > 0);
   const hasDetails = true; // Every event has at least the metadata block
 
   const { isBackfilled, recordedAt } = getBackfillInfo(event);
@@ -474,14 +472,14 @@ function EventRow({ event, showScriptOutput }: { event: EnrollmentEvent; showScr
           <p className="mt-1 text-sm text-gray-600" title={event.message || undefined}>{shortenBuildHashInMessage(event.message)}</p>
           {/* Exit code / HRESULT badge for app install events */}
           {(event.eventType === "app_install_failed" || event.eventType === "app_install_completed") && (() => {
-            const ec = event.data?.exitCode ?? event.data?.exit_code;
-            const hr = event.data?.hresultFromWin32 ?? event.data?.hresult_from_win32;
+            const ec = (event.data?.exitCode ?? event.data?.exit_code) as string | number | undefined;
+            const hr = (event.data?.hresultFromWin32 ?? event.data?.hresult_from_win32) as string | number | undefined;
             const hasNonZero = (ec && String(ec) !== "0") || (hr && String(hr) !== "0");
             if (!hasNonZero) return null;
             // Prefer backend-enriched *Info sibling, fall back to local lookup for older
             // responses that pre-date the backend ErrorCodeEnricher.
-            const ecEntry = ec ? getEnrichedOrLookup(event.data?.exitCodeInfo, String(ec)) : null;
-            const hrEntry = hr ? getEnrichedOrLookup(event.data?.hresultFromWin32Info, String(hr)) : null;
+            const ecEntry = ec ? getEnrichedOrLookup(event.data?.exitCodeInfo as ErrorCodeEntry | undefined, String(ec)) : null;
+            const hrEntry = hr ? getEnrichedOrLookup(event.data?.hresultFromWin32Info as ErrorCodeEntry | undefined, String(hr)) : null;
             return (
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
                 {ec && String(ec) !== "0" && (
@@ -517,12 +515,13 @@ function EventRow({ event, showScriptOutput }: { event: EnrollmentEvent; showScr
               (e.g. "Apps (0x87d1041c)") and surfaced as top-level event data so the UI can
               render it without parsing nested text. */}
           {(event.eventType === "enrollment_failed" || event.eventType === "esp_provisioning_status" || event.eventType === "esp_failure_advisory" || event.eventType === "esp_appx_failure_analysis") && (() => {
-            const code = event.data?.errorCode ?? event.data?.failedSubcategoryErrorCode ?? event.data?.espErrorCode;
-            const sub = event.data?.failedSubcategory ?? event.data?.failedSubcategories;
+            const code = (event.data?.errorCode ?? event.data?.failedSubcategoryErrorCode ?? event.data?.espErrorCode) as string | number | undefined;
+            const sub = (event.data?.failedSubcategory ?? event.data?.failedSubcategories) as string | undefined;
+            const likelyCulpritApps = event.data?.likelyCulpritApps as string | undefined;
             const isAdvisory = event.eventType === "esp_failure_advisory";
             if (!code && !isAdvisory) return null;
             const codeStr = code ? String(code) : null;
-            const entry = codeStr ? getEnrichedOrLookup(event.data?.errorCodeInfo, codeStr) : null;
+            const entry = codeStr ? getEnrichedOrLookup(event.data?.errorCodeInfo as ErrorCodeEntry | undefined, codeStr) : null;
             // Advisory path uses warning-color palette (amber); the device continued past the
             // failure via ContinueAnyway, so this is not a hard error. PR1 Session 4fa5a2d4.
             const badgeBg = isAdvisory ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800";
@@ -552,12 +551,12 @@ function EventRow({ event, showScriptOutput }: { event: EnrollmentEvent; showScr
                     subcategory: <span className="font-mono">{String(sub)}</span>
                   </span>
                 )}
-                {event.data?.likelyCulpritApps && (
+                {likelyCulpritApps && (
                   <span
                     className="px-1.5 py-0.5 rounded bg-orange-100 text-orange-800 font-medium"
                     title="Tracked app(s) ESP most likely failed on — never-started apps ranked first (snapshot at failure time)."
                   >
-                    Likely app: {String(event.data.likelyCulpritApps)}
+                    Likely app: {String(likelyCulpritApps)}
                   </span>
                 )}
               </div>
@@ -571,7 +570,7 @@ function EventRow({ event, showScriptOutput }: { event: EnrollmentEvent; showScr
             const isRetry = event.eventType === "esp_failure_retry_detected";
             const label = isRetry ? "User retry" : "Recovered";
             const badgeCls = isRetry ? "bg-sky-100 text-sky-800" : "bg-emerald-100 text-emerald-800";
-            const cat = event.data?.category;
+            const cat = event.data?.category as string | undefined;
             const sub = event.data?.subcategory ?? event.data?.failedSubcategory;
             const mins = event.data?.minutesSinceFailure ?? event.data?.minutesSinceAdvisory;
             return (

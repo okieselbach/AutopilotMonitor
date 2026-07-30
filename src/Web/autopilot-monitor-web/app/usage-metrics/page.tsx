@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { ProtectedRoute } from '../../components/ProtectedRoute';
@@ -88,8 +87,6 @@ interface PlatformUsageMetrics {
 }
 
 export default function UsageMetricsPage() {
-  const router = useRouter();
-
   const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
   const [metrics, setMetrics] = useState<PlatformUsageMetrics | null>(null);

@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
 import { useAuth } from "../../contexts/AuthContext";
 import { api } from "@/lib/api";
@@ -16,14 +14,12 @@ import { FormJsonToggle, JsonModeToggleButtons } from "@/components/rules/FormJs
 import { useAuthenticatedFetch, useNotificationMessages, useGlobalAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
-import { GatherRule, NewRuleForm, EMPTY_FORM, CATEGORY_COLORS, PHASE_TRIGGERS, buildScopeFields, validateScopeSelection, withDerivedScopeMode } from "./types";
+import { GatherRule, NewRuleForm, EMPTY_FORM, PHASE_TRIGGERS, buildScopeFields, validateScopeSelection, withDerivedScopeMode } from "./types";
 import { GatherRuleFormFields } from "./components/GatherRuleFormFields";
 import { GatherRuleCard } from "./components/GatherRuleCard";
 import { DOCS_URL } from "@/utils/config";
 
 export default function GatherRulesPage() {
-  const router = useRouter();
-
   const { user, getAccessToken } = useAuth();
 
   const { successMessage, error, showSuccess, showError } = useNotificationMessages();

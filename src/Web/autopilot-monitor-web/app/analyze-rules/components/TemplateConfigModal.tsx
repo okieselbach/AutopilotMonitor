@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { AnalyzeRule, TemplateVariable } from "../types";
+import { AnalyzeRule } from "../types";
 
 interface TemplateConfigModalProps {
   rule: AnalyzeRule;

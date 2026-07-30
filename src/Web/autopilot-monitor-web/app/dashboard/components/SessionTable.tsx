@@ -761,7 +761,6 @@ export function SessionTable({
 function SessionCell({
   columnKey,
   session,
-  adminMode,
   globalAdminMode,
   blockedDevicesSet,
   user,

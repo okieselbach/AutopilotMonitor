@@ -29,7 +29,7 @@ export default function MarkFailedModal({ show, session, onConfirm, onCancel }: 
               You are about to manually mark this session as <span className="font-semibold text-red-600">Failed</span>.
             </p>
             <p className="text-sm text-gray-700 mb-2">
-              Session <span className="font-mono text-xs">{session.sessionId}</span> for device <span className="font-semibold">{session.deviceName || session.serialNumber}</span> will be marked as failed with the reason "Manually marked as failed by administrator".
+              Session <span className="font-mono text-xs">{session.sessionId}</span> for device <span className="font-semibold">{session.deviceName || session.serialNumber}</span> will be marked as failed with the reason &quot;Manually marked as failed by administrator&quot;.
             </p>
             <p className="text-sm text-gray-600">
               This action will update the session status and cannot be undone. Do you want to continue?

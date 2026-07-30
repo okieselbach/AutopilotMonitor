@@ -14,7 +14,7 @@ export const HISTORIC_REPLAY_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 export interface ReplayInputEvent {
   timestamp: string;
   eventType?: string;
-  data?: Record<string, any>;
+  data?: Record<string, unknown>;
 }
 
 export interface HistoricPartition<T extends ReplayInputEvent> {

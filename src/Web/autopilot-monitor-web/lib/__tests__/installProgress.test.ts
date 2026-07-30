@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildInstallItems, type InstallEvent } from "@/lib/installProgress";
 
-function evt(eventType: string, timestamp: string, data: Record<string, any>): InstallEvent {
+function evt(eventType: string, timestamp: string, data: Record<string, unknown>): InstallEvent {
   return { eventType, timestamp, data };
 }
 

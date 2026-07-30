@@ -139,7 +139,6 @@ function TabButton({
 function InFlightTab({
   getAccessToken,
   setError,
-  setSuccessMessage,
 }: {
   getAccessToken: (forceRefresh?: boolean) => Promise<string | null>;
   setError: (error: string | null) => void;

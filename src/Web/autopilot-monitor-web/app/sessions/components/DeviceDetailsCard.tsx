@@ -5,16 +5,35 @@ import { EnrollmentEvent, Session } from "@/types";
 import OobeConfigModal from "./OobeConfigModal";
 import { compareVersions, stripGitHashSuffix } from "@/utils/bootstrapVersion";
 
+// Minimal structural shapes for the event payloads this card reads. Values arrive as
+// deserialized JSON; only the fields the JSX uses in a typed position (string props,
+// arithmetic, Date construction) are declared — everything else stays `unknown`.
+interface AgentStartedData { [key: string]: unknown; agentVersion?: string }
+interface BootTimeData { [key: string]: unknown; bootTimeUtc?: string; bootTime?: string; uptimeMinutes?: number }
+interface OsInfoData { [key: string]: unknown; osVersion?: string; displayVersion?: string; currentBuild?: string; buildRevision?: string; edition?: string; compositionEdition?: string; buildBranch?: string }
+interface NetworkAdaptersData { [key: string]: unknown; adapters?: unknown[] }
+interface DnsConfigData { [key: string]: unknown; dnsEntries?: unknown[] }
+interface NetworkInterfaceInfoData { [key: string]: unknown; status?: string; connectionType?: string; adapterDescription?: string; linkSpeedMbps?: number; gateways?: string }
+interface WifiSignalInfoData { [key: string]: unknown; wifiSsid?: string; wifiSignalPercent?: number; wifiRadioType?: string; wifiChannel?: number }
+interface ProxyConfigData { [key: string]: unknown; proxyType?: string; type?: string; proxyServer?: string; autoConfigUrl?: string; winHttpProxy?: string }
+interface AutopilotProfileData { [key: string]: unknown; PolicyDownloadDate?: string; AutopilotCreationDate?: string; autopilotModeLabel?: string; domainJoinMethodLabel?: string }
+interface ImeVersionData { [key: string]: unknown; version?: string; agentVersion?: string }
+interface RealmJoinInfoData { [key: string]: unknown; productVersion?: string; releaseChannel?: string }
+interface TpmStatusData { [key: string]: unknown; specVersion?: string }
+interface BitLockerStatusData { [key: string]: unknown; volumes?: unknown[] }
+interface DeviceLocationData { [key: string]: unknown; country?: string; Country?: string; timezone?: string; Timezone?: string }
+interface HwSpecData { [key: string]: unknown; cpuName?: string; cpuCores?: string; cpuLogicalProcessors?: string; cpuMaxClockSpeedGHz?: string; cpuArchitecture?: string; ramTotalGB?: string; biosVersion?: string; biosReleaseDate?: string; smbiosVersion?: string; disks?: unknown[]; gpus?: unknown[] }
+
 export default function DeviceDetailsCard({ events, latestAgentVersion, session }: { events: EnrollmentEvent[]; latestAgentVersion?: string | null; session?: Session | null }) {
   const [expanded, setExpanded] = useState(false);
   const [showIpv6, setShowIpv6] = useState<Record<number, boolean>>({});
   const [showOobeModal, setShowOobeModal] = useState(false);
 
-  const getEventData = (eventType: string): Record<string, any> | null => {
+  const getEventData = <T extends Record<string, unknown> = Record<string, unknown>>(eventType: string): T | null => {
     const matchingEvents = events.filter(e => e.eventType === eventType);
     if (matchingEvents.length === 0) return null;
     const latestEvent = matchingEvents[matchingEvents.length - 1];
-    return latestEvent?.data ?? null;
+    return (latestEvent?.data as T | undefined) ?? null;
   };
 
   const isIpv6 = (ip: string): boolean => {
@@ -68,7 +87,7 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
     return names[method] ?? `Unknown (${method})`;
   };
 
-  const normalizeAutopilotProfile = (profile: Record<string, any> | null): Record<string, any> | null => {
+  const normalizeAutopilotProfile = (profile: AutopilotProfileData | null): AutopilotProfileData | null => {
     if (!profile) return null;
 
     const normalized = { ...profile };
@@ -104,13 +123,15 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
     return normalized;
   };
 
-  const hasValue = (value: unknown): boolean => value !== undefined && value !== null && `${value}` !== "";
+  // Type predicate so guarded fields (e.g. PolicyDownloadDate) narrow away undefined.
+  const hasValue = (value: unknown): value is NonNullable<unknown> => value !== undefined && value !== null && `${value}` !== "";
 
-  const agentStarted = getEventData("agent_started");
-  const bootTime = getEventData("boot_time");
+  const agentStarted = getEventData<AgentStartedData>("agent_started");
+  const bootTime = getEventData<BootTimeData>("boot_time");
 
   const estimatedBootTime = (bootTime?.bootTimeUtc || bootTime?.bootTime)
-    ? new Date(bootTime?.bootTimeUtc ?? bootTime?.bootTime)
+    // Non-null: the surrounding guard proves one of the two fields is set.
+    ? new Date((bootTime?.bootTimeUtc ?? bootTime?.bootTime)!)
     : null;
 
   const uptimeUntilEnrollment = useMemo(() => {
@@ -140,26 +161,26 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
     return null;
   }, [bootTime, events]);
 
-  const osInfo = getEventData("os_info");
-  const networkAdapters = getEventData("network_adapters");
-  const dnsConfig = getEventData("dns_configuration");
-  const proxyConfig = getEventData("proxy_configuration");
-  const networkInterfaceInfo = getEventData("network_interface_info");
-  const wifiSignalInfo = getEventData("wifi_signal_info");
-  const autopilotProfile = normalizeAutopilotProfile(getEventData("autopilot_profile"));
+  const osInfo = getEventData<OsInfoData>("os_info");
+  const networkAdapters = getEventData<NetworkAdaptersData>("network_adapters");
+  const dnsConfig = getEventData<DnsConfigData>("dns_configuration");
+  const proxyConfig = getEventData<ProxyConfigData>("proxy_configuration");
+  const networkInterfaceInfo = getEventData<NetworkInterfaceInfoData>("network_interface_info");
+  const wifiSignalInfo = getEventData<WifiSignalInfoData>("wifi_signal_info");
+  const autopilotProfile = normalizeAutopilotProfile(getEventData<AutopilotProfileData>("autopilot_profile"));
   // Explicit agent signal (new sessions) OR ProfileAvailable=0 in the cached profile
   // (also covers sessions recorded before autopilot_profile_missing existed).
   const autopilotProfileMissing =
     getEventData("autopilot_profile_missing") !== null ||
     (autopilotProfile !== null && `${autopilotProfile.ProfileAvailable}` === "0");
   const aadJoinStatus = getEventData("aad_join_status");
-  const imeVersion = getEventData("ime_agent_version");
-  const realmJoinInfo = getEventData("realmjoin_detected");
-  const bitLockerStatus = getEventData("bitlocker_status");
+  const imeVersion = getEventData<ImeVersionData>("ime_agent_version");
+  const realmJoinInfo = getEventData<RealmJoinInfoData>("realmjoin_detected");
+  const bitLockerStatus = getEventData<BitLockerStatusData>("bitlocker_status");
   const secureBootStatus = getEventData("secureboot_status");
-  const tpmStatus = getEventData("tpm_status");
-  const deviceLocation = getEventData("device_location");
-  const hwSpec = getEventData("hardware_spec");
+  const tpmStatus = getEventData<TpmStatusData>("tpm_status");
+  const deviceLocation = getEventData<DeviceLocationData>("device_location");
+  const hwSpec = getEventData<HwSpecData>("hardware_spec");
 
   // Connectivity: agent→backend measurements. Latency comes from the session row (persisted
   // at ingest from the cumulative snapshot counters); bandwidth/volume from their events.
@@ -216,7 +237,7 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
               <DetailSection title="Network">
                 {networkAdapters && networkAdapters.adapters && (
                   (networkAdapters.adapters as unknown[]).map((adapter, i: number) => {
-                    const a = adapter as Record<string, unknown>;
+                    const a = adapter as { [key: string]: unknown; macAddress?: string };
                     const { ipv4, ipv6 } = a.ipAddresses ? splitIpAddresses(a.ipAddresses as string) : { ipv4: [], ipv6: [] };
                     const hasIpv6 = ipv6.length > 0;
                     const isIpv6Shown = showIpv6[i] ?? false;
@@ -424,10 +445,10 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
                   />
                 )}
                 {(deviceLocation?.country || deviceLocation?.Country) && (
-                  <DetailRow label="Country" value={deviceLocation.country ?? deviceLocation.Country} />
+                  <DetailRow label="Country" value={(deviceLocation.country ?? deviceLocation.Country)!} />
                 )}
                 {(deviceLocation?.timezone || deviceLocation?.Timezone) && (
-                  <DetailRow label="Timezone" value={deviceLocation.timezone ?? deviceLocation.Timezone} />
+                  <DetailRow label="Timezone" value={(deviceLocation.timezone ?? deviceLocation.Timezone)!} />
                 )}
               </DetailSection>
             )}
@@ -526,7 +547,7 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
                 {hwSpec.disks && Array.isArray(hwSpec.disks) && (hwSpec.disks as unknown[]).map((disk, i: number) => {
                   const d = disk as Record<string, unknown>;
                   return (
-                  <DetailRow key={`disk-${i}`} label={hwSpec.disks.length > 1 ? `Disk ${i + 1}` : 'Disk'} value={`${d.model || 'Unknown'}${d.sizeGB ? ` (${d.sizeGB} GB)` : ''}${d.mediaType && d.mediaType !== 'Unknown' ? ` — ${d.mediaType}` : ''}`} />
+                  <DetailRow key={`disk-${i}`} label={hwSpec.disks!.length > 1 ? `Disk ${i + 1}` : 'Disk'} value={`${d.model || 'Unknown'}${d.sizeGB ? ` (${d.sizeGB} GB)` : ''}${d.mediaType && d.mediaType !== 'Unknown' ? ` — ${d.mediaType}` : ''}`} />
                   );
                 })}
                 {hwSpec.systemDriveFreeGB !== undefined && hwSpec.systemDriveTotalGB !== undefined && (
@@ -555,7 +576,7 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
                 {hwSpec.gpus && Array.isArray(hwSpec.gpus) && (hwSpec.gpus as unknown[]).map((gpu, i: number) => {
                   const g = gpu as Record<string, unknown>;
                   return (
-                  <DetailRow key={`gpu-${i}`} label={hwSpec.gpus.length > 1 ? `GPU ${i + 1}` : 'GPU'} value={`${g.name || 'Unknown'}${g.adapterRAMGB ? ` (${g.adapterRAMGB} GB)` : ''}`} />
+                  <DetailRow key={`gpu-${i}`} label={hwSpec.gpus!.length > 1 ? `GPU ${i + 1}` : 'GPU'} value={`${g.name || 'Unknown'}${g.adapterRAMGB ? ` (${g.adapterRAMGB} GB)` : ''}`} />
                   );
                 })}
               </DetailSection>

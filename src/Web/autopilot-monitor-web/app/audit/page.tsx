@@ -2,7 +2,6 @@
 
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
-import { useRouter } from 'next/navigation';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { ProtectedRoute } from '../../components/ProtectedRoute';
@@ -63,8 +62,6 @@ function dateInputToIsoEnd(value: string): string {
 }
 
 export default function AuditPage() {
-  const router = useRouter();
-
   const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
 

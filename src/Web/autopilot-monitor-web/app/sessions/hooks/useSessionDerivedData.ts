@@ -70,7 +70,8 @@ export function useSessionDerivedData(
     const summaryEvents = events.filter(e => e.eventType === "app_tracking_summary");
     if (summaryEvents.length === 0) return null;
     const latest = summaryEvents[summaryEvents.length - 1];
-    const d = latest.data;
+    // Flat V1 summary schema; counters are serialized as strings on the wire.
+    const d = latest.data as Record<string, string | undefined> | undefined;
     if (!d) return null;
     return {
       totalApps: parseInt(d.totalApps ?? "0", 10),

@@ -121,12 +121,12 @@ export function SectionOptionalGraphCapabilities() {
         <header className="mb-4">
           <h2 className="text-lg font-semibold text-gray-900">Optional Graph capabilities</h2>
           <p className="mt-1 text-sm text-gray-600">
-            Autopilot Monitor's default Microsoft Graph permissions are intentionally minimal. Optional features
+            Autopilot Monitor&apos;s default Microsoft Graph permissions are intentionally minimal. Optional features
             (like resolving Intune Platform Script and Remediation display names in session timelines) require
             additional permissions on the Autopilot Monitor service principal in your tenant. Grant them at any
             time by running the small <span className="font-mono">Grant-AutopilotMonitorAddOn.ps1</span> script
             with a Global Administrator (or Privileged Role Administrator) sign-in — the script does not change
-            the published app manifest, only your tenant's local grant.
+            the published app manifest, only your tenant&apos;s local grant.
           </p>
         </header>
 

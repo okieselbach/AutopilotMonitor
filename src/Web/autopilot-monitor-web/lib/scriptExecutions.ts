@@ -10,7 +10,27 @@ import { HISTORIC_REPLAY_THRESHOLD_MS, partitionHistoricReplayEvents } from "./h
 export interface ScriptInputEvent {
   timestamp: string;
   eventType?: string;
-  data?: Record<string, any>;
+  data?: Record<string, unknown>;
+}
+
+// Minimal structural view of the event-data payload: only the fields the reducer reads
+// in a typed position are declared (the agent serializes them as strings); numeric-ish
+// fields go through `toNumber` and stay `unknown` via the index signature.
+interface ScriptEventData {
+  [key: string]: unknown;
+  policyId?: string;
+  policy_id?: string;
+  scriptType?: string;
+  script_type?: string;
+  scriptPart?: string;
+  script_part?: string;
+  runContext?: string;
+  run_context?: string;
+  result?: string;
+  complianceResult?: string;
+  compliance_result?: string;
+  errorDetails?: string;
+  error_details?: string;
 }
 
 export interface ScriptItem {
@@ -265,7 +285,7 @@ export function reduceScriptEvents(events: ScriptInputEvent[]): ScriptItem[] {
   for (let idx = 0; idx < sorted.length; idx++) {
     const evt = sorted[idx];
     if (evt.eventType !== "script_completed" && evt.eventType !== "script_failed") continue;
-    const d = evt.data;
+    const d = evt.data as ScriptEventData | undefined;
     if (!d) continue;
 
     const policyId = d.policyId ?? d.policy_id ?? "";
@@ -384,7 +404,7 @@ export function reduceScriptEvents(events: ScriptInputEvent[]): ScriptItem[] {
   const runningEmitted = new Set<string>();
   for (const evt of sorted) {
     if (evt.eventType !== "script_started") continue;
-    const d = evt.data;
+    const d = evt.data as ScriptEventData | undefined;
     if (!d) continue;
 
     const policyId = d.policyId ?? d.policy_id ?? "";

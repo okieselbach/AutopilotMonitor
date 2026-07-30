@@ -10,7 +10,40 @@ import DoBreakdownBar from "./DoBreakdownBar";
 interface DownloadEvent {
   timestamp: string;
   eventType?: string;
-  data?: Record<string, any>;
+  data?: Record<string, unknown>;
+}
+
+// Minimal structural view of the event-data payload: only the fields this panel reads
+// are declared (the agent serializes them as strings); everything else stays `unknown`
+// via the index signature.
+interface DownloadEventData {
+  [key: string]: unknown;
+  app_name?: string;
+  appName?: string;
+  file_name?: string;
+  fileName?: string;
+  app_id?: string;
+  appId?: string;
+  bytes_downloaded?: string;
+  bytesDownloaded?: string;
+  bytes_total?: string;
+  bytesTotal?: string;
+  download_rate_bps?: string;
+  downloadRateBps?: string;
+  status?: string;
+  progress_percent?: string;
+  progressPercent?: string;
+  doFileSize?: string;
+  doBytesFromPeers?: string;
+  doBytesFromHttp?: string;
+  doPercentPeerCaching?: string;
+  doDownloadMode?: string;
+  doDownloadDuration?: string;
+  doBytesFromLanPeers?: string;
+  doBytesFromGroupPeers?: string;
+  doBytesFromInternetPeers?: string;
+  doBytesFromLinkLocalPeers?: string;
+  doBytesFromCacheServer?: string;
 }
 
 interface SummaryStats {
@@ -53,7 +86,7 @@ interface DownloadItem {
   isComplete: boolean;
   isSkipped: boolean;
   firstSeenIndex: number;
-  eventData?: Record<string, any>;
+  eventData?: Record<string, unknown>;
   doStats?: DoStats | null;
 }
 
@@ -105,7 +138,7 @@ export default function DownloadProgress({ events, summaryStats }: DownloadProgr
     let insertionIndex = 0;
 
     for (const evt of sortedEvents) {
-      const d = evt.data;
+      const d = evt.data as DownloadEventData | undefined;
       if (!d) continue;
 
       const appName = d.app_name ?? d.appName ?? d.file_name ?? d.fileName ?? d.app_id ?? d.appId ?? "Unknown App";

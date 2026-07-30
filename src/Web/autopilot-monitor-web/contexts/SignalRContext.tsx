@@ -7,13 +7,17 @@ import { authenticatedFetch } from '@/lib/authenticatedFetch';
 import { trackEvent } from '@/lib/appInsights';
 import { useAuth } from './AuthContext';
 
+// Hub payloads are untyped JSON; mirror @microsoft/signalr's own callback signature so
+// consumer handlers keep their narrower parameter types without laundering here.
+type SignalRHandler = Parameters<signalR.HubConnection["on"]>[1];
+
 interface SignalRContextType {
   connection: signalR.HubConnection | null;
   connectionState: signalR.HubConnectionState;
   connectionId: string | null;
-  on: (eventName: string, callback: (...args: any[]) => void) => void;
-  off: (eventName: string, callback: (...args: any[]) => void) => void;
-  invoke: (methodName: string, ...args: any[]) => Promise<any>;
+  on: (eventName: string, callback: SignalRHandler) => void;
+  off: (eventName: string, callback: SignalRHandler) => void;
+  invoke: (methodName: string, ...args: unknown[]) => Promise<unknown>;
   joinGroup: (groupName: string) => Promise<void>;
   leaveGroup: (groupName: string) => Promise<void>;
   isConnected: boolean;
@@ -99,7 +103,7 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
       disconnectStartedAtRef.current = null;
     });
 
-    newConnection.onreconnecting((error) => {
+    newConnection.onreconnecting(() => {
       setConnectionState(signalR.HubConnectionState.Reconnecting);
       disconnectStartedAtRef.current = performance.now();
     });
@@ -220,19 +224,19 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
     };
   }, [isAuthenticated, getAccessToken]);
 
-  const on = (eventName: string, callback: (...args: any[]) => void) => {
+  const on = (eventName: string, callback: SignalRHandler) => {
     if (connectionRef.current) {
       connectionRef.current.on(eventName, callback);
     }
   };
 
-  const off = (eventName: string, callback: (...args: any[]) => void) => {
+  const off = (eventName: string, callback: SignalRHandler) => {
     if (connectionRef.current) {
       connectionRef.current.off(eventName, callback);
     }
   };
 
-  const invoke = async (methodName: string, ...args: any[]) => {
+  const invoke = async (methodName: string, ...args: unknown[]): Promise<unknown> => {
     if (connection && connectionState === signalR.HubConnectionState.Connected) {
       return await connection.invoke(methodName, ...args);
     }

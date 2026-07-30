@@ -3,6 +3,30 @@
 import { useEffect, useMemo, useState } from "react";
 import { EnrollmentEvent, Session } from "@/types";
 
+// Minimal structural view of the event payloads this hook reads — only fields used in a
+// typed position are declared (the agent serializes them as strings); everything else
+// stays `unknown` via the index signature.
+interface ProgressEventData {
+  [key: string]: unknown;
+  totalApps?: string;
+  total_apps?: string;
+  installed?: string;
+  failed?: string;
+  installing?: string;
+  downloading?: string;
+  blocking_apps_total?: string;
+  blockingAppsTotal?: string;
+  blocking_apps_completed?: string;
+  blockingAppsCompleted?: string;
+  app_name?: string;
+  appName?: string;
+  file_name?: string;
+  fileName?: string;
+  appId?: string;
+  app_id?: string;
+  status?: string;
+}
+
 export interface AppSummary {
   total: number;
   installed: number;
@@ -54,7 +78,7 @@ export function useProgressDerivedData(
     const summaryEvents = events.filter((e) => e.eventType === "app_tracking_summary");
     if (summaryEvents.length > 0) {
       const latest = summaryEvents[summaryEvents.length - 1];
-      const d = latest.data;
+      const d = latest.data as ProgressEventData | undefined;
       if (d) {
         const total = parseInt(d.totalApps ?? d.total_apps ?? "0", 10);
         if (total > 0) {
@@ -73,7 +97,7 @@ export function useProgressDerivedData(
     const espEvents = events.filter((e) => e.eventType === "esp_ui_state");
     if (espEvents.length > 0) {
       const latest = espEvents[espEvents.length - 1];
-      const d = latest.data;
+      const d = latest.data as ProgressEventData | undefined;
       if (d) {
         const total = parseInt(d.blocking_apps_total ?? d.blockingAppsTotal ?? "0", 10);
         const installed = parseInt(d.blocking_apps_completed ?? d.blockingAppsCompleted ?? "0", 10);
@@ -95,7 +119,7 @@ export function useProgressDerivedData(
       { bytesDownloaded: number; bytesTotal: number; downloadRateBps: number; isComplete: boolean }
     >();
     for (const evt of downloadEvents) {
-      const d = evt.data;
+      const d = evt.data as ProgressEventData | undefined;
       if (!d) continue;
       const appName = d.app_name ?? d.appName ?? d.file_name ?? d.fileName ?? null;
       if (!appName) continue;
@@ -119,7 +143,7 @@ export function useProgressDerivedData(
     const completedCount = Array.from(appLatest.values()).filter((v) => v.isComplete).length;
 
     for (let i = downloadEvents.length - 1; i >= 0; i--) {
-      const d = downloadEvents[i].data;
+      const d = downloadEvents[i].data as ProgressEventData | undefined;
       if (!d) continue;
       const appName = d.app_name ?? d.appName ?? d.file_name ?? d.fileName ?? null;
       if (!appName) continue;
@@ -157,7 +181,7 @@ export function useProgressDerivedData(
 
     const appState = new Map<string, { state: string; startedAt?: string }>();
     for (const evt of sorted) {
-      const d = evt.data;
+      const d = evt.data as ProgressEventData | undefined;
       if (!d) continue;
       const appName = d.appName ?? d.app_name ?? d.appId ?? d.app_id ?? null;
       if (!appName) continue;

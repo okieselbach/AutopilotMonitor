@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { DOCS_URL } from "@/utils/config";
 
 export function WelcomeMessage() {

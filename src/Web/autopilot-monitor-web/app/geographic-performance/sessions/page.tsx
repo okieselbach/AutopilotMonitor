@@ -223,7 +223,6 @@ function LocationSessionsContent() {
           <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
             <button
               onClick={() => {
-                const tr = days === "7" ? "7d" : days === "30" ? "30d" : "90d";
                 router.push(`/geographic-performance`);
               }}
               className="text-sm text-gray-600 hover:text-gray-900 mb-2 flex items-center"

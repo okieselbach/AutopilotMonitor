@@ -9,7 +9,6 @@
  * it replaces the entire root layout when triggered.
  */
 export default function GlobalError({
-  error,
   reset,
 }: {
   error: Error & { digest?: string };

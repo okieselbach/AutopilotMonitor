@@ -184,7 +184,7 @@ function NoV2DataNotice({ sessionId }: { sessionId: string }) {
     <div className="rounded border border-amber-200 bg-amber-50 p-6 text-amber-900">
       <h2 className="font-semibold">No V2 decision data for this session.</h2>
       <p className="mt-2 text-sm">
-        The Inspector relies on the V2-agent's signal log and decision journal.
+        The Inspector relies on the V2-agent&apos;s signal log and decision journal.
         This session likely ran on the legacy (V1) agent, or the V2 telemetry
         never reached the backend. Use the regular{" "}
         <Link

@@ -17,7 +17,7 @@ import {
 
 const ts = (offsetSeconds: number) => new Date(1700000000000 + offsetSeconds * 1000).toISOString();
 
-const finalEvent = (overrides: Partial<{ eventType: string; ts: number; data: Record<string, any> }> = {}): ScriptInputEvent => ({
+const finalEvent = (overrides: Partial<{ eventType: string; ts: number; data: Record<string, unknown> }> = {}): ScriptInputEvent => ({
   timestamp: ts(overrides.ts ?? 0),
   eventType: overrides.eventType ?? "script_completed",
   data: overrides.data ?? {},

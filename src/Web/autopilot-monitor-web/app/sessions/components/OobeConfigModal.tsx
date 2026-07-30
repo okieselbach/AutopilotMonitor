@@ -40,7 +40,6 @@ export default function OobeConfigModal({ show, value, onClose }: OobeConfigModa
   if (!show) return null;
 
   const hexValue = `0x${value.toString(16).toUpperCase().padStart(4, "0")}`;
-  const binaryValue = value.toString(2).padStart(11, "0");
 
   const isSelfDeploying = (value & 0x0020) !== 0 && (value & 0x0040) !== 0;
   const profileType = isSelfDeploying ? "Self-Deploying" : "User-Driven";

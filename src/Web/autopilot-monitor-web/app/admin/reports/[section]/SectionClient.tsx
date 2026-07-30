@@ -1,7 +1,7 @@
 "use client";
 
 import { notFound } from "next/navigation";
-import { REPORTS_NAV_SECTIONS, type ReportsSectionId } from "../reportsNavSections";
+import { type ReportsSectionId } from "../reportsNavSections";
 import { SectionSessionReports } from "../sections/SectionSessionReports";
 import { SectionDistressReports } from "../sections/SectionDistressReports";
 import { SectionUserFeedback } from "../sections/SectionUserFeedback";

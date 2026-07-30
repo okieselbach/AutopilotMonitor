@@ -4,7 +4,30 @@ import { useMemo, useState, useRef, useCallback, useEffect } from "react";
 
 interface PerformanceEvent {
   timestamp: string;
-  data?: Record<string, any>;
+  data?: Record<string, unknown>;
+}
+
+// Minimal structural view of the perf-sample payload: only the fields this chart reads
+// are declared (the agent serializes them as strings); everything else stays `unknown`
+// via the index signature.
+interface PerformanceEventData {
+  [key: string]: unknown;
+  cpu_percent?: string;
+  cpuPercent?: string;
+  memory_available_mb?: string;
+  memoryAvailableMb?: string;
+  memory_total_mb?: string;
+  memoryTotalMb?: string;
+  disk_queue_length?: string;
+  diskQueueLength?: string;
+  disk_free_gb?: string;
+  diskFreeGb?: string;
+  disk_total_gb?: string;
+  diskTotalGb?: string;
+  net_receive_rate_kbps?: string;
+  netReceiveRateKbps?: string;
+  net_send_rate_kbps?: string;
+  netSendRateKbps?: string;
 }
 
 interface PerformanceChartProps {
@@ -250,7 +273,7 @@ export default function PerformanceChart({ events, expanded: expandedProp, setEx
     const netTimestamps: string[] = [];
 
     for (const evt of events) {
-      const d = evt.data;
+      const d = evt.data as PerformanceEventData | undefined;
       if (!d) continue;
 
       timestamps.push(new Date(evt.timestamp).toLocaleTimeString());
@@ -282,7 +305,7 @@ export default function PerformanceChart({ events, expanded: expandedProp, setEx
       }
     }
 
-    const last = events[events.length - 1]?.data;
+    const last = events[events.length - 1]?.data as PerformanceEventData | undefined;
     const diskFreeGb = parseFloat(last?.disk_free_gb ?? last?.diskFreeGb ?? "0");
     const diskTotalGb = parseFloat(last?.disk_total_gb ?? last?.diskTotalGb ?? "256");
 
