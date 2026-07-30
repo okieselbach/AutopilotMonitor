@@ -27,6 +27,7 @@ import { trackEvent } from "@/lib/appInsights";
 import { useGlobalAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
+import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedControl";
 import Link from "next/link";
 import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
 
@@ -193,7 +194,7 @@ export default function SlaPage() {
         {/* Header */}
         <header className="bg-white dark:bg-gray-800 shadow">
           <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-y-3">
               <div>
                 <h1 className="text-2xl font-normal text-gray-900 dark:text-white">SLA Compliance</h1>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
@@ -213,21 +214,20 @@ export default function SlaPage() {
                   )}
                 </p>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2">
                 <TenantScopeSelector scope={scope} themed />
-                <select
+                <SegmentedControl
+                  options={[
+                    { value: 1, label: "1 Month" },
+                    { value: 3, label: "3 Months" },
+                    { value: 6, label: "6 Months" },
+                  ]}
                   value={months}
-                  onChange={(e) => {
-                    const next = Number(e.target.value);
+                  onChange={(next) => {
                     trackEvent('sla_months_changed', { months: next });
                     setMonths(next);
                   }}
-                  className="text-sm border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1.5 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value={1}>Last month</option>
-                  <option value={3}>Last 3 months</option>
-                  <option value={6}>Last 6 months</option>
-                </select>
+                />
                 <button
                   onClick={() => {
                     trackEvent('sla_refresh_clicked', { months });
@@ -270,7 +270,7 @@ export default function SlaPage() {
               </p>
               <Link
                 href="/settings/tenant/sla-targets"
-                className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-500 transition-colors"
+                className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-md text-sm hover:bg-green-700 transition-colors"
               >
                 Configure SLA Targets
               </Link>

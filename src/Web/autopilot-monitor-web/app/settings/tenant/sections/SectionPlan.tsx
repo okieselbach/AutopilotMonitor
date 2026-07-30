@@ -201,7 +201,7 @@ export function SectionPlan() {
                   <p className="text-sm text-gray-600">
                     This tenant has already used its Enterprise trial. To move to Enterprise,{" "}
                     <a
-                      href="https://github.com/okieselbach/Autopilot-Monitor/issues"
+                      href="https://github.com/okieselbach/AutopilotMonitor/issues"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-purple-700 hover:underline"

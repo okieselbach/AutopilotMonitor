@@ -217,7 +217,7 @@ export default function DeviceJourneySection({
                   <div className="flex items-center justify-between gap-2">
                     <Link
                       href={sessionHref(d.lastSessionId)}
-                      className="text-gray-700 hover:text-blue-600 font-mono text-xs truncate"
+                      className="text-gray-700 hover:text-green-600 font-mono text-xs truncate"
                       title={`Open the latest enrollment of ${d.serialNumber}`}
                     >
                       {d.serialNumber}

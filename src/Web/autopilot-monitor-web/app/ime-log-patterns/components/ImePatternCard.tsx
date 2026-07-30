@@ -251,7 +251,7 @@ export default function ImePatternCard({
               {canEdit && (
                 <button
                   onClick={() => onStartEditing(pattern)}
-                  className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center space-x-2"
+                  className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
                   title="Edit pattern (Global Admin)"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -330,7 +330,7 @@ export default function ImePatternCard({
                 <select
                   value={editForm.category}
                   onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-green-500 focus:border-green-500"
                 >
                   {CATEGORIES.map((c) => (
                     <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>
@@ -344,7 +344,7 @@ export default function ImePatternCard({
                   value={editForm.pattern}
                   onChange={(e) => setEditForm({ ...editForm, pattern: e.target.value })}
                   rows={3}
-                  className="w-full font-mono text-sm px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full font-mono text-sm px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   spellCheck={false}
                   placeholder="e.g., EMS Agent Started"
                 />
@@ -356,7 +356,7 @@ export default function ImePatternCard({
                 <select
                   value={editForm.action}
                   onChange={(e) => setEditForm({ ...editForm, action: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-green-500 focus:border-green-500"
                 >
                   {ACTIONS.map((a) => (
                     <option key={a} value={a}>{ACTION_LABELS[a]} ({a})</option>
@@ -371,7 +371,7 @@ export default function ImePatternCard({
                   value={editForm.description}
                   onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
                   rows={2}
-                  className="w-full text-sm px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full text-sm px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   placeholder="What this pattern detects and why it matters..."
                 />
               </div>
@@ -382,7 +382,7 @@ export default function ImePatternCard({
                   id="edit-enabled"
                   checked={editForm.enabled}
                   onChange={(e) => setEditForm({ ...editForm, enabled: e.target.checked })}
-                  className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                  className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-green-500"
                 />
                 <label htmlFor="edit-enabled" className="text-sm font-medium text-gray-700">Enabled</label>
               </div>
@@ -403,7 +403,7 @@ export default function ImePatternCard({
                             updated[key] = e.target.value;
                             setEditForm({ ...editForm, parameters: updated });
                           }}
-                          className="flex-1 text-sm px-2 py-1 border border-gray-300 rounded text-gray-900 focus:ring-1 focus:ring-indigo-500"
+                          className="flex-1 text-sm px-2 py-1 border border-gray-300 rounded text-gray-900 focus:ring-1 focus:ring-green-500"
                         />
                         <button
                           onClick={() => {
@@ -428,14 +428,14 @@ export default function ImePatternCard({
                     value={newParamKey}
                     onChange={(e) => onSetNewParamKey(e.target.value)}
                     placeholder="Key"
-                    className="w-32 text-sm px-2 py-1 border border-gray-300 rounded text-gray-900 focus:ring-1 focus:ring-indigo-500"
+                    className="w-32 text-sm px-2 py-1 border border-gray-300 rounded text-gray-900 focus:ring-1 focus:ring-green-500"
                   />
                   <input
                     type="text"
                     value={newParamValue}
                     onChange={(e) => onSetNewParamValue(e.target.value)}
                     placeholder="Value"
-                    className="flex-1 text-sm px-2 py-1 border border-gray-300 rounded text-gray-900 focus:ring-1 focus:ring-indigo-500"
+                    className="flex-1 text-sm px-2 py-1 border border-gray-300 rounded text-gray-900 focus:ring-1 focus:ring-green-500"
                   />
                   <button
                     onClick={() => {
@@ -449,7 +449,7 @@ export default function ImePatternCard({
                       }
                     }}
                     disabled={!newParamKey.trim()}
-                    className="px-3 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Add
                   </button>
@@ -468,7 +468,7 @@ export default function ImePatternCard({
             <button
               onClick={() => onSaveEdit(pattern.patternId)}
               disabled={saving}
-              className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+              className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
             >
               {saving ? (
                 <>

@@ -231,7 +231,7 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
                           <div className="mt-1">
                             <button
                               onClick={() => setShowIpv6(prev => ({ ...prev, [i]: !isIpv6Shown }))}
-                              className="text-xs text-blue-600 hover:text-blue-800 flex items-center space-x-1"
+                              className="text-xs text-green-700 hover:text-green-800 flex items-center space-x-1"
                             >
                               <svg className={`w-3 h-3 transition-transform duration-200 ${isIpv6Shown ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
@@ -462,7 +462,7 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
                       <span className="text-xs text-gray-500 min-w-[120px]">OOBE Config</span>
                       <button
                         onClick={() => setShowOobeModal(true)}
-                        className="text-xs text-right text-blue-600 hover:text-blue-800 hover:underline cursor-pointer font-mono transition-colors"
+                        className="text-xs text-right text-green-700 hover:text-green-800 hover:underline cursor-pointer font-mono transition-colors"
                         title="Click to decode bitmask"
                       >
                         {`${autopilotProfile.CloudAssignedOobeConfig}`}

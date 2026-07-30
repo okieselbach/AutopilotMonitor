@@ -101,7 +101,7 @@ export default function DiagnosticsSection({
                 value="CustomerSas"
                 checked={!isHosted}
                 onChange={() => setDiagnosticsUploadDestination("CustomerSas")}
-                className="mt-1 text-amber-600 focus:ring-amber-500"
+                className="mt-1 text-green-600 focus:ring-green-500"
               />
               <div className="min-w-0">
                 <p className="font-medium text-gray-900 text-sm">Your own Azure Blob Storage</p>
@@ -122,7 +122,7 @@ export default function DiagnosticsSection({
                 value="Hosted"
                 checked={isHosted}
                 onChange={() => setDiagnosticsUploadDestination("Hosted")}
-                className="mt-1 text-sky-600 focus:ring-sky-500"
+                className="mt-1 text-green-600 focus:ring-green-500"
               />
               <div className="min-w-0">
                 <p className="font-medium text-gray-900 text-sm flex items-center gap-1.5">
@@ -132,7 +132,7 @@ export default function DiagnosticsSection({
                   </span>
                 </p>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Uploads go to the AutopilotMonitor backend's Azure Storage. Per-upload, blob-scoped tokens; 15-min TTL.
+                  Uploads go to the Autopilot Monitor backend's Azure Storage. Per-upload, blob-scoped tokens; 15-min TTL.
                 </p>
               </div>
             </label>
@@ -215,7 +215,7 @@ export default function DiagnosticsSection({
               Hosted storage
             </p>
             <p className="text-sm text-sky-900 mb-2">
-              Diagnostics packages are uploaded to the AutopilotMonitor backend's Azure Storage (operated by the Autopilot Monitor Team). Blobs are isolated per tenant via a <code className="font-mono text-xs bg-sky-100 px-1 rounded">&#123;tenantId&#125;/</code> prefix, and each upload uses a fresh blob-scoped, write-only token (15-min TTL).
+              Diagnostics packages are uploaded to the Autopilot Monitor backend's Azure Storage (operated by the Autopilot Monitor Team). Blobs are isolated per tenant via a <code className="font-mono text-xs bg-sky-100 px-1 rounded">&#123;tenantId&#125;/</code> prefix, and each upload uses a fresh blob-scoped, write-only token (15-min TTL).
             </p>
             <p className="text-xs text-sky-800">
               Heads-up: with this option, uploaded contents leave your own Azure tenant boundary. Retention follows your tenant's <strong>Data Retention Days</strong> setting and is enforced by the cascade-delete pipeline — old packages are removed automatically. Review the diagnostics paths section below to see what is collected.
@@ -302,7 +302,7 @@ export default function DiagnosticsSection({
                             updated[idx] = { ...entry, includeSubfolders: !entry.includeSubfolders };
                             setTenantDiagPaths(updated);
                           }}
-                          className="w-3.5 h-3.5 rounded border-amber-400 text-amber-600 focus:ring-amber-500"
+                          className="w-3.5 h-3.5 rounded border-amber-400 text-green-600 focus:ring-green-500"
                         />
                         <span className="text-xs text-amber-600">Include subfolders</span>
                       </label>
@@ -348,7 +348,7 @@ export default function DiagnosticsSection({
                 setNewDiagSubfolders(false);
               }}
               disabled={!newDiagPath.trim()}
-              className="px-4 py-1.5 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+              className="px-4 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
             >
               Add
             </button>
@@ -358,7 +358,7 @@ export default function DiagnosticsSection({
               type="checkbox"
               checked={newDiagSubfolders}
               onChange={() => setNewDiagSubfolders(!newDiagSubfolders)}
-              className="w-3.5 h-3.5 rounded border-gray-400 text-amber-600 focus:ring-amber-500"
+              className="w-3.5 h-3.5 rounded border-gray-400 text-green-600 focus:ring-green-500"
             />
             <span className="text-xs text-gray-500">Include subfolders</span>
           </label>

@@ -115,7 +115,7 @@ export default function UnrestrictedModeSection({
                 type="checkbox"
                 checked={acknowledged}
                 onChange={(e) => setAcknowledged(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-red-300 text-red-600 focus:ring-red-500"
+                className="mt-0.5 h-4 w-4 rounded border-red-300 text-red-600 accent-red-600 focus:ring-red-500"
               />
               <span className="text-sm font-medium text-red-900">
                 I understand the risks and accept full responsibility for enabling Unrestricted Mode for my tenant.

@@ -166,7 +166,7 @@ export default function DeviceHistoryBanner({
                   {isCurrent ? (
                     <span className="text-xs text-amber-800">this session</span>
                   ) : (
-                    <Link href={sessionHref(r.sessionId)} className="text-xs text-blue-600 hover:text-blue-800 underline underline-offset-2">
+                    <Link href={sessionHref(r.sessionId)} className="text-xs text-green-700 hover:text-green-800 underline underline-offset-2">
                       open
                     </Link>
                   )}

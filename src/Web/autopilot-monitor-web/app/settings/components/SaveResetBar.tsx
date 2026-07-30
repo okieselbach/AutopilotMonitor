@@ -50,7 +50,7 @@ export default function SaveResetBar({ onSave, onReset, saving, canSave = true }
         onClick={handleSave}
         disabled={saving || !canSave}
         className={`px-4 py-2 rounded-md text-sm text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center space-x-2 ${
-          saveResult === "saved" ? "bg-emerald-600" : "bg-indigo-600 hover:bg-indigo-700"
+          saveResult === "saved" ? "bg-emerald-600" : "bg-green-600 hover:bg-green-700"
         }`}
       >
         {saving ? (

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import TruncatedLabel from "@/components/TruncatedLabel";
@@ -76,7 +77,18 @@ function CopyButton({ value }: { value: string }) {
   );
 }
 
-export function SessionReportsSection({
+export function SessionReportsSection(props: SessionReportsSectionProps) {
+  // useSearchParams() in the inner component requires a Suspense boundary for
+  // static prerender (this section renders inside the prerendered
+  // /admin/reports/session-reports page).
+  return (
+    <Suspense fallback={null}>
+      <SessionReportsSectionInner {...props} />
+    </Suspense>
+  );
+}
+
+function SessionReportsSectionInner({
   getAccessToken,
   setError,
 }: SessionReportsSectionProps) {
@@ -100,6 +112,25 @@ export function SessionReportsSection({
   const [nextLink, setNextLink] = useState<string | null>(null);
   const [continuationStack, setContinuationStack] = useState<Array<string | null>>([]);
   const [pageNumber, setPageNumber] = useState(1);
+
+  // Deep link from GA notifications: ?reportId=… auto-opens the report modal once
+  // the first page has loaded. Reports are listed newest-first, so a report reached
+  // via a fresh notification is on page 1; older ones get a hint instead.
+  const searchParams = useSearchParams();
+  const autoOpenedRef = useRef(false);
+
+  useEffect(() => {
+    if (autoOpenedRef.current || loading) return;
+    const reportIdParam = searchParams?.get("reportId");
+    if (!reportIdParam) return;
+    autoOpenedRef.current = true;
+    const match = reports.find((r) => r.reportId === reportIdParam);
+    if (match) {
+      setSelectedReport(match);
+    } else {
+      setError(`Report ${reportIdParam} is not on the first page — it may be older. Page through or filter by tenant to find it.`);
+    }
+  }, [loading, reports, searchParams, setError]);
 
   useEffect(() => {
     if (selectedReport) {
@@ -279,7 +310,7 @@ export function SessionReportsSection({
           onKeyDown={(e) => {
             if (e.key === "Enter") handleApplyTenantFilter();
           }}
-          className="w-72 px-2 py-1 text-xs font-mono border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+          className="w-72 px-2 py-1 text-xs font-mono border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-green-500 focus:border-green-500"
         />
         <button
           onClick={handleApplyTenantFilter}
@@ -514,7 +545,7 @@ export function SessionReportsSection({
                       readOnly={!canMutate}
                       rows={3}
                       placeholder={canMutate ? "Add an internal note about this report..." : "No note"}
-                      className="w-full text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none placeholder:text-gray-400 read-only:opacity-60 read-only:cursor-not-allowed"
+                      className="w-full text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 resize-none placeholder:text-gray-400 read-only:opacity-60 read-only:cursor-not-allowed"
                     />
                     <div className="flex items-center justify-between mt-1.5">
                       <div className="text-xs">
@@ -533,7 +564,7 @@ export function SessionReportsSection({
                       <button
                         onClick={handleSaveAdminNote}
                         disabled={!canMutate || savingNote}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-md transition-colors text-xs font-medium disabled:cursor-not-allowed"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:bg-indigo-400 text-white rounded-md transition-colors text-xs font-medium disabled:cursor-not-allowed"
                       >
                         {savingNote ? (
                           <>
@@ -555,7 +586,7 @@ export function SessionReportsSection({
                   <button
                     onClick={() => handleDownload(selectedReport.blobName)}
                     disabled={downloadingBlob === selectedReport.blobName}
-                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-md transition-colors text-sm font-medium"
+                    className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-indigo-400 text-white rounded-md transition-colors text-sm font-medium"
                   >
                     {downloadingBlob === selectedReport.blobName ? (
                       <>

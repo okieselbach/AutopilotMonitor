@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { PublicPageHeader } from "../../components/PublicPageHeader";
+import { LandingNavbar } from "../../components/landing/LandingNavbar";
+import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/utils/config";
 
 const FEATURES = [
@@ -47,25 +48,40 @@ const FEATURES = [
   },
 ];
 
+// Landing v2: one accent, no rainbow — every feature card uses the
+// green brand accent regardless of its legacy color key.
+const ACCENT_STYLE = {
+  bg: "bg-[var(--lp-accent-soft)]",
+  text: "text-[var(--lp-ink)]",
+  dot: "bg-[var(--lp-accent)]",
+};
 const colorMap: Record<string, { bg: string; text: string; dot: string }> = {
-  blue:   { bg: "bg-blue-100",   text: "text-blue-600",   dot: "bg-blue-400" },
-  indigo: { bg: "bg-indigo-100", text: "text-indigo-600", dot: "bg-indigo-400" },
-  purple: { bg: "bg-purple-100", text: "text-purple-600", dot: "bg-purple-400" },
-  green:  { bg: "bg-green-100",  text: "text-green-600",  dot: "bg-green-400" },
-  orange: { bg: "bg-orange-100", text: "text-orange-600", dot: "bg-orange-400" },
-  red:    { bg: "bg-red-100",    text: "text-red-600",    dot: "bg-red-400" },
+  blue: ACCENT_STYLE,
+  indigo: ACCENT_STYLE,
+  purple: ACCENT_STYLE,
+  green: ACCENT_STYLE,
+  orange: ACCENT_STYLE,
+  red: ACCENT_STYLE,
 };
 
 export default function AboutPage() {
   return (
-    <div className="min-h-screen bg-gray-50">
-      <PublicPageHeader title="About Autopilot Monitor" />
+    <div className="landing-v2 min-h-screen bg-[var(--lp-bg)]">
+      <LandingNavbar />
+      <header className="px-4 sm:px-6 lg:px-8 pt-14 sm:pt-16">
+        <div className="max-w-7xl mx-auto">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--lp-ink-faint)]">About</p>
+          <h1 className="mt-3 text-3xl sm:text-4xl font-bold tracking-tight text-[var(--lp-ink)]">
+            About Autopilot Monitor
+          </h1>
+        </div>
+      </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10 text-[15px]">
 
         {/* What is Autopilot Monitor */}
-        <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">What is Autopilot Monitor?</h2>
+        <section className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-8">
+          <h2 className="text-xl font-bold text-gray-900 mb-4">What is Autopilot Monitor?</h2>
           <p className="text-gray-700 leading-relaxed mb-4">
             <strong>Autopilot Monitor</strong> is a free, open-source, real-time monitoring and troubleshooting
             platform for <strong>Windows Autopilot enrollments</strong> managed through{" "}
@@ -100,7 +116,7 @@ export default function AboutPage() {
             {FEATURES.map((f) => {
               const c = colorMap[f.color];
               return (
-                <div key={f.title} className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+                <div key={f.title} className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-6">
                   <h3 className={`text-base font-semibold mb-2 ${c.text}`}>{f.title}</h3>
                   <p className="text-sm text-gray-600 leading-relaxed mb-3">{f.description}</p>
                   <ul className="space-y-1">
@@ -118,8 +134,8 @@ export default function AboutPage() {
         </section>
 
         {/* Who It's For */}
-        <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Who Is It For?</h2>
+        <section className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-8">
+          <h2 className="text-xl font-bold text-gray-900 mb-4">Who Is It For?</h2>
           <p className="text-gray-700 leading-relaxed mb-5">
             Autopilot Monitor is built for anyone responsible for deploying or supporting
             Windows devices through Microsoft Intune and Autopilot.
@@ -142,17 +158,17 @@ export default function AboutPage() {
                   "Autopilot Monitor is a multi-tenant service with strict per-tenant data isolation — telemetry, configuration, and diagnostics are partitioned and access-scoped to each tenant. MSPs can be granted delegated read access across several customer tenants from a single login.",
               },
             ].map((item) => (
-              <div key={item.title} className="rounded-lg bg-blue-50 border border-blue-100 p-4">
-                <h3 className="text-sm font-semibold text-blue-900 mb-2">{item.title}</h3>
-                <p className="text-sm text-blue-800 leading-relaxed">{item.description}</p>
+              <div key={item.title} className="rounded-lg bg-[var(--lp-accent-soft)] border border-[var(--lp-accent-line)] p-4">
+                <h3 className="text-sm font-semibold text-[var(--lp-ink)] mb-2">{item.title}</h3>
+                <p className="text-sm text-[var(--lp-ink-soft)] leading-relaxed">{item.description}</p>
               </div>
             ))}
           </div>
         </section>
 
         {/* How It Works */}
-        <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">How It Works</h2>
+        <section className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-8">
+          <h2 className="text-xl font-bold text-gray-900 mb-4">How It Works</h2>
           <p className="text-gray-700 leading-relaxed mb-5">
             Autopilot Monitor uses a lightweight .NET agent deployed to devices via an Intune bootstrapper
             script. The agent monitors the enrollment process in real time and streams telemetry events
@@ -169,7 +185,7 @@ export default function AboutPage() {
               { step: "5", text: "On completion, the agent uploads a diagnostics bundle if configured, then removes itself." },
             ].map((item) => (
               <li key={item.step} className="flex items-start gap-3 text-sm text-gray-700">
-                <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white text-xs font-bold">
+                <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--lp-accent)] text-white text-xs font-bold">
                   {item.step}
                 </span>
                 {item.text}
@@ -179,8 +195,8 @@ export default function AboutPage() {
         </section>
 
         {/* Tech Stack & Platform */}
-        <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Technology &amp; Platform</h2>
+        <section className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-8">
+          <h2 className="text-xl font-bold text-gray-900 mb-4">Technology &amp; Platform</h2>
           <p className="text-gray-700 leading-relaxed mb-5">
             Autopilot Monitor is built on modern, enterprise-grade technology designed to scale with large
             device fleets and multi-tenant deployments.
@@ -190,7 +206,7 @@ export default function AboutPage() {
               {
                 title: "Backend",
                 items: [
-                  "Azure Functions (.NET 10 Isolated, Flex Consumption) — serverless, scalable API",
+                  "Azure Functions (.NET Isolated, Flex Consumption) — serverless, scalable API",
                   "Azure Table Storage — high-throughput event ingestion",
                   "Azure Blob Storage — diagnostics and log bundle storage",
                   "Azure SignalR Service — real-time push to the portal",
@@ -199,7 +215,7 @@ export default function AboutPage() {
               {
                 title: "Portal (Web Frontend)",
                 items: [
-                  "Next.js 15 (React 18) + TypeScript — fast, server-rendered React app",
+                  "Next.js (React) + TypeScript — fast, statically delivered web app",
                   "Microsoft Entra ID (MSAL) — secure authentication",
                   "Role-based access control (Admin / Operator / Viewer)",
                   "Multi-tenant architecture with delegated MSP access",
@@ -241,8 +257,8 @@ export default function AboutPage() {
         </section>
 
         {/* Open Source */}
-        <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Open Source &amp; Free to Use</h2>
+        <section className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-8">
+          <h2 className="text-xl font-bold text-gray-900 mb-4">Open Source &amp; Free to Use</h2>
           <p className="text-gray-700 leading-relaxed mb-4">
             Autopilot Monitor is fully open source and free to use. The complete source code is available on
             GitHub under an open license. Contributions, bug reports, and feature requests from the
@@ -257,16 +273,16 @@ export default function AboutPage() {
           </p>
           <p className="text-gray-700 leading-relaxed mb-4">
             The hosted service is operated by <strong>glueckkanja AG</strong> — see the{" "}
-            <a href="https://www.glueckkanja.com/en/imprint" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline">Imprint</a> for company
-            details and the <Link href="/terms" className="text-blue-600 hover:text-blue-800 underline">Terms of Use</Link>{" "}
+            <a href="https://www.glueckkanja.com/en/imprint" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">Imprint</a> for company
+            details and the <Link href="/terms" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">Terms of Use</Link>{" "}
             for what each plan does and does not commit to.
           </p>
           <div className="flex flex-wrap gap-3 mt-5">
             <a
-              href="https://github.com/okieselbach/Autopilot-Monitor"
+              href="https://github.com/okieselbach/AutopilotMonitor"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-100 transition-colors"
+              className="inline-flex items-center gap-2 rounded-lg border border-[var(--lp-line-soft)] bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-100 transition-colors"
             >
               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
@@ -274,10 +290,10 @@ export default function AboutPage() {
               View on GitHub
             </a>
             <a
-              href="https://github.com/okieselbach/Autopilot-Monitor/issues"
+              href="https://github.com/okieselbach/AutopilotMonitor/issues"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-100 transition-colors"
+              className="inline-flex items-center gap-2 rounded-lg border border-[var(--lp-line-soft)] bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-100 transition-colors"
             >
               Submit Feedback
             </a>
@@ -285,7 +301,7 @@ export default function AboutPage() {
               href="https://www.linkedin.com/in/oliver-kieselbach/"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-100 transition-colors"
+              className="inline-flex items-center gap-2 rounded-lg border border-[var(--lp-line-soft)] bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-100 transition-colors"
             >
               Oliver Kieselbach on LinkedIn
             </a>
@@ -293,22 +309,23 @@ export default function AboutPage() {
         </section>
 
         {/* Quick Links */}
-        <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Explore Further</h2>
+        <section className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-8">
+          <h2 className="text-xl font-bold text-gray-900 mb-4">Explore Further</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-            <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-gray-200 px-4 py-3 hover:border-blue-300 hover:bg-blue-50/50 transition-colors text-gray-700 font-medium">
+            <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-[var(--lp-line-soft)] px-4 py-3 hover:border-[var(--lp-accent-line)] hover:bg-[var(--lp-accent-soft)] transition-colors text-gray-700 font-medium">
               Documentation →
             </a>
-            <a href={`${DOCS_URL}/changelog/platform-changelog`} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-gray-200 px-4 py-3 hover:border-blue-300 hover:bg-blue-50/50 transition-colors text-gray-700 font-medium">
+            <a href={`${DOCS_URL}/changelog/platform-changelog`} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-[var(--lp-line-soft)] px-4 py-3 hover:border-[var(--lp-accent-line)] hover:bg-[var(--lp-accent-soft)] transition-colors text-gray-700 font-medium">
               Changelog →
             </a>
-            <Link href="/privacy" className="rounded-lg border border-gray-200 px-4 py-3 hover:border-blue-300 hover:bg-blue-50/50 transition-colors text-gray-700 font-medium">
+            <Link href="/privacy" className="rounded-lg border border-[var(--lp-line-soft)] px-4 py-3 hover:border-[var(--lp-accent-line)] hover:bg-[var(--lp-accent-soft)] transition-colors text-gray-700 font-medium">
               Privacy Policy →
             </Link>
           </div>
         </section>
 
       </main>
+      <SiteFooter />
     </div>
   );
 }

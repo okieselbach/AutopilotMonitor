@@ -13,6 +13,12 @@ const nextConfig: NextConfig = {
   output: "export",
   // folder/index.html output — unambiguous rewrite targets for the SWA config.
   trailingSlash: true,
+  // Without this, `next dev` 308-redirects /api/foo -> /api/foo/ BEFORE the
+  // dev proxy rewrite runs, and the Functions backend rejects trailing-slash
+  // routes — which silently breaks local sign-in (role resolution /me fails).
+  // Static export emits no runtime redirects, so production is unaffected;
+  // SWA handles trailing slashes itself ("trailingSlash": "auto").
+  skipTrailingSlashRedirect: true,
   reactStrictMode: true,
   experimental: {
     // Rewrite these heavy packages to per-module imports so unused exports are

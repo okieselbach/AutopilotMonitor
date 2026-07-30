@@ -183,7 +183,7 @@ export default function HealthCheckPage() {
           <button
             onClick={() => { performHealthCheck(); performMcpCheck(); }}
             disabled={loading}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium flex items-center gap-2"
+            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium flex items-center gap-2"
           >
             {loading ? (
               <>
@@ -250,7 +250,7 @@ export default function HealthCheckPage() {
                   <dd className="mt-1 font-mono text-gray-900 dark:text-gray-100">
                     {healthResult.commitHash ? (
                       <a
-                        href={`https://github.com/okieselbach/Autopilot-Monitor/commit/${healthResult.commitHash}`}
+                        href={`https://github.com/okieselbach/AutopilotMonitor/commit/${healthResult.commitHash}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-indigo-600 dark:text-indigo-400 hover:underline"
@@ -334,7 +334,7 @@ export default function HealthCheckPage() {
                       <button
                         onClick={testGroupJoin}
                         disabled={groupJoinTest === 'testing'}
-                        className="mt-3 px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                        className="mt-3 px-3 py-1.5 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
                       >
                         {groupJoinTest === 'testing' ? 'Testing...' : groupJoinTest === 'failed' ? 'Retry Join Test' : 'Test Group Join'}
                       </button>

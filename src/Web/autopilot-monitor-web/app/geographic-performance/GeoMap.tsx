@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo } from "react";
 import { MapContainer, TileLayer, CircleMarker, Tooltip, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -61,22 +61,6 @@ function formatThroughput(bytesPerSec: number): string {
   return `${bytesPerSec.toFixed(0)} B/s`;
 }
 
-// Clean up Leaflet map on unmount to prevent _leaflet_pos errors during client-side navigation.
-// map.remove() fully destroys the instance, preventing stale transitionend callbacks.
-function MapCleanup() {
-  const map = useMap();
-  const mapRef = useRef(map);
-  mapRef.current = map;
-
-  useEffect(() => {
-    return () => {
-      try { mapRef.current.remove(); } catch { /* already removed by react-leaflet */ }
-    };
-  }, []);
-
-  return null;
-}
-
 // Component to auto-fit bounds when locations change
 function FitBounds({ locations }: { locations: { coords: [number, number] }[] }) {
   const map = useMap();
@@ -131,7 +115,6 @@ export default function GeoMap({ locations, globalAvgDuration, selectedLocation,
       style={{ height: "100%", width: "100%", borderRadius: "0.5rem", zIndex: 0 }}
       scrollWheelZoom={true}
     >
-      <MapCleanup />
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"

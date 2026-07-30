@@ -90,7 +90,7 @@ export function DiagnosticsLogPathsSection({
                         updated[idx] = { ...entry, includeSubfolders: !entry.includeSubfolders };
                         setGlobalDiagPaths(updated);
                       }}
-                      className="w-3.5 h-3.5 rounded border-teal-400 text-teal-600 focus:ring-teal-500"
+                      className="w-3.5 h-3.5 rounded border-teal-400 text-green-600 focus:ring-green-500"
                     />
                     <span className="text-xs text-teal-600 dark:text-teal-400">Include subfolders</span>
                   </label>
@@ -148,7 +148,7 @@ export function DiagnosticsLogPathsSection({
             type="checkbox"
             checked={newDiagSubfolders}
             onChange={() => setNewDiagSubfolders(!newDiagSubfolders)}
-            className="w-3.5 h-3.5 rounded border-gray-400 text-teal-600 focus:ring-teal-500"
+            className="w-3.5 h-3.5 rounded border-gray-400 text-green-600 focus:ring-green-500"
           />
           <span className="text-xs text-gray-600 dark:text-gray-400">Include subfolders</span>
         </label>

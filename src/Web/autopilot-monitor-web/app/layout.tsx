@@ -24,9 +24,9 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    absolute: "AutopilotMonitor – Real-Time Windows Enrollment Monitoring",
-    default: "AutopilotMonitor",
-    template: "%s | AutopilotMonitor",
+    absolute: "Autopilot Monitor – Real-Time Windows Enrollment Monitoring",
+    default: "Autopilot Monitor",
+    template: "%s | Autopilot Monitor",
   },
   description:
     "Real-time monitoring and troubleshooting for Windows deployments. Track every enrollment phase, detect issues automatically with Analyze Rules, and resolve failures faster.",
@@ -52,14 +52,14 @@ export const metadata: Metadata = {
     type: "website",
     locale: "en_US",
     url: SITE_URL,
-    siteName: "AutopilotMonitor",
-    title: "AutopilotMonitor – Real-Time Windows Enrollment Monitoring",
+    siteName: "Autopilot Monitor",
+    title: "Autopilot Monitor – Real-Time Windows Enrollment Monitoring",
     description:
       "Real-time monitoring and troubleshooting for Windows Autopilot deployments. Track every enrollment phase, detect issues automatically, and resolve failures faster.",
   },
   twitter: {
     card: "summary_large_image",
-    title: "AutopilotMonitor – Real-Time Windows Enrollment Monitoring",
+    title: "Autopilot Monitor – Real-Time Windows Enrollment Monitoring",
     description:
       "Real-time monitoring and troubleshooting for Windows Autopilot deployments. Track every enrollment phase, detect issues automatically, and resolve failures faster.",
   },
@@ -87,7 +87,7 @@ export const metadata: Metadata = {
 const jsonLd = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
-  name: "AutopilotMonitor",
+  name: "Autopilot Monitor",
   description:
     "Real-time monitoring and troubleshooting platform for Windows deployments. Gives IT teams full visibility into enrollment phases, app progress, errors, and timelines.",
   applicationCategory: "BusinessApplication",
@@ -103,7 +103,7 @@ const jsonLd = {
     url: "https://www.linkedin.com/in/oliver-kieselbach/",
   },
   url: SITE_URL,
-  codeRepository: "https://github.com/okieselbach/Autopilot-Monitor",
+  codeRepository: "https://github.com/okieselbach/AutopilotMonitor",
   keywords:
     "Windows Autopilot, Intune, enrollment monitoring, autopilot troubleshooting, Windows deployment",
 };

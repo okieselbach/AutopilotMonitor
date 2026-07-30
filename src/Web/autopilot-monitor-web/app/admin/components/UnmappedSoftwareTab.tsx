@@ -472,7 +472,7 @@ export function UnmappedSoftwareTab({
           {autoResolving && autoResolveProgress && (
             <div className="mb-3 px-4 py-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md text-sm">
               <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600" />
                 <span>
                   Auto-resolving... Batch {autoResolveProgress.batchIndex}/{autoResolveProgress.totalBatches}
                   {autoResolveProgress.resolvedSoFar > 0 && <> &middot; Resolved: {autoResolveProgress.resolvedSoFar}</>}
@@ -532,7 +532,7 @@ export function UnmappedSoftwareTab({
                       checked={allOnPageSelected && entries.length > 0}
                       onChange={allOnPageSelected ? deselectAll : selectAllOnPage}
                       disabled={autoResolving}
-                      className="h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500 disabled:opacity-40"
+                      className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500 disabled:opacity-40"
                     />
                   </th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Software Name</th>
@@ -561,7 +561,7 @@ export function UnmappedSoftwareTab({
                                   checked={selectedEntries.has(key)}
                                   onChange={() => toggleRowSelection(entry)}
                                   disabled={autoResolving}
-                                  className="h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500 disabled:opacity-40"
+                                  className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500 disabled:opacity-40"
                                 />
                               )}
                             </div>

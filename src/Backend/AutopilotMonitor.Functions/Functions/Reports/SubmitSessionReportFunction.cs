@@ -140,7 +140,8 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 _ = _globalNotificationService.CreateNotificationAsync(
                     "session_report",
                     "New Session Report",
-                    $"{userIdentifier} — Session {sessionId} (Tenant: {request.TenantId})");
+                    $"{userIdentifier} — Session {sessionId} (Tenant: {request.TenantId})",
+                    href: $"/admin/reports/session-reports?reportId={Uri.EscapeDataString(metadata.ReportId)}");
 
                 _logger.LogInformation("Session report submitted: ReportId={ReportId}, Session={SessionId}, By={User}",
                     metadata.ReportId, sessionId, userIdentifier);

@@ -1,4 +1,5 @@
-import { PublicPageHeader } from "../../components/PublicPageHeader";
+import { LandingNavbar } from "../../components/landing/LandingNavbar";
+import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/utils/config";
 
 const LAST_UPDATED = "29 July 2026";
@@ -11,7 +12,7 @@ function DocsLink({ href, children }: { href: string; children: React.ReactNode 
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-indigo-600 hover:text-indigo-800 underline"
+      className="text-[var(--lp-accent-ink)] hover:opacity-80 underline"
     >
       {children}
     </a>
@@ -20,10 +21,18 @@ function DocsLink({ href, children }: { href: string; children: React.ReactNode 
 
 export default function PrivacyPage() {
   return (
-    <div className="min-h-screen bg-gray-50">
-      <PublicPageHeader title="Privacy Policy" />
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-        <div className="bg-white rounded-lg shadow p-6 space-y-4">
+    <div className="landing-v2 min-h-screen bg-[var(--lp-bg)]">
+      <LandingNavbar />
+      <header className="px-4 sm:px-6 lg:px-8 pt-14 sm:pt-16">
+        <div className="max-w-7xl mx-auto">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--lp-ink-faint)]">Legal</p>
+          <h1 className="mt-3 text-3xl sm:text-4xl font-bold tracking-tight text-[var(--lp-ink)]">
+            Privacy Policy
+          </h1>
+        </div>
+      </header>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 text-[15px]">
+        <div className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-6 space-y-4">
           <p className="text-sm text-gray-500">Last updated: {LAST_UPDATED}</p>
           <p className="text-gray-700">
             Autopilot Monitor collects technical telemetry about Windows Autopilot enrollments so that IT teams can see
@@ -32,7 +41,7 @@ export default function PrivacyPage() {
             published in the <DocsLink href={DOCS_SECURITY_FAQ}>Security &amp; Privacy FAQ</DocsLink>.
           </p>
 
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Roles: Who Is Responsible for What</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mt-6">Roles: Who Is Responsible for What</h2>
           <p className="text-gray-700">
             For enrollment telemetry, <strong>your organization is the controller and Autopilot Monitor acts as your
             processor</strong>. You decide which devices are monitored, what additional data your gather rules collect,
@@ -45,7 +54,7 @@ export default function PrivacyPage() {
           <p className="text-gray-700">
             glueckkanja AG, a German company certified to ISO/IEC 27001, operates Autopilot Monitor for{" "}
             <strong>both plans</strong> — the same service, the same infrastructure, the same protection measures. Company
-            details are in the <a href="https://www.glueckkanja.com/en/imprint" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">Imprint</a>.
+            details are in the <a href="https://www.glueckkanja.com/en/imprint" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">Imprint</a>.
             The project is maintained by Oliver Kieselbach, who acts in that role on behalf of glueckkanja AG and is the
             contact for the open-source project and the Community edition.
           </p>
@@ -54,7 +63,7 @@ export default function PrivacyPage() {
             glueckkanja AG. On the Enterprise plan it forms part of the written agreement.
           </p>
 
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">What We Collect</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mt-6">What We Collect</h2>
           <h3 className="text-lg font-medium text-gray-800 mt-4">From enrolling devices</h3>
           <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
             <li><strong>Device identity</strong> — serial number, device name, manufacturer, model, and the Entra ID tenant the device enrolls into</li>
@@ -78,7 +87,7 @@ export default function PrivacyPage() {
             notification address, that address is copied once as the initial contact and is yours to change from then on.
           </p>
 
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">What We Do Not Collect</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mt-6">What We Do Not Collect</h2>
           <p className="text-gray-700">
             During Autopilot provisioning the user signs in once to start the process and then does not interact with the
             device while it provisions. The agent captures <strong>no browsing history, no file or document content, no
@@ -91,7 +100,7 @@ export default function PrivacyPage() {
             and establishing persistence are hard-blocked and cannot be enabled by configuration.
           </p>
 
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">IP Addresses and Geolocation</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mt-6">IP Addresses and Geolocation</h2>
           <p className="text-gray-700">
             Geolocation is a tenant setting and is <strong>enabled by default</strong>. While it is enabled:
           </p>
@@ -106,7 +115,7 @@ export default function PrivacyPage() {
             tenant setting and also an agent command-line switch. Only the Geographic Performance view is affected.
           </p>
 
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Where Your Data Is Stored</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mt-6">Where Your Data Is Stored</h2>
           <p className="text-gray-700">
             All customer data — sessions, events, configuration, audit logs, diagnostics, and backups — is stored in
             Microsoft Azure in <strong>Germany West Central</strong>. The only component outside that region is the portal
@@ -114,7 +123,7 @@ export default function PrivacyPage() {
             replication and no transfer of customer data outside the EU by the platform.
           </p>
 
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Who Can Access Your Data</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mt-6">Who Can Access Your Data</h2>
           <p className="text-gray-700">
             Your data is not sold, and it is not shared with third parties for their own purposes. Access is limited to:
           </p>
@@ -128,7 +137,7 @@ export default function PrivacyPage() {
             isolation model is in the <DocsLink href={DOCS_SECURITY_FAQ}>Security &amp; Privacy FAQ</DocsLink>.
           </p>
 
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">External Services</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mt-6">External Services</h2>
           <p className="text-gray-700">
             <strong>Microsoft Azure is the only place your data is stored.</strong> Resend delivers the onboarding
             approval email when a tenant is activated — it receives an administrator&apos;s email address and the tenant
@@ -144,7 +153,7 @@ export default function PrivacyPage() {
             the parties engaged and the terms of their engagement.
           </p>
 
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Diagnostics Uploads</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mt-6">Diagnostics Uploads</h2>
           <p className="text-gray-700">
             Diagnostics upload is <strong>off by default</strong>. When enabled, the default destination is{" "}
             <strong>your own Azure storage account</strong> — the package never reaches our infrastructure. Hosted upload
@@ -163,7 +172,7 @@ export default function PrivacyPage() {
             tenant that has no upload destination configured.
           </p>
 
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">How Long We Keep Data</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mt-6">How Long We Keep Data</h2>
           <p className="text-gray-700">
             Retention is <strong>configured by you per tenant, defaulting to 90 days</strong> — 7 to 90 days on the
             Community plan and 7 to 365 days on Enterprise. Expired sessions are purged automatically. You additionally
@@ -185,7 +194,7 @@ export default function PrivacyPage() {
             Either can be removed on request.
           </p>
 
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">How Your Data Is Protected</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mt-6">How Your Data Is Protected</h2>
           <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
             <li><strong>Device authentication by mutual TLS</strong> using the Intune MDM client certificate, validated against pinned Intune root CAs rather than the operating system trust store — and rejected if no trust anchor loads</li>
             <li><strong>Autopilot device validation via Microsoft Graph</strong> — only devices registered in your tenant are accepted, with an optional hardware allow-list on top</li>
@@ -199,7 +208,7 @@ export default function PrivacyPage() {
             <li><strong>Manifest-first deletion</strong> — what will be deleted is captured, restorably, before anything is removed</li>
           </ul>
 
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Your Rights</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mt-6">Your Rights</h2>
           <p className="text-gray-700">
             Where the GDPR applies, you have the right to access, correction, deletion, restriction of processing,
             portability, and to object to processing. We act on such requests within the statutory time limits. In
@@ -211,24 +220,25 @@ export default function PrivacyPage() {
             organization; we support you in fulfilling them.
           </p>
 
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Changes to This Policy</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mt-6">Changes to This Policy</h2>
           <p className="text-gray-700">
             Material changes are reflected in the &quot;last updated&quot; date above and announced through the service
             announcements in the portal. If you hold a signed data processing agreement, notification follows the terms of
             that agreement.
           </p>
 
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Contact</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mt-6">Contact</h2>
           <p className="text-gray-700">
             For privacy questions, a data processing agreement, or a data subject request, contact glueckkanja AG using
-            the details in the <a href="https://www.glueckkanja.com/en/imprint" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">Imprint</a>.
+            the details in the <a href="https://www.glueckkanja.com/en/imprint" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">Imprint</a>.
             For the open-source project and the Community edition you can also reach the maintainer via{" "}
-            <a href="https://www.linkedin.com/in/oliver-kieselbach" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">LinkedIn</a>{" "}
+            <a href="https://www.linkedin.com/in/oliver-kieselbach" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">LinkedIn</a>{" "}
             or open a{" "}
-            <a href="https://github.com/okieselbach/Autopilot-Monitor/issues" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">GitHub issue</a>.
+            <a href="https://github.com/okieselbach/AutopilotMonitor/issues" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">GitHub issue</a>.
           </p>
         </div>
       </main>
+      <SiteFooter />
     </div>
   );
 }

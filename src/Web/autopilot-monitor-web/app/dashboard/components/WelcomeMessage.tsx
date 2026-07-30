@@ -25,23 +25,23 @@ export function WelcomeMessage() {
         {/* Steps */}
         <ol className="space-y-3 mb-7">
           <li className="flex items-start gap-3">
-            <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">1</span>
+            <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-green-600 text-white text-[10px] font-bold flex items-center justify-center">1</span>
             <p className="text-sm text-gray-700">
               Follow the{" "}
-              <a href={`${DOCS_URL}/getting-started/portal-setup`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-medium">setup guide</a>
+              <a href={`${DOCS_URL}/getting-started/portal-setup`} target="_blank" rel="noopener noreferrer" className="text-green-700 hover:underline font-medium">setup guide</a>
               {" "}to configure your tenant and grant the required permissions.
             </p>
           </li>
           <li className="flex items-start gap-3">
-            <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">2</span>
+            <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-green-600 text-white text-[10px] font-bold flex items-center justify-center">2</span>
             <p className="text-sm text-gray-700">
               Deploy the{" "}
-              <a href={`${DOCS_URL}/getting-started/deploy-the-agent`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-medium">Intune bootstrapper</a>
+              <a href={`${DOCS_URL}/getting-started/deploy-the-agent`} target="_blank" rel="noopener noreferrer" className="text-green-700 hover:underline font-medium">Intune bootstrapper</a>
               {" "}to your Autopilot device groups — the agent installs automatically on first boot.
             </p>
           </li>
           <li className="flex items-start gap-3">
-            <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">3</span>
+            <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-green-600 text-white text-[10px] font-bold flex items-center justify-center">3</span>
             <p className="text-sm text-gray-700">Enrollment sessions will appear here in real time as devices go through the enrollment process.</p>
           </li>
         </ol>
@@ -66,7 +66,7 @@ export function WelcomeMessage() {
             </svg>
           </a>
           <a
-            href="https://github.com/okieselbach/Autopilot-Monitor"
+            href="https://github.com/okieselbach/AutopilotMonitor"
             target="_blank"
             rel="noopener noreferrer"
             className="group flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 hover:border-gray-400 hover:bg-gray-100 transition-colors"

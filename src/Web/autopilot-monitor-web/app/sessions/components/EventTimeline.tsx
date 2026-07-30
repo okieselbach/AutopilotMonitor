@@ -91,7 +91,7 @@ export default function EventTimeline({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search events..."
-            className="w-full pl-7 pr-7 py-1 text-xs border border-gray-300 rounded-full focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full pl-7 pr-7 py-1 text-xs border border-gray-300 rounded-full focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500"
           />
           {searchQuery && (
             <button
@@ -332,7 +332,7 @@ function PhaseSection({
         onClick={onToggle}
         className="flex items-center justify-between w-full text-left mb-3 group"
       >
-        <h3 className="text-lg font-semibold text-gray-900 group-hover:text-blue-600">
+        <h3 className="text-lg font-semibold text-gray-900 group-hover:text-green-600">
           {phaseName} ({events.length} events)
         </h3>
         <svg className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -603,7 +603,7 @@ function EventRow({ event, showScriptOutput }: { event: EnrollmentEvent; showScr
         {hasDetails && (
           <button
             onClick={() => setShowDetails(!showDetails)}
-            className="text-xs text-blue-600 hover:text-blue-800 ml-4 flex-shrink-0"
+            className="text-xs text-green-700 hover:text-green-800 ml-4 flex-shrink-0"
           >
             {showDetails ? 'Hide' : hasGatherOutput ? 'Output' : 'Details'}
           </button>
@@ -622,7 +622,7 @@ function EventRow({ event, showScriptOutput }: { event: EnrollmentEvent; showScr
               type="button"
               onClick={copyEventId}
               title={copied ? 'Copied!' : 'Copy EventId'}
-              className="absolute top-1.5 right-1.5 inline-flex items-center justify-center w-5 h-5 rounded border border-gray-200 bg-white text-gray-400 opacity-0 group-hover/meta:opacity-100 focus:opacity-100 hover:bg-gray-50 hover:text-blue-600 transition-opacity"
+              className="absolute top-1.5 right-1.5 inline-flex items-center justify-center w-5 h-5 rounded border border-gray-200 bg-white text-gray-400 opacity-0 group-hover/meta:opacity-100 focus:opacity-100 hover:bg-gray-50 hover:text-green-600 transition-opacity"
             >
               {copied ? (
                 <svg className="w-3 h-3 text-green-500" viewBox="0 0 20 20" fill="currentColor">
@@ -814,7 +814,7 @@ function RawEventRow({ event }: { event: EnrollmentEvent }) {
         <span className="text-gray-900 font-medium flex-shrink-0">{event.eventType}</span>
         <span className="text-gray-500 truncate flex-1 min-w-0" title={event.message || undefined}>{shortenBuildHashInMessage(event.message)}</span>
         {hasDetails && (
-          <button onClick={() => setExpanded(!expanded)} className="text-gray-400 hover:text-blue-600 flex-shrink-0 ml-1">
+          <button onClick={() => setExpanded(!expanded)} className="text-gray-400 hover:text-green-600 flex-shrink-0 ml-1">
             {expanded ? '−' : '+'}
           </button>
         )}

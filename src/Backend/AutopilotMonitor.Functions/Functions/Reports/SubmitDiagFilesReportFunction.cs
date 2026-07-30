@@ -137,7 +137,8 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 _ = _globalNotificationService.CreateNotificationAsync(
                     "diag_files_report",
                     "New Diag Files Report",
-                    $"{userIdentifier} (Tenant: {request.TenantId})");
+                    $"{userIdentifier} (Tenant: {request.TenantId})",
+                    href: $"/admin/reports/session-reports?reportId={Uri.EscapeDataString(metadata.ReportId)}");
 
                 _logger.LogInformation("Diag-files report submitted: ReportId={ReportId}, By={User}",
                     metadata.ReportId, userIdentifier);

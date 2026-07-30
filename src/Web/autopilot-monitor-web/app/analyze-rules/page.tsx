@@ -563,7 +563,7 @@ export default function AnalyzeRulesPage() {
                 </svg>
                 <p className="text-sm text-blue-800">
                   Missing a rule, found a bug, or have an improvement idea? Help make Autopilot Monitor better —{" "}
-                  <a href="https://github.com/okieselbach/Autopilot-Monitor/issues" target="_blank" rel="noopener noreferrer" className="font-medium underline hover:text-blue-900">
+                  <a href="https://github.com/okieselbach/AutopilotMonitor/issues" target="_blank" rel="noopener noreferrer" className="font-medium underline hover:text-blue-900">
                     open a GitHub issue
                   </a>.
                 </p>
@@ -749,7 +749,7 @@ export default function AnalyzeRulesPage() {
                         <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
                         <div>
                           <h2 className="text-xl font-semibold text-gray-900">Create Custom Analyze Rule</h2>
-                          <p className="text-sm text-gray-500 mt-1">Define conditions and confidence scoring for issue detection — <a href={`${DOCS_URL}/rules/analyze-rules`} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">see documentation</a></p>
+                          <p className="text-sm text-gray-500 mt-1">Define conditions and confidence scoring for issue detection — <a href={`${DOCS_URL}/rules/analyze-rules`} target="_blank" rel="noopener noreferrer" className="text-green-700 hover:text-green-800 underline">see documentation</a></p>
                         </div>
                       </div>
                       {/* JSON Mode Toggle */}
@@ -804,7 +804,7 @@ export default function AnalyzeRulesPage() {
                         } else {
                           handleCreateRule();
                         }
-                      }} disabled={creating} className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2 text-sm font-medium">
+                      }} disabled={creating} className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2 text-sm font-medium">
                         {creating ? (<><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div><span>Creating...</span></>) : (<span>Save Rule</span>)}
                       </button>
                     </div>

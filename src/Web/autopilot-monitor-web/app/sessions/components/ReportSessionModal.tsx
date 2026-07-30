@@ -245,7 +245,7 @@ export default function ReportSessionModal({
                   value={comment}
                   onChange={e => setComment(e.target.value)}
                   placeholder="Describe what seems incorrect or unexpected..."
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   rows={3}
                   disabled={submitting}
                 />
@@ -261,7 +261,7 @@ export default function ReportSessionModal({
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   placeholder="your.email@company.com"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   disabled={submitting}
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -365,7 +365,7 @@ export default function ReportSessionModal({
                     checked={hasDiagnostics && includeDiagnostics}
                     onChange={e => setIncludeDiagnostics(e.target.checked)}
                     disabled={submitting || !hasDiagnostics}
-                    className="mt-0.5 h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-green-600 focus:ring-green-500"
                   />
                   <span className="text-sm text-gray-700 dark:text-gray-300">
                     Include uploaded diagnostics archive
@@ -424,7 +424,7 @@ export default function ReportSessionModal({
                 <button
                   onClick={handleSubmit}
                   disabled={submitting || !!agentLogError || !!screenshotError}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
                   {submitting ? (
                     <>

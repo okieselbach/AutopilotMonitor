@@ -313,7 +313,7 @@ function InstallItemRow({ item }: { item: InstallItem }) {
           {item.eventData && Object.keys(item.eventData).length > 0 && (
             <button
               onClick={() => setShowDetails(!showDetails)}
-              className="text-xs text-blue-600 hover:text-blue-800"
+              className="text-xs text-green-700 hover:text-green-800"
             >
               {showDetails ? 'Hide' : 'Details'}
             </button>

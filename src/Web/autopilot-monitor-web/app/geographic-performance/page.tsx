@@ -13,6 +13,7 @@ import { useAggregatedAdminScope } from "@/hooks";
 import { useFetchProgress } from "@/hooks/useFetchProgress";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
+import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedControl";
 import { CalculatingCard } from "@/components/CalculatingCard";
 
 // A cross-tenant geo aggregation can take tens of seconds server-side; the default 30s fetch
@@ -245,49 +246,33 @@ export default function GeographicPerformancePage() {
         />
         <header className="bg-white shadow">
           <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-y-3">
               <div>
                 <div className="flex items-center space-x-3">
-                  <svg className="w-8 h-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   <h1 className="text-2xl font-normal text-gray-900">Geographic Performance</h1>
                 </div>
               </div>
-              <div className="flex items-center space-x-4">
+              <div className="flex flex-wrap items-center gap-2">
                 <TenantScopeSelector scope={scope} allowAggregated />
                 {/* Time Range Toggle */}
-                <div className="flex bg-gray-100 rounded-lg p-1">
-                  {(["7d", "30d", "90d"] as TimeRange[]).map((range) => (
-                    <button
-                      key={range}
-                      onClick={() => setTimeRange(range)}
-                      className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                        timeRange === range
-                          ? "bg-white text-gray-900 shadow-sm"
-                          : "text-gray-500 hover:text-gray-700"
-                      }`}
-                    >
-                      {range === "7d" ? "7 Days" : range === "30d" ? "30 Days" : "90 Days"}
-                    </button>
-                  ))}
-                </div>
+                <SegmentedControl
+                  options={TIME_RANGE_OPTIONS}
+                  value={timeRange}
+                  onChange={(v) => setTimeRange(v as TimeRange)}
+                />
                 {/* Group By Toggle */}
-                <div className="flex bg-gray-100 rounded-lg p-1">
-                  {(["city", "region", "country"] as GroupBy[]).map((g) => (
-                    <button
-                      key={g}
-                      onClick={() => setGroupBy(g)}
-                      className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors capitalize ${
-                        groupBy === g
-                          ? "bg-white text-gray-900 shadow-sm"
-                          : "text-gray-500 hover:text-gray-700"
-                      }`}
-                    >
-                      {g}
-                    </button>
-                  ))}
-                </div>
+                <SegmentedControl
+                  options={[
+                    { value: "city", label: "City" },
+                    { value: "region", label: "Region" },
+                    { value: "country", label: "Country" },
+                  ]}
+                  value={groupBy}
+                  onChange={(v) => setGroupBy(v as GroupBy)}
+                />
               </div>
             </div>
           </div>

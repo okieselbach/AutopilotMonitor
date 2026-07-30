@@ -396,14 +396,14 @@ function OffboardingInProgressBanner({
                 disabled={submitting}
                 rows={4}
                 placeholder="Pricing, missing features, bugs that bit us, alternatives we picked, …"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm disabled:bg-gray-100"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm disabled:bg-gray-100"
               />
               <div className="flex items-center justify-between text-xs text-gray-500">
                 <span>{feedbackText.length}/{FEEDBACK_MAX_CHARS}</span>
                 <button
                   onClick={handleSubmitFeedback}
                   disabled={submitting || feedbackText.trim().length === 0}
-                  className="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                  className="px-3 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
                 >
                   {submitting ? "Submitting…" : "Submit feedback"}
                 </button>

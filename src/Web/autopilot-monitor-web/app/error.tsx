@@ -29,7 +29,7 @@ export default function Error({
   }, [error]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[var(--lp-bg)] flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full text-center">
         <div className="text-4xl mb-3">!</div>
         <h2 className="text-xl font-semibold text-gray-900 mb-2">Something went wrong</h2>
@@ -39,7 +39,7 @@ export default function Error({
         <div className="flex gap-3 justify-center flex-wrap">
           <button
             onClick={() => router.push("/")}
-            className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
+            className="px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium text-sm"
           >
             Back to Home
           </button>

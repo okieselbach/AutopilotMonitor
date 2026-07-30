@@ -80,7 +80,7 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
   // interaction_in_progress) — stay on this origin and offer a manual retry.
   if (!isAuthenticated && !isLoading && loginFailed) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-[var(--lp-bg)] flex items-center justify-center p-4">
         <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full text-center">
           <h2 className="text-xl font-semibold text-gray-900 mb-2">Sign-in required</h2>
           <p className="text-gray-600 mb-6">We couldn&apos;t sign you in automatically.</p>
@@ -89,7 +89,7 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
               setLoginFailed(false);
               login().catch(() => setLoginFailed(true));
             }}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
           >
             Sign in
           </button>
@@ -101,9 +101,9 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
   // Show loading spinner while MSAL settles or while re-login redirect is pending.
   if (isLoading || (!isAuthenticated && wasAuthenticated.current)) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+      <div className="min-h-screen bg-[var(--lp-bg)] flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading...</p>
         </div>
       </div>
@@ -123,7 +123,7 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
     (requireFleetScope && user && !hasFleetScope);
   if (platformDenied) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-[var(--lp-bg)] flex items-center justify-center p-4">
         <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full text-center">
           <svg className="h-12 w-12 text-red-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -132,7 +132,7 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
           <p className="text-gray-600 mb-6">You need Global Admin permissions to access this page.</p>
           <button
             onClick={() => router.push("/dashboard")}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
           >
             Back to Home
           </button>

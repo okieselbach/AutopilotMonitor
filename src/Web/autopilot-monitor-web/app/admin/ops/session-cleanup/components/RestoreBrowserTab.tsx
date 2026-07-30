@@ -276,7 +276,7 @@ export function RestoreBrowserTab({ getAccessToken, setError, setSuccessMessage 
                   setSelectedTenantId("");
                 }
               }}
-              className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-purple-600 focus:ring-purple-500"
+              className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-purple-600 accent-purple-600 focus:ring-purple-500"
             />
             <label
               htmlFor="restore-browser-only-with-data"

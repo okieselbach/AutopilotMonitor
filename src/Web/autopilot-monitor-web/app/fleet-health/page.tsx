@@ -17,6 +17,7 @@ import { useFleetHealth } from "./hooks/useFleetHealth";
 import { useAggregatedAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
+import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedControl";
 import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 
@@ -238,11 +239,11 @@ export default function FleetHealthPage() {
         <GlobalAdminBanner show={scope.isGlobalAdmin} delegated={scope.isDelegatedScope} subtitle={globalAdminSubtitle(scope)} />
         <header className="bg-white shadow">
           <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-y-3">
               <div>
                 <div className="flex items-center space-x-3">
                   <svg
-                    className="w-8 h-8 text-blue-600"
+                    className="w-8 h-8 text-green-600"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -259,25 +260,13 @@ export default function FleetHealthPage() {
                   </h1>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2">
                 <TenantScopeSelector scope={scope} allowAggregated />
-                {(["7d", "30d", "90d"] as const).map((range) => (
-                  <button
-                    key={range}
-                    onClick={() => setTimeRange(range)}
-                    className={`px-4 py-2 text-sm rounded-md transition-colors ${
-                      timeRange === range
-                        ? "bg-blue-600 text-white"
-                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                    }`}
-                  >
-                    {range === "7d"
-                      ? "Last 7 Days"
-                      : range === "30d"
-                      ? "Last 30 Days"
-                      : "Last 90 Days"}
-                  </button>
-                ))}
+                <SegmentedControl
+                  options={TIME_RANGE_OPTIONS}
+                  value={timeRange}
+                  onChange={(v) => setTimeRange(v as typeof timeRange)}
+                />
               </div>
             </div>
           </div>
@@ -733,7 +722,7 @@ export default function FleetHealthPage() {
                       title={`Show failed enrollments for ${m.model}`}
                     >
                       <div className="flex items-baseline justify-between mb-1">
-                        <span className="text-sm text-gray-700 group-hover:text-blue-600 break-words leading-snug">{m.model}</span>
+                        <span className="text-sm text-gray-700 group-hover:text-green-600 break-words leading-snug">{m.model}</span>
                         <span className="ml-3 flex-shrink-0 text-sm font-medium text-gray-900">
                           {successRate !== null ? `${successRate}%` : "—"} <span className="text-xs font-normal text-gray-400">({m.total} devices)</span>
                         </span>

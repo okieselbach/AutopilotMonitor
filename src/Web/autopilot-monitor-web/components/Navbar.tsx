@@ -7,7 +7,8 @@ import { useTenantNotifications } from '@/contexts/TenantNotificationContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { BrandMark } from './BrandMark';
 import { trackEvent } from '@/lib/appInsights';
 import { useAdminMode } from '@/hooks/useAdminMode';
 import GlobalSearch from './GlobalSearch';
@@ -20,6 +21,7 @@ export default function Navbar() {
   const { tenantNotifications, dismissTenantNotification, dismissAllTenant } = useTenantNotifications();
   const { theme, toggleTheme } = useTheme();
   const pathname = usePathname();
+  const router = useRouter();
 
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -132,6 +134,13 @@ export default function Navbar() {
     return `${Math.floor(diffHours / 24)}d ago`;
   };
 
+  // Notification rows with an href navigate on click — close the dropdown first
+  // so it doesn't linger over the target page.
+  const openNotificationHref = (href: string) => {
+    setShowNotifications(false);
+    router.push(href);
+  };
+
   const getUserInitials = () => {
     if (user?.displayName) {
       const names = user.displayName.split(' ');
@@ -160,11 +169,9 @@ export default function Navbar() {
           <div className="flex justify-between h-14">
             <div className="flex items-center">
               <Link href="/progress" prefetch={false} className="flex items-center space-x-2.5">
-                <svg className="w-7 h-7" viewBox="0 0 209 191" fill="none">
-                  <path d="M0 180.201L208.401 190.502L188.157 76.2438L5.48363e-06 0L0 180.201Z" fill="#33B161" />
-                </svg>
-                <span className="text-lg font-bold text-gray-600 dark:text-gray-400">
-                  <span className="hidden md:inline">AutopilotMonitor</span>
+                <BrandMark className="w-6 h-6" />
+                <span className="text-[15px] font-bold tracking-tight text-gray-900 dark:text-gray-100">
+                  <span className="hidden md:inline">Autopilot Monitor</span>
                   <span className="md:hidden">AP Monitor</span>
                 </span>
               </Link>
@@ -173,7 +180,7 @@ export default function Navbar() {
               {/* User Menu */}
               <div className="relative" ref={userMenuRef}>
                 <button onClick={() => setShowUserMenu(!showUserMenu)} className="flex items-center space-x-1.5 p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-                  <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold text-xs">
+                  <div className="w-7 h-7 rounded-full bg-green-600 flex items-center justify-center text-white font-semibold text-xs">
                     {getUserInitials()}
                   </div>
                   <svg className="w-3.5 h-3.5 text-gray-500" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
@@ -183,7 +190,7 @@ export default function Navbar() {
                 {showUserMenu && (
                   <div className="absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
                     <div className="px-3 py-2.5 border-b border-gray-200 flex items-start space-x-2.5">
-                      <div className="w-8 h-8 rounded-full bg-blue-600 flex-shrink-0 flex items-center justify-center text-white font-semibold text-xs">
+                      <div className="w-8 h-8 rounded-full bg-green-600 flex-shrink-0 flex items-center justify-center text-white font-semibold text-xs">
                         {getUserInitials()}
                       </div>
                       <div className="min-w-0">
@@ -216,11 +223,9 @@ export default function Navbar() {
           {/* Logo and Title */}
           <div className="flex items-center">
             <Link href="/" prefetch={false} className="flex items-center space-x-2.5">
-              <svg className="w-7 h-7" viewBox="0 0 209 191" fill="none">
-                <path d="M0 180.201L208.401 190.502L188.157 76.2438L5.48363e-06 0L0 180.201Z" fill="#33B161" />
-              </svg>
-              <span className="text-lg font-bold text-gray-600 dark:text-gray-400">
-                <span className="hidden lg:inline">AutopilotMonitor</span>
+              <BrandMark className="w-6 h-6" />
+              <span className="text-[15px] font-bold tracking-tight text-gray-900 dark:text-gray-100">
+                <span className="hidden lg:inline">Autopilot Monitor</span>
                 <span className="hidden md:inline lg:hidden">AP Monitor</span>
                 <span className="md:hidden">AP Mon</span>
               </span>
@@ -290,7 +295,7 @@ export default function Navbar() {
                     {(unreadCount > 0 || hasClearable) && (
                       <div className="flex space-x-2">
                         {unreadCount > 0 && (
-                          <button onClick={markAllAsRead} className="text-xs text-blue-600 hover:text-blue-800">
+                          <button onClick={markAllAsRead} className="text-xs text-green-700 hover:text-green-800">
                             Mark all read
                           </button>
                         )}
@@ -314,7 +319,7 @@ export default function Navbar() {
                       <div className="divide-y divide-gray-100">
                         {/* Tenant-scoped persistent notifications (e.g. hardware rejections) — top */}
                         {tenantNotifications.map((tn) => (
-                          <div key={`tn-${tn.id}`} className="px-4 py-3 hover:bg-blue-50/50 transition-colors border-l-4 border-blue-500 bg-blue-50/30">
+                          <div key={`tn-${tn.id}`} className={`px-4 py-3 hover:bg-blue-50/50 dark:hover:bg-blue-900/45 transition-colors border-l-4 border-blue-500 bg-blue-50/30 dark:bg-blue-900/20 ${tn.href ? 'cursor-pointer' : ''}`} onClick={() => { if (tn.href) openNotificationHref(tn.href); }}>
                             <div className="flex items-start justify-between">
                               <div className="flex items-start space-x-2.5 flex-1">
                                 <span className="text-lg">{tn.type === 'hardware_rejection' ? '🖥️' : '🔔'}</span>
@@ -327,8 +332,8 @@ export default function Navbar() {
                                       <Link
                                         href={tn.href}
                                         prefetch={false}
-                                        onClick={(e) => { e.stopPropagation(); }}
-                                        className="text-[10px] text-blue-600 hover:text-blue-800 font-medium underline"
+                                        onClick={(e) => { e.stopPropagation(); setShowNotifications(false); }}
+                                        className="text-[10px] text-green-700 hover:text-green-800 font-medium underline"
                                       >
                                         View
                                       </Link>
@@ -348,7 +353,7 @@ export default function Navbar() {
                         ))}
                         {/* Persistent Global Admin Notifications */}
                         {visibleGlobal.map((gn) => (
-                          <div key={`ga-${gn.id}`} className="px-4 py-3 hover:bg-purple-50/50 transition-colors border-l-4 border-purple-500 bg-purple-50/30">
+                          <div key={`ga-${gn.id}`} className={`px-4 py-3 hover:bg-purple-50/50 dark:hover:bg-purple-900/45 transition-colors border-l-4 border-purple-500 bg-purple-50/30 dark:bg-purple-900/20 ${gn.href ? 'cursor-pointer' : ''}`} onClick={() => { if (gn.href) openNotificationHref(gn.href); }}>
                             <div className="flex items-start justify-between">
                               <div className="flex items-start space-x-2.5 flex-1">
                                 <span className="text-lg">{gn.type === 'session_report' ? '\uD83D\uDCCB' : '\uD83C\uDF1F'}</span>
@@ -358,7 +363,19 @@ export default function Navbar() {
                                     <span className="text-[9px] font-semibold text-purple-700 bg-purple-100 px-1 py-0.5 rounded">GA</span>
                                   </div>
                                   <p className="text-xs text-gray-600 mt-0.5">{gn.message}</p>
-                                  <p className="text-[10px] text-gray-400 mt-1">{formatTime(new Date(gn.createdAt))}</p>
+                                  <div className="flex items-center gap-3 mt-1">
+                                    <p className="text-[10px] text-gray-400">{formatTime(new Date(gn.createdAt))}</p>
+                                    {gn.href && (
+                                      <Link
+                                        href={gn.href}
+                                        prefetch={false}
+                                        onClick={(e) => { e.stopPropagation(); setShowNotifications(false); }}
+                                        className="text-[10px] text-green-700 hover:text-green-800 font-medium underline"
+                                      >
+                                        View
+                                      </Link>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                               {user?.isGlobalAdmin && (
@@ -373,7 +390,7 @@ export default function Navbar() {
                         ))}
                         {/* Ephemeral Notifications */}
                         {notifications.map((notification) => (
-                          <div key={notification.id} className={`px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer ${!notification.read ? 'bg-blue-50' : ''}`} onClick={() => { if (!notification.read) { markAsRead(notification.id); } }}>
+                          <div key={notification.id} className={`px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer ${!notification.read ? 'bg-blue-50' : ''}`} onClick={() => { if (!notification.read) { markAsRead(notification.id); } if (notification.href) { openNotificationHref(notification.href); } }}>
                             <div className="flex items-start justify-between">
                               <div className="flex items-start space-x-2.5 flex-1">
                                 <span className="text-lg">{getNotificationIcon(notification.type)}</span>
@@ -386,8 +403,8 @@ export default function Navbar() {
                                       <Link
                                         href={notification.href}
                                         prefetch={false}
-                                        onClick={(e) => { e.stopPropagation(); markAsRead(notification.id); }}
-                                        className="text-[10px] text-blue-600 hover:text-blue-800 font-medium underline"
+                                        onClick={(e) => { e.stopPropagation(); markAsRead(notification.id); setShowNotifications(false); }}
+                                        className="text-[10px] text-green-700 hover:text-green-800 font-medium underline"
                                       >
                                         View
                                       </Link>
@@ -732,7 +749,7 @@ export default function Navbar() {
             {/* User Menu */}
             <div className="relative" ref={userMenuRef}>
               <button onClick={() => setShowUserMenu(!showUserMenu)} className="flex items-center space-x-1.5 p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-                <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold text-xs">
+                <div className="w-7 h-7 rounded-full bg-green-600 flex items-center justify-center text-white font-semibold text-xs">
                   {getUserInitials()}
                 </div>
                 <svg className="w-3.5 h-3.5 text-gray-500" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
@@ -744,7 +761,7 @@ export default function Navbar() {
               {showUserMenu && (
                 <div className="absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
                   <div className="px-3 py-2.5 border-b border-gray-200 flex items-start space-x-2.5">
-                    <div className="w-8 h-8 rounded-full bg-blue-600 flex-shrink-0 flex items-center justify-center text-white font-semibold text-xs">
+                    <div className="w-8 h-8 rounded-full bg-green-600 flex-shrink-0 flex items-center justify-center text-white font-semibold text-xs">
                       {getUserInitials()}
                     </div>
                     <div className="min-w-0">

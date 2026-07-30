@@ -8,7 +8,6 @@ import { useSidebar, PageSectionItem } from "../contexts/SidebarContext";
 import { CollapseState } from "../hooks/useSidebarState";
 import { DefaultSectionIcon, BookOpenIcon, InformationCircleIcon, DocumentTextIcon, ShieldCheckIcon } from "../lib/sidebarIcons";
 import { DASHBOARD_ITEM, NAV_GROUPS, EXPANDABLE_NAV_GROUPS, REGULAR_USER_ITEMS, NavItem, NavGroup, ExpandableNavGroup, ExpandableNavItem } from "../lib/globalNavConfig";
-import { PublicSiteNavbar } from "./PublicSiteNavbar";
 import { useAdminMode } from "../hooks/useAdminMode";
 import { DOCS_URL } from "@/utils/config";
 
@@ -268,24 +267,19 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
     }
   }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // All public pages that should show sidebar + navbar
-  // (docs + changelog moved to docs.autopilotmonitor.com)
-  const PUBLIC_PATHS = ["/terms", "/privacy", "/about"];
-  const isPublicPage = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
-
   // Landing page: never show sidebar
   if (pathname === "/") {
     return <>{children}</>;
   }
 
-  // Not authenticated and not a public page: no sidebar
-  if (!isAuthenticated && !isPublicPage) {
+  // Not authenticated: no sidebar. Public pages (/about, /terms, /privacy,
+  // /get-started) bring their own landing shell (LandingNavbar + SiteFooter).
+  if (!isAuthenticated) {
     return <>{children}</>;
   }
 
   // Whether a top navbar is present (determines sidebar top offset)
-  // Authenticated users always have the app navbar; public pages have the PublicSiteNavbar
-  const hasNavbar = isAuthenticated || isPublicPage;
+  const hasNavbar = isAuthenticated;
 
   // --- Render helpers ---
 
@@ -305,7 +299,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
     if (active) {
       return isGlobal
         ? "bg-purple-50 text-purple-700 font-semibold dark:bg-purple-900/30 dark:text-purple-300"
-        : "bg-blue-50 text-blue-700 font-semibold dark:bg-blue-900/30 dark:text-blue-300";
+        : "bg-green-50 text-green-700 font-semibold dark:bg-green-900/30 dark:text-green-300";
     }
     return isGlobal
       ? "text-purple-600 hover:bg-purple-50 hover:text-purple-800 dark:text-purple-400 dark:hover:bg-purple-900/20 dark:hover:text-purple-300"
@@ -517,7 +511,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                             itemHasActive
                               ? isGlobalStyle
                                 ? "bg-purple-50 text-purple-700 font-semibold dark:bg-purple-900/30 dark:text-purple-300"
-                                : "bg-blue-50 text-blue-700 font-semibold dark:bg-blue-900/30 dark:text-blue-300"
+                                : "bg-green-50 text-green-700 font-semibold dark:bg-green-900/30 dark:text-green-300"
                               : isGlobalStyle
                                 ? "text-purple-600 hover:bg-purple-50 hover:text-purple-800 dark:text-purple-400 dark:hover:bg-purple-900/20"
                                 : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
@@ -542,7 +536,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                           itemHasActive
                             ? isGlobalStyle
                               ? "text-purple-700 font-semibold dark:text-purple-300"
-                              : "text-blue-700 font-semibold dark:text-blue-300"
+                              : "text-green-700 font-semibold dark:text-green-300"
                             : isGlobalStyle
                               ? "text-purple-600 hover:bg-purple-50 hover:text-purple-800 dark:text-purple-400 dark:hover:bg-purple-900/20"
                               : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
@@ -583,7 +577,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                                     subActive
                                       ? isGlobalStyle
                                         ? "bg-purple-50 text-purple-700 font-medium dark:bg-purple-900/30 dark:text-purple-300"
-                                        : "bg-blue-50 text-blue-700 font-medium dark:bg-blue-900/30 dark:text-blue-300"
+                                        : "bg-green-50 text-green-700 font-medium dark:bg-green-900/30 dark:text-green-300"
                                       : "text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
                                   }`}
                                 >
@@ -628,7 +622,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
         <>
           {/* Divider / spacing between nav and page sections */}
           {collapseState === "icons" && !isMobile ? (
-            <hr className="mx-2 my-2 border-blue-200 dark:border-blue-800" />
+            <hr className="mx-2 my-2 border-green-200 dark:border-green-800" />
           ) : (
             <div className="mt-4 mb-2 mx-3">
               <hr className="border-gray-200 dark:border-gray-700" />
@@ -636,7 +630,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
           )}
           {/* Title only for ungrouped sections (grouped sections have their own headers) */}
           {!groupedSections && (collapseState === "full" || isMobile) && (
-            <p className="text-[11px] font-semibold uppercase tracking-wider mb-1 px-3 text-blue-500 dark:text-blue-400">
+            <p className="text-[11px] font-semibold uppercase tracking-wider mb-1 px-3 text-green-600 dark:text-green-400">
               {pageSectionsTitle}
             </p>
           )}
@@ -659,7 +653,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                       onClick={() => setMobileDrawerOpen(false)}
                       className={`flex items-center justify-center px-2 py-2 rounded-md text-sm transition-colors relative group ${
                         groupHasActive
-                          ? "bg-blue-50 text-blue-700 font-semibold dark:bg-blue-900/30 dark:text-blue-300"
+                          ? "bg-green-50 text-green-700 font-semibold dark:bg-green-900/30 dark:text-green-300"
                           : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
                       }`}
                       title={group.name}
@@ -682,7 +676,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                     onClick={() => toggleGroup(group.name)}
                     className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
                       groupHasActive
-                        ? "text-blue-700 font-semibold dark:text-blue-300"
+                        ? "text-green-700 font-semibold dark:text-green-300"
                         : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
                     }`}
                   >
@@ -717,7 +711,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                                 onClick={() => setMobileDrawerOpen(false)}
                                 className={`block pl-10 pr-3 py-1 rounded-md text-[13px] transition-colors ${
                                   active
-                                    ? "bg-blue-50 text-blue-700 font-medium dark:bg-blue-900/30 dark:text-blue-300"
+                                    ? "bg-green-50 text-green-700 font-medium dark:bg-green-900/30 dark:text-green-300"
                                     : "text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
                                 }`}
                               >
@@ -732,7 +726,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
                               onClick={() => scrollTo(item.id)}
                               className={`w-full text-left block pl-10 pr-3 py-1 rounded-md text-[13px] transition-colors ${
                                 active
-                                  ? "bg-blue-50 text-blue-700 font-medium dark:bg-blue-900/30 dark:text-blue-300"
+                                  ? "bg-green-50 text-green-700 font-medium dark:bg-green-900/30 dark:text-green-300"
                                   : "text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
                               }`}
                             >
@@ -760,9 +754,6 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
 
   return (
     <>
-      {/* ===== Public pages: show branded navbar without section links ===== */}
-      {!isAuthenticated && isPublicPage && <PublicSiteNavbar showSectionLinks={false} fullWidth />}
-
       {/* ===== Mobile: overlay ===== */}
       {mobileDrawerOpen && (
         <div

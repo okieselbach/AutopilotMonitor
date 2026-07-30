@@ -27,12 +27,71 @@ html {
 :root {
   --background: #f9fafb;
   --foreground: #171717;
+
+  /* ===== Landing v2 design tokens (lp-*) =====
+     Semantic tokens for the marketing surface (landing + shared footer).
+     Components reference these via arbitrary-value utilities
+     (bg-[var(--lp-surface)]) so the global `.dark .bg-white` override
+     block never fights them — dark mode only redefines the variables. */
+  --lp-bg: #fafafa;
+  --lp-surface: #ffffff;
+  --lp-surface-2: #f4f4f5;
+  --lp-nav: rgba(255, 255, 255, 0.72);
+  --lp-ink: #18181b;
+  --lp-ink-soft: #52525b;
+  --lp-ink-faint: #9ca3af;
+  --lp-line: #e4e4e7;
+  --lp-line-soft: #ededf0;
+  --lp-accent: #33b161;
+  --lp-accent-ink: #1e8a4c;
+  --lp-accent-soft: rgba(51, 177, 97, 0.1);
+  --lp-accent-line: rgba(51, 177, 97, 0.35);
+  --lp-warn: #d97706;
+  --lp-warn-soft: rgba(217, 119, 6, 0.1);
+  --lp-danger: #dc2626;
+  /* Terminal is dark in both themes */
+  --lp-term-bg: #0d1424;
+  --lp-term-line: #22304a;
+  --lp-term-ink: #d6e1f0;
+  --lp-term-faint: #7b8ba3;
+}
+
+.dark {
+  --lp-bg: #0d1424;
+  --lp-surface: #131d31;
+  --lp-surface-2: #1a2740;
+  --lp-nav: rgba(13, 20, 36, 0.72);
+  --lp-ink: #e7edf6;
+  --lp-ink-soft: #9fb0c5;
+  --lp-ink-faint: #64748b;
+  --lp-line: #23304a;
+  --lp-line-soft: #1c2740;
+  --lp-accent: #3bc06c;
+  --lp-accent-ink: #55c57f;
+  --lp-accent-soft: rgba(59, 192, 108, 0.12);
+  --lp-accent-line: rgba(59, 192, 108, 0.4);
+  --lp-warn: #f5a623;
+  --lp-warn-soft: rgba(245, 166, 35, 0.12);
+  --lp-danger: #f87171;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* Native radios/checkboxes: without @tailwindcss/forms the text-* utilities
+   do nothing — the check color follows the OS accent color. Pin it to the
+   brand green; semantic exceptions (danger red, global-admin purple)
+   override per control via Tailwind accent-* utilities. */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: #16a34a; /* green-600 */
+}
+.dark input[type="checkbox"],
+.dark input[type="radio"] {
+  accent-color: #22c55e; /* green-500 */
 }
 
 @layer utilities {
@@ -80,10 +139,13 @@ body {
   color: #94a3b8 !important;
 }
 .dark .text-gray-500 {
-  color: #64748b !important;
+  /* was #64748b — too dark on raised dark surfaces (notification items,
+     hover rows); lightened for readable muted text, hierarchy kept. */
+  color: #8896ad !important;
 }
 .dark .text-gray-400 {
-  color: #64748b !important;
+  /* was #64748b — see text-gray-500 note; one step more muted than 500. */
+  color: #7b8ba3 !important;
 }
 
 /* -- Borders -- */
@@ -118,11 +180,14 @@ body {
 }
 
 /* -- Hover states -- */
+/* Subtle, DARK hover surfaces: the former #334155 washed out muted text
+   (notification timestamps, table metadata) on hovered rows. One step
+   above the card surface (#1e293b) is enough as a hover signal. */
 .dark .hover\:bg-gray-50:hover {
-  background-color: #334155 !important;
+  background-color: #283548 !important;
 }
 .dark .hover\:bg-gray-100:hover {
-  background-color: #334155 !important;
+  background-color: #2e3c52 !important;
 }
 .dark .hover\:bg-gray-200:hover {
   background-color: #334155 !important;
@@ -559,6 +624,9 @@ html:hover ::-webkit-scrollbar-thumb {
 .dark .text-blue-700 {
   color: #60a5fa !important; /* blue-400 — step icons etc. on dark surfaces */
 }
+.dark .text-green-700 {
+  color: #4ade80 !important; /* green-400 — brand links/accents on dark surfaces */
+}
 .dark .text-indigo-700 {
   color: #a5b4fc !important; /* indigo-300 — category badge, correlation labels, doc links */
 }
@@ -727,6 +795,127 @@ html:hover ::-webkit-scrollbar-thumb {
 
 .landing-page .dot-pulse {
   animation: dotPulse 12.6s linear infinite;
+}
+
+/* ===== LANDING V2 (scroll reveals, event stream, terminal) ===== */
+
+/* The marketing surface is light-only for now: product screenshots are
+   light, and a half-dark landing reads unfinished. Re-declare the light
+   tokens inside .landing-v2 so a dark OS/portal preference does not
+   flip the landing. Remove this block to re-enable dark marketing. */
+.dark .landing-v2 {
+  --lp-bg: #fafafa;
+  --lp-surface: #ffffff;
+  --lp-surface-2: #f4f4f5;
+  --lp-nav: rgba(255, 255, 255, 0.72);
+  --lp-ink: #18181b;
+  --lp-ink-soft: #52525b;
+  --lp-ink-faint: #9ca3af;
+  --lp-line: #e4e4e7;
+  --lp-line-soft: #ededf0;
+  --lp-accent: #33b161;
+  --lp-accent-ink: #1e8a4c;
+  --lp-accent-soft: rgba(51, 177, 97, 0.1);
+  --lp-accent-line: rgba(51, 177, 97, 0.35);
+  --lp-warn: #d97706;
+  --lp-warn-soft: rgba(217, 119, 6, 0.1);
+  --lp-danger: #dc2626;
+}
+
+/* Neutralize the global .dark utility overrides inside the light-only
+   marketing surface: about/terms/privacy still use plain bg-white /
+   text-gray-* cards, which the app-wide dark overrides would otherwise
+   flip and leave those pages half dark. Dies together with the
+   light-only decision above. */
+.dark .landing-v2 .bg-white { background-color: #ffffff !important; }
+.dark .landing-v2 .bg-gray-50 { background-color: #f9fafb !important; }
+.dark .landing-v2 .bg-gray-100 { background-color: #f3f4f6 !important; }
+.dark .landing-v2 .text-gray-900 { color: #111827 !important; }
+.dark .landing-v2 .text-gray-800 { color: #1f2937 !important; }
+.dark .landing-v2 .text-gray-700 { color: #374151 !important; }
+.dark .landing-v2 .text-gray-600 { color: #4b5563 !important; }
+.dark .landing-v2 .text-gray-500 { color: #6b7280 !important; }
+.dark .landing-v2 .text-gray-400 { color: #9ca3af !important; }
+.dark .landing-v2 .border-gray-200 { border-color: #e5e7eb !important; }
+.dark .landing-v2 .border-gray-300 { border-color: #d1d5db !important; }
+.dark .landing-v2 .hover\:bg-gray-50:hover { background-color: #f9fafb !important; }
+.dark .landing-v2 .hover\:bg-gray-100:hover { background-color: #f3f4f6 !important; }
+
+/* Scroll-triggered reveal: Reveal.tsx adds .lp-in when the element
+   enters the viewport. Reduced motion renders everything visible. */
+.lp-reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+.lp-reveal.lp-in {
+  opacity: 1;
+  transform: none;
+}
+
+@keyframes lpFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.lp-event-in {
+  animation: lpFadeUp 0.4s ease-out both;
+}
+
+@keyframes lpBlink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+.lp-cursor::after {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--lp-accent);
+  animation: lpBlink 1s steps(1) infinite;
+}
+
+@keyframes lpPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(51, 177, 97, 0.35);
+  }
+  60% {
+    box-shadow: 0 0 0 6px rgba(51, 177, 97, 0);
+  }
+}
+.lp-live-dot {
+  animation: lpPulse 2s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .lp-event-in {
+    animation: none;
+  }
+  .lp-cursor::after {
+    animation: none;
+  }
+  .lp-live-dot {
+    animation: none;
+  }
 }
 
 /* ===== FEEDBACK BUBBLE ANIMATION ===== */

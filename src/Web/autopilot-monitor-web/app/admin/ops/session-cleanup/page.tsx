@@ -191,7 +191,7 @@ function InFlightTab({
         renderRowActions={(row) => (
           <button
             onClick={() => setPreviewing(row)}
-            className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+            className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
           >
             Preview
           </button>
@@ -368,7 +368,7 @@ function StrandedTab({
         renderRowActions={(row) => (
           <button
             onClick={() => setPreviewing(row)}
-            className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+            className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
           >
             Preview
           </button>
