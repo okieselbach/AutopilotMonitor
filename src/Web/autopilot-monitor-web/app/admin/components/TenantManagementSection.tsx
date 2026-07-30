@@ -74,6 +74,9 @@ function TenantManagementSectionInner({
   // Read-only Global Readers may view tenants (incl. config report) but not edit them.
   const canMutate = useCanMutatePlatform();
   const [searchQuery, setSearchQuery] = useState("");
+  // Mount-time clock for trial-expiry checks — render must stay pure
+  // (react-hooks/purity); day-granularity expiry doesn't need a live clock.
+  const [nowMs] = useState(() => Date.now());
 
   // Deep link from GA notifications: ?tenantId=… seeds the search box once, so the
   // list opens filtered to the tenant the notification is about.
@@ -597,7 +600,7 @@ function TenantManagementSectionInner({
                   {(() => {
                     const isEnterpriseTier = editingTenant.planTier === "enterprise";
                     const trialActive = !!editingTenant.trialExpiresUtc &&
-                      new Date(editingTenant.trialExpiresUtc).getTime() > Date.now();
+                      new Date(editingTenant.trialExpiresUtc).getTime() > nowMs;
                     const effective = isEnterpriseTier || trialActive ? "Enterprise" : "Community";
                     return (
                       <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${

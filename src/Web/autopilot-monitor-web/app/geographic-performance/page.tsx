@@ -82,7 +82,15 @@ interface GeographicMetricsResponse {
 
 type GroupBy = "city" | "region" | "country";
 type SortBy = "sessionCount" | "avgDurationMinutes" | "appLoadScore" | "avgThroughputBytesPerSec" | "avgApiLatencyMs" | "avgDoPercentPeerCaching";
+
 type TimeRange = "7d" | "30d" | "90d";
+
+// Module-level so React keeps a stable component identity across renders
+// (react-hooks/static-components: an inline component type remounts on every render).
+function SortIcon({ col, sortBy, sortDesc }: { col: SortBy; sortBy: SortBy; sortDesc: boolean }) {
+  if (sortBy !== col) return <span className="text-gray-300 ml-1">&#8597;</span>;
+  return <span className="text-blue-600 ml-1">{sortDesc ? "▼" : "▲"}</span>;
+}
 
 const durationColor = (value: number, globalAvg: number) => {
   if (globalAvg <= 0) return "text-gray-700";
@@ -218,11 +226,6 @@ export default function GeographicPerformancePage() {
       setSortBy(col);
       setSortDesc(true);
     }
-  };
-
-  const SortIcon = ({ col }: { col: SortBy }) => {
-    if (sortBy !== col) return <span className="text-gray-300 ml-1">&#8597;</span>;
-    return <span className="text-blue-600 ml-1">{sortDesc ? "▼" : "▲"}</span>;
   };
 
   if (loading) {
@@ -434,7 +437,7 @@ export default function GeographicPerformancePage() {
                           className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
                           onClick={() => handleSort("sessionCount")}
                         >
-                          Sessions <SortIcon col="sessionCount" />
+                          Sessions <SortIcon col="sessionCount" sortBy={sortBy} sortDesc={sortDesc} />
                         </th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Success
@@ -443,7 +446,7 @@ export default function GeographicPerformancePage() {
                           className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
                           onClick={() => handleSort("avgDurationMinutes")}
                         >
-                          Avg Duration <SortIcon col="avgDurationMinutes" />
+                          Avg Duration <SortIcon col="avgDurationMinutes" sortBy={sortBy} sortDesc={sortDesc} />
                         </th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           P95
@@ -452,26 +455,26 @@ export default function GeographicPerformancePage() {
                           className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
                           onClick={() => handleSort("appLoadScore")}
                         >
-                          App-Load-Score <SortIcon col="appLoadScore" />
+                          App-Load-Score <SortIcon col="appLoadScore" sortBy={sortBy} sortDesc={sortDesc} />
                         </th>
                         <th
                           className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
                           onClick={() => handleSort("avgThroughputBytesPerSec")}
                         >
-                          Throughput <SortIcon col="avgThroughputBytesPerSec" />
+                          Throughput <SortIcon col="avgThroughputBytesPerSec" sortBy={sortBy} sortDesc={sortDesc} />
                         </th>
                         <th
                           className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
                           onClick={() => handleSort("avgApiLatencyMs")}
                           title="Agent→backend HTTP round-trip measured on the devices — high values indicate network distance to the backend region"
                         >
-                          API Latency <SortIcon col="avgApiLatencyMs" />
+                          API Latency <SortIcon col="avgApiLatencyMs" sortBy={sortBy} sortDesc={sortDesc} />
                         </th>
                         <th
                           className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
                           onClick={() => handleSort("avgDoPercentPeerCaching")}
                         >
-                          P2P % <SortIcon col="avgDoPercentPeerCaching" />
+                          P2P % <SortIcon col="avgDoPercentPeerCaching" sortBy={sortBy} sortDesc={sortDesc} />
                         </th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           vs Global

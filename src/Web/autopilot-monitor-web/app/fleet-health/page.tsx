@@ -77,6 +77,29 @@ export default function FleetHealthPage() {
     signalR: { on, off, isConnected },
   });
 
+  const fetchAppMetrics = async (range: "7d" | "30d" | "90d" = timeRange) => {
+    try {
+      const d = range === "7d" ? 7 : range === "30d" ? 30 : 90;
+      const endpoint = routeGlobal
+        ? api.metrics.globalApp(d, selectedTenantId || undefined)
+        : api.metrics.app(tenantId, d);
+      const response = await authenticatedFetch(endpoint, getAccessToken);
+      if (response.ok) {
+        const json = await response.json();
+        setAppMetrics(json);
+      } else {
+        addNotification('error', 'Backend Error', `Failed to load app metrics: ${response.statusText}`, 'fleet-health-metrics-error');
+      }
+    } catch (error) {
+      if (error instanceof TokenExpiredError) {
+        addNotification('error', 'Session Expired', error.message, 'session-expired-error');
+      } else {
+        console.error("Failed to fetch app metrics:", error);
+        addNotification('error', 'Backend Not Reachable', 'Unable to load app metrics. Please check your connection.', 'fleet-health-metrics-error');
+      }
+    }
+  };
+
   // App install metrics are already backend-aggregated; fetch alongside fleet data.
   useEffect(() => {
     if (!scopeInitialized) return;
@@ -146,29 +169,6 @@ export default function FleetHealthPage() {
       }
     };
   }, [isConnected, effectiveTenantId]);
-
-  const fetchAppMetrics = async (range: "7d" | "30d" | "90d" = timeRange) => {
-    try {
-      const d = range === "7d" ? 7 : range === "30d" ? 30 : 90;
-      const endpoint = routeGlobal
-        ? api.metrics.globalApp(d, selectedTenantId || undefined)
-        : api.metrics.app(tenantId, d);
-      const response = await authenticatedFetch(endpoint, getAccessToken);
-      if (response.ok) {
-        const json = await response.json();
-        setAppMetrics(json);
-      } else {
-        addNotification('error', 'Backend Error', `Failed to load app metrics: ${response.statusText}`, 'fleet-health-metrics-error');
-      }
-    } catch (error) {
-      if (error instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', error.message, 'session-expired-error');
-      } else {
-        console.error("Failed to fetch app metrics:", error);
-        addNotification('error', 'Backend Not Reachable', 'Unable to load app metrics. Please check your connection.', 'fleet-health-metrics-error');
-      }
-    }
-  };
 
   // Server payload, with presentation-friendly defaults so the JSX renders
   // without null guards once loading clears. `avgDuration` keeps the card's

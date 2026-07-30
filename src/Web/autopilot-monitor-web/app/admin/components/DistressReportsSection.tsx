@@ -146,11 +146,6 @@ export function DistressReportsSection({
     return sortDir === "asc" ? cmp : -cmp;
   });
 
-  useEffect(() => {
-    fetchReports();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const fetchReports = async () => {
     try {
       setLoading(true);
@@ -171,6 +166,11 @@ export function DistressReportsSection({
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchReports();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Summary stats
   const errorTypeCounts = reports.reduce<Record<string, number>>((acc, r) => {
