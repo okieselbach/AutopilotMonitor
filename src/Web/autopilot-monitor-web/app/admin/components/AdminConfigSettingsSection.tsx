@@ -328,7 +328,7 @@ export function AdminConfigSettingsSection({
                   type="checkbox"
                   checked={sessionDeletionKillSwitch}
                   onChange={(e) => setSessionDeletionKillSwitch(e.target.checked)}
-                  className="mt-1 h-5 w-5 rounded border-red-300 dark:border-red-600 text-red-600 focus:ring-red-500"
+                  className="mt-1 h-5 w-5 rounded border-red-300 dark:border-red-600 text-red-600 accent-red-600 focus:ring-red-500"
                 />
                 <span>
                   <span className="text-red-900 dark:text-red-100 font-medium">Cascade-Delete Kill-Switch (emergency)</span>

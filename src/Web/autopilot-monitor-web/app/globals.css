@@ -81,6 +81,19 @@ body {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
+/* Native radios/checkboxes: without @tailwindcss/forms the text-* utilities
+   do nothing — the check color follows the OS accent color. Pin it to the
+   brand green; semantic exceptions (danger red, global-admin purple)
+   override per control via Tailwind accent-* utilities. */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: #16a34a; /* green-600 */
+}
+.dark input[type="checkbox"],
+.dark input[type="radio"] {
+  accent-color: #22c55e; /* green-500 */
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;
