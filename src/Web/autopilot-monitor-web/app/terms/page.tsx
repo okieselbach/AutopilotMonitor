@@ -20,7 +20,7 @@ export default function TermsPage() {
         </div>
       </header>
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 text-[15px]">
-        <div className="bg-white rounded-lg shadow p-6 space-y-4">
+        <div className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-6 space-y-4">
           <p className="text-sm text-gray-500">Last updated: {LAST_UPDATED}</p>
           <p className="text-gray-700">
             Autopilot Monitor is provided by <strong>glueckkanja AG</strong>, a German company certified to ISO/IEC
@@ -35,7 +35,7 @@ export default function TermsPage() {
           </p>
 
           <div className="grid gap-4 md:grid-cols-2 mt-4">
-            <div className="p-4 border border-gray-200 rounded-lg">
+            <div className="p-4 border border-[var(--lp-line-soft)] rounded-lg">
               <h3 className="font-semibold text-gray-900 mb-1">Community</h3>
               <p className="text-sm text-gray-700">
                 Free, invite-only, currently in Private Preview, and maintained by Oliver Kieselbach as an open
@@ -43,7 +43,7 @@ export default function TermsPage() {
                 availability, support, or fitness for a particular purpose. Support is community-based via GitHub.
               </p>
             </div>
-            <div className="p-4 border border-gray-200 rounded-lg">
+            <div className="p-4 border border-[var(--lp-line-soft)] rounded-lg">
               <h3 className="font-semibold text-gray-900 mb-1">Enterprise</h3>
               <p className="text-sm text-gray-700">
                 Commercial plan under a written agreement with glueckkanja AG. Includes support and reliability
@@ -68,7 +68,7 @@ export default function TermsPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6 space-y-4">
+        <div className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-6 space-y-4">
           <h2 className="text-lg font-semibold text-gray-900">Acceptable Use</h2>
           <p className="text-gray-700">By using this service, you agree that:</p>
           <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
@@ -97,7 +97,7 @@ export default function TermsPage() {
           </p>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6 space-y-4">
+        <div className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-6 space-y-4">
           <h2 className="text-lg font-semibold text-gray-900">Intellectual Property &amp; Licensing</h2>
           <div className="space-y-2 text-gray-700">
             <p><strong>Open source.</strong> The Autopilot Monitor source code is published on <a href="https://github.com/okieselbach/AutopilotMonitor" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">GitHub</a> under the licence stated in that repository. That licence governs the code — it does not grant rights to the hosted service, its infrastructure, its data, or the Autopilot Monitor name and branding.</p>
@@ -107,7 +107,7 @@ export default function TermsPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6 space-y-4">
+        <div className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-6 space-y-4">
           <h2 className="text-lg font-semibold text-gray-900">Delegated (MSP) Administration</h2>
           <p className="text-gray-700">
             Delegated administration lets a managing organization see a defined set of customer tenants from one place. It
@@ -122,7 +122,7 @@ export default function TermsPage() {
           </ul>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6 space-y-4">
+        <div className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-6 space-y-4">
           <h2 className="text-lg font-semibold text-gray-900">Availability, Support and Data</h2>
 
           <div className="bg-[var(--lp-warn-soft)] border-l-4 border-[var(--lp-warn)] p-4 rounded">
@@ -144,7 +144,7 @@ export default function TermsPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6 space-y-4">
+        <div className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-6 space-y-4">
           <h2 className="text-lg font-semibold text-gray-900">Your Data, Suspension and Termination</h2>
           <div className="space-y-2 text-gray-700">
             <p><strong>Ownership.</strong> Your enrollment telemetry remains yours. Autopilot Monitor processes it to provide the service, as described in the <a href="/privacy" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">Privacy Policy</a>.</p>
@@ -156,7 +156,7 @@ export default function TermsPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6 space-y-4">
+        <div className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-6 space-y-4">
           <h2 className="text-lg font-semibold text-gray-900">Security and Transparency</h2>
           <p className="text-gray-700">
             The security architecture, data residency, external services, retention and deletion behaviour, and an explicit
@@ -166,7 +166,7 @@ export default function TermsPage() {
           </p>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6 space-y-4">
+        <div className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-6 space-y-4">
           <h2 className="text-lg font-semibold text-gray-900">Third-Party Data Sources &amp; Attributions</h2>
           <p className="text-gray-700">
             The vulnerability correlation feature uses the following external data sources to identify known
@@ -174,7 +174,7 @@ export default function TermsPage() {
             them.
           </p>
           <div className="space-y-3">
-            <div className="p-4 border border-gray-200 rounded-lg">
+            <div className="p-4 border border-[var(--lp-line-soft)] rounded-lg">
               <h3 className="font-semibold text-gray-900 mb-1">National Vulnerability Database (NVD)</h3>
               <p className="text-sm text-gray-700 mb-2">
                 This product uses the NVD API but is not endorsed or certified by the NVD.
@@ -184,14 +184,14 @@ export default function TermsPage() {
                 <a href="https://nvd.nist.gov/" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">nvd.nist.gov</a>.
               </p>
             </div>
-            <div className="p-4 border border-gray-200 rounded-lg">
+            <div className="p-4 border border-[var(--lp-line-soft)] rounded-lg">
               <h3 className="font-semibold text-gray-900 mb-1">CISA Known Exploited Vulnerabilities (KEV) Catalog</h3>
               <p className="text-sm text-gray-500">
                 Actively exploited vulnerability data is sourced from the CISA KEV Catalog maintained by the Cybersecurity and Infrastructure Security Agency. For more information, visit{" "}
                 <a href="https://www.cisa.gov/known-exploited-vulnerabilities-catalog" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">cisa.gov</a>.
               </p>
             </div>
-            <div className="p-4 border border-gray-200 rounded-lg">
+            <div className="p-4 border border-[var(--lp-line-soft)] rounded-lg">
               <h3 className="font-semibold text-gray-900 mb-1">Microsoft Security Response Center (MSRC)</h3>
               <p className="text-sm text-gray-500">
                 Microsoft-specific vulnerability data is sourced from the MSRC Security Update Guide API. For more information, visit{" "}
@@ -201,7 +201,7 @@ export default function TermsPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6 space-y-4">
+        <div className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-6 space-y-4">
           <h2 className="text-lg font-semibold text-gray-900">Changes and Governing Law</h2>
           <div className="space-y-2 text-gray-700">
             <p><strong>Changes.</strong> These terms may be updated; the &quot;last updated&quot; date above reflects the current version, and material changes are announced through the service announcements in the portal. Continued use after a change constitutes acceptance.</p>

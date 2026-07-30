@@ -32,7 +32,7 @@ export default function PrivacyPage() {
         </div>
       </header>
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 text-[15px]">
-        <div className="bg-white rounded-lg shadow p-6 space-y-4">
+        <div className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-6 space-y-4">
           <p className="text-sm text-gray-500">Last updated: {LAST_UPDATED}</p>
           <p className="text-gray-700">
             Autopilot Monitor collects technical telemetry about Windows Autopilot enrollments so that IT teams can see
