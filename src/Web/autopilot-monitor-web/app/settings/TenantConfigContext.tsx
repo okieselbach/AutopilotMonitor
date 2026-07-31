@@ -1105,7 +1105,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         setError("Couldn't verify access right now (timed out). Please try again in a moment.");
       } else if (outcome === "absent") {
         trackEvent("detect_access_failed", { trigger, outcome });
-        setError("No existing access detected for this tenant. Complete admin consent, or ask someone with consent rights (Application or Global Administrator) to approve the app first.");
+        setError("No existing access detected for this tenant. Complete admin consent, or ask someone with consent rights (Global Administrator or Privileged Role Administrator) to approve the app first.");
       }
       // "reconciled" => success message already set by the helper.
       // "failed" => access present but persist failed; saveConfiguration already set the error.

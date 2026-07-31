@@ -111,7 +111,7 @@ export default function AutopilotValidationSection({
       <div className="p-6 space-y-5">
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
           <p className="text-sm text-gray-700">
-            These validations require the <strong>DeviceManagementServiceConfig.Read.All</strong> permission. Enabling an option starts Microsoft Entra admin consent if not already granted. After consent, the setting is saved automatically. Granting consent requires at least the <strong>Application Administrator</strong> or <strong>Global Administrator</strong> Entra role.
+            These validations require the <strong>DeviceManagementServiceConfig.Read.All</strong> permission. Enabling an option starts Microsoft Entra admin consent if not already granted. After consent, the setting is saved automatically. Granting consent requires the <strong>Global Administrator</strong> or <strong>Privileged Role Administrator</strong> Entra role (Application Administrator is not sufficient — Microsoft excludes Graph application permissions from its consent rights).
           </p>
           {onDetectExistingAccess && (
             <p className="text-sm text-gray-700">
