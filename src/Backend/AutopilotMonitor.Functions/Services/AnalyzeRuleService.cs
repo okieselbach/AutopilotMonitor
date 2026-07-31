@@ -230,7 +230,24 @@ namespace AutopilotMonitor.Functions.Services
             // Tenant custom rules carry their own MarkSessionAsFailedDefault / NotifyDefault /
             // NotifyChannelIds on the rule row; no override needed since the tenant already
             // fully owns the rule definition.
-            mergedRules.AddRange(customRules);
+            //
+            // Collision guard: tenant-partition rows sharing a RuleId with a merged global
+            // rule are legacy debris from the pre-global-partition seeding era (custom rule
+            // creation rejects global-id collisions). The global definition wins — merging
+            // the stale copy would put the same RuleId in the list twice and break every
+            // ToDictionary(r => r.RuleId) consumer downstream.
+            var mergedIds = new HashSet<string>(mergedRules.Select(r => r.RuleId), StringComparer.Ordinal);
+            foreach (var custom in customRules)
+            {
+                if (!mergedIds.Add(custom.RuleId))
+                {
+                    _logger.LogWarning(
+                        "Tenant {TenantId} has a stale tenant-partition analyze rule {RuleId} colliding with a global rule — skipping the tenant copy",
+                        tenantId, custom.RuleId);
+                    continue;
+                }
+                mergedRules.Add(custom);
+            }
 
             return mergedRules;
         }

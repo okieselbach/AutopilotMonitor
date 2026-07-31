@@ -104,8 +104,24 @@ namespace AutopilotMonitor.Functions.Services
                 mergedRules.Add(rule);
             }
 
-            // Add tenant-specific custom rules
-            mergedRules.AddRange(customRules);
+            // Add tenant-specific custom rules.
+            //
+            // Collision guard (mirrors AnalyzeRuleService): tenant-partition rows sharing a
+            // RuleId with a merged global rule are legacy debris from the pre-global-partition
+            // seeding era — the global definition wins, the stale copy is skipped so the same
+            // RuleId can never appear twice in the merged result.
+            var mergedIds = new HashSet<string>(mergedRules.Select(r => r.RuleId), StringComparer.Ordinal);
+            foreach (var custom in customRules)
+            {
+                if (!mergedIds.Add(custom.RuleId))
+                {
+                    _logger.LogWarning(
+                        "Tenant {TenantId} has a stale tenant-partition gather rule {RuleId} colliding with a global rule — skipping the tenant copy",
+                        tenantId, custom.RuleId);
+                    continue;
+                }
+                mergedRules.Add(custom);
+            }
 
             return mergedRules;
         }
