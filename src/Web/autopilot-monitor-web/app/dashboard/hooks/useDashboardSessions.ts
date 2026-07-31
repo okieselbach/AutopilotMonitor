@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { useLatest } from "@/hooks/useLatest";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { extractContinuation } from "@/lib/paginationLink";
 import { asGuidOrUndefined } from "@/utils/inputValidation";
@@ -96,8 +97,6 @@ export function useDashboardSessions({
   signalR,
 }: UseDashboardSessionsParams): UseDashboardSessionsReturn {
   const { on, off, isConnected, joinGroup, leaveGroup } = signalR;
-  const joinGlobalAdminsRef = useRef(joinGlobalAdmins);
-  joinGlobalAdminsRef.current = joinGlobalAdmins;
 
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
@@ -106,32 +105,23 @@ export function useDashboardSessions({
   const [continuation, setContinuation] = useState<string | null>(null);
 
   // Refs for SignalR handlers to access current filter state without restarting subscriptions
-  const tenantIdFilterRef = useRef(tenantIdFilter);
-  tenantIdFilterRef.current = tenantIdFilter;
-  const globalAdminModeRef = useRef(globalAdminMode);
-  globalAdminModeRef.current = globalAdminMode;
-  const tenantIdRef = useRef(tenantId);
-  tenantIdRef.current = tenantId;
+  const tenantIdFilterRef = useLatest(tenantIdFilter);
+  const globalAdminModeRef = useLatest(globalAdminMode);
+  const tenantIdRef = useLatest(tenantId);
   // Delegated ("MSP") bound for the cross-tenant filter: a delegated reader (no platform scope) may only
   // drill a managed tenant. Refs so the fetch closure reads live values without re-creating it (matches the
   // other scope refs). isDelegatedScope excludes a delegated user who is ALSO GA/Reader (those are unbounded).
-  const isDelegatedScopeRef = useRef(false);
-  isDelegatedScopeRef.current = !!user?.isDelegated && !user?.isGlobalAdmin && !user?.isGlobalReader;
-  const delegatedTenantIdsRef = useRef<string[] | undefined>(undefined);
-  delegatedTenantIdsRef.current = user?.delegatedTenantIds;
+  const isDelegatedScopeRef = useLatest(!!user?.isDelegated && !user?.isGlobalAdmin && !user?.isGlobalReader);
+  const delegatedTenantIdsRef = useLatest(user?.delegatedTenantIds);
 
   // Refs for fetch closures (refetch is called from various effects/handlers and should
   // always see current filter values without forcing dependency-driven recreation)
-  const adminModeRef = useRef(adminMode);
-  adminModeRef.current = adminMode;
-  const continuationRef = useRef(continuation);
-  continuationRef.current = continuation;
-  const loadingMoreRef = useRef(loadingMore);
-  loadingMoreRef.current = loadingMore;
+  const adminModeRef = useLatest(adminMode);
+  const continuationRef = useLatest(continuation);
 
   // Synchronous lock: set true BEFORE the first await so two triggers in the same
   // render cycle (pagination effect + debounced search effect in page.tsx) cannot
-  // both pass the guard. The state-mirrored loadingMoreRef above lags by one tick
+  // both pass the guard. The state-mirrored `loadingMore` flag lags by one tick
   // and is insufficient for that race.
   const fetchLockRef = useRef(false);
   // Cancellation token for the progressive loadAll() loop. Bumped whenever the
@@ -200,7 +190,7 @@ export function useDashboardSessions({
         console.error("Failed to fetch blocked devices:", error);
       }
     }
-  }, [getAccessToken, addNotification, setBlockedDevicesSet]);
+  }, [getAccessToken, addNotification, setBlockedDevicesSet, adminModeRef, globalAdminModeRef, tenantIdRef]);
 
   const getInitialPageSize = (): number => {
     // Pattern B2 default first-paint pageSize is 10; localStorage may override
@@ -279,7 +269,7 @@ export function useDashboardSessions({
       }
       return null;
     }
-  }, [getAccessToken, addNotification]);
+  }, [getAccessToken, addNotification, globalAdminModeRef, tenantIdRef, isDelegatedScopeRef, delegatedTenantIdsRef]);
 
   // High-level fetch that applies result to state (initial load + single load-more).
   const fetchSessions = useCallback(async (loadMoreContinuation?: string, globalTenantIdOverride?: string) => {
@@ -325,7 +315,7 @@ export function useDashboardSessions({
     setHasMore(false);
     setLoading(true);
     fetchSessions();
-  }, [fetchSessions]);
+  }, [fetchSessions, tenantIdFilterRef]);
 
   const refetchWith = useCallback((tenantIdOverride: string) => {
     loadAllTokenRef.current++; // cancel any in-flight progressive loader
@@ -344,7 +334,7 @@ export function useDashboardSessions({
     fetchSessions(continuationRef.current).finally(() => {
       fetchLockRef.current = false;
     });
-  }, [fetchSessions]);
+  }, [fetchSessions, continuationRef]);
 
   // Progressive loader — fetches ALL remaining sessions batch by batch.
   // Used when search is active and local results are insufficient.
@@ -368,7 +358,7 @@ export function useDashboardSessions({
       fetchLockRef.current = false;
       setLoadingMore(false);
     }
-  }, [fetchSessionsBatch]);
+  }, [fetchSessionsBatch, continuationRef]);
 
   const removeSession = useCallback((sessionId: string) => {
     setSessions((prev) => prev.filter((s) => s.sessionId !== sessionId));
