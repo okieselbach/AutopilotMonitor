@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { useLatest } from "@/hooks/useLatest";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { asGuidOrUndefined } from "@/utils/inputValidation";
 import type { NotificationType } from "@/contexts/NotificationContext";
@@ -130,14 +131,10 @@ export function useFleetHealth({
   const [error, setError] = useState<string | null>(null);
 
   // Live refs so SignalR handlers see current scope without re-subscribing.
-  const routeGlobalRef = useRef(routeGlobal);
-  routeGlobalRef.current = routeGlobal;
-  const selectedTenantIdRef = useRef(selectedTenantId);
-  selectedTenantIdRef.current = selectedTenantId;
-  const tenantIdRef = useRef(tenantId);
-  tenantIdRef.current = tenantId;
-  const daysRef = useRef(days);
-  daysRef.current = days;
+  const routeGlobalRef = useLatest(routeGlobal);
+  const selectedTenantIdRef = useLatest(selectedTenantId);
+  const tenantIdRef = useLatest(tenantId);
+  const daysRef = useLatest(days);
 
   // Invalidates an in-flight fetch when scope/days shift mid-request.
   const fetchGenRef = useRef(0);
@@ -191,7 +188,7 @@ export function useFleetHealth({
     } finally {
       if (myGen === fetchGenRef.current) setLoading(false);
     }
-  }, [getAccessToken, addNotification]);
+  }, [getAccessToken, addNotification, routeGlobalRef, selectedTenantIdRef, daysRef]);
 
   const refresh = useCallback(() => {
     if (debounceTimerRef.current) {
