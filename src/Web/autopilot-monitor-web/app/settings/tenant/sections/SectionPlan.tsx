@@ -104,7 +104,7 @@ export function SectionPlan() {
     "Higher portal & agent API rate limits",
     "Larger AI (MCP) usage quota",
     "Delegated (MSP) administration across tenants",
-    "OOBE bootstrap sessions — test the agent without an Intune deployment",
+    "OOBE bootstrap sessions — run the agent already before MDM enrollment",
     "Unrestricted Mode for advanced data collection (activated on request)",
     "Reliability commitments & priority support",
   ];
