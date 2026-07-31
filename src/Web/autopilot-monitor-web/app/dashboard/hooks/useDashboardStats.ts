@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { useLatest } from "@/hooks/useLatest";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { asGuidOrUndefined } from "@/utils/inputValidation";
 import { boundTenantToDelegatedScope } from "@/utils/delegatedScope";
@@ -95,20 +96,13 @@ export function useDashboardStats({
   const [error, setError] = useState<string | null>(null);
 
   // Scope refs for SignalR handlers (avoid restarting subscriptions on every keystroke).
-  const tenantIdRef = useRef(tenantId);
-  tenantIdRef.current = tenantId;
-  const globalAdminModeRef = useRef(globalAdminMode);
-  globalAdminModeRef.current = globalAdminMode;
-  const submittedFilterRef = useRef(submittedTenantIdFilter);
-  submittedFilterRef.current = submittedTenantIdFilter;
-  const isDelegatedScopeRef = useRef(isDelegatedScope);
-  isDelegatedScopeRef.current = isDelegatedScope;
-  const delegatedTenantIdsRef = useRef(delegatedTenantIds);
-  delegatedTenantIdsRef.current = delegatedTenantIds;
-  const daysRef = useRef(days);
-  daysRef.current = days;
-  const disabledRef = useRef(disabled);
-  disabledRef.current = disabled;
+  const tenantIdRef = useLatest(tenantId);
+  const globalAdminModeRef = useLatest(globalAdminMode);
+  const submittedFilterRef = useLatest(submittedTenantIdFilter);
+  const isDelegatedScopeRef = useLatest(isDelegatedScope);
+  const delegatedTenantIdsRef = useLatest(delegatedTenantIds);
+  const daysRef = useLatest(days);
+  const disabledRef = useLatest(disabled);
 
   // Generation counter — invalidates an in-flight fetch when the scope shifts
   // mid-request (tenant switch, GA toggle, filter Submit). Without this, a slow
@@ -181,7 +175,8 @@ export function useDashboardStats({
     } finally {
       if (myGen === fetchGenRef.current) setLoading(false);
     }
-  }, [getAccessToken, addNotification]);
+  }, [getAccessToken, addNotification, disabledRef, globalAdminModeRef, tenantIdRef,
+      isDelegatedScopeRef, submittedFilterRef, delegatedTenantIdsRef, daysRef]);
 
   const refresh = useCallback(() => {
     if (debounceTimerRef.current) {
