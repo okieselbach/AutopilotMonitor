@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { savePostLoginReturnUrl } from "../lib/postLoginReturn";
 import { isOnPublicHost } from "../lib/hostRouting";
+import { consumeLoginDeclined, legacyConfigured, switchAuthApp } from "../lib/authApp";
+import { activeAuthApp } from "../lib/msalConfig";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -44,7 +46,13 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
 
   // Prevent infinite redirect loops: only attempt re-login once per mount.
   const reloginAttempted = useRef(false);
-  const [loginFailed, setLoginFailed] = useState(false);
+  // Start in the failed state when the user actively DECLINED a consent prompt on the last
+  // redirect (dual app-reg safety net, AADSTS65004): re-firing the auto login would bounce
+  // them straight back to the same consent screen — show the manual retry UI (with the
+  // previous-app link) instead. One-shot marker, consumed here; a later manual retry runs
+  // the normal flow again. Lazy initializer: consumed once per mount, never during SSR
+  // (consumeLoginDeclined is try/catch-guarded against a missing window).
+  const [loginFailed, setLoginFailed] = useState(() => consumeLoginDeclined());
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -53,6 +61,12 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
       // user in on the WRONG origin (www) and force a second sign-in after
       // the handover. Stand down and let the guard navigate.
       if (isOnPublicHost()) {
+        return;
+      }
+      // Failed state (consent declined / earlier login error): stand down so the manual
+      // retry UI stays in control instead of auto-firing another redirect.
+      if (loginFailed) {
+        reloginAttempted.current = true;
         return;
       }
       if (!reloginAttempted.current) {
@@ -76,7 +90,7 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
         });
       }
     }
-  }, [isAuthenticated, isLoading, router, login]);
+  }, [isAuthenticated, isLoading, router, login, loginFailed]);
 
   // Sign-in failed (e.g. an interrupted earlier redirect left MSAL in
   // interaction_in_progress) — stay on this origin and offer a manual retry.
@@ -95,6 +109,17 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
           >
             Sign in
           </button>
+          {legacyConfigured() && activeAuthApp !== "legacy" && (
+            <p className="mt-4 text-sm text-gray-500">
+              Existing customer?{" "}
+              <button
+                onClick={() => switchAuthApp("legacy")}
+                className="text-green-700 underline hover:text-green-800"
+              >
+                Sign in with the previous Autopilot Monitor app
+              </button>
+            </p>
+          )}
         </div>
       </div>
     );

@@ -327,17 +327,23 @@ public class GraphFeatureDetectorTests
         var handler = new SwappableTokenHandler(
             BuildJwt(Array.Empty<Claim>(), expires: DateTime.UtcNow.AddHours(1))); // pre-grant: no roles
         var cache = new MemoryCache(new MemoryCacheOptions());
+        var tokenConfig = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["EntraId:ClientId"] = "test-client",
+                ["EntraId:ClientSecret"] = "test-secret",
+            })
+            .Build();
         var tokenService = new GraphTokenService(
             NullLogger<GraphTokenService>.Instance,
             new SingleHandlerFactory(handler),
             cache,
-            new ConfigurationBuilder()
-                .AddInMemoryCollection(new Dictionary<string, string?>
-                {
-                    ["EntraId:ClientId"] = "test-client",
-                    ["EntraId:ClientSecret"] = "test-secret",
-                })
-                .Build());
+            tokenConfig,
+            new EntraAppRegistry(tokenConfig, NullLogger<EntraAppRegistry>.Instance),
+            new AutopilotMonitor.Functions.Services.TenantConfigurationService(
+                Moq.Mock.Of<AutopilotMonitor.Shared.DataAccess.IConfigRepository>(),
+                NullLogger<AutopilotMonitor.Functions.Services.TenantConfigurationService>.Instance,
+                new MemoryCache(new MemoryCacheOptions())));
         var telemetry = new TelemetryClient(new TelemetryConfiguration { DisableTelemetry = true });
         var detector = new GraphFeatureDetector(
             tokenService, cache, NullLogger<GraphFeatureDetector>.Instance, telemetry);
@@ -454,6 +460,28 @@ public class GraphFeatureDetectorTests
 
     // ── Test seam: token service stub + detector factory ──────────────────────────────
 
+    /// <summary>Minimal EntraId config for the GraphTokenService base ctor (no legacy app).</summary>
+    private static Microsoft.Extensions.Configuration.IConfiguration StubEntraConfig() =>
+        new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["EntraId:ClientId"] = "test-client-id",
+                ["EntraId:ClientSecret"] = "test-secret",
+            })
+            .Build();
+
+    /// <summary>
+    /// Dual app-reg dependencies for the GraphTokenService base ctor. No legacy app configured
+    /// ⇒ the registry always resolves primary and the tenant-config lookup is never consulted.
+    /// </summary>
+    private static EntraAppRegistry StubAppRegistry() =>
+        new(StubEntraConfig(), NullLogger<EntraAppRegistry>.Instance);
+
+    private static AutopilotMonitor.Functions.Services.TenantConfigurationService StubTenantConfigService() =>
+        new(Moq.Mock.Of<AutopilotMonitor.Shared.DataAccess.IConfigRepository>(),
+            NullLogger<AutopilotMonitor.Functions.Services.TenantConfigurationService>.Instance,
+            new MemoryCache(new MemoryCacheOptions()));
+
     /// <summary>
     /// Subclass that bypasses the real AAD HTTP call so tests can drive the detector with
     /// canned <see cref="GraphTokenResult"/> values. Base ctor dependencies are satisfied
@@ -469,13 +497,9 @@ public class GraphFeatureDetectorTests
                 NullLogger<GraphTokenService>.Instance,
                 new NoopHttpClientFactory(),
                 new MemoryCache(new MemoryCacheOptions()),
-                new ConfigurationBuilder()
-                    .AddInMemoryCollection(new Dictionary<string, string?>
-                    {
-                        ["EntraId:ClientId"] = "test-client-id",
-                        ["EntraId:ClientSecret"] = "test-secret",
-                    })
-                    .Build())
+                StubEntraConfig(),
+                StubAppRegistry(),
+                StubTenantConfigService())
         {
         }
 
@@ -506,13 +530,9 @@ public class GraphFeatureDetectorTests
                 NullLogger<GraphTokenService>.Instance,
                 new NoopHttpClientFactory(),
                 new MemoryCache(new MemoryCacheOptions()),
-                new ConfigurationBuilder()
-                    .AddInMemoryCollection(new Dictionary<string, string?>
-                    {
-                        ["EntraId:ClientId"] = "test-client-id",
-                        ["EntraId:ClientSecret"] = "test-secret",
-                    })
-                    .Build())
+                StubEntraConfig(),
+                StubAppRegistry(),
+                StubTenantConfigService())
         {
             _firstToken = firstToken;
             _laterToken = laterToken;
@@ -549,13 +569,9 @@ public class GraphFeatureDetectorTests
                 NullLogger<GraphTokenService>.Instance,
                 factory,
                 cache,
-                new ConfigurationBuilder()
-                    .AddInMemoryCollection(new Dictionary<string, string?>
-                    {
-                        ["EntraId:ClientId"] = "test-client-id",
-                        ["EntraId:ClientSecret"] = "test-secret",
-                    })
-                    .Build())
+                StubEntraConfig(),
+                StubAppRegistry(),
+                StubTenantConfigService())
         {
             _onInvalidate = onInvalidate;
         }

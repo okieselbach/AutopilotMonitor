@@ -87,7 +87,7 @@ export default function GetStartedPage() {
 
           {/* CTA */}
           <div className="mt-14 flex flex-wrap items-center gap-3">
-            <LoginButton className="px-7 py-3 rounded-lg bg-[var(--lp-accent-ink)] hover:brightness-110 hover:shadow-lg text-white font-semibold shadow-md transition-all">
+            <LoginButton signup className="px-7 py-3 rounded-lg bg-[var(--lp-accent-ink)] hover:brightness-110 hover:shadow-lg text-white font-semibold shadow-md transition-all">
               Sign in to get started
             </LoginButton>
             <a

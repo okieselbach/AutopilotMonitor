@@ -33,14 +33,27 @@ public class GraphTokenServiceTests
             })
             .Build();
 
-        var svc = new GraphTokenService(
-            NullLogger<GraphTokenService>.Instance,
-            new StubHttpClientFactory(handler),
-            new MemoryCache(new MemoryCacheOptions()),
-            config);
+        var svc = NewService(config, new StubHttpClientFactory(handler));
 
         return (svc, handler);
     }
+
+    /// <summary>
+    /// Builds the service with the dual app-reg dependencies. No legacy app is configured in
+    /// these tests ⇒ the registry always resolves the primary credentials and the tenant-config
+    /// lookup is never consulted for the decision — a null-returning repo is fine.
+    /// </summary>
+    private static GraphTokenService NewService(IConfiguration config, System.Net.Http.IHttpClientFactory factory) =>
+        new GraphTokenService(
+            NullLogger<GraphTokenService>.Instance,
+            factory,
+            new MemoryCache(new MemoryCacheOptions()),
+            config,
+            new EntraAppRegistry(config, NullLogger<EntraAppRegistry>.Instance),
+            new AutopilotMonitor.Functions.Services.TenantConfigurationService(
+                Moq.Mock.Of<AutopilotMonitor.Shared.DataAccess.IConfigRepository>(),
+                NullLogger<AutopilotMonitor.Functions.Services.TenantConfigurationService>.Instance,
+                new MemoryCache(new MemoryCacheOptions())));
 
     private static int TokenPosts(StubHttpMessageHandler handler, string tenantId)
         => handler.Requests.Count(u => u.Contains($"/{tenantId}/oauth2/v2.0/token"));
@@ -148,11 +161,7 @@ public class GraphTokenServiceTests
                 ["EntraId:ClientSecret"] = "test-secret",
             })
             .Build();
-        var svc = new GraphTokenService(
-            NullLogger<GraphTokenService>.Instance,
-            new SingleHandlerFactory(handler),
-            new MemoryCache(new MemoryCacheOptions()),
-            config);
+        var svc = NewService(config, new SingleHandlerFactory(handler));
 
         // R1 starts; its POST parks in flight (holding the gate, before writing to the cache).
         var inflight = svc.GetAccessTokenAsync(TenantA);
@@ -188,11 +197,7 @@ public class GraphTokenServiceTests
                 ["EntraId:ClientSecret"] = "test-secret",
             })
             .Build();
-        var svc = new GraphTokenService(
-            NullLogger<GraphTokenService>.Instance,
-            new SingleHandlerFactory(handler),
-            new MemoryCache(new MemoryCacheOptions()),
-            config);
+        var svc = NewService(config, new SingleHandlerFactory(handler));
 
         var tasks = Enumerable.Range(0, 10).Select(_ => svc.GetAccessTokenAsync(TenantA)).ToArray();
 

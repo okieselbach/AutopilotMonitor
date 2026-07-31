@@ -60,8 +60,8 @@ param apiUrl string = 'https://autopilotmonitor-api-eu.azurewebsites.net'
 @description('Container image tag')
 param imageTag string = 'latest'
 
-@description('Entra ID app registration client_id used for the OAuth proxy. Public value (appears in JWT aud claim); not a secret.')
-param entraClientId string = '1a400946-62c1-4ab4-aa37-f730ac89704d'
+@description('Entra ID app registration client_id used for the OAuth proxy. Public value (appears in JWT aud claim); not a secret. Since the C4A8 app-reg move this is the NEW app (the old 1a400946-… app remains valid at the backend for legacy-homed tenants).')
+param entraClientId string = '886ab5e2-6144-442c-80cc-9b28e0667731'
 
 @secure()
 @description('Entra ID client secret for OAuth token exchange')

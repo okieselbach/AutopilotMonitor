@@ -39,6 +39,10 @@ jobs:
         uses: Azure/static-web-apps-deploy@v1
         env:
           NEXT_PUBLIC_ENTRA_CLIENT_ID: ${{ vars.NEXT_PUBLIC_ENTRA_CLIENT_ID }}
+          # Dual app-reg window: previous app registration (unset = single-app behaviour)
+          # and the default app for browsers without a stored selection (legacy|primary).
+          NEXT_PUBLIC_ENTRA_LEGACY_CLIENT_ID: ${{ vars.NEXT_PUBLIC_ENTRA_LEGACY_CLIENT_ID }}
+          NEXT_PUBLIC_ENTRA_DEFAULT_APP: ${{ vars.NEXT_PUBLIC_ENTRA_DEFAULT_APP }}
           NEXT_PUBLIC_ENTRA_REDIRECT_URI: ${{ vars.NEXT_PUBLIC_ENTRA_REDIRECT_URI }}
           NEXT_PUBLIC_ENTRA_POST_LOGOUT_REDIRECT_URI: ${{ vars.NEXT_PUBLIC_ENTRA_POST_LOGOUT_REDIRECT_URI }}
           NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}

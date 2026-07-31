@@ -30,6 +30,11 @@ namespace AutopilotMonitor.Functions.Helpers
             ("onboardedBy",       c => c.OnboardedBy),
             ("lastUpdated",       c => c.LastUpdated),
             ("dataRetentionDays", c => c.DataRetentionDays),
+            // App-reg migration observability: which app the tenant is homed on (null = legacy)
+            // and which app its users' logins actually arrive through. Public client ids, not secrets.
+            ("homedAppClientId",     c => c.HomedAppClientId),
+            ("lastAuthClientId",     c => c.LastAuthClientId),
+            ("lastAuthClientIdSince", c => c.LastAuthClientIdSince),
         };
 
         /// <summary>

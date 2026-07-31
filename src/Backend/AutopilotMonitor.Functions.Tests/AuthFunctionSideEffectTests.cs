@@ -90,7 +90,10 @@ public class AuthFunctionSideEffectTests
             _telegramMock.Object,
             _globalNotificationMock.Object,
             mcpUserMock.Object,
-            _autoApproveEnqueuerMock.Object);
+            _autoApproveEnqueuerMock.Object,
+            new AutopilotMonitor.Functions.Security.EntraAppRegistry(
+                new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(),
+                Mock.Of<ILogger<AutopilotMonitor.Functions.Security.EntraAppRegistry>>()));
 
         // Default: all fire-and-forget calls succeed
         _tenantConfigMock

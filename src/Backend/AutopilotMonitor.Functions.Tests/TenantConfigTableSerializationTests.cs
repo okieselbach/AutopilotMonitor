@@ -146,4 +146,40 @@ public class TenantConfigTableSerializationTests
         var entity = new TableEntity(TenantId, "config") { { "DomainName", "fabrikam.com" } };
         Assert.Null(TableConfigRepository.ConvertFromTenantTableEntity(entity).NotificationChannelsJson);
     }
+
+    [Fact]
+    public void Roundtrip_AppRegHomingFields_SurviveStoreAndMap()
+    {
+        var since = new DateTime(2026, 7, 31, 9, 0, 0, DateTimeKind.Utc);
+        var config = new TenantConfiguration
+        {
+            TenantId = TenantId,
+            DomainName = "contoso.com",
+            UpdatedBy = "admin@contoso.com",
+            HomedAppClientId = "886ab5e2-6144-442c-80cc-9b28e0667731",
+            LastAuthClientId = "886ab5e2-6144-442c-80cc-9b28e0667731",
+            LastAuthClientIdSince = since
+        };
+
+        var mapped = TableConfigRepository.ConvertFromTenantTableEntity(
+            TableConfigRepository.ConvertToTenantTableEntity(config));
+
+        Assert.Equal("886ab5e2-6144-442c-80cc-9b28e0667731", mapped.HomedAppClientId);
+        Assert.Equal("886ab5e2-6144-442c-80cc-9b28e0667731", mapped.LastAuthClientId);
+        Assert.Equal(since, mapped.LastAuthClientIdSince);
+    }
+
+    [Fact]
+    public void Map_LegacyRow_WithoutAppRegHomingColumns_ReadsNull()
+    {
+        // Every tenant row pre-dating the C4A8 app-reg move lacks these columns; null
+        // HomedAppClientId is the invariant for "homed on the legacy app registration".
+        var entity = new TableEntity(TenantId, "config") { { "DomainName", "fabrikam.com" } };
+
+        var mapped = TableConfigRepository.ConvertFromTenantTableEntity(entity);
+
+        Assert.Null(mapped.HomedAppClientId);
+        Assert.Null(mapped.LastAuthClientId);
+        Assert.Null(mapped.LastAuthClientIdSince);
+    }
 }

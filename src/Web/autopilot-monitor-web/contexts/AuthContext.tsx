@@ -3,10 +3,22 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { PublicClientApplication, AccountInfo, InteractionStatus, InteractionRequiredAuthError, BrowserAuthError } from '@azure/msal-browser';
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react';
-import { msalConfig, loginRequest, apiRequest } from '@/lib/msalConfig';
+import { msalConfig, loginRequest, apiRequest, activeAuthApp, buildMsalConfig, clientIdForApp } from '@/lib/msalConfig';
+import {
+  classifyEntraAuthError,
+  clearLoginAttemptApp,
+  clearLoginFallback,
+  legacyConfigured,
+  markLoginDeclined,
+  otherApp,
+  setLoginAttemptApp,
+  setSelectedAuthApp,
+  tryBeginLoginFallback,
+} from '@/lib/authApp';
 import { api } from '@/lib/api';
 
-// Initialize MSAL instance
+// Initialize MSAL instance for the ACTIVE app registration (dual app-reg window: the
+// selection was decided at module boot in lib/msalConfig.ts; app switches always reload).
 const msalInstance = new PublicClientApplication(msalConfig);
 
 // Track MSAL initialization state so components can wait for it.
@@ -20,10 +32,54 @@ let msalReady = false;
 // otherwise a cold backend would keep the UI on a white screen.
 let prefetchedAuthMePromise: Promise<Record<string, unknown> | null> | null = null;
 
+/**
+ * Safety net of the dual app-reg model, for the rare browser that lands on an app its tenant
+ * never consented to (no stored selection, wrong default): Entra reports "needs admin
+ * approval" (AADSTS90094/65001) on the redirect return, and we retry ONCE with the other app
+ * — silently, because the user just authenticated so an Entra session exists. An explicit
+ * consent DECLINE (AADSTS65004) never falls back: for a brand-new tenant that would
+ * mis-consent the legacy app; ProtectedRoute shows the failed screen instead.
+ * Returns true when a fallback redirect was started (page is navigating away).
+ */
+async function tryHandleRedirectAuthError(error: unknown): Promise<boolean> {
+  const err = error as { errorMessage?: string; message?: string } | null;
+  const classification = classifyEntraAuthError(String(err?.errorMessage ?? err?.message ?? ''));
+  clearLoginAttemptApp();
+  if (classification === 'declined') {
+    markLoginDeclined();
+    return false;
+  }
+  if (classification !== 'admin-approval-required' || !legacyConfigured() || !tryBeginLoginFallback()) {
+    return false;
+  }
+  const target = otherApp(activeAuthApp);
+  console.warn(`[Auth] App registration not consented in this tenant — retrying via the ${target} app`);
+  try {
+    setLoginAttemptApp(target);
+    const fallbackInstance = new PublicClientApplication(buildMsalConfig(clientIdForApp(target)));
+    await fallbackInstance.initialize();
+    // No prompt: the user just entered credentials, so the Entra session completes silently.
+    await fallbackInstance.loginRedirect({ ...loginRequest, prompt: undefined });
+    return true;
+  } catch (fallbackError) {
+    console.error('[Auth] Cross-app fallback login failed:', fallbackError);
+    clearLoginAttemptApp();
+    return false;
+  }
+}
+
 const msalInitPromise = msalInstance
   .initialize()
   .then(() => msalInstance.handleRedirectPromise())
-  .then(() => {
+  .then((redirectResult) => {
+    if (redirectResult?.account) {
+      // Successful redirect sign-in on the active app: remember it as this browser's app
+      // (the "learn" half of the model — future boots go straight to the right one).
+      setSelectedAuthApp(activeAuthApp);
+      clearLoginFallback();
+    }
+    // Redirect settled (or none was in flight) — the attempt marker has served its purpose.
+    clearLoginAttemptApp();
     msalReady = true;
 
     // Kick off prefetch while React is still mounting. fetchUserInfo will
@@ -42,9 +98,11 @@ const msalInitPromise = msalInstance
       }).catch(() => null);
     }
   })
-  .catch((error) => {
+  .catch(async (error) => {
     console.error('[Auth] MSAL initialization/redirect error:', error);
-    // Mark as ready even on error so the app doesn't hang forever.
+    await tryHandleRedirectAuthError(error);
+    // Mark as ready even on error so the app doesn't hang forever (if the fallback
+    // started a redirect the page is navigating away anyway).
     // Auth operations will fail individually and trigger appropriate recovery.
     msalReady = true;
   });
@@ -68,6 +126,8 @@ async function safeAcquireTokenRedirect(
   }
   redirectInFlight = true;
   try {
+    // Pin the redirect return to the app that starts it (see lib/authApp.ts).
+    setLoginAttemptApp(activeAuthApp);
     await instance.acquireTokenRedirect({
       scopes: apiRequest.scopes,
       account,
@@ -133,6 +193,20 @@ interface AuthContextType {
   refreshUserInfo: () => Promise<void>;
 }
 
+/**
+ * Background learning of the dual app-reg model: auth/me returns which app registration the
+ * tenant is homed on; storing it makes the NEXT login on this browser use that app directly.
+ * No reload — the current session keeps its valid token (both audiences are accepted).
+ * This is also how an operator flip propagates: flip → next login of every user runs via the
+ * new app, at which point the tenant's admin consent already exists.
+ */
+function learnHomedAppFromAuthMe(data: Record<string, unknown>): void {
+  const homedApp = data.homedApp;
+  if (homedApp === 'legacy' || homedApp === 'primary') {
+    setSelectedAuthApp(homedApp);
+  }
+}
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 /**
@@ -169,6 +243,7 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
         const pending = prefetchedAuthMePromise;
         prefetchedAuthMePromise = null;
         const data = await pending;
+        if (data) learnHomedAppFromAuthMe(data);
         if (data) return {
           displayName: (data.displayName as string) || account.name || '',
           upn: (data.upn as string) || account.username || '',
@@ -254,6 +329,8 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
       // state so the activation page's poll can redirect into the portal.
       setActivationPending(false);
       setActivationMessage('');
+
+      learnHomedAppFromAuthMe(data as Record<string, unknown>);
 
       return {
         displayName: data.displayName || account.name || '',
@@ -379,6 +456,8 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
       const request = options?.auto
         ? { ...loginRequest, prompt: undefined }
         : loginRequest;
+      // Pin the redirect return to the app that starts it (see lib/authApp.ts).
+      setLoginAttemptApp(activeAuthApp);
       await instance.loginRedirect(request);
     } catch (error: unknown) {
       // Ignore interaction_in_progress errors - this can happen if user clicks button multiple times

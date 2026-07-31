@@ -42,17 +42,23 @@ public class GetGraphPermissionsStatusFunction
     private readonly IGraphFeatureDetector _detector;
     private readonly IConfiguration _configuration;
     private readonly TelemetryClient _telemetry;
+    private readonly Security.EntraAppRegistry _appRegistry;
+    private readonly Services.TenantConfigurationService _tenantConfigService;
 
     public GetGraphPermissionsStatusFunction(
         ILogger<GetGraphPermissionsStatusFunction> logger,
         IGraphFeatureDetector detector,
         IConfiguration configuration,
-        TelemetryClient telemetry)
+        TelemetryClient telemetry,
+        Security.EntraAppRegistry appRegistry,
+        Services.TenantConfigurationService tenantConfigService)
     {
         _logger = logger;
         _detector = detector;
         _configuration = configuration;
         _telemetry = telemetry;
+        _appRegistry = appRegistry;
+        _tenantConfigService = tenantConfigService;
     }
 
     [Function("GetGraphPermissionsStatus")]
@@ -87,9 +93,14 @@ public class GetGraphPermissionsStatusFunction
 
             EmitStatusChecked(requestCtx.TargetTenantId, requestCtx.UserPrincipalName, snapshot);
 
+            // Dual app-reg window: the surfaced client id pre-fills the customer's grant-script
+            // one-liner, so it must be the app that actually acts for this tenant (its homed app).
+            var tenantConfig = await _tenantConfigService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
+            var homedClientId = _appRegistry.ResolveForTenant(tenantConfig).ClientId;
+
             return await req.OkAsync(new
             {
-                clientId = _configuration["EntraId:ClientId"] ?? string.Empty,
+                clientId = homedClientId ?? string.Empty,
                 isTransient = snapshot.IsTransient,
                 grantedRoles = snapshot.GrantedRoles.ToArray(),
                 features,

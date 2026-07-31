@@ -203,6 +203,38 @@ public class AuthenticationMiddlewareTokenValidationTests
             Mint(RsaCreds, audience: "api://some-third-app"), ClientId, SecondaryClientId));
     }
 
+    // ── Dual app-reg window (C4A8 move): primary=new app, legacy=old app via LegacyClientId ──
+    // The middleware folds EntraId:LegacyClientId into the additional-id set via
+    // CombineAdditionalClientIdSources, so both apps' tokens validate in bare AND api:// form.
+
+    private const string NewAppId = "886ab5e2-6144-442c-80cc-9b28e0667731";
+    private const string OldAppId = "1a400946-62c1-4ab4-aa37-f730ac89704d";
+
+    [Theory]
+    [InlineData(NewAppId)]
+    [InlineData("api://" + NewAppId)]
+    [InlineData(OldAppId)]
+    [InlineData("api://" + OldAppId)]
+    public void DualAppWindow_accepts_both_apps_tokens_in_both_audience_forms(string audience)
+    {
+        var clientIds = AuthenticationMiddleware.ResolveConfiguredClientIds(
+            NewAppId,
+            AuthenticationMiddleware.CombineAdditionalClientIdSources(OldAppId, null),
+            out _);
+
+        Assert.NotNull(ValidateWith(Mint(RsaCreds, audience: audience), clientIds));
+    }
+
+    [Fact]
+    public void CombineAdditionalClientIdSources_joins_and_skips_empty_sources()
+    {
+        Assert.Equal($"{OldAppId},{SecondaryClientId}",
+            AuthenticationMiddleware.CombineAdditionalClientIdSources(OldAppId, SecondaryClientId));
+        Assert.Equal(OldAppId,
+            AuthenticationMiddleware.CombineAdditionalClientIdSources($"  {OldAppId} ", null, ""));
+        Assert.Null(AuthenticationMiddleware.CombineAdditionalClientIdSources(null, "", "   "));
+    }
+
     // ── BuildValidAudiences: id → {id, api://id}, deduped, empties dropped ────────────────
 
     [Fact]

@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuth } from "@/contexts/AuthContext";
+import { legacyConfigured } from "@/lib/authApp";
 import { useTenantConfig } from "../../TenantConfigContext";
 import { TenantNotifications } from "../../TenantNotifications";
 import AutopilotValidationSection from "../../components/AutopilotValidationSection";
@@ -8,6 +9,7 @@ import NotRegisteredDevicesInsights from "../../components/NotRegisteredDevicesI
 
 export function SectionAutopilotValidation() {
   const {
+    config,
     canEditConfig,
     validateAutopilotDevice, setValidateAutopilotDevice,
     validateCorporateIdentifier, setValidateCorporateIdentifier,
@@ -36,9 +38,21 @@ export function SectionAutopilotValidation() {
   // Tracked in memory/project_devprep_followups.md.
   const showDeviceAssociationToggle = user?.isGlobalAdmin === true;
 
+  // Dual app-reg window: tenants homed on the previous app registration (homedAppClientId
+  // null/absent) keep working unchanged — this is a purely informational nudge, part of the
+  // incentive-driven re-consent campaign. Never a warning, never an action requirement.
+  const homedOnLegacyApp = legacyConfigured() && config != null && !config.homedAppClientId;
+
   return (
     <>
       <TenantNotifications />
+      {homedOnLegacyApp && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
+          Autopilot device validation currently runs on the previous Autopilot Monitor app
+          registration. It keeps working as-is — at your convenience, please re-consent to the
+          new app registration; we will reach out with details as part of the migration.
+        </div>
+      )}
       <AutopilotValidationSection
         validateAutopilotDevice={validateAutopilotDevice}
         setValidateAutopilotDevice={setValidateAutopilotDevice}

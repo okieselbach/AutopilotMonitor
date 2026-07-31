@@ -31,6 +31,8 @@ public class AutopilotDeviceValidationConsentFunction
     private readonly IGraphFeatureDetector _graphFeatureDetector;
     private readonly TelemetryClient _telemetryClient;
     private readonly OpsEventService _opsEventService;
+    private readonly EntraAppRegistry _appRegistry;
+    private readonly TenantConfigurationService _tenantConfigService;
 
     /// <summary>
     /// Known redirect URIs registered in the Entra ID app registration for the admin consent flow.
@@ -49,7 +51,9 @@ public class AutopilotDeviceValidationConsentFunction
         GraphTokenService graphTokenService,
         IGraphFeatureDetector graphFeatureDetector,
         TelemetryClient telemetryClient,
-        OpsEventService opsEventService)
+        OpsEventService opsEventService,
+        EntraAppRegistry appRegistry,
+        TenantConfigurationService tenantConfigService)
     {
         _logger = logger;
         _configuration = configuration;
@@ -57,6 +61,8 @@ public class AutopilotDeviceValidationConsentFunction
         _graphFeatureDetector = graphFeatureDetector;
         _telemetryClient = telemetryClient;
         _opsEventService = opsEventService;
+        _appRegistry = appRegistry;
+        _tenantConfigService = tenantConfigService;
     }
 
     [Function("GetAutopilotDeviceValidationConsentUrl")]
@@ -67,7 +73,11 @@ public class AutopilotDeviceValidationConsentFunction
         // Authentication enforced by PolicyEnforcementMiddleware
         var requestCtx = req.GetRequestContext();
 
-        var validatorClientId = _configuration["EntraId:ClientId"];
+        // Dual app-reg window: the consent URL must target the app registration that will
+        // actually mint this tenant's Graph tokens (legacy-homed tenants keep consenting the
+        // legacy app — parallel operation, no forced re-consent).
+        var tenantConfig = await _tenantConfigService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
+        var validatorClientId = _appRegistry.ResolveForTenant(tenantConfig).ClientId;
         if (string.IsNullOrWhiteSpace(validatorClientId))
         {
             var badConfig = req.CreateResponse(HttpStatusCode.InternalServerError);

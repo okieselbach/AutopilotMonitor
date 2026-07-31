@@ -30,6 +30,7 @@ public class TenantConfigProjectionTests
         "tenantId", "domainName", "planTier", "trialExpiresUtc", "trialConsumed",
         "disabled", "disabledReason",
         "onboardedAt", "onboardedBy", "lastUpdated", "dataRetentionDays",
+        "homedAppClientId", "lastAuthClientId", "lastAuthClientIdSince",
     };
 
     [Fact]

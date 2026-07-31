@@ -30,6 +30,7 @@ public class AuthFunction
     private readonly GlobalNotificationService _globalNotificationService;
     private readonly McpUserService _mcpUserService;
     private readonly Services.Activation.ITenantAutoApproveEnqueuer _tenantAutoApproveEnqueuer;
+    private readonly EntraAppRegistry _appRegistry;
 
     public AuthFunction(
         ILogger<AuthFunction> logger,
@@ -42,7 +43,8 @@ public class AuthFunction
         TelegramNotificationService telegramNotificationService,
         GlobalNotificationService globalNotificationService,
         McpUserService mcpUserService,
-        Services.Activation.ITenantAutoApproveEnqueuer tenantAutoApproveEnqueuer)
+        Services.Activation.ITenantAutoApproveEnqueuer tenantAutoApproveEnqueuer,
+        EntraAppRegistry appRegistry)
     {
         _logger = logger;
         _globalAdminService = globalAdminService;
@@ -55,6 +57,7 @@ public class AuthFunction
         _globalNotificationService = globalNotificationService;
         _mcpUserService = mcpUserService;
         _tenantAutoApproveEnqueuer = tenantAutoApproveEnqueuer;
+        _appRegistry = appRegistry;
     }
 
     /// <summary>
@@ -135,10 +138,14 @@ public class AuthFunction
         // still onboards normally; the handlers self-gate when the config already exists.
         var isDelegated = delegatedTenantIds.Count > 0;
         var isHomeTenantParticipant = !isDelegated || isGlobalAdmin || isGlobalReader || memberRole != null;
+        // Which app registration minted this login's token (dual app-reg window) — drives the
+        // onboarding homing decision and the per-tenant last-seen provenance below.
+        var tokenAudience = principal.GetAudience();
         if (isHomeTenantParticipant)
         {
-            await HandleNewTenantDomainAsync(tenantConfig, tenantId, upn);
+            await HandleNewTenantDomainAsync(tenantConfig, tenantId, upn, tokenAudience);
             await HandleAutoReEnableAsync(tenantConfig, tenantId);
+            await HandleAuthClientIdTrackingAsync(tenantConfig, tenantId, tokenAudience);
         }
 
         // --- Pure decision logic (tested by AuthFunctionTests) ---
@@ -146,7 +153,8 @@ public class AuthFunction
             tenantConfig, isGlobalAdmin, isGlobalReader, isApproved,
             memberRole, mcpCheck, existingAdmins.Count > 0,
             tenantId, upn, displayName ?? string.Empty, objectId ?? string.Empty,
-            delegatedTenantIds);
+            delegatedTenantIds,
+            homedApp: _appRegistry.ResolveForTenant(tenantConfig).IsLegacy ? "legacy" : "primary");
 
         if (!decision.IsSuccess)
         {
@@ -287,7 +295,7 @@ public class AuthFunction
     /// and fires best-effort notifications (Telegram + global notification).
     /// </summary>
     internal async Task HandleNewTenantDomainAsync(
-        TenantConfiguration tenantConfig, string tenantId, string upn)
+        TenantConfiguration tenantConfig, string tenantId, string upn, string? tokenAudience = null)
     {
         if (!string.IsNullOrEmpty(tenantConfig.DomainName) || string.IsNullOrEmpty(upn))
             return;
@@ -305,6 +313,18 @@ public class AuthFunction
         // sync jobs that mutate UpdatedBy cannot leak sentinel strings into TenantAdmins.
         if (string.IsNullOrWhiteSpace(tenantConfig.OnboardedBy))
             tenantConfig.OnboardedBy = upn;
+        // Dual app-reg window: home a NEW tenant on the primary app ONLY when its first login
+        // actually arrived via the primary app. A first login via the legacy app leaves the field
+        // null (= legacy) — keeps the "null = legacy" invariant clean and never routes a tenant
+        // to an app it hasn't consented to. Seed the last-seen provenance in the same write.
+        var onboardingClientId = EntraAppRegistry.NormalizeAudience(tokenAudience);
+        if (onboardingClientId != null)
+        {
+            if (_appRegistry.IsPrimary(onboardingClientId))
+                tenantConfig.HomedAppClientId = onboardingClientId;
+            tenantConfig.LastAuthClientId = onboardingClientId;
+            tenantConfig.LastAuthClientIdSince = DateTime.UtcNow;
+        }
         try
         {
             await _tenantConfigService.SaveConfigurationAsync(tenantConfig);
@@ -346,6 +366,39 @@ public class AuthFunction
             .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
                 "Fire-and-forget auto-approve enqueue failed for tenant {TenantId}", tenantId),
                 TaskContinuationOptions.OnlyOnFaulted);
+    }
+
+    /// <summary>
+    /// Pure observability for the app-reg migration: records which app registration this
+    /// tenant's logins actually arrive through (<c>LastAuthClientId</c> + since-when).
+    /// Write-on-change only — the common case (same app as last time) is a no-op, so this adds
+    /// zero table writes to steady-state logins. Best-effort: a failed persist must never break
+    /// auth/me; the next login that still differs retries. Gated on a non-empty DomainName so a
+    /// pre-onboarding login (row not persisted yet) can't create a phantom config row.
+    /// </summary>
+    internal async Task HandleAuthClientIdTrackingAsync(
+        TenantConfiguration tenantConfig, string tenantId, string? tokenAudience)
+    {
+        var clientId = EntraAppRegistry.NormalizeAudience(tokenAudience);
+        if (clientId == null || string.IsNullOrEmpty(tenantConfig.DomainName))
+            return;
+        if (string.Equals(tenantConfig.LastAuthClientId, clientId, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        _logger.LogInformation(
+            "Tenant {TenantId} logins now arrive via app registration {ClientId} (was: {Previous})",
+            tenantId, clientId, tenantConfig.LastAuthClientId ?? "(none recorded)");
+        tenantConfig.LastAuthClientId = clientId;
+        tenantConfig.LastAuthClientIdSince = DateTime.UtcNow;
+        try
+        {
+            await _tenantConfigService.SaveConfigurationAsync(tenantConfig);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Auth client-id tracking persist failed for tenant {TenantId} — will retry on a later login", tenantId);
+        }
     }
 
     /// <summary>
@@ -412,7 +465,8 @@ public class AuthFunction
         McpAccessCheckResult mcpCheck,
         bool hasTenantAdmins,
         string tenantId, string upn, string displayName, string objectId,
-        IReadOnlyCollection<string>? delegatedTenantIds = null)
+        IReadOnlyCollection<string>? delegatedTenantIds = null,
+        string homedApp = "primary")
     {
         // A delegated ("MSP") admin manages a subset of OTHER tenants. They are explicitly authorized, so —
         // like a Global Admin / Reader — they bypass the private-preview gate even when their own home tenant
@@ -491,6 +545,10 @@ public class AuthFunction
             role,
             canManageBootstrapTokens,
             hasMcpAccess = mcpCheck.IsAllowed,
+            // Dual app-reg window: which app registration this tenant is homed on. The web app
+            // stores this per browser (localStorage) so the NEXT login uses the right app —
+            // the deferred, no-roundtrip learning mechanism of the parallel operation model.
+            homedApp,
             // EFFECTIVE availability flags (drive sidebar/section visibility): bootstrap is
             // included in Pro, Unrestricted Mode requires Pro + the GA on-request gate.
             bootstrapTokenEnabled = TenantEntitlementService.IsBootstrapEnabled(tenantConfig, DateTime.UtcNow),

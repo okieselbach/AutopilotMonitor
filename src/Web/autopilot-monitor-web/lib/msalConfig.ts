@@ -1,11 +1,16 @@
 import { Configuration, LogLevel, RedirectRequest } from "@azure/msal-browser";
 import { ENTRA_LOGIN_URL } from "@/utils/config";
+import { AuthApp, getBootAuthApp, legacyClientId } from "./authApp";
 
 /**
  * MSAL Configuration for Multi-Tenant Azure AD Authentication
  *
  * Environment Variables:
- * - NEXT_PUBLIC_ENTRA_CLIENT_ID: Application (client) ID from App Registration
+ * - NEXT_PUBLIC_ENTRA_CLIENT_ID: Application (client) ID of the PRIMARY App Registration
+ * - NEXT_PUBLIC_ENTRA_LEGACY_CLIENT_ID: pre-migration App Registration (dual app-reg window;
+ *   unset = single-app behaviour, everything below resolves to the primary app)
+ * - NEXT_PUBLIC_ENTRA_DEFAULT_APP: which app a browser WITHOUT a stored selection boots
+ *   ("legacy" during the parallel window, later "primary") — consumed in lib/authApp.ts
  * - NEXT_PUBLIC_ENTRA_REDIRECT_URI: Fallback redirect URI for SSR/dev (browser uses window.location.origin)
  * - NEXT_PUBLIC_ENTRA_POST_LOGOUT_REDIRECT_URI: Fallback post-logout URI for SSR/dev
  */
@@ -20,10 +25,25 @@ const resolveRedirectUri = (fallback: string | undefined): string => {
   return fallback || "http://localhost:3000";
 };
 
-// MSAL Configuration
-export const msalConfig: Configuration = {
+/** Client id for the given app selection (legacy falls back to primary when unconfigured). */
+export const clientIdForApp = (app: AuthApp): string => {
+  if (app === "legacy") {
+    return legacyClientId() || process.env.NEXT_PUBLIC_ENTRA_CLIENT_ID || "YOUR_CLIENT_ID_HERE";
+  }
+  return process.env.NEXT_PUBLIC_ENTRA_CLIENT_ID || "YOUR_CLIENT_ID_HERE";
+};
+
+/**
+ * The app registration THIS page load runs under. Decided once at bundle boot (redirect
+ * returns are pinned to the app that started them via the am_login_attempt marker); app
+ * switches always go through a full reload (see lib/authApp.ts switchAuthApp).
+ */
+export const activeAuthApp: AuthApp = getBootAuthApp();
+
+/** MSAL configuration factory — one PublicClientApplication per app registration. */
+export const buildMsalConfig = (clientId: string): Configuration => ({
   auth: {
-    clientId: process.env.NEXT_PUBLIC_ENTRA_CLIENT_ID || "YOUR_CLIENT_ID_HERE",
+    clientId,
     authority: `${ENTRA_LOGIN_URL}/organizations`, // Multi-tenant
     redirectUri: resolveRedirectUri(process.env.NEXT_PUBLIC_ENTRA_REDIRECT_URI),
     postLogoutRedirectUri: resolveRedirectUri(process.env.NEXT_PUBLIC_ENTRA_POST_LOGOUT_REDIRECT_URI),
@@ -63,7 +83,14 @@ export const msalConfig: Configuration = {
     },
     allowPlatformBroker: false, // Disables WAM Broker (renamed from allowNativeBroker in msal-browser v4)
   },
-};
+});
+
+/**
+ * The configuration the module-level PublicClientApplication boots with — computed once per
+ * page life from the active app selection, so every existing consumer keeps importing
+ * `msalConfig`/`apiRequest` unchanged.
+ */
+export const msalConfig: Configuration = buildMsalConfig(clientIdForApp(activeAuthApp));
 
 /**
  * Scopes you add here will be prompted for user consent during sign-in.
@@ -83,16 +110,24 @@ export const loginRequest: RedirectRequest = {
  * IMPORTANT: Backend API must be exposed in Azure AD App Registration with this scope
  * Format: api://<backend-client-id>/access_as_user
  *
+ * The scope follows the ACTIVE app: a legacy sign-in requests the legacy app's audience,
+ * a primary sign-in the primary app's — the backend trusts both during the parallel window.
+ *
  * NEXT_PUBLIC_ENTRA_API_CLIENT_ID lets local dev sign in with the dev app
  * registration while requesting a token whose audience is the prod API app
- * (the deployed backend only accepts its own audience). Unset in production,
+ * (the deployed backend only accepts its own audiences). Unset in production,
  * where one app registration serves as both SPA client and API.
  */
-const apiAppId =
-  process.env.NEXT_PUBLIC_ENTRA_API_CLIENT_ID || process.env.NEXT_PUBLIC_ENTRA_CLIENT_ID;
+export const buildApiScopes = (app: AuthApp): string[] => {
+  const apiAppId =
+    app === "legacy"
+      ? legacyClientId() || process.env.NEXT_PUBLIC_ENTRA_CLIENT_ID
+      : process.env.NEXT_PUBLIC_ENTRA_API_CLIENT_ID || process.env.NEXT_PUBLIC_ENTRA_CLIENT_ID;
+  return [`api://${apiAppId}/access_as_user`];
+};
 
 export const apiRequest = {
-  scopes: [`api://${apiAppId}/access_as_user`],
+  scopes: buildApiScopes(activeAuthApp),
 };
 
 /**

@@ -121,14 +121,17 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 AutopilotMonitor.Shared.Constants.EntraLoginBaseUrl + "/organizations/v2.0",
                 "https://sts.windows.net/{tenantid}/"
             },
-            // Temporarily accept Microsoft Graph tokens (used by frontend with User.Read scope)
-            // TODO: Later expose custom API and use api://{clientId} scopes
-            ValidAudiences = new[]
-            {
-                builder.Configuration["EntraId:ClientId"] // Our app's client ID
-                //"https://graph.microsoft.com", // Microsoft Graph
-                //"00000003-0000-0000-c000-000000000000" // Microsoft Graph App ID
-            }
+            // Full audience trust set — MUST match AuthenticationMiddleware's per-request set
+            // (primary + legacy + additional client ids, each in bare and api:// form). Built via
+            // the SAME shared helpers so the two lists cannot drift; a single-audience list here
+            // would 401 legacy-app tokens on [Authorize]-gated paths during the dual app-reg window.
+            ValidAudiences = AutopilotMonitor.Functions.Middleware.AuthenticationMiddleware.BuildValidAudiences(
+                AutopilotMonitor.Functions.Middleware.AuthenticationMiddleware.ResolveConfiguredClientIds(
+                    builder.Configuration["EntraId:ClientId"],
+                    AutopilotMonitor.Functions.Middleware.AuthenticationMiddleware.CombineAdditionalClientIdSources(
+                        builder.Configuration["EntraId:LegacyClientId"],
+                        builder.Configuration["EntraId:AdditionalClientIds"]),
+                    out _))
         };
     });
 
@@ -384,6 +387,7 @@ builder.Services.AddSingleton<EventIngestProcessor>();
 builder.Services.AddSingleton<RegisterSessionFunction>();
 builder.Services.AddSingleton<GetAgentConfigFunction>();
 builder.Services.AddSingleton<ReportAgentErrorFunction>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.EntraAppRegistry>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.GraphTokenService>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.AutopilotDeviceValidator>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.CorporateIdentifierValidator>();
@@ -421,6 +425,13 @@ if (string.IsNullOrEmpty(entraClientId))
     startupLogger.LogWarning("EntraId:ClientId is not configured — JWT audience validation and Graph API calls will fail");
 if (string.IsNullOrEmpty(entraClientSecret))
     startupLogger.LogWarning("EntraId:ClientSecret is not configured — device validation via Graph API will fail at runtime");
+// Dual app-registration window: the legacy pair must be set together — an id without a secret
+// breaks Graph for every legacy-homed tenant, a secret without an id is dead config.
+var entraLegacyClientId = builder.Configuration["EntraId:LegacyClientId"];
+var entraLegacyClientSecret = builder.Configuration["EntraId:LegacyClientSecret"];
+if (string.IsNullOrEmpty(entraLegacyClientId) != string.IsNullOrEmpty(entraLegacyClientSecret))
+    startupLogger.LogWarning(
+        "EntraId:LegacyClientId and EntraId:LegacyClientSecret must be configured together — only one is set, legacy-homed tenants will fail Graph token acquisition");
 
 // Log CORS configuration at startup so misconfigured origins are immediately visible
 // in the log stream. CORS is enforced by Azure infrastructure, not by function code,

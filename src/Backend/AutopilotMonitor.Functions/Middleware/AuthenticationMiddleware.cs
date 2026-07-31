@@ -165,12 +165,15 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
             // Extracted to a pure seam so those rejects are unit-testable against locally-minted
             // tokens without a live OIDC ConfigurationManager.
             //
-            // Audience = the primary app registration (EntraId:ClientId) PLUS any additional
-            // (secondary/rotated) client IDs from EntraId:AdditionalClientIds. That config is the
-            // seam that lets the API trust a SECOND app registration during a tenant-move window
-            // (see tasks/migration-cross-tenant-runbook.md). Unset today ⇒ exactly the primary id
-            // ⇒ zero behaviour change.
-            var additionalClientIdsRaw = _configuration["EntraId:AdditionalClientIds"];
+            // Audience = the primary app registration (EntraId:ClientId) PLUS the legacy app
+            // (EntraId:LegacyClientId — the dual app-registration parallel window, see
+            // EntraAppRegistry) PLUS any additional (secondary/rotated) client IDs from
+            // EntraId:AdditionalClientIds. Folding the legacy id in here means configuring the
+            // legacy pair alone is sufficient for inbound trust — no separate AdditionalClientIds
+            // entry required. All extra sources unset ⇒ exactly the primary id ⇒ zero change.
+            var additionalClientIdsRaw = CombineAdditionalClientIdSources(
+                _configuration["EntraId:LegacyClientId"],
+                _configuration["EntraId:AdditionalClientIds"]);
             var clientIds = ResolveConfiguredClientIds(
                 _configuration["EntraId:ClientId"], additionalClientIdsRaw, out var rejectedAdditionalEntries);
             AuditClientIdTrustSet(additionalClientIdsRaw, clientIds, rejectedAdditionalEntries);
@@ -342,6 +345,18 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
     /// needed to trust a second app during a tenant-move window
     /// (tasks/migration-cross-tenant-runbook.md).
     /// </summary>
+    /// <summary>
+    /// Joins multiple "additional client id" config sources (e.g. <c>EntraId:LegacyClientId</c> and
+    /// <c>EntraId:AdditionalClientIds</c>) into one comma-separated string for
+    /// <see cref="ResolveConfiguredClientIds"/>. Null/whitespace sources are skipped; all-empty
+    /// input yields null (identical to "no additional ids configured").
+    /// </summary>
+    internal static string? CombineAdditionalClientIdSources(params string?[] sources)
+    {
+        var nonEmpty = sources.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s!.Trim()).ToArray();
+        return nonEmpty.Length > 0 ? string.Join(",", nonEmpty) : null;
+    }
+
     internal static string[] ResolveConfiguredClientIds(
         string? primaryClientId, string? additionalClientIds, out string[] rejectedAdditionalEntries)
     {

@@ -20,15 +20,21 @@ namespace AutopilotMonitor.Functions.Functions.Config
         private readonly ILogger<UpdateTenantConfigurationFunction> _logger;
         private readonly TenantConfigurationService _configService;
         private readonly IMaintenanceRepository _maintenanceRepo;
+        private readonly EntraAppRegistry _appRegistry;
+        private readonly Services.GraphResolution.IGraphFeatureDetector _graphFeatureDetector;
 
         public UpdateTenantConfigurationFunction(
             ILogger<UpdateTenantConfigurationFunction> logger,
             TenantConfigurationService configService,
-            IMaintenanceRepository maintenanceRepo)
+            IMaintenanceRepository maintenanceRepo,
+            EntraAppRegistry appRegistry,
+            Services.GraphResolution.IGraphFeatureDetector graphFeatureDetector)
         {
             _logger = logger;
             _configService = configService;
             _maintenanceRepo = maintenanceRepo;
+            _appRegistry = appRegistry;
+            _graphFeatureDetector = graphFeatureDetector;
         }
 
         [Function("UpdateTenantConfiguration")]
@@ -164,6 +170,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                         config.CustomRateLimitRequestsPerMinute != existingConfig.CustomRateLimitRequestsPerMinute ||
                         config.CustomUserRateLimitRequestsPerMinute != existingConfig.CustomUserRateLimitRequestsPerMinute ||
                         config.Disabled != existingConfig.Disabled ||
+                        !string.Equals(config.HomedAppClientId, existingConfig.HomedAppClientId, StringComparison.OrdinalIgnoreCase) ||
                         config.ValidateDeviceAssociation != existingConfig.ValidateDeviceAssociation)
                     {
                         _logger.LogWarning(
@@ -186,7 +193,37 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     // RequestContext + TenantConfigurationService). Tracked in
                     // memory/project_devprep_followups.md.
                     config.ValidateDeviceAssociation = existingConfig.ValidateDeviceAssociation;
+                    // App-reg homing is the operator flip switch of the dual app-reg migration —
+                    // never tenant-writable (a wrong value breaks the tenant's Graph + consent).
+                    config.HomedAppClientId = existingConfig.HomedAppClientId;
                 }
+                else
+                {
+                    // GA flip of the tenant's app-reg homing: only null (= legacy invariant) or one
+                    // of the two known app registrations is a valid target — anything else would
+                    // silently route the tenant's Graph/consent to the primary fallback.
+                    var requestedHoming = EntraAppRegistry.NormalizeClientId(config.HomedAppClientId);
+                    if (!string.IsNullOrWhiteSpace(config.HomedAppClientId) && requestedHoming == null)
+                    {
+                        var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
+                        await badRequest.WriteAsJsonAsync(new { success = false, message = "HomedAppClientId must be a GUID (or empty for the legacy app registration)." });
+                        return badRequest;
+                    }
+                    if (requestedHoming != null
+                        && !_appRegistry.IsPrimary(requestedHoming)
+                        && !string.Equals(requestedHoming, _appRegistry.Legacy?.ClientId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
+                        await badRequest.WriteAsJsonAsync(new { success = false, message = "HomedAppClientId must match the primary or legacy app registration client id." });
+                        return badRequest;
+                    }
+                    config.HomedAppClientId = requestedHoming;
+                }
+
+                // Last-seen auth provenance is system-written (AuthFunction) — never via PUT,
+                // for ANY caller: a round-tripped stale view must not rewind the observability.
+                config.LastAuthClientId = existingConfig.LastAuthClientId;
+                config.LastAuthClientIdSince = existingConfig.LastAuthClientIdSince;
 
                 // Safety: if GA gate is off, force UnrestrictedMode to false
                 if (!config.UnrestrictedModeEnabled)
@@ -231,6 +268,20 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
                 // Save configuration
                 await _configService.SaveConfigurationAsync(config);
+
+                // App-reg homing flip: drop the tenant's Graph token/roles caches so the next
+                // Graph call mints under the newly homed app instead of serving a token acquired
+                // under the previous one (fresh-read contract, mirrors the consent-grant path).
+                if (!string.Equals(config.HomedAppClientId, existingConfig.HomedAppClientId, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogWarning(
+                        "Tenant {TenantId} app-reg homing flipped: {Old} -> {New} (by {User})",
+                        requestCtx.TargetTenantId,
+                        existingConfig.HomedAppClientId ?? "(legacy)",
+                        config.HomedAppClientId ?? "(legacy)",
+                        userIdentifier);
+                    _graphFeatureDetector.InvalidateTenant(requestCtx.TargetTenantId);
+                }
 
                 var changes = ConfigDiffHelper.GetChanges(existingConfig, config);
                 await _maintenanceRepo.LogAuditEntryAsync(

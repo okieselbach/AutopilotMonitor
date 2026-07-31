@@ -44,6 +44,12 @@ export interface TenantConfiguration {
    */
   validateDeviceAssociation?: boolean;
   allowInsecureAgentRequests?: boolean;
+  /**
+   * Dual app-reg window: client id of the Entra app registration this tenant is homed on.
+   * Null/absent = the previous (pre-migration) app registration. GA-only writable; drives the
+   * passive re-consent hint in the Autopilot validation section.
+   */
+  homedAppClientId?: string | null;
   dataRetentionDays: number;
   sessionTimeoutHours: number;
   customSettings?: string;

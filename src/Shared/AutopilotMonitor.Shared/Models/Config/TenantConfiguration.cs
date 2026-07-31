@@ -70,6 +70,32 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public DateTime? OnboardedAt { get; set; }
 
+        // ===== ENTRA APP REGISTRATION HOMING =====
+
+        /// <summary>
+        /// Client id of the Entra app registration this tenant is homed on. Drives which app
+        /// mints Graph client-credential tokens and admin-consent URLs for the tenant, and which
+        /// app the portal signs the tenant's users in with (via the auth/me "homedApp" field).
+        /// Null = the legacy (pre-migration) app registration — the invariant for every tenant
+        /// onboarded before the C4A8 move. Set to the primary client id at onboarding when the
+        /// first login arrived via the primary app; flipped by a Global Admin after a tenant
+        /// re-consents to the new app (GA-only field, see UpdateTenantConfigurationFunction).
+        /// </summary>
+        public string? HomedAppClientId { get; set; }
+
+        /// <summary>
+        /// Client id observed in the most recent portal login token's audience — pure
+        /// observability for the app-reg migration (which app a tenant's users actually
+        /// arrive through), never used for routing decisions. Written on change only.
+        /// </summary>
+        public string? LastAuthClientId { get; set; }
+
+        /// <summary>
+        /// When <see cref="LastAuthClientId"/> last changed (i.e. logins arrive via that app
+        /// since this instant). Null on rows that pre-date the field.
+        /// </summary>
+        public DateTime? LastAuthClientIdSince { get; set; }
+
         /// <summary>
         /// Whether this tenant is disabled/suspended
         /// If true, users from this tenant cannot log in
