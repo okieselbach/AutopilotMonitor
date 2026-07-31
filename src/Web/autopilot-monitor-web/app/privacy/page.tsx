@@ -2,7 +2,7 @@ import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/utils/config";
 
-const LAST_UPDATED = "29 July 2026";
+const LAST_UPDATED = "31 July 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
 const DOCS_DATA_FLOWS = `${DOCS_URL}/trust/data-flows`;
 
@@ -60,7 +60,7 @@ export default function PrivacyPage() {
           </p>
           <p className="text-gray-700">
             A <strong>data processing agreement (DPA / AVV) is available on request</strong>, concluded with
-            glueckkanja AG. On the Enterprise plan it forms part of the written agreement.
+            glueckkanja AG. On the Pro plan it forms part of the written agreement.
           </p>
 
           <h2 className="text-lg font-semibold text-gray-900 mt-6">What We Collect</h2>
@@ -133,7 +133,7 @@ export default function PrivacyPage() {
             <li><strong>Delegated (MSP) administrators you or your provider have been granted</strong> — read-only, limited to exactly the tenants in scope, with configuration secrets redacted, and with every grant and revocation written to <em>your</em> tenant&apos;s audit log so you can always see who was given access to your data</li>
           </ul>
           <p className="text-gray-700">
-            Delegated administration is an Enterprise capability and is off unless explicitly granted. Full detail on the
+            Delegated administration is a Pro capability and is off unless explicitly granted. Full detail on the
             isolation model is in the <DocsLink href={DOCS_SECURITY_FAQ}>Security &amp; Privacy FAQ</DocsLink>.
           </p>
 
@@ -175,7 +175,7 @@ export default function PrivacyPage() {
           <h2 className="text-lg font-semibold text-gray-900 mt-6">How Long We Keep Data</h2>
           <p className="text-gray-700">
             Retention is <strong>configured by you per tenant, defaulting to 90 days</strong> — 7 to 90 days on the
-            Community plan and 7 to 365 days on Enterprise. Expired sessions are purged automatically. You additionally
+            Community plan and 7 to 365 days on Pro. Expired sessions are purged automatically. You additionally
             control:
           </p>
           <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">

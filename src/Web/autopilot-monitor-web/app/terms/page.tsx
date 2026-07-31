@@ -2,7 +2,7 @@ import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/utils/config";
 
-const LAST_UPDATED = "21 July 2026";
+const LAST_UPDATED = "31 July 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
 const DOCS_PLANS = `${DOCS_URL}/plans`;
 const GITHUB_ADVISORY = "https://github.com/okieselbach/AutopilotMonitor/security/advisories/new";
@@ -44,7 +44,7 @@ export default function TermsPage() {
               </p>
             </div>
             <div className="p-4 border border-[var(--lp-line-soft)] rounded-lg">
-              <h3 className="font-semibold text-gray-900 mb-1">Enterprise</h3>
+              <h3 className="font-semibold text-gray-900 mb-1">Pro</h3>
               <p className="text-sm text-gray-700">
                 Commercial plan under a written agreement with glueckkanja AG. Includes support and reliability
                 commitments, a data processing agreement, higher operating limits, extended retention, and delegated
@@ -62,7 +62,7 @@ export default function TermsPage() {
               <strong>Who can use it.</strong> Autopilot Monitor requires a Microsoft Entra ID tenant with Intune and
               registered Autopilot devices. The <strong>Community</strong> plan is open to anyone with such a tenant —
               organizations, non-profits, and individuals running their own lab or personal tenant alike. The{" "}
-              <strong>Enterprise</strong> plan is a commercial agreement and is offered to businesses and organizations
+              <strong>Pro</strong> plan is a commercial agreement and is offered to businesses and organizations
               acting in a commercial or professional capacity.
             </p>
           </div>
@@ -111,7 +111,7 @@ export default function TermsPage() {
           <h2 className="text-lg font-semibold text-gray-900">Delegated (MSP) Administration</h2>
           <p className="text-gray-700">
             Delegated administration lets a managing organization see a defined set of customer tenants from one place. It
-            is an Enterprise capability and applies only where access has been granted.
+            is a Pro capability and applies only where access has been granted.
           </p>
           <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
             <li>Delegated access is <strong>read-only</strong> and limited to exactly the tenants in scope. Configuration secrets are redacted.</li>
@@ -136,10 +136,10 @@ export default function TermsPage() {
           </div>
 
           <div className="space-y-2 text-gray-700">
-            <p><strong>Availability.</strong> The Community plan carries no uptime or availability commitment; interruptions, maintenance, and changes can occur without prior notice. The Enterprise plan carries the availability commitments set out in its agreement.</p>
-            <p><strong>Support.</strong> Community support is best-effort via <a href="https://github.com/okieselbach/AutopilotMonitor/issues" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">GitHub issues</a>, provided by the project maintainer and the community, with no guaranteed response or resolution time; built-in rules and IME log patterns are community-maintained. Enterprise support follows the response commitments in its agreement.</p>
+            <p><strong>Availability.</strong> The Community plan carries no uptime or availability commitment; interruptions, maintenance, and changes can occur without prior notice. The Pro plan carries the availability commitments set out in its agreement.</p>
+            <p><strong>Support.</strong> Community support is best-effort via <a href="https://github.com/okieselbach/AutopilotMonitor/issues" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">GitHub issues</a>, provided by the project maintainer and the community, with no guaranteed response or resolution time; built-in rules and IME log patterns are community-maintained. Pro support follows the response commitments in its agreement.</p>
             <p><strong>Data durability.</strong> Autopilot Monitor is a monitoring system, not a system of record. Configuration, authorization, and rule data is backed up daily; session and event telemetry is time-bounded operational data and is <strong>not</strong> backed up. Retain anything you need for compliance or reporting purposes in your own systems.</p>
-            <p><strong>Liability.</strong> To the extent permitted by law, glueckkanja AG is not liable for indirect, incidental, special, consequential, or punitive damages, or for loss of data, profit, or business, arising from use of or inability to use the service. For the Community plan, which is provided free of charge, liability is limited to intent and gross negligence. Liability for injury to life, body or health and under mandatory statutory provisions remains unaffected. For the Enterprise plan, the liability provisions of the written agreement apply.</p>
+            <p><strong>Liability.</strong> To the extent permitted by law, glueckkanja AG is not liable for indirect, incidental, special, consequential, or punitive damages, or for loss of data, profit, or business, arising from use of or inability to use the service. For the Community plan, which is provided free of charge, liability is limited to intent and gross negligence. Liability for injury to life, body or health and under mandatory statutory provisions remains unaffected. For the Pro plan, the liability provisions of the written agreement apply.</p>
             <p><strong>Use at your own risk.</strong> The service reports on enrollments; it does not perform them. Operational decisions you take based on its output remain your responsibility.</p>
           </div>
         </div>
@@ -151,7 +151,7 @@ export default function TermsPage() {
             <p><strong>Your controls.</strong> You set the retention period, delete individual sessions, and offboard your tenant entirely at any time — no support ticket required.</p>
             <p><strong>Rules you contribute.</strong> Analyze rules, gather rules, and IME log patterns you author are detection definitions, not device data. By creating them you grant a non-exclusive, royalty-free right to retain them and to include them in the shared community rule pool, so that other organizations can benefit from a detection you built. This is the reciprocal side of a product whose built-in rules are community-maintained. You keep the right to use your own rules however you like, and you can request removal from the pool at any time.</p>
             <p><strong>Suspension.</strong> Access may be suspended where use threatens the integrity, security, or availability of the service or of other tenants — for example abusive request volumes or attempts to reach other tenants&apos; data. Where circumstances permit, notice is given first.</p>
-            <p><strong>Termination.</strong> You may stop using the service and offboard at any time. For the Community plan, the operator may discontinue the service or an individual tenant&apos;s access; reasonable advance notice will be given except where security requires immediate action. Enterprise termination follows its agreement.</p>
+            <p><strong>Termination.</strong> You may stop using the service and offboard at any time. For the Community plan, the operator may discontinue the service or an individual tenant&apos;s access; reasonable advance notice will be given except where security requires immediate action. Pro termination follows its agreement.</p>
             <p><strong>After offboarding.</strong> Your tenant&apos;s data is removed through a verified multi-phase cascade. Product feedback you submitted, and custom rules and IME log patterns you authored, are intentionally retained — neither contains enrollment telemetry or personal data. Both are removed on request.</p>
           </div>
         </div>
@@ -162,7 +162,7 @@ export default function TermsPage() {
             The security architecture, data residency, external services, retention and deletion behaviour, and an explicit
             statement of what the service does <em>not</em> do are published in the{" "}
             <a href={DOCS_SECURITY_FAQ} target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">Security &amp; Privacy FAQ</a>.
-            A signed data processing agreement is part of the Enterprise plan.
+            A signed data processing agreement is part of the Pro plan.
           </p>
         </div>
 
@@ -205,7 +205,7 @@ export default function TermsPage() {
           <h2 className="text-lg font-semibold text-gray-900">Changes and Governing Law</h2>
           <div className="space-y-2 text-gray-700">
             <p><strong>Changes.</strong> These terms may be updated; the &quot;last updated&quot; date above reflects the current version, and material changes are announced through the service announcements in the portal. Continued use after a change constitutes acceptance.</p>
-            <p><strong>Governing law.</strong> These terms are governed by German law. For the Enterprise plan, the governing-law and venue provisions of the written agreement apply.</p>
+            <p><strong>Governing law.</strong> These terms are governed by German law. For the Pro plan, the governing-law and venue provisions of the written agreement apply.</p>
             <p><strong>Severability.</strong> If a provision is found unenforceable, the remaining provisions stay in effect.</p>
             <p><strong>Contact.</strong> Company details are in the <a href="https://www.glueckkanja.com/en/imprint" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">Imprint</a>. For the project and the Community edition, reach the maintainer via <a href="https://www.linkedin.com/in/oliver-kieselbach" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">LinkedIn</a> or open a <a href="https://github.com/okieselbach/AutopilotMonitor/issues" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">GitHub issue</a>.</p>
           </div>

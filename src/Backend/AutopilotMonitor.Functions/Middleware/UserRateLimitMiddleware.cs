@@ -83,7 +83,7 @@ public class UserRateLimitMiddleware : IFunctionsWorkerMiddleware
                 tenantOverride = tenantConfig?.CustomUserRateLimitRequestsPerMinute;
             }
 
-            // Edition entitlement floor (Enterprise: 150/min): follows the caller's HOME tenant
+            // Edition entitlement floor (Pro: 150/min): follows the caller's HOME tenant
             // (JWT tid) — an MSP/delegated user rides on the edition of the tenant that pays for
             // their seat, not the tenant they happen to be viewing. Resolution is fail-closed
             // (any error → Community → null floor → admin default applies) and served from the

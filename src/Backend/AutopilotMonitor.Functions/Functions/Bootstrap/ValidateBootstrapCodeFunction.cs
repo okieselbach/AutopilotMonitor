@@ -79,9 +79,9 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                     return notFound;
                 }
 
-                // Check if bootstrap token feature is enabled for the session's tenant
+                // Check if the bootstrap feature is enabled for the session's tenant (Pro plan or GA flag)
                 var tenantConfig = await _configService.GetConfigurationAsync(session.TenantId);
-                if (!tenantConfig.BootstrapTokenEnabled)
+                if (!TenantEntitlementService.IsBootstrapEnabled(tenantConfig, DateTime.UtcNow))
                 {
                     _logger.LogWarning("Bootstrap code {Code} rejected — feature disabled for tenant {TenantId}", code, session.TenantId);
                     var disabled = req.CreateResponse(HttpStatusCode.NotFound);

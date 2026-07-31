@@ -131,14 +131,14 @@ public class McpQuotaServiceTests
     }
 
     [Fact]
-    public async Task Check_EnterpriseEdition_UsesEnterpriseFallbackLimits()
+    public async Task Check_ProEdition_UsesProFallbackLimits()
     {
-        var svc = Build(UsageRepo(("20260707", 100)), edition: TenantEdition.Enterprise);
+        var svc = Build(UsageRepo(("20260707", 100)), edition: TenantEdition.Pro);
 
         var d = await svc.CheckAsync(Oid, Upn, TenantId);
 
         Assert.True(d.Allowed);
-        Assert.Equal("enterprise", d.Plan);
+        Assert.Equal("pro", d.Plan);
         Assert.Equal(1000, d.DailyLimit);
         Assert.Equal(20000, d.MonthlyLimit);
     }

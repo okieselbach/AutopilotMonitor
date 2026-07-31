@@ -29,7 +29,7 @@ public class RevokeEnforcementTests
     private static DelegatedAdminService BuildService(Mock<IAdminRepository> repo) =>
         new(
             repo.Object,
-            new StubTenantEntitlementService(AutopilotMonitor.Functions.Security.TenantEdition.Enterprise),
+            new StubTenantEntitlementService(AutopilotMonitor.Functions.Security.TenantEdition.Pro),
             new MemoryCache(new MemoryCacheOptions()),
             NullLogger<DelegatedAdminService>.Instance);
 

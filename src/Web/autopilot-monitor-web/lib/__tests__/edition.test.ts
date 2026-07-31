@@ -9,9 +9,9 @@ import {
 const NOW = new Date("2026-07-07T12:00:00Z");
 
 describe("parseEditionInfo", () => {
-  it("parses a full enterprise-trial payload", () => {
+  it("parses a full pro-trial payload", () => {
     const info = parseEditionInfo({
-      edition: "enterprise",
+      edition: "pro",
       isTrial: true,
       trialExpiresUtc: "2026-07-20T12:00:00Z",
       trialAvailable: false,
@@ -19,16 +19,21 @@ describe("parseEditionInfo", () => {
         retentionCapDays: 365,
         userRateLimitPerMinute: 150,
         delegatedAdminAllowed: true,
-        mcpUsagePlan: "enterprise",
+        mcpUsagePlan: "pro",
       },
     });
 
-    expect(info.edition).toBe("enterprise");
+    expect(info.edition).toBe("pro");
     expect(info.isTrial).toBe(true);
     expect(info.trialExpiresUtc).toBe("2026-07-20T12:00:00Z");
     expect(info.entitlements.retentionCapDays).toBe(365);
     expect(info.entitlements.userRateLimitPerMinute).toBe(150);
     expect(info.entitlements.delegatedAdminAllowed).toBe(true);
+  });
+
+  it("accepts the pre-rename edition value 'enterprise' as pro (deploy-order safety)", () => {
+    const info = parseEditionInfo({ edition: "enterprise" });
+    expect(info.edition).toBe("pro");
   });
 
   it("fails closed to Community for malformed payloads", () => {
@@ -45,7 +50,7 @@ describe("parseEditionInfo", () => {
   });
 
   it("defaults missing entitlements to Community values", () => {
-    const info = parseEditionInfo({ edition: "enterprise" });
+    const info = parseEditionInfo({ edition: "pro" });
     expect(info.entitlements.retentionCapDays).toBe(90);
     expect(info.entitlements.userRateLimitPerMinute).toBeNull();
   });
@@ -74,24 +79,24 @@ describe("editionLabel", () => {
     expect(editionLabel(COMMUNITY_DEFAULT, NOW)).toBe("Community");
   });
 
-  it("labels permanent enterprise", () => {
-    const info = parseEditionInfo({ edition: "enterprise", isTrial: false });
-    expect(editionLabel(info, NOW)).toBe("Enterprise");
+  it("labels permanent pro", () => {
+    const info = parseEditionInfo({ edition: "pro", isTrial: false });
+    expect(editionLabel(info, NOW)).toBe("Pro");
   });
 
   it("labels a trial with a day countdown (singular/plural)", () => {
     const plural = parseEditionInfo({
-      edition: "enterprise",
+      edition: "pro",
       isTrial: true,
       trialExpiresUtc: "2026-07-10T12:00:00Z",
     });
-    expect(editionLabel(plural, NOW)).toBe("Enterprise Trial — 3 days left");
+    expect(editionLabel(plural, NOW)).toBe("Pro Trial — 3 days left");
 
     const singular = parseEditionInfo({
-      edition: "enterprise",
+      edition: "pro",
       isTrial: true,
       trialExpiresUtc: "2026-07-07T18:00:00Z",
     });
-    expect(editionLabel(singular, NOW)).toBe("Enterprise Trial — 1 day left");
+    expect(editionLabel(singular, NOW)).toBe("Pro Trial — 1 day left");
   });
 });

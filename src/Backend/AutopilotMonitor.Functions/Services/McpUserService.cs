@@ -50,7 +50,7 @@ public class McpUserService
     /// <summary>
     /// Checks if a user is allowed to access the MCP server based on current policy.
     /// <paramref name="homeTenantId"/> is the caller's JWT tid (home tenant) — it gates the
-    /// delegated (MSP) auto-grant path, which requires an Enterprise home tenant. Null (unknown)
+    /// delegated (MSP) auto-grant path, which requires a Pro home tenant. Null (unknown)
     /// fails closed to an empty delegated scope; the other grant paths are unaffected.
     /// </summary>
     public virtual async Task<McpAccessCheckResult> IsAllowedAsync(string? upn, string? homeTenantId = null)

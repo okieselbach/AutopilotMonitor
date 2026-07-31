@@ -6,8 +6,9 @@ namespace AutopilotMonitor.Functions.Tests;
 /// <summary>
 /// Pins the edition-resolution matrix and the per-edition entitlement values of
 /// <see cref="FeatureEntitlementCatalog"/>. Fail-closed contract: ONLY the exact tier
-/// "enterprise" (or an active trial) yields Enterprise — legacy stored tiers ("free", "pro"),
-/// null/empty and unknown values all resolve to Community without any data migration.
+/// "pro" / the legacy stored value "enterprise" (or an active trial) yields Pro — the legacy
+/// stored tier "free", null/empty and unknown values all resolve to Community without any
+/// data migration.
 /// </summary>
 public class FeatureEntitlementCatalogTests
 {
@@ -16,31 +17,34 @@ public class FeatureEntitlementCatalogTests
     // ── ResolveEdition matrix ────────────────────────────────────────────────────
 
     [Theory]
-    [InlineData("enterprise")]
+    [InlineData("pro")]
+    [InlineData("Pro")]
+    [InlineData("PRO")]
+    [InlineData(" pro ")]
+    [InlineData("enterprise")] // legacy stored value — must stay readable as Pro
     [InlineData("Enterprise")]
     [InlineData("ENTERPRISE")]
     [InlineData(" enterprise ")]
-    public void ResolveEdition_EnterpriseTier_IsEnterprise(string tier)
+    public void ResolveEdition_ProOrLegacyEnterpriseTier_IsPro(string tier)
     {
-        Assert.Equal(TenantEdition.Enterprise, FeatureEntitlementCatalog.ResolveEdition(tier, null, Now));
+        Assert.Equal(TenantEdition.Pro, FeatureEntitlementCatalog.ResolveEdition(tier, null, Now));
     }
 
     [Theory]
     [InlineData("free")]
-    [InlineData("pro")]
     [InlineData("community")]
     [InlineData("")]
     [InlineData(null)]
     [InlineData("premium")] // unknown value → fail-closed
-    public void ResolveEdition_NonEnterpriseTier_IsCommunity(string? tier)
+    public void ResolveEdition_NonProTier_IsCommunity(string? tier)
     {
         Assert.Equal(TenantEdition.Community, FeatureEntitlementCatalog.ResolveEdition(tier, null, Now));
     }
 
     [Fact]
-    public void ResolveEdition_ActiveTrial_IsEnterprise_EvenOnFreeTier()
+    public void ResolveEdition_ActiveTrial_IsPro_EvenOnFreeTier()
     {
-        Assert.Equal(TenantEdition.Enterprise,
+        Assert.Equal(TenantEdition.Pro,
             FeatureEntitlementCatalog.ResolveEdition("free", Now.AddSeconds(1), Now));
     }
 
@@ -59,11 +63,28 @@ public class FeatureEntitlementCatalogTests
             FeatureEntitlementCatalog.ResolveEdition(null, Now.AddDays(-1), Now));
     }
 
-    [Fact]
-    public void ResolveEdition_ExpiredTrial_ButEnterpriseTier_StaysEnterprise()
+    [Theory]
+    [InlineData("pro")]
+    [InlineData("enterprise")]
+    public void ResolveEdition_ExpiredTrial_ButPermanentProTier_StaysPro(string tier)
     {
-        Assert.Equal(TenantEdition.Enterprise,
-            FeatureEntitlementCatalog.ResolveEdition("enterprise", Now.AddDays(-1), Now));
+        Assert.Equal(TenantEdition.Pro,
+            FeatureEntitlementCatalog.ResolveEdition(tier, Now.AddDays(-1), Now));
+    }
+
+    // ── IsPermanentProTier ───────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("pro", true)]
+    [InlineData(" PRO ", true)]
+    [InlineData("enterprise", true)] // legacy stored value
+    [InlineData("free", false)]
+    [InlineData("community", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void IsPermanentProTier_Matrix(string? tier, bool expected)
+    {
+        Assert.Equal(expected, FeatureEntitlementCatalog.IsPermanentProTier(tier));
     }
 
     // ── Entitlement values ───────────────────────────────────────────────────────
@@ -76,20 +97,24 @@ public class FeatureEntitlementCatalogTests
         Assert.Null(e.UserRateLimitPerMinute);
         Assert.Null(e.DeviceRateLimitPerMinute);
         Assert.False(e.DelegatedAdminAllowed);
+        Assert.False(e.BootstrapIncluded);
+        Assert.False(e.UnrestrictedModeAvailable);
         Assert.Equal("community", e.McpUsagePlanName);
         Assert.Equal(100, e.McpDailyRequestLimit);
         Assert.Equal(3000, e.McpMonthlyRequestLimit);
     }
 
     [Fact]
-    public void Enterprise_Entitlements_MatchMatrix()
+    public void Pro_Entitlements_MatchMatrix()
     {
-        var e = FeatureEntitlementCatalog.Get(TenantEdition.Enterprise);
+        var e = FeatureEntitlementCatalog.Get(TenantEdition.Pro);
         Assert.Equal(365, e.RetentionCapDays);
         Assert.Equal(150, e.UserRateLimitPerMinute);
         Assert.Equal(150, e.DeviceRateLimitPerMinute);
         Assert.True(e.DelegatedAdminAllowed);
-        Assert.Equal("enterprise", e.McpUsagePlanName);
+        Assert.True(e.BootstrapIncluded);
+        Assert.True(e.UnrestrictedModeAvailable);
+        Assert.Equal("pro", e.McpUsagePlanName);
         Assert.Equal(1000, e.McpDailyRequestLimit);
         Assert.Equal(20000, e.McpMonthlyRequestLimit);
     }

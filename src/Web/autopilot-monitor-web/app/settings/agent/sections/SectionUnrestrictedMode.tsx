@@ -6,7 +6,7 @@ import UnrestrictedModeSection from "../../components/UnrestrictedModeSection";
 
 export function SectionUnrestrictedMode() {
   const {
-    canEditConfig, config,
+    canEditConfig, config, editionInfo,
     unrestrictedMode, setUnrestrictedMode,
     handleSaveUnrestrictedMode,
     savingSection,
@@ -22,10 +22,15 @@ export function SectionUnrestrictedMode() {
     );
   }
 
-  if (!config?.unrestrictedModeEnabled) {
+  // Pro-plan feature, activated on request: requires the effective Pro edition AND the GA-set
+  // gate (mirrors the backend's read-time re-gate — a downgraded tenant loses the section).
+  if (editionInfo.edition !== "pro" || !config?.unrestrictedModeEnabled) {
     return (
       <div className="bg-white rounded-lg shadow p-8 text-center">
-        <p className="text-gray-500">Unrestricted Mode is not available for this tenant.</p>
+        <p className="text-gray-500">
+          Unrestricted Mode is not available for this tenant. It is a Pro-plan feature and is
+          activated on request.
+        </p>
       </div>
     );
   }

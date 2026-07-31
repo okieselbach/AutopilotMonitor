@@ -7,7 +7,7 @@ export const TENANT_NAV_SECTIONS = [
   { id: "bootstrap-sessions", label: "Bootstrap Sessions", description: "Create and manage bootstrap tokens" },
   { id: "graph-permissions", label: "Optional Graph capabilities", description: "Grant additional Microsoft Graph permissions for optional features" },
   { id: "support", label: "Submit Logs", description: "Send diagnostic files to the Autopilot Monitor team" },
-  { id: "plan", label: "Plan", description: "Your current plan and what Enterprise adds" },
+  { id: "plan", label: "Plan", description: "Your current plan and what Pro adds" },
   { id: "contact", label: "Contact", description: "Where we reach you about the service" },
 ] as const;
 

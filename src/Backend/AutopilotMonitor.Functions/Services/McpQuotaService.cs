@@ -144,8 +144,8 @@ namespace AutopilotMonitor.Functions.Services
                 _logger.LogWarning(ex, "[McpQuota] Plan definitions unavailable — using catalog fallback for plan {Plan}", planName);
             }
 
-            var fallback = string.Equals(planName, FeatureEntitlementCatalog.EnterpriseTierName, StringComparison.OrdinalIgnoreCase)
-                ? FeatureEntitlementCatalog.Get(TenantEdition.Enterprise)
+            var fallback = FeatureEntitlementCatalog.IsPermanentProTier(planName)
+                ? FeatureEntitlementCatalog.Get(TenantEdition.Pro)
                 : FeatureEntitlementCatalog.Get(TenantEdition.Community);
             return (planName, fallback.McpDailyRequestLimit, fallback.McpMonthlyRequestLimit);
         }

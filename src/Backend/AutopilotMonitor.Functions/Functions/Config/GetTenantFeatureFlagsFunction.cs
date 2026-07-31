@@ -70,12 +70,14 @@ namespace AutopilotMonitor.Functions.Functions.Config
         {
             var edition = FeatureEntitlementCatalog.ResolveEdition(config.PlanTier, config.TrialExpiresUtc, nowUtc);
             var entitlements = FeatureEntitlementCatalog.Get(edition);
-            var isTrial = edition == TenantEdition.Enterprise &&
-                          !string.Equals(config.PlanTier?.Trim(), FeatureEntitlementCatalog.EnterpriseTierName, StringComparison.OrdinalIgnoreCase);
+            var isTrial = edition == TenantEdition.Pro &&
+                          !FeatureEntitlementCatalog.IsPermanentProTier(config.PlanTier);
 
             return new
             {
-                bootstrapTokenEnabled = config.BootstrapTokenEnabled,
+                // EFFECTIVE bootstrap availability (Pro includes it; the GA flag is the additive
+                // Community enable) — field name kept for web compatibility.
+                bootstrapTokenEnabled = TenantEntitlementService.IsBootstrapEnabled(config, nowUtc),
                 // Session-detail "Collect Logs" button: whether an on-demand diagnostics upload can
                 // succeed right now (mode not Off + a usable destination). Members below Admin cannot
                 // read the full config, so this boolean is their only signal. Deliberately exposes no
@@ -92,10 +94,10 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 showScriptOutput = config.ShowScriptOutput ?? true,
                 enableSoftwareInventoryAnalyzer = config.EnableSoftwareInventoryAnalyzer ?? false,
                 enableIntegrityBypassAnalyzer = config.EnableIntegrityBypassAnalyzer ?? true,
-                // Gather-rules page validation indicator. UnrestrictedMode itself is just a display
-                // hint — the privileged toggle is UnrestrictedModeEnabled (admin-only, stays in
-                // the full config response).
-                unrestrictedMode = config.UnrestrictedMode,
+                // Gather-rules page validation indicator. EFFECTIVE value (requires Pro edition +
+                // GA gate + tenant toggle) — the privileged toggle is UnrestrictedModeEnabled
+                // (admin-only, stays in the full config response).
+                unrestrictedMode = TenantEntitlementService.IsUnrestrictedModeActive(config, nowUtc),
                 // Edition/entitlement surface (read-time resolution — non-sensitive by design):
                 // drives the EditionBadge, trial CTA and retention hint in the web UI.
                 edition = edition.ToString().ToLowerInvariant(),

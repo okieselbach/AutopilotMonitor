@@ -36,7 +36,7 @@ public class DelegatedAdminServiceTests
         // the edition filter has its own dedicated tests (DelegatedAdminEditionGateTests).
         var svc = new DelegatedAdminService(
             repo.Object,
-            new StubTenantEntitlementService(AutopilotMonitor.Functions.Security.TenantEdition.Enterprise),
+            new StubTenantEntitlementService(AutopilotMonitor.Functions.Security.TenantEdition.Pro),
             cache,
             NullLogger<DelegatedAdminService>.Instance);
         return (svc, repo);

@@ -36,7 +36,7 @@ public class McpUserServiceDelegatedTests
             _adminRepo.Object, cache, NullLogger<GlobalAdminService>.Instance) { CallBase = false };
         _delegatedAdmin = new Mock<DelegatedAdminService>(
             _adminRepo.Object,
-            new StubTenantEntitlementService(AutopilotMonitor.Functions.Security.TenantEdition.Enterprise),
+            new StubTenantEntitlementService(AutopilotMonitor.Functions.Security.TenantEdition.Pro),
             cache, NullLogger<DelegatedAdminService>.Instance) { CallBase = false };
         _adminConfig = new Mock<AdminConfigurationService>(
             Mock.Of<IConfigRepository>(), NullLogger<AdminConfigurationService>.Instance, cache) { CallBase = false };

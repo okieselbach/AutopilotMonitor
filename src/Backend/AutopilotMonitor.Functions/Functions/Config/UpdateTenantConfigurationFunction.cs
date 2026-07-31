@@ -223,7 +223,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                         await badRequest.WriteAsJsonAsync(new
                         {
                             success = false,
-                            message = $"Data retention must be between 7 and {cap} days for your plan. Upgrade to Enterprise for up to 365 days."
+                            message = $"Data retention must be between 7 and {cap} days for your plan. Upgrade to Pro for up to 365 days."
                         });
                         return badRequest;
                     }

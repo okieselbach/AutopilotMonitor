@@ -88,7 +88,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
 
                 // Feature gate: bootstrap endpoints only available when explicitly enabled for this tenant
                 var (config, tenantExists) = await _configService.TryGetConfigurationAsync(registration.TenantId);
-                if (!tenantExists || !config.BootstrapTokenEnabled)
+                if (!tenantExists || !TenantEntitlementService.IsBootstrapEnabled(config, DateTime.UtcNow))
                 {
                     return new RegisterSessionOutput { HttpResponse = req.CreateResponse(HttpStatusCode.NotFound) };
                 }

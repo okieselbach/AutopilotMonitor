@@ -89,7 +89,7 @@ public class PolicyEnforcementMiddlewareTests
         // mechanics; the Enterprise-only edition gate is covered by DelegatedAdminEditionGateTests.
         var delegatedAdmin = new DelegatedAdminService(
             repo.Object,
-            new StubTenantEntitlementService(AutopilotMonitor.Functions.Security.TenantEdition.Enterprise),
+            new StubTenantEntitlementService(AutopilotMonitor.Functions.Security.TenantEdition.Pro),
             cache,
             NullLogger<DelegatedAdminService>.Instance);
         var tenantAdmins = new TenantAdminsService(repo.Object, cache, NullLogger<TenantAdminsService>.Instance);

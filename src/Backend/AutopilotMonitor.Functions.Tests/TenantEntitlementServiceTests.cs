@@ -34,7 +34,7 @@ public class TenantEntitlementServiceTests
     public async Task GetEdition_EnterpriseTier_ReturnsEnterprise()
     {
         var (svc, _) = Build(new TenantConfiguration { TenantId = TenantId, PlanTier = "enterprise" });
-        Assert.Equal(TenantEdition.Enterprise, await svc.GetEditionAsync(TenantId));
+        Assert.Equal(TenantEdition.Pro, await svc.GetEditionAsync(TenantId));
     }
 
     [Fact]
@@ -46,7 +46,7 @@ public class TenantEntitlementServiceTests
             PlanTier = "free",
             TrialExpiresUtc = Now.AddDays(3)
         });
-        Assert.Equal(TenantEdition.Enterprise, await svc.GetEditionAsync(TenantId));
+        Assert.Equal(TenantEdition.Pro, await svc.GetEditionAsync(TenantId));
     }
 
     [Fact]
@@ -111,13 +111,76 @@ public class TenantEntitlementServiceTests
     [InlineData("free", 60, 60)]     // below the cap — unchanged
     [InlineData("free", 91, 90)]     // above the Community cap — clamped
     [InlineData("free", 180, 90)]    // legacy stored value above cap — clamped
-    [InlineData("enterprise", 180, 180)]
-    [InlineData("enterprise", 365, 365)]
-    [InlineData("enterprise", 400, 365)] // above the Enterprise cap — clamped
+    [InlineData("pro", 180, 180)]
+    [InlineData("pro", 365, 365)]
+    [InlineData("pro", 400, 365)]        // above the Pro cap — clamped
+    [InlineData("enterprise", 180, 180)] // legacy stored value — Pro cap applies
+    [InlineData("enterprise", 400, 365)]
     public void GetEffectiveRetentionDays_ClampsToEditionCap(string tier, int stored, int expected)
     {
         var config = new TenantConfiguration { TenantId = TenantId, PlanTier = tier, DataRetentionDays = stored };
         Assert.Equal(expected, TenantEntitlementService.GetEffectiveRetentionDays(config, Now));
+    }
+
+    // ── IsBootstrapEnabled / IsUnrestrictedModeActive (effective feature gates) ──
+
+    [Theory]
+    [InlineData("pro", false, true)]        // included in the plan — no GA flag needed
+    [InlineData("enterprise", false, true)] // legacy stored value counts as Pro
+    [InlineData("free", true, true)]        // Community + GA flag (additive escape hatch)
+    [InlineData("free", false, false)]      // Community without flag → off
+    public void IsBootstrapEnabled_PlanOrFlag(string tier, bool gaFlag, bool expected)
+    {
+        var config = new TenantConfiguration { TenantId = TenantId, PlanTier = tier, BootstrapTokenEnabled = gaFlag };
+        Assert.Equal(expected, TenantEntitlementService.IsBootstrapEnabled(config, Now));
+    }
+
+    [Fact]
+    public void IsBootstrapEnabled_ActiveTrial_CountsAsPro_AndExpiryTurnsItOff()
+    {
+        var config = new TenantConfiguration
+        {
+            TenantId = TenantId,
+            PlanTier = "free",
+            BootstrapTokenEnabled = false,
+            TrialExpiresUtc = Now.AddDays(1)
+        };
+        Assert.True(TenantEntitlementService.IsBootstrapEnabled(config, Now));
+        Assert.False(TenantEntitlementService.IsBootstrapEnabled(config, Now.AddDays(2)));
+    }
+
+    [Theory]
+    [InlineData("pro", true, true, true)]    // all three conditions met
+    [InlineData("pro", true, false, false)]  // tenant admin has not opted in
+    [InlineData("pro", false, true, false)]  // GA on-request gate missing
+    [InlineData("free", true, true, false)]  // edition re-gate: Community never unrestricted
+    public void IsUnrestrictedModeActive_RequiresProAndGateAndToggle(
+        string tier, bool gate, bool toggle, bool expected)
+    {
+        var config = new TenantConfiguration
+        {
+            TenantId = TenantId,
+            PlanTier = tier,
+            UnrestrictedModeEnabled = gate,
+            UnrestrictedMode = toggle
+        };
+        Assert.Equal(expected, TenantEntitlementService.IsUnrestrictedModeActive(config, Now));
+    }
+
+    [Fact]
+    public void IsUnrestrictedModeActive_TrialExpiry_RearmsGuardrails()
+    {
+        // A trial tenant may have Unrestricted Mode granted+enabled; expiry must fail closed.
+        var config = new TenantConfiguration
+        {
+            TenantId = TenantId,
+            PlanTier = "free",
+            UnrestrictedModeEnabled = true,
+            UnrestrictedMode = true,
+            TrialExpiresUtc = Now.AddDays(1)
+        };
+        Assert.True(TenantEntitlementService.IsUnrestrictedModeActive(config, Now));
+        Assert.False(TenantEntitlementService.IsUnrestrictedModeActive(config, Now.AddDays(2)));
     }
 
     [Fact]

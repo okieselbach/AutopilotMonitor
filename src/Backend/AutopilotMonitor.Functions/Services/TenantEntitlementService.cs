@@ -7,12 +7,12 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Services
 {
     /// <summary>
-    /// Resolves a tenant's effective edition (Community/Enterprise) and its entitlements at read
+    /// Resolves a tenant's effective edition (Community/Pro) and its entitlements at read
     /// time. Rides on <see cref="TenantConfigurationService"/>'s 5-minute config cache — no cache
     /// of its own, so plan/trial mutations become visible within the existing staleness budget.
     ///
     /// Fail-closed: any storage/resolution failure yields Community. A broken entitlement lookup
-    /// must never grant Enterprise capabilities.
+    /// must never grant Pro capabilities.
     /// </summary>
     public class TenantEntitlementService
     {
@@ -73,6 +73,29 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>Pure edition resolution for callers that already hold the config.</summary>
         public static TenantEdition ResolveEdition(TenantConfiguration config, DateTime nowUtc)
             => FeatureEntitlementCatalog.ResolveEdition(config.PlanTier, config.TrialExpiresUtc, nowUtc);
+
+        /// <summary>
+        /// Whether the OOBE bootstrap feature is effectively enabled for this config: included in
+        /// the tenant's edition (Pro, incl. active trials) OR explicitly enabled per tenant via
+        /// the GA-only <see cref="TenantConfiguration.BootstrapTokenEnabled"/> flag (additive —
+        /// the Community escape hatch). Read-time resolution: a trial expiry or downgrade turns
+        /// the feature off automatically.
+        /// </summary>
+        public static bool IsBootstrapEnabled(TenantConfiguration config, DateTime nowUtc)
+            => FeatureEntitlementCatalog.Get(ResolveEdition(config, nowUtc)).BootstrapIncluded
+               || config.BootstrapTokenEnabled;
+
+        /// <summary>
+        /// Whether Unrestricted Mode is effectively ACTIVE for this config. Requires all three:
+        /// the edition allows it (Pro — read-time, so trial expiry / downgrade re-arms the
+        /// guardrails fail-closed), the GA-only on-request gate
+        /// (<see cref="TenantConfiguration.UnrestrictedModeEnabled"/>), and the tenant-admin
+        /// opt-in toggle (<see cref="TenantConfiguration.UnrestrictedMode"/>).
+        /// </summary>
+        public static bool IsUnrestrictedModeActive(TenantConfiguration config, DateTime nowUtc)
+            => FeatureEntitlementCatalog.Get(ResolveEdition(config, nowUtc)).UnrestrictedModeAvailable
+               && config.UnrestrictedModeEnabled
+               && config.UnrestrictedMode;
 
         /// <summary>
         /// The retention days the platform actually enforces for this config: the stored value

@@ -308,7 +308,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 NtpServer = string.IsNullOrEmpty(tenantConfig.NtpServer) ? "time.windows.com" : tenantConfig.NtpServer,
                 EnableTimezoneAutoSet = tenantConfig.EnableTimezoneAutoSet ?? false,
                 SendTraceEvents = tenantConfig.SendTraceEvents,
-                UnrestrictedMode = tenantConfig.UnrestrictedModeEnabled && tenantConfig.UnrestrictedMode,
+                UnrestrictedMode = TenantEntitlementService.IsUnrestrictedModeActive(tenantConfig, DateTime.UtcNow),
                 GatherRules = gatherRules,
                 ImeLogPatterns = imeLogPatterns,
                 WhiteGloveSealingPatternIds = adminConfig.GetWhiteGloveSealingPatternIds(),

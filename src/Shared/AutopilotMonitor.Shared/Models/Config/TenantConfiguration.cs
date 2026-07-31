@@ -110,21 +110,21 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>
         /// Tenant plan tier. Determines default API rate limits and feature gates.
-        /// Write-side values: "community", "enterprise". Legacy stored values ("free", "pro")
-        /// remain readable and resolve to Community (fail-closed — see FeatureEntitlementCatalog).
-        /// Managed by Global Admins.
+        /// Write-side values: "community", "pro". The legacy stored values "enterprise" (resolves
+        /// to Pro) and "free" (resolves to Community) remain readable — see
+        /// FeatureEntitlementCatalog. Managed by Global Admins.
         /// </summary>
         public string PlanTier { get; set; } = "free";
 
         /// <summary>
-        /// End of the tenant's Enterprise trial (UTC). While this is in the future the tenant's
-        /// effective edition is Enterprise regardless of <see cref="PlanTier"/>. Null = no trial.
+        /// End of the tenant's Pro trial (UTC). While this is in the future the tenant's
+        /// effective edition is Pro regardless of <see cref="PlanTier"/>. Null = no trial.
         /// Expiry degrades the tenant to Community at read time — no timer involved.
         /// </summary>
         public DateTime? TrialExpiresUtc { get; set; }
 
         /// <summary>
-        /// When the tenant's Enterprise trial was started (UTC). Informational/audit only.
+        /// When the tenant's Pro trial was started (UTC). Informational/audit only.
         /// </summary>
         public DateTime? TrialStartedUtc { get; set; }
 
@@ -460,27 +460,30 @@ namespace AutopilotMonitor.Shared.Models
         // ===== BOOTSTRAP TOKEN =====
 
         /// <summary>
-        /// Whether OOBE Bootstrap Sessions are enabled for this tenant.
-        /// When false (default), the Bootstrap Sessions feature is hidden in the UI
-        /// and all bootstrap API endpoints reject requests for this tenant.
-        /// Only configurable by Global Admins.
+        /// Per-tenant ADDITIVE enable for OOBE Bootstrap Sessions (Global Admin only). The Pro
+        /// plan includes the feature regardless of this flag; for Community tenants this is the
+        /// on-request escape hatch. Effective value = plan-included OR this flag — resolved via
+        /// TenantEntitlementService.IsBootstrapEnabled (backend); when effectively false, the
+        /// feature is hidden in the UI and all bootstrap API endpoints reject requests.
         /// </summary>
         public bool BootstrapTokenEnabled { get; set; } = false;
 
         // ===== UNRESTRICTED MODE =====
 
         /// <summary>
-        /// Whether the Unrestricted Mode feature is available for this tenant.
-        /// When false (default), the Unrestricted Mode section is hidden in the tenant settings UI
-        /// and UnrestrictedMode cannot be activated by tenant admins.
+        /// Whether the Unrestricted Mode feature is available for this tenant (the Pro-plan
+        /// on-request gate). When false (default), the Unrestricted Mode section is hidden in the
+        /// tenant settings UI and UnrestrictedMode cannot be activated by tenant admins.
         /// Only configurable by Global Admins.
         /// </summary>
         public bool UnrestrictedModeEnabled { get; set; } = false;
 
         /// <summary>
-        /// When enabled, agent guardrails are relaxed: all registry paths, WMI queries, and commands
+        /// When effective, agent guardrails are relaxed: all registry paths, WMI queries, and commands
         /// are allowed via GatherRules. File paths and diagnostics paths are allowed except C:\Users.
         /// Default: false. Can only be toggled by tenant admins when UnrestrictedModeEnabled is true.
+        /// EFFECTIVE only while the tenant's edition is Pro (read-time re-gate, fail-closed on
+        /// trial expiry/downgrade) — see TenantEntitlementService.IsUnrestrictedModeActive.
         /// </summary>
         public bool UnrestrictedMode { get; set; } = false;
 

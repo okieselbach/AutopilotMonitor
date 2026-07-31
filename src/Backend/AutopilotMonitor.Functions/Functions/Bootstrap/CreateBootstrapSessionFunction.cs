@@ -62,9 +62,9 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                     return badReq;
                 }
 
-                // Check if bootstrap token feature is enabled for this tenant
+                // Check if the bootstrap feature is enabled for this tenant (Pro plan or GA flag)
                 var tenantConfig = await _configService.GetConfigurationAsync(tenantId);
-                if (!tenantConfig.BootstrapTokenEnabled)
+                if (!TenantEntitlementService.IsBootstrapEnabled(tenantConfig, DateTime.UtcNow))
                 {
                     var disabled = req.CreateResponse(HttpStatusCode.Forbidden);
                     await disabled.WriteAsJsonAsync(new { error = "Bootstrap token feature is not enabled for this tenant" });

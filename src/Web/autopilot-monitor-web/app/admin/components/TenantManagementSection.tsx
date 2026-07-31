@@ -31,7 +31,7 @@ export interface TenantConfiguration {
   dataRetentionDays: number;
   sessionTimeoutHours: number;
   planTier?: string;
-  /** Enterprise-trial end (ISO, UTC). Null/undefined = no trial. Managed via PATCH plan. */
+  /** Pro-trial end (ISO, UTC). Null/undefined = no trial. Managed via PATCH plan. */
   trialExpiresUtc?: string | null;
   /** Whether the tenant has used its one self-service trial. */
   trialConsumed?: boolean;
@@ -190,9 +190,9 @@ function TenantManagementSectionInner({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          // Legacy stored tiers (free/pro) resolve to Community server-side; the select only
-          // offers the two canonical values, so normalize on save.
-          planTier: tenant.planTier === "enterprise" ? "enterprise" : "community",
+          // The select only offers the two canonical write values (community/pro); legacy stored
+          // "enterprise" normalizes to "pro" on save, legacy "free" to "community".
+          planTier: tenant.planTier === "pro" || tenant.planTier === "enterprise" ? "pro" : "community",
           trialExpiresUtc: tenant.trialExpiresUtc ?? null,
         }),
       });
@@ -598,17 +598,17 @@ function TenantManagementSectionInner({
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-semibold text-purple-900">Plan &amp; Trial</h3>
                   {(() => {
-                    const isEnterpriseTier = editingTenant.planTier === "enterprise";
+                    const isProTier = editingTenant.planTier === "pro" || editingTenant.planTier === "enterprise";
                     const trialActive = !!editingTenant.trialExpiresUtc &&
                       new Date(editingTenant.trialExpiresUtc).getTime() > nowMs;
-                    const effective = isEnterpriseTier || trialActive ? "Enterprise" : "Community";
+                    const effective = isProTier || trialActive ? "Pro" : "Community";
                     return (
                       <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        effective === "Enterprise"
+                        effective === "Pro"
                           ? "bg-purple-100 text-purple-800"
                           : "bg-gray-100 text-gray-700"
                       }`}>
-                        Effective: {effective}{!isEnterpriseTier && trialActive ? " (Trial)" : ""}
+                        Effective: {effective}{!isProTier && trialActive ? " (Trial)" : ""}
                       </span>
                     );
                   })()}
@@ -617,14 +617,19 @@ function TenantManagementSectionInner({
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Plan Tier</label>
                     <select
-                      value={editingTenant.planTier === "enterprise" ? "enterprise" : "community"}
+                      value={editingTenant.planTier === "pro" || editingTenant.planTier === "enterprise" ? "pro" : "community"}
                       onChange={(e) => setEditingTenant({ ...editingTenant, planTier: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                     >
                       <option value="community">Community</option>
-                      <option value="enterprise">Enterprise</option>
+                      <option value="pro">Pro</option>
                     </select>
-                    {editingTenant.planTier && editingTenant.planTier !== "enterprise" && editingTenant.planTier !== "community" && (
+                    {editingTenant.planTier === "enterprise" && (
+                      <p className="text-xs text-amber-600 mt-1">
+                        Stored legacy tier &quot;enterprise&quot; resolves to Pro. Saving normalizes it to &quot;pro&quot;.
+                      </p>
+                    )}
+                    {editingTenant.planTier && !["pro", "enterprise", "community"].includes(editingTenant.planTier) && (
                       <p className="text-xs text-amber-600 mt-1">
                         Stored legacy tier &quot;{editingTenant.planTier}&quot; resolves to Community. Saving normalizes it.
                       </p>
@@ -653,7 +658,7 @@ function TenantManagementSectionInner({
                       )}
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
-                      Set a date to grant/extend an Enterprise trial; clear to end it. Saving does not reset trial consumption.
+                      Set a date to grant/extend a Pro trial; clear to end it. Saving does not reset trial consumption.
                     </p>
                   </div>
                   <div className="flex items-center justify-between">
@@ -821,7 +826,7 @@ function TenantManagementSectionInner({
                 ) : (editingTenant.dataRetentionDays < 7 || editingTenant.dataRetentionDays > 365) ? (
                   <p className="text-xs text-amber-600 mt-1 font-medium">⚠ Outside tenant range (7–365) — field will be locked for tenant admins</p>
                 ) : (
-                  <p className="text-xs text-gray-400 mt-1">Tenant range: 7–90 (Community) / 7–365 (Enterprise). Values above the plan cap are enforced at the cap. Set 0 for infinite retention (Global only).</p>
+                  <p className="text-xs text-gray-400 mt-1">Tenant range: 7–90 (Community) / 7–365 (Pro). Values above the plan cap are enforced at the cap. Set 0 for infinite retention (Global only).</p>
                 )}
               </div>
 

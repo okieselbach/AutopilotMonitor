@@ -5,7 +5,7 @@ import { useTenantConfig } from "../../TenantConfigContext";
 import { trialDaysLeft } from "@/lib/edition";
 
 /**
- * Self-service Enterprise trial switch. The Enterprise feature set is not finalized yet, so the
+ * Self-service Pro trial switch. The Pro feature set is not finalized yet, so the
  * trial CTA is teased but not actionable. Flip this to `true` (a one-line change) to open the
  * self-service 30-day trial — the backend POST /trial endpoint and the startTrial() wiring are
  * already in place; only this gate keeps the button inert.
@@ -15,10 +15,10 @@ const TRIAL_SELF_SERVICE_ENABLED = false;
 /**
  * Retention baselines per plan tier. These describe the two PLANS on the comparison cards, so they
  * must not depend on the viewer's current edition — they mirror the backend catalog
- * (FeatureEntitlementCatalog: Community RetentionCapDays = 90, Enterprise = 365).
+ * (FeatureEntitlementCatalog: Community RetentionCapDays = 90, Pro = 365).
  */
 const COMMUNITY_RETENTION_DAYS = 90;
-const ENTERPRISE_RETENTION_DAYS = 365;
+const PRO_RETENTION_DAYS = 365;
 
 function CheckIcon({ className }: { className: string }) {
   return (
@@ -49,7 +49,7 @@ function FeatureList({ features, checkClass, muted = false }: { features: string
   );
 }
 
-/** The Enterprise delta: same layout as FeatureList but "+" bullets and emphasized text. */
+/** The Pro delta: same layout as FeatureList but "+" bullets and emphasized text. */
 function PlusList({ features }: { features: string[] }) {
   return (
     <ul className="space-y-2.5">
@@ -64,8 +64,8 @@ function PlusList({ features }: { features: string[] }) {
 }
 
 /**
- * Plan section: two side-by-side plan cards (Community and Enterprise). The tenant's current plan
- * is highlighted so the edition is obvious at a glance; the Enterprise card teases what it adds.
+ * Plan section: two side-by-side plan cards (Community and Pro). The tenant's current plan
+ * is highlighted so the edition is obvious at a glance; the Pro card teases what it adds.
  *
  * Dark mode: the tinted card surfaces use slash-opacity utilities (bg-purple-50/40), which the
  * global `.dark .bg-*` override map in globals.css does NOT match — they are separate class tokens.
@@ -77,15 +77,15 @@ export function SectionPlan() {
   const { editionInfo, startTrial, startingTrial, user } = useTenantConfig();
   const [confirming, setConfirming] = useState(false);
 
-  const isEnterprise = editionInfo.edition === "enterprise";
+  const isPro = editionInfo.edition === "pro";
   const daysLeft = editionInfo.isTrial ? trialDaysLeft(editionInfo.trialExpiresUtc) : 0;
-  const trialConsumed = !isEnterprise && !editionInfo.trialAvailable;
+  const trialConsumed = !isPro && !editionInfo.trialAvailable;
   const canStartTrial =
     editionInfo.trialAvailable && (user?.isTenantAdmin === true || user?.isGlobalAdmin === true);
 
   // Features shared by both plans verbatim. Plan-specific items (retention, support tier) are NOT
-  // in here — repeating "90-day retention" on the Enterprise card would be factually wrong; their
-  // Enterprise counterparts live in enterpriseExtras instead.
+  // in here — repeating "90-day retention" on the Pro card would be factually wrong; their
+  // Pro counterparts live in proExtras instead.
   const sharedFeatures = [
     "Live session monitoring & progress portal",
     "Full rules engine, including custom rules",
@@ -99,11 +99,13 @@ export function SectionPlan() {
     "Community support (GitHub)",
   ];
 
-  const enterpriseExtras = [
-    `Extended data retention — ${ENTERPRISE_RETENTION_DAYS} days (vs ${COMMUNITY_RETENTION_DAYS})`,
+  const proExtras = [
+    `Extended data retention — ${PRO_RETENTION_DAYS} days (vs ${COMMUNITY_RETENTION_DAYS})`,
     "Higher portal & agent API rate limits",
     "Larger AI (MCP) usage quota",
     "Delegated (MSP) administration across tenants",
+    "OOBE bootstrap sessions — test the agent without an Intune deployment",
+    "Unrestricted Mode for advanced data collection (activated on request)",
     "Reliability commitments & priority support",
   ];
 
@@ -116,7 +118,7 @@ export function SectionPlan() {
           </svg>
           <div>
             <h2 className="text-xl font-semibold text-gray-900">Plan</h2>
-            <p className="text-sm text-gray-500 mt-1">Your current plan and what Enterprise adds</p>
+            <p className="text-sm text-gray-500 mt-1">Your current plan and what Pro adds</p>
           </div>
         </div>
       </div>
@@ -126,7 +128,7 @@ export function SectionPlan() {
           {/* Community card */}
           <div
             className={`rounded-xl border p-6 flex flex-col ${
-              !isEnterprise
+              !isPro
                 ? "border-gray-800 ring-1 ring-gray-800 bg-gray-50/60 dark:border-slate-500 dark:ring-slate-500 dark:bg-slate-900/40"
                 : "border-gray-200"
             }`}
@@ -136,7 +138,7 @@ export function SectionPlan() {
                 <h3 className="text-lg font-semibold text-gray-900">Community</h3>
                 <p className="text-sm text-gray-600 mt-0.5">The full product, free</p>
               </div>
-              {!isEnterprise && (
+              {!isPro && (
                 <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-900 text-white dark:bg-slate-200 dark:text-slate-900">
                   Current plan
                 </span>
@@ -151,20 +153,20 @@ export function SectionPlan() {
             <FeatureList features={communityFeatures} checkClass="text-emerald-500" />
           </div>
 
-          {/* Enterprise card */}
+          {/* Pro card */}
           <div
             className={`rounded-xl border p-6 flex flex-col ${
-              isEnterprise
+              isPro
                 ? "border-purple-500 ring-1 ring-purple-500 bg-purple-50/40 dark:bg-purple-950/40"
                 : "border-purple-200 bg-purple-50/20 dark:bg-purple-950/20"
             }`}
           >
             <div className="flex items-start justify-between gap-2">
               <div>
-                <h3 className="text-lg font-semibold text-purple-900">Enterprise</h3>
+                <h3 className="text-lg font-semibold text-purple-900">Pro</h3>
                 <p className="text-sm text-gray-600 mt-0.5">Higher limits, support & MSP</p>
               </div>
-              {isEnterprise ? (
+              {isPro ? (
                 <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-600 text-white">
                   {editionInfo.isTrial ? `Trial — ${daysLeft} day${daysLeft === 1 ? "" : "s"} left` : "Current plan"}
                 </span>
@@ -177,9 +179,9 @@ export function SectionPlan() {
 
             <div className="mt-4 mb-5">
               <span className="text-2xl font-bold text-purple-900">
-                {isEnterprise ? "Active" : "Pricing TBA"}
+                {isPro ? "Active" : "Pricing TBA"}
               </span>
-              {!isEnterprise && <span className="text-sm text-gray-600"> — to be announced</span>}
+              {!isPro && <span className="text-sm text-gray-600"> — to be announced</span>}
             </div>
 
             <p className="text-xs font-medium uppercase tracking-wide text-gray-600 mb-2.5">
@@ -192,14 +194,14 @@ export function SectionPlan() {
               <span className="text-xs font-semibold uppercase tracking-wide text-purple-600 dark:text-purple-300">Plus</span>
               <span className="h-px flex-1 bg-purple-200 dark:bg-purple-800" />
             </div>
-            <PlusList features={enterpriseExtras} />
+            <PlusList features={proExtras} />
 
             {/* CTA — only meaningful while the tenant is on Community */}
-            {!isEnterprise && (
+            {!isPro && (
               <div className="mt-auto pt-5">
                 {trialConsumed ? (
                   <p className="text-sm text-gray-600">
-                    This tenant has already used its Enterprise trial. To move to Enterprise,{" "}
+                    This tenant has already used its Pro trial. To move to Pro,{" "}
                     <a
                       href="https://github.com/okieselbach/AutopilotMonitor/issues"
                       target="_blank"
@@ -214,10 +216,10 @@ export function SectionPlan() {
                   <button
                     type="button"
                     disabled
-                    title="Available soon — the Enterprise trial opens once the feature set is finalized."
+                    title="Available soon — the Pro trial opens once the feature set is finalized."
                     className="w-full text-sm font-medium text-white bg-purple-400 rounded-lg px-4 py-2.5 cursor-not-allowed opacity-70"
                   >
-                    Start 30-day Enterprise trial — coming soon
+                    Start 30-day Pro trial — coming soon
                   </button>
                 ) : canStartTrial && !confirming ? (
                   <button
@@ -225,7 +227,7 @@ export function SectionPlan() {
                     onClick={() => setConfirming(true)}
                     className="w-full text-sm font-medium text-white bg-purple-600 rounded-lg px-4 py-2.5 hover:bg-purple-700 transition-colors"
                   >
-                    Start 30-day Enterprise trial
+                    Start 30-day Pro trial
                   </button>
                 ) : canStartTrial && confirming ? (
                   <div className="flex items-center gap-2 text-sm">
@@ -257,9 +259,9 @@ export function SectionPlan() {
         </div>
 
         <p className="text-xs text-gray-600 mt-5">
-          {isEnterprise && editionInfo.isTrial
+          {isPro && editionInfo.isTrial
             ? "When the trial ends, the tenant returns to Community automatically."
-            : "Scope, pricing and timeline for Enterprise will be announced. Community stays free."}
+            : "Scope, pricing and timeline for Pro will be announced. Community stays free."}
         </p>
       </div>
     </div>

@@ -7,7 +7,7 @@ namespace AutopilotMonitor.Functions.Services
     /// no background sync job. Both the device path (<see cref="SecurityValidator"/>) and the user path
     /// (<c>UserRateLimitMiddleware</c>) resolve through here so the precedence stays consistent.
     ///
-    /// Edition entitlement floor (<c>FeatureEntitlementCatalog</c>): Enterprise raises the DEFAULT to
+    /// Edition entitlement floor (<c>FeatureEntitlementCatalog</c>): Pro raises the DEFAULT to
     /// at least the floor — it never lowers an admin-raised global default, and an explicit per-tenant
     /// override still wins outright (a Global Admin must stay able to throttle a specific tenant
     /// below the floor). Precedence: override ?? max(globalDefault, entitlementFloor).

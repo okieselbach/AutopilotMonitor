@@ -111,7 +111,7 @@ interface TenantConfigContextValue {
   // Edition / trial (read-time server resolution via feature-flags; fail-closed Community)
   editionInfo: EditionInfo;
   startingTrial: boolean;
-  /** Self-service 30-day Enterprise trial (once per tenant). Returns success. */
+  /** Self-service 30-day Pro trial (once per tenant). Returns success. */
   startTrial: () => Promise<boolean>;
 
   // Validation
@@ -641,9 +641,12 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   }, [tenantId, getAccessToken]);
 
   useEffect(() => {
-    if (!tenantId || !config?.bootstrapTokenEnabled) return;
+    // Effective availability (mirrors backend IsBootstrapEnabled): Pro plan includes bootstrap;
+    // the per-tenant GA flag is the additive Community enable.
+    const bootstrapAvailable = editionInfo.edition === "pro" || config?.bootstrapTokenEnabled;
+    if (!tenantId || !bootstrapAvailable) return;
     fetchBootstrapSessions();
-  }, [tenantId, config?.bootstrapTokenEnabled, fetchBootstrapSessions]);
+  }, [tenantId, editionInfo.edition, config?.bootstrapTokenEnabled, fetchBootstrapSessions]);
 
   // -----------------------------------------------------------------------
   // Fetch global diagnostics paths (global-admin only)
@@ -1472,7 +1475,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   }, [logout]);
 
   // -----------------------------------------------------------------------
-  // Self-service Enterprise trial (once per tenant — backend enforces via 409)
+  // Self-service Pro trial (once per tenant — backend enforces via 409)
   // -----------------------------------------------------------------------
   const startTrial = useCallback(async (): Promise<boolean> => {
     if (!tenantId) return false;
@@ -1494,9 +1497,9 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       if (flagsResponse.ok) {
         setEditionInfo(parseEditionInfo(await flagsResponse.json()));
       }
-      setSuccessMessage("Enterprise trial started — all Enterprise features are now active for 30 days.");
+      setSuccessMessage("Pro trial started — all Pro features are now active for 30 days.");
       setTimeout(() => setSuccessMessage(null), 5000);
-      trackEvent("EnterpriseTrialStarted", { tenantId });
+      trackEvent("ProTrialStarted", { tenantId });
       return true;
     } catch (err) {
       if (err instanceof TokenExpiredError) {

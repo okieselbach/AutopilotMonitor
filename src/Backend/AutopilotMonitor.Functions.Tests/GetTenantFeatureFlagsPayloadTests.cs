@@ -54,11 +54,13 @@ public class GetTenantFeatureFlagsPayloadTests
     {
         var config = new TenantConfiguration
         {
+            PlanTier = "pro", // unrestrictedMode is EFFECTIVE — requires Pro + gate + toggle
             BootstrapTokenEnabled = true,
             ValidateAutopilotDevice = true,
             ShowScriptOutput = false,
             EnableSoftwareInventoryAnalyzer = true,
             EnableIntegrityBypassAnalyzer = false,
+            UnrestrictedModeEnabled = true,
             UnrestrictedMode = true,
         };
 
@@ -70,6 +72,55 @@ public class GetTenantFeatureFlagsPayloadTests
         Assert.True(element.GetProperty("enableSoftwareInventoryAnalyzer").GetBoolean());
         Assert.False(element.GetProperty("enableIntegrityBypassAnalyzer").GetBoolean());
         Assert.True(element.GetProperty("unrestrictedMode").GetBoolean());
+    }
+
+    // ── Effective feature gates (plan-derived) ──────────────────────────────
+
+    [Fact]
+    public void Payload_Bootstrap_IncludedInPro_WithoutGaFlag()
+    {
+        var element = Serialize(new TenantConfiguration { PlanTier = "pro", BootstrapTokenEnabled = false });
+        Assert.True(element.GetProperty("bootstrapTokenEnabled").GetBoolean());
+    }
+
+    [Fact]
+    public void Payload_Bootstrap_GaFlagStillWorksForCommunity()
+    {
+        var element = Serialize(new TenantConfiguration { PlanTier = "free", BootstrapTokenEnabled = true });
+        Assert.True(element.GetProperty("bootstrapTokenEnabled").GetBoolean());
+    }
+
+    [Fact]
+    public void Payload_Bootstrap_CommunityWithoutFlag_Disabled()
+    {
+        var element = Serialize(new TenantConfiguration { PlanTier = "free", BootstrapTokenEnabled = false });
+        Assert.False(element.GetProperty("bootstrapTokenEnabled").GetBoolean());
+    }
+
+    [Fact]
+    public void Payload_UnrestrictedMode_CommunityTenant_ForcedOff_DespiteBothFlags()
+    {
+        // Fail-closed re-gate: a downgraded/expired tenant keeps its stored flags but the
+        // effective value must be false.
+        var element = Serialize(new TenantConfiguration
+        {
+            PlanTier = "free",
+            UnrestrictedModeEnabled = true,
+            UnrestrictedMode = true,
+        });
+        Assert.False(element.GetProperty("unrestrictedMode").GetBoolean());
+    }
+
+    [Fact]
+    public void Payload_UnrestrictedMode_ProWithoutGaGate_Off()
+    {
+        var element = Serialize(new TenantConfiguration
+        {
+            PlanTier = "pro",
+            UnrestrictedModeEnabled = false,
+            UnrestrictedMode = true,
+        });
+        Assert.False(element.GetProperty("unrestrictedMode").GetBoolean());
     }
 
     [Fact]
@@ -159,12 +210,14 @@ public class GetTenantFeatureFlagsPayloadTests
         Assert.Equal("community", element.GetProperty("entitlements").GetProperty("mcpUsagePlan").GetString());
     }
 
-    [Fact]
-    public void Payload_EnterpriseTier_NotTrial()
+    [Theory]
+    [InlineData("pro")]
+    [InlineData("enterprise")] // legacy stored value resolves — and reports — as "pro"
+    public void Payload_PermanentProTier_NotTrial(string storedTier)
     {
-        var element = Serialize(new TenantConfiguration { PlanTier = "enterprise" });
+        var element = Serialize(new TenantConfiguration { PlanTier = storedTier });
 
-        Assert.Equal("enterprise", element.GetProperty("edition").GetString());
+        Assert.Equal("pro", element.GetProperty("edition").GetString());
         Assert.False(element.GetProperty("isTrial").GetBoolean());
         Assert.False(element.GetProperty("trialAvailable").GetBoolean());
         Assert.Equal(365, element.GetProperty("entitlements").GetProperty("retentionCapDays").GetInt32());
@@ -178,7 +231,7 @@ public class GetTenantFeatureFlagsPayloadTests
         var expiry = Now.AddDays(10);
         var element = Serialize(new TenantConfiguration { TrialExpiresUtc = expiry, TrialConsumed = true });
 
-        Assert.Equal("enterprise", element.GetProperty("edition").GetString());
+        Assert.Equal("pro", element.GetProperty("edition").GetString());
         Assert.True(element.GetProperty("isTrial").GetBoolean());
         Assert.False(element.GetProperty("trialAvailable").GetBoolean());
         Assert.Equal(expiry, element.GetProperty("trialExpiresUtc").GetDateTime());

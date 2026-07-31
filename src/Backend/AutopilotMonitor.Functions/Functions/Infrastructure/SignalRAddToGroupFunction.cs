@@ -100,7 +100,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                         {
                             // realtime/groups/join is not a tenant-scoped route, so the middleware did not
                             // resolve the delegated scope onto RequestContext — resolve it here, bounded to
-                            // the requested tenant only. Home tid gates the MSP seat (Enterprise-only).
+                            // the requested tenant only. Home tid gates the MSP seat (Pro-only).
                             var scope = await _delegatedAdminService.GetScopeAsync(userEmail, userTenantId);
                             allowedCrossTenant = scope.RoleFor(requestedTenantId) != null;
                             if (allowedCrossTenant)

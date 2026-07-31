@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Functions.Maintenance;
 
 /// <summary>
-/// Daily informational sweep over tenant Enterprise trials. NOT load-bearing — trial expiry
+/// Daily informational sweep over tenant Pro trials. NOT load-bearing — trial expiry
 /// degrades a tenant to Community at READ time (FeatureEntitlementCatalog.ResolveEdition);
 /// this timer only surfaces the transitions as ops events so the operator has visibility:
 /// <list type="bullet">
@@ -20,7 +20,7 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance;
 ///         <see cref="ExpiringHeadsUpDays"/> days (re-emitted each daily run until expiry —
 ///         acceptable for an Info-tier heads-up, no dedupe state to maintain).</item>
 /// </list>
-/// Tenants whose stored <c>PlanTier</c> is already the permanent "enterprise" are skipped —
+/// Tenants whose stored <c>PlanTier</c> is already a permanent Pro tier ("pro"/legacy "enterprise") are skipped —
 /// their trial timestamps are inert leftovers and expiry changes nothing.
 /// Failure never poisons the timer; the next run re-sweeps.
 /// </summary>
@@ -93,8 +93,8 @@ public class TrialExpirySweepFunction
             if (config.TrialExpiresUtc is not DateTime expiry)
                 continue;
 
-            // Permanent Enterprise: the trial timestamps are inert leftovers — expiry changes nothing.
-            if (string.Equals(config.PlanTier?.Trim(), FeatureEntitlementCatalog.EnterpriseTierName, StringComparison.OrdinalIgnoreCase))
+            // Permanent Pro: the trial timestamps are inert leftovers — expiry changes nothing.
+            if (FeatureEntitlementCatalog.IsPermanentProTier(config.PlanTier))
                 continue;
 
             result.TrialsSeen++;

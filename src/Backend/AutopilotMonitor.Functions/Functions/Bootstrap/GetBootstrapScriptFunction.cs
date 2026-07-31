@@ -95,7 +95,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 // Feature gate — same generic message as not-found so a disabled tenant is
                 // indistinguishable from an unknown code (no enumeration oracle).
                 var tenantConfig = await _configService.GetConfigurationAsync(session.TenantId);
-                if (!tenantConfig.BootstrapTokenEnabled)
+                if (!TenantEntitlementService.IsBootstrapEnabled(tenantConfig, DateTime.UtcNow))
                 {
                     _logger.LogWarning("Bootstrap script for code {Code} rejected — feature disabled for tenant {TenantId}", code, session.TenantId);
                     return await ScriptResponseAsync(

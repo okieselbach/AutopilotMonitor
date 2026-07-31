@@ -54,7 +54,9 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
         /// <summary>
         /// PATCH /api/config/{tenantId}/plan — GlobalAdminOnly (catalog-enforced).
-        /// Body: { "planTier"?: "community"|"enterprise", "trialExpiresUtc"?: ISO-8601 | null }.
+        /// Body: { "planTier"?: "community"|"pro", "trialExpiresUtc"?: ISO-8601 | null }.
+        /// The legacy stored value "enterprise" stays readable (resolves as Pro) but is no longer
+        /// accepted on writes.
         /// Setting a trial date grants/extends the trial (TrialConsumed is NOT touched — GA
         /// re-grants stay possible); explicit null ends the trial. Absent properties are unchanged.
         /// </summary>
@@ -96,10 +98,10 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
                         newPlanTier = tierProp.GetString()!.Trim().ToLowerInvariant();
                         if (newPlanTier != FeatureEntitlementCatalog.CommunityTierName &&
-                            newPlanTier != FeatureEntitlementCatalog.EnterpriseTierName)
+                            newPlanTier != FeatureEntitlementCatalog.ProTierName)
                         {
                             return await BadRequestAsync(req,
-                                $"Invalid planTier. Valid values: {FeatureEntitlementCatalog.CommunityTierName}, {FeatureEntitlementCatalog.EnterpriseTierName}");
+                                $"Invalid planTier. Valid values: {FeatureEntitlementCatalog.CommunityTierName}, {FeatureEntitlementCatalog.ProTierName}");
                         }
                     }
 
@@ -194,8 +196,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
         /// <summary>
         /// POST /api/config/{tenantId}/trial — TenantAdminOrGA (catalog-enforced). Self-service
-        /// 30-day Enterprise trial, exactly once per tenant. 409 when the trial was already
-        /// consumed or the tenant is already effectively Enterprise.
+        /// 30-day Pro trial, exactly once per tenant. 409 when the trial was already
+        /// consumed or the tenant is already effectively Pro.
         /// </summary>
         [Function("StartTenantTrial")]
         public async Task<HttpResponseData> StartTrial(
@@ -224,18 +226,18 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     await conflict.WriteAsJsonAsync(new
                     {
                         error = "TrialAlreadyConsumed",
-                        message = "This tenant has already used its one self-service Enterprise trial. Contact support to extend."
+                        message = "This tenant has already used its one self-service Pro trial. Contact support to extend."
                     });
                     return conflict;
                 }
 
-                if (FeatureEntitlementCatalog.ResolveEdition(config.PlanTier, config.TrialExpiresUtc, nowUtc) == TenantEdition.Enterprise)
+                if (FeatureEntitlementCatalog.ResolveEdition(config.PlanTier, config.TrialExpiresUtc, nowUtc) == TenantEdition.Pro)
                 {
                     var conflict = req.CreateResponse(HttpStatusCode.Conflict);
                     await conflict.WriteAsJsonAsync(new
                     {
-                        error = "AlreadyEnterprise",
-                        message = "This tenant is already on the Enterprise edition."
+                        error = "AlreadyPro",
+                        message = "This tenant is already on the Pro plan."
                     });
                     return conflict;
                 }
@@ -267,7 +269,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     tenantId = requestCtx.TargetTenantId,
                     trialStartedUtc = config.TrialStartedUtc,
                     trialExpiresUtc = config.TrialExpiresUtc,
-                    effectiveEdition = FeatureEntitlementCatalog.EnterpriseTierName
+                    effectiveEdition = FeatureEntitlementCatalog.ProTierName
                 });
                 return response;
             }

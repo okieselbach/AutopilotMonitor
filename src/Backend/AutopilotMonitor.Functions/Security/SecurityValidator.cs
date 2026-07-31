@@ -73,7 +73,7 @@ namespace AutopilotMonitor.Functions.Security
         /// <summary>
         /// Resolves the effective device (agent/cert) rate limit for a tenant:
         /// the per-tenant override if set, otherwise the global default raised to the tenant
-        /// edition's entitlement floor (Enterprise: 150/min — see FeatureEntitlementCatalog).
+        /// edition's entitlement floor (Pro: 150/min — see FeatureEntitlementCatalog).
         /// The global AdminConfiguration read is served from a 5-minute in-memory cache.
         /// </summary>
         private async Task<int> ResolveDeviceRateLimitAsync(TenantConfiguration config)
@@ -165,8 +165,8 @@ namespace AutopilotMonitor.Functions.Security
                     };
                 }
 
-                // Verify bootstrap token feature is enabled for this tenant
-                if (!config.BootstrapTokenEnabled)
+                // Verify the bootstrap feature is enabled for this tenant (Pro plan or GA flag)
+                if (!Services.TenantEntitlementService.IsBootstrapEnabled(config, DateTime.UtcNow))
                 {
                     _logger.LogWarning("Rejected bootstrap token: feature disabled for tenant {TenantId}", tenantId);
                     return new SecurityValidationResult

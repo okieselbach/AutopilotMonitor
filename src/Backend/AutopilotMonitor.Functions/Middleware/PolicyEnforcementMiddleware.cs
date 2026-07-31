@@ -166,7 +166,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         var isScopedRoute = catalogEntry.TenantScoping is TenantScoping.RouteParam or TenantScoping.QueryParam;
         if (!hasGlobalScope && !string.IsNullOrEmpty(upn) && isScopedRoute && crossTenant)
         {
-            // Home-tenant (JWT tid) gates the delegated scope: MSP seats require an Enterprise home tenant.
+            // Home-tenant (JWT tid) gates the delegated scope: MSP seats require a Pro home tenant.
             var scope = await _delegatedAdminService.GetScopeAsync(upn, jwtTenantId);
             delegatedRole = scope.RoleFor(namedTarget);
             if (delegatedRole != null)
@@ -579,7 +579,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         if (globalRole != null)
             return CatalogDecisionResult.Allow(userIdentifier, globalRole, "GlobalScope");
 
-        // Home-tenant (JWT tid) gates the delegated scope: MSP seats require an Enterprise home tenant.
+        // Home-tenant (JWT tid) gates the delegated scope: MSP seats require a Pro home tenant.
         var scope = await _delegatedAdminService.GetScopeAsync(upn, jwtTenantId);
         if (!scope.IsEmpty)
             return CatalogDecisionResult.Allow(

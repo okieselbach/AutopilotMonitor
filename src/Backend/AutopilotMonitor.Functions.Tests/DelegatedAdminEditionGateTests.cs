@@ -44,7 +44,7 @@ public class DelegatedAdminEditionGateTests
         return new DelegatedAdminService(
             repo.Object,
             new StubTenantEntitlementService(
-                tenantId => tenantId == EnterpriseHomeTenant ? TenantEdition.Enterprise : TenantEdition.Community),
+                tenantId => tenantId == EnterpriseHomeTenant ? TenantEdition.Pro : TenantEdition.Community),
             new MemoryCache(new MemoryCacheOptions()),
             NullLogger<DelegatedAdminService>.Instance);
     }
@@ -118,7 +118,7 @@ public class DelegatedAdminEditionGateTests
         var svc = new DelegatedAdminService(
             repo.Object,
             new StubTenantEntitlementService(
-                tenantId => tenantId == EnterpriseHomeTenant ? TenantEdition.Enterprise : TenantEdition.Community),
+                tenantId => tenantId == EnterpriseHomeTenant ? TenantEdition.Pro : TenantEdition.Community),
             new MemoryCache(new MemoryCacheOptions()),
             NullLogger<DelegatedAdminService>.Instance);
 

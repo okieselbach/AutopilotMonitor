@@ -108,7 +108,7 @@ export default function GetStartedPage() {
               rel="noopener noreferrer"
               className="text-[var(--lp-accent-ink)] hover:opacity-80 underline"
             >
-              Enterprise plan
+              Pro plan
             </a>{" "}
             adds SLAs, support commitments, MSP delegation, higher operating limits and more —
             same service, nothing to migrate.

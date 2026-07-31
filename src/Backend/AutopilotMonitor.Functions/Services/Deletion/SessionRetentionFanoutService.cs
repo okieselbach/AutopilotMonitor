@@ -158,7 +158,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         {
             var config = await _tenantConfig.GetConfigurationAsync(tenantId).ConfigureAwait(false);
             // Edition retention cap (fail-closed backstop): the stored value is clamped to the
-            // effective edition's cap at read time (Community 90 / Enterprise 365). A tenant whose
+            // effective edition's cap at read time (Community 90 / Pro 365). A tenant whose
             // trial expired, or whose stored value predates the cap, is enforced here even though
             // the stored DataRetentionDays is left untouched. days <= 0 stays the GA-only
             // "infinite" escape hatch (skipped below, never clamped).

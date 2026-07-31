@@ -94,7 +94,7 @@ public class AuthFunction
         // gate below). A genuine first-user still gets their config created by HandleNewTenantDomainAsync.
         var tenantConfigTask = _tenantConfigService.TryGetConfigurationAsync(tenantId);
         var globalRoleTask = _globalAdminService.GetGlobalRoleAsync(upn);
-        // tenantId = JWT tid = the caller's home tenant — gates the delegated (MSP) scope (Enterprise-only seat).
+        // tenantId = JWT tid = the caller's home tenant — gates the delegated (MSP) scope (Pro-only seat).
         var delegatedScopeTask = _delegatedAdminService.GetScopeAsync(upn, tenantId);
         var isApprovedTask = _previewWhitelistService.IsApprovedAsync(tenantId);
         var membershipTask = _tenantAdminsService.GetTableMembershipAsync(tenantId, upn);
@@ -469,8 +469,12 @@ public class AuthFunction
             role,
             canManageBootstrapTokens,
             hasMcpAccess = mcpCheck.IsAllowed,
-            bootstrapTokenEnabled = tenantConfig.BootstrapTokenEnabled,
-            unrestrictedModeEnabled = tenantConfig.UnrestrictedModeEnabled
+            // EFFECTIVE availability flags (drive sidebar/section visibility): bootstrap is
+            // included in Pro, Unrestricted Mode requires Pro + the GA on-request gate.
+            bootstrapTokenEnabled = TenantEntitlementService.IsBootstrapEnabled(tenantConfig, DateTime.UtcNow),
+            unrestrictedModeEnabled =
+                FeatureEntitlementCatalog.Get(TenantEntitlementService.ResolveEdition(tenantConfig, DateTime.UtcNow)).UnrestrictedModeAvailable
+                && tenantConfig.UnrestrictedModeEnabled
         }, needsAutoAdmin);
     }
 

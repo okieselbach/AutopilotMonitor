@@ -9,7 +9,7 @@ interface DataManagementSectionProps {
   sessionTimeoutHours: number;
   setSessionTimeoutHours: (value: number) => void;
   isGlobalAdmin?: boolean;
-  /** Edition retention cap (Community 90 / Enterprise 365) — from feature-flags entitlements. */
+  /** Edition retention cap (Community 90 / Pro 365) — from feature-flags entitlements. */
   retentionCapDays?: number;
   onSave: () => Promise<void> | void;
   onReset: () => void;
@@ -82,7 +82,7 @@ export default function DataManagementSection({
               </div>
             ) : (
               <p className="text-xs text-gray-400 mt-1">
-                Minimum: 7 days, Maximum: {retentionCapDays} days{retentionCapDays < 365 ? " (up to 365 with Enterprise)" : ""}
+                Minimum: 7 days, Maximum: {retentionCapDays} days{retentionCapDays < 365 ? " (up to 365 with Pro)" : ""}
               </p>
             )}
           </label>

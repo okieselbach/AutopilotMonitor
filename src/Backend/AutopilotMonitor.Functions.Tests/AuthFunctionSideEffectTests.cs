@@ -44,7 +44,7 @@ public class AuthFunctionSideEffectTests
 
         var delegatedAdminMock = new Mock<DelegatedAdminService>(
             adminRepo,
-            new StubTenantEntitlementService(AutopilotMonitor.Functions.Security.TenantEdition.Enterprise),
+            new StubTenantEntitlementService(AutopilotMonitor.Functions.Security.TenantEdition.Pro),
             cache, Mock.Of<ILogger<DelegatedAdminService>>())
         { CallBase = false };
         delegatedAdminMock.Setup(x => x.GetScopeAsync(It.IsAny<string>(), It.IsAny<string?>()))

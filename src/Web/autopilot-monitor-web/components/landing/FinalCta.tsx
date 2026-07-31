@@ -24,7 +24,7 @@ export function FinalCta() {
                 rel="noopener noreferrer"
                 className="text-[var(--lp-accent-ink)] hover:opacity-80 underline"
               >
-                There&apos;s an Enterprise plan
+                There&apos;s a Pro plan
               </a>
               .
             </span>

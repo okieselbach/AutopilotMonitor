@@ -13,8 +13,8 @@ namespace AutopilotMonitor.Functions.Services;
 /// Externally this is surfaced as "MSP mode".
 ///
 /// The scope is keyed on UPN; assignment RESOLUTION is tid-agnostic (identical to <see cref="GlobalAdminService"/>),
-/// but the effective scope is GATED on the caller's home tenant (JWT tid) being Enterprise — the MSP
-/// seat is an Enterprise capability of the tenant the admin is homed in, while the managed targets may
+/// but the effective scope is GATED on the caller's home tenant (JWT tid) being Pro — the MSP
+/// seat is a Pro capability of the tenant the admin is homed in, while the managed targets may
 /// be any edition. Resolution is cached briefly (UPN-keyed, gate applied per call); every mutation
 /// invalidates the cache.
 /// </summary>
@@ -50,10 +50,10 @@ public class DelegatedAdminService
     /// Returns an empty (never null) scope for a UPN with no effective assignments.
     /// <para>
     /// <b>Entitlement gate (single choke-point for ALL delegated-scope consumers):</b> delegated ("MSP")
-    /// access is an Enterprise capability of the caller's HOME tenant — the tenant that pays for the MSP
+    /// access is a Pro capability of the caller's HOME tenant — the tenant that pays for the MSP
     /// seat (<paramref name="callerHomeTenantId"/> = the validated JWT tid, unforgeable). The MANAGED
-    /// (target) tenants may be any edition — an MSP on Enterprise may manage Community customers.
-    /// Null/empty home tid or a non-Enterprise home tenant ⇒ empty scope (fail-closed). Grant rows stay
+    /// (target) tenants may be any edition — an MSP on Pro may manage Community customers.
+    /// Null/empty home tid or a non-Pro home tenant ⇒ empty scope (fail-closed). Grant rows stay
     /// untouched; they become inert and resurrect when the home tenant upgrades / trials.
     /// The gate sits AFTER the cache read so the cached scope stays pure (keyed on UPN only) and a
     /// home-tenant edition change converges within the entitlement service's own config-cache TTL.
@@ -114,9 +114,9 @@ public class DelegatedAdminService
         }
 
         // Entitlement gate (single choke-point for ALL delegated-scope consumers — policy rescue,
-        // AllowedTenantIds, delegated config/all, MCP auto-grant): delegated ("MSP") access is an
-        // Enterprise capability of the caller's HOME tenant (the tenant paying for the MSP seat) —
-        // NOT of the managed targets. An Enterprise MSP may manage Community customers. Resolution
+        // AllowedTenantIds, delegated config/all, MCP auto-grant): delegated ("MSP") access is a
+        // Pro capability of the caller's HOME tenant (the tenant paying for the MSP seat) —
+        // NOT of the managed targets. A Pro MSP may manage Community customers. Resolution
         // failure / unknown home tenant counts as Community (fail-closed inside the entitlement
         // service), which empties the scope. Grant rows stay untouched — inert until upgrade/trial.
         var scope = new DelegatedScope(tenantRoles);
@@ -125,7 +125,7 @@ public class DelegatedAdminService
     }
 
     /// <summary>
-    /// Empties a non-empty scope when the caller's home tenant is not Enterprise. Applied after
+    /// Empties a non-empty scope when the caller's home tenant is not Pro. Applied after
     /// every cache read/write so the cached scope stays pure (UPN-keyed) — the edition lookup has
     /// its own 5-minute config cache, so this adds no per-request storage I/O in the steady state.
     /// </summary>
@@ -134,11 +134,11 @@ public class DelegatedAdminService
         if (scope.IsEmpty)
             return scope;
 
-        if (await _entitlementService.GetEditionAsync(callerHomeTenantId) == Security.TenantEdition.Enterprise)
+        if (await _entitlementService.GetEditionAsync(callerHomeTenantId) == Security.TenantEdition.Pro)
             return scope;
 
         _logger.LogInformation(
-            "[DelegatedAdmin] Suppressing delegated scope for {Upn} — home tenant {HomeTenantId} is not Enterprise (MSP seat requires Enterprise)",
+            "[DelegatedAdmin] Suppressing delegated scope for {Upn} — home tenant {HomeTenantId} is not Pro (MSP seat requires the Pro plan)",
             upn, string.IsNullOrWhiteSpace(callerHomeTenantId) ? "(unknown)" : callerHomeTenantId);
         return DelegatedScope.Empty;
     }

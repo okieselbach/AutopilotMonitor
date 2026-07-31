@@ -163,7 +163,7 @@ public class McpUserFunction
         var principal = context.GetUser();
         var upn = principal?.GetUserPrincipalName();
 
-        // JWT tid = the caller's home tenant — gates the delegated (MSP) auto-grant (Enterprise-only seat).
+        // JWT tid = the caller's home tenant — gates the delegated (MSP) auto-grant (Pro-only seat).
         var result = await _mcpUserService.IsAllowedAsync(upn, principal?.GetTenantId());
 
         var response = req.CreateResponse(result.IsAllowed ? HttpStatusCode.OK : HttpStatusCode.Forbidden);
