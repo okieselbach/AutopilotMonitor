@@ -130,6 +130,15 @@ interface TenantConfigContextValue {
   setValidateDeviceAssociation: (v: boolean) => void;
   /** Toggle + persist DevPrep Device Association validation in one shot (no consent flow needed). */
   handleToggleDeviceAssociationValidation: (newValue: boolean) => Promise<void>;
+  /**
+   * Persist a validation-gate change immediately. The validation section has NO save bar —
+   * every gate change that doesn't run the consent flow (disable, and enabling the second
+   * gate while the first already carries the consent) must persist through this, or it stays
+   * local component state and silently reverts on the next config load (prod report
+   * 2026-08-01: corporate-identifier "came back on" after every disable — the off toggle
+   * had never reached the server).
+   */
+  saveValidationGate: (changes: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean }) => Promise<boolean>;
   autopilotConsentInProgress: boolean;
   beginDeviceValidationConsentFlow: (trigger: "autopilot" | "corporate" | "device-preparation") => Promise<void>;
   /**
@@ -844,6 +853,15 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     if (payload?.homingFlipped) markHomingFlipped("access-check");
     return classifyAccessCheck(ok, payload);
   }, [tenantId, getAccessToken, markHomingFlipped]);
+
+  // Direct gate persist for the toggle UI (disable + second-gate enable): same shared config
+  // PUT, explicit override values. saveConfiguration re-syncs the local gate state from the
+  // server response, so the toggle reflects the persisted truth (or snaps back on failure).
+  const saveValidationGate = useCallback(
+    (changes: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean }): Promise<boolean> =>
+      saveConfiguration("autopilotValidation", changes),
+    [saveConfiguration],
+  );
 
   // Persist the validation gate bool for a trigger via the shared config PUT. Returns true ONLY
   // on a confirmed server persist — saveConfiguration reports failure as false (and sets the
@@ -1595,6 +1613,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       validateCorporateIdentifier, setValidateCorporateIdentifier,
       validateDeviceAssociation, setValidateDeviceAssociation,
       handleToggleDeviceAssociationValidation,
+      saveValidationGate,
       autopilotConsentInProgress, beginDeviceValidationConsentFlow, detectExistingAccess,
 
       // Hardware whitelist

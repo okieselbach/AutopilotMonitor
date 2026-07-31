@@ -12,10 +12,11 @@ export function SectionAutopilotValidation() {
   const {
     config,
     canEditConfig,
-    validateAutopilotDevice, setValidateAutopilotDevice,
-    validateCorporateIdentifier, setValidateCorporateIdentifier,
+    validateAutopilotDevice,
+    validateCorporateIdentifier,
     validateDeviceAssociation,
     handleToggleDeviceAssociationValidation,
+    saveValidationGate,
     autopilotConsentInProgress, savingSection,
     beginDeviceValidationConsentFlow, detectExistingAccess,
     appHomingFunnelActive, homingFlipped,
@@ -130,9 +131,14 @@ export function SectionAutopilotValidation() {
       ) : null}
       <AutopilotValidationSection
         validateAutopilotDevice={validateAutopilotDevice}
-        setValidateAutopilotDevice={setValidateAutopilotDevice}
+        // The gates have NO save bar: every setter call from the toggles (disable via the
+        // confirm dialog, enabling the second gate while the first carries the consent) must
+        // PERSIST, not just set local state — a state-only toggle silently reverts on the next
+        // config load (prod report 2026-08-01: corporate identifier "kept coming back on").
+        // Consent-driven enables don't come through here (onBeginConsent path).
+        setValidateAutopilotDevice={(v) => { void saveValidationGate({ validateAutopilotDevice: v }); }}
         validateCorporateIdentifier={validateCorporateIdentifier}
-        setValidateCorporateIdentifier={setValidateCorporateIdentifier}
+        setValidateCorporateIdentifier={(v) => { void saveValidationGate({ validateCorporateIdentifier: v }); }}
         validateDeviceAssociation={validateDeviceAssociation}
         onToggleDeviceAssociation={handleToggleDeviceAssociationValidation}
         showDeviceAssociationToggle={showDeviceAssociationToggle}
