@@ -12,11 +12,13 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Services
 {
     /// <summary>
-    /// Poison-queue backlog watcher. Polls the three async-worker poison queues
-    /// (analyze-on-enrollment-end, vulnerability-correlate, telemetry-index-reconcile)
-    /// and emits tiered OpsEvents when any of them accumulates messages. Every poison
-    /// message represents a handler that already failed 5x — silent backlog means
-    /// sessions go un-analyzed and vulnerability reports get lost.
+    /// Poison-queue backlog watcher. Enumerates every existing <c>-poison</c> queue in
+    /// the storage account at runtime and emits tiered OpsEvents when any of them
+    /// accumulates messages. Every poison message represents a handler that already
+    /// failed 5x — silent backlog means sessions go un-analyzed and reports get lost.
+    /// Dynamic enumeration replaces a hard-coded watch-list that had already drifted
+    /// out of date twice: poison queues are created lazily on first poison-move, so an
+    /// absent queue has never failed and enumeration misses nothing a list would catch.
     ///
     /// Globally scoped (TenantId = null) — the queues are infrastructure, not
     /// per-tenant. Dedup is one alert per {EventType}|{queueName} per UTC day so
@@ -24,23 +26,6 @@ namespace AutopilotMonitor.Functions.Services
     /// </summary>
     public partial class MaintenanceService
     {
-        /// <summary>
-        /// Queues whose poison sibling we watch. Order matches the production-impact
-        /// ranking (rule analysis &gt; vulnerability correlation &gt; index reconcile —
-        /// index-reconcile has a 2 h reconcile-timer as safety net). Session-deletion and
-        /// tenant-offboarding are self-hosted poll loops (no QueueTrigger): their poisoned
-        /// work would otherwise be invisible to the central health/ops signal.
-        /// </summary>
-        internal static readonly string[] MonitoredPoisonQueues =
-        {
-            Constants.QueueNames.AnalyzeOnEnrollmentEnd + "-poison",
-            Constants.QueueNames.VulnerabilityCorrelate + "-poison",
-            Constants.QueueNames.TelemetryIndexReconcile + "-poison",
-            Constants.QueueNames.CriticalTableBackupPoison,
-            Constants.QueueNames.SessionDeletion + "-poison",
-            Constants.QueueNames.TenantOffboardingPoison,
-        };
-
         /// <summary>Default warning threshold — every poison message is a 5x-failed handler call.</summary>
         internal const int DefaultPoisonQueueWarningThreshold = 1;
 
@@ -64,13 +49,31 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Polls each monitored poison queue and emits Warning/Error OpsEvents when
+        /// Enumerates all existing poison queues and emits Warning/Error OpsEvents when
         /// the configured thresholds are crossed. Dedup: one event per
         /// <c>{EventType}|{queueName}</c> per UTC day. Fail-soft — a single queue's
-        /// probe error is logged and recorded but does not halt the other probes.
+        /// probe error is logged and recorded but does not halt the other probes; an
+        /// enumeration failure skips the whole tick (the health card independently
+        /// surfaces the same failure as a warning, so it cannot go unnoticed).
         /// </summary>
         public async Task CheckPoisonQueueBacklogAsync(CancellationToken ct = default)
         {
+            IReadOnlyList<string> poisonQueues;
+            try
+            {
+                poisonQueues = await _poisonQueueProbe
+                    .ListPoisonQueuesAsync(ct)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Poison queue enumeration failed — skipping this tick");
+                return;
+            }
+
+            if (poisonQueues.Count == 0) return;
+
             var warningThreshold = ParseIntSetting(
                 "PoisonQueueWarningThreshold", DefaultPoisonQueueWarningThreshold);
             var criticalThreshold = ParseIntSetting(
@@ -78,7 +81,7 @@ namespace AutopilotMonitor.Functions.Services
 
             var seenToday = await BuildPoisonQueueSeenIndexAsync();
 
-            foreach (var queueName in MonitoredPoisonQueues)
+            foreach (var queueName in poisonQueues)
             {
                 if (ct.IsCancellationRequested) break;
                 await CheckOnePoisonQueueAsync(queueName, warningThreshold, criticalThreshold, seenToday, ct);

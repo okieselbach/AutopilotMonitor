@@ -444,12 +444,14 @@ public class HealthCheckService
     }
 
     /// <summary>
-    /// Polls the approximate message count of each monitored poison queue in parallel and
-    /// surfaces the worst tier as a single health entry. A non-existent poison queue counts
-    /// as zero (queues are created lazily on first poison-move). Individual probe failures
+    /// Enumerates every existing <c>-poison</c> queue in the storage account, polls each
+    /// approximate message count in parallel and surfaces the worst tier as a single
+    /// health entry. Poison queues are created lazily on first poison-move, so an absent
+    /// queue has never failed — dynamic enumeration covers every queue a static
+    /// watch-list would, without a list to forget updating. Individual probe failures
     /// are recorded in the details dictionary as <c>error: &lt;message&gt;</c> and force the
     /// overall status to at least <c>warning</c> so a flaky Storage call cannot silently
-    /// mask a real backlog. Thresholds + monitored-queue list live in
+    /// mask a real backlog; an enumeration failure does the same. Thresholds live in
     /// <see cref="MaintenanceService"/> so the live health card and the timer-driven
     /// Telegram alert classify identically.
     /// </summary>
@@ -461,12 +463,29 @@ public class HealthCheckService
             Description = "Async-worker dead-letter backlog"
         };
 
+        IReadOnlyList<string> poisonQueues;
+        try
+        {
+            poisonQueues = await _poisonQueueProbe
+                .ListPoisonQueuesAsync(CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Poison queue enumeration failed — surfacing as warning in health check");
+            check.Status = "warning";
+            check.Message = "Poison queue enumeration failed — backlog state unknown";
+            check.Details = new Dictionary<string, object> { ["error"] = ex.Message };
+            return check;
+        }
+
         var warningThreshold = ParsePositiveInt(
             "PoisonQueueWarningThreshold", MaintenanceService.DefaultPoisonQueueWarningThreshold);
         var criticalThreshold = ParsePositiveInt(
             "PoisonQueueCriticalThreshold", MaintenanceService.DefaultPoisonQueueCriticalThreshold);
 
-        var probes = MaintenanceService.MonitoredPoisonQueues
+        var probes = poisonQueues
             .Select(name => (name, task: ProbeOneAsync(name)))
             .ToArray();
 

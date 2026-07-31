@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Services;
@@ -22,9 +23,11 @@ public class HealthCheckServicePoisonQueueTests
     [Fact]
     public async Task Check_AllPoisonQueuesEmpty_ReportsHealthy()
     {
+        // Existing-but-drained poison queues: enumerated, probed, all zero.
         var probe = new FakePoisonQueueProbe();
-        foreach (var q in MaintenanceService.MonitoredPoisonQueues)
-            probe.Counts[q] = 0;
+        probe.Counts[Constants.QueueNames.AnalyzeOnEnrollmentEnd + "-poison"] = 0;
+        probe.Counts[Constants.QueueNames.VulnerabilityCorrelate + "-poison"] = 0;
+        probe.Counts[Constants.QueueNames.TenantAutoApprove + "-poison"] = 0;
 
         var svc = BuildService(probe);
         var check = await svc.CheckPoisonQueuesAsync();
@@ -32,8 +35,38 @@ public class HealthCheckServicePoisonQueueTests
         Assert.Equal("Poison Queues", check.Name);
         Assert.Equal("healthy", check.Status);
         Assert.Equal("All poison queues empty", check.Message);
-        Assert.Equal(MaintenanceService.MonitoredPoisonQueues.Length, check.Details!.Count);
+        Assert.Equal(3, check.Details!.Count);
         Assert.All(check.Details.Values, v => Assert.Equal("0 messages", v));
+    }
+
+    [Fact]
+    public async Task Check_NoPoisonQueuesExist_ReportsHealthy()
+    {
+        // Steady state on a healthy system: poison queues are created lazily on
+        // first poison-move, so an empty enumeration means nothing ever failed.
+        var svc = BuildService(new FakePoisonQueueProbe());
+        var check = await svc.CheckPoisonQueuesAsync();
+
+        Assert.Equal("healthy", check.Status);
+        Assert.Equal("All poison queues empty", check.Message);
+        Assert.Empty(check.Details!);
+    }
+
+    [Fact]
+    public async Task Check_EnumerationFails_ReportsWarningWithError()
+    {
+        // A failed listing must never read as an all-clear.
+        var probe = new FakePoisonQueueProbe
+        {
+            ListException = new InvalidOperationException("auth denied")
+        };
+
+        var svc = BuildService(probe);
+        var check = await svc.CheckPoisonQueuesAsync();
+
+        Assert.Equal("warning", check.Status);
+        Assert.Contains("enumeration failed", check.Message);
+        Assert.Contains("auth denied", (string)check.Details!["error"]);
     }
 
     [Fact]
@@ -155,6 +188,19 @@ public class HealthCheckServicePoisonQueueTests
     {
         public Dictionary<string, long> Counts { get; } = new();
         public Dictionary<string, Exception> ExceptionFor { get; } = new();
+        public Exception? ListException { get; set; }
+
+        public Task<IReadOnlyList<string>> ListPoisonQueuesAsync(CancellationToken ct)
+        {
+            if (ListException is not null)
+                throw ListException;
+            IReadOnlyList<string> names = Counts.Keys
+                .Concat(ExceptionFor.Keys)
+                .Distinct()
+                .OrderBy(n => n, StringComparer.Ordinal)
+                .ToList();
+            return Task.FromResult(names);
+        }
 
         public Task<long> GetApproximateMessageCountAsync(string queueName, CancellationToken ct)
         {

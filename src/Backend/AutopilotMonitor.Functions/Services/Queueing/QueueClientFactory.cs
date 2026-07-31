@@ -20,9 +20,14 @@ namespace AutopilotMonitor.Functions.Services.Queueing
     /// </summary>
     public sealed class QueueClientFactory
     {
-        private const string PoisonQueueSuffix = "-poison";
+        /// <summary>
+        /// Convention suffix for dead-letter siblings. Shared with the poison-queue
+        /// probe so "what counts as a poison queue" has exactly one definition.
+        /// </summary>
+        internal const string PoisonQueueSuffix = "-poison";
 
         private readonly Func<string, QueueClientOptions, QueueClient> _builder;
+        private readonly Func<QueueServiceClient> _serviceBuilder;
 
         public QueueClientFactory(IConfiguration configuration)
         {
@@ -36,16 +41,19 @@ namespace AutopilotMonitor.Functions.Services.Queueing
                 // Managed Identity (production). Resolve the credential once — DefaultAzureCredential
                 // caches tokens internally and is safe to share across all queue clients.
                 var credential = new DefaultAzureCredential();
+                var serviceUri = new Uri($"https://{storageAccountName}.queue.core.windows.net");
                 _builder = (queueName, options) =>
                 {
                     var uri = new Uri(
                         $"https://{storageAccountName}.queue.core.windows.net/{queueName}");
                     return new QueueClient(uri, credential, options);
                 };
+                _serviceBuilder = () => new QueueServiceClient(serviceUri, credential);
             }
             else if (!string.IsNullOrEmpty(connectionString))
             {
                 _builder = (queueName, options) => new QueueClient(connectionString, queueName, options);
+                _serviceBuilder = () => new QueueServiceClient(connectionString);
             }
             else
             {
@@ -53,6 +61,12 @@ namespace AutopilotMonitor.Functions.Services.Queueing
                     "Queue Storage not configured. Set either 'AzureStorageAccountName' (for Managed Identity) or 'AzureTableStorageConnectionString'.");
             }
         }
+
+        /// <summary>
+        /// Builds a <see cref="QueueServiceClient"/> for account-level operations
+        /// (queue enumeration). Message encoding is irrelevant at service level.
+        /// </summary>
+        public QueueServiceClient CreateServiceClient() => _serviceBuilder();
 
         /// <summary>
         /// Builds a <see cref="QueueClient"/> for <paramref name="queueName"/>.

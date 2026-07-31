@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure;
@@ -22,10 +23,28 @@ namespace AutopilotMonitor.Functions.Services.Monitoring
     {
         private readonly ConcurrentDictionary<string, QueueClient> _clients = new();
         private readonly QueueClientFactory _queueFactory;
+        private QueueServiceClient? _serviceClient;
 
         public AzurePoisonQueueProbe(QueueClientFactory queueFactory)
         {
             _queueFactory = queueFactory ?? throw new ArgumentNullException(nameof(queueFactory));
+        }
+
+        public async Task<IReadOnlyList<string>> ListPoisonQueuesAsync(CancellationToken ct)
+        {
+            var service = LazyInitializer.EnsureInitialized(
+                ref _serviceClient, () => _queueFactory.CreateServiceClient())!;
+
+            var names = new List<string>();
+            await foreach (var queue in service.GetQueuesAsync(cancellationToken: ct).ConfigureAwait(false))
+            {
+                if (queue.Name.EndsWith(QueueClientFactory.PoisonQueueSuffix, StringComparison.Ordinal))
+                    names.Add(queue.Name);
+            }
+
+            // Stable ordering for health-card details and log output.
+            names.Sort(StringComparer.Ordinal);
+            return names;
         }
 
         public async Task<long> GetApproximateMessageCountAsync(string queueName, CancellationToken ct)

@@ -1,6 +1,5 @@
 using System.Text.Json;
 using AutopilotMonitor.Functions.Services;
-using AutopilotMonitor.Shared;
 
 namespace AutopilotMonitor.Functions.Tests;
 
@@ -10,7 +9,9 @@ namespace AutopilotMonitor.Functions.Tests;
 /// of the parts that decide whether an operator gets paged, without standing up
 /// the full MaintenanceService dependency graph. Full-service integration is
 /// exercised by the live timer + ops event tables — what we guard here is the
-/// classifier math, the dedup-key extractor, and the watch-list inventory.
+/// classifier math and the dedup-key extractor. The watched queues themselves are
+/// enumerated dynamically at runtime (every existing <c>-poison</c> queue), so
+/// there is no static inventory left to guard.
 /// </summary>
 public class MaintenanceServicePoisonQueueTests
 {
@@ -114,36 +115,6 @@ public class MaintenanceServicePoisonQueueTests
         // Defensive: dedup key must never crash on non-string queueName.
         var detailsJson = JsonSerializer.Serialize(new { queueName = 42 });
         Assert.Equal(string.Empty, MaintenanceService.ExtractQueueName(detailsJson));
-    }
-
-    // --- Watch-list inventory ---
-
-    [Fact]
-    public void MonitoredPoisonQueues_CoversAllProducerQueues()
-    {
-        // Guard against silently adding a new producer queue without a poison entry.
-        // If a new queue is introduced, MonitoredPoisonQueues + this assertion must move together.
-        Assert.Equal(6, MaintenanceService.MonitoredPoisonQueues.Length);
-        Assert.Contains(
-            Constants.QueueNames.AnalyzeOnEnrollmentEnd + "-poison",
-            MaintenanceService.MonitoredPoisonQueues);
-        Assert.Contains(
-            Constants.QueueNames.VulnerabilityCorrelate + "-poison",
-            MaintenanceService.MonitoredPoisonQueues);
-        Assert.Contains(
-            Constants.QueueNames.TelemetryIndexReconcile + "-poison",
-            MaintenanceService.MonitoredPoisonQueues);
-        // PR1 critical-table backup queue (plan §Wave5 #2).
-        Assert.Contains(
-            Constants.QueueNames.CriticalTableBackupPoison,
-            MaintenanceService.MonitoredPoisonQueues);
-        // Self-hosted poll-loop workers (no QueueTrigger) — see SessionDeletionWorker / TenantOffboardingWorker.
-        Assert.Contains(
-            Constants.QueueNames.SessionDeletion + "-poison",
-            MaintenanceService.MonitoredPoisonQueues);
-        Assert.Contains(
-            Constants.QueueNames.TenantOffboardingPoison,
-            MaintenanceService.MonitoredPoisonQueues);
     }
 
     [Fact]
