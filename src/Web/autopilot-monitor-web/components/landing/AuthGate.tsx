@@ -14,17 +14,17 @@ import { PORTAL_HOST, shouldCrossOriginToPortal } from "../../lib/hostRouting";
  * When auth is still loading, shows a loading overlay on top of the static page.
  */
 export function AuthGate() {
-  const { isAuthenticated, isLoading, user, isPreviewBlocked } = useAuth();
+  const { isAuthenticated, isLoading, user, isActivationPending } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     if (isAuthenticated && !isLoading && user) {
       // Always consume (read + clear) so a stale deep link can't misroute a later
-      // sign-in; only honor it when the user isn't preview-gated.
+      // sign-in; only honor it when the user's tenant is activated.
       const returnUrl = consumePostLoginReturnUrl();
       let target: Route;
-      if (isPreviewBlocked) {
-        target = "/preview";
+      if (isActivationPending) {
+        target = "/activation";
       } else if (returnUrl) {
         // Restore the deep link the user originally opened before re-auth.
         target = trustedRoute(returnUrl);
@@ -45,7 +45,7 @@ export function AuthGate() {
         router.replace(target);
       }
     }
-  }, [isAuthenticated, isLoading, user, isPreviewBlocked, router]);
+  }, [isAuthenticated, isLoading, user, isActivationPending, router]);
 
   // While auth is loading and we might need to redirect, show overlay.
   // This prevents a flash of the landing page for authenticated users.

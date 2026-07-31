@@ -29,7 +29,7 @@ export default function robots(): MetadataRoute.Robots {
           "/sla",
           "/admin/",
           "/settings",
-          "/preview",
+          "/activation",
         ],
       },
     ],

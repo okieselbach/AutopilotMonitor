@@ -6,10 +6,10 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Services;
 
 /// <summary>
-/// Service for managing the Private Preview tenant whitelist.
-/// Tenants in this list are allowed full portal access; others see a waitlist page.
+/// Service for managing the tenant-activation whitelist (table: PreviewWhitelist —
+/// legacy name kept on purpose, no data migration). Tenants in this list are activated
+/// for full portal access; others see the activation-pending page.
 /// Caching and business logic layer — delegates storage to IConfigRepository.
-/// Temporary — remove after GA.
 /// </summary>
 public class PreviewWhitelistService
 {
@@ -18,6 +18,14 @@ public class PreviewWhitelistService
     private readonly ILogger<PreviewWhitelistService> _logger;
     private readonly TenantConfigurationService _tenantConfigService;
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Short TTL for a negative ("not approved") result. The activation page polls auth/me
+    /// while the auto-approve worker activates the tenant ~1 minute after signup on another
+    /// instance — a 5-minute negative cache would hide that activation for up to 4 extra
+    /// minutes. Positive results keep the long TTL (activation is rarely revoked).
+    /// </summary>
+    private static readonly TimeSpan NotApprovedCacheDuration = TimeSpan.FromSeconds(30);
 
     public PreviewWhitelistService(
         IConfigRepository configRepo,
@@ -32,7 +40,7 @@ public class PreviewWhitelistService
     }
 
     /// <summary>
-    /// Checks whether a tenant is approved for Private Preview (cached).
+    /// Checks whether a tenant is activated (cached).
     /// </summary>
     public virtual async Task<bool> IsApprovedAsync(string tenantId)
     {
@@ -47,7 +55,7 @@ public class PreviewWhitelistService
         {
             var result = await _configRepo.IsInPreviewWhitelistAsync(tenantId);
 
-            _cache.Set(cacheKey, result, CacheDuration);
+            _cache.Set(cacheKey, result, result ? CacheDuration : NotApprovedCacheDuration);
             return result;
         }
         catch (Exception ex)
@@ -59,7 +67,7 @@ public class PreviewWhitelistService
     }
 
     /// <summary>
-    /// Approves a tenant for Private Preview access.
+    /// Activates a tenant (adds it to the whitelist).
     /// </summary>
     public async Task ApproveAsync(string tenantId, string approvedBy)
     {
@@ -70,7 +78,7 @@ public class PreviewWhitelistService
     }
 
     /// <summary>
-    /// Revokes a tenant's Private Preview access.
+    /// Revokes a tenant's activation.
     /// </summary>
     public async Task RevokeAsync(string tenantId)
     {

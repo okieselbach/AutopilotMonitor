@@ -83,8 +83,8 @@ export default function PrivacyPage() {
             The contact address is used <strong>only to reach you about this service</strong> — a technical problem
             affecting your tenant, a security matter, or a change that needs an administrator&apos;s attention. It is
             never used for marketing and never shared. Your administrators set and change it under Settings → Tenant →
-            Contact, and clearing it removes it. Where an organization signed up for the Private Preview and gave a
-            notification address, that address is copied once as the initial contact and is yours to change from then on.
+            Contact, and clearing it removes it. Where an organization gave a notification address during sign-up
+            (tenant activation), that address is copied once as the initial contact and is yours to change from then on.
           </p>
 
           <h2 className="text-lg font-semibold text-gray-900 mt-6">What We Do Not Collect</h2>

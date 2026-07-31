@@ -5,7 +5,7 @@ using Resend;
 namespace AutopilotMonitor.Functions.Services;
 
 /// <summary>
-/// Sends transactional emails via Resend.com for Private Preview notifications.
+/// Sends transactional emails via Resend.com for tenant-activation notifications.
 /// Best-effort: failures are logged as warnings and never propagated.
 /// Temporary — remove after GA.
 /// </summary>
@@ -33,7 +33,7 @@ public class ResendEmailService : IOffboardFarewellEmailSender
     }
 
     /// <summary>
-    /// Sends the Private Preview approval welcome email.
+    /// Sends the tenant-activation welcome email.
     /// No-op if the API key or recipient email is not configured.
     /// </summary>
     public async Task SendPreviewApprovedEmailAsync(string toEmail, string domainName)

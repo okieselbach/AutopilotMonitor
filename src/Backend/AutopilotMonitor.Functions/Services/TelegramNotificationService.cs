@@ -11,9 +11,8 @@ using Newtonsoft.Json;
 namespace AutopilotMonitor.Functions.Services
 {
     /// <summary>
-    /// Sends Telegram notifications for Private Preview signup events.
+    /// Sends Telegram notifications for tenant signup events.
     /// Webhook URL is read from the PreviewConfig table via IConfigRepository.
-    /// Temporary — remove after GA.
     /// </summary>
     public class TelegramNotificationService
     {
@@ -32,7 +31,7 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Sends a Telegram message to the configured channel when a new tenant signs up for Private Preview.
+        /// Sends a Telegram message to the configured channel when a new tenant signs up.
         /// No-op if the webhook URL is not configured in the PreviewConfig table.
         /// </summary>
         public virtual async Task SendNewTenantSignupAsync(string tenantId, string upn)
@@ -42,14 +41,14 @@ namespace AutopilotMonitor.Functions.Services
                 var webhookUrl = await GetWebhookUrlAsync();
                 if (string.IsNullOrWhiteSpace(webhookUrl))
                 {
-                    _logger.LogDebug("Telegram webhook URL not configured — skipping Private Preview signup notification");
+                    _logger.LogDebug("Telegram webhook URL not configured — skipping tenant signup notification");
                     return;
                 }
 
                 var payload = new
                 {
                     chat_id = "-1003632442830", // Telegram channel ID (as string)
-                    text = $"New Private Preview signup!\nTenantID: {tenantId}\nUPN: {upn}"
+                    text = $"New tenant signup!\nTenantID: {tenantId}\nUPN: {upn}"
                 };
 
                 var json = JsonConvert.SerializeObject(payload);
@@ -58,13 +57,13 @@ namespace AutopilotMonitor.Functions.Services
 
                 if (response.IsSuccessStatusCode)
                     _logger.LogInformation(
-                        "Telegram Private Preview signup notification sent for tenant {TenantId}, UPN {Upn}",
+                        "Telegram tenant signup notification sent for tenant {TenantId}, UPN {Upn}",
                         tenantId, upn);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex,
-                    "Failed to send Telegram Private Preview signup notification for tenant {TenantId}",
+                    "Failed to send Telegram tenant signup notification for tenant {TenantId}",
                     tenantId);
             }
         }

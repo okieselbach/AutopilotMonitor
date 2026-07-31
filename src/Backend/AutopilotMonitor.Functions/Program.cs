@@ -243,6 +243,9 @@ builder.Services.AddSingleton<GlobalAdminService>();
 builder.Services.AddSingleton<DelegatedAdminService>();
 builder.Services.AddSingleton<McpUserService>();
 builder.Services.AddSingleton<PreviewWhitelistService>();
+// Shared activation path (whitelist add + auto-promote + welcome email) — used by the
+// Global Admin approve endpoint and the tenant auto-approve queue worker.
+builder.Services.AddSingleton<TenantApprovalService>();
 builder.Services.AddSingleton<TenantAdminsService>();
 builder.Services.AddSingleton<HealthCheckService>();
 builder.Services.AddSingleton<BackendBuildInfo>();
@@ -322,6 +325,18 @@ builder.Services.AddSingleton<
     AutopilotMonitor.Functions.Services.Vulnerability.VulnerabilityCorrelateHandler>();
 builder.Services.AddHostedService<
     AutopilotMonitor.Functions.Services.Vulnerability.VulnerabilityCorrelateQueueWorker>();
+
+// Delayed tenant auto-approve (public availability). Producer fires at first-login signup
+// with a ~1-minute visibility delay; the worker activates the tenant via the shared
+// TenantApprovalService only if AdminConfiguration.AutoApproveNewTenants is enabled at
+// processing time. Same producer + worker pattern as the analyze queue above.
+builder.Services.AddSingleton<
+    AutopilotMonitor.Functions.Services.Activation.ITenantAutoApproveEnqueuer,
+    AutopilotMonitor.Functions.Services.Activation.AzureQueueTenantAutoApproveEnqueuer>();
+builder.Services.AddSingleton<
+    AutopilotMonitor.Functions.Services.Activation.TenantAutoApproveHandler>();
+builder.Services.AddHostedService<
+    AutopilotMonitor.Functions.Services.Activation.TenantAutoApproveQueueWorker>();
 
 // ── Critical-Table Backup (plan §PR1) ─────────────────────────────────────────
 // Lease-aware service registered separately from the timer/worker so the lease

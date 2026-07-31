@@ -449,6 +449,17 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public bool EnableIndexDualWrite { get; set; } = false;
 
+        /// <summary>
+        /// When true, new tenant signups are activated automatically ~1 minute after first
+        /// sign-in (tenant-auto-approve queue worker). When false, every signup waits for a
+        /// manual Global Admin approval in Tenant Management. Default false — the operator
+        /// opts into auto-activation and can flip it off at any time (e.g. on abuse) to
+        /// return to manual vetting; messages already in the queue are then dropped, not
+        /// parked. Round-tripped via the 4-file web chain
+        /// (memory <c>feedback_admin_config_ui_roundtrip</c>).
+        /// </summary>
+        public bool AutoApproveNewTenants { get; set; } = false;
+
         // ===== CASCADE-DELETE GLOBAL KILL-SWITCH =====
 
         /// <summary>

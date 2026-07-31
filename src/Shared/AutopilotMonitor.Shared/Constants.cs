@@ -1280,6 +1280,16 @@ namespace AutopilotMonitor.Shared
             public const string TenantOffboardingPoison = "tenant-offboarding-poison";
 
             /// <summary>
+            /// Delayed tenant auto-approve queue. Producer (AuthFunction first-login signup
+            /// handler) enqueues one envelope per new tenant with a ~1-minute visibility delay;
+            /// consumer (<c>TenantAutoApproveQueueWorker</c>) activates the tenant via the shared
+            /// approval path if <c>AdminConfiguration.AutoApproveNewTenants</c> is enabled at
+            /// processing time — otherwise the message is dropped and the tenant waits for
+            /// manual approval. Poison suffix <c>-poison</c>, max-dequeue 5.
+            /// </summary>
+            public const string TenantAutoApprove = "tenant-auto-approve";
+
+            /// <summary>
             /// Critical-table backup job queue. Producer = HTTP trigger
             /// <c>/api/global/backups/trigger</c> (fail-hard); consumer =
             /// <c>CriticalTableBackupQueueWorker</c> (BackgroundService, BatchSize=1,

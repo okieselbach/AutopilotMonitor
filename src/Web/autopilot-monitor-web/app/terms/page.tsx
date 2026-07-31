@@ -38,9 +38,10 @@ export default function TermsPage() {
             <div className="p-4 border border-[var(--lp-line-soft)] rounded-lg">
               <h3 className="font-semibold text-gray-900 mb-1">Community</h3>
               <p className="text-sm text-gray-700">
-                Free, invite-only, currently in Private Preview, and maintained by Oliver Kieselbach as an open
-                community contribution. Provided <strong>without any commitment by glueckkanja AG</strong> as to
-                availability, support, or fitness for a particular purpose. Support is community-based via GitHub.
+                Free, publicly available, and maintained by Oliver Kieselbach as an open community contribution.
+                New organizations complete a short activation step after first sign-in. Provided{" "}
+                <strong>without any commitment by glueckkanja AG</strong> as to availability, support, or fitness
+                for a particular purpose. Support is community-based via GitHub.
               </p>
             </div>
             <div className="p-4 border border-[var(--lp-line-soft)] rounded-lg">
@@ -129,9 +130,9 @@ export default function TermsPage() {
             <h3 className="font-semibold text-[var(--lp-ink)] mb-2">Community plan: provided &quot;AS-IS&quot;, no warranty</h3>
             <p className="text-[var(--lp-ink-soft)] text-sm">
               The Community plan is provided free of charge, &quot;AS-IS&quot;, and without warranty of any kind, express
-              or implied, including the implied warranties of merchantability and fitness for a particular purpose. It is
-              currently in Private Preview: updates are frequent, availability is not guaranteed, and data structures may
-              change. Production use is permitted and intended — with that trade-off understood.
+              or implied, including the implied warranties of merchantability and fitness for a particular purpose. The
+              platform is under continuous, active development: updates are frequent, availability is not guaranteed, and
+              data structures may change. Production use is permitted and intended — with that trade-off understood.
             </p>
           </div>
 

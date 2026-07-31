@@ -125,8 +125,8 @@ interface AuthContextType {
    */
   hasFleetScope: boolean;
   isLoading: boolean;
-  isPreviewBlocked: boolean;
-  previewMessage: string;
+  isActivationPending: boolean;
+  activationMessage: string;
   login: (options?: { auto?: boolean }) => Promise<void>;
   logout: () => Promise<void>;
   getAccessToken: (forceRefresh?: boolean) => Promise<string | null>;
@@ -145,8 +145,8 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const isLoadingRef = useRef(true);
-  const [isPreviewBlocked, setPreviewBlocked] = useState(false);
-  const [previewMessage, setPreviewMessage] = useState('');
+  const [isActivationPending, setActivationPending] = useState(false);
+  const [activationMessage, setActivationMessage] = useState('');
 
   // Handle SSR - if we're on the server, MSAL won't initialize
   // Set loading to false immediately on mount in browser
@@ -220,11 +220,13 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
             await instance.logoutRedirect({ account });
             return null;
           }
-          if (errorData.error === 'PrivatePreview') {
-            console.log('[Auth] Tenant not yet approved for preview');
-            setPreviewBlocked(true);
-            setPreviewMessage(errorData.message || 'Your organization is on the waitlist.');
-            // Return basic user info so the user stays logged in but sees the preview page
+          // 'PendingActivation' is the current backend code; 'PrivatePreview' is the legacy
+          // code kept accepted so web and backend can deploy in any order.
+          if (errorData.error === 'PendingActivation' || errorData.error === 'PrivatePreview') {
+            console.log('[Auth] Tenant not yet activated');
+            setActivationPending(true);
+            setActivationMessage(errorData.message || 'Your organization is being activated.');
+            // Return basic user info so the user stays logged in but sees the activation page
             return {
               displayName: account.name || '',
               upn: account.username || '',
@@ -247,6 +249,11 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
       }
 
       const data = await response.json();
+
+      // A successful auth/me means the tenant is (now) activated — clear any pending
+      // state so the activation page's poll can redirect into the portal.
+      setActivationPending(false);
+      setActivationMessage('');
 
       return {
         displayName: data.displayName || account.name || '',
@@ -440,8 +447,8 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
     hasGlobalScope: (user?.isGlobalAdmin || user?.isGlobalReader) ?? false,
     hasFleetScope: (user?.isGlobalAdmin || user?.isGlobalReader || user?.isDelegated) ?? false,
     isLoading,
-    isPreviewBlocked,
-    previewMessage,
+    isActivationPending,
+    activationMessage,
     login,
     logout,
     getAccessToken,

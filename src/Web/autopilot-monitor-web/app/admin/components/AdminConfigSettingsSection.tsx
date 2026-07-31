@@ -32,6 +32,8 @@ interface AdminConfigSettingsSectionProps {
   setEnableIndexDualWrite: (value: boolean) => void;
   sessionDeletionKillSwitch: boolean;
   setSessionDeletionKillSwitch: (value: boolean) => void;
+  autoApproveNewTenants: boolean;
+  setAutoApproveNewTenants: (value: boolean) => void;
   onSave: () => Promise<void>;
   onReset: () => void;
 }
@@ -66,6 +68,8 @@ export function AdminConfigSettingsSection({
   setEnableIndexDualWrite,
   sessionDeletionKillSwitch,
   setSessionDeletionKillSwitch,
+  autoApproveNewTenants,
+  setAutoApproveNewTenants,
   onSave,
   onReset,
 }: AdminConfigSettingsSectionProps) {
@@ -317,6 +321,28 @@ export function AdminConfigSettingsSection({
                     <code className="ml-1 text-xs bg-indigo-100 dark:bg-indigo-900 dark:text-indigo-200 px-1 rounded">SignalsByKind</code>).
                     A 2h timer re-scans the last 4h as a safety net against queue failures. Flip this on only after the
                     M5.d release-gate tests have been verified in the target environment.
+                  </p>
+                </span>
+              </label>
+            </div>
+
+            <div>
+              <label className="flex items-start space-x-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={autoApproveNewTenants}
+                  onChange={(e) => setAutoApproveNewTenants(e.target.checked)}
+                  className="mt-1 h-5 w-5 rounded border-indigo-300 dark:border-indigo-600 text-indigo-600 accent-indigo-600 focus:ring-indigo-500"
+                />
+                <span>
+                  <span className="text-indigo-900 dark:text-indigo-100 font-medium">Auto-approve new tenant signups</span>
+                  <p className="text-sm text-indigo-800 dark:text-gray-300 mt-1">
+                    When <strong>on</strong>, a new tenant is activated automatically ~1 minute after its first
+                    sign-in (signup notifications still fire, and each auto-activation is recorded as a
+                    <code className="text-xs bg-indigo-100 dark:bg-indigo-900 dark:text-indigo-200 px-1 rounded">TenantAutoApproved</code> ops
+                    event). When <strong>off</strong>, every signup waits for a manual approval in Tenant
+                    Management — flip it off any time to return to manual vetting, e.g. on abuse.
+                    Default <strong>off</strong>.
                   </p>
                 </span>
               </label>

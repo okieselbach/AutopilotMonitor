@@ -2,6 +2,7 @@
   "trailingSlash": "auto",
   "routes": [
     { "route": "/landing", "redirect": "/", "statusCode": 301 },
+    { "route": "/preview", "redirect": "/activation", "statusCode": 301 },
     { "route": "/docs/private-preview", "redirect": "https://docs.autopilotmonitor.com/getting-started/requirements-and-access", "statusCode": 301 },
     { "route": "/docs/overview", "redirect": "https://docs.autopilotmonitor.com", "statusCode": 301 },
     { "route": "/docs/general", "redirect": "https://docs.autopilotmonitor.com/concepts/roles-and-permissions", "statusCode": 301 },

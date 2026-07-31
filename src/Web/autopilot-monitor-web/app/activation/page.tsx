@@ -7,8 +7,8 @@ import { api } from "@/lib/api";
 import { DOCS_URL } from "@/utils/config";
 import { BrandMark } from "../../components/BrandMark";
 
-export default function PreviewPage() {
-  const { isAuthenticated, isLoading, user, isPreviewBlocked, previewMessage, logout, getAccessToken } = useAuth();
+export default function ActivationPage() {
+  const { isAuthenticated, isLoading, user, isActivationPending, activationMessage, logout, getAccessToken, refreshUserInfo } = useAuth();
   const router = useRouter();
 
   const [notificationEmail, setNotificationEmail] = useState("");
@@ -22,10 +22,10 @@ export default function PreviewPage() {
     setDemo(new URLSearchParams(window.location.search).has("demo"));
   }, []);
 
-  // If not preview-blocked (e.g. approved tenant navigates here), redirect away
+  // If the tenant is activated (e.g. activated tenant navigates here), redirect away
   useEffect(() => {
     if (demo === null || demo) return;
-    if (!isLoading && isAuthenticated && user && !isPreviewBlocked) {
+    if (!isLoading && isAuthenticated && user && !isActivationPending) {
       if (user.isTenantAdmin || user.isGlobalAdmin) {
         router.push("/dashboard");
       } else {
@@ -35,7 +35,19 @@ export default function PreviewPage() {
     if (!isLoading && !isAuthenticated) {
       router.push("/");
     }
-  }, [demo, isAuthenticated, isLoading, user, isPreviewBlocked, router]);
+  }, [demo, isAuthenticated, isLoading, user, isActivationPending, router]);
+
+  // Poll while activation is pending: the auto-approve worker activates the tenant
+  // ~1 minute after signup. refreshUserInfo clears isActivationPending on a successful
+  // auth/me, which triggers the redirect effect above — no manual reload needed.
+  useEffect(() => {
+    if (demo === null || demo) return;
+    if (isLoading || !isAuthenticated || !isActivationPending) return;
+    const id = setInterval(() => {
+      refreshUserInfo().catch(() => { /* transient — next tick retries */ });
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [demo, isLoading, isAuthenticated, isActivationPending, refreshUserInfo]);
 
   const handleSaveEmail = async () => {
     const email = notificationEmail.trim();
@@ -110,16 +122,16 @@ export default function PreviewPage() {
           <div className="mb-3">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--lp-warn-soft)] text-[var(--lp-warn)] text-xs font-bold uppercase tracking-wide">
               <span className="w-1.5 h-1.5 rounded-full bg-[var(--lp-warn)]" />
-              Approval pending
+              Activation in progress
             </span>
           </div>
 
           <h1 className="text-2xl font-bold tracking-tight text-[var(--lp-ink)] mb-2">
-            Almost there — you&apos;re on the list
+            Activating your organization
           </h1>
 
           <p className="text-[15px] text-[var(--lp-ink-soft)] mb-6 leading-relaxed">
-            {previewMessage || "Autopilot Monitor is currently in preview. Your organization has been added to the waitlist."}
+            {activationMessage || "Autopilot Monitor is free to use — every new organization goes through a short activation step. Your tenant is being activated."}
           </p>
 
           <div className="bg-[var(--lp-surface-2)] border border-[var(--lp-line-soft)] rounded-xl p-3.5 mb-5">
@@ -131,9 +143,9 @@ export default function PreviewPage() {
 
           {/* Notification Email */}
           <div className="text-left bg-[var(--lp-accent-soft)] border border-[var(--lp-accent-line)] rounded-xl p-4 mb-5">
-            <p className="text-sm font-semibold text-[var(--lp-ink)] mb-1">Get notified when approved</p>
+            <p className="text-sm font-semibold text-[var(--lp-ink)] mb-1">Get notified when activated</p>
             <p className="text-sm text-[var(--lp-ink-soft)] mb-3">
-              Enter your email and we&apos;ll notify you as soon as your preview access is granted.
+              Enter your email and we&apos;ll notify you as soon as your organization is activated.
             </p>
             <div className="flex gap-2">
               <input
@@ -154,7 +166,7 @@ export default function PreviewPage() {
             </div>
             {emailStatus === "saved" && (
               <p className="text-xs text-[var(--lp-accent-ink)] mt-2 font-medium">
-                Email saved! We&apos;ll send you a notification when your access is approved.
+                Email saved! We&apos;ll send you a notification when your organization is activated.
               </p>
             )}
             {emailStatus === "error" && emailError && (
@@ -163,19 +175,19 @@ export default function PreviewPage() {
           </div>
 
           <div className="text-left bg-[var(--lp-surface-2)] border border-[var(--lp-line-soft)] rounded-xl p-4 mb-6">
-            <p className="text-sm font-semibold text-[var(--lp-ink)] mb-1">Next steps</p>
+            <p className="text-sm font-semibold text-[var(--lp-ink)] mb-1">What happens next</p>
             <p className="text-sm text-[var(--lp-ink-soft)]">
-              Please sign out and wait a bit or contact me on LinkedIn or open a GitHub issue to request
-              access to the preview. I check incoming requests regularly and will approve them as quickly
-              as possible.
+              This page checks automatically and takes you into the portal once activation
+              completes — usually within a couple of minutes. You can also come back and sign
+              in again at any time.
             </p>
             <p className="text-sm text-[var(--lp-ink-soft)] mt-2">
               In the meantime, you can already review the setup and configuration in the{" "}
               <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">documentation</a>.
             </p>
             <p className="text-sm text-[var(--lp-ink-soft)] mt-2">
-              Sign in again later to check: while your approval is pending you&apos;ll land back on this
-              page — once approved, you&apos;ll go straight into the portal.
+              Taking longer than expected? Contact me on LinkedIn or open a GitHub issue and
+              I&apos;ll take care of it.
             </p>
             <div className="flex flex-wrap gap-2 mt-3">
               {[

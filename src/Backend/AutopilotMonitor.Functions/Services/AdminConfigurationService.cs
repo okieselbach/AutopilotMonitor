@@ -116,6 +116,35 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Cache-bypassing read of <see cref="AdminConfiguration.AutoApproveNewTenants"/> for the
+        /// tenant-auto-approve queue worker. The 5-minute cache of
+        /// <see cref="GetConfigurationAsync"/> is wrong here: when the operator flips auto-approve
+        /// OFF (e.g. on abuse), in-flight queue messages must observe the new value immediately —
+        /// not keep auto-activating tenants for up to 5 more minutes per instance.
+        /// <para>
+        /// <b>Fail-CLOSED on storage error:</b> returns <c>false</c> (treat as auto-approve
+        /// disabled). The worker then drops the message, so a transient read failure degrades
+        /// to manual vetting — the tenant stays visible on the waitlist and can never be
+        /// activated by accident.
+        /// </para>
+        /// <para>Virtual so tests can mock it without going through the repository.</para>
+        /// </summary>
+        public virtual async Task<bool> IsAutoApproveNewTenantsEnabledAsync()
+        {
+            try
+            {
+                var config = await _configRepo.GetAdminConfigurationAsync();
+                return config?.AutoApproveNewTenants ?? false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Failed to read AutoApproveNewTenants from repository; failing CLOSED (treating as disabled)");
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Saves global admin configuration and syncs rate limit to all tenant configurations
         /// </summary>
         public async Task SaveConfigurationAsync(AdminConfiguration config)

@@ -98,6 +98,10 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // (Wilson-separated). Warning-tier, once per episode (tracker-deduped). Dual-register
     // per memory feedback_ops_event_types_dual_register.
     "RuleFrequencyRegression",
+    // Auto-activation audit: the tenant-auto-approve worker activated a new signup
+    // (AutoApproveNewTenants enabled). Info-tier. Dual-register per memory
+    // feedback_ops_event_types_dual_register.
+    "TenantAutoApproved",
   ],
   Agent: [
     "BlobStorageMissing",

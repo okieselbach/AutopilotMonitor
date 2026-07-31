@@ -22,6 +22,7 @@ export function SectionGlobalSettings() {
     modernDeploymentHarmlessEventIds, setModernDeploymentHarmlessEventIds,
     enableIndexDualWrite, setEnableIndexDualWrite,
     sessionDeletionKillSwitch, setSessionDeletionKillSwitch,
+    autoApproveNewTenants, setAutoApproveNewTenants,
     handleSaveAdminConfig, handleResetAdminConfig,
   } = useAdminConfig();
 
@@ -60,6 +61,8 @@ export function SectionGlobalSettings() {
         setEnableIndexDualWrite={setEnableIndexDualWrite}
         sessionDeletionKillSwitch={sessionDeletionKillSwitch}
         setSessionDeletionKillSwitch={setSessionDeletionKillSwitch}
+        autoApproveNewTenants={autoApproveNewTenants}
+        setAutoApproveNewTenants={setAutoApproveNewTenants}
         onSave={handleSaveAdminConfig}
         onReset={handleResetAdminConfig}
       />

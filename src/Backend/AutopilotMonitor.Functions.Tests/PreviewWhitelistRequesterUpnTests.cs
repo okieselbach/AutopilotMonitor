@@ -1,12 +1,12 @@
-using AutopilotMonitor.Functions.Functions.Rules;
+using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
 using Xunit;
 
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Unit tests for the static helpers <c>PreviewWhitelistFunction.PickRequesterUpn</c>
-/// and <c>PreviewWhitelistFunction.IsRealUserUpn</c>.
+/// Unit tests for the static helpers <c>TenantApprovalService.PickRequesterUpn</c>
+/// and <c>TenantApprovalService.IsRealUserUpn</c>.
 /// <para>
 /// These guard the auto-promote-on-preview-approval path, which previously corrupted
 /// 10 tenants' TenantAdmins rows by writing the sentinel string
@@ -31,7 +31,7 @@ public class PreviewWhitelistRequesterUpnTests
     [InlineData("cadm_user@xx3t8.onmicrosoft.com")]
     public void IsRealUserUpn_AcceptsRealUpnShapes(string upn)
     {
-        Assert.True(PreviewWhitelistFunction.IsRealUserUpn(upn));
+        Assert.True(TenantApprovalService.IsRealUserUpn(upn));
     }
 
     [Theory]
@@ -46,7 +46,7 @@ public class PreviewWhitelistRequesterUpnTests
         // The shape-based prefix check is exactly the defense against the corruption
         // pattern: any new "System (...)" sentinel introduced anywhere in the codebase
         // is rejected without anyone needing to remember to update this method.
-        Assert.False(PreviewWhitelistFunction.IsRealUserUpn(upn));
+        Assert.False(TenantApprovalService.IsRealUserUpn(upn));
     }
 
     [Theory]
@@ -57,7 +57,7 @@ public class PreviewWhitelistRequesterUpnTests
     [InlineData("just-a-string")]
     public void IsRealUserUpn_RejectsNullOrNonEmailShapes(string? upn)
     {
-        Assert.False(PreviewWhitelistFunction.IsRealUserUpn(upn));
+        Assert.False(TenantApprovalService.IsRealUserUpn(upn));
     }
 
     // -------------------------------------------------------------------------
@@ -73,7 +73,7 @@ public class PreviewWhitelistRequesterUpnTests
             UpdatedBy = "editor@contoso.com",
         };
 
-        Assert.Equal("onboarder@contoso.com", PreviewWhitelistFunction.PickRequesterUpn(cfg));
+        Assert.Equal("onboarder@contoso.com", TenantApprovalService.PickRequesterUpn(cfg));
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public class PreviewWhitelistRequesterUpnTests
             UpdatedBy = "editor@contoso.com",
         };
 
-        Assert.Equal("editor@contoso.com", PreviewWhitelistFunction.PickRequesterUpn(cfg));
+        Assert.Equal("editor@contoso.com", TenantApprovalService.PickRequesterUpn(cfg));
     }
 
     [Fact]
@@ -97,7 +97,7 @@ public class PreviewWhitelistRequesterUpnTests
             UpdatedBy = "editor@contoso.com",
         };
 
-        Assert.Equal("editor@contoso.com", PreviewWhitelistFunction.PickRequesterUpn(cfg));
+        Assert.Equal("editor@contoso.com", TenantApprovalService.PickRequesterUpn(cfg));
     }
 
     [Fact]
@@ -112,8 +112,8 @@ public class PreviewWhitelistRequesterUpnTests
             UpdatedBy = "System (Global Rate Limit Sync)",
         };
 
-        Assert.Equal("real.requester@contoso.com", PreviewWhitelistFunction.PickRequesterUpn(cfg));
-        Assert.True(PreviewWhitelistFunction.IsRealUserUpn(PreviewWhitelistFunction.PickRequesterUpn(cfg)));
+        Assert.Equal("real.requester@contoso.com", TenantApprovalService.PickRequesterUpn(cfg));
+        Assert.True(TenantApprovalService.IsRealUserUpn(TenantApprovalService.PickRequesterUpn(cfg)));
     }
 
     [Fact]
@@ -127,8 +127,8 @@ public class PreviewWhitelistRequesterUpnTests
             UpdatedBy = "System (Global Rate Limit Sync)",
         };
 
-        var picked = PreviewWhitelistFunction.PickRequesterUpn(cfg);
+        var picked = TenantApprovalService.PickRequesterUpn(cfg);
         Assert.Equal("System (Global Rate Limit Sync)", picked);
-        Assert.False(PreviewWhitelistFunction.IsRealUserUpn(picked));
+        Assert.False(TenantApprovalService.IsRealUserUpn(picked));
     }
 }

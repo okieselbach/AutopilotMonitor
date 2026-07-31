@@ -24,6 +24,7 @@ public class AuthFunctionSideEffectTests
     private readonly Mock<TelegramNotificationService> _telegramMock;
     private readonly Mock<GlobalNotificationService> _globalNotificationMock;
     private readonly Mock<IMetricsRepository> _metricsRepoMock;
+    private readonly Mock<AutopilotMonitor.Functions.Services.Activation.ITenantAutoApproveEnqueuer> _autoApproveEnqueuerMock;
     private readonly AuthFunction _sut;
 
     public AuthFunctionSideEffectTests()
@@ -76,6 +77,7 @@ public class AuthFunctionSideEffectTests
         { CallBase = false };
 
         _metricsRepoMock = new Mock<IMetricsRepository>();
+        _autoApproveEnqueuerMock = new Mock<AutopilotMonitor.Functions.Services.Activation.ITenantAutoApproveEnqueuer>();
 
         _sut = new AuthFunction(
             Mock.Of<ILogger<AuthFunction>>(),
@@ -87,7 +89,8 @@ public class AuthFunctionSideEffectTests
             previewMock.Object,
             _telegramMock.Object,
             _globalNotificationMock.Object,
-            mcpUserMock.Object);
+            mcpUserMock.Object,
+            _autoApproveEnqueuerMock.Object);
 
         // Default: all fire-and-forget calls succeed
         _tenantConfigMock
@@ -129,9 +132,16 @@ public class AuthFunctionSideEffectTests
         _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(config), Times.Once);
         _telegramMock.Verify(x => x.SendNewTenantSignupAsync(TenantId, Upn), Times.Once);
         _globalNotificationMock.Verify(x => x.CreateNotificationAsync(
-            "preview_signup", "New Preview Signup",
+            "preview_signup", "New Tenant Signup",
             It.Is<string>(m => m.Contains(TenantId) && m.Contains("contoso.com") && m.Contains(Upn)),
             $"/admin/tenants/management?tenantId={TenantId}"), Times.Once);
+        // Signup enqueues the delayed auto-approve unconditionally — the worker is the
+        // decision point (flag check at processing time).
+        _autoApproveEnqueuerMock.Verify(x => x.EnqueueAsync(
+            It.Is<AutopilotMonitor.Functions.Services.Activation.TenantAutoApproveEnvelope>(
+                e => e.TenantId == TenantId && e.SignupUpn == Upn),
+            AutopilotMonitor.Functions.Services.Activation.TenantAutoApproveEnvelope.ActivationDelay,
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

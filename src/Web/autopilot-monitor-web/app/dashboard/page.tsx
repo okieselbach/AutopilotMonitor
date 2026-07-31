@@ -90,7 +90,7 @@ function HomeContent() {
   const mainClassName = fullWidth
     ? "w-full px-4 sm:px-6 lg:px-8 py-4"
     : "max-w-7xl mx-auto py-4 sm:px-6 lg:px-8";
-  const { user, getAccessToken, isPreviewBlocked, hasGlobalScope } = useAuth();
+  const { user, getAccessToken, isActivationPending, hasGlobalScope } = useAuth();
   const { addNotification } = useNotifications();
   // `?tenant=<id>` deep-links a cross-tenant view onto one tenant — used by the /fleet card grid to drill
   // a managed tenant into this dashboard. Ignored for non-cross-tenant users (the filter is unused there).
@@ -291,8 +291,9 @@ function HomeContent() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
             </svg>
             <p className="text-sm text-blue-800 dark:text-blue-300">
-              <span className="font-semibold">Private Preview.</span>{" "}
-              The platform is under active development.{" "}
+              <span className="font-semibold">Actively developed.</span>{" "}
+              Autopilot Monitor recognizes a wide range of deployment scenarios and improves
+              continuously — your reports directly shape it.{" "}
               If something looks off, check the{" "}
               <a
                 href={`${DOCS_URL}/changelog/platform-changelog`}
@@ -300,7 +301,7 @@ function HomeContent() {
                 rel="noopener noreferrer"
                 className="underline font-medium hover:text-green-600 dark:hover:text-blue-200"
               >
-                Private Preview Changelog
+                Platform Changelog
               </a>{" "}
               or{" "}
               <a
@@ -461,7 +462,7 @@ function HomeContent() {
               onTenantIdFilterClear={clearTenantIdFilter}
               tenantList={tenantList}
               blockedDevicesSet={blockedDevicesSet}
-              isPreviewBlocked={isPreviewBlocked}
+              isActivationPending={isActivationPending}
               user={user}
               columnFilters={columnFilters}
               onColumnFiltersChange={setColumnFilters}

@@ -460,6 +460,21 @@ namespace AutopilotMonitor.Functions.Services
                 new { domainName, failedPhase, errorMessage, retryCount });
         }
 
+        /// <summary>
+        /// Fired by the tenant-auto-approve queue worker when a new signup was activated
+        /// automatically (AutoApproveNewTenants enabled). Info-tier audit + Telegram-routable
+        /// signal so the operator sees which tenants entered without a manual approval click.
+        /// Dual-registered in OpsAlertRulesSection.tsx OPS_EVENT_TYPES
+        /// (memory feedback_ops_event_types_dual_register).
+        /// </summary>
+        public Task RecordTenantAutoApprovedAsync(string tenantId, string? domainName, string signupUpn)
+        {
+            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            return WriteAsync(OpsEventCategory.Tenant, "TenantAutoApproved", OpsEventSeverity.Info,
+                $"Tenant {tenantLabel} was auto-activated after signup (signup by {signupUpn})",
+                tenantId, "System (auto-approve)", new { domainName, signupUpn });
+        }
+
         // ── Tenant trial lifecycle (informational — enforcement is read-time) ──
         // Both types are dual-registered in OpsAlertRulesSection.tsx OPS_EVENT_TYPES
         // (memory feedback_ops_event_types_dual_register). Dispatched by TrialExpirySweepFunction.

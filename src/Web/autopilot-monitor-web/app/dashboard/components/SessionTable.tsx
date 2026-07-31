@@ -86,7 +86,7 @@ interface SessionTableProps {
   onTenantIdFilterClear: () => void;
   tenantList: { tenantId: string; domainName: string }[];
   blockedDevicesSet: Set<string>;
-  isPreviewBlocked: boolean;
+  isActivationPending: boolean;
   user: { isGlobalAdmin?: boolean } | null;
   columnFilters: Record<string, Set<string>>;
   onColumnFiltersChange: (filters: Record<string, Set<string>>) => void;
@@ -136,7 +136,7 @@ export function SessionTable({
   onTenantIdFilterClear,
   tenantList,
   blockedDevicesSet,
-  isPreviewBlocked,
+  isActivationPending,
   user,
   columnFilters,
   onColumnFiltersChange,
@@ -320,13 +320,13 @@ export function SessionTable({
           )}
         </h2>
         <div className="flex items-center gap-2">
-          {/* Preview Status Badge - only shown when blocked */}
-          {isPreviewBlocked && (
+          {/* Activation status badge - only shown while the tenant is not activated yet */}
+          {isActivationPending && (
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200 shrink-0">
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              Preview approval pending
+              Activation pending
             </span>
           )}
 

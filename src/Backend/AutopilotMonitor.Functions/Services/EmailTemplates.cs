@@ -5,11 +5,10 @@ namespace AutopilotMonitor.Functions.Services;
 /// <summary>
 /// Email templates for Resend notifications.
 /// Keep all email content here for easy maintenance.
-/// Temporary — remove after GA.
 /// </summary>
 public static class EmailTemplates
 {
-    public const string PreviewApprovedSubject = "Your Autopilot Monitor Private Preview is ready!";
+    public const string PreviewApprovedSubject = "Your Autopilot Monitor access is ready!";
 
     // ── Offboarding farewell email ────────────────────────────────────────────
     //
@@ -58,7 +57,7 @@ public static class EmailTemplates
     }
 
     /// <summary>
-    /// Returns the HTML body for the Private Preview approval welcome email.
+    /// Returns the HTML body for the tenant-activation welcome email.
     /// </summary>
     public static string GetPreviewApprovedHtml(string domainName)
     {
@@ -77,17 +76,17 @@ public static class EmailTemplates
         <tr>
           <td style=""background:linear-gradient(135deg,#2563eb,#4f46e5); padding:32px 40px; text-align:center;"">
             <h1 style=""color:#ffffff; margin:0; font-size:24px; font-weight:700;"">Autopilot Monitor</h1>
-            <p style=""color:#c7d2fe; margin:8px 0 0; font-size:14px;"">Private Preview</p>
+            <p style=""color:#c7d2fe; margin:8px 0 0; font-size:14px;"">Windows Autopilot monitoring</p>
           </td>
         </tr>
 
         <!-- Body -->
         <tr>
           <td style=""padding:40px;"">
-            <h2 style=""color:#111827; margin:0 0 16px; font-size:20px;"">Welcome to the Private Preview!</h2>
+            <h2 style=""color:#111827; margin:0 0 16px; font-size:20px;"">Welcome to Autopilot Monitor!</h2>
 
             <p style=""color:#374151; font-size:15px; line-height:1.6; margin:0 0 16px;"">
-              Great news &mdash; the Private Preview for <strong>{displayDomain}</strong> has been approved and is ready to use.
+              Great news &mdash; access for <strong>{displayDomain}</strong> has been activated and is ready to use.
               You can now sign in and start monitoring your Windows Autopilot enrollments in real time.
             </p>
 
@@ -107,7 +106,7 @@ public static class EmailTemplates
               </tr>
             </table>
 
-            <!-- Private Preview Note -->
+            <!-- Active development note -->
             <div style=""background-color:#fef3c7; border:1px solid #fde68a; border-radius:8px; padding:16px 20px; margin:0 0 24px;"">
               <p style=""color:#92400e; font-size:14px; line-height:1.5; margin:0;"">
                 <strong>Please note:</strong> Autopilot Monitor is in active development. Some features are still being built
@@ -127,7 +126,7 @@ public static class EmailTemplates
             </ul>
 
             <p style=""color:#6b7280; font-size:14px; line-height:1.6; margin:0;"">
-              Thanks for being an early adopter &mdash; enjoy the Private Preview!
+              Thanks for being part of the journey &mdash; enjoy Autopilot Monitor!
             </p>
           </td>
         </tr>

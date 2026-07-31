@@ -708,7 +708,7 @@ function TenantManagementSectionInner({
                     onClick={() => handleSendWelcomeEmail(editingTenant.tenantId, notificationEmail)}
                     disabled={!canMutate || sendingWelcomeEmail || !notificationEmail.trim()}
                     className="px-3 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap flex items-center gap-1.5"
-                    title="Send or resend the Private Preview welcome email"
+                    title="Send or resend the activation welcome email"
                   >
                     {sendingWelcomeEmail ? (
                       <>

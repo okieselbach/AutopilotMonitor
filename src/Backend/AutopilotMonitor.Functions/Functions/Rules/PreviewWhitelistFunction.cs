@@ -2,7 +2,6 @@ using System.Net;
 using AutopilotMonitor.Functions.Extensions;
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
 using AutopilotMonitor.Functions.Services;
-using AutopilotMonitor.Shared.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -11,29 +10,28 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Functions.Rules;
 
 /// <summary>
-/// CRUD endpoints for managing the Private Preview tenant whitelist.
+/// CRUD endpoints for managing the tenant-activation whitelist (table: PreviewWhitelist).
 /// All endpoints are Global Admin only (except notification-email which is AuthenticatedUser).
-/// Temporary — remove after GA.
 /// </summary>
 public class PreviewWhitelistFunction
 {
     private readonly ILogger<PreviewWhitelistFunction> _logger;
     private readonly PreviewWhitelistService _previewWhitelistService;
+    private readonly TenantApprovalService _tenantApprovalService;
     private readonly TenantConfigurationService _tenantConfigurationService;
-    private readonly TenantAdminsService _tenantAdminsService;
     private readonly ResendEmailService _resendEmailService;
 
     public PreviewWhitelistFunction(
         ILogger<PreviewWhitelistFunction> logger,
         PreviewWhitelistService previewWhitelistService,
+        TenantApprovalService tenantApprovalService,
         TenantConfigurationService tenantConfigurationService,
-        TenantAdminsService tenantAdminsService,
         ResendEmailService resendEmailService)
     {
         _logger = logger;
         _previewWhitelistService = previewWhitelistService;
+        _tenantApprovalService = tenantApprovalService;
         _tenantConfigurationService = tenantConfigurationService;
-        _tenantAdminsService = tenantAdminsService;
         _resendEmailService = resendEmailService;
     }
 
@@ -58,7 +56,7 @@ public class PreviewWhitelistFunction
 
     /// <summary>
     /// POST /api/preview/whitelist/{tenantId}
-    /// Approves a tenant for Private Preview.
+    /// Activates a tenant (adds it to the whitelist).
     /// </summary>
     [Function("ApprovePreviewTenant")]
     [Authorize]
@@ -78,67 +76,8 @@ public class PreviewWhitelistFunction
             return bad;
         }
 
-        await _previewWhitelistService.ApproveAsync(tenantId, upn!);
-
-        _logger.LogInformation("Preview tenant approved: {TenantId} by {Upn}", tenantId, upn);
-
-        // Auto-promote the tenant requester (first user who triggered tenant config creation)
-        // as TenantAdmin if they are not already one.
-        // This ensures whoever signed up doesn't need manual admin assignment after approval.
-        try
-        {
-            var tenantConfig = await _tenantConfigurationService.GetConfigurationAsync(tenantId);
-            var requesterUpn = PickRequesterUpn(tenantConfig);
-
-            // Positive UPN-shape validation: real Azure AD UPNs always contain '@', while
-            // every system-written sentinel ("System", "System (auto-re-enable)",
-            // "System (Global Rate Limit Sync)", …) does not. An equality list against
-            // known sentinels previously missed a third sentinel and corrupted 10 tenants'
-            // TenantAdmins rows — keep this check shape-based, not enumeration-based.
-            if (IsRealUserUpn(requesterUpn))
-            {
-                // IsRealUserUpn returned true → requesterUpn is non-null, non-empty, contains '@'
-                var validUpn = requesterUpn!;
-                var isAlreadyAdmin = await _tenantAdminsService.IsTenantAdminAsync(tenantId, validUpn);
-                if (!isAlreadyAdmin)
-                {
-                    await _tenantAdminsService.AddTenantAdminAsync(tenantId, validUpn, upn!);
-                    _logger.LogInformation(
-                        "Auto-promoted tenant requester {RequesterUpn} as TenantAdmin for tenant {TenantId} on preview approval by {ApprovedBy}",
-                        validUpn, tenantId, upn);
-                }
-                else
-                {
-                    _logger.LogInformation(
-                        "Tenant requester {RequesterUpn} is already a TenantAdmin for tenant {TenantId} — skipping auto-promote",
-                        validUpn, tenantId);
-                }
-            }
-            else
-            {
-                _logger.LogInformation(
-                    "No valid tenant requester UPN found in TenantConfiguration for tenant {TenantId} (OnboardedBy: '{OnboardedBy}', UpdatedBy: '{UpdatedBy}') — skipping auto-promote",
-                    tenantId, tenantConfig.OnboardedBy ?? "<null>", tenantConfig.UpdatedBy ?? "<null>");
-            }
-
-            // Fire-and-forget: send welcome email if notification email is configured
-            var notificationEmail = await _previewWhitelistService.GetNotificationEmailAsync(tenantId);
-            if (!string.IsNullOrWhiteSpace(notificationEmail))
-            {
-                _ = _resendEmailService.SendPreviewApprovedEmailAsync(
-                        notificationEmail, tenantConfig.DomainName)
-                    .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
-                        "Fire-and-forget welcome email failed for tenant {TenantId}", tenantId),
-                        TaskContinuationOptions.OnlyOnFaulted);
-            }
-        }
-        catch (Exception ex)
-        {
-            // Non-fatal: approval already succeeded, admin promotion is best-effort
-            _logger.LogWarning(ex,
-                "Failed to auto-promote tenant requester as TenantAdmin for tenant {TenantId} — approval still succeeded",
-                tenantId);
-        }
+        // Whitelist add + auto-promote + welcome email — shared with the auto-approve worker.
+        await _tenantApprovalService.ApproveWithSideEffectsAsync(tenantId, upn!);
 
         var response = req.CreateResponse(HttpStatusCode.Created);
         await response.WriteAsJsonAsync(new { message = "Tenant approved for preview", tenantId });
@@ -147,7 +86,7 @@ public class PreviewWhitelistFunction
 
     /// <summary>
     /// DELETE /api/preview/whitelist/{tenantId}
-    /// Revokes a tenant's Private Preview access.
+    /// Revokes a tenant's activation (removes it from the whitelist).
     /// </summary>
     [Function("RevokePreviewTenant")]
     [Authorize]
@@ -189,7 +128,7 @@ public class PreviewWhitelistFunction
 
     /// <summary>
     /// PUT /api/preview/notification-email
-    /// Saves the caller's notification email for Private Preview approval.
+    /// Saves the caller's notification email for the activation notice.
     /// AuthenticatedUser policy — preview-blocked users can call this.
     /// </summary>
     [Function("SavePreviewNotificationEmail")]
@@ -231,7 +170,7 @@ public class PreviewWhitelistFunction
 
     /// <summary>
     /// POST /api/preview/send-welcome-email/{tenantId}
-    /// Sends (or resends) the Private Preview welcome email. Global Admin only.
+    /// Sends (or resends) the activation welcome email. Global Admin only.
     /// Accepts optional { email } in body — if provided, saves it to PreviewWhitelist table before sending.
     /// </summary>
     [Function("SendPreviewWelcomeEmail")]
@@ -276,35 +215,6 @@ public class PreviewWhitelistFunction
         return response;
     }
 
-    /// <summary>
-    /// Picks the UPN of the user to auto-promote as TenantAdmin on preview approval.
-    /// Prefers <see cref="TenantConfiguration.OnboardedBy"/> (immutable, set once on first
-    /// user login) over <see cref="TenantConfiguration.UpdatedBy"/> (mutable, can be
-    /// clobbered by background jobs such as the global rate-limit sync). Fall back to
-    /// <see cref="TenantConfiguration.UpdatedBy"/> for tenants onboarded before
-    /// <see cref="TenantConfiguration.OnboardedBy"/> existed — callers still guard the
-    /// result with <see cref="IsRealUserUpn"/> so a sentinel value cannot leak into
-    /// the TenantAdmins table.
-    /// </summary>
-    internal static string? PickRequesterUpn(TenantConfiguration config)
-    {
-        if (config == null) return null;
-        return !string.IsNullOrWhiteSpace(config.OnboardedBy)
-            ? config.OnboardedBy
-            : config.UpdatedBy;
-    }
-
-    /// <summary>
-    /// True when the value looks like a real Azure AD user principal name
-    /// (contains '@' and does not start with the "System" sentinel prefix
-    /// used by background jobs that touch <see cref="TenantConfiguration.UpdatedBy"/>).
-    /// </summary>
-    internal static bool IsRealUserUpn(string? upn)
-    {
-        if (string.IsNullOrWhiteSpace(upn)) return false;
-        if (upn.StartsWith("System", StringComparison.OrdinalIgnoreCase)) return false;
-        return upn.Contains('@');
-    }
 }
 
 public class SaveNotificationEmailRequest

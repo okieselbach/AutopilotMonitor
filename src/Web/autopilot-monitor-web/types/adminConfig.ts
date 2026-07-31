@@ -75,6 +75,12 @@ export interface AdminConfiguration {
    * Default false.
    */
   sessionDeletionKillSwitch?: boolean;
+  /**
+   * When true, new tenant signups are activated automatically ~1 minute after first
+   * sign-in (tenant-auto-approve queue worker). When false, signups wait for manual
+   * approval in Tenant Management. Default false.
+   */
+  autoApproveNewTenants?: boolean;
 }
 
 export interface OpsAlertRule {

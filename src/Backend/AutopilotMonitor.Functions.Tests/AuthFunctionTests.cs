@@ -223,11 +223,11 @@ public class AuthFunctionTests
     }
 
     // -------------------------------------------------------------------------
-    // Gate 2: Preview Gate
+    // Gate 2: Activation Gate
     // -------------------------------------------------------------------------
 
     [Fact]
-    public void PreviewGate_NotApproved_Returns403PrivatePreview()
+    public void PreviewGate_NotApproved_Returns403PendingActivation()
     {
         var result = AuthFunction.BuildAuthResult(
             DefaultConfig(), isGlobalAdmin: false, isGlobalReader: false, isPreviewApproved: false,
@@ -238,7 +238,7 @@ public class AuthFunctionTests
         Assert.False(result.IsSuccess);
         Assert.Equal(HttpStatusCode.Forbidden, result.StatusCode);
         var body = ToDynamic(result.Body);
-        Assert.Equal("PrivatePreview", (string)body.error);
+        Assert.Equal("PendingActivation", (string)body.error);
     }
 
     [Fact]

@@ -29,6 +29,7 @@ public class AuthFunction
     private readonly TelegramNotificationService _telegramNotificationService;
     private readonly GlobalNotificationService _globalNotificationService;
     private readonly McpUserService _mcpUserService;
+    private readonly Services.Activation.ITenantAutoApproveEnqueuer _tenantAutoApproveEnqueuer;
 
     public AuthFunction(
         ILogger<AuthFunction> logger,
@@ -40,7 +41,8 @@ public class AuthFunction
         PreviewWhitelistService previewWhitelistService,
         TelegramNotificationService telegramNotificationService,
         GlobalNotificationService globalNotificationService,
-        McpUserService mcpUserService)
+        McpUserService mcpUserService,
+        Services.Activation.ITenantAutoApproveEnqueuer tenantAutoApproveEnqueuer)
     {
         _logger = logger;
         _globalAdminService = globalAdminService;
@@ -52,6 +54,7 @@ public class AuthFunction
         _telegramNotificationService = telegramNotificationService;
         _globalNotificationService = globalNotificationService;
         _mcpUserService = mcpUserService;
+        _tenantAutoApproveEnqueuer = tenantAutoApproveEnqueuer;
     }
 
     /// <summary>
@@ -155,8 +158,8 @@ public class AuthFunction
 
                 if (errorValue == "TenantSuspended")
                     _logger.LogWarning("Login attempt for suspended tenant: {TenantId} by user {Upn}", tenantId, upn);
-                else if (errorValue == "PrivatePreview")
-                    _logger.LogInformation("Tenant {TenantId} blocked by preview gate (user: {Upn})", tenantId, upn);
+                else if (errorValue == "PendingActivation")
+                    _logger.LogInformation("Tenant {TenantId} blocked by activation gate (user: {Upn})", tenantId, upn);
             }
 
             var blockedResponse = req.CreateResponse(decision.StatusCode);
@@ -325,9 +328,24 @@ public class AuthFunction
         // Fire-and-forget: Global notification
         _ = _globalNotificationService.CreateNotificationAsync(
             "preview_signup",
-            "New Preview Signup",
+            "New Tenant Signup",
             $"Tenant {tenantId} ({domain}), UPN: {upn}",
             href: $"/admin/tenants/management?tenantId={Uri.EscapeDataString(tenantId)}");
+
+        // Fire-and-forget: delayed auto-approve. Enqueued unconditionally — the worker is the
+        // single decision point (checks AutoApproveNewTenants at processing time). A failed
+        // enqueue degrades to manual approval and must never fail the login.
+        _ = _tenantAutoApproveEnqueuer.EnqueueAsync(
+                new Services.Activation.TenantAutoApproveEnvelope
+                {
+                    TenantId = tenantId,
+                    SignupUpn = upn,
+                    EnqueuedAtUtc = DateTime.UtcNow
+                },
+                Services.Activation.TenantAutoApproveEnvelope.ActivationDelay)
+            .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
+                "Fire-and-forget auto-approve enqueue failed for tenant {TenantId}", tenantId),
+                TaskContinuationOptions.OnlyOnFaulted);
     }
 
     /// <summary>
@@ -415,13 +433,17 @@ public class AuthFunction
             });
         }
 
-        // Gate 2: Preview gate (platform roles — GlobalAdmin / GlobalReader — and delegated MSP admins bypass)
+        // Gate 2: Activation gate (platform roles — GlobalAdmin / GlobalReader — and delegated MSP
+        // admins bypass). Wording is mode-neutral on purpose: with auto-approve on, activation
+        // completes within a couple of minutes; with it off, the tenant waits for manual approval —
+        // the message must hold for both without plumbing the flag into this pure method. The web
+        // app accepts the legacy "PrivatePreview" code too, so backend and web deploy in any order.
         if (!isGlobalAdmin && !isGlobalReader && !isDelegated && !isPreviewApproved)
         {
             return AuthDecisionResult.Blocked(HttpStatusCode.Forbidden, new
             {
-                error = "PrivatePreview",
-                message = "Autopilot Monitor is currently in Private Preview. Your organization is on the waitlist \u2014 we'll notify you when access is granted."
+                error = "PendingActivation",
+                message = "Autopilot Monitor is free to use \u2014 every new organization goes through a short activation step. Your tenant is being activated; this usually completes within a couple of minutes."
             });
         }
 

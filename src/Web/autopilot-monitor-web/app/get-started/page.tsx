@@ -21,10 +21,10 @@ const STEPS = [
     note: "30 seconds",
   },
   {
-    title: "Request access",
+    title: "Tenant activation",
     description:
-      "Autopilot Monitor is in preview: your tenant is queued and approved — you'll see the status right after signing in.",
-    note: "Preview approval",
+      "Every new organization goes through a short activation step — you'll see the status right after signing in, and it usually completes within a couple of minutes.",
+    note: "Usually a few minutes",
   },
   {
     title: "Grant consent once",
