@@ -27,7 +27,7 @@ export function SectionAutopilotValidation() {
   // Operators do not see this section at all.
   if (!canEditConfig) {
     return (
-      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-200">
         This page is available to tenant administrators only.
       </div>
     );
@@ -49,7 +49,7 @@ export function SectionAutopilotValidation() {
     <>
       <TenantNotifications />
       {homingFlipped ? (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-800">
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-800 dark:bg-green-900/30 dark:border-green-700 dark:text-green-200">
           <p>
             Your tenant now runs on the <strong>new</strong> Autopilot Monitor app registration.
             Current sessions keep working; every next sign-in uses the new app automatically.
@@ -62,44 +62,67 @@ export function SectionAutopilotValidation() {
           </button>
         </div>
       ) : appHomingFunnelActive ? (
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg p-5 shadow-sm">
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg p-5 shadow-sm dark:from-blue-950/40 dark:to-indigo-950/40 dark:border-blue-700/60">
           <div className="flex items-start gap-3">
-            <svg className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-6 h-6 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
-            <div className="text-sm text-blue-900">
+            <div className="text-sm text-blue-900 dark:text-blue-100">
               <p className="font-semibold text-base">
                 Please switch to the new Autopilot Monitor app registration
               </p>
-              <p className="mt-1.5 text-blue-800">
+              <p className="mt-1.5 text-blue-800 dark:text-blue-200">
                 Your tenant still runs on the previous app registration. Granting consent below (or
                 running &quot;Detect existing access&quot;) approves the <strong>new</strong> app and
                 switches your tenant over automatically — current sessions keep working, and new
                 sign-ins use the new app. It&apos;s a one-time step and takes about a minute.
               </p>
-              <p className="mt-1.5 text-blue-800">
+              <p className="mt-1.5 text-blue-800 dark:text-blue-200">
                 <strong>Note:</strong> granting admin consent requires an Entra ID account that can
                 consent tenant-wide (e.g. <strong>Global Administrator</strong> or{" "}
                 <strong>Privileged Role Administrator</strong>). The consented permission stays the
                 same read-only Graph permission as before
-                (<code className="text-xs bg-blue-100 px-1 rounded">DeviceManagementServiceConfig.Read.All</code>).
+                (<code className="text-xs bg-blue-100 dark:bg-blue-900/60 px-1 rounded">DeviceManagementServiceConfig.Read.All</code>).
               </p>
               <a
                 href={`${DOCS_URL}/getting-started/portal-setup`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 mt-2.5 text-sm font-medium text-blue-700 hover:text-blue-900 underline"
+                className="inline-flex items-center gap-1 mt-2.5 text-sm font-medium text-blue-700 hover:text-blue-900 underline dark:text-blue-300 dark:hover:text-blue-100"
               >
                 See the documentation for details on the required permissions
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                 </svg>
               </a>
+              {/* Always-visible funnel actions: a tenant whose validations are ALREADY enabled has
+                  no consent button to click (the toggles are on) and the per-toggle "Detect
+                  existing access" links only appear under DISABLED toggles — and would enable that
+                  validation as a side effect. These two act on the existing autopilot gate
+                  (idempotent when it is already on) and never touch the other toggles. */}
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => { void beginDeviceValidationConsentFlow("autopilot"); }}
+                  disabled={autopilotConsentInProgress || savingSection === "autopilotValidation"}
+                  className="px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                >
+                  Grant consent for the new app
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { void detectExistingAccess("autopilot"); }}
+                  disabled={autopilotConsentInProgress || savingSection === "autopilotValidation"}
+                  className="text-sm font-medium text-blue-700 hover:text-blue-900 underline underline-offset-2 disabled:opacity-60 disabled:cursor-not-allowed dark:text-blue-300 dark:hover:text-blue-100"
+                >
+                  Detect existing access
+                </button>
+              </div>
             </div>
           </div>
         </div>
       ) : homedOnLegacyApp ? (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-200">
           Autopilot device validation currently runs on the previous Autopilot Monitor app
           registration. It keeps working as-is — at your convenience, please re-consent to the
           new app registration; we will reach out with details as part of the migration.

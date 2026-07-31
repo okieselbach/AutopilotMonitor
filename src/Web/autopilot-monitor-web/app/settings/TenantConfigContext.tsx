@@ -1037,19 +1037,36 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         const reconcileTrigger: ValidationTrigger =
           trigger === "corporate" ? "corporate" : trigger === "device-preparation" ? "device-preparation" : "autopilot";
 
-        const probe = await probeAccessCheck();
+        // AAD consent-propagation awareness: right after a successful admin consent the app-only
+        // token often mints with an EMPTY roles claim for 30-90s (observed live 2026-07-31,
+        // tenant 5ca2b350: token 43s post-consent with GrantedRoleCount=0) — a single-shot probe
+        // misclassified that window as "permission not granted" and showed a hard error while
+        // everything was actually fine. The access-check invalidates + re-mints fresh on every
+        // call, so a bounded poll converges as soon as Microsoft has propagated the role. The
+        // consent-in-progress spinner stays up for the duration (finally-block clears it).
+        let probe: AccessCheckOutcome = "absent";
+        let attempts = 0;
+        for (attempts = 1; attempts <= 5; attempts++) {
+          if (attempts > 1) await new Promise((resolve) => setTimeout(resolve, 15000));
+          probe = await probeAccessCheck();
+          if (probe === "reconciled") break;
+        }
+
         if (probe === "reconciled") {
+          if (attempts > 1) trackEvent("consent_verify_propagated", { trigger, attempts: String(attempts) });
           const saved = await persistValidation(reconcileTrigger);
           if (saved) {
             setSuccessMessage(`${validationLabel(reconcileTrigger)}${validationEnabledSuffix(reconcileTrigger)}`);
           }
         } else if (probe === "transient") {
-          trackEvent("consent_verify_failed", { trigger, stage: "role-propagating" });
+          trackEvent("consent_verify_failed", { trigger, stage: "role-propagating", attempts: String(attempts - 1) });
           setError("Admin consent succeeded, but the required permission could not be confirmed yet (access is still propagating). Please retry in a moment — toggle the option again or use 'Detect existing access'.");
         } else {
-          // "absent" — consent went through but the role is genuinely not on the app in this tenant.
-          trackEvent("consent_verify_failed", { trigger, stage: "role-missing" });
-          setError("Admin consent succeeded, but the required permission (DeviceManagementServiceConfig.Read.All) is not granted to the app in this tenant. Ensure it is included when granting consent, then try again.");
+          // "absent" after ~a minute of polling — either the role really is missing from the
+          // consent, or Microsoft's propagation is unusually slow. Keep the message actionable
+          // for both without sounding fatal.
+          trackEvent("consent_verify_failed", { trigger, stage: "role-missing", attempts: String(attempts - 1) });
+          setError("Admin consent succeeded, but the permission (DeviceManagementServiceConfig.Read.All) has not shown up on the app in this tenant yet. This can simply be Microsoft still propagating the consent — wait a minute and use 'Detect existing access'. If it persists, re-run the consent and ensure the permission is included.");
         }
         router.replace("/settings/tenant/autopilot");
       } catch (err) {
