@@ -34,10 +34,12 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
   const router = useRouter();
 
   // Once authenticated, remember it so transient auth-state flips (e.g. MSAL
-  // handleRedirectPromise re-settling) don't unmount/flash the children.
-  const wasAuthenticated = useRef(false);
-  if (isAuthenticated) {
-    wasAuthenticated.current = true;
+  // handleRedirectPromise re-settling) don't unmount/flash the children. State
+  // adjusted during render (guarded, converges after one extra render) — a ref
+  // written during render would tear under concurrent rendering.
+  const [wasAuthenticated, setWasAuthenticated] = useState(false);
+  if (isAuthenticated && !wasAuthenticated) {
+    setWasAuthenticated(true);
   }
 
   // Prevent infinite redirect loops: only attempt re-login once per mount.
@@ -99,7 +101,7 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
   }
 
   // Show loading spinner while MSAL settles or while re-login redirect is pending.
-  if (isLoading || (!isAuthenticated && wasAuthenticated.current)) {
+  if (isLoading || (!isAuthenticated && wasAuthenticated)) {
     return (
       <div className="min-h-screen bg-[var(--lp-bg)] flex items-center justify-center">
         <div className="text-center">
@@ -111,7 +113,7 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
   }
 
   // Show nothing if never authenticated (will redirect)
-  if (!isAuthenticated && !wasAuthenticated.current) {
+  if (!isAuthenticated && !wasAuthenticated) {
     return null;
   }
 
