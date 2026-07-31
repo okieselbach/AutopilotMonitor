@@ -50,6 +50,16 @@ namespace AutopilotMonitor.Functions.Services
                 $"Redirect URI path '{redirectPath}' not in registered paths — consent will fail with AADSTS50011",
                 tenantId, userId, new { redirectUri, redirectPath });
 
+        public Task RecordAppHomingFlippedAsync(string tenantId, string userId, string oldApp, string newApp, string reason, bool forced)
+            => WriteAsync(OpsEventCategory.Consent, "AppHomingFlipped", OpsEventSeverity.Info,
+                $"App-reg homing flipped {oldApp} -> {newApp} by {userId} ({reason}{(forced ? ", FORCED" : "")})",
+                tenantId, userId, new { oldApp, newApp, reason, forced });
+
+        public Task RecordAppHomingFlippedWithEntraRolesAsync(string tenantId, string userId, string oldApp, string newApp)
+            => WriteAsync(OpsEventCategory.Consent, "AppHomingFlippedWithEntraRoles", OpsEventSeverity.Warning,
+                $"App-reg homing flipped {oldApp} -> {newApp} for a tenant with Entra app roles — re-assign roles on the new enterprise app",
+                tenantId, userId, new { oldApp, newApp });
+
         // ── Maintenance ────────────────────────────────────────────────────────
 
         public Task RecordMaintenanceCompletedAsync(int durationMs, string triggeredBy)

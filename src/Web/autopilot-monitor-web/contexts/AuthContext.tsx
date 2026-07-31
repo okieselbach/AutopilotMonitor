@@ -8,7 +8,9 @@ import {
   classifyEntraAuthError,
   clearLoginAttemptApp,
   clearLoginFallback,
+  getSelectedAuthApp,
   legacyConfigured,
+  loginFallbackActive,
   markLoginDeclined,
   otherApp,
   setLoginAttemptApp,
@@ -16,6 +18,7 @@ import {
   tryBeginLoginFallback,
 } from '@/lib/authApp';
 import { api } from '@/lib/api';
+import { trackEvent } from '@/lib/appInsights';
 
 // Initialize MSAL instance for the ACTIVE app registration (dual app-reg window: the
 // selection was decided at module boot in lib/msalConfig.ts; app switches always reload).
@@ -46,6 +49,9 @@ async function tryHandleRedirectAuthError(error: unknown): Promise<boolean> {
   const classification = classifyEntraAuthError(String(err?.errorMessage ?? err?.message ?? ''));
   clearLoginAttemptApp();
   if (classification === 'declined') {
+    // Trace point: the user actively declined consent — for a funneled signup this means the
+    // new app was rejected, which support needs to see (events are buffered until AI init).
+    trackEvent('auth_app_login_declined', { app: activeAuthApp });
     markLoginDeclined();
     return false;
   }
@@ -54,6 +60,9 @@ async function tryHandleRedirectAuthError(error: unknown): Promise<boolean> {
   }
   const target = otherApp(activeAuthApp);
   console.warn(`[Auth] App registration not consented in this tenant — retrying via the ${target} app`);
+  // Best-effort (the fallback redirect navigates away): the durable signal is
+  // auth_app_fallback_succeeded on the return leg, keyed off the surviving session marker.
+  trackEvent('auth_app_fallback_started', { from: activeAuthApp, to: target });
   try {
     setLoginAttemptApp(target);
     const fallbackInstance = new PublicClientApplication(buildMsalConfig(clientIdForApp(target)));
@@ -75,6 +84,11 @@ const msalInitPromise = msalInstance
     if (redirectResult?.account) {
       // Successful redirect sign-in on the active app: remember it as this browser's app
       // (the "learn" half of the model — future boots go straight to the right one).
+      // A still-set fallback marker means THIS login only worked via the one-shot cross-app
+      // retry — the strategic signal that one of the two apps is not consented in the tenant.
+      if (loginFallbackActive()) {
+        trackEvent('auth_app_fallback_succeeded', { app: activeAuthApp });
+      }
       setSelectedAuthApp(activeAuthApp);
       clearLoginFallback();
     }
@@ -203,6 +217,11 @@ interface AuthContextType {
 function learnHomedAppFromAuthMe(data: Record<string, unknown>): void {
   const homedApp = data.homedApp;
   if (homedApp === 'legacy' || homedApp === 'primary') {
+    // Change-only trace: this browser just learned its tenant was flipped — the propagation
+    // half of the homing migration ("next login uses the new app") made observable per user.
+    if (legacyConfigured() && getSelectedAuthApp() !== homedApp) {
+      trackEvent('auth_app_homing_learned', { homedApp });
+    }
     setSelectedAuthApp(homedApp);
   }
 }

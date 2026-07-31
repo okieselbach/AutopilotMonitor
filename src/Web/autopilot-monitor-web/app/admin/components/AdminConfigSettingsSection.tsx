@@ -34,6 +34,8 @@ interface AdminConfigSettingsSectionProps {
   setSessionDeletionKillSwitch: (value: boolean) => void;
   autoApproveNewTenants: boolean;
   setAutoApproveNewTenants: (value: boolean) => void;
+  selfServiceAppHomingEnabled: boolean;
+  setSelfServiceAppHomingEnabled: (value: boolean) => void;
   onSave: () => Promise<void>;
   onReset: () => void;
 }
@@ -70,6 +72,8 @@ export function AdminConfigSettingsSection({
   setSessionDeletionKillSwitch,
   autoApproveNewTenants,
   setAutoApproveNewTenants,
+  selfServiceAppHomingEnabled,
+  setSelfServiceAppHomingEnabled,
   onSave,
   onReset,
 }: AdminConfigSettingsSectionProps) {
@@ -343,6 +347,29 @@ export function AdminConfigSettingsSection({
                     event). When <strong>off</strong>, every signup waits for a manual approval in Tenant
                     Management — flip it off any time to return to manual vetting, e.g. on abuse.
                     Default <strong>off</strong>.
+                  </p>
+                </span>
+              </label>
+            </div>
+
+            <div>
+              <label className="flex items-start space-x-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selfServiceAppHomingEnabled}
+                  onChange={(e) => setSelfServiceAppHomingEnabled(e.target.checked)}
+                  className="mt-1 h-5 w-5 rounded border-indigo-300 dark:border-indigo-600 text-indigo-600 accent-indigo-600 focus:ring-indigo-500"
+                />
+                <span>
+                  <span className="text-indigo-900 dark:text-indigo-100 font-medium">Self-service app homing (legacy → new app)</span>
+                  <p className="text-sm text-indigo-800 dark:text-gray-300 mt-1">
+                    When <strong>on</strong>, the Graph consent flow funnels legacy-homed tenants to the
+                    <strong> new</strong> app registration and automatically switches their homing once
+                    admin consent is verified (recorded as an
+                    <code className="text-xs bg-indigo-100 dark:bg-indigo-900 dark:text-indigo-200 px-1 rounded">AppHomingFlipped</code> ops
+                    event); tenant admins may also switch manually from their settings. When
+                    <strong> off</strong> (kill switch), consent URLs target the homed app again and only
+                    Global Admins can switch tenants. Default <strong>off</strong>.
                   </p>
                 </span>
               </label>

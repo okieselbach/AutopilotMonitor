@@ -214,6 +214,54 @@ public class GraphTokenServiceTests
         Assert.Equal(1, handler.Entered);
     }
 
+    [Fact]
+    public async Task GetAccessTokenForAppAsync_caches_under_the_supplied_app_without_cross_app_poisoning()
+    {
+        // Dual app-reg window: the homing-flip consent probe mints under EXPLICIT primary
+        // credentials for a still-legacy-homed tenant. Contract: the probe token caches under the
+        // primary key, a second probe is served from cache, and the tenant's normal (legacy-
+        // resolved) path still mints its own token — never the probe's.
+        var handler = new StubHttpMessageHandler()
+            .When($"/{TenantA}/oauth2", HttpStatusCode.OK, "{\"access_token\":\"tok\",\"expires_in\":3599}");
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["EntraId:ClientId"] = "aaaaaaaa-0000-0000-0000-000000000001",
+                ["EntraId:ClientSecret"] = "primary-secret",
+                ["EntraId:LegacyClientId"] = "bbbbbbbb-0000-0000-0000-000000000002",
+                ["EntraId:LegacyClientSecret"] = "legacy-secret",
+            })
+            .Build();
+        var registry = new EntraAppRegistry(config, NullLogger<EntraAppRegistry>.Instance);
+        var svc = new GraphTokenService(
+            NullLogger<GraphTokenService>.Instance,
+            new StubHttpClientFactory(handler),
+            new MemoryCache(new MemoryCacheOptions()),
+            config,
+            registry,
+            new AutopilotMonitor.Functions.Services.TenantConfigurationService(
+                Moq.Mock.Of<AutopilotMonitor.Shared.DataAccess.IConfigRepository>(),
+                NullLogger<AutopilotMonitor.Functions.Services.TenantConfigurationService>.Instance,
+                new MemoryCache(new MemoryCacheOptions())));
+
+        var probe1 = await svc.GetAccessTokenForAppAsync(TenantA, registry.Primary);
+        var probe2 = await svc.GetAccessTokenForAppAsync(TenantA, registry.Primary);
+        Assert.Equal("tok", probe1.AccessToken);
+        Assert.Equal("tok", probe2.AccessToken);
+        Assert.Equal(1, TokenPosts(handler, TenantA)); // second probe served from the primary-keyed cache
+
+        // Normal path resolves LEGACY for this tenant (no homing stored) — must be a cache miss
+        // against the probe's primary-keyed entry and mint its own token.
+        var homed = await svc.GetAccessTokenAsync(TenantA);
+        Assert.Equal("tok", homed.AccessToken);
+        Assert.Equal(2, TokenPosts(handler, TenantA));
+
+        // InvalidateTenant drops BOTH apps' entries — the next probe re-mints fresh.
+        svc.InvalidateTenant(TenantA);
+        await svc.GetAccessTokenForAppAsync(TenantA, registry.Primary);
+        Assert.Equal(3, TokenPosts(handler, TenantA));
+    }
+
     private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;

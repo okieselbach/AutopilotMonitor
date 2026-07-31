@@ -34,6 +34,9 @@ public class GetTenantFeatureFlagsPayloadTests
         // — and that forces a deliberate code review of whether the new field is non-sensitive.
         Assert.Equal(new[]
         {
+            // Non-sensitive by review: bool only, exposes no client ids (dual app-reg
+            // self-service migration banner).
+            "appHomingFunnelActive",
             "bootstrapTokenEnabled",
             "diagnosticsUploadConfigured",
             "edition",

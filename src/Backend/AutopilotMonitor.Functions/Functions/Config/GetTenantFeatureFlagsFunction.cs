@@ -15,13 +15,16 @@ namespace AutopilotMonitor.Functions.Functions.Config
     {
         private readonly ILogger<GetTenantFeatureFlagsFunction> _logger;
         private readonly TenantConfigurationService _configService;
+        private readonly AppHomingService _appHomingService;
 
         public GetTenantFeatureFlagsFunction(
             ILogger<GetTenantFeatureFlagsFunction> logger,
-            TenantConfigurationService configService)
+            TenantConfigurationService configService,
+            AppHomingService appHomingService)
         {
             _logger = logger;
             _configService = configService;
+            _appHomingService = appHomingService;
         }
 
         /// <summary>
@@ -46,9 +49,10 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var requestCtx = req.GetRequestContext();
 
                 var config = await _configService.GetConfigurationAsync(requestCtx.TargetTenantId);
+                var appHomingFunnelActive = await _appHomingService.IsFunnelEligibleAsync(config);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(BuildPayload(config, DateTime.UtcNow));
+                await response.WriteAsJsonAsync(BuildPayload(config, DateTime.UtcNow, appHomingFunnelActive));
                 return response;
             }
             catch (Exception ex)
@@ -66,7 +70,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
         /// without standing up an HttpRequestData mock. <paramref name="nowUtc"/> feeds the
         /// read-time edition resolution (trial expiry degrades automatically).
         /// </summary>
-        internal static object BuildPayload(TenantConfiguration config, DateTime nowUtc)
+        internal static object BuildPayload(TenantConfiguration config, DateTime nowUtc, bool appHomingFunnelActive = false)
         {
             var edition = FeatureEntitlementCatalog.ResolveEdition(config.PlanTier, config.TrialExpiresUtc, nowUtc);
             var entitlements = FeatureEntitlementCatalog.Get(edition);
@@ -89,6 +93,11 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // Drives the "Autopilot Device Validation disabled" dashboard banner
                 // (useTenantSecurityConfig).
                 validateAutopilotDevice = config.ValidateAutopilotDevice,
+                // Dual app-reg self-service migration: when true, running the consent flow (or
+                // "Detect existing access") targets the NEW app registration and auto-flips this
+                // tenant's homing after verification — drives the explanatory banner in the
+                // Autopilot Validation settings section. Non-sensitive: exposes no client ids.
+                appHomingFunnelActive,
                 // Session-detail UI flags (useSessionTenantConfig). Nullable in the model;
                 // surface the agent-side defaults so the UI does not need a second nullable layer.
                 showScriptOutput = config.ShowScriptOutput ?? true,

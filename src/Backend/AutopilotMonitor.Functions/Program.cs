@@ -233,6 +233,7 @@ builder.Services.AddHostedService<TableInitializerService>(); // Initialize all 
 builder.Services.AddTableStorageDataAccess();
 builder.Services.AddSingleton<TenantConfigurationService>();
 builder.Services.AddSingleton<AdminConfigurationService>();
+builder.Services.AddSingleton<AppHomingService>();
 builder.Services.AddSingleton<TenantEntitlementService>();
 builder.Services.AddSingleton<McpQuotaService>();
 builder.Services.AddSingleton<ILatestVersionsService, LatestVersionsService>();

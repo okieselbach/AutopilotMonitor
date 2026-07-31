@@ -308,6 +308,10 @@ public static class EndpointAccessPolicyCatalog
         new("POST",   "config/{tenantId}/autopilot-device-validation/consent-failure", EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("POST",   "config/{tenantId}/autopilot-device-validation/consent-success", EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("GET",    "config/{tenantId}/autopilot-device-validation/access-check",    EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
+        // Dual app-reg homing flip. Tenant-admin tier by design (self-service migration), but the
+        // function re-gates: non-GA callers only flip TO primary, never force, only while the
+        // SelfServiceAppHomingEnabled kill switch is on, and only after the live consent probe.
+        new("POST",   "config/{tenantId}/app-homing",                                  EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("POST",   "config/{tenantId}/test-notification",                           EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
 
         // ── Graph add-on permissions ────────────────────────────────────────

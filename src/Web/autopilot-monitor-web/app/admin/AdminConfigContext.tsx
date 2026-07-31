@@ -48,6 +48,8 @@ interface AdminConfigContextValue {
   setSessionDeletionKillSwitch: (value: boolean) => void;
   autoApproveNewTenants: boolean;
   setAutoApproveNewTenants: (value: boolean) => void;
+  selfServiceAppHomingEnabled: boolean;
+  setSelfServiceAppHomingEnabled: (value: boolean) => void;
 
   // Diagnostics log paths
   globalDiagPaths: DiagnosticsLogPath[];
@@ -149,6 +151,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
   const [enableIndexDualWrite, setEnableIndexDualWrite] = useState(false);
   const [sessionDeletionKillSwitch, setSessionDeletionKillSwitch] = useState(false);
   const [autoApproveNewTenants, setAutoApproveNewTenants] = useState(false);
+  const [selfServiceAppHomingEnabled, setSelfServiceAppHomingEnabled] = useState(false);
 
   // Diagnostics Log Paths state
   const [globalDiagPaths, setGlobalDiagPaths] = useState<DiagnosticsLogPath[]>([]);
@@ -211,6 +214,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         setEnableIndexDualWrite(data.enableIndexDualWrite ?? false);
         setSessionDeletionKillSwitch(data.sessionDeletionKillSwitch ?? false);
         setAutoApproveNewTenants(data.autoApproveNewTenants ?? false);
+        setSelfServiceAppHomingEnabled(data.selfServiceAppHomingEnabled ?? false);
         try {
           setGlobalDiagPaths(data.diagnosticsGlobalLogPathsJson ? JSON.parse(data.diagnosticsGlobalLogPathsJson) : []);
         } catch {
@@ -327,6 +331,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         enableIndexDualWrite,
         sessionDeletionKillSwitch,
         autoApproveNewTenants,
+        selfServiceAppHomingEnabled,
       };
 
       const response = await authenticatedFetch(api.globalConfig.get(), getAccessToken, {
@@ -353,7 +358,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
     } finally {
       setSavingConfig(false);
     }
-  }, [isGlobalAdmin, adminConfig, globalRateLimit, userRateLimit, globalAdminRateLimit, platformStatsBlobSasUrl, agentMigrateApiBaseUrl, agentMigrateTenantOverridesJson, collectorIdleTimeoutMinutes, desktopDetectorNoCandidateTimeoutMinutes, opsEventRetentionDays, slaNotificationCooldownHours, allowAgentDowngrade, modernDeploymentHarmlessEventIds, enableIndexDualWrite, sessionDeletionKillSwitch, autoApproveNewTenants, getAccessToken]);
+  }, [isGlobalAdmin, adminConfig, globalRateLimit, userRateLimit, globalAdminRateLimit, platformStatsBlobSasUrl, agentMigrateApiBaseUrl, agentMigrateTenantOverridesJson, collectorIdleTimeoutMinutes, desktopDetectorNoCandidateTimeoutMinutes, opsEventRetentionDays, slaNotificationCooldownHours, allowAgentDowngrade, modernDeploymentHarmlessEventIds, enableIndexDualWrite, sessionDeletionKillSwitch, autoApproveNewTenants, selfServiceAppHomingEnabled, getAccessToken]);
 
   // Reset admin config
   const handleResetAdminConfig = useCallback(() => {
@@ -373,6 +378,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
     setEnableIndexDualWrite(adminConfig.enableIndexDualWrite ?? false);
     setSessionDeletionKillSwitch(adminConfig.sessionDeletionKillSwitch ?? false);
     setAutoApproveNewTenants(adminConfig.autoApproveNewTenants ?? false);
+    setSelfServiceAppHomingEnabled(adminConfig.selfServiceAppHomingEnabled ?? false);
     try {
       setGlobalDiagPaths(adminConfig.diagnosticsGlobalLogPathsJson ? JSON.parse(adminConfig.diagnosticsGlobalLogPathsJson) : []);
     } catch {
@@ -518,6 +524,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
       enableIndexDualWrite, setEnableIndexDualWrite,
       sessionDeletionKillSwitch, setSessionDeletionKillSwitch,
       autoApproveNewTenants, setAutoApproveNewTenants,
+      selfServiceAppHomingEnabled, setSelfServiceAppHomingEnabled,
       globalDiagPaths, setGlobalDiagPaths, savingDiagPaths,
       opsAlertRules, setOpsAlertRules,
       opsAlertTelegramEnabled, setOpsAlertTelegramEnabled,

@@ -4,7 +4,11 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { classifyClientId, legacyConfigured } from "@/lib/authApp";
+import { appHomingErrorMessage } from "@/lib/appHoming";
+import { trackEvent } from "@/lib/appInsights";
 import { TenantAdminSection } from "./TenantAdminSection";
+import { AppHomingConfirmDialog } from "./AppHomingConfirmDialog";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 
 export interface TenantConfiguration {
@@ -35,6 +39,30 @@ export interface TenantConfiguration {
   trialExpiresUtc?: string | null;
   /** Whether the tenant has used its one self-service trial. */
   trialConsumed?: boolean;
+  /**
+   * Dual app-reg homing: null/undefined = legacy app. Typed explicitly so a payload refactor
+   * cannot silently drop the field on the generic PUT round-trip (absent ⇒ backend resets to
+   * legacy). Mutated ONLY via POST app-homing — the PUT preserves it server-side.
+   */
+  homedAppClientId?: string | null;
+  /** System-written login provenance (AuthFunction) — read-only observability. */
+  lastAuthClientId?: string | null;
+  lastAuthClientIdSince?: string | null;
+}
+
+/** Small "New app" / "Legacy app" indicator for the dual app-reg parallel window. */
+function HomingBadge({ clientId }: { clientId?: string | null }) {
+  const kind = classifyClientId(clientId);
+  const styles =
+    kind === "primary" ? "bg-sky-100 text-sky-800"
+    : kind === "legacy" ? "bg-gray-100 text-gray-600"
+    : "bg-amber-100 text-amber-800";
+  const label = kind === "primary" ? "New app" : kind === "legacy" ? "Legacy app" : "Unknown app";
+  return (
+    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${styles}`}>
+      {label}
+    </span>
+  );
 }
 
 export interface TenantManagementSectionProps {
@@ -95,6 +123,8 @@ function TenantManagementSectionInner({
   const [editingTenant, setEditingTenant] = useState<TenantConfiguration | null>(null);
   const [savingTenant, setSavingTenant] = useState(false);
   const [savingPlan, setSavingPlan] = useState(false);
+  const [homingDialogTarget, setHomingDialogTarget] = useState<"primary" | "legacy" | null>(null);
+  const [savingHoming, setSavingHoming] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
   const tenantsPerPage = tenantSectionExpanded ? 7 : 3;
 
@@ -220,6 +250,62 @@ function TenantManagementSectionInner({
       setError(err instanceof Error ? err.message : "Failed to save plan");
     } finally {
       setSavingPlan(false);
+    }
+  };
+
+  // App-reg homing has its OWN save path (POST app-homing) — like plan/trial, the generic PUT
+  // preserves the field server-side, so it can only be mutated via the confirm dialog here.
+  const handleFlipHoming = async (tenant: TenantConfiguration, target: "primary" | "legacy", force: boolean) => {
+    if (!canMutate) return; // read-only Global Reader
+    try {
+      setSavingHoming(true);
+      setError(null);
+      setSuccessMessage(null);
+
+      const response = await authenticatedFetch(api.config.appHoming(tenant.tenantId), getAccessToken, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target, force }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        trackEvent("app_homing_manual_flip_failed", {
+          tenantId: tenant.tenantId,
+          target,
+          force,
+          reason: data.reason ?? `http-${response.status}`,
+        });
+        throw new Error(appHomingErrorMessage(data.reason, response.statusText));
+      }
+      trackEvent("app_homing_manual_flip", {
+        tenantId: tenant.tenantId,
+        target,
+        force,
+        changed: data.changed === true,
+      });
+
+      const apply = (t: TenantConfiguration): TenantConfiguration => ({
+        ...t,
+        homedAppClientId: data.homedAppClientId ?? null,
+        lastAuthClientId: data.lastAuthClientId ?? t.lastAuthClientId,
+        lastAuthClientIdSince: data.lastAuthClientIdSince ?? t.lastAuthClientIdSince,
+      });
+      setTenants(prev => prev.map(t => (t.tenantId === tenant.tenantId ? apply(t) : t)));
+      setEditingTenant(prev => (prev && prev.tenantId === tenant.tenantId ? apply(prev) : prev));
+      setHomingDialogTarget(null);
+      setSuccessMessage(
+        data.changed
+          ? `Tenant ${tenant.tenantId} now uses the ${target === "primary" ? "new" : "legacy"} app registration`
+          : `Tenant ${tenant.tenantId} was already on the ${target === "primary" ? "new" : "legacy"} app registration`
+      );
+      setTimeout(() => setSuccessMessage(null), 4000);
+    } catch (err) {
+      if (err instanceof TokenExpiredError) {
+        console.error("Session expired while switching app homing");
+      }
+      setError(err instanceof Error ? err.message : "Failed to switch app registration");
+    } finally {
+      setSavingHoming(false);
     }
   };
 
@@ -451,6 +537,7 @@ function TenantManagementSectionInner({
                                   Ready
                                 </span>
                               )}
+                              {legacyConfigured() && <HomingBadge clientId={tenant.homedAppClientId} />}
                             </div>
                             <div className="flex items-center gap-2">
                               <button
@@ -685,6 +772,60 @@ function TenantManagementSectionInner({
                 </div>
               </div>
 
+              {/* App Registration Homing (own save path — POST app-homing endpoint; the modal's
+                  generic Save does not touch this field, the backend preserves it on PUT) */}
+              {legacyConfigured() && (
+                <div className="bg-sky-50 border border-sky-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-semibold text-sky-900">App Registration Homing</h3>
+                    <HomingBadge clientId={editingTenant.homedAppClientId} />
+                  </div>
+                  <div className="space-y-3">
+                    <p className="text-xs text-gray-600">
+                      {editingTenant.lastAuthClientId ? (
+                        <>
+                          Logins arrive via the{" "}
+                          <span className="font-medium">
+                            {classifyClientId(editingTenant.lastAuthClientId) === "primary" ? "new" : "legacy"} app
+                          </span>
+                          {editingTenant.lastAuthClientIdSince && (
+                            <> since {new Date(editingTenant.lastAuthClientIdSince).toLocaleString()}</>
+                          )}
+                          .
+                        </>
+                      ) : (
+                        <>No login provenance recorded yet.</>
+                      )}
+                    </p>
+                    {editingTenant.entraAppRolesEnabled && (
+                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                        Entra app roles are enabled — switching requires re-assigning the app roles on
+                        the other enterprise app, or those users lose their role claims.
+                      </p>
+                    )}
+                    <div className="flex justify-end">
+                      {classifyClientId(editingTenant.homedAppClientId) === "primary" ? (
+                        <button
+                          onClick={() => setHomingDialogTarget("legacy")}
+                          disabled={!canMutate || savingHoming}
+                          className="px-3 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          Revert to legacy app
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setHomingDialogTarget("primary")}
+                          disabled={!canMutate || savingHoming}
+                          className="px-3 py-2 text-sm font-medium text-white bg-sky-600 rounded-lg hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          Switch to new app
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Admin Users Info */}
               <TenantAdminSection
                 tenantId={editingTenant.tenantId}
@@ -858,6 +999,18 @@ function TenantManagementSectionInner({
             </div>
           </div>
         </div>
+      )}
+
+      {/* App-homing flip confirmation (renders above the editor modal) */}
+      {editingTenant && homingDialogTarget && (
+        <AppHomingConfirmDialog
+          tenantLabel={editingTenant.domainName || editingTenant.tenantId}
+          target={homingDialogTarget}
+          entraAppRolesEnabled={editingTenant.entraAppRolesEnabled ?? false}
+          saving={savingHoming}
+          onCancel={() => setHomingDialogTarget(null)}
+          onConfirm={(force) => handleFlipHoming(editingTenant, homingDialogTarget, force)}
+        />
       )}
     </>
   );

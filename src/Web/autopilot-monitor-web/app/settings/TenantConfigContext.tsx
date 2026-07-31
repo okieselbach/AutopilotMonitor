@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { trackEvent } from "@/lib/appInsights";
 import { classifyAccessCheck, type AccessCheckOutcome, type AccessCheckPayload } from "@/lib/accessCheck";
+import { primaryClientId } from "@/lib/authApp";
 
 type ValidationTrigger = "autopilot" | "corporate" | "device-preparation";
 
@@ -113,6 +114,12 @@ interface TenantConfigContextValue {
   startingTrial: boolean;
   /** Self-service 30-day Pro trial (once per tenant). Returns success. */
   startTrial: () => Promise<boolean>;
+
+  // Dual app-reg self-service migration (from feature-flags / consent-flow responses)
+  /** True when the consent flow will grant the NEW app registration and auto-switch this tenant. */
+  appHomingFunnelActive: boolean;
+  /** True when this session's consent/verify flow just switched the tenant to the new app. */
+  homingFlipped: boolean;
 
   // Validation
   validateAutopilotDevice: boolean;
@@ -436,6 +443,19 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
 
   // Edition / trial surface (from feature-flags; fail-closed Community until loaded)
   const [editionInfo, setEditionInfo] = useState<EditionInfo>(COMMUNITY_DEFAULT);
+  const [appHomingFunnelActive, setAppHomingFunnelActive] = useState(false);
+  const [homingFlipped, setHomingFlipped] = useState(false);
+
+  // The backend auto-flipped this tenant's app-reg homing during consent-status/access-check.
+  // Reflect it locally without a refetch: badge/one-liner surfaces read config.homedAppClientId,
+  // and the funnel banner must drop immediately (the tenant is primary-homed now).
+  const markHomingFlipped = useCallback((source: "consent-status" | "access-check") => {
+    // Strategic trace point: the tenant just moved to the new app registration.
+    trackEvent("app_homing_flipped", { source });
+    setHomingFlipped(true);
+    setAppHomingFunnelActive(false);
+    setConfig(prev => (prev ? { ...prev, homedAppClientId: primaryClientId() ?? prev.homedAppClientId } : prev));
+  }, []);
   const [startingTrial, setStartingTrial] = useState(false);
 
   // -----------------------------------------------------------------------
@@ -467,6 +487,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
           try {
             flags = await flagsResponse.json();
             setEditionInfo(parseEditionInfo(flags));
+            setAppHomingFunnelActive(
+              (flags as { appHomingFunnelActive?: boolean }).appHomingFunnelActive === true);
           } catch { /* fail-closed: keep Community default */ }
         }
 
@@ -817,8 +839,11 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       if (err instanceof TokenExpiredError) throw err;
       return "transient";
     }
+    // Side signal, orthogonal to the access classification: the probe may have auto-flipped
+    // the tenant's app-reg homing (self-service migration).
+    if (payload?.homingFlipped) markHomingFlipped("access-check");
     return classifyAccessCheck(ok, payload);
-  }, [tenantId, getAccessToken]);
+  }, [tenantId, getAccessToken, markHomingFlipped]);
 
   // Persist the validation gate bool for a trigger via the shared config PUT. Returns true ONLY
   // on a confirmed server persist — saveConfiguration reports failure as false (and sets the
@@ -876,6 +901,10 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         throw new Error("Backend did not return a consent URL.");
       }
 
+      // Trace the funnel entry: this consent redirect targets the NEW app and will auto-flip
+      // the tenant on verified return. AI's pagehide beacon carries it out past the redirect.
+      trackEvent("consent_flow_started", { trigger, funnel: data.willAutoFlipHoming === true });
+
       sessionStorage.setItem("deviceValidationConsentPending", "true");
       sessionStorage.setItem("consentTrigger", trigger);
       window.location.href = data.consentUrl;
@@ -883,6 +912,10 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       if (err instanceof TokenExpiredError) {
         addNotification('error', 'Session Expired', err.message, 'session-expired-error');
       } else {
+        trackEvent("consent_flow_start_failed", {
+          trigger,
+          error: err instanceof Error ? err.message : String(err),
+        });
         setError(err instanceof Error ? err.message : "Failed to start admin consent flow");
       }
       setAutopilotConsentInProgress(false);
@@ -911,6 +944,10 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       sessionStorage.removeItem("consentTrigger");
 
       if (consentError) {
+        // Browser-side trace of the AAD error (backend gets the detailed report below):
+        // queryable next to app_homing_flipped so a broken funnel shows up immediately.
+        trackEvent("consent_flow_error", { trigger, error: consentError });
+
         // Report consent failure to backend for observability —
         // without this, Azure AD errors (e.g. AADSTS50011 redirect mismatch)
         // are invisible to our monitoring.
@@ -975,6 +1012,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         }
 
         const statusData = await statusResponse.json();
+        if (statusData.homingFlipped) markHomingFlipped("consent-status");
         if (!statusData.isConsented) {
           throw new Error(statusData.message || "Consent is not active yet for this tenant.");
         }
@@ -1006,9 +1044,11 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
             setSuccessMessage(`${validationLabel(reconcileTrigger)}${validationEnabledSuffix(reconcileTrigger)}`);
           }
         } else if (probe === "transient") {
+          trackEvent("consent_verify_failed", { trigger, stage: "role-propagating" });
           setError("Admin consent succeeded, but the required permission could not be confirmed yet (access is still propagating). Please retry in a moment — toggle the option again or use 'Detect existing access'.");
         } else {
           // "absent" — consent went through but the role is genuinely not on the app in this tenant.
+          trackEvent("consent_verify_failed", { trigger, stage: "role-missing" });
           setError("Admin consent succeeded, but the required permission (DeviceManagementServiceConfig.Read.All) is not granted to the app in this tenant. Ensure it is included when granting consent, then try again.");
         }
         router.replace("/settings/tenant/autopilot");
@@ -1016,6 +1056,12 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         if (err instanceof TokenExpiredError) {
           addNotification('error', 'Session Expired', err.message, 'session-expired-error');
         } else {
+          // Covers consent-status non-ok and "not consented yet" (both throw above).
+          trackEvent("consent_verify_failed", {
+            trigger,
+            stage: "status-check",
+            error: err instanceof Error ? err.message : String(err),
+          });
           setError(err instanceof Error ? err.message : "Failed to verify consent");
         }
       } finally {
@@ -1024,7 +1070,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     };
 
     handleConsentCallback();
-  }, [tenantId, config, router, getAccessToken, addNotification, tryReconcilePreApprovedConsent, probeAccessCheck, persistValidation]);
+  }, [tenantId, config, router, getAccessToken, addNotification, tryReconcilePreApprovedConsent, probeAccessCheck, persistValidation, markHomingFlipped]);
 
   // Manual "Detect existing access" affordance — for admins who never even attempt the consent
   // redirect because they know they lack consent rights. Probes and, on success, enables
@@ -1038,8 +1084,10 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
 
       const outcome = await tryReconcilePreApprovedConsent(trigger);
       if (outcome === "transient") {
+        trackEvent("detect_access_failed", { trigger, outcome });
         setError("Couldn't verify access right now (timed out). Please try again in a moment.");
       } else if (outcome === "absent") {
+        trackEvent("detect_access_failed", { trigger, outcome });
         setError("No existing access detected for this tenant. Complete admin consent, or ask someone with consent rights (Application or Global Administrator) to approve the app first.");
       }
       // "reconciled" => success message already set by the helper.
@@ -1523,6 +1571,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
 
       // Edition / trial
       editionInfo, startingTrial, startTrial,
+      appHomingFunnelActive, homingFlipped,
 
       // Validation
       validateAutopilotDevice, setValidateAutopilotDevice,

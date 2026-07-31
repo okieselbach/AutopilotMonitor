@@ -129,6 +129,13 @@ export const api = {
      */
     autopilotAccessCheck: (tenantId: string) =>
       `${API_BASE_URL}/api/config/${tenantId}/autopilot-device-validation/access-check`,
+    /**
+     * POST — dual app-reg homing flip: { target: "primary" | "legacy", force?: boolean }.
+     * Tenant admins: target "primary" only, no force, kill-switch flag on, consent probe must
+     * pass. Global Admins: both directions, force skips the probe.
+     */
+    appHoming: (tenantId: string) =>
+      `${API_BASE_URL}/api/config/${tenantId}/app-homing`,
     testNotification: (tenantId: string) =>
       `${API_BASE_URL}/api/config/${tenantId}/test-notification`,
     latestVersions: (opts?: { refresh?: boolean }) =>

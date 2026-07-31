@@ -15,6 +15,8 @@
  * Everything here is deliberately msal-free (no import cycles) and SSR-safe.
  */
 
+import { trackEvent } from "./appInsights";
+
 export type AuthApp = "primary" | "legacy";
 
 const SELECTED_KEY = "am_auth_app";           // localStorage: app of the last successful login
@@ -33,6 +35,24 @@ export function legacyConfigured(): boolean {
 
 export function otherApp(app: AuthApp): AuthApp {
   return app === "legacy" ? "primary" : "legacy";
+}
+
+export function primaryClientId(): string | undefined {
+  return process.env.NEXT_PUBLIC_ENTRA_CLIENT_ID || undefined;
+}
+
+/**
+ * Classifies a tenant's `homedAppClientId` against the two configured app registrations.
+ * `null`/empty is the backend's legacy invariant. Only meaningful while the parallel window
+ * is active (`legacyConfigured()`); "unknown" means a GUID matching neither app — the backend
+ * routes such tenants to primary with a warning.
+ */
+export function classifyClientId(clientId: string | null | undefined): AuthApp | "unknown" {
+  if (!clientId || !clientId.trim()) return "legacy";
+  const normalized = clientId.trim().toLowerCase();
+  if (normalized === primaryClientId()?.toLowerCase()) return "primary";
+  if (normalized === legacyClientId()?.toLowerCase()) return "legacy";
+  return "unknown";
 }
 
 function defaultApp(): AuthApp {
@@ -136,6 +156,15 @@ export function clearLoginFallback(): void {
   }
 }
 
+/** Whether the one-shot cross-app fallback ran in this tab (marker not yet cleared by a successful login). */
+export function loginFallbackActive(): boolean {
+  try {
+    return !!window.sessionStorage.getItem(FALLBACK_KEY);
+  } catch {
+    return false;
+  }
+}
+
 /** User actively declined the consent prompt (AADSTS65004) — never auto-fallback on that. */
 export function markLoginDeclined(): void {
   try {
@@ -169,6 +198,10 @@ export function classifyEntraAuthError(errorText: string): "admin-approval-requi
  * leftovers from an interrupted flow on the other app.
  */
 export function switchAuthApp(app: AuthApp): void {
+  // Strategic trace point of the dual app-reg migration: an explicit app switch (support
+  // lever, post-flip "sign in with the new app" button). Best-effort — the reload below may
+  // outrun the batch, but AI's pagehide beacon usually carries it out.
+  trackEvent("auth_app_switched", { to: app });
   setSelectedAuthApp(app);
   clearLoginAttemptApp();
   clearLoginFallback();

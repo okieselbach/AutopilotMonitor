@@ -460,6 +460,18 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public bool AutoApproveNewTenants { get; set; } = false;
 
+        /// <summary>
+        /// When true, the dual app-registration self-service homing flip is active: the Graph
+        /// consent flow funnels legacy-homed tenants to the primary (new) app registration and
+        /// auto-flips <c>TenantConfiguration.HomedAppClientId</c> once admin consent for the
+        /// primary app is verified; tenant admins may also flip manually via
+        /// <c>POST config/{tenantId}/app-homing</c>. When false (kill switch) all of the above
+        /// stops immediately — consent URLs mint for the homed app again and only Global Admins
+        /// can flip. Default false — the operator enables it after the dual-app config swap.
+        /// Round-tripped via the 4-file web chain (memory <c>feedback_admin_config_ui_roundtrip</c>).
+        /// </summary>
+        public bool SelfServiceAppHomingEnabled { get; set; } = false;
+
         // ===== CASCADE-DELETE GLOBAL KILL-SWITCH =====
 
         /// <summary>

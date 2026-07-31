@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@/contexts/AuthContext";
-import { legacyConfigured } from "@/lib/authApp";
+import { legacyConfigured, switchAuthApp } from "@/lib/authApp";
 import { useTenantConfig } from "../../TenantConfigContext";
 import { TenantNotifications } from "../../TenantNotifications";
 import AutopilotValidationSection from "../../components/AutopilotValidationSection";
@@ -17,6 +17,7 @@ export function SectionAutopilotValidation() {
     handleToggleDeviceAssociationValidation,
     autopilotConsentInProgress, savingSection,
     beginDeviceValidationConsentFlow, detectExistingAccess,
+    appHomingFunnelActive, homingFlipped,
   } = useTenantConfig();
 
   const { user, getAccessToken } = useAuth();
@@ -46,13 +47,33 @@ export function SectionAutopilotValidation() {
   return (
     <>
       <TenantNotifications />
-      {homedOnLegacyApp && (
+      {homingFlipped ? (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-800">
+          <p>
+            Your tenant now runs on the <strong>new</strong> Autopilot Monitor app registration.
+            Current sessions keep working; every next sign-in uses the new app automatically.
+          </p>
+          <button
+            onClick={() => switchAuthApp("primary")}
+            className="mt-2 px-3 py-1.5 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
+          >
+            Sign in with the new app now
+          </button>
+        </div>
+      ) : appHomingFunnelActive ? (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
+          Autopilot device validation currently runs on the previous Autopilot Monitor app
+          registration. Granting consent below (or running &quot;Detect existing access&quot;)
+          approves the <strong>new</strong> app registration and switches your tenant over
+          automatically — current sessions keep working, and new sign-ins use the new app.
+        </div>
+      ) : homedOnLegacyApp ? (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
           Autopilot device validation currently runs on the previous Autopilot Monitor app
           registration. It keeps working as-is — at your convenience, please re-consent to the
           new app registration; we will reach out with details as part of the migration.
         </div>
-      )}
+      ) : null}
       <AutopilotValidationSection
         validateAutopilotDevice={validateAutopilotDevice}
         setValidateAutopilotDevice={setValidateAutopilotDevice}

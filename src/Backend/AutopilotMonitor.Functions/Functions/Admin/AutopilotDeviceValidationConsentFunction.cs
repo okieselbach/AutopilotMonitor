@@ -33,6 +33,7 @@ public class AutopilotDeviceValidationConsentFunction
     private readonly OpsEventService _opsEventService;
     private readonly EntraAppRegistry _appRegistry;
     private readonly TenantConfigurationService _tenantConfigService;
+    private readonly AppHomingService _appHomingService;
 
     /// <summary>
     /// Known redirect URIs registered in the Entra ID app registration for the admin consent flow.
@@ -53,8 +54,10 @@ public class AutopilotDeviceValidationConsentFunction
         TelemetryClient telemetryClient,
         OpsEventService opsEventService,
         EntraAppRegistry appRegistry,
-        TenantConfigurationService tenantConfigService)
+        TenantConfigurationService tenantConfigService,
+        AppHomingService appHomingService)
     {
+        _appHomingService = appHomingService;
         _logger = logger;
         _configuration = configuration;
         _graphTokenService = graphTokenService;
@@ -73,11 +76,16 @@ public class AutopilotDeviceValidationConsentFunction
         // Authentication enforced by PolicyEnforcementMiddleware
         var requestCtx = req.GetRequestContext();
 
-        // Dual app-reg window: the consent URL must target the app registration that will
-        // actually mint this tenant's Graph tokens (legacy-homed tenants keep consenting the
-        // legacy app — parallel operation, no forced re-consent).
+        // Dual app-reg window: by default the consent URL targets the app registration that
+        // actually mints this tenant's Graph tokens. When the self-service homing funnel is on,
+        // legacy-homed tenants are funneled to the PRIMARY app instead — the subsequent
+        // consent-status / access-check verification then auto-flips their homing (re-consent,
+        // verify, and flip collapse into the one flow the admin already runs).
         var tenantConfig = await _tenantConfigService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
-        var validatorClientId = _appRegistry.ResolveForTenant(tenantConfig).ClientId;
+        var funnel = await _appHomingService.IsFunnelEligibleAsync(tenantConfig);
+        var validatorClientId = funnel
+            ? _appRegistry.Primary.ClientId
+            : _appRegistry.ResolveForTenant(tenantConfig).ClientId;
         if (string.IsNullOrWhiteSpace(validatorClientId))
         {
             var badConfig = req.CreateResponse(HttpStatusCode.InternalServerError);
@@ -124,14 +132,15 @@ public class AutopilotDeviceValidationConsentFunction
             $"&state={Uri.EscapeDataString("autopilot-device-validation-enable")}";
 
         _logger.LogInformation(
-            "ConsentFlowStarted: tenant={TenantId} user={UserId} redirectUri={RedirectUri}",
-            requestCtx.TargetTenantId, requestCtx.UserPrincipalName, redirectUri);
+            "ConsentFlowStarted: tenant={TenantId} user={UserId} redirectUri={RedirectUri} funnel={Funnel}",
+            requestCtx.TargetTenantId, requestCtx.UserPrincipalName, redirectUri, funnel);
 
         _telemetryClient.TrackEvent("ConsentFlowStarted", new Dictionary<string, string>
         {
             ["TenantId"]    = requestCtx.TargetTenantId,
             ["UserId"]      = requestCtx.UserPrincipalName,
             ["RedirectUri"] = redirectUri,
+            ["Funnel"]      = funnel.ToString(),
         });
 
         await _opsEventService.RecordConsentFlowStartedAsync(
@@ -140,7 +149,8 @@ public class AutopilotDeviceValidationConsentFunction
         var response = req.CreateResponse(HttpStatusCode.OK);
         await response.WriteAsJsonAsync(new
         {
-            consentUrl
+            consentUrl,
+            willAutoFlipHoming = funnel
         });
         return response;
     }
@@ -152,6 +162,15 @@ public class AutopilotDeviceValidationConsentFunction
     {
         // Authentication enforced by PolicyEnforcementMiddleware
         var requestCtx = req.GetRequestContext();
+
+        // Consent-driven homing auto-flip BEFORE the status read: after the funnel minted the
+        // consent URL for the PRIMARY app, a still-legacy-homed tenant would resolve the status
+        // against the legacy app and report "not consented" — aborting the frontend flow. Flipping
+        // here (flag-gated, probe-verified, idempotent) makes the status below resolve the newly
+        // homed app naturally. Unbudgeted on purpose: this runs in the post-redirect callback,
+        // where the consent-propagation retry chain is exactly what we want to ride.
+        var tenantConfig = await _tenantConfigService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
+        var flipOutcome = await _appHomingService.TryAutoFlipToPrimaryAsync(tenantConfig, requestCtx.UserPrincipalName);
 
         var result = await _graphTokenService.GetConsentStatusAsync(requestCtx.TargetTenantId);
 
@@ -167,7 +186,8 @@ public class AutopilotDeviceValidationConsentFunction
         await response.WriteAsJsonAsync(new
         {
             isConsented = result.IsConsented,
-            message = result.Message
+            message = result.Message,
+            homingFlipped = flipOutcome == AppHomingAutoFlipOutcome.Flipped
         });
         return response;
     }
@@ -186,10 +206,13 @@ public class AutopilotDeviceValidationConsentFunction
     /// opening both the UI badge AND the agent hard gate — without ever running the redirect.
     /// </para>
     /// <para>
-    /// Read-only: this endpoint never persists. It checks the SP token's <c>roles</c> claim (via
-    /// <see cref="IGraphFeatureDetector"/>) rather than mere token-acquirability, so we never flip
-    /// the gate "enabled" when the SP exists but the role was not actually consented (which would
-    /// otherwise leave the agent stuck in an endless 503 at the real Graph call).
+    /// It checks the SP token's <c>roles</c> claim (via <see cref="IGraphFeatureDetector"/>)
+    /// rather than mere token-acquirability, so we never flip the gate "enabled" when the SP
+    /// exists but the role was not actually consented (which would otherwise leave the agent
+    /// stuck in an endless 503 at the real Graph call). The validation gate itself is never
+    /// persisted here; the only write is the idempotent, flag-gated app-homing reconcile below
+    /// (a tenant that consented the primary app gets its homing flipped — precedent: this
+    /// endpoint already mutates the Graph caches on every click).
     /// </para>
     /// </summary>
     [Function("GetAutopilotDeviceValidationAccessCheck")]
@@ -200,18 +223,26 @@ public class AutopilotDeviceValidationConsentFunction
         // Authentication + tenant-admin policy enforced by PolicyEnforcementMiddleware
         var requestCtx = req.GetRequestContext();
 
-        // Always read fresh. This probe is admin-triggered (reconcile on consent-fail, the
-        // "detect existing access" button, post-consent verification) and low-frequency, so a
-        // stale cached snapshot must never decide it. In particular, a snapshot acquired during
-        // AAD consent propagation can carry an empty roles claim and would otherwise be cached for
-        // the token lifetime (~55 min) — wedging the admin out long after consent has propagated.
-        // Invalidating here makes every click re-acquire from AAD, so a retry always reflects reality.
-        _graphFeatureDetector.InvalidateTenant(requestCtx.TargetTenantId);
-
         bool isTransient;
         bool accessPresent;
+        AppHomingAutoFlipOutcome flipOutcome;
         using (var budgetCts = new CancellationTokenSource(AccessCheckBudget))
         {
+            // Consent-driven homing auto-flip BEFORE the fresh snapshot: the "detect existing
+            // access" / reconcile path never touches consent-status, so this is its flip hook. A
+            // budget-exhausted probe is transient ⇒ no flip; the frontend already renders "retry".
+            var tenantConfig = await _tenantConfigService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
+            flipOutcome = await _appHomingService.TryAutoFlipToPrimaryAsync(
+                tenantConfig, requestCtx.UserPrincipalName, budgetCts.Token);
+
+            // Always read fresh. This probe is admin-triggered (reconcile on consent-fail, the
+            // "detect existing access" button, post-consent verification) and low-frequency, so a
+            // stale cached snapshot must never decide it. In particular, a snapshot acquired during
+            // AAD consent propagation can carry an empty roles claim and would otherwise be cached for
+            // the token lifetime (~55 min) — wedging the admin out long after consent has propagated.
+            // Invalidating here makes every click re-acquire from AAD, so a retry always reflects reality.
+            _graphFeatureDetector.InvalidateTenant(requestCtx.TargetTenantId);
+
             GraphPermissionSnapshot snapshot;
             try
             {
@@ -240,6 +271,7 @@ public class AutopilotDeviceValidationConsentFunction
             accessPresent,
             isTransient,
             requiredPermission = GraphAppPermissions.DeviceManagementServiceConfigReadAll,
+            homingFlipped = flipOutcome == AppHomingAutoFlipOutcome.Flipped,
         });
         return response;
     }

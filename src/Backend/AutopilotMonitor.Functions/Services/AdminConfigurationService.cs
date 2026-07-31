@@ -145,6 +145,34 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Cache-bypassing read of <see cref="AdminConfiguration.SelfServiceAppHomingEnabled"/>.
+        /// This flag is the kill switch for the dual app-reg self-service homing flip (consent
+        /// funnel + auto-flip + tenant-admin manual flip): when the operator turns it off, the
+        /// very next consent-url/consent-status/access-check call must observe the change — the
+        /// 5-minute cache of <see cref="GetConfigurationAsync"/> would keep flipping tenants.
+        /// <para>
+        /// <b>Fail-CLOSED on storage error:</b> returns <c>false</c> (self-service disabled).
+        /// Consent flows then keep targeting the tenant's homed app and no flip happens — the
+        /// kill switch wins over a storage blip.
+        /// </para>
+        /// <para>Virtual so tests can mock it without going through the repository.</para>
+        /// </summary>
+        public virtual async Task<bool> IsSelfServiceAppHomingEnabledAsync()
+        {
+            try
+            {
+                var config = await _configRepo.GetAdminConfigurationAsync();
+                return config?.SelfServiceAppHomingEnabled ?? false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Failed to read SelfServiceAppHomingEnabled from repository; failing CLOSED (treating as disabled)");
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Saves global admin configuration and syncs rate limit to all tenant configurations
         /// </summary>
         public async Task SaveConfigurationAsync(AdminConfiguration config)

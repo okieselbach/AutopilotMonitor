@@ -81,6 +81,12 @@ export interface AdminConfiguration {
    * approval in Tenant Management. Default false.
    */
   autoApproveNewTenants?: boolean;
+  /**
+   * Dual app-reg self-service homing flip (consent funnel + auto-flip + tenant-admin
+   * manual flip). Kill switch: turning it off stops all of the above immediately;
+   * only Global Admins can flip while it is off. Default false.
+   */
+  selfServiceAppHomingEnabled?: boolean;
 }
 
 export interface OpsAlertRule {

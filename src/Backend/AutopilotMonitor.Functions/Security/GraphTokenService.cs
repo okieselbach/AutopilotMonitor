@@ -141,6 +141,27 @@ namespace AutopilotMonitor.Functions.Security
             // the resolved client id, so a tenant flipped between apps can never be served a token
             // minted under the other app.
             var credentials = await ResolveCredentialsAsync(tenantId);
+            return await GetAccessTokenWithCredentialsAsync(tenantId, credentials, ct);
+        }
+
+        /// <summary>
+        /// Acquires an app-only token for this tenant under EXPLICIT app credentials, skipping the
+        /// homing resolution. Used by the app-homing consent probe: proving that the PRIMARY app
+        /// has admin consent in a still-legacy-homed tenant requires minting under the primary
+        /// pair while <see cref="GetAccessTokenAsync"/> would resolve legacy. Cache-safe: the
+        /// token cache key is app-scoped, so the probe's token lands under the supplied app's key
+        /// and the tenant's normal (homed) path can never be served it — after a flip it simply
+        /// becomes the correct entry.
+        /// </summary>
+        public virtual Task<GraphTokenResult> GetAccessTokenForAppAsync(
+            string tenantId, EntraAppCredentials credentials, CancellationToken ct = default)
+        {
+            return GetAccessTokenWithCredentialsAsync(tenantId, credentials, ct);
+        }
+
+        private async Task<GraphTokenResult> GetAccessTokenWithCredentialsAsync(
+            string tenantId, EntraAppCredentials credentials, CancellationToken ct)
+        {
             var clientId = credentials.ClientId;
             var clientSecret = credentials.ClientSecret;
 

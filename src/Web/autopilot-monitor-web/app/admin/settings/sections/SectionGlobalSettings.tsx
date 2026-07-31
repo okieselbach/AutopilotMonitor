@@ -23,6 +23,7 @@ export function SectionGlobalSettings() {
     enableIndexDualWrite, setEnableIndexDualWrite,
     sessionDeletionKillSwitch, setSessionDeletionKillSwitch,
     autoApproveNewTenants, setAutoApproveNewTenants,
+    selfServiceAppHomingEnabled, setSelfServiceAppHomingEnabled,
     handleSaveAdminConfig, handleResetAdminConfig,
   } = useAdminConfig();
 
@@ -63,6 +64,8 @@ export function SectionGlobalSettings() {
         setSessionDeletionKillSwitch={setSessionDeletionKillSwitch}
         autoApproveNewTenants={autoApproveNewTenants}
         setAutoApproveNewTenants={setAutoApproveNewTenants}
+        selfServiceAppHomingEnabled={selfServiceAppHomingEnabled}
+        setSelfServiceAppHomingEnabled={setSelfServiceAppHomingEnabled}
         onSave={handleSaveAdminConfig}
         onReset={handleResetAdminConfig}
       />

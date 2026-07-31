@@ -6,7 +6,17 @@ import { AUTO_ACTION_MODES, describeAutoActionWarning, type AutoActionMode } fro
 
 // All known ops event types grouped by category
 const OPS_EVENT_TYPES: Record<string, string[]> = {
-  Consent: ["ConsentFlowStarted", "ConsentFlowSuccess", "ConsentFlowFailed", "ConsentRedirectUriMismatch"],
+  Consent: [
+    "ConsentFlowStarted",
+    "ConsentFlowSuccess",
+    "ConsentFlowFailed",
+    "ConsentRedirectUriMismatch",
+    // Dual app-reg homing flip (consent-driven auto-flip or manual endpoint). Backend helpers
+    // RecordAppHomingFlipped{,WithEntraRoles}Async — the WithEntraRoles variant (Warning) reminds
+    // the operator to re-assign app roles on the new enterprise app.
+    "AppHomingFlipped",
+    "AppHomingFlippedWithEntraRoles",
+  ],
   Maintenance: [
     "MaintenanceCompleted",
     "MaintenanceFailed",

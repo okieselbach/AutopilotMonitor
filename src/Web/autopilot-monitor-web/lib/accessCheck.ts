@@ -6,6 +6,13 @@ export type AccessCheckOutcome = "reconciled" | "transient" | "absent";
 export interface AccessCheckPayload {
   accessPresent?: boolean;
   isTransient?: boolean;
+  /**
+   * Dual app-reg self-service migration: true when this probe just auto-flipped the tenant's
+   * homing to the new (primary) app registration (flag-gated, consent-verified server-side).
+   * Orthogonal to the access classification — handled as a side signal, never part of
+   * classifyAccessCheck.
+   */
+  homingFlipped?: boolean;
 }
 
 /**
