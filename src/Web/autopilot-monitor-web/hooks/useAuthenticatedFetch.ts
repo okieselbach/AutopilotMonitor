@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
+import { useLatest } from "@/hooks/useLatest";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNotifications } from "@/contexts/NotificationContext";
 import {
@@ -47,8 +48,7 @@ export function useAuthenticatedFetch<T = unknown>(
   const [error, setError] = useState<string | null>(null);
 
   // Stabilize callback refs so `execute` identity doesn't change on every render
-  const optionsRef = useRef(options);
-  optionsRef.current = options;
+  const optionsRef = useLatest(options);
 
   // Latest-wins guard: when execute() is called again while a previous request is still in
   // flight (e.g. the tenant-scope selector seeds a persisted foreign tenant right after mount,
@@ -140,7 +140,7 @@ export function useAuthenticatedFetch<T = unknown>(
         }
       }
     },
-    [getAccessToken, addNotification],
+    [getAccessToken, addNotification, optionsRef],
   );
 
   return { data, loading, error, execute, clearError, setData };

@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { useLatest } from "@/hooks/useLatest";
 import { useAuth } from "../../../contexts/AuthContext";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 
@@ -58,8 +59,7 @@ export default function PresencePage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   // Keep the latest window value available to the interval callback without re-arming the timer.
-  const windowRef = useRef(windowMinutes);
-  windowRef.current = windowMinutes;
+  const windowRef = useLatest(windowMinutes);
 
   const fetchPresence = useCallback(
     async (showRefreshing = false) => {
@@ -87,7 +87,7 @@ export default function PresencePage() {
         setRefreshing(false);
       }
     },
-    [getAccessToken],
+    [getAccessToken, windowRef],
   );
 
   // Initial load + whenever the window changes.

@@ -82,7 +82,7 @@ jobs:
       # in eslint.config.mjs + exhaustive-deps) — when you fix warnings, lower
       # the cap to match; never raise it.
       - name: Lint
-        run: npm run lint -- --max-warnings 141
+        run: npm run lint -- --max-warnings 139
 
       - name: Tests
         run: npm test
