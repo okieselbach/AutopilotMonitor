@@ -199,6 +199,27 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Cache-BYPASSING read (refreshes this instance's cache on hit); null when no row exists,
+        /// never auto-creates. For read-modify-write side-effect writers that persist the WHOLE
+        /// entity (e.g. AuthFunction's LastAuthClientId tracking): a cached view can be up to
+        /// 5 minutes stale on OTHER instances, and blindly saving it would silently rewind any
+        /// field another writer just changed — most critically HomedAppClientId right after a
+        /// consent-driven app-homing flip (the exact login that follows a flip is the one that
+        /// carries a changed audience and triggers the tracking write).
+        /// </summary>
+        public virtual async Task<TenantConfiguration?> GetConfigurationFreshAsync(string tenantId)
+        {
+            if (string.IsNullOrEmpty(tenantId))
+                return null;
+
+            var config = await _configRepo.GetTenantConfigurationAsync(tenantId);
+            if (config != null)
+                _cache.Set($"tenant-config:{tenantId}", config, CacheDuration);
+
+            return config;
+        }
+
+        /// <summary>
         /// Returns (config, exists). exists=false when no row was found — does NOT auto-create.
         /// Use for agent security gates where unknown tenants must be rejected: storage errors are
         /// mapped to exists=false (fail closed). Callers that must instead surface read failures

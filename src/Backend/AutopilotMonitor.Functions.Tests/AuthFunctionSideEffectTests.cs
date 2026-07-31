@@ -147,6 +147,76 @@ public class AuthFunctionSideEffectTests
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    // -------------------------------------------------------------------------
+    // HandleAuthClientIdTrackingAsync — the write must mutate a cache-BYPASSING
+    // read, never the (possibly stale) cached view. Regression for the prod
+    // incident 2026-07-31: the login right after an app-homing flip carries the
+    // changed audience; blind-saving the stale cached entity reverted the flip.
+    // -------------------------------------------------------------------------
+
+    private const string LegacyAppId = "1a400946-62c1-4ab4-aa37-f730ac89704d";
+    private const string PrimaryAppId = "886ab5e2-6144-442c-80cc-9b28e0667731";
+
+    [Fact]
+    public async Task HandleAuthClientIdTracking_MutatesFreshConfig_PreservingConcurrentHomingFlip()
+    {
+        // Cached view: pre-flip (homing null, last-seen legacy). Fresh row: flipped meanwhile.
+        var cached = DefaultConfig();
+        cached.DomainName = "contoso.com";
+        cached.LastAuthClientId = LegacyAppId;
+        cached.HomedAppClientId = null;
+
+        var fresh = DefaultConfig();
+        fresh.DomainName = "contoso.com";
+        fresh.LastAuthClientId = LegacyAppId;
+        fresh.HomedAppClientId = PrimaryAppId; // the concurrent flip that must survive
+
+        _tenantConfigMock.Setup(x => x.GetConfigurationFreshAsync(TenantId)).ReturnsAsync(fresh);
+
+        await _sut.HandleAuthClientIdTrackingAsync(cached, TenantId, $"api://{PrimaryAppId}");
+
+        // The FRESH entity was mutated and saved — the flip survives, the stale view is discarded.
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(fresh), Times.Once);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(cached), Times.Never);
+        Assert.Equal(PrimaryAppId, fresh.HomedAppClientId);
+        Assert.Equal(PrimaryAppId, fresh.LastAuthClientId);
+        Assert.NotNull(fresh.LastAuthClientIdSince);
+    }
+
+    [Fact]
+    public async Task HandleAuthClientIdTracking_FreshAlreadyCurrent_DoesNotWrite()
+    {
+        // Another instance already recorded the new client id — the fresh re-check must
+        // suppress the redundant write even though the cached view still looks outdated.
+        var cached = DefaultConfig();
+        cached.DomainName = "contoso.com";
+        cached.LastAuthClientId = LegacyAppId;
+
+        var fresh = DefaultConfig();
+        fresh.DomainName = "contoso.com";
+        fresh.LastAuthClientId = PrimaryAppId;
+
+        _tenantConfigMock.Setup(x => x.GetConfigurationFreshAsync(TenantId)).ReturnsAsync(fresh);
+
+        await _sut.HandleAuthClientIdTrackingAsync(cached, TenantId, PrimaryAppId);
+
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleAuthClientIdTracking_UnchangedOnCachedView_SkipsFreshRead()
+    {
+        // Steady state (same app as last time) must stay a zero-I/O no-op.
+        var cached = DefaultConfig();
+        cached.DomainName = "contoso.com";
+        cached.LastAuthClientId = PrimaryAppId;
+
+        await _sut.HandleAuthClientIdTrackingAsync(cached, TenantId, $"api://{PrimaryAppId}");
+
+        _tenantConfigMock.Verify(x => x.GetConfigurationFreshAsync(It.IsAny<string>()), Times.Never);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+    }
+
     [Fact]
     public async Task HandleNewTenantDomain_PreservesExistingOnboardedBy()
     {

@@ -388,11 +388,20 @@ public class AuthFunction
         _logger.LogInformation(
             "Tenant {TenantId} logins now arrive via app registration {ClientId} (was: {Previous})",
             tenantId, clientId, tenantConfig.LastAuthClientId ?? "(none recorded)");
-        tenantConfig.LastAuthClientId = clientId;
-        tenantConfig.LastAuthClientIdSince = DateTime.UtcNow;
         try
         {
-            await _tenantConfigService.SaveConfigurationAsync(tenantConfig);
+            // Mutate a cache-BYPASSING read, not the (up to 5 min stale on other instances)
+            // cached view: this write persists the WHOLE entity, and the login that triggers it
+            // is typically the very first one AFTER an app-homing flip — blind-saving the stale
+            // view here would silently revert HomedAppClientId (same failure class as the
+            // 2026-07-31 PUT revert incident). Change-detect above stays on the cached view as a
+            // cheap pre-filter; the fresh read re-checks before writing.
+            var fresh = await _tenantConfigService.GetConfigurationFreshAsync(tenantId);
+            if (fresh == null || string.Equals(fresh.LastAuthClientId, clientId, StringComparison.OrdinalIgnoreCase))
+                return;
+            fresh.LastAuthClientId = clientId;
+            fresh.LastAuthClientIdSince = DateTime.UtcNow;
+            await _tenantConfigService.SaveConfigurationAsync(fresh);
         }
         catch (Exception ex)
         {
