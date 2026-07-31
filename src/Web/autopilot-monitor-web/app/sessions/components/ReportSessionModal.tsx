@@ -193,9 +193,6 @@ export default function ReportSessionModal({
             </div>
             <div className="ml-4">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Report Session</h3>
-              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 mt-1">
-                Beta
-              </span>
             </div>
           </div>
 

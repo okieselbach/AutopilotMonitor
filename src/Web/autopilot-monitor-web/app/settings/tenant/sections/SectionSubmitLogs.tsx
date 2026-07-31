@@ -158,9 +158,6 @@ export function SectionSubmitLogs() {
         </div>
         <div className="ml-3">
           <h2 className="text-lg font-semibold text-gray-900">Submit Logs to Support</h2>
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 mt-1">
-            Beta
-          </span>
         </div>
       </div>
 
