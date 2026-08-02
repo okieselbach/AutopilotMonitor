@@ -51,7 +51,9 @@ export function SectionContact() {
 
         <div className="rounded-md bg-blue-50 border border-blue-100 p-4">
           <p className="text-sm text-blue-900">
-            Used <strong>only</strong> to reach you about this service — a technical problem affecting your tenant, a
+            {/* {" "} is deliberate: Turbopack eats the ambient space after an inline element
+                when the following text runs over multiple lines — rendered "onlyto". */}
+            Used <strong>only</strong>{" "}to reach you about this service — a technical problem affecting your tenant, a
             security matter, or a change that needs an administrator&apos;s attention. Never for marketing, and never
             shared with anyone else.
           </p>

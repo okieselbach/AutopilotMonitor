@@ -183,7 +183,7 @@ export function ConfigReseedSection({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <p className="text-sm text-blue-800 dark:text-blue-200">
-                Rules are loaded from <code className="px-1 bg-blue-100 dark:bg-blue-800 rounded text-xs">raw.githubusercontent.com</code>. After a merge to the repository, it may take up to <strong>5 minutes</strong> for GitHub&apos;s CDN cache to update. If you see stale rules after reseeding, wait a few minutes and try again.
+                Rules are loaded from <code className="px-1 bg-blue-100 dark:bg-blue-800 rounded text-xs">raw.githubusercontent.com</code>. After a merge to the repository, it may take up to <strong>5 minutes</strong>{" "}for GitHub&apos;s CDN cache to update. If you see stale rules after reseeding, wait a few minutes and try again.
               </p>
             </div>
           </div>

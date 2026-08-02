@@ -387,7 +387,7 @@ export function AdminConfigSettingsSection({
                   <span className="text-red-900 dark:text-red-100 font-medium">Cascade-Delete Kill-Switch (emergency)</span>
                   <p className="text-sm text-red-800 dark:text-gray-300 mt-1">
                     Global emergency stop for the cascade-deletion subsystem. When <strong>on</strong>: the cascade producer
-                    returns <code className="text-xs bg-red-100 dark:bg-red-900 dark:text-red-200 px-1 rounded">503 Service Unavailable</code>
+                    returns <code className="text-xs bg-red-100 dark:bg-red-900 dark:text-red-200 px-1 rounded">503 Service Unavailable</code>{" "}
                     and the cascade worker pauses on entry. Flip on if a runaway cascade or storage incident requires
                     halting all session-delete activity across all tenants. Default <strong>off</strong>.
                   </p>
