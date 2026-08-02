@@ -76,11 +76,13 @@ public class TenantAutoApproveHandlerTests
             _approvalMock.Object,
             opsService);
 
-        // Defaults: flag on, tenant not yet approved, config exists and is enabled.
+        // Defaults: flag on, tenant not yet approved, config exists and is enabled. The
+        // handler reads the config via the cache-bypassing GetConfigurationFreshAsync — the
+        // suspension gate must never decide on a stale per-instance cache.
         _adminConfigMock.Setup(x => x.IsAutoApproveNewTenantsEnabledAsync()).ReturnsAsync(true);
         _previewMock.Setup(x => x.IsApprovedAsync(TenantId)).ReturnsAsync(false);
-        _tenantConfigMock.Setup(x => x.TryGetConfigurationAsync(TenantId))
-            .ReturnsAsync((TenantConfiguration.CreateDefault(TenantId), true));
+        _tenantConfigMock.Setup(x => x.GetConfigurationFreshAsync(TenantId))
+            .ReturnsAsync(TenantConfiguration.CreateDefault(TenantId));
         _approvalMock.Setup(x => x.ApproveWithSideEffectsAsync(It.IsAny<string>(), It.IsAny<string>()))
             .Returns(Task.CompletedTask);
     }
@@ -116,8 +118,8 @@ public class TenantAutoApproveHandlerTests
     [Fact]
     public async Task TenantConfigMissing_Drops()
     {
-        _tenantConfigMock.Setup(x => x.TryGetConfigurationAsync(TenantId))
-            .ReturnsAsync((TenantConfiguration.CreateDefault(TenantId), false));
+        _tenantConfigMock.Setup(x => x.GetConfigurationFreshAsync(TenantId))
+            .ReturnsAsync((TenantConfiguration?)null);
 
         await _sut.HandleAsync(Envelope(), CancellationToken.None);
 
@@ -129,12 +131,28 @@ public class TenantAutoApproveHandlerTests
     {
         var suspended = TenantConfiguration.CreateDefault(TenantId);
         suspended.Disabled = true;
-        _tenantConfigMock.Setup(x => x.TryGetConfigurationAsync(TenantId))
-            .ReturnsAsync((suspended, true));
+        _tenantConfigMock.Setup(x => x.GetConfigurationFreshAsync(TenantId))
+            .ReturnsAsync(suspended);
 
         await _sut.HandleAsync(Envelope(), CancellationToken.None);
 
         _approvalMock.Verify(x => x.ApproveWithSideEffectsAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ConfigReadError_Propagates_SoTheMessageRetries()
+    {
+        // A storage blip must NOT silently drop the message (that would permanently
+        // downgrade the tenant to manual approval) — it throws, the queue retries, and
+        // the flag + suspension gates re-run on every attempt.
+        _tenantConfigMock.Setup(x => x.GetConfigurationFreshAsync(TenantId))
+            .ThrowsAsync(new InvalidOperationException("storage blip"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _sut.HandleAsync(Envelope(), CancellationToken.None));
+
+        _approvalMock.Verify(x => x.ApproveWithSideEffectsAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        Assert.Empty(_savedOpsEvents);
     }
 
     [Fact]

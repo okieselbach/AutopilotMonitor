@@ -202,6 +202,12 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 config.LastAuthClientId = existingConfig.LastAuthClientId;
                 config.LastAuthClientIdSince = existingConfig.LastAuthClientIdSince;
 
+                // OnboardedBy is system-written once at first login (AuthFunction) and immutable
+                // after that — never via PUT, for ANY caller: a revoke → re-approve cycle
+                // auto-promotes whatever UPN is stored here, so a client-supplied value could
+                // smuggle in an arbitrary promotable user (or null out the audit provenance).
+                config.OnboardedBy = existingConfig.OnboardedBy;
+
                 // Safety: if GA gate is off, force UnrestrictedMode to false
                 if (!config.UnrestrictedModeEnabled)
                 {

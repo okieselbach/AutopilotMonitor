@@ -67,8 +67,13 @@ namespace AutopilotMonitor.Functions.Services.Activation
                 return;
             }
 
-            var (tenantConfig, tenantExists) = await _tenantConfigService.TryGetConfigurationAsync(tenantId).ConfigureAwait(false);
-            if (!tenantExists)
+            // Fresh (cache-bypassing) read: the suspension gate below must see the CURRENT row —
+            // a per-instance cached view can be up to 5 minutes stale, and a tenant suspended
+            // right after signup must never be auto-approved. A storage error THROWS → the
+            // message retries (flag and suspension re-checked each attempt) instead of silently
+            // downgrading the tenant to manual approval.
+            var tenantConfig = await _tenantConfigService.GetConfigurationFreshAsync(tenantId).ConfigureAwait(false);
+            if (tenantConfig == null)
             {
                 _logger.LogWarning(
                     "TenantAutoApprove: no TenantConfiguration for tenant {TenantId} — dropping", tenantId);
