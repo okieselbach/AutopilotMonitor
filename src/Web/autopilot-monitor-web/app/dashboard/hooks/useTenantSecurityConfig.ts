@@ -16,6 +16,8 @@ type AddNotification = (
 
 interface TenantConfigurationSummary {
   validateAutopilotDevice: boolean;
+  edition?: string;
+  contactEmailSet?: boolean;
 }
 
 interface User {
@@ -24,11 +26,22 @@ interface User {
   role?: string | null;
 }
 
+export interface TenantSecuritySummary {
+  /** null while loading or on error; the red banner keys on `=== false`. */
+  serialValidationEnabled: boolean | null;
+  /**
+   * Pro tenant (incl. trial) with no stored contact address — drives the amber
+   * "set a contact address" banner. Requires an EXPLICIT contactEmailSet:false from
+   * the backend, so loading/error/older-backend states never nag.
+   */
+  proContactMissing: boolean;
+}
+
 /**
- * Fetches the tenant's security config (validateAutopilotDevice flag) to drive the
- * "Autopilot Device Validation is disabled" banner on the dashboard.
+ * Fetches the tenant's feature-flags summary to drive the dashboard banners:
+ * the red "Autopilot Device Validation is disabled" banner and the amber
+ * Pro-without-contact-address banner.
  *
- * Returns null while loading, true/false once resolved, or null on error.
  * Skips the fetch for regular users (they never see the dashboard).
  */
 export function useTenantSecurityConfig(
@@ -36,8 +49,11 @@ export function useTenantSecurityConfig(
   user: User | null | undefined,
   getAccessToken: (forceRefresh?: boolean) => Promise<string | null>,
   addNotification: AddNotification,
-): boolean | null {
-  const [serialValidationEnabled, setSerialValidationEnabled] = useState<boolean | null>(null);
+): TenantSecuritySummary {
+  const [summary, setSummary] = useState<TenantSecuritySummary>({
+    serialValidationEnabled: null,
+    proContactMissing: false,
+  });
 
   useEffect(() => {
     // Wait until both tenant and user are resolved. Without the !user guard
@@ -54,17 +70,22 @@ export function useTenantSecurityConfig(
         const response = await dedupedAuthFetch(api.config.featureFlags(tenantId), getAccessToken);
 
         if (!response.ok) {
-          setSerialValidationEnabled(null);
+          setSummary({ serialValidationEnabled: null, proContactMissing: false });
           return;
         }
 
         const data: TenantConfigurationSummary = await response.json();
-        setSerialValidationEnabled(!!data.validateAutopilotDevice);
+        setSummary({
+          serialValidationEnabled: !!data.validateAutopilotDevice,
+          proContactMissing:
+            (data.edition === "pro" || data.edition === "enterprise") &&
+            data.contactEmailSet === false,
+        });
       } catch (error) {
         if (error instanceof TokenExpiredError) {
           addNotification('error', 'Session Expired', error.message, 'session-expired-error');
         }
-        setSerialValidationEnabled(null);
+        setSummary({ serialValidationEnabled: null, proContactMissing: false });
       }
     };
 
@@ -77,5 +98,5 @@ export function useTenantSecurityConfig(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId, user?.isTenantAdmin, user?.isGlobalAdmin, user?.role]);
 
-  return serialValidationEnabled;
+  return summary;
 }

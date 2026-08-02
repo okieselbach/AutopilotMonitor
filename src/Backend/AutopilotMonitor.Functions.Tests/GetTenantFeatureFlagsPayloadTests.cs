@@ -38,6 +38,9 @@ public class GetTenantFeatureFlagsPayloadTests
             // self-service migration banner).
             "appHomingFunnelActive",
             "bootstrapTokenEnabled",
+            // Non-sensitive by review: bool only ("is a contact address set"), never the
+            // address itself (admin-gated full config only).
+            "contactEmailSet",
             "diagnosticsUploadConfigured",
             "edition",
             "enableIntegrityBypassAnalyzer",
@@ -248,5 +251,28 @@ public class GetTenantFeatureFlagsPayloadTests
         Assert.Equal("community", element.GetProperty("edition").GetString());
         Assert.False(element.GetProperty("isTrial").GetBoolean());
         Assert.False(element.GetProperty("trialAvailable").GetBoolean(), "consumed trial must not be offered again");
+    }
+
+    // ── contactEmailSet (drives the Pro-requires-contact trial gate + banner) ──
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("", false)]
+    [InlineData("   ", false)]
+    [InlineData("it-ops@contoso.com", true)]
+    public void Payload_ContactEmailSet_ReflectsWhetherAnAddressIsStored(string? stored, bool expected)
+    {
+        var element = Serialize(new TenantConfiguration { ContactEmail = stored });
+
+        Assert.Equal(expected, element.GetProperty("contactEmailSet").GetBoolean());
+    }
+
+    [Fact]
+    public void Payload_ContactEmailSet_NeverLeaksTheAddress()
+    {
+        var json = JsonSerializer.Serialize(GetTenantFeatureFlagsFunction.BuildPayload(
+            new TenantConfiguration { ContactEmail = "secret-contact@contoso.com" }, Now));
+
+        Assert.DoesNotContain("secret-contact", json);
     }
 }

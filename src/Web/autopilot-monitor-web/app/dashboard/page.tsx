@@ -1,6 +1,7 @@
 "use client";
 
 import { sessionUrl } from "@/lib/routes";
+import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
@@ -188,7 +189,7 @@ function HomeContent() {
     }
   }, [user, router]);
 
-  const serialValidationEnabled = useTenantSecurityConfig(tenantId, user, getAccessToken, addNotification);
+  const { serialValidationEnabled, proContactMissing } = useTenantSecurityConfig(tenantId, user, getAccessToken, addNotification);
   const rawTenantList = useTenantList(crossTenant, getAccessToken);
   // Delegated: bound the tenant filter's autocomplete to the managed subset (defense in depth on top of the
   // backend-bounded config/all), plus the caller's own HOME tenant when they hold a member role there —
@@ -360,6 +361,30 @@ function HomeContent() {
                   Open Settings
                 </a>
               </div>
+            </div>
+          )}
+
+          {/* Pro-requires-contact nag (amber, non-blocking): Pro tenants keep every feature,
+              but should be reachable. Admins only — they own the Contact section; delegated
+              admins are excluded (the link would target their own tenant, not the viewed one). */}
+          {proContactMissing && !isDelegated && (user?.isTenantAdmin || user?.isGlobalAdmin) && (
+            <div className="mb-6 bg-amber-50 border border-amber-300 rounded-lg px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 dark:bg-amber-950/30 dark:border-amber-700/50">
+              <div className="flex items-start gap-3">
+                <svg className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                </svg>
+                <p className="text-sm text-amber-800 dark:text-amber-300">
+                  <span className="font-semibold">Your Pro tenant has no contact address.</span>{" "}
+                  Set one so we can reach you about service or security matters — it is used for
+                  nothing else and never shared.
+                </p>
+              </div>
+              <Link
+                href="/settings/tenant/contact"
+                className="shrink-0 inline-flex items-center gap-2 bg-amber-600 text-white font-medium text-sm px-3 py-1.5 rounded-lg hover:bg-amber-700 transition-colors"
+              >
+                Set contact address
+              </Link>
             </div>
           )}
 

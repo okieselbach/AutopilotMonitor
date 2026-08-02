@@ -4,6 +4,7 @@ using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Config;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -199,6 +200,36 @@ namespace AutopilotMonitor.Functions.Functions.Config
         /// 30-day Pro trial, exactly once per tenant. 409 when the trial was already
         /// consumed or the tenant is already effectively Pro.
         /// </summary>
+        /// <summary>
+        /// Pure verdict for the self-service trial start; null = allowed. Order matters and is
+        /// test-pinned: the terminal conditions (trial consumed, already Pro) win over the
+        /// contact-address prompt — asking for an address would be pointless there. The contact
+        /// requirement is enforced ONLY at this plan entry point, never as a runtime gate on Pro
+        /// features (existing Pro tenants get the dashboard banner instead of a lockout); GA
+        /// plan assignment (PATCH plan) deliberately has no such block — the admin UI warns.
+        /// </summary>
+        internal static (string Error, string Message)? EvaluateTrialStart(TenantConfiguration config, DateTime nowUtc)
+        {
+            if (config.TrialConsumed)
+            {
+                return ("TrialAlreadyConsumed",
+                    "This tenant has already used its one self-service Pro trial. Contact support to extend.");
+            }
+
+            if (FeatureEntitlementCatalog.ResolveEdition(config.PlanTier, config.TrialExpiresUtc, nowUtc) == TenantEdition.Pro)
+            {
+                return ("AlreadyPro", "This tenant is already on the Pro plan.");
+            }
+
+            if (string.IsNullOrWhiteSpace(config.ContactEmail))
+            {
+                return ("ContactEmailRequired",
+                    "Pro requires a tenant contact address so we can reach you about service or security matters. Set it under Settings → Tenant → Contact, then start the trial.");
+            }
+
+            return null;
+        }
+
         [Function("StartTenantTrial")]
         public async Task<HttpResponseData> StartTrial(
             [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "config/{tenantId}/trial")] HttpRequestData req,
@@ -220,25 +251,10 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
                 var nowUtc = _time.GetUtcNow().UtcDateTime;
 
-                if (config.TrialConsumed)
+                if (EvaluateTrialStart(config, nowUtc) is { } deny)
                 {
                     var conflict = req.CreateResponse(HttpStatusCode.Conflict);
-                    await conflict.WriteAsJsonAsync(new
-                    {
-                        error = "TrialAlreadyConsumed",
-                        message = "This tenant has already used its one self-service Pro trial. Contact support to extend."
-                    });
-                    return conflict;
-                }
-
-                if (FeatureEntitlementCatalog.ResolveEdition(config.PlanTier, config.TrialExpiresUtc, nowUtc) == TenantEdition.Pro)
-                {
-                    var conflict = req.CreateResponse(HttpStatusCode.Conflict);
-                    await conflict.WriteAsJsonAsync(new
-                    {
-                        error = "AlreadyPro",
-                        message = "This tenant is already on the Pro plan."
-                    });
+                    await conflict.WriteAsJsonAsync(new { error = deny.Error, message = deny.Message });
                     return conflict;
                 }
 

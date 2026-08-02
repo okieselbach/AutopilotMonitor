@@ -13,6 +13,11 @@ export interface EditionInfo {
   isTrial: boolean;
   trialExpiresUtc: string | null;
   trialAvailable: boolean;
+  /**
+   * Whether a tenant contact address is stored (boolean only — the address itself is
+   * admin-gated). Drives the Pro-requires-contact trial gate and dashboard banner.
+   */
+  contactEmailSet: boolean;
   entitlements: {
     retentionCapDays: number;
     userRateLimitPerMinute: number | null;
@@ -27,6 +32,9 @@ export const COMMUNITY_DEFAULT: EditionInfo = {
   isTrial: false,
   trialExpiresUtc: null,
   trialAvailable: false,
+  // Fail-SAFE true (unlike the fail-closed entitlements): while flags are loading, on
+  // error, or against an older backend without the field, no nag banner may appear.
+  contactEmailSet: true,
   entitlements: {
     retentionCapDays: 90,
     userRateLimitPerMinute: null,
@@ -53,6 +61,8 @@ export function parseEditionInfo(flags: unknown): EditionInfo {
     isTrial: f.isTrial === true,
     trialExpiresUtc: typeof f.trialExpiresUtc === "string" ? f.trialExpiresUtc : null,
     trialAvailable: f.trialAvailable === true,
+    // Only an explicit false means "missing" — absent field (older backend) must not nag.
+    contactEmailSet: f.contactEmailSet !== false,
     entitlements: {
       retentionCapDays:
         typeof ent.retentionCapDays === "number" ? ent.retentionCapDays : COMMUNITY_DEFAULT.entitlements.retentionCapDays,

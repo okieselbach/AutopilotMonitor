@@ -113,6 +113,10 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 isTrial,
                 trialExpiresUtc = isTrial ? config.TrialExpiresUtc : null,
                 trialAvailable = !config.TrialConsumed && edition == TenantEdition.Community,
+                // Pro-requires-contact surface: drives the trial CTA gate and the dashboard
+                // "set a contact address" banner for Pro tenants. Boolean only — the address
+                // itself stays in the admin-gated full config response.
+                contactEmailSet = !string.IsNullOrWhiteSpace(config.ContactEmail),
                 entitlements = new
                 {
                     retentionCapDays = entitlements.RetentionCapDays,

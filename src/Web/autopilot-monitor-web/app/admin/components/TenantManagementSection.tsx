@@ -774,6 +774,14 @@ function TenantManagementSectionInner({
                         Stored legacy tier &quot;{editingTenant.planTier}&quot; resolves to Community. Saving normalizes it.
                       </p>
                     )}
+                    {(editingTenant.planTier === "pro" || editingTenant.planTier === "enterprise") && !editingTenant.contactEmail && (
+                      <p className="text-xs text-amber-600 mt-1">
+                        ⚠ No contact address set — Pro tenants should be reachable for service and
+                        security matters. Self-service trials are blocked without one; GA assignment
+                        is not, and the tenant sees a dashboard reminder until an admin sets it
+                        (Settings → Tenant → Contact).
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Trial Ends (UTC)</label>

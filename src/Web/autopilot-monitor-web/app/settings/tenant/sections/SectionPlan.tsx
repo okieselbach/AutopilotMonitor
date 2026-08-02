@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useTenantConfig } from "../../TenantConfigContext";
 import { trialDaysLeft } from "@/lib/edition";
 
@@ -221,6 +222,17 @@ export function SectionPlan() {
                   >
                     Start 30-day Pro trial — coming soon
                   </button>
+                ) : canStartTrial && !editionInfo.contactEmailSet ? (
+                  // Pro-requires-contact gate (backend enforces the same via 409
+                  // ContactEmailRequired — this branch just makes the path obvious).
+                  <div className="text-sm bg-amber-50 border border-amber-200 rounded-lg p-3 text-amber-900 dark:bg-amber-950/30 dark:border-amber-700/50 dark:text-amber-200">
+                    <span className="font-medium">Pro requires a contact address.</span>{" "}
+                    Set one under{" "}
+                    <Link href="/settings/tenant/contact" className="font-medium text-purple-700 hover:underline dark:text-purple-300">
+                      Contact
+                    </Link>{" "}
+                    so we can reach you about service or security matters — then start your trial here.
+                  </div>
                 ) : canStartTrial && !confirming ? (
                   <button
                     type="button"

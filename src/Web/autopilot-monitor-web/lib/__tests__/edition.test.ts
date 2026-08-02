@@ -54,6 +54,14 @@ describe("parseEditionInfo", () => {
     expect(info.entitlements.retentionCapDays).toBe(90);
     expect(info.entitlements.userRateLimitPerMinute).toBeNull();
   });
+
+  it("contactEmailSet: only an explicit false means missing (fail-safe against older backends)", () => {
+    // Missing field (backend predates it) or malformed → true: never nag on unknown state.
+    expect(parseEditionInfo({ edition: "pro" }).contactEmailSet).toBe(true);
+    expect(parseEditionInfo({ edition: "pro", contactEmailSet: "no" }).contactEmailSet).toBe(true);
+    expect(parseEditionInfo({ edition: "pro", contactEmailSet: true }).contactEmailSet).toBe(true);
+    expect(parseEditionInfo({ edition: "pro", contactEmailSet: false }).contactEmailSet).toBe(false);
+  });
 });
 
 describe("trialDaysLeft", () => {
