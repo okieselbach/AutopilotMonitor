@@ -35,11 +35,19 @@ public class TenantApprovalService
     /// <summary>
     /// Activates a tenant: adds it to the whitelist, then runs the best-effort side
     /// effects. The whitelist add is the activation itself and fails loud; everything
-    /// after it is non-fatal.
+    /// after it is non-fatal. Returns false when the tenant was ALREADY activated
+    /// (concurrent duplicate or repeat approve) — the conditional whitelist insert makes
+    /// this idempotent, so a lost race never re-sends the welcome mail or re-promotes.
     /// </summary>
-    public virtual async Task ApproveWithSideEffectsAsync(string tenantId, string approvedBy)
+    public virtual async Task<bool> ApproveWithSideEffectsAsync(string tenantId, string approvedBy)
     {
-        await _previewWhitelistService.ApproveAsync(tenantId, approvedBy);
+        if (!await _previewWhitelistService.ApproveAsync(tenantId, approvedBy))
+        {
+            _logger.LogInformation(
+                "Tenant {TenantId} already activated — skipping activation side effects (approve by {ApprovedBy})",
+                tenantId, approvedBy);
+            return false;
+        }
 
         _logger.LogInformation("Tenant activated: {TenantId} by {ApprovedBy}", tenantId, approvedBy);
 
@@ -100,6 +108,8 @@ public class TenantApprovalService
                 "Failed to auto-promote tenant requester as TenantAdmin for tenant {TenantId} — activation still succeeded",
                 tenantId);
         }
+
+        return true;
     }
 
     /// <summary>

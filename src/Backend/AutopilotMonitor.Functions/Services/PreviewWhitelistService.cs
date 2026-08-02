@@ -67,14 +67,21 @@ public class PreviewWhitelistService
     }
 
     /// <summary>
-    /// Activates a tenant (adds it to the whitelist).
+    /// Activates a tenant (adds it to the whitelist). Returns true when this call created
+    /// the entry, false when the tenant was already activated — the conditional insert at
+    /// the storage layer arbitrates concurrent activations, so exactly one caller ever
+    /// sees true and runs the activation side effects. Storage errors throw.
     /// </summary>
-    public async Task ApproveAsync(string tenantId, string approvedBy)
+    public virtual async Task<bool> ApproveAsync(string tenantId, string approvedBy)
     {
-        await _configRepo.AddToPreviewWhitelistAsync(tenantId, approvedBy);
+        var newlyApproved = await _configRepo.AddToPreviewWhitelistAsync(tenantId, approvedBy);
 
         _cache.Remove($"preview:{tenantId}");
-        _logger.LogInformation("Tenant {TenantId} approved for preview by {ApprovedBy}", tenantId, approvedBy);
+        if (newlyApproved)
+        {
+            _logger.LogInformation("Tenant {TenantId} approved for preview by {ApprovedBy}", tenantId, approvedBy);
+        }
+        return newlyApproved;
     }
 
     /// <summary>
@@ -107,7 +114,7 @@ public class PreviewWhitelistService
     /// <summary>
     /// Gets the notification email for a tenant (stored in PreviewWhitelist table).
     /// </summary>
-    public async Task<string?> GetNotificationEmailAsync(string tenantId)
+    public virtual async Task<string?> GetNotificationEmailAsync(string tenantId)
     {
         return await _configRepo.GetNotificationEmailAsync(tenantId);
     }

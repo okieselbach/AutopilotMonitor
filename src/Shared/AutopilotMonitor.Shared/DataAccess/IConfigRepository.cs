@@ -45,6 +45,11 @@ namespace AutopilotMonitor.Shared.DataAccess
 
         // --- Preview Whitelist ---
         Task<bool> IsInPreviewWhitelistAsync(string tenantId);
+        /// <summary>
+        /// Conditional insert: true when THIS call created the entry, false when the tenant
+        /// was already whitelisted (concurrent duplicate or repeat approve). Storage errors
+        /// throw — activation must never be silently reported as done.
+        /// </summary>
         Task<bool> AddToPreviewWhitelistAsync(string tenantId, string addedBy);
         Task<bool> RemoveFromPreviewWhitelistAsync(string tenantId);
         Task<List<string>> GetPreviewWhitelistAsync();

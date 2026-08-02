@@ -88,7 +88,14 @@ namespace AutopilotMonitor.Functions.Services.Activation
                 return;
             }
 
-            await _tenantApprovalService.ApproveWithSideEffectsAsync(tenantId, AutoApprovedBy).ConfigureAwait(false);
+            // False = another worker won the activation race (double signup enqueues two
+            // envelopes) — it already sent the mail and will emit the ops event; drop quietly.
+            if (!await _tenantApprovalService.ApproveWithSideEffectsAsync(tenantId, AutoApprovedBy).ConfigureAwait(false))
+            {
+                _logger.LogInformation(
+                    "TenantAutoApprove: tenant {TenantId} was activated concurrently — dropping duplicate", tenantId);
+                return;
+            }
 
             // Fire-and-forget safe (OpsEventService never throws).
             await _opsEventService.RecordTenantAutoApprovedAsync(

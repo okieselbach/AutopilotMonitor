@@ -84,7 +84,7 @@ public class TenantAutoApproveHandlerTests
         _tenantConfigMock.Setup(x => x.GetConfigurationFreshAsync(TenantId))
             .ReturnsAsync(TenantConfiguration.CreateDefault(TenantId));
         _approvalMock.Setup(x => x.ApproveWithSideEffectsAsync(It.IsAny<string>(), It.IsAny<string>()))
-            .Returns(Task.CompletedTask);
+            .ReturnsAsync(true);
     }
 
     private static TenantAutoApproveEnvelope Envelope() => new()
@@ -167,6 +167,20 @@ public class TenantAutoApproveHandlerTests
         var evt = Assert.Single(_savedOpsEvents);
         Assert.Equal("TenantAutoApproved", evt.EventType);
         Assert.Equal(TenantId, evt.TenantId);
+    }
+
+    [Fact]
+    public async Task ActivationRaceLost_DropsWithoutOpsEvent()
+    {
+        // Double signup enqueues two envelopes; the conditional whitelist insert lets
+        // exactly one worker win. The loser must not emit a second TenantAutoApproved
+        // ops event (the winner's side effects already ran).
+        _approvalMock.Setup(x => x.ApproveWithSideEffectsAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(false);
+
+        await _sut.HandleAsync(Envelope(), CancellationToken.None);
+
+        Assert.Empty(_savedOpsEvents);
     }
 
     [Fact]

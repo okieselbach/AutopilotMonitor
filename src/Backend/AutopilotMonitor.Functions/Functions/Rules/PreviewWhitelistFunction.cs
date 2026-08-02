@@ -77,10 +77,16 @@ public class PreviewWhitelistFunction
         }
 
         // Whitelist add + auto-promote + welcome email — shared with the auto-approve worker.
-        await _tenantApprovalService.ApproveWithSideEffectsAsync(tenantId, upn!);
+        // False = already activated: idempotent success, but no duplicate mail/promote.
+        var newlyApproved = await _tenantApprovalService.ApproveWithSideEffectsAsync(tenantId, upn!);
 
-        var response = req.CreateResponse(HttpStatusCode.Created);
-        await response.WriteAsJsonAsync(new { message = "Tenant approved for preview", tenantId });
+        var response = req.CreateResponse(newlyApproved ? HttpStatusCode.Created : HttpStatusCode.OK);
+        await response.WriteAsJsonAsync(new
+        {
+            message = newlyApproved ? "Tenant approved for preview" : "Tenant was already approved",
+            tenantId,
+            alreadyApproved = !newlyApproved,
+        });
         return response;
     }
 

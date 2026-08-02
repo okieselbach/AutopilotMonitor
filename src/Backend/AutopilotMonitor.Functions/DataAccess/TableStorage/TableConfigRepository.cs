@@ -226,13 +226,23 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                     ApprovedBy = addedBy
                 };
 
-                await _previewWhitelistTableClient.UpsertEntityAsync(entity);
+                // Conditional INSERT, not upsert: the storage layer arbitrates concurrent
+                // activations (double signup → two auto-approve envelopes), so exactly one
+                // caller sees "newly added" and runs the side effects (welcome mail, ops event).
+                await _previewWhitelistTableClient.AddEntityAsync(entity);
                 return true;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 409)
+            {
+                return false;
             }
             catch (Exception ex)
             {
+                // Throw, don't swallow: activation is the one step that must fail loud —
+                // a false-y return here used to let callers send the welcome mail for a
+                // tenant that was never actually activated.
                 _logger.LogError(ex, "Error adding tenant {TenantId} to preview whitelist", tenantId);
-                return false;
+                throw;
             }
         }
 
