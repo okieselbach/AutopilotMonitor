@@ -9,6 +9,7 @@ import { appHomingErrorMessage } from "@/lib/appHoming";
 import { trackEvent } from "@/lib/appInsights";
 import { TenantAdminSection } from "./TenantAdminSection";
 import { AppHomingConfirmDialog } from "./AppHomingConfirmDialog";
+import { OffboardTenantConfirmDialog } from "./OffboardTenantConfirmDialog";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 
 export interface TenantConfiguration {
@@ -125,6 +126,8 @@ function TenantManagementSectionInner({
   const [savingPlan, setSavingPlan] = useState(false);
   const [homingDialogTarget, setHomingDialogTarget] = useState<"primary" | "legacy" | null>(null);
   const [savingHoming, setSavingHoming] = useState(false);
+  const [offboardDialogOpen, setOffboardDialogOpen] = useState(false);
+  const [offboarding, setOffboarding] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
   const tenantsPerPage = tenantSectionExpanded ? 7 : 3;
 
@@ -306,6 +309,51 @@ function TenantManagementSectionInner({
       setError(err instanceof Error ? err.message : "Failed to switch app registration");
     } finally {
       setSavingHoming(false);
+    }
+  };
+
+  // Offboarding has its OWN path (DELETE tenants/{id}/offboard) — a queued cascade, not part
+  // of the modal's Save. The backend suspends the tenant immediately (Disabled-gate) and
+  // deletes all data after the drain barrier; the endpoint is idempotent on re-click.
+  const handleOffboardTenant = async (tenant: TenantConfiguration) => {
+    if (!canMutate) return; // read-only Global Reader
+    try {
+      setOffboarding(true);
+      setError(null);
+      setSuccessMessage(null);
+
+      const response = await authenticatedFetch(api.tenants.offboard(tenant.tenantId), getAccessToken, {
+        method: "DELETE",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        trackEvent("admin_tenant_offboard_failed", {
+          tenantId: tenant.tenantId,
+          reason: data.error ?? `http-${response.status}`,
+        });
+        throw new Error(data.error || `Failed to offboard tenant: ${response.statusText}`);
+      }
+      trackEvent("admin_tenant_offboarded", {
+        tenantId: tenant.tenantId,
+        status: data.status ?? "unknown",
+      });
+
+      setOffboardDialogOpen(false);
+      setEditingTenant(null);
+      // The tenant now shows as suspended ("Offboarding in progress") until the cascade
+      // removes its row entirely — refresh instead of patching local state.
+      fetchTenants();
+      setSuccessMessage(data.message || `Offboarding queued for tenant ${tenant.tenantId}`);
+      setTimeout(() => setSuccessMessage(null), 8000);
+    } catch (err) {
+      if (err instanceof TokenExpiredError) {
+        console.error("Session expired while offboarding tenant");
+      } else {
+        console.error("Error offboarding tenant:", err);
+      }
+      setError(err instanceof Error ? err.message : "Failed to offboard tenant");
+    } finally {
+      setOffboarding(false);
     }
   };
 
@@ -640,7 +688,12 @@ function TenantManagementSectionInner({
             <div className="p-6 space-y-6">
               {/* Tenant Suspension */}
               <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                <h3 className="font-semibold text-red-900 mb-3">Tenant Suspension</h3>
+                <h3 className="font-semibold text-red-900 mb-1">Tenant Suspension</h3>
+                <p className="text-xs text-gray-600 mb-3">
+                  Blocks sign-in and tenant auto-activation while the tenant&apos;s data stays in
+                  place — this is the durable lock-out lever for abuse cases (offboarding below is
+                  not: it deletes the suspension along with everything else).
+                </p>
                 <div className="space-y-3">
                   <label className="flex items-center space-x-2 cursor-pointer">
                     <input
@@ -971,6 +1024,29 @@ function TenantManagementSectionInner({
                 )}
               </div>
 
+              {/* Danger Zone — offboarding cascade (own path: DELETE tenants/{id}/offboard;
+                  deliberately NOT part of the modal's Save button) */}
+              <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4">
+                <h3 className="font-semibold text-red-900 mb-1">Offboard Tenant</h3>
+                <p className="text-xs text-gray-600 mb-2">
+                  Suspends the tenant immediately and permanently deletes all of its data
+                  (sessions, events, rules, admins, configuration) after a short drain window.
+                  Same cascade as the tenant&apos;s self-service offboarding.
+                </p>
+                <p className="text-xs text-red-700 font-medium mb-3">
+                  Not a ban: the deletion includes the suspension, so once the cascade completes a
+                  new sign-in re-onboards (and auto-activates) the tenant. To lock a tenant out,
+                  suspend it above and leave its data in place.
+                </p>
+                <button
+                  onClick={() => setOffboardDialogOpen(true)}
+                  disabled={!canMutate || offboarding}
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm font-medium"
+                >
+                  Offboard Tenant…
+                </button>
+              </div>
+
             </div>
 
             {/* Modal Actions */}
@@ -999,6 +1075,17 @@ function TenantManagementSectionInner({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Offboarding confirmation (renders above the editor modal) */}
+      {editingTenant && offboardDialogOpen && (
+        <OffboardTenantConfirmDialog
+          tenantLabel={editingTenant.domainName || editingTenant.tenantId}
+          tenantId={editingTenant.tenantId}
+          saving={offboarding}
+          onCancel={() => setOffboardDialogOpen(false)}
+          onConfirm={() => handleOffboardTenant(editingTenant)}
+        />
       )}
 
       {/* App-homing flip confirmation (renders above the editor modal) */}
