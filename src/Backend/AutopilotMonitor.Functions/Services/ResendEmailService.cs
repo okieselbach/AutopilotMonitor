@@ -36,7 +36,7 @@ public class ResendEmailService : IOffboardFarewellEmailSender
     /// Sends the tenant-activation welcome email.
     /// No-op if the API key or recipient email is not configured.
     /// </summary>
-    public async Task SendPreviewApprovedEmailAsync(string toEmail, string domainName)
+    public virtual async Task SendPreviewApprovedEmailAsync(string toEmail, string domainName)
     {
         if (string.IsNullOrWhiteSpace(_apiKey))
         {

@@ -169,8 +169,21 @@ public class PreviewWhitelistFunction
             "Preview notification email updated for tenant {TenantId}: {Email}",
             tenantId, string.IsNullOrEmpty(email) ? "(cleared)" : email);
 
+        // Send-on-save half of the welcome-mail race: with auto-approve, activation
+        // typically finishes before the user has typed this address on the activation
+        // page — the approval path then found no address and deferred to us. Fresh
+        // approval read: a cached "not approved" can be stale for exactly this window.
+        // The sent-marker inside TrySendWelcomeEmailAsync dedupes against the approval
+        // path and against repeated saves.
+        var welcomeEmailSent = false;
+        if (!string.IsNullOrWhiteSpace(email) &&
+            await _previewWhitelistService.IsApprovedFreshAsync(tenantId))
+        {
+            welcomeEmailSent = await _tenantApprovalService.TrySendWelcomeEmailAsync(tenantId);
+        }
+
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Notification email saved", email });
+        await response.WriteAsJsonAsync(new { message = "Notification email saved", email, welcomeEmailSent });
         return response;
     }
 
@@ -209,6 +222,11 @@ public class PreviewWhitelistFunction
 
         var tenantConfig = await _tenantConfigurationService.GetConfigurationAsync(tenantId);
         await _resendEmailService.SendPreviewApprovedEmailAsync(email, tenantConfig.DomainName);
+
+        // Explicit GA send always sends; consume the once-only marker (best-effort) so
+        // the automatic paths won't produce a duplicate afterwards.
+        try { await _previewWhitelistService.TryMarkWelcomeEmailSentAsync(tenantId); }
+        catch { /* best-effort — a failed marker write must not fail the explicit send */ }
 
         var principal = context.GetUser();
         var upn = principal?.GetUserPrincipalName();

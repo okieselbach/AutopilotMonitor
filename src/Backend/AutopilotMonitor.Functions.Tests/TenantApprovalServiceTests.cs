@@ -21,6 +21,7 @@ public class TenantApprovalServiceTests
 
     private readonly Mock<PreviewWhitelistService> _previewMock;
     private readonly Mock<TenantConfigurationService> _tenantConfigMock;
+    private readonly Mock<ResendEmailService> _resendMock;
     private readonly TenantApprovalService _sut;
 
     public TenantApprovalServiceTests()
@@ -36,15 +37,17 @@ public class TenantApprovalServiceTests
             configRepo, cache, NullLogger<PreviewWhitelistService>.Instance, _tenantConfigMock.Object)
         { CallBase = false };
 
+        _resendMock = new Mock<ResendEmailService>(
+            Mock.Of<Microsoft.Extensions.Configuration.IConfiguration>(),
+            NullLogger<ResendEmailService>.Instance);
+
         _sut = new TenantApprovalService(
             NullLogger<TenantApprovalService>.Instance,
             _previewMock.Object,
             _tenantConfigMock.Object,
             new Mock<TenantAdminsService>(
                 Mock.Of<IAdminRepository>(), cache, NullLogger<TenantAdminsService>.Instance).Object,
-            new Mock<ResendEmailService>(
-                Mock.Of<Microsoft.Extensions.Configuration.IConfiguration>(),
-                NullLogger<ResendEmailService>.Instance).Object);
+            _resendMock.Object);
     }
 
     [Fact]
@@ -75,5 +78,79 @@ public class TenantApprovalServiceTests
 
         Assert.True(newlyApproved);
         _previewMock.Verify(x => x.GetNotificationEmailAsync(TenantId), Times.Once);
+    }
+
+    // --- TrySendWelcomeEmailAsync: the once-only send shared by the approval path and the
+    // notification-email save path. Ordering contract under test: the sent-marker must be
+    // consumed strictly AFTER the address check (a marker consumed with no address would
+    // permanently suppress the mail), and a lost marker race must not send.
+
+    [Fact]
+    public async Task TrySendWelcomeEmail_NoAddressYet_DefersWithoutConsumingMarker()
+    {
+        _previewMock.Setup(x => x.GetNotificationEmailAsync(TenantId)).ReturnsAsync((string?)null);
+
+        var sent = await _sut.TrySendWelcomeEmailAsync(TenantId);
+
+        Assert.False(sent);
+        _previewMock.Verify(x => x.TryMarkWelcomeEmailSentAsync(It.IsAny<string>()), Times.Never);
+        _resendMock.Verify(x => x.SendPreviewApprovedEmailAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task TrySendWelcomeEmail_AddressPresent_MarkerWon_SendsOnce()
+    {
+        _previewMock.Setup(x => x.GetNotificationEmailAsync(TenantId)).ReturnsAsync("it@contoso.com");
+        _previewMock.Setup(x => x.TryMarkWelcomeEmailSentAsync(TenantId)).ReturnsAsync(true);
+        var config = TenantConfiguration.CreateDefault(TenantId);
+        config.DomainName = "contoso.com";
+        _tenantConfigMock.Setup(x => x.GetConfigurationAsync(TenantId)).ReturnsAsync(config);
+
+        var sent = await _sut.TrySendWelcomeEmailAsync(TenantId);
+
+        Assert.True(sent);
+        _resendMock.Verify(x => x.SendPreviewApprovedEmailAsync("it@contoso.com", "contoso.com"), Times.Once);
+    }
+
+    [Fact]
+    public async Task TrySendWelcomeEmail_MarkerAlreadyConsumed_DoesNotSend()
+    {
+        _previewMock.Setup(x => x.GetNotificationEmailAsync(TenantId)).ReturnsAsync("it@contoso.com");
+        _previewMock.Setup(x => x.TryMarkWelcomeEmailSentAsync(TenantId)).ReturnsAsync(false);
+
+        var sent = await _sut.TrySendWelcomeEmailAsync(TenantId);
+
+        Assert.False(sent);
+        _resendMock.Verify(x => x.SendPreviewApprovedEmailAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task TrySendWelcomeEmail_MarkerStorageError_ReturnsFalse_WithoutSending()
+    {
+        _previewMock.Setup(x => x.GetNotificationEmailAsync(TenantId)).ReturnsAsync("it@contoso.com");
+        _previewMock.Setup(x => x.TryMarkWelcomeEmailSentAsync(TenantId))
+            .ThrowsAsync(new InvalidOperationException("storage down"));
+
+        var sent = await _sut.TrySendWelcomeEmailAsync(TenantId);
+
+        Assert.False(sent);
+        _resendMock.Verify(x => x.SendPreviewApprovedEmailAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ApproveWithSideEffects_AddressAlreadySaved_SendsWelcomeMail()
+    {
+        // The user saved their notification email BEFORE activation (manual-approve shape):
+        // the approval path itself must send.
+        _previewMock.Setup(x => x.ApproveAsync(TenantId, ApprovedBy)).ReturnsAsync(true);
+        _previewMock.Setup(x => x.GetNotificationEmailAsync(TenantId)).ReturnsAsync("it@contoso.com");
+        _previewMock.Setup(x => x.TryMarkWelcomeEmailSentAsync(TenantId)).ReturnsAsync(true);
+        _tenantConfigMock.Setup(x => x.GetConfigurationAsync(TenantId))
+            .ReturnsAsync(TenantConfiguration.CreateDefault(TenantId));
+
+        var newlyApproved = await _sut.ApproveWithSideEffectsAsync(TenantId, ApprovedBy);
+
+        Assert.True(newlyApproved);
+        _resendMock.Verify(x => x.SendPreviewApprovedEmailAsync("it@contoso.com", It.IsAny<string>()), Times.Once);
     }
 }

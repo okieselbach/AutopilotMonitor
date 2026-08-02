@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-02
+
+* **Creation**: Added `backend/tenant-activation-welcome-mail.md` — triggered by the first production auto-approve (activation at signup+64 s, notification address saved at +69 s → welcome mail silently skipped, since the approval path is the only sender and reads the address once). Fix documented in the doc: the notification-email save path now also triggers the send (`PUT /api/preview/notification-email` → fresh approval check `IsApprovedFreshAsync`, bypassing the 30 s negative cache), and a conditional-insert `welcome-email-sent` marker in `PreviewWhitelist` makes the send once-only across both racing paths (marker consumed strictly after the address check; revoke clears it, offboarding wipes the partition, the GA resend endpoint sends unconditionally and consumes it best-effort).
+
 ## 2026-07-29
 
 * **Update**: `agent/gather-rule-debug-log.md` — three trace enrichments: (1) new `phase` stage writing an enrollment-phase transition marker (`phase change: Old -> New`, ruleId `-`) so every rule-level line reads against the current phase; (2) logparser now writes one line per regex match — line number, matched text, capture groups — capped at 10 per file per run (the per-file summary keeps the full count); (3) the invalid-regex `error` line includes the offending pattern string.

@@ -85,11 +85,38 @@ public class PreviewWhitelistService
     }
 
     /// <summary>
+    /// Fresh, uncached approval check. Used by the notification-email save path to decide
+    /// send-on-save: the 30s negative cache of <see cref="IsApprovedAsync"/> would hide an
+    /// activation for exactly the race window this check exists to close (auto-approve on
+    /// another instance finishing seconds before the user saves their address).
+    /// Fail-closed: false on storage errors — the GA resend button remains the fallback.
+    /// </summary>
+    public virtual async Task<bool> IsApprovedFreshAsync(string tenantId)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId))
+            return false;
+
+        try
+        {
+            return await _configRepo.IsInPreviewWhitelistAsync(tenantId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error checking preview whitelist (fresh) for tenant {TenantId}", tenantId);
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Revokes a tenant's activation.
     /// </summary>
     public async Task RevokeAsync(string tenantId)
     {
         await _configRepo.RemoveFromPreviewWhitelistAsync(tenantId);
+
+        // A re-approve after revoke is a fresh activation and should send a fresh
+        // welcome mail — drop the once-only marker along with the approval.
+        await _configRepo.ClearWelcomeEmailSentMarkerAsync(tenantId);
 
         _cache.Remove($"preview:{tenantId}");
         _logger.LogInformation("Tenant {TenantId} revoked from preview", tenantId);
@@ -117,6 +144,15 @@ public class PreviewWhitelistService
     public virtual async Task<string?> GetNotificationEmailAsync(string tenantId)
     {
         return await _configRepo.GetNotificationEmailAsync(tenantId);
+    }
+
+    /// <summary>
+    /// Consumes the once-per-activation welcome-email marker (conditional insert at the
+    /// storage layer). True = this caller won and may send. Storage errors throw.
+    /// </summary>
+    public virtual async Task<bool> TryMarkWelcomeEmailSentAsync(string tenantId)
+    {
+        return await _configRepo.TryMarkWelcomeEmailSentAsync(tenantId);
     }
 
     /// <summary>

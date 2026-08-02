@@ -61,5 +61,14 @@ namespace AutopilotMonitor.Shared.DataAccess
         // --- Preview Notification Email ---
         Task<string?> GetNotificationEmailAsync(string tenantId);
         Task SaveNotificationEmailAsync(string tenantId, string? email);
+
+        // --- Welcome Email Sent Marker ---
+        /// <summary>
+        /// Conditionally inserts the once-per-activation welcome-email marker. True when this
+        /// call created it (caller may send), false when it already existed. Storage errors throw.
+        /// </summary>
+        Task<bool> TryMarkWelcomeEmailSentAsync(string tenantId);
+        /// <summary>Removes the welcome-email marker (no-op when absent, fail-soft).</summary>
+        Task ClearWelcomeEmailSentMarkerAsync(string tenantId);
     }
 }

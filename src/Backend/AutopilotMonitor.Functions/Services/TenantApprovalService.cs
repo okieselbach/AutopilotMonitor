@@ -90,16 +90,6 @@ public class TenantApprovalService
                     tenantId, tenantConfig.OnboardedBy ?? "<null>", tenantConfig.UpdatedBy ?? "<null>");
             }
 
-            // Fire-and-forget: send welcome email if notification email is configured
-            var notificationEmail = await _previewWhitelistService.GetNotificationEmailAsync(tenantId);
-            if (!string.IsNullOrWhiteSpace(notificationEmail))
-            {
-                _ = _resendEmailService.SendPreviewApprovedEmailAsync(
-                        notificationEmail, tenantConfig.DomainName)
-                    .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
-                        "Fire-and-forget welcome email failed for tenant {TenantId}", tenantId),
-                        TaskContinuationOptions.OnlyOnFaulted);
-            }
         }
         catch (Exception ex)
         {
@@ -109,7 +99,63 @@ public class TenantApprovalService
                 tenantId);
         }
 
+        // Outside the promote try/catch: a promote failure must not swallow the mail.
+        await TrySendWelcomeEmailAsync(tenantId);
+
         return true;
+    }
+
+    /// <summary>
+    /// Sends the activation welcome email exactly once per activation, no matter which
+    /// path gets there first. The address is user-provided on the activation page and is
+    /// the only reliable one (the signup admin UPN may have no mailbox), so activation and
+    /// address entry race — with auto-approve, activation usually wins. Both paths call
+    /// this AFTER their own write (approval writes the whitelist row first; the
+    /// notification-email save writes the address row first): write-then-read on both
+    /// sides guarantees at least one caller sees both halves, and the conditional
+    /// sent-marker insert guarantees at most one sends.
+    /// Best-effort and never throws; false when nothing was sent (no address yet, already
+    /// sent, or storage failure).
+    /// </summary>
+    public virtual async Task<bool> TrySendWelcomeEmailAsync(string tenantId)
+    {
+        try
+        {
+            var notificationEmail = await _previewWhitelistService.GetNotificationEmailAsync(tenantId);
+            if (string.IsNullOrWhiteSpace(notificationEmail))
+            {
+                _logger.LogInformation(
+                    "No notification email for tenant {TenantId} yet — welcome mail deferred to the notification-email save path",
+                    tenantId);
+                return false;
+            }
+
+            // Marker strictly AFTER the address check: consuming it with no address to
+            // send to would permanently suppress the mail.
+            if (!await _previewWhitelistService.TryMarkWelcomeEmailSentAsync(tenantId))
+            {
+                _logger.LogInformation(
+                    "Welcome email already sent for tenant {TenantId} — skipping duplicate", tenantId);
+                return false;
+            }
+
+            var tenantConfig = await _tenantConfigurationService.GetConfigurationAsync(tenantId);
+            _ = _resendEmailService.SendPreviewApprovedEmailAsync(
+                    notificationEmail, tenantConfig.DomainName)
+                .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
+                    "Fire-and-forget welcome email failed for tenant {TenantId}", tenantId),
+                    TaskContinuationOptions.OnlyOnFaulted);
+
+            _logger.LogInformation(
+                "Welcome email dispatched to {Email} for tenant {TenantId}", notificationEmail, tenantId);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // Courtesy side effect — the GA "Send Welcome Email" button is the manual fallback.
+            _logger.LogWarning(ex, "Failed to send welcome email for tenant {TenantId}", tenantId);
+            return false;
+        }
     }
 
     /// <summary>

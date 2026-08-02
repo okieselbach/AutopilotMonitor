@@ -380,6 +380,51 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             await _previewWhitelistTableClient.UpsertEntityAsync(entity);
         }
 
+        // --- Welcome Email Sent Marker ---
+
+        public async Task<bool> TryMarkWelcomeEmailSentAsync(string tenantId)
+        {
+            var entity = new TableEntity(tenantId, "welcome-email-sent")
+            {
+                { "SentAt", DateTime.UtcNow }
+            };
+
+            try
+            {
+                // Conditional INSERT: arbitrates the send race between the approval path and
+                // the notification-email save path — exactly one caller wins and sends.
+                await _previewWhitelistTableClient.AddEntityAsync(entity);
+                return true;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 409)
+            {
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error marking welcome email sent for tenant {TenantId}", tenantId);
+                throw;
+            }
+        }
+
+        public async Task ClearWelcomeEmailSentMarkerAsync(string tenantId)
+        {
+            try
+            {
+                await _previewWhitelistTableClient.DeleteEntityAsync(tenantId, "welcome-email-sent");
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                // already gone
+            }
+            catch (Exception ex)
+            {
+                // Fail-soft like the revoke path itself: a stale marker only suppresses a
+                // courtesy mail on a later re-approve.
+                _logger.LogWarning(ex, "Error clearing welcome email marker for tenant {TenantId}", tenantId);
+            }
+        }
+
         // --- Tenant Configuration Entity Mapping ---
 
         // Internal static (not private): the Store↔Map pair is a serialization CONTRACT — every
