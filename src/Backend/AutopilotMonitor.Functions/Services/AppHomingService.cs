@@ -138,10 +138,15 @@ namespace AutopilotMonitor.Functions.Services
         /// side-effect chain: fresh config re-read (shrinks the read-modify-write window), save,
         /// Graph cache invalidation (token layer first, via the single fresh-read entry point),
         /// audit entry, telemetry, ops event. No-ops when the tenant is already at the target.
+        /// Throws when no configuration row exists: this is a whole-entity read-modify-write, and
+        /// the cached/fail-open reader would let a flip rewind another writer's changes (up to the
+        /// 5-minute TTL) or save a default row over a deleted tenant.
         /// </summary>
         public virtual async Task FlipAsync(string tenantId, string? targetClientId, string actorUpn, string reason, bool forced = false)
         {
-            var config = await _tenantConfigService.GetConfigurationAsync(tenantId);
+            var config = await _tenantConfigService.GetConfigurationFreshAsync(tenantId)
+                ?? throw new InvalidOperationException(
+                    $"App-homing flip aborted for tenant {tenantId} — no tenant configuration row exists");
             var normalizedTarget = EntraAppRegistry.NormalizeClientId(targetClientId);
             var oldValue = config.HomedAppClientId;
             if (string.Equals(oldValue, normalizedTarget, StringComparison.OrdinalIgnoreCase))
