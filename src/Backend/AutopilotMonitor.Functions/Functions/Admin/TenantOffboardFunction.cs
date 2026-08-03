@@ -120,8 +120,7 @@ public class TenantOffboardFunction
         // 2.b — Capture the Preview-Notification-Email before Phase 2.D wipes the
         // PreviewWhitelist table. Stored on the OffboardingHistory row (survives the wipe)
         // and consumed by the post-completion farewell-email side-effect in
-        // TenantOffboardingHandler (currently disarmed by ResendEmailService's
-        // OffboardFarewellEmailArmed gate). Fail-soft: null on lookup failure — the
+        // TenantOffboardingHandler. Fail-soft: null on lookup failure — the
         // farewell email is a courtesy, not a correctness contract.
         var notificationEmail = await CaptureNotificationEmailAsync(normalizedTenantId);
 

@@ -8,12 +8,6 @@ namespace AutopilotMonitor.Functions.Services;
 /// after the History terminal write (Side-effect 6). Always fail-soft — implementations
 /// must NOT throw; the offboarding correctness contract does not depend on email delivery.
 /// </para>
-/// <para>
-/// The send path is gated by a hard-coded boolean inside the implementation
-/// (<c>ResendEmailService.OffboardFarewellEmailArmed</c>). Flipping that constant to
-/// <c>true</c> is the explicit "arm" action — disarmed by design until the final
-/// template + feedback form are signed off.
-/// </para>
 /// </summary>
 public interface IOffboardFarewellEmailSender
 {

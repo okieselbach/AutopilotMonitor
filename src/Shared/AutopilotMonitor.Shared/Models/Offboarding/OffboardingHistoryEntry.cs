@@ -31,8 +31,7 @@ namespace AutopilotMonitor.Shared.Models.Offboarding
         /// Captured once on the initial offboard; resume-path re-clicks do not re-stamp,
         /// so this remains the authoritative pre-wipe value across the whole lifecycle.
         /// Used by the post-completion farewell-email side-effect in
-        /// <c>TenantOffboardingHandler.RunPostDrainPhasesAsync</c> (currently disarmed by
-        /// the <c>OffboardFarewellEmailArmed</c> gate in <c>ResendEmailService</c>).
+        /// <c>TenantOffboardingHandler.RunPostDrainPhasesAsync</c>.
         /// </summary>
         public string? NotificationEmail { get; set; }
 

@@ -1,6 +1,4 @@
 using System.Collections.Generic;
-using System.Linq;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Services;
@@ -11,43 +9,24 @@ using Xunit;
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Gate-coverage for the post-offboarding farewell-email send path. The actual Resend HTTP
-/// call is not exercised here — the const-false arm-flag short-circuits before any client
-/// construction. These tests instead guard the disarmed-by-default contract:
+/// Coverage for the post-offboarding farewell-email send path. The actual Resend HTTP
+/// call is not exercised here — every test drives one of the no-op gates. Pins:
 /// <list type="bullet">
-///   <item>The arm constant defaults to <c>false</c>, so an accidental merge cannot ship
-///         the placeholder template.</item>
-///   <item><see cref="ResendEmailService.SendAsync"/> never throws under disarmed state —
-///         not even when the API key is empty or the recipient is null. The handler's
-///         fail-soft try/catch is a belt; this is the suspenders.</item>
-///   <item>The disarmed code path logs a debug-level "feature disarmed" line so operators
-///         have a positive signal in app insights that "the build is intentionally not
-///         sending farewell emails", as opposed to a silent regression.</item>
+///   <item><see cref="ResendEmailService.SendAsync"/> never throws — not when the API key
+///         is empty and not when the recipient is missing. The handler's fail-soft
+///         try/catch is a belt; this is the suspenders.</item>
+///   <item>Gate ordering: missing-key short-circuits before missing-recipient.</item>
+///   <item>The farewell template is final: no [DRAFT]/placeholder residue, domain is
+///         interpolated, empty domain falls back to "your organization".</item>
 /// </list>
 /// </summary>
 public sealed class ResendEmailServiceTests
 {
     [Fact]
-    public void OffboardFarewellEmailArmed_DefaultsToFalse()
-    {
-        // Guard the disarmed-by-design contract. Flipping this constant to true is the
-        // explicit "scharf schalten" action the user does after finalising the template.
-        // If this test fails, somebody flipped the flag — make sure the template, feedback
-        // form, and unsubscribe story are all signed off before letting the change land.
-        var field = typeof(ResendEmailService).GetField(
-            "OffboardFarewellEmailArmed",
-            BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(field);
-        var armed = (bool)field!.GetRawConstantValue()!;
-        Assert.False(armed,
-            "OffboardFarewellEmailArmed must default to false until the offboarding farewell template + feedback-form story is signed off.");
-    }
-
-    [Fact]
-    public async Task SendAsync_Disarmed_DoesNotThrow_AndLogsDisarmedDebugLine()
+    public async Task SendAsync_EmptyApiKey_NoOps_AndLogsMissingKeyDebugLine()
     {
         var logger = new CapturingLogger<ResendEmailService>();
-        var sut = Build(apiKey: "any-non-empty-key", logger);
+        var sut = Build(apiKey: "", logger);
 
         await sut.SendAsync(
             toEmail: "ops@contoso.invalid",
@@ -56,31 +35,11 @@ public sealed class ResendEmailServiceTests
             ct: CancellationToken.None);
 
         Assert.Contains(logger.Entries,
-            e => e.Level == LogLevel.Debug && e.Message.Contains("OffboardFarewellEmail disarmed"));
+            e => e.Level == LogLevel.Debug && e.Message.Contains("RESEND_API_KEY not configured"));
     }
 
     [Fact]
-    public async Task SendAsync_Disarmed_EmptyApiKey_StillNoOps()
-    {
-        // Even with no API key configured the disarmed early-return fires FIRST — so the
-        // missing-key debug line must NOT show up; only the disarmed line does. This pins
-        // the gate ordering: disarmed > missing-key > missing-email.
-        var logger = new CapturingLogger<ResendEmailService>();
-        var sut = Build(apiKey: "", logger);
-
-        await sut.SendAsync(
-            toEmail: "ops@contoso.invalid",
-            domainName: "contoso.invalid",
-            tenantId: "88888888-8888-8888-8888-888888888888");
-
-        Assert.Contains(logger.Entries,
-            e => e.Level == LogLevel.Debug && e.Message.Contains("OffboardFarewellEmail disarmed"));
-        Assert.DoesNotContain(logger.Entries,
-            e => e.Message.Contains("RESEND_API_KEY not configured"));
-    }
-
-    [Fact]
-    public async Task SendAsync_Disarmed_EmptyRecipient_StillNoOps()
+    public async Task SendAsync_EmptyRecipient_NoOps_AndLogsMissingEmailDebugLine()
     {
         var logger = new CapturingLogger<ResendEmailService>();
         var sut = Build(apiKey: "any-non-empty-key", logger);
@@ -91,9 +50,56 @@ public sealed class ResendEmailServiceTests
             tenantId: "88888888-8888-8888-8888-888888888888");
 
         Assert.Contains(logger.Entries,
-            e => e.Level == LogLevel.Debug && e.Message.Contains("OffboardFarewellEmail disarmed"));
+            e => e.Level == LogLevel.Debug && e.Message.Contains("No notification email captured"));
+    }
+
+    [Fact]
+    public async Task SendAsync_EmptyApiKey_ShortCircuitsBeforeRecipientCheck()
+    {
+        // Pins the gate ordering: missing-key > missing-email. Both are empty here; only
+        // the key line must show up.
+        var logger = new CapturingLogger<ResendEmailService>();
+        var sut = Build(apiKey: "", logger);
+
+        await sut.SendAsync(
+            toEmail: "",
+            domainName: "contoso.invalid",
+            tenantId: "88888888-8888-8888-8888-888888888888");
+
+        Assert.Contains(logger.Entries,
+            e => e.Level == LogLevel.Debug && e.Message.Contains("RESEND_API_KEY not configured"));
         Assert.DoesNotContain(logger.Entries,
             e => e.Message.Contains("No notification email captured"));
+    }
+
+    [Fact]
+    public void FarewellTemplate_IsFinal_NoDraftResidue()
+    {
+        Assert.DoesNotContain("DRAFT", EmailTemplates.OffboardingFarewellSubject);
+
+        var html = EmailTemplates.GetOffboardingFarewellHtml("contoso.invalid");
+        Assert.DoesNotContain("DRAFT", html);
+        Assert.DoesNotContain("TEMPLATE NOT FINALISED", html);
+        Assert.DoesNotContain("TODO", html);
+    }
+
+    [Fact]
+    public void FarewellTemplate_InterpolatesDomain_AndLinksFeedbackChannels()
+    {
+        var html = EmailTemplates.GetOffboardingFarewellHtml("contoso.invalid");
+
+        Assert.Contains("contoso.invalid", html);
+        // The mail is sent from a noreply address after portal access is gone, so the
+        // feedback pointers must be external channels the recipient can actually reach.
+        Assert.Contains("https://github.com/okieselbach/AutopilotMonitor/issues", html);
+        Assert.Contains("linkedin.com", html);
+    }
+
+    [Fact]
+    public void FarewellTemplate_EmptyDomain_FallsBackToGenericLabel()
+    {
+        var html = EmailTemplates.GetOffboardingFarewellHtml("");
+        Assert.Contains("your organization", html);
     }
 
     private static ResendEmailService Build(string apiKey, ILogger<ResendEmailService> logger)

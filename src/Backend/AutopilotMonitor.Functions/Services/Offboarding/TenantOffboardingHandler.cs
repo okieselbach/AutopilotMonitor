@@ -699,11 +699,10 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             await _auditRepo.UpsertHistoryAsync(history, ct);
 
             // Side-effect 6: post-completion farewell email to the captured Preview-Notification-
-            // Email. Disarmed by default via ResendEmailService.OffboardFarewellEmailArmed —
-            // template + feedback-form copy still TBD. Fail-soft: any sender exception MUST NOT
-            // propagate, the offboarding correctness contract is independent of email delivery
-            // and the History row is already Completed. Skips silently when no email was
-            // captured at Phase 1 (tenant never set a preview notification address).
+            // Email. Fail-soft: any sender exception MUST NOT propagate, the offboarding
+            // correctness contract is independent of email delivery and the History row is
+            // already Completed. Skips silently when no email was captured at Phase 1
+            // (tenant never set a preview notification address).
             if (!string.IsNullOrWhiteSpace(history.NotificationEmail))
             {
                 try
