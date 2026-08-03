@@ -9,11 +9,14 @@ import type { DocsSearchBundle } from './search-provider.js';
  * Registers the tool catalog for a single request, tailored to the caller's role.
  *
  * `ga` here means platform SCOPE (Global Admin OR read-only Global Reader) — the broad gate for
- * cross-tenant read tools. `strictGa` is true ONLY for a real Global Admin and gates the few raw
- * tools whose backend endpoints stay GlobalAdminOnly (list_tables / query_table / query_backend_logs)
- * because they can dump secret-bearing tables that the GlobalReader config redaction would otherwise
- * hide. When `ga` is false (normal tenant user) no platform tool is registered at all — they never
- * appear in tools/list — and the remaining tools' descriptions carry no cross-tenant wording.
+ * cross-tenant read tools. `strictGa` is true ONLY for a real Global Admin and gates two groups whose
+ * backend endpoints stay GlobalAdminOnly: the raw tools (list_tables / query_table /
+ * query_backend_logs — they can dump secret-bearing tables that the GlobalReader config redaction
+ * would otherwise hide) and the tenant-config write surface (get_tenant_config /
+ * update_tenant_config / list_tenant_config_backups / revert_tenant_config — the server's only
+ * mutating tools; every write is snapshot-backed and verified server-side). When `ga` is false
+ * (normal tenant user) no platform tool is registered at all — they never appear in tools/list —
+ * and the remaining tools' descriptions carry no cross-tenant wording.
  *
  * `delegated` marks a delegated (scoped-global / MSP) caller — one with NO platform role (so `ga` is
  * false) but a non-empty managed tenant set. Such a caller routes cross-tenant (to /api/global/*) but is
