@@ -576,13 +576,18 @@ function TenantManagementSectionInner({
                                   Suspended
                                 </span>
                               )}
-                              {previewApproved.has(tenant.tenantId) ? (
-                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                  Preview
-                                </span>
-                              ) : (
+                              {!previewApproved.has(tenant.tenantId) && (
                                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
                                   Waitlist
+                                </span>
+                              )}
+                              {tenant.planTier === "pro" || tenant.planTier === "enterprise" ? (
+                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                  Pro
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                  Community
                                 </span>
                               )}
                               {tenant.validateAutopilotDevice && (
