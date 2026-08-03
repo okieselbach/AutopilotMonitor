@@ -6,6 +6,9 @@ interface OffboardTenantConfirmDialogProps {
   tenantLabel: string;
   tenantId: string;
   saving: boolean;
+  /** Failure of the offboard DELETE — rendered inside the dialog; a page-level
+   *  banner would sit behind this overlay (z-[60]) and never be seen. */
+  error: string | null;
   onCancel: () => void;
   onConfirm: () => void;
 }
@@ -20,6 +23,7 @@ export function OffboardTenantConfirmDialog({
   tenantLabel,
   tenantId,
   saving,
+  error,
   onCancel,
   onConfirm,
 }: OffboardTenantConfirmDialogProps) {
@@ -61,6 +65,11 @@ export function OffboardTenantConfirmDialog({
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-red-500 focus:border-red-500"
             />
           </div>
+          {error && (
+            <div role="alert" className="bg-red-100 border border-red-300 rounded-lg p-3 text-red-800">
+              <strong>Offboarding failed:</strong>{" "}{error}
+            </div>
+          )}
         </div>
 
         <div className="bg-gray-50 px-5 py-4 border-t border-gray-200 rounded-b-lg flex justify-end space-x-3">

@@ -7,6 +7,9 @@ interface AppHomingConfirmDialogProps {
   target: "primary" | "legacy";
   entraAppRolesEnabled: boolean;
   saving: boolean;
+  /** Failure of the homing POST — rendered inside the dialog; a page-level
+   *  banner would sit behind this overlay (z-[60]) and never be seen. */
+  error: string | null;
   onCancel: () => void;
   onConfirm: (force: boolean) => void;
 }
@@ -21,6 +24,7 @@ export function AppHomingConfirmDialog({
   target,
   entraAppRolesEnabled,
   saving,
+  error,
   onCancel,
   onConfirm,
 }: AppHomingConfirmDialogProps) {
@@ -73,6 +77,11 @@ export function AppHomingConfirmDialog({
               </span>
             </span>
           </label>
+          {error && (
+            <div role="alert" className="bg-red-100 border border-red-300 rounded-lg p-3 text-red-800">
+              <strong>Switch failed:</strong>{" "}{error}
+            </div>
+          )}
         </div>
 
         <div className="bg-gray-50 px-5 py-4 border-t border-gray-200 rounded-b-lg flex justify-end space-x-3">

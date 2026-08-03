@@ -126,8 +126,13 @@ function TenantManagementSectionInner({
   const [savingPlan, setSavingPlan] = useState(false);
   const [homingDialogTarget, setHomingDialogTarget] = useState<"primary" | "legacy" | null>(null);
   const [savingHoming, setSavingHoming] = useState(false);
+  // Failures of the homing/offboard calls go into these instead of the page-level
+  // error banner — that banner sits behind the editor modal (z-50) and the confirm
+  // dialogs (z-[60]), so the user would never see the feedback.
+  const [homingError, setHomingError] = useState<string | null>(null);
   const [offboardDialogOpen, setOffboardDialogOpen] = useState(false);
   const [offboarding, setOffboarding] = useState(false);
+  const [offboardError, setOffboardError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const tenantsPerPage = tenantSectionExpanded ? 7 : 3;
 
@@ -262,7 +267,7 @@ function TenantManagementSectionInner({
     if (!canMutate) return; // read-only Global Reader
     try {
       setSavingHoming(true);
-      setError(null);
+      setHomingError(null);
       setSuccessMessage(null);
 
       const response = await authenticatedFetch(api.config.appHoming(tenant.tenantId), getAccessToken, {
@@ -306,7 +311,7 @@ function TenantManagementSectionInner({
       if (err instanceof TokenExpiredError) {
         console.error("Session expired while switching app homing");
       }
-      setError(err instanceof Error ? err.message : "Failed to switch app registration");
+      setHomingError(err instanceof Error ? err.message : "Failed to switch app registration");
     } finally {
       setSavingHoming(false);
     }
@@ -319,7 +324,7 @@ function TenantManagementSectionInner({
     if (!canMutate) return; // read-only Global Reader
     try {
       setOffboarding(true);
-      setError(null);
+      setOffboardError(null);
       setSuccessMessage(null);
 
       const response = await authenticatedFetch(api.tenants.offboard(tenant.tenantId), getAccessToken, {
@@ -351,7 +356,7 @@ function TenantManagementSectionInner({
       } else {
         console.error("Error offboarding tenant:", err);
       }
-      setError(err instanceof Error ? err.message : "Failed to offboard tenant");
+      setOffboardError(err instanceof Error ? err.message : "Failed to offboard tenant");
     } finally {
       setOffboarding(false);
     }
@@ -867,7 +872,7 @@ function TenantManagementSectionInner({
                     <div className="flex justify-end">
                       {classifyClientId(editingTenant.homedAppClientId) === "primary" ? (
                         <button
-                          onClick={() => setHomingDialogTarget("legacy")}
+                          onClick={() => { setHomingError(null); setHomingDialogTarget("legacy"); }}
                           disabled={!canMutate || savingHoming}
                           className="px-3 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
@@ -875,7 +880,7 @@ function TenantManagementSectionInner({
                         </button>
                       ) : (
                         <button
-                          onClick={() => setHomingDialogTarget("primary")}
+                          onClick={() => { setHomingError(null); setHomingDialogTarget("primary"); }}
                           disabled={!canMutate || savingHoming}
                           className="px-3 py-2 text-sm font-medium text-white bg-sky-600 rounded-lg hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
@@ -1047,7 +1052,7 @@ function TenantManagementSectionInner({
                   suspend it above and leave its data in place.
                 </p>
                 <button
-                  onClick={() => setOffboardDialogOpen(true)}
+                  onClick={() => { setOffboardError(null); setOffboardDialogOpen(true); }}
                   disabled={!canMutate || offboarding}
                   className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm font-medium"
                 >
@@ -1091,6 +1096,7 @@ function TenantManagementSectionInner({
           tenantLabel={editingTenant.domainName || editingTenant.tenantId}
           tenantId={editingTenant.tenantId}
           saving={offboarding}
+          error={offboardError}
           onCancel={() => setOffboardDialogOpen(false)}
           onConfirm={() => handleOffboardTenant(editingTenant)}
         />
@@ -1103,6 +1109,7 @@ function TenantManagementSectionInner({
           target={homingDialogTarget}
           entraAppRolesEnabled={editingTenant.entraAppRolesEnabled ?? false}
           saving={savingHoming}
+          error={homingError}
           onCancel={() => setHomingDialogTarget(null)}
           onConfirm={(force) => handleFlipHoming(editingTenant, homingDialogTarget, force)}
         />
