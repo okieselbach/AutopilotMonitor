@@ -1079,11 +1079,37 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
   );
 
   if (strictGa) server.registerTool(
+    'get_tenant_config_schema',
+    {
+      title: 'Get Tenant Config Field Schema',
+      description:
+        'Field schema of the tenant configuration for update_tenant_config: every field\'s exact name (camelCase), ' +
+        'JSON type (string/boolean/integer/number), nullability (nullable ⇒ an explicit JSON null clears it), ' +
+        'format hints ("json" = a JSON document passed AS A STRING, "date-time" = ISO 8601 string), whether it is ' +
+        'writable (with the reason when not), and which fields a revert preserves by default. Tenant-independent — ' +
+        'call it ONCE before composing an update_tenant_config patch so field names and value types are right on ' +
+        'the first attempt. Generated server-side from the live model; never guess types instead of calling this.',
+      inputSchema: {},
+      annotations: READ_ONLY,
+    },
+    async (args) => withToolTelemetry('get_tenant_config_schema', async () => {
+      try {
+        const data = await apiFetch('/api/config/fields-schema');
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
+      } catch (error: unknown) {
+        return toolError('get_tenant_config_schema', args, error);
+      }
+    })
+  );
+
+  if (strictGa) server.registerTool(
     'update_tenant_config',
     {
       title: 'Update Tenant Configuration',
       description:
         'Change specific fields of a tenant\'s configuration — transactional and verified. Global Admin only. ' +
+        'Unsure about a field\'s exact name, type, or writability? Call get_tenant_config_schema FIRST — it lists ' +
+        'every field with its JSON type, so the patch is right on the first attempt. ' +
         'Pass ONLY the fields to change (camelCase or PascalCase); omitted fields stay untouched; an explicit JSON ' +
         'null clears a nullable field. The backend snapshots the row first (fail-closed), writes conditionally, ' +
         're-reads, and verifies that exactly the intended fields changed — on any drift it rolls back automatically. ' +

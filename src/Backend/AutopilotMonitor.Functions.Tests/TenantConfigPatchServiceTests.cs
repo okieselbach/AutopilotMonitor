@@ -544,6 +544,68 @@ public class TenantConfigPatchServiceTests
         Assert.Equal(95m, rehydrated.SlaTargetSuccessRate);
     }
 
+    // ── Fields schema (MCP steering surface) ────────────────────────────────
+
+    [Fact]
+    public void FieldsSchema_CoversEveryModelProperty_ExactlyOnce()
+    {
+        // Drift canary: the schema is reflection-generated, so this pins that EVERY writable
+        // model property surfaces exactly once under its camelCase name — a new config field
+        // is automatically schema-visible, and a rename cannot leave a stale entry.
+        var schema = TenantConfigPatchService.BuildFieldsSchema();
+        var expected = typeof(TenantConfiguration).GetProperties()
+            .Where(p => p.CanWrite && p.GetIndexParameters().Length == 0)
+            .Select(p => char.ToLowerInvariant(p.Name[0]) + p.Name.Substring(1))
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(expected, schema.Select(f => f.Name).ToList());
+        Assert.Equal(schema.Count, schema.Select(f => f.Name).Distinct().Count());
+    }
+
+    [Fact]
+    public void FieldsSchema_DeniedFields_MatchThePatchDenyList()
+    {
+        var schema = TenantConfigPatchService.BuildFieldsSchema()
+            .ToDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var denied in TenantConfigPatchService.BaseDeniedFields
+                     .Where(n => n is not ("PartitionKey" or "RowKey" or "Timestamp" or "ETag")))
+        {
+            Assert.False(schema[denied].Writable, $"{denied} must be marked non-writable");
+            Assert.False(string.IsNullOrWhiteSpace(schema[denied].Reason), $"{denied} needs a deny reason");
+        }
+        foreach (var gaOnly in TenantConfigPatchService.GaOnlyFields)
+        {
+            Assert.True(schema[gaOnly].Writable, $"{gaOnly} is writable for GA");
+            Assert.True(schema[gaOnly].GaOnly, $"{gaOnly} must carry the GA-only marker");
+        }
+        foreach (var protectedField in TenantConfigPatchService.RevertProtectedFields)
+        {
+            Assert.True(schema[protectedField].RevertProtected, $"{protectedField} must carry the revert-protected marker");
+        }
+    }
+
+    [Fact]
+    public void FieldsSchema_TypeExemplars_AreCorrect()
+    {
+        var schema = TenantConfigPatchService.BuildFieldsSchema()
+            .ToDictionary(f => f.Name, StringComparer.Ordinal);
+
+        Assert.Equal(("integer", false, true), (schema["dataRetentionDays"].Type, schema["dataRetentionDays"].Nullable, schema["dataRetentionDays"].Writable));
+        // The prod-finding column class: decimal? → JSON "number", nullable.
+        Assert.Equal(("number", true), (schema["slaTargetSuccessRate"].Type, schema["slaTargetSuccessRate"].Nullable));
+        Assert.Equal(("boolean", true), (schema["disabled"].Type, schema["disabled"].GaOnly));
+        Assert.Equal(("string", true), (schema["contactEmail"].Type, schema["contactEmail"].Nullable));
+        Assert.Equal("json", schema["notificationChannelsJson"].Format);
+        Assert.Equal("date-time", schema["trialExpiresUtc"].Format);
+        Assert.False(schema["planTier"].Writable);
+        Assert.Contains("plan/trial", schema["planTier"].Reason);
+        Assert.False(schema["lastUpdated"].Writable);
+        Assert.False(schema["homedAppClientId"].Writable);
+        Assert.True(schema["homedAppClientId"].RevertProtected);
+    }
+
     [Fact]
     public void RehydrateEntity_DateLookingStringField_StaysString()
     {

@@ -129,6 +129,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'get_session_summary',
     'get_software_inventory',
     'get_tenant_config',
+    'get_tenant_config_schema',
     // Available to every role: backed by MemberRead endpoints (tenant) with role-aware
     // routing to the GlobalReadOrAdmin variant — same placement as get_app_install_metrics.
     'get_time_attribution',
@@ -164,6 +165,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
   // operational config is a GA surface; Readers use list_tenants' keep-list view).
   const CONFIG_WRITE_GA_STRICT = [
     'get_tenant_config',
+    'get_tenant_config_schema',
     'list_tenant_config_backups',
     'revert_tenant_config',
     'update_tenant_config',
@@ -178,6 +180,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'get_ops_events',
     'get_platform_metrics',
     'get_tenant_config',
+    'get_tenant_config_schema',
     'list_blocked_devices',
     'list_session_reports',
     'list_tables',

@@ -238,8 +238,9 @@ function buildInstructions(ga: boolean, strictGa: boolean, delegated: boolean, m
   const headline = strictGa
     ? 'Autopilot-Monitor is a telemetry server for Windows Autopilot enrollment sessions. All investigation ' +
       'tools are read-only; as a Global Admin you additionally have tenant-configuration write tools ' +
-      '(update_tenant_config, revert_tenant_config). Every config write is snapshotted first and verified ' +
-      'after — use list_tenant_config_backups + revert_tenant_config to roll back.'
+      '(update_tenant_config, revert_tenant_config). Call get_tenant_config_schema before composing a patch — ' +
+      'it lists every field with its exact name and JSON type. Every config write is snapshotted first and ' +
+      'verified after — use list_tenant_config_backups + revert_tenant_config to roll back.'
     : 'Autopilot-Monitor is a READ-ONLY telemetry server for Windows Autopilot enrollment sessions.';
   return [
     headline,

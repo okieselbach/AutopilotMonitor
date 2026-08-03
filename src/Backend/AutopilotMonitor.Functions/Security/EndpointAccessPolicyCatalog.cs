@@ -398,6 +398,10 @@ public static class EndpointAccessPolicyCatalog
         new("PATCH",  "config/{tenantId}/fields",  EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
         new("GET",    "config/{tenantId}/backups", EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
         new("POST",   "config/{tenantId}/revert",  EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
+        // Field schema for the write surface above: tenant-independent reflection over the model
+        // + deny-lists (no tenant data), but GA-only to match the surface it describes. Literal
+        // route — FindPolicy and ASP.NET routing both prefer it over config/{tenantId}.
+        new("GET",    "config/fields-schema",      EndpointPolicy.GlobalAdminOnly),
         new("GET",    "auth/global-admins",        EndpointPolicy.GlobalReadOrAdmin),
         new("POST",   "auth/global-admins",        EndpointPolicy.GlobalAdminOnly),
         new("DELETE", "auth/global-admins/{upn}",  EndpointPolicy.GlobalAdminOnly),

@@ -38,7 +38,7 @@ describe('config-write tool registration', () => {
     const readerHandlers = captureToolHandlers(true, false);
     const tenantHandlers = captureToolHandlers(false, false);
     for (const name of [
-      'get_tenant_config', 'update_tenant_config',
+      'get_tenant_config', 'get_tenant_config_schema', 'update_tenant_config',
       'list_tenant_config_backups', 'revert_tenant_config',
     ]) {
       expect(gaHandlers, `${name} missing for GA`).toHaveProperty(name);
@@ -58,6 +58,18 @@ describe('get_tenant_config — forced redaction pin', () => {
     expect(apiFetchMock).toHaveBeenCalledTimes(1);
     const path = apiFetchMock.mock.calls[0][0] as string;
     expect(path).toBe(`/api/config/${TENANT}?view=redacted`);
+  });
+});
+
+describe('get_tenant_config_schema — request shape', () => {
+  beforeEach(() => apiFetchMock.mockReset());
+
+  it('GETs the tenant-independent fields-schema endpoint', async () => {
+    apiFetchMock.mockResolvedValueOnce({ count: 90, fields: [] });
+    await captureToolHandlers(true, true).get_tenant_config_schema({});
+
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+    expect(apiFetchMock.mock.calls[0][0]).toBe('/api/config/fields-schema');
   });
 });
 
