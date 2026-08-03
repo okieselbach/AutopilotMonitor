@@ -390,6 +390,14 @@ public static class EndpointAccessPolicyCatalog
         new("PUT",    "global/config",             EndpointPolicy.GlobalAdminOnly),
         new("POST",   "global/config",             EndpointPolicy.GlobalAdminOnly),
         new("GET",    "config/all",                EndpointPolicy.GlobalReadOrDelegatedSubset),
+        // Transactional field-level config writes + snapshot list/revert (MCP-first surface).
+        // GlobalAdminOnly for now; phase 2 widens these three lines to TenantAdminOrGA (own row)
+        // and a delegated-admin write policy — the service's caller-tier field deny-lists and
+        // TenantScoping.RouteParam already carry the per-tenant guardrail. The backups GET is
+        // metadata-only (masked diff, never the raw EntityJson snapshot).
+        new("PATCH",  "config/{tenantId}/fields",  EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
+        new("GET",    "config/{tenantId}/backups", EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
+        new("POST",   "config/{tenantId}/revert",  EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
         new("GET",    "auth/global-admins",        EndpointPolicy.GlobalReadOrAdmin),
         new("POST",   "auth/global-admins",        EndpointPolicy.GlobalAdminOnly),
         new("DELETE", "auth/global-admins/{upn}",  EndpointPolicy.GlobalAdminOnly),

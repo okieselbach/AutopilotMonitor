@@ -605,6 +605,56 @@ public class PolicyEnforcementMiddlewareTests
         Assert.True(result.Allowed);
     }
 
+    // ── Transactional config patch / backups / revert — GlobalAdminOnly (phase 1) ──
+
+    [Fact]
+    public async Task ConfigFieldPatchRoutes_GlobalAdmin_IsAllowed()
+    {
+        const string upn = "ga@vendor.example";
+        var h = BuildHarness();
+        h.AsGlobalRole(Constants.GlobalRoles.GlobalAdmin);
+
+        foreach (var (method, path) in new[]
+        {
+            ("PATCH", $"/api/config/{TenantB}/fields"),
+            ("GET", $"/api/config/{TenantB}/backups"),
+            ("POST", $"/api/config/{TenantB}/revert"),
+        })
+        {
+            var result = await h.Middleware.DecideAsync(method, path, null, AuthedPrincipal(TenantA, upn));
+            Assert.True(result.Allowed, $"{method} {path} must admit a Global Admin");
+        }
+    }
+
+    [Fact]
+    public async Task ConfigFieldPatchRoutes_TenantAdmin_GlobalReader_Delegated_AreForbidden()
+    {
+        // Phase 1 is deliberately GA-only — even the tenant's OWN admin is denied until the
+        // phase-2 flip to TenantAdminOrGA (+ the caller-tier field deny-list in the service).
+        foreach (var (method, path) in new[]
+        {
+            ("PATCH", $"/api/config/{TenantA}/fields"),
+            ("GET", $"/api/config/{TenantA}/backups"),
+            ("POST", $"/api/config/{TenantA}/revert"),
+        })
+        {
+            var ownAdmin = BuildHarness();
+            ownAdmin.AsTenantAdmin(TenantA, "admin@contoso.com");
+            var adminResult = await ownAdmin.Middleware.DecideAsync(method, path, null, AuthedPrincipal(TenantA, "admin@contoso.com"));
+            Assert.False(adminResult.Allowed, $"{method} {path} must deny a tenant admin in phase 1");
+
+            var reader = BuildHarness();
+            reader.AsGlobalRole(Constants.GlobalRoles.GlobalReader);
+            var readerResult = await reader.Middleware.DecideAsync(method, path, null, AuthedPrincipal(TenantB, "reader@vendor.example"));
+            Assert.False(readerResult.Allowed, $"{method} {path} must deny a read-only Global Reader");
+
+            var delegated = BuildHarness();
+            delegated.AsDelegated(TenantA, Constants.DelegatedRoles.DelegatedAdmin);
+            var delegatedResult = await delegated.Middleware.DecideAsync(method, path, null, AuthedPrincipal(TenantB, "msp@partner.example"));
+            Assert.False(delegatedResult.Allowed, $"{method} {path} must deny a delegated (MSP) admin in phase 1");
+        }
+    }
+
     [Fact]
     public async Task Delegated_OwnHomeTenant_NonMember_IsStillForbidden()
     {

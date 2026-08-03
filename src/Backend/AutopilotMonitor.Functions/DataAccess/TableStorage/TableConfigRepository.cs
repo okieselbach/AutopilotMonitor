@@ -102,6 +102,38 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
         }
 
+        public async Task<(TenantConfiguration Config, string ETag)?> GetTenantConfigurationWithEtagAsync(string tenantId)
+        {
+            try
+            {
+                var entity = await _tenantConfigTableClient.GetEntityAsync<TableEntity>(tenantId, "config");
+                return (ConvertFromTenantTableEntity(entity.Value), entity.Value.ETag.ToString());
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                return null;
+            }
+            // Everything else throws (fail-loud): the transactional caller must never treat a
+            // storage outage as "no row".
+        }
+
+        public async Task<bool> TryReplaceTenantConfigurationAsync(TenantConfiguration config, string etag)
+        {
+            var entity = ConvertToTenantTableEntity(config);
+            try
+            {
+                await _tenantConfigTableClient.UpdateEntityAsync(entity, new ETag(etag), TableUpdateMode.Replace);
+                return true;
+            }
+            catch (RequestFailedException ex) when (ex.Status is 412 or 404)
+            {
+                // 412: lost the CAS race — caller re-reads and retries (bounded).
+                // 404: the row was deleted since the read (offboarding) — the retry's
+                //      re-read surfaces that as "no configuration row".
+                return false;
+            }
+        }
+
         /// <summary>
         /// Pre-write snapshot hook shared by the tenant- and admin-config save paths.
         /// Fail-SOFT by design: this is a safety net around long-standing writers
