@@ -627,6 +627,37 @@ public class PolicyEnforcementMiddlewareTests
     }
 
     [Fact]
+    public void ConfigFieldsSchema_LiteralRoute_WinsOverTenantIdTemplate()
+    {
+        // "fields-schema" must never be swallowed as a {tenantId} of the MemberRead config GET —
+        // FindPolicy's literal-over-template precedence is what this feature's route relies on
+        // (same mechanism as config/all).
+        var entry = EndpointAccessPolicyCatalog.FindPolicy("GET", "/api/config/fields-schema");
+        Assert.NotNull(entry);
+        Assert.Equal("config/fields-schema", entry!.RouteTemplate);
+        Assert.Equal(EndpointPolicy.GlobalAdminOnly, entry.Policy);
+    }
+
+    [Fact]
+    public async Task ConfigFieldsSchema_GlobalAdminAllowed_ReaderAndTenantAdminForbidden()
+    {
+        var ga = BuildHarness();
+        ga.AsGlobalRole(Constants.GlobalRoles.GlobalAdmin);
+        Assert.True((await ga.Middleware.DecideAsync(
+            "GET", "/api/config/fields-schema", null, AuthedPrincipal(TenantA, "ga@vendor.example"))).Allowed);
+
+        var reader = BuildHarness();
+        reader.AsGlobalRole(Constants.GlobalRoles.GlobalReader);
+        Assert.False((await reader.Middleware.DecideAsync(
+            "GET", "/api/config/fields-schema", null, AuthedPrincipal(TenantA, "reader@vendor.example"))).Allowed);
+
+        var tenantAdmin = BuildHarness();
+        tenantAdmin.AsTenantAdmin(TenantA, "admin@contoso.com");
+        Assert.False((await tenantAdmin.Middleware.DecideAsync(
+            "GET", "/api/config/fields-schema", null, AuthedPrincipal(TenantA, "admin@contoso.com"))).Allowed);
+    }
+
+    [Fact]
     public async Task ConfigFieldPatchRoutes_TenantAdmin_GlobalReader_Delegated_AreForbidden()
     {
         // Phase 1 is deliberately GA-only — even the tenant's OWN admin is denied until the
