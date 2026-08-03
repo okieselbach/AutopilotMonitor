@@ -483,18 +483,29 @@ public class SessionDeletionWorkerTests
         };
         harness.EnqueueMessage(JsonConvert.SerializeObject(envelope), dequeueCount: 1);
 
-        // Handler hangs for 350ms so the heartbeat task ticks at least 5×.
+        // De-flake (CI: a fixed 350ms handler window raced the 50ms heartbeat timer on loaded
+        // runners — the handler could finish before 3 heartbeats fired, after which the awaited
+        // condition can never become true). Instead the handler holds the message in-flight
+        // UNTIL the heartbeats have been observed: the heartbeat task ticks for as long as the
+        // handler runs, so the condition is reached deterministically regardless of scheduler
+        // jitter. A genuinely broken heartbeat leaves the loop to the worker's cancellation at
+        // RunUntilAsync's ceiling, and the Times.AtLeast(3) below fails as intended.
         harness.HandlerMock.Setup(h => h.HandleAsync(
                 It.IsAny<SessionDeletionEnvelope>(), It.IsAny<CancellationToken>()))
             .Returns(async (SessionDeletionEnvelope _, CancellationToken ct) =>
             {
-                await Task.Delay(TimeSpan.FromMilliseconds(350), ct);
+                // Own deadline besides ct: if the heartbeat were broken AND shutdown never
+                // cancelled the handler token, the test must still terminate (and then fail
+                // on the verify) instead of hanging in StopAsync.
+                var handlerDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
+                while (!ct.IsCancellationRequested && harness.HeartbeatCount() < 3 && DateTime.UtcNow < handlerDeadline)
+                    await Task.Delay(10, CancellationToken.None);
             });
 
         await harness.RunUntilAsync(() => harness.HeartbeatCount() >= 3);
 
-        // Heartbeat called at least 3× while the handler was busy (350ms / 50ms ≈ 7, minus a few
-        // due to scheduling jitter). One call is enough to prove the heartbeat task is wired.
+        // Heartbeat fired at least 3× while the handler was busy — proves the heartbeat task
+        // is wired and keeps extending visibility for the whole duration of a long handler run.
         harness.MainQueue.Verify(q => q.UpdateMessageAsync(
             It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()),

@@ -192,4 +192,37 @@ public class ConfigRedactionTests
         // Operator/Viewer arrives with IsTenantAdmin=false ⇒ always the redacted copy.
         => Assert.False(GetTenantConfigurationFunction.CanViewSecrets(
             new RequestContext { UserRole = role, TenantId = TenantA, TargetTenantId = TenantA }));
+
+    // ── ?view=redacted opt-in (MCP get_tenant_config): forces redaction even for GA ──
+
+    [Fact]
+    public void ShouldRedact_GlobalAdmin_ViewRedacted_True()
+        => Assert.True(GetTenantConfigurationFunction.ShouldRedact(
+            new RequestContext { IsGlobalAdmin = true, TenantId = TenantA, TargetTenantId = TenantB },
+            "?view=redacted"));
+
+    [Fact]
+    public void ShouldRedact_OwnTenantAdmin_ViewRedacted_True()
+        => Assert.True(GetTenantConfigurationFunction.ShouldRedact(
+            new RequestContext { IsTenantAdmin = true, TenantId = TenantA, TargetTenantId = TenantA },
+            "?view=redacted"));
+
+    [Fact]
+    public void ShouldRedact_GlobalAdmin_NoParam_False()
+        // Without the opt-in the GA clearance stands — the portal Settings UI depends on it.
+        => Assert.False(GetTenantConfigurationFunction.ShouldRedact(
+            new RequestContext { IsGlobalAdmin = true, TenantId = TenantA, TargetTenantId = TenantB },
+            ""));
+
+    [Fact]
+    public void ShouldRedact_GlobalAdmin_OtherViewValue_False()
+        => Assert.False(GetTenantConfigurationFunction.ShouldRedact(
+            new RequestContext { IsGlobalAdmin = true, TenantId = TenantA, TargetTenantId = TenantB },
+            "?view=full"));
+
+    [Fact]
+    public void ShouldRedact_ReaderWithoutClearance_AlwaysTrue_RegardlessOfParam()
+        => Assert.True(GetTenantConfigurationFunction.ShouldRedact(
+            new RequestContext { IsGlobalReader = true, TenantId = TenantA, TargetTenantId = TenantB },
+            "?view=full"));
 }

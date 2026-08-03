@@ -15,6 +15,31 @@ namespace AutopilotMonitor.Shared.DataAccess
         // --- Tenant Configuration ---
         Task<TenantConfiguration?> GetTenantConfigurationAsync(string tenantId);
         Task<bool> SaveTenantConfigurationAsync(TenantConfiguration config);
+
+        /// <summary>
+        /// Same unconditional replace as <see cref="SaveTenantConfigurationAsync(TenantConfiguration)"/>,
+        /// but tags the pre-write backup snapshot with the write path and intent. A separate
+        /// overload — NOT optional parameters — because Moq expression trees cannot omit
+        /// optional arguments (CS0854) and the 1-arg signature is mocked all over the test suite.
+        /// </summary>
+        Task<bool> SaveTenantConfigurationAsync(TenantConfiguration config, string? backupSource, string? backupReason);
+
+        /// <summary>
+        /// Point read that also surfaces the row's ETag (as an opaque string, keeping this
+        /// interface storage-agnostic) for use with <see cref="TryReplaceTenantConfigurationAsync"/>.
+        /// Null when the tenant has no configuration row. Storage errors throw (fail-loud —
+        /// this is the transactional read path, not a fail-soft helper).
+        /// </summary>
+        Task<(TenantConfiguration Config, string ETag)?> GetTenantConfigurationWithEtagAsync(string tenantId);
+
+        /// <summary>
+        /// Conditional full replace (If-Match). Returns false ONLY when the precondition failed
+        /// (someone else wrote the row since the ETag was read — the caller re-reads and retries);
+        /// any other storage failure throws. Deliberately does NOT run the pre-write backup hook:
+        /// the transactional caller snapshots explicitly and fail-CLOSED before invoking this.
+        /// </summary>
+        Task<bool> TryReplaceTenantConfigurationAsync(TenantConfiguration config, string etag);
+
         Task<List<TenantConfiguration>> GetAllTenantConfigurationsAsync();
 
         /// <summary>

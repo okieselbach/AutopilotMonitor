@@ -65,11 +65,39 @@ export function tenantIdDescription(ga: boolean, delegated: boolean, gaText: str
   return ga ? gaText : tenantText;
 }
 
+/**
+ * Zod validator for tenant IDs interpolated into backend URL paths
+ * (`/api/config/{tenantId}/...`). Same path-traversal rationale as
+ * SessionIdSchema: WHATWG-URL normalization collapses `..` segments, so an
+ * unvalidated value could silently route to a different endpoint.
+ */
+export const TenantGuidSchema = z
+  .string()
+  .regex(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    'tenantId must be a GUID (e.g. "e259c121-1234-4abc-9def-0123456789ab")',
+  );
+
 /** Read-only query tool — no side effects, idempotent, closed-world (our backend only). */
 export const READ_ONLY: ToolAnnotations = {
   readOnlyHint: true,
   destructiveHint: false,
   idempotentHint: true,
+  openWorldHint: false,
+};
+
+/**
+ * Config-mutating tool — writes tenant configuration via the backend's
+ * transactional endpoints (PATCH fields / POST revert). destructiveHint is
+ * true because the write overwrites prior values (clients may ask the user
+ * to confirm); NOT idempotent — repeating a revert after further changes
+ * restores a different state. Every write is preceded by a fail-closed
+ * snapshot server-side, so the operation is always revertible.
+ */
+export const MUTATING: ToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
   openWorldHint: false,
 };
 

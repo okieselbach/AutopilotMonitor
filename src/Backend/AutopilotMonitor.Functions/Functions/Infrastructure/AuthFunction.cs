@@ -327,7 +327,7 @@ public class AuthFunction
         }
         try
         {
-            await _tenantConfigService.SaveConfigurationAsync(tenantConfig);
+            await _tenantConfigService.SaveConfigurationAsync(tenantConfig, "auth", "first-login domain seed");
         }
         catch (Exception ex)
         {
@@ -401,7 +401,7 @@ public class AuthFunction
                 return;
             fresh.LastAuthClientId = clientId;
             fresh.LastAuthClientIdSince = DateTime.UtcNow;
-            await _tenantConfigService.SaveConfigurationAsync(fresh);
+            await _tenantConfigService.SaveConfigurationAsync(fresh, "auth", "auth client-id tracking");
         }
         catch (Exception ex)
         {
@@ -431,7 +431,7 @@ public class AuthFunction
         tenantConfig.UpdatedBy = "System (auto-re-enable)";
         try
         {
-            await _tenantConfigService.SaveConfigurationAsync(tenantConfig);
+            await _tenantConfigService.SaveConfigurationAsync(tenantConfig, "auth", "auto-re-enable after suspension expiry");
         }
         catch (Exception ex)
         {

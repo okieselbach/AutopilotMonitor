@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
@@ -25,11 +27,31 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         private readonly TableClient _adminConfigTableClient;
         private readonly TableClient _previewWhitelistTableClient;
         private readonly TableClient _previewConfigTableClient;
+        private readonly IConfigBackupRepository _backupRepo;
         private readonly ILogger<TableConfigRepository> _logger;
 
-        public TableConfigRepository(TableStorageService storage, ILogger<TableConfigRepository> logger)
+        /// <summary>
+        /// Changes to ONLY these properties do not snapshot the tenant-config row: the
+        /// LastAuthClientId pair flips as an auth-flow side effect and would flood the
+        /// two backup slots with states nobody ever wants to revert to.
+        /// </summary>
+        private static readonly HashSet<string> TenantBackupNoiseProperties = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "LastUpdated", "UpdatedBy", "LastAuthClientId", "LastAuthClientIdSince",
+        };
+
+        private static readonly HashSet<string> AdminBackupNoiseProperties = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "LastUpdated", "UpdatedBy",
+        };
+
+        public TableConfigRepository(
+            TableStorageService storage,
+            IConfigBackupRepository backupRepo,
+            ILogger<TableConfigRepository> logger)
         {
             _logger = logger;
+            _backupRepo = backupRepo;
             _tenantConfigTableClient = storage.GetTableClient(Constants.TableNames.TenantConfiguration);
             _adminConfigTableClient = storage.GetTableClient(Constants.TableNames.AdminConfiguration);
             _previewWhitelistTableClient = storage.GetTableClient(Constants.TableNames.PreviewWhitelist);
@@ -56,8 +78,17 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
         }
 
-        public async Task<bool> SaveTenantConfigurationAsync(TenantConfiguration config)
+        public Task<bool> SaveTenantConfigurationAsync(TenantConfiguration config)
+            => SaveTenantConfigurationAsync(config, backupSource: null, backupReason: null);
+
+        public async Task<bool> SaveTenantConfigurationAsync(
+            TenantConfiguration config, string? backupSource, string? backupReason)
         {
+            await TrySnapshotBeforeSaveAsync(
+                _tenantConfigTableClient, config.TenantId, "config",
+                ConvertFromTenantTableEntity, config, TenantBackupNoiseProperties,
+                config.UpdatedBy, backupSource, backupReason);
+
             try
             {
                 var entity = ConvertToTenantTableEntity(config);
@@ -69,6 +100,123 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 _logger.LogError(ex, "Error saving tenant configuration for {TenantId}", config.TenantId);
                 return false;
             }
+        }
+
+        public async Task<(TenantConfiguration Config, string ETag)?> GetTenantConfigurationWithEtagAsync(string tenantId)
+        {
+            try
+            {
+                var entity = await _tenantConfigTableClient.GetEntityAsync<TableEntity>(tenantId, "config");
+                return (ConvertFromTenantTableEntity(entity.Value), entity.Value.ETag.ToString());
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                return null;
+            }
+            // Everything else throws (fail-loud): the transactional caller must never treat a
+            // storage outage as "no row".
+        }
+
+        public async Task<bool> TryReplaceTenantConfigurationAsync(TenantConfiguration config, string etag)
+        {
+            var entity = ConvertToTenantTableEntity(config);
+            try
+            {
+                await _tenantConfigTableClient.UpdateEntityAsync(entity, new ETag(etag), TableUpdateMode.Replace);
+                return true;
+            }
+            catch (RequestFailedException ex) when (ex.Status is 412 or 404)
+            {
+                // 412: lost the CAS race — caller re-reads and retries (bounded).
+                // 404: the row was deleted since the read (offboarding) — the retry's
+                //      re-read surfaces that as "no configuration row".
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Pre-write snapshot hook shared by the tenant- and admin-config save paths.
+        /// Fail-SOFT by design: this is a safety net around long-standing writers
+        /// (portal, plan, auth side effects) — a backup-storage hiccup must never turn
+        /// into a config-save outage. The transactional patch/revert flow does its own
+        /// fail-CLOSED snapshot before calling the conditional write and never relies
+        /// on this hook.
+        /// </summary>
+        private async Task TrySnapshotBeforeSaveAsync<TModel>(
+            TableClient tableClient,
+            string partitionKey,
+            string rowKey,
+            Func<TableEntity, TModel> convertFromEntity,
+            TModel incoming,
+            HashSet<string> noiseProperties,
+            string? changedBy,
+            string? source,
+            string? reason) where TModel : class
+        {
+            try
+            {
+                TableEntity existing;
+                try
+                {
+                    existing = (await tableClient.GetEntityAsync<TableEntity>(partitionKey, rowKey)).Value;
+                }
+                catch (RequestFailedException ex) when (ex.Status == 404)
+                {
+                    return; // Row creation — nothing to snapshot.
+                }
+
+                // Compare at MODEL level, not raw-entity level: retrieved entities carry
+                // DateTimeOffset/typing quirks that would false-positive against a freshly
+                // built entity. The model round-trip puts both sides on identical CLR types.
+                var before = convertFromEntity(existing);
+                var changed = ConfigPropertyComparer.GetChangedPropertyNames(before, incoming);
+                changed.ExceptWith(noiseProperties);
+                if (changed.Count == 0)
+                    return; // Noise-only or no-op save — don't burn a backup slot.
+
+                await _backupRepo.UpsertAsync(BuildBackupEntry(
+                    existing, partitionKey, changedBy,
+                    writeSource: source ?? "unknown", reason: reason,
+                    diffJson: JsonSerializer.Serialize(ConfigDiffHelper.GetChanges(before, incoming))));
+
+                await _backupRepo.PruneAsync(partitionKey, Constants.ConfigBackupKeepCount);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Config backup snapshot failed for {PartitionKey} — proceeding with save (fail-soft)",
+                    partitionKey);
+            }
+        }
+
+        /// <summary>
+        /// Snapshots the raw stored row (same fidelity approach as the offboarding
+        /// customs archive): every table property except the Azure pseudo-properties,
+        /// serialized as JSON. Restore therefore survives model refactors.
+        /// </summary>
+        internal static ConfigBackupEntry BuildBackupEntry(
+            TableEntity sourceRow, string partitionKey, string? changedBy,
+            string writeSource, string? reason, string? diffJson)
+        {
+            var snapshot = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var kv in sourceRow)
+            {
+                if (kv.Key is "odata.etag" or "Timestamp") continue;
+                snapshot[kv.Key] = kv.Value;
+            }
+
+            return new ConfigBackupEntry
+            {
+                PartitionKey = partitionKey,
+                RowKey = TableConfigBackupRepository.BuildRowKey(DateTime.UtcNow),
+                TenantId = partitionKey,
+                EntityJson = JsonSerializer.Serialize(snapshot),
+                ChangedBy = string.IsNullOrWhiteSpace(changedBy) ? "system" : changedBy,
+                Source = writeSource,
+                Reason = reason,
+                DiffJson = diffJson,
+                BackupTakenAt = DateTime.UtcNow,
+            };
         }
 
         /// <summary>
@@ -181,6 +329,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         public async Task<bool> SaveAdminConfigurationAsync(AdminConfiguration config)
         {
+            await TrySnapshotBeforeSaveAsync(
+                _adminConfigTableClient, "GlobalConfig", "config",
+                ConvertFromAdminTableEntity, config, AdminBackupNoiseProperties,
+                config.UpdatedBy, "admin-config", reason: null);
+
             try
             {
                 var entity = ConvertToAdminTableEntity(config);
@@ -640,7 +793,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         // --- Admin Configuration Entity Mapping ---
 
-        private TableEntity ConvertToAdminTableEntity(AdminConfiguration config)
+        internal static TableEntity ConvertToAdminTableEntity(AdminConfiguration config)
         {
             var entity = new TableEntity("GlobalConfig", "config")
             {
@@ -705,7 +858,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return entity;
         }
 
-        private AdminConfiguration ConvertFromAdminTableEntity(TableEntity entity)
+        internal static AdminConfiguration ConvertFromAdminTableEntity(TableEntity entity)
         {
             return new AdminConfiguration
             {

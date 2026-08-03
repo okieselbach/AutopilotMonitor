@@ -49,7 +49,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // even when they happen to be an admin of their own home tenant. This also prevents a
                 // "***REDACTED***" placeholder from ever reaching the Settings save round-trip for an
                 // own-tenant admin.
-                if (!CanViewSecrets(requestCtx))
+                if (ShouldRedact(requestCtx, req.Url.Query))
                     config = config.RedactedCopyForReader();
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
@@ -80,6 +80,20 @@ namespace AutopilotMonitor.Functions.Functions.Config
             var ownTenantAdminView = ctx.IsTenantAdmin
                 && string.Equals(ctx.TargetTenantId, ctx.TenantId, StringComparison.OrdinalIgnoreCase);
             return ctx.IsGlobalAdmin || ownTenantAdminView;
+        }
+
+        /// <summary>
+        /// Redaction decision including the ?view=redacted opt-in, which forces the redacted
+        /// copy even for callers WITH secret clearance. Exists for the MCP get_tenant_config
+        /// tool: a Global Admin's MCP session must never pull clear-text webhook/SAS secrets
+        /// into model context. Pure static for unit-testing without an HttpRequestData mock.
+        /// </summary>
+        internal static bool ShouldRedact(RequestContext ctx, string query)
+        {
+            var forceRedacted = string.Equals(
+                System.Web.HttpUtility.ParseQueryString(query)["view"],
+                "redacted", StringComparison.OrdinalIgnoreCase);
+            return forceRedacted || !CanViewSecrets(ctx);
         }
     }
 }

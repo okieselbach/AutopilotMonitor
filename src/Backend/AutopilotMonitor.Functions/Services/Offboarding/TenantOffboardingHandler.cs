@@ -83,6 +83,11 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             // whole-row deletion besides chain-emptying.
             Constants.TableNames.DeviceHistories,
             Constants.TableNames.DeviceJourneyAggregates,
+            // Pre-write config snapshots (PK=tenantId). Wiped in the bulk phase; the
+            // TenantConfiguration row itself is deleted LAST via SafeWipe (a delete, not a
+            // save), so the wipe cannot re-create a snapshot afterwards. The admin-config
+            // "GlobalConfig" partition never matches a tenant GUID and survives untouched.
+            Constants.TableNames.ConfigurationBackups,
         };
 
         // Plan §6.4 — composite-PK "{tenantId}_..." wipes (Variant A range).

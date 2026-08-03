@@ -104,7 +104,7 @@ public class AppHomingServiceTests
         _adminConfigMock.Setup(x => x.IsSelfServiceAppHomingEnabledAsync()).ReturnsAsync(true);
         var config = LegacyHomedConfig();
         _tenantConfigMock.Setup(x => x.GetConfigurationFreshAsync(TenantId)).ReturnsAsync(config);
-        _tenantConfigMock.Setup(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>()))
+        _tenantConfigMock.Setup(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
             .Returns(Task.CompletedTask);
         SetupProbe(GraphTokenResult.Success("tok"));
     }
@@ -172,7 +172,7 @@ public class AppHomingServiceTests
         Assert.Equal(AppHomingAutoFlipOutcome.Flipped, outcome);
         _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.Is<TenantConfiguration>(c =>
             string.Equals(c.HomedAppClientId, PrimaryId, StringComparison.OrdinalIgnoreCase)
-            && c.UpdatedBy == Actor)), Times.Once);
+            && c.UpdatedBy == Actor), It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
         _detectorMock.Verify(x => x.InvalidateTenant(TenantId), Times.Once);
         _maintenanceMock.Verify(m => m.LogAuditEntryAsync(TenantId, "UPDATE", "TenantConfiguration",
             TenantId, Actor, It.Is<Dictionary<string, string>?>(d =>
@@ -189,7 +189,7 @@ public class AppHomingServiceTests
         var outcome = await _sut.TryAutoFlipToPrimaryAsync(LegacyHomedConfig(), Actor);
 
         Assert.Equal(AppHomingAutoFlipOutcome.ProbeFailed, outcome);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 
     [Fact]
@@ -200,7 +200,7 @@ public class AppHomingServiceTests
         var outcome = await _sut.TryAutoFlipToPrimaryAsync(LegacyHomedConfig(), Actor);
 
         Assert.Equal(AppHomingAutoFlipOutcome.ProbeTransient, outcome);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 
     [Fact]
@@ -224,7 +224,7 @@ public class AppHomingServiceTests
         var outcome = await _sut.TryAutoFlipToPrimaryAsync(LegacyHomedConfig(), Actor);
 
         Assert.Equal(AppHomingAutoFlipOutcome.NotEligible, outcome);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 
     // ── FlipAsync ───────────────────────────────────────────────────────────
@@ -251,7 +251,7 @@ public class AppHomingServiceTests
 
         await _sut.FlipAsync(TenantId, PrimaryId, Actor, "manual-ga");
 
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
         _detectorMock.Verify(x => x.InvalidateTenant(It.IsAny<string>()), Times.Never);
         Assert.Empty(_savedOpsEvents);
     }
@@ -267,7 +267,7 @@ public class AppHomingServiceTests
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => _sut.FlipAsync(TenantId, PrimaryId, Actor, "manual-ga"));
 
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
         _detectorMock.Verify(x => x.InvalidateTenant(It.IsAny<string>()), Times.Never);
         Assert.Empty(_savedOpsEvents);
     }
@@ -283,7 +283,7 @@ public class AppHomingServiceTests
 
         // The null-homing invariant: legacy is represented as null, never as the legacy GUID.
         _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.Is<TenantConfiguration>(c =>
-            c.HomedAppClientId == null)), Times.Once);
+            c.HomedAppClientId == null), It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
         _detectorMock.Verify(x => x.InvalidateTenant(TenantId), Times.Once);
     }
 }

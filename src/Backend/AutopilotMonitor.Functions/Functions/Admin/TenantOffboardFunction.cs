@@ -614,7 +614,7 @@ public class TenantOffboardFunction
         var writtenAt = DateTime.UtcNow;
         tenantConfig.LastUpdated = writtenAt;
 
-        var saved = await _configRepo.SaveTenantConfigurationAsync(tenantConfig);
+        var saved = await _configRepo.SaveTenantConfigurationAsync(tenantConfig, "offboard", "Disabled-gate before cascade");
         if (!saved)
         {
             // TableConfigRepository.SaveTenantConfigurationAsync returns false on transient

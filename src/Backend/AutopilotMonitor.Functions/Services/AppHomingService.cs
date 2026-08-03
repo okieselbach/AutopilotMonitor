@@ -159,7 +159,7 @@ namespace AutopilotMonitor.Functions.Services
 
             config.HomedAppClientId = normalizedTarget;
             config.UpdatedBy = actorUpn;
-            await _tenantConfigService.SaveConfigurationAsync(config);
+            await _tenantConfigService.SaveConfigurationAsync(config, "app-homing", reason);
 
             _logger.LogWarning(
                 "Tenant {TenantId} app-reg homing flipped: {Old} -> {New} (by {User}, reason {Reason}, forced {Forced})",

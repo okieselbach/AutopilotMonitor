@@ -279,6 +279,20 @@ public class TenantOffboardingHandlerOrderingTests
         Assert.Contains(Constants.TableNames.TenantGroups, harness.SafeWipeProbe.PropertyOnlyWipes);
     }
 
+    [Fact]
+    public async Task PostDrain_ExactPartitionWipe_CoversConfigurationBackups()
+    {
+        // Pre-write config snapshots (PK=tenantId) must die with the tenant — the row
+        // contents include webhook URLs and the contact address. The bulk wipe runs
+        // before the final TenantConfiguration delete, so no snapshot can be re-created
+        // afterwards by the cascade itself.
+        var harness = Harness.New();
+
+        await harness.Sut.HandleAsync(harness.Envelope());
+
+        Assert.Contains(Constants.TableNames.ConfigurationBackups, harness.SafeWipeProbe.ExactPartitionWipes);
+    }
+
     // ── Harness (copied minimal — only what these tests need) ───────────────────
 
     private sealed class Harness
@@ -425,12 +439,14 @@ public class TenantOffboardingHandlerOrderingTests
         public int WipeCallCount { get; private set; }
         /// <summary>Table names passed to the property-only (Variant C) wipe — lets tests assert coverage.</summary>
         public List<string> PropertyOnlyWipes { get; } = new();
+        /// <summary>Table names passed to the exact-partition (Variant A) wipe — lets tests assert coverage.</summary>
+        public List<string> ExactPartitionWipes { get; } = new();
         public CountingSafeWipeService() : base(
             new TableStorageService(Mock.Of<TableServiceClient>(), NullLogger<TableStorageService>.Instance),
             new BlobStorageService(new BlobServiceClient("UseDevelopmentStorage=true"),
                 NullLogger<BlobStorageService>.Instance, usesManagedIdentity: false),
             NullLogger<SafeWipeService>.Instance) { }
-        public override Task<int> WipeByExactPartitionAsync(string t, string i, CancellationToken c = default) { WipeCallCount++; return Task.FromResult(0); }
+        public override Task<int> WipeByExactPartitionAsync(string t, string i, CancellationToken c = default) { WipeCallCount++; ExactPartitionWipes.Add(t); return Task.FromResult(0); }
         public override Task<int> WipeByCompositePartitionRangeAsync(string t, string i, CancellationToken c = default) { WipeCallCount++; return Task.FromResult(0); }
         public override Task<int> WipeByDiscriminatorAndTenantPropertyAsync(string t, string d, string i, CancellationToken c = default) { WipeCallCount++; return Task.FromResult(0); }
         public override Task<int> WipeByTenantIdPropertyAsync(string t, string i, CancellationToken c = default) { WipeCallCount++; PropertyOnlyWipes.Add(t); return Task.FromResult(0); }

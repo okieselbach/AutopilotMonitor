@@ -232,6 +232,7 @@ builder.Services.AddHostedService<TableInitializerService>(); // Initialize all 
 // To add event streaming: chain .AddEventStreaming<EventHubPublisher>() after this call.
 builder.Services.AddTableStorageDataAccess();
 builder.Services.AddSingleton<TenantConfigurationService>();
+builder.Services.AddSingleton<TenantConfigPatchService>();
 builder.Services.AddSingleton<AdminConfigurationService>();
 builder.Services.AddSingleton<AppHomingService>();
 builder.Services.AddSingleton<TenantEntitlementService>();

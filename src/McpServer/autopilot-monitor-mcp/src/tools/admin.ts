@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { apiFetch, buildQuery, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, getCallerUpnDomain, getDelegatedTenantIds, getHomeTenantId, pickGlobalOrTenantPath, scanUntilMatch } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
 import { getResourceContent, assertKnownEventType } from '../resource-catalog.js';
-import { READ_ONLY, READ_ONLY_OPEN, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema, tenantIdDescription } from './shared.js';
+import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema, TenantGuidSchema, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 
 /**
@@ -1038,6 +1038,144 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.events);
       } catch (error: unknown) {
         return toolError('query_backend_logs', args, error);
+      }
+    })
+  );
+
+  // ── Tenant-config write surface (transactional) ───────────────────────
+  // Security note: all four tools are strictGa (real Global Admin only) — the backend
+  // routes (PATCH config/{tenantId}/fields, GET .../backups, POST .../revert) are
+  // GlobalAdminOnly to match. get_tenant_config is read-only but ALSO strictGa: its
+  // full-config view (even redacted) exposes operational settings no Reader needs.
+  // The write flow is transactional server-side: fail-closed pre-write snapshot →
+  // ETag-conditional write → re-read → verify that EXACTLY the intended fields
+  // changed → automatic rollback on drift. Every change is revertible.
+
+  if (strictGa) server.registerTool(
+    'get_tenant_config',
+    {
+      title: 'Get Tenant Configuration',
+      description:
+        'Read a tenant\'s full configuration (all ~90 settings). Global Admin only. ' +
+        'Secrets (webhook URLs, SAS URLs, custom headers) are ALWAYS redacted to "***REDACTED***" in this view — ' +
+        'never copy a redacted placeholder into update_tenant_config; provide the real value or leave the field out. ' +
+        'Use this before update_tenant_config to see current values and exact field names.',
+      inputSchema: {
+        tenantId: TenantGuidSchema.describe('Tenant ID (GUID) whose configuration to read.'),
+      },
+      annotations: READ_ONLY,
+    },
+    async (args) => withToolTelemetry('get_tenant_config', async () => {
+      try {
+        // view=redacted is load-bearing: without it the backend serves a GA the
+        // clear-text secrets, which must never enter model context (pinned by
+        // security-guards tests).
+        const data = await apiFetch(`/api/config/${encodeURIComponent(args.tenantId)}?view=redacted`);
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
+      } catch (error: unknown) {
+        return toolError('get_tenant_config', args, error);
+      }
+    })
+  );
+
+  if (strictGa) server.registerTool(
+    'update_tenant_config',
+    {
+      title: 'Update Tenant Configuration',
+      description:
+        'Change specific fields of a tenant\'s configuration — transactional and verified. Global Admin only. ' +
+        'Pass ONLY the fields to change (camelCase or PascalCase); omitted fields stay untouched; an explicit JSON ' +
+        'null clears a nullable field. The backend snapshots the row first (fail-closed), writes conditionally, ' +
+        're-reads, and verifies that exactly the intended fields changed — on any drift it rolls back automatically. ' +
+        'Not writable here (400 with the field name): identity (tenantId/domainName), plan/trial fields ' +
+        '(dedicated endpoints), homedAppClientId / auth provenance / onboarded* (system-owned), lastUpdated/updatedBy ' +
+        '(stamped server-side). Response: applied field names, a masked diff, and the backupId for ' +
+        'revert_tenant_config. Never send "***REDACTED***" values.',
+      inputSchema: {
+        tenantId: TenantGuidSchema.describe('Tenant ID (GUID) whose configuration to change.'),
+        fields: z.record(z.unknown())
+          .describe('Object of fieldName → newValue for ONLY the fields to change (e.g. {"dataRetentionDays": 90}). ' +
+                    'Use get_tenant_config for current values and exact field names.'),
+        reason: z.string().min(1)
+          .describe('REQUIRED: why this change is being made. Stored with the backup snapshot and the audit log entry.'),
+      },
+      annotations: MUTATING,
+    },
+    async (args) => withToolTelemetry('update_tenant_config', async () => {
+      try {
+        const data = await apiFetch(`/api/config/${encodeURIComponent(args.tenantId)}/fields`, {
+          method: 'PATCH',
+          body: JSON.stringify({ fields: args.fields, reason: args.reason }),
+        });
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
+      } catch (error: unknown) {
+        return toolError('update_tenant_config', args, error);
+      }
+    })
+  );
+
+  if (strictGa) server.registerTool(
+    'list_tenant_config_backups',
+    {
+      title: 'List Tenant Config Backups',
+      description:
+        'List a tenant\'s pre-write configuration snapshots, newest first. Global Admin only. ' +
+        'Every config write (portal, plan changes, MCP patches) snapshots the row beforehand; the newest 2 are kept. ' +
+        'Returns metadata only — backupId, when, who, source, reason, and a masked field diff (never raw values). ' +
+        'Use a backupId with revert_tenant_config to roll a tenant back.',
+      inputSchema: {
+        tenantId: TenantGuidSchema.describe('Tenant ID (GUID) whose backups to list.'),
+        max: z.coerce.number().int().min(1).max(25).optional()
+          .describe('Maximum snapshots to return (default 25 — pruning keeps only the newest 2 anyway).'),
+      },
+      annotations: READ_ONLY,
+    },
+    async (args) => withToolTelemetry('list_tenant_config_backups', async () => {
+      try {
+        const query = args.max != null ? `?max=${encodeURIComponent(String(args.max))}` : '';
+        const data = await apiFetch(`/api/config/${encodeURIComponent(args.tenantId)}/backups${query}`);
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
+      } catch (error: unknown) {
+        return toolError('list_tenant_config_backups', args, error);
+      }
+    })
+  );
+
+  if (strictGa) server.registerTool(
+    'revert_tenant_config',
+    {
+      title: 'Revert Tenant Configuration',
+      description:
+        'Restore a tenant\'s configuration from a pre-write snapshot (latest by default). Global Admin only. ' +
+        'The revert snapshots the CURRENT state first, so a revert is itself revertible. Protected fields ' +
+        '(plan/trial, homedAppClientId, auth provenance, onboarded*) keep their CURRENT values unless ' +
+        'includeProtectedFields is explicitly true — time-traveling those via an old snapshot is almost never ' +
+        'intended. Same transactional verify-and-rollback machinery as update_tenant_config.',
+      inputSchema: {
+        tenantId: TenantGuidSchema.describe('Tenant ID (GUID) whose configuration to revert.'),
+        backupId: z.string().optional()
+          .describe('Snapshot to restore (from list_tenant_config_backups). Omit for the most recent snapshot.'),
+        includeProtectedFields: z.boolean().optional()
+          .describe('DANGEROUS, default false: also restore plan/trial, homedAppClientId and auth-provenance fields ' +
+                    'from the snapshot. Only set when the snapshot\'s values for those are explicitly wanted.'),
+        reason: z.string().min(1)
+          .describe('REQUIRED: why this revert is being made. Stored with the new backup and the audit log entry.'),
+      },
+      annotations: MUTATING,
+    },
+    async (args) => withToolTelemetry('revert_tenant_config', async () => {
+      try {
+        const data = await apiFetch(`/api/config/${encodeURIComponent(args.tenantId)}/revert`, {
+          method: 'POST',
+          body: JSON.stringify({
+            backupId: args.backupId,
+            includeProtectedFields: args.includeProtectedFields ?? false,
+            reason: args.reason,
+          }),
+        });
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
+      } catch (error: unknown) {
+        return toolError('revert_tenant_config', args, error);
       }
     })
   );

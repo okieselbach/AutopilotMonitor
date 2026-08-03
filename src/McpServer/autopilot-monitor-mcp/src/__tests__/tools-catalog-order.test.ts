@@ -128,6 +128,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'get_session_events',
     'get_session_summary',
     'get_software_inventory',
+    'get_tenant_config',
     // Available to every role: backed by MemberRead endpoints (tenant) with role-aware
     // routing to the GlobalReadOrAdmin variant — same placement as get_app_install_metrics.
     'get_time_attribution',
@@ -136,16 +137,19 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'list_blocked_devices',
     'list_session_reports',
     'list_tables',
+    'list_tenant_config_backups',
     'list_tenants',
     'query_backend_logs',
     'query_raw_events',
     'query_raw_sessions',
     'query_table',
+    'revert_tenant_config',
     'search_events',
     'search_knowledge',
     'search_sessions',
     'search_sessions_by_cve',
     'search_sessions_by_event',
+    'update_tenant_config',
   ];
 
   // ── Named difference lists (each a deliberate role-boundary decision). ──
@@ -154,19 +158,35 @@ describe('role catalog snapshot — privilege-leak guard', () => {
   // config redaction would otherwise hide). strictGa gate.
   const RAW_GA_STRICT = ['list_tables', 'query_backend_logs', 'query_table'];
 
+  // Tenant-config write surface (+ its full-config read and backup list): strictGa
+  // only, matching the GlobalAdminOnly backend routes. A read-only Global Reader must
+  // see NONE of these — not even get_tenant_config (redacted or not, the full
+  // operational config is a GA surface; Readers use list_tenants' keep-list view).
+  const CONFIG_WRITE_GA_STRICT = [
+    'get_tenant_config',
+    'list_tenant_config_backups',
+    'revert_tenant_config',
+    'update_tenant_config',
+  ];
+
   // Platform-only tools: a non-platform caller (tenant or delegated) gets no
-  // cross-fleet aggregate surface at all. Superset of RAW_GA_STRICT (those are
-  // also platform-only) plus the curated cross-tenant aggregates.
+  // cross-fleet aggregate surface at all. Superset of RAW_GA_STRICT and
+  // CONFIG_WRITE_GA_STRICT (those are also platform-only) plus the curated
+  // cross-tenant aggregates.
   const PLATFORM_ONLY = [
     'get_api_usage',
     'get_ops_events',
     'get_platform_metrics',
+    'get_tenant_config',
     'list_blocked_devices',
     'list_session_reports',
     'list_tables',
+    'list_tenant_config_backups',
     'list_tenants',
     'query_backend_logs',
     'query_table',
+    'revert_tenant_config',
+    'update_tenant_config',
   ];
 
   // Deltas between a plain tenant user and a delegated (MSP) caller: the global
@@ -182,8 +202,9 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     expect(registeredToolNames(true, true)).toEqual(GA_FULL);
   });
 
-  it('Global Reader = GA minus the secret-bearing raw tools (strictGa split)', () => {
-    expect(registeredToolNames(true, false)).toEqual(without(GA_FULL, RAW_GA_STRICT));
+  it('Global Reader = GA minus the secret-bearing raw tools and the config-write surface (strictGa split)', () => {
+    expect(registeredToolNames(true, false)).toEqual(
+      without(GA_FULL, [...RAW_GA_STRICT, ...CONFIG_WRITE_GA_STRICT]));
   });
 
   it('tenant user = GA minus all platform-only tools', () => {
@@ -200,6 +221,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
   it('every difference-list entry is a real GA tool', () => {
     for (const [label, list] of [
       ['RAW_GA_STRICT', RAW_GA_STRICT],
+      ['CONFIG_WRITE_GA_STRICT', CONFIG_WRITE_GA_STRICT],
       ['PLATFORM_ONLY', PLATFORM_ONLY],
       ['DELEGATED_HIDDEN', DELEGATED_HIDDEN],
       ['DELEGATED_ADDED', DELEGATED_ADDED],
@@ -214,5 +236,10 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     // (and enforces) that the Reader split never re-exposes a tenant-hidden tool.
     const leaked = RAW_GA_STRICT.filter((n) => !PLATFORM_ONLY.includes(n));
     expect(leaked, 'a raw GA-strict tool is not also marked platform-only').toEqual([]);
+  });
+
+  it('the config-write tools are a subset of the platform-only tools', () => {
+    const leaked = CONFIG_WRITE_GA_STRICT.filter((n) => !PLATFORM_ONLY.includes(n));
+    expect(leaked, 'a config-write GA-strict tool is not also marked platform-only').toEqual([]);
   });
 });

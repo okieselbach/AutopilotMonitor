@@ -218,7 +218,7 @@ const DOCS = docsIndex ? { vector: docsIndex, sections: docSections(docsDocs) } 
 // Reader) sees the cross-tenant scope hint. A normal tenant user gets
 // instructions with no mention of cross-tenant capability at all — the surface
 // is scoped to what they can actually do.
-function buildInstructions(ga: boolean, delegated: boolean, managedTenants: string[], homeTenantId?: string): string {
+function buildInstructions(ga: boolean, strictGa: boolean, delegated: boolean, managedTenants: string[], homeTenantId?: string): string {
   // Delegated (MSP) callers get a tenant-bounded surface: cross-tenant ROUTING, but every query MUST name
   // a tenant — no platform aggregate. Spell that out once here (the host surfaces it per connection) so the
   // model passes tenantId up front instead of discovering it via a tool error. A delegated admin who is
@@ -231,8 +231,18 @@ function buildInstructions(ga: boolean, delegated: boolean, managedTenants: stri
         (homeTenantId ? ` If you are a member of your own home tenant (${homeTenantId}), you may query it by naming it too.` : '') +
         ' Call list_tenants to resolve these IDs to tenant display names (domainName).'
       : 'Scope: all queries are automatically limited to your tenant.';
+  // Role-aware headline: everyone below a real Global Admin keeps the exact READ-ONLY
+  // contract (and wording) this server has always advertised. A strict GA additionally
+  // holds the tenant-config write tools — say so once, with the safety model, so the
+  // model reaches for update/revert instead of assuming writes are impossible.
+  const headline = strictGa
+    ? 'Autopilot-Monitor is a telemetry server for Windows Autopilot enrollment sessions. All investigation ' +
+      'tools are read-only; as a Global Admin you additionally have tenant-configuration write tools ' +
+      '(update_tenant_config, revert_tenant_config). Every config write is snapshotted first and verified ' +
+      'after — use list_tenant_config_backups + revert_tenant_config to roll back.'
+    : 'Autopilot-Monitor is a READ-ONLY telemetry server for Windows Autopilot enrollment sessions.';
   return [
-    'Autopilot-Monitor is a READ-ONLY telemetry server for Windows Autopilot enrollment sessions.',
+    headline,
     '',
     'Investigating one session: call get_session_summary FIRST (status, filtered timeline, stats, rule analysis in one call), then drill in.',
     ...(docsIndex
@@ -257,7 +267,7 @@ function buildInstructions(ga: boolean, delegated: boolean, managedTenants: stri
 function createMcpServer(ga: boolean, strictGa: boolean, delegated: boolean, managedTenants: string[], homeTenantId?: string): McpServer {
   const s = new McpServer(
     { name: 'Autopilot-Monitor', version: SERVER_VERSION },
-    { instructions: buildInstructions(ga, delegated, managedTenants, homeTenantId) },
+    { instructions: buildInstructions(ga, strictGa, delegated, managedTenants, homeTenantId) },
   );
   registerTools(s, knowledgeBase, eventTypeIndex, DOCS, ga, strictGa, delegated);
   registerResources(s);
