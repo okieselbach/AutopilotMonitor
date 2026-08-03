@@ -188,6 +188,8 @@ public class TenantContactEmailTests
         await service.TrySeedContactEmailAsync(TenantId, "ops@contoso.com");
 
         repo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+        repo.Verify(r => r.SaveTenantConfigurationAsync(
+            It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 
     // ------------------------------------------------------------------
@@ -285,6 +287,7 @@ public class TenantContactEmailTests
 
             Sut = new TableConfigRepository(
                 new TableStorageService(serviceClient.Object, NullLogger<TableStorageService>.Instance),
+                Mock.Of<IConfigBackupRepository>(),
                 NullLogger<TableConfigRepository>.Instance);
         }
     }

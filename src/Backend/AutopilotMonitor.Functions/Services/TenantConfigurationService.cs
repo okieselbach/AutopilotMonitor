@@ -93,7 +93,15 @@ namespace AutopilotMonitor.Functions.Services
         /// on failure the caller may have mutated the cached instance in place (plan/trial endpoints),
         /// which must not linger as phantom-saved state for the 5-minute TTL.
         /// </summary>
-        public virtual async Task SaveConfigurationAsync(TenantConfiguration config)
+        public virtual Task SaveConfigurationAsync(TenantConfiguration config)
+            => SaveConfigurationAsync(config, backupSource: null, backupReason: null);
+
+        /// <summary>
+        /// Overload (not optional parameters — Moq expression trees, CS0854) that tags the
+        /// pre-write backup snapshot with the write path and intent.
+        /// </summary>
+        public virtual async Task SaveConfigurationAsync(
+            TenantConfiguration config, string? backupSource, string? backupReason)
         {
             if (config == null || string.IsNullOrEmpty(config.TenantId))
             {
@@ -104,7 +112,7 @@ namespace AutopilotMonitor.Functions.Services
             {
                 config.LastUpdated = DateTime.UtcNow;
 
-                var saved = await _configRepo.SaveTenantConfigurationAsync(config);
+                var saved = await _configRepo.SaveTenantConfigurationAsync(config, backupSource, backupReason);
                 if (!saved)
                 {
                     throw new InvalidOperationException(

@@ -180,10 +180,14 @@ public class OffboardingMarkerCleanupFunctionTests
         Assert.Equal(0, result.TenantConfigsSpared);
         Assert.Equal(0, result.TenantConfigSweepRetries);
 
-        // The sweep ran with the right table + tenant id.
-        Assert.Single(fixture.SafeWipe.WipeCalls);
+        // The sweep ran with the right tables + tenant id: the tombstone itself, plus the
+        // tenant's config-backup partition (a save against the lingering tombstone may have
+        // re-created snapshots after the cascade's bulk wipe).
+        Assert.Equal(2, fixture.SafeWipe.WipeCalls.Count);
         Assert.Equal(Constants.TableNames.TenantConfiguration, fixture.SafeWipe.WipeCalls[0].Table);
         Assert.Equal(TenantId, fixture.SafeWipe.WipeCalls[0].TenantId);
+        Assert.Equal(Constants.TableNames.ConfigurationBackups, fixture.SafeWipe.WipeCalls[1].Table);
+        Assert.Equal(TenantId, fixture.SafeWipe.WipeCalls[1].TenantId);
         Assert.False(fixture.Repo.Markers.ContainsKey(TenantId));
     }
 

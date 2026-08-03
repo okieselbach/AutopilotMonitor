@@ -109,7 +109,7 @@ public sealed class TenantConfigurationServiceReadSemanticsTests
     public async Task SaveConfigurationAsync_RepoReportsFalse_Throws()
     {
         var (service, repo) = Build();
-        repo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()))
+        repo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
             .ReturnsAsync(false);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
@@ -125,7 +125,7 @@ public sealed class TenantConfigurationServiceReadSemanticsTests
         var (service, repo) = Build();
         var stored = new TenantConfiguration { TenantId = TenantId, PlanTier = "free", UpdatedBy = "x" };
         repo.Setup(r => r.GetTenantConfigurationAsync(TenantId)).ReturnsAsync(stored);
-        repo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()))
+        repo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
             .ReturnsAsync(false);
 
         var cached = await service.GetConfigurationIfExistsAsync(TenantId);
@@ -144,7 +144,7 @@ public sealed class TenantConfigurationServiceReadSemanticsTests
         var (service, repo) = Build();
         repo.Setup(r => r.GetTenantConfigurationAsync(TenantId))
             .ReturnsAsync(new TenantConfiguration { TenantId = TenantId, UpdatedBy = "x" });
-        repo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()))
+        repo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
             .ReturnsAsync(true);
 
         await service.GetConfigurationIfExistsAsync(TenantId); // prime cache

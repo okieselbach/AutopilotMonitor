@@ -162,6 +162,13 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance
                                     "OffboardingMarkerCleanup: swept lingering TenantConfiguration tombstone for tenant={Tenant} (Phase 2.F-final must have failed in the handler)",
                                     marker.TenantId);
                             }
+
+                            // A save against the lingering tombstone (auth side effects) may have
+                            // re-created config backup snapshots AFTER the cascade's bulk wipe.
+                            // Sweep them under the same tombstone condition — a re-onboarded
+                            // tenant (else-branch) keeps its fresh backups untouched.
+                            await _safeWipe.WipeByExactPartitionAsync(
+                                Constants.TableNames.ConfigurationBackups, marker.TenantId, ct);
                         }
                         else
                         {

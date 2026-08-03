@@ -250,7 +250,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 }
 
                 // Save configuration
-                await _configService.SaveConfigurationAsync(config);
+                await _configService.SaveConfigurationAsync(config, "portal-put", null);
 
                 var changes = ConfigDiffHelper.GetChanges(existingConfig, config);
                 await _maintenanceRepo.LogAuditEntryAsync(

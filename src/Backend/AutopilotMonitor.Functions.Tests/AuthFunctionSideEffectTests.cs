@@ -97,7 +97,7 @@ public class AuthFunctionSideEffectTests
 
         // Default: all fire-and-forget calls succeed
         _tenantConfigMock
-            .Setup(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>()))
+            .Setup(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
             .Returns(Task.CompletedTask);
         _telegramMock
             .Setup(x => x.SendNewTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()))
@@ -132,7 +132,7 @@ public class AuthFunctionSideEffectTests
         // OnboardedBy is the immutable copy of the first-login UPN that auto-promote on
         // preview approval reads — UpdatedBy may later be clobbered by background syncs.
         Assert.Equal(Upn, config.OnboardedBy);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(config), Times.Once);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(config, It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
         _telegramMock.Verify(x => x.SendNewTenantSignupAsync(TenantId, Upn), Times.Once);
         _globalNotificationMock.Verify(x => x.CreateNotificationAsync(
             "preview_signup", "New Tenant Signup",
@@ -176,8 +176,8 @@ public class AuthFunctionSideEffectTests
         await _sut.HandleAuthClientIdTrackingAsync(cached, TenantId, $"api://{PrimaryAppId}");
 
         // The FRESH entity was mutated and saved — the flip survives, the stale view is discarded.
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(fresh), Times.Once);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(cached), Times.Never);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(fresh, It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(cached, It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
         Assert.Equal(PrimaryAppId, fresh.HomedAppClientId);
         Assert.Equal(PrimaryAppId, fresh.LastAuthClientId);
         Assert.NotNull(fresh.LastAuthClientIdSince);
@@ -200,7 +200,7 @@ public class AuthFunctionSideEffectTests
 
         await _sut.HandleAuthClientIdTrackingAsync(cached, TenantId, PrimaryAppId);
 
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 
     [Fact]
@@ -214,7 +214,7 @@ public class AuthFunctionSideEffectTests
         await _sut.HandleAuthClientIdTrackingAsync(cached, TenantId, $"api://{PrimaryAppId}");
 
         _tenantConfigMock.Verify(x => x.GetConfigurationFreshAsync(It.IsAny<string>()), Times.Never);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 
     [Fact]
@@ -239,7 +239,7 @@ public class AuthFunctionSideEffectTests
 
         await _sut.HandleNewTenantDomainAsync(config, TenantId, Upn);
 
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
         _telegramMock.Verify(x => x.SendNewTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
@@ -251,7 +251,7 @@ public class AuthFunctionSideEffectTests
 
         await _sut.HandleNewTenantDomainAsync(config, TenantId, "");
 
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 
     [Fact]
@@ -262,7 +262,7 @@ public class AuthFunctionSideEffectTests
 
         await _sut.HandleNewTenantDomainAsync(config, TenantId, "nodomain");
 
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 
     [Fact]
@@ -279,7 +279,7 @@ public class AuthFunctionSideEffectTests
         await _sut.HandleNewTenantDomainAsync(config, TenantId, Upn);
 
         // SaveConfig should still have been called before the fire-and-forget
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(config), Times.Once);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(config, It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
     }
 
     // -------------------------------------------------------------------------
@@ -300,7 +300,7 @@ public class AuthFunctionSideEffectTests
         Assert.Null(config.DisabledReason);
         Assert.Null(config.DisabledUntil);
         Assert.Equal("System (auto-re-enable)", config.UpdatedBy);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(config), Times.Once);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(config, It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
     }
 
     [Fact]
@@ -313,7 +313,7 @@ public class AuthFunctionSideEffectTests
         await _sut.HandleAutoReEnableAsync(config, TenantId);
 
         Assert.True(config.Disabled);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 
     [Fact]
@@ -324,7 +324,7 @@ public class AuthFunctionSideEffectTests
 
         await _sut.HandleAutoReEnableAsync(config, TenantId);
 
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 
     [Fact]
@@ -337,7 +337,7 @@ public class AuthFunctionSideEffectTests
         await _sut.HandleAutoReEnableAsync(config, TenantId);
 
         Assert.True(config.Disabled);
-        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 
     // -------------------------------------------------------------------------

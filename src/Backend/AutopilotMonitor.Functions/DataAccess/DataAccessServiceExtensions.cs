@@ -53,6 +53,10 @@ namespace AutopilotMonitor.Functions.DataAccess
             // surfaced via the Global Admin /admin/customs-archive page.
             services.AddSingleton<ITenantCustomsArchiveRepository, TableTenantCustomsArchiveRepository>();
 
+            // Pre-write snapshots of TenantConfiguration/AdminConfiguration rows;
+            // constructor dependency of TableConfigRepository's save hook.
+            services.AddSingleton<IConfigBackupRepository, TableConfigBackupRepository>();
+
             // Graph add-on permission feature: per-tenant cache of Intune script display names.
             services.AddSingleton<IScriptNameCacheRepository, TableScriptNameCacheRepository>();
             return services;

@@ -672,6 +672,8 @@ public class PolicyEnforcementMiddlewareTests
         Assert.True(result.Allowed); // the delegated read itself is allowed…
         // …but no config row was persisted for the MSP's home tenant A (nor any tenant).
         h.ConfigRepo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+        h.ConfigRepo.Verify(r => r.SaveTenantConfigurationAsync(
+            It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 
     // ── Phase 2a: delegated single-tenant access to cross-tenant /api/global/* read endpoints ──

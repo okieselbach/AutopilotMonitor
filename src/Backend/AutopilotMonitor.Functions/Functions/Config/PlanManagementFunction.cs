@@ -162,7 +162,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     // Fail-loud: SaveConfigurationAsync throws when the write did not persist (and
                     // invalidates the cached — possibly mutated — instance in its finally), so a
                     // failed save can never be audited or returned as 200.
-                    await _configService.SaveConfigurationAsync(config);
+                    await _configService.SaveConfigurationAsync(config, "plan", "plan tier change");
 
                     await _maintenanceRepo.LogAuditEntryAsync(
                         requestCtx.TargetTenantId,
@@ -265,7 +265,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 config.UpdatedBy = caller;
 
                 // Fail-loud: throws when the write did not persist (cache invalidated in finally).
-                await _configService.SaveConfigurationAsync(config);
+                await _configService.SaveConfigurationAsync(config, "plan", "self-service trial start");
 
                 await _maintenanceRepo.LogAuditEntryAsync(
                     requestCtx.TargetTenantId,

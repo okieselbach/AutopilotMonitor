@@ -861,6 +861,15 @@ namespace AutopilotMonitor.Shared
         /// </summary>
         public const string RedactedSecretPlaceholder = "***REDACTED***";
 
+        /// <summary>
+        /// Snapshots kept per partition in <see cref="TableNames.ConfigurationBackups"/>.
+        /// Two, not one: a revert first snapshots the current state itself, and a single
+        /// interleaved portal save would otherwise evict the state still needed — two slots
+        /// cover "undo the last two real changes". Noise-only and no-op saves never snapshot,
+        /// so both slots always hold genuine change states.
+        /// </summary>
+        public const int ConfigBackupKeepCount = 2;
+
         // -----------------------------------------------------------------------
         // Audit logging
         // -----------------------------------------------------------------------
@@ -1079,6 +1088,17 @@ namespace AutopilotMonitor.Shared
             // Daily cleanup function evicts entries older than the TTL.
             public const string ScriptNameCache = "ScriptNameCache";
 
+            // Pre-write snapshots of the two single-row config entities, taken by
+            // TableConfigRepository immediately before an overwriting save so any config
+            // change can be reverted. NOT a generic mechanism — only TenantConfiguration
+            // and AdminConfiguration share the single-row-overwrite pattern this protects.
+            //   - PartitionKey = normalized tenantId (tenant config)
+            //                    or AdminConfiguration's "GlobalConfig" (admin config)
+            //   - RowKey       = "{DateTime.MaxValue.Ticks - nowTicks:D19}_{8-char guid}" (newest first)
+            // Pruned to the newest ConfigBackupKeepCount per partition on every write;
+            // the tenant partition is wiped by the offboarding cascade.
+            public const string ConfigurationBackups = "ConfigurationBackups";
+
             // Critical-table backup/restore job tracking (plan §PR1). Single-partition
             // PK="BackupJobs", RK={jobId}. Persists per-job state machine
             // (Queued / Running / Completed / Failed / Skipped / BlockedTerminal),
@@ -1153,6 +1173,7 @@ namespace AutopilotMonitor.Shared
                 TenantOffboardingCustomsArchive,
                 ScriptNameCache,
                 BackupJobs,
+                ConfigurationBackups,
             };
         }
 
@@ -1333,6 +1354,7 @@ namespace AutopilotMonitor.Shared
             {
                 TableNames.AdminConfiguration,
                 TableNames.AnalyzeRules,
+                TableNames.ConfigurationBackups,
                 TableNames.DelegatedAdmins,
                 TableNames.Feedback,
                 TableNames.GatherRules,

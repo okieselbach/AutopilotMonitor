@@ -641,8 +641,8 @@ public sealed class TenantOffboardFunctionTests
         configRepo.Setup(r => r.GetTenantConfigurationAsync(TenantId)).ReturnsAsync(existing);
 
         TenantConfiguration? saved = null;
-        configRepo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()))
-            .Callback<TenantConfiguration>(c => saved = c)
+        configRepo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
+            .Callback<TenantConfiguration, string?, string?>((c, _, _) => saved = c)
             .ReturnsAsync(true);
 
         // Seed cache with stale "Disabled=false" entry so we can prove invalidation.
@@ -671,7 +671,7 @@ public sealed class TenantOffboardFunctionTests
         await sut.EnsureTenantDisabledAsync(TenantId, "alice@contoso.com");
 
         // Idempotent: no Save thrash on resume-clicks while the marker is already in flight.
-        configRepo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+        configRepo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 
     [Fact]
@@ -694,7 +694,7 @@ public sealed class TenantOffboardFunctionTests
         var (sut, configRepo, _, _) = BuildWithConfigService();
         configRepo.Setup(r => r.GetTenantConfigurationAsync(TenantId))
             .ReturnsAsync(TenantConfiguration.CreateDefault(TenantId));
-        configRepo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()))
+        configRepo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
             .ThrowsAsync(new InvalidOperationException("storage save failed"));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -713,8 +713,8 @@ public sealed class TenantOffboardFunctionTests
             .ReturnsAsync((TenantConfiguration?)null);
 
         TenantConfiguration? saved = null;
-        configRepo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()))
-            .Callback<TenantConfiguration>(c => saved = c)
+        configRepo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
+            .Callback<TenantConfiguration, string?, string?>((c, _, _) => saved = c)
             .ReturnsAsync(true);
 
         await sut.EnsureTenantDisabledAsync(TenantId, "alice@contoso.com");
@@ -736,7 +736,7 @@ public sealed class TenantOffboardFunctionTests
         var (sut, configRepo, _, _) = BuildWithConfigService();
         configRepo.Setup(r => r.GetTenantConfigurationAsync(TenantId))
             .ReturnsAsync(TenantConfiguration.CreateDefault(TenantId));
-        configRepo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()))
+        configRepo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
             .ReturnsAsync(false);  // transient storage rejection — NOT a throw.
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -752,7 +752,7 @@ public sealed class TenantOffboardFunctionTests
         var (sut, configRepo, _, _) = BuildWithConfigService();
         configRepo.Setup(r => r.GetTenantConfigurationAsync(TenantId))
             .ReturnsAsync((TenantConfiguration?)null);
-        configRepo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()))
+        configRepo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
             .ReturnsAsync(false);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -771,7 +771,7 @@ public sealed class TenantOffboardFunctionTests
         var result = await sut.EnsureTenantDisabledAsync(TenantId, "alice@contoso.com");
 
         Assert.Equal(TenantOffboardFunction.EnsureDisabledOutcome.AlreadyTombstone, result.Outcome);
-        configRepo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+        configRepo.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 
     [Fact]
@@ -781,7 +781,7 @@ public sealed class TenantOffboardFunctionTests
         var existing = TenantConfiguration.CreateDefault(TenantId);
         existing.Disabled = false;
         configRepo.Setup(r => r.GetTenantConfigurationAsync(TenantId)).ReturnsAsync(existing);
-        configRepo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()))
+        configRepo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
             .ReturnsAsync(true);
 
         var result = await sut.EnsureTenantDisabledAsync(TenantId, "alice@contoso.com");
@@ -832,7 +832,7 @@ public sealed class TenantOffboardFunctionTests
         notYetDisabled.Disabled = false;
         configRepoMock.Setup(r => r.GetTenantConfigurationAsync(It.IsAny<string>()))
             .ReturnsAsync(notYetDisabled);
-        configRepoMock.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()))
+        configRepoMock.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
             .ReturnsAsync(true);
 
         var cache = new MemoryCache(new MemoryCacheOptions());
@@ -1044,6 +1044,6 @@ public sealed class TenantOffboardFunctionTests
         Assert.Equal(originalEarliestProcessingAt, historyAfter.EarliestProcessingAt);
 
         // No Save call (the tombstone was already correct).
-        configRepoMock.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>()), Times.Never);
+        configRepoMock.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 }

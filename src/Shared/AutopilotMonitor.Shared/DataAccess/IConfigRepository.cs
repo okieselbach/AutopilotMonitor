@@ -15,6 +15,15 @@ namespace AutopilotMonitor.Shared.DataAccess
         // --- Tenant Configuration ---
         Task<TenantConfiguration?> GetTenantConfigurationAsync(string tenantId);
         Task<bool> SaveTenantConfigurationAsync(TenantConfiguration config);
+
+        /// <summary>
+        /// Same unconditional replace as <see cref="SaveTenantConfigurationAsync(TenantConfiguration)"/>,
+        /// but tags the pre-write backup snapshot with the write path and intent. A separate
+        /// overload — NOT optional parameters — because Moq expression trees cannot omit
+        /// optional arguments (CS0854) and the 1-arg signature is mocked all over the test suite.
+        /// </summary>
+        Task<bool> SaveTenantConfigurationAsync(TenantConfiguration config, string? backupSource, string? backupReason);
+
         Task<List<TenantConfiguration>> GetAllTenantConfigurationsAsync();
 
         /// <summary>
