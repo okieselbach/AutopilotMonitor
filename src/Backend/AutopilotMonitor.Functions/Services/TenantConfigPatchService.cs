@@ -395,12 +395,24 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Schema-aware rehydration of a raw EntityJson snapshot back into a TableEntity.
         /// Strings are converted to DateTime ONLY for columns the model declares as DateTime —
-        /// an arbitrary string field that merely looks like a date stays a string.
+        /// an arbitrary string field that merely looks like a date stays a string. Numbers are
+        /// forced to double for columns the model declares as decimal/double/float: JSON cannot
+        /// distinguish 95.0 from 95, so a whole-valued double column would otherwise rehydrate
+        /// as Int32 and TableEntity.GetDouble throws on the type mismatch (prod finding
+        /// 2026-08-03, SLA rate columns).
         /// </summary>
         internal static TableEntity RehydrateTenantConfigEntity(string entityJson, string tenantId)
         {
             var dateColumns = ModelProperties.Values
                 .Where(p => p.PropertyType == typeof(DateTime) || p.PropertyType == typeof(DateTime?))
+                .Select(p => p.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var doubleColumns = ModelProperties.Values
+                .Where(p =>
+                {
+                    var t = Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType;
+                    return t == typeof(decimal) || t == typeof(double) || t == typeof(float);
+                })
                 .Select(p => p.Name)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -415,7 +427,8 @@ namespace AutopilotMonitor.Functions.Services
                     System.Text.Json.JsonValueKind.True => true,
                     System.Text.Json.JsonValueKind.False => false,
                     System.Text.Json.JsonValueKind.Number =>
-                        prop.Value.TryGetInt32(out var i) ? i
+                        doubleColumns.Contains(prop.Name) ? prop.Value.GetDouble()
+                        : prop.Value.TryGetInt32(out var i) ? i
                         : prop.Value.TryGetInt64(out var l) ? (object)l
                         : prop.Value.GetDouble(),
                     System.Text.Json.JsonValueKind.String =>

@@ -488,24 +488,60 @@ public class TenantConfigPatchServiceTests
     // ── Rehydration roundtrip (serialization-drift canary) ─────────────────
 
     [Fact]
-    public void RehydrateEntity_Roundtrip_ProducesIdenticalModel()
+    public void RehydrateEntity_Roundtrip_EveryPropertyNonNull_ProducesIdenticalModel()
     {
-        var original = Stored();
-        original.ContactEmail = "ops@contoso.com";
-        original.TrialExpiresUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
-        original.LastAuthClientIdSince = new DateTime(2026, 7, 31, 18, 3, 0, DateTimeKind.Utc);
-        original.CustomRateLimitRequestsPerMinute = 42;
+        // Reflection filler: EVERY writable property gets a non-default value so no column
+        // escapes the fidelity check. Whole-number decimals (95m) are the deliberate trap —
+        // JSON serializes 95.0 as "95", and prod finding 2026-08-03 was exactly a whole-valued
+        // SLA rate column rehydrating as Int32 and blowing up TableEntity.GetDouble.
+        var original = TenantConfiguration.CreateDefault(TenantId);
+        foreach (var prop in typeof(TenantConfiguration).GetProperties()
+                     .Where(p => p.CanWrite && p.GetIndexParameters().Length == 0))
+        {
+            var t = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
+            object? value =
+                t == typeof(string) ? (prop.Name is "PartitionKey" or "RowKey" or "TenantId"
+                    ? prop.GetValue(original) : $"x-{prop.Name}")
+                : t == typeof(bool) ? true
+                : t == typeof(int) ? 7
+                : t == typeof(decimal) ? 95m // whole number on purpose — the Int32/Double trap
+                : t == typeof(double) ? 95d
+                : t == typeof(DateTime) ? new DateTime(2026, 8, 3, 12, 0, 0, DateTimeKind.Utc)
+                : prop.GetValue(original);
+            prop.SetValue(original, value);
+        }
 
-        // Snapshot exactly as the backup hook does, then rehydrate and re-map.
+        // Canonical baseline = one Store/Map roundtrip (isolates REHYDRATION fidelity from any
+        // pre-existing converter quirks, which TenantConfigTableSerializationTests own).
+        var baseline = TableConfigRepository.ConvertFromTenantTableEntity(
+            TableConfigRepository.ConvertToTenantTableEntity(original));
+
+        var snapshot = TableConfigRepository.BuildBackupEntry(
+            TableConfigRepository.ConvertToTenantTableEntity(baseline),
+            TenantId, Ga, "test", null, null);
+        var rehydrated = TableConfigRepository.ConvertFromTenantTableEntity(
+            TenantConfigPatchService.RehydrateTenantConfigEntity(snapshot.EntityJson, TenantId));
+
+        var diff = AutopilotMonitor.Functions.Helpers.ConfigPropertyComparer
+            .GetChangedPropertyNames(baseline, rehydrated);
+        Assert.True(diff.Count == 0, "Rehydration drift: " + string.Join(", ", diff));
+    }
+
+    [Fact]
+    public void RehydrateEntity_WholeNumberDecimalColumn_SurvivesAsDouble()
+    {
+        // Focused pin on the prod failure: SlaTargetSuccessRate 95 (whole) must come back as
+        // a readable double column, not an Int32 that makes GetDouble throw.
+        var original = Stored();
+        original.SlaTargetSuccessRate = 95m;
+
         var snapshot = TableConfigRepository.BuildBackupEntry(
             TableConfigRepository.ConvertToTenantTableEntity(original),
             TenantId, Ga, "test", null, null);
         var rehydrated = TableConfigRepository.ConvertFromTenantTableEntity(
             TenantConfigPatchService.RehydrateTenantConfigEntity(snapshot.EntityJson, TenantId));
 
-        var diff = AutopilotMonitor.Functions.Helpers.ConfigPropertyComparer
-            .GetChangedPropertyNames(original, rehydrated);
-        Assert.True(diff.Count == 0, "Rehydration drift: " + string.Join(", ", diff));
+        Assert.Equal(95m, rehydrated.SlaTargetSuccessRate);
     }
 
     [Fact]
