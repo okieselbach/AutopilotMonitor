@@ -97,7 +97,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             IReadOnlyCollection<string> whiteGloveSealingPatternIds,
             ISignalIngressSink ingress,
             IClock clock,
-            Transport.Telemetry.ITelemetrySpool? telemetrySpool)
+            Transport.Telemetry.ITelemetrySpool? telemetrySpool,
+            TimelineEventStream? timelineEvents = null)
         {
             if (string.IsNullOrEmpty(sessionId)) throw new ArgumentException("SessionId required.", nameof(sessionId));
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentException("TenantId required.", nameof(tenantId));
@@ -471,8 +472,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             if (officeHost != null) hosts.Add(officeHost);
 
             // M4.6.δ — Gather-rules runtime executor. Runs "startup" rules once the agent is up
-            // and "interval" rules on their timers; "phase_change" / "on_event" rules are driven
-            // by the host's SignalIngress.SignalPosted subscription (MON-A1).
+            // and "interval" rules on their timers; "phase_change" / "phase_exit" / "on_event"
+            // rules are driven by the post-reduce TimelineEventStream (emitted timeline events),
+            // NOT the raw SignalPosted stream — the raw phase can run minutes ahead of the
+            // engine-declared one (RealmJoin gate, session 32312a32). See TimelineEventStream doc.
             if (_remoteConfig.GatherRules != null && _remoteConfig.GatherRules.Count > 0)
             {
                 hosts.Add(new GatherRuleExecutorHost(
@@ -484,7 +487,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     rules: _remoteConfig.GatherRules,
                     imeLogPathOverride: _agentConfig.ImeLogPathOverride,
                     unrestrictedMode: _agentConfig.UnrestrictedMode,
-                    gatherDebugLogPath: _agentConfig.GatherRuleDebugLogPath));
+                    gatherDebugLogPath: _agentConfig.GatherRuleDebugLogPath,
+                    timelineEvents: timelineEvents));
             }
             else if (!string.IsNullOrEmpty(_agentConfig.GatherRuleDebugLogPath))
             {

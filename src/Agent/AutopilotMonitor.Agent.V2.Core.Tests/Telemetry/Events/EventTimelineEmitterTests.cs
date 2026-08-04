@@ -154,6 +154,58 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry.Events
         }
 
         [Fact]
+        public void Emit_publishes_eventType_and_parsed_phase_to_TimelineEventStream()
+        {
+            // Post-reduce observer surface: gather-rule phase/event triggers subscribe here so
+            // they fire in step with what the timeline shows (session 32312a32 regression).
+            using var r = new Rig();
+            var stream = new AutopilotMonitor.Agent.V2.Core.Orchestration.TimelineEventStream();
+            var published = new List<(string EventType, EnrollmentPhase Phase)>();
+            stream.EventEmitted += (eventType, phase) => published.Add((eventType, phase));
+            var sut = new EventTimelineEmitter(r.Inner, stream);
+
+            sut.Emit(
+                new Dictionary<string, string>
+                {
+                    ["eventType"] = "phase_transition",
+                    ["phase"] = "FinalizingSetup",
+                },
+                State(),
+                At);
+            sut.Emit(
+                new Dictionary<string, string> { ["eventType"] = "enrollment_complete" },
+                State(),
+                At);
+
+            Assert.Equal(2, published.Count);
+            Assert.Equal(("phase_transition", EnrollmentPhase.FinalizingSetup), published[0]);
+            Assert.Equal(("enrollment_complete", EnrollmentPhase.Unknown), published[1]);
+            // Publish happens AFTER the transport enqueue — wire ordering is authoritative.
+            Assert.Equal(2, r.Transport.EnqueueCount);
+        }
+
+        [Fact]
+        public void TimelineEventStream_subscriber_exception_does_not_break_the_emit_path()
+        {
+            using var r = new Rig();
+            var stream = new AutopilotMonitor.Agent.V2.Core.Orchestration.TimelineEventStream();
+            var secondSubscriberCalls = 0;
+            stream.EventEmitted += (_, _) => throw new InvalidOperationException("subscriber bug");
+            stream.EventEmitted += (_, _) => secondSubscriberCalls++;
+            var sut = new EventTimelineEmitter(r.Inner, stream);
+
+            sut.Emit(
+                new Dictionary<string, string> { ["eventType"] = "enrollment_complete" },
+                State(),
+                At);
+
+            // Emit neither threw (would surface as an EffectRunner retry = duplicated event)
+            // nor skipped the remaining subscribers.
+            Assert.Equal(1, r.Transport.EnqueueCount);
+            Assert.Equal(1, secondSubscriberCalls);
+        }
+
+        [Fact]
         public void Phase_parameter_with_invalid_value_falls_back_to_Unknown()
         {
             // Parse-failure MUST fall back to Unknown, never throw — the emitter path must not

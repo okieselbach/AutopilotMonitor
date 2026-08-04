@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-04
+
+* **Update**: `rules/gather-rule-phase-scoping.md` — new section "Which phase feeds the triggers": `GatherRuleExecutorHost` now drives `phase_change`/`phase_exit`/`on_event` gather triggers (and the phase-scope gates) from the post-reduce `TimelineEventStream` (every emitted event's `(eventType, phase)` published by `EventTimelineEmitter`) instead of the pre-reduce `SignalIngress.SignalPosted` payloads. Trigger: session `32312a32` (RealmJoin tenant rsneuffen.de) — a Phase-Start rule on FinalizingSetup fired at the raw ESP-exit `EspPhaseChanged(FinalizingSetup)` signal, 7 minutes before the engine's RealmJoin-gated `phase_transition(FinalizingSetup)`, reading `HKLM\SOFTWARE\RealmJoin\Custom\BIOS` before the RealmJoin package created it. Phase triggers now fire exactly when the timeline shows the phase; `on_event` additionally sees engine-emitted event types (`enrollment_complete`, `realmjoin_resolved`, …) for the first time in V2, restoring V1 semantics and the documented end-of-enrollment pattern. Other raw-signal hosts (DeviceInfo, keep-awake, PPKG) deliberately unchanged.
+
 ## 2026-08-02
 
 * **Creation**: Added `backend/tenant-activation-welcome-mail.md` — triggered by the first production auto-approve (activation at signup+64 s, notification address saved at +69 s → welcome mail silently skipped, since the approval path is the only sender and reads the address once). Fix documented in the doc: the notification-email save path now also triggers the send (`PUT /api/preview/notification-email` → fresh approval check `IsApprovedFreshAsync`, bypassing the 30 s negative cache), and a conditional-insert `welcome-email-sent` marker in `PreviewWhitelist` makes the send once-only across both racing paths (marker consumed strictly after the address check; revoke clears it, offboarding wipes the partition, the GA resend endpoint sends unconditionally and consumes it best-effort).

@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.DecisionCore.Engine;
-using AutopilotMonitor.DecisionCore.Signals;
 using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Core.Orchestration
@@ -19,17 +18,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private readonly bool _unrestrictedMode;
         private int _disposed;
 
-        // MON-A1: drive phase_change / on_event gather triggers from the central signal stream.
-        // V1 fired these from MonitoringService on every EnrollmentEvent (OnPhaseChanged(evt.Phase)
-        // on phase change + OnEvent(evt.EventType) per event); the V2 host previously only called
-        // UpdateRules, so 5 of 10 shipped rules (incl. the only enabled one, dsregcmd at
-        // FinalizingSetup) silently never fired. In V2 every event is an InformationalEvent signal
-        // carrying eventType + (optional) phase in its payload. Null on test fakes / non-SignalIngress
-        // sinks — then signal-triggers degrade off (startup + interval rules still run).
-        private readonly SignalIngress? _observableIngress;
-        private Action<DecisionSignalKind, IReadOnlyDictionary<string, string>?>? _signalPostedHandler;
+        // MON-A1 (revised): drive phase_change / phase_exit / on_event gather triggers from the
+        // POST-REDUCE emitted timeline (TimelineEventStream), not from the raw signal stream.
+        // V1 fired these from MonitoringService on every emitted EnrollmentEvent; the first V2
+        // wiring subscribed to SignalIngress.SignalPosted instead, which fires at enqueue time
+        // with the RAW collector payload — before the reducer has applied gates like the
+        // RealmJoin completion gate. Consequence (session 32312a32, rsneuffen.de): a phase_change
+        // rule on FinalizingSetup fired at the raw EspPhaseChanged(FinalizingSetup) signal (ESP
+        // exit / Hello wizard), 7 minutes before the engine declared phase_transition(FinalizingSetup)
+        // on the timeline — and before the RealmJoin package wrote the registry key the rule was
+        // built to read. The raw feed also never carried engine-emitted event types at all, so
+        // on_event rules on enrollment_complete (documented) could never fire. The emitted-event
+        // feed restores V1 semantics and matches what the UI timeline shows ("collect once when
+        // the enrollment reaches this phase"). Null on test fakes / standalone configurations —
+        // then phase/event triggers degrade off (startup + interval rules still run).
+        private readonly TimelineEventStream? _timelineEvents;
+        private Action<string, EnrollmentPhase>? _timelineHandler;
         private readonly object _sync = new object();
-        private string? _lastPhaseName;
+        private EnrollmentPhase _lastPhase = EnrollmentPhase.Unknown;
 
         public GatherRuleExecutorHost(
             string sessionId,
@@ -40,7 +46,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             List<GatherRule> rules,
             string? imeLogPathOverride,
             bool unrestrictedMode = false,
-            string? gatherDebugLogPath = null)
+            string? gatherDebugLogPath = null,
+            TimelineEventStream? timelineEvents = null)
         {
             if (ingress == null) throw new ArgumentNullException(nameof(ingress));
             if (clock == null) throw new ArgumentNullException(nameof(clock));
@@ -60,7 +67,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _executor = new Monitoring.Telemetry.Gather.GatherRuleExecutor(
                 sessionId, tenantId, evt => post.Emit(evt), logger, imeLogPathOverride,
                 debugLogPath: gatherDebugLogPath);
-            _observableIngress = ingress as SignalIngress;
+            _timelineEvents = timelineEvents;
         }
 
         public void Start()
@@ -71,46 +78,43 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _executor.UnrestrictedMode = _unrestrictedMode;
             _executor.UpdateRules(_rules);
 
-            // MON-A1: observe the central signal stream so phase_change / on_event rules fire.
-            if (_observableIngress != null && _signalPostedHandler == null)
+            // MON-A1 (revised): observe the emitted timeline so phase/event triggers fire in
+            // step with what the timeline actually shows.
+            if (_timelineEvents != null && _timelineHandler == null)
             {
-                _signalPostedHandler = OnSignalPosted;
-                _observableIngress.SignalPosted += _signalPostedHandler;
+                _timelineHandler = OnTimelineEventEmitted;
+                _timelineEvents.EventEmitted += _timelineHandler;
             }
 
             _logger.Info(
-                $"GatherRuleExecutorHost: started with {_rules.Count} rule(s), unrestrictedMode={_unrestrictedMode}, signalTriggers={(_observableIngress != null)}.");
+                $"GatherRuleExecutorHost: started with {_rules.Count} rule(s), unrestrictedMode={_unrestrictedMode}, timelineTriggers={(_timelineEvents != null)}.");
         }
 
         /// <summary>
-        /// Translates posted signals into the executor's phase_change / on_event triggers (MON-A1).
-        /// Phase: fire <see cref="Monitoring.Telemetry.Gather.GatherRuleExecutor.OnPhaseChanged"/> when
-        /// the observed phase changes and parses to an <see cref="EnrollmentPhase"/> (raw collector
-        /// phase strings that aren't enum names are ignored — they carry no gather-rule meaning).
-        /// Event: fire <see cref="Monitoring.Telemetry.Gather.GatherRuleExecutor.OnEvent"/> for every
-        /// InformationalEvent's eventType. The executor dispatches rule execution on the ThreadPool,
-        /// so this stays off the signal-posting hot path; it also dedups phase rules per (rule, phase).
+        /// Translates emitted timeline events into the executor's triggers. Phase: fire
+        /// <see cref="Monitoring.Telemetry.Gather.GatherRuleExecutor.OnPhaseChanged"/> when a
+        /// phase-declaration event (Phase != Unknown) moves the timeline to a new phase — this
+        /// is by construction the engine-reduced phase, so deferred transitions (RealmJoin gate)
+        /// fire the rules exactly when the timeline shows them. Event: fire
+        /// <see cref="Monitoring.Telemetry.Gather.GatherRuleExecutor.OnEvent"/> for every emitted
+        /// event's type — including engine-emitted types (enrollment_complete, phase_transition,
+        /// realmjoin_resolved, …) that never existed on the raw signal stream. The executor
+        /// dispatches rule execution on the ThreadPool, so this stays off the ingress worker's
+        /// effect path; it also dedups phase rules per (rule, phase).
         /// </summary>
-        private void OnSignalPosted(DecisionSignalKind kind, IReadOnlyDictionary<string, string>? payload)
+        private void OnTimelineEventEmitted(string eventType, EnrollmentPhase phase)
         {
-            if (payload == null) return;
-
             try
             {
                 lock (_sync)
                 {
-                    if (payload.TryGetValue(SignalPayloadKeys.EspPhase, out var phaseName)
-                        && !string.IsNullOrEmpty(phaseName)
-                        && !string.Equals(phaseName, _lastPhaseName, StringComparison.OrdinalIgnoreCase)
-                        && Enum.TryParse<EnrollmentPhase>(phaseName, ignoreCase: true, out var phase))
+                    if (phase != EnrollmentPhase.Unknown && phase != _lastPhase)
                     {
-                        _lastPhaseName = phaseName;
+                        _lastPhase = phase;
                         _executor.OnPhaseChanged(phase);
                     }
 
-                    if (kind == DecisionSignalKind.InformationalEvent
-                        && payload.TryGetValue(SignalPayloadKeys.EventType, out var eventType)
-                        && !string.IsNullOrEmpty(eventType))
+                    if (!string.IsNullOrEmpty(eventType))
                     {
                         _executor.OnEvent(eventType);
                     }
@@ -118,17 +122,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             }
             catch (Exception ex)
             {
-                _logger.Verbose($"GatherRuleExecutorHost: signal-trigger dispatch failed: {ex.Message}");
+                _logger.Verbose($"GatherRuleExecutorHost: timeline-trigger dispatch failed: {ex.Message}");
             }
         }
 
         public void Stop()
         {
-            if (_observableIngress != null && _signalPostedHandler != null)
+            if (_timelineEvents != null && _timelineHandler != null)
             {
-                try { _observableIngress.SignalPosted -= _signalPostedHandler; }
+                try { _timelineEvents.EventEmitted -= _timelineHandler; }
                 catch { /* best-effort unsubscribe during shutdown */ }
-                _signalPostedHandler = null;
+                _timelineHandler = null;
             }
             // GatherRuleExecutor is IDisposable; no explicit Stop beyond unsubscribe. Rely on Dispose.
         }

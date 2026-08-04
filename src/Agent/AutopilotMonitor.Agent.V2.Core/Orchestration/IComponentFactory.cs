@@ -39,6 +39,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// <c>spool.pendingItemCount</c> / <c>spool.fileSizeBytes</c>. Nullable — fakes and
         /// spool-less configurations pass null and the metrics fields are simply absent.
         /// </para>
+        /// <para>
+        /// <paramref name="timelineEvents"/> flows into the <c>GatherRuleExecutorHost</c> so
+        /// <c>phase_change</c> / <c>phase_exit</c> / <c>on_event</c> gather triggers key off the
+        /// ENGINE-REDUCED emitted timeline (post-reduce, RealmJoin gate respected) instead of raw
+        /// pre-reduce signals — see <see cref="TimelineEventStream"/>. Nullable — fakes pass null
+        /// and the host's phase/event triggers degrade off (startup + interval rules still run).
+        /// </para>
         /// </summary>
         CollectorSurfaces CreateCollectorHosts(
             string sessionId,
@@ -47,6 +54,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             IReadOnlyCollection<string> whiteGloveSealingPatternIds,
             ISignalIngressSink ingress,
             IClock clock,
-            Transport.Telemetry.ITelemetrySpool? telemetrySpool);
+            Transport.Telemetry.ITelemetrySpool? telemetrySpool,
+            TimelineEventStream? timelineEvents = null);
     }
 }

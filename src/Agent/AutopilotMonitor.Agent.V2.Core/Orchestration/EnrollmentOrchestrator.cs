@@ -107,6 +107,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private TelemetrySignalEmitter? _signalEmitter;
         private TelemetryTransitionEmitter? _transitionEmitter;
         private EventTimelineEmitter? _timelineEmitter;
+        private TimelineEventStream? _timelineEvents;
         private BackPressureEventObserver? _backPressureObserver;
         private IDeadlineScheduler? _scheduler;
         private ClassifierRegistry? _classifierRegistry;
@@ -413,7 +414,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 _transport, _eventSequenceCounter, _sessionId, _tenantId, _traceEventsEnabled);
             _signalEmitter = new TelemetrySignalEmitter(_transport, _sessionId, _tenantId);
             _transitionEmitter = new TelemetryTransitionEmitter(_transport, _sessionId, _tenantId);
-            _timelineEmitter = new EventTimelineEmitter(eventEmitter);
+            // Post-reduce timeline observer: EventTimelineEmitter publishes every emitted event's
+            // (eventType, phase) here. Fed to the collector-host factory at step 14 so gather-rule
+            // phase_change/on_event triggers key off the ENGINE-REDUCED timeline (RealmJoin gate
+            // et al. respected) instead of raw pre-reduce signals — see TimelineEventStream doc.
+            _timelineEvents = new TimelineEventStream();
+            _timelineEmitter = new EventTimelineEmitter(eventEmitter, _timelineEvents);
             _backPressureObserver = new BackPressureEventObserver(eventEmitter, _clock);
 
             // 5) Deadlines + Classifiers.
@@ -653,7 +659,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             {
                 var surfaces = _componentFactory.CreateCollectorHosts(
                     _sessionId, _tenantId, _logger, _whiteGloveSealingPatternIds,
-                    ingress: _ingress, clock: _clock, telemetrySpool: _spool);
+                    ingress: _ingress, clock: _clock, telemetrySpool: _spool,
+                    timelineEvents: _timelineEvents);
                 CollectorSurfaces = surfaces;
                 _collectorHosts = surfaces.Hosts;
                 foreach (var host in _collectorHosts)

@@ -81,10 +81,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Telemetry.Events
         internal const string ReasonParamKey = "reason";
 
         private readonly TelemetryEventEmitter _emitter;
+        private readonly TimelineEventStream? _timelineEvents;
 
-        public EventTimelineEmitter(TelemetryEventEmitter emitter)
+        public EventTimelineEmitter(TelemetryEventEmitter emitter, TimelineEventStream? timelineEvents = null)
         {
             _emitter = emitter ?? throw new ArgumentNullException(nameof(emitter));
+            _timelineEvents = timelineEvents;
         }
 
         public void Emit(
@@ -142,6 +144,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Telemetry.Events
             };
 
             _emitter.Emit(evt);
+
+            // Post-reduce observer surface: published AFTER the transport enqueue so subscribers
+            // (gather-rule phase/event triggers) see exactly the ordering that reaches the wire.
+            // Publish never throws (subscriber isolation inside the stream).
+            _timelineEvents?.Publish(evt.EventType, evt.Phase);
         }
 
         /// <summary>

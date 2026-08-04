@@ -54,6 +54,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             public ISignalIngressSink? CapturedIngress { get; private set; }
             public IClock? CapturedClock { get; private set; }
             public AutopilotMonitor.Agent.V2.Core.Transport.Telemetry.ITelemetrySpool? CapturedTelemetrySpool { get; private set; }
+            public TimelineEventStream? CapturedTimelineEvents { get; private set; }
 
             public CollectorSurfaces CreateCollectorHosts(
                 string sessionId,
@@ -62,12 +63,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
                 IReadOnlyCollection<string> whiteGloveSealingPatternIds,
                 ISignalIngressSink ingress,
                 IClock clock,
-                AutopilotMonitor.Agent.V2.Core.Transport.Telemetry.ITelemetrySpool? telemetrySpool)
+                AutopilotMonitor.Agent.V2.Core.Transport.Telemetry.ITelemetrySpool? telemetrySpool,
+                TimelineEventStream? timelineEvents = null)
             {
                 CapturedWhiteGloveSealingPatternIds = whiteGloveSealingPatternIds;
                 CapturedIngress = ingress;
                 CapturedClock = clock;
                 CapturedTelemetrySpool = telemetrySpool;
+                CapturedTimelineEvents = timelineEvents;
                 foreach (var name in HostNames)
                 {
                     Hosts.Add(new FakeCollectorHost(name));

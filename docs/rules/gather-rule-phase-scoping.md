@@ -8,7 +8,7 @@ tags:
   - backend
   - gather-rules
   - config
-timestamp: 2026-07-20T00:00:00+02:00
+timestamp: 2026-08-04T00:00:00+02:00
 ---
 
 # Problem
@@ -63,6 +63,35 @@ enter-rule and an exit-rule on the same phase never cannibalise each other's slo
   `enrollment_complete`.
 * Old agents do not know the trigger value and simply never fire the rule (silent no-op) —
   which is why `phase_exit` needs no ConfigVersion bump: no new field is transported.
+
+# Which "phase" feeds the triggers — the emitted timeline, not raw signals
+
+The phase the executor sees is fed by `GatherRuleExecutorHost` from the **post-reduce
+`TimelineEventStream`**: `EventTimelineEmitter` publishes every emitted event's
+`(eventType, phase)` after the decision engine reduced the originating signal. Phase triggers
+therefore fire exactly when the UI timeline shows the phase — by construction.
+
+This replaced the original V2 wiring (`SignalIngress.SignalPosted`), which fires at enqueue
+time with the **raw** collector payload. The raw phase can run minutes ahead of the
+engine-declared one: in session `32312a32` (RealmJoin tenant) the Shell-Core ESP-exit
+synthesized `EspPhaseChanged(FinalizingSetup)` at 12:18, while the engine — holding the
+transition behind the RealmJoin completion gate until the first deployment resolved — declared
+`phase_transition(FinalizingSetup)` at 12:25. A `phase_change` rule on `FinalizingSetup`
+reading `HKLM\SOFTWARE\RealmJoin\Custom\BIOS` fired 7 minutes early and read the key before
+the RealmJoin package wrote it (`exists=false`).
+
+Consequences of the emitted-event feed:
+
+* `phase_change` / `phase_exit` / phase **scope** gates all follow the engine-reduced phase
+  (single feed, consistent with the portal's "collects once when the enrollment reaches …").
+* `on_event` now sees **every emitted event type**, including engine-emitted ones
+  (`enrollment_complete`, `phase_transition`, `realmjoin_resolved`, …) that never existed on
+  the raw signal stream — the documented "On Event with `enrollment_complete`" end-of-enrollment
+  pattern only works because of this. This restores V1 semantics (V1 fired triggers from every
+  emitted `EnrollmentEvent`).
+* Other hosts (`DeviceInfoHost`, `UserEspKeepAwakeHost`, `ProvisioningPackageHost`) still key
+  off the raw signal stream deliberately — their collections are about OS state at the raw
+  boundary (ESP exit, keep-awake), not about timeline agreement.
 
 # Scope semantics (agent, `GatherRuleExecutor`)
 
@@ -130,7 +159,9 @@ enter-rule and an exit-rule on the same phase never cannibalise each other's slo
 # Citations
 
 * `src/Agent/AutopilotMonitor.Agent.V2.Core/Monitoring/Telemetry/Gather/GatherRuleExecutor.cs` — scope gates, latch, canonical hash
+* `src/Agent/AutopilotMonitor.Agent.V2.Core/Orchestration/Hosts/GatherRuleExecutorHost.cs` — timeline-event trigger feed
+* `src/Agent/AutopilotMonitor.Agent.V2.Core/Orchestration/TimelineEventStream.cs` — post-reduce observer surface
 * `src/Backend/AutopilotMonitor.Functions/Functions/Rules/GatherRulesFunction.cs` — `ValidateScopeAndEmitMode`
 * `src/Backend/AutopilotMonitor.Functions/Services/GatherRuleService.cs` — partial-PUT merge, `ContentEquivalent`
 * `src/Shared/AutopilotMonitor.Shared/Models/Rules/GatherRule.cs` — field contracts
-* Tests: `GatherRuleExecutorPhaseScopeTests`, `GatherRuleExecutorEmitModeTests` (agent); `GatherRuleUpdatePartialMergeTests`, `GatherRuleScopeFieldsTests` (backend)
+* Tests: `GatherRuleExecutorPhaseScopeTests`, `GatherRuleExecutorEmitModeTests`, `GatherRuleExecutorHostTimelineFeedTests` (agent); `GatherRuleUpdatePartialMergeTests`, `GatherRuleScopeFieldsTests` (backend)
