@@ -194,7 +194,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         public Action OnAllAppsCompleted { get; set; }
         public Action OnUserSessionCompleted { get; set; }
         public Action<string> OnImeSessionChange { get; set; }
-        public Action<AppPackageState> OnDoTelemetryReceived { get; set; }
+        // Second arg: the [DO TEL] source log line's timestamp when the DO data came from a
+        // log line, null when the DO collector observed the completion live via polling. The
+        // consumer must stamp poll-driven telemetry with the clock — inheriting an unrelated
+        // line's LastMatchedLogTimestamp put a tz-skewed time on the event (session df1fcf47).
+        public Action<AppPackageState, DateTime?> OnDoTelemetryReceived { get; set; }
         public Action<ScriptExecutionState> OnScriptCompleted { get; set; }
 
         /// <summary>

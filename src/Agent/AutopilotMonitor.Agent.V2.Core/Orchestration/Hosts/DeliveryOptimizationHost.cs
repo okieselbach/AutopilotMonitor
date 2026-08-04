@@ -51,7 +51,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 getPackageStates: () => imeHost.PackageStates,
                 onDoTelemetryReceived: pkg =>
                 {
-                    try { imeHost.Tracker.OnDoTelemetryReceived?.Invoke(pkg); }
+                    // null source timestamp: poll-driven completion, no log line backs it —
+                    // the adapter stamps the clock instead of LastMatchedLogTimestamp.
+                    try { imeHost.Tracker.OnDoTelemetryReceived?.Invoke(pkg, null); }
                     catch (Exception ex) { logger.Warning($"DeliveryOptimizationHost: OnDoTelemetryReceived invocation threw: {ex.Message}"); }
                 },
                 logDirectory: Environment.ExpandEnvironmentVariables(Constants.LogDirectory),

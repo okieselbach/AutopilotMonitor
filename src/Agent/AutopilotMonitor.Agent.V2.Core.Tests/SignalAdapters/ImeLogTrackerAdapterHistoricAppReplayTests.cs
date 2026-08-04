@@ -83,13 +83,36 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
             var app = new AppPackageState("app-do", 0);
 
-            f.Tracker.LastMatchedLogTimestamp = ClockNow.AddDays(-7);
-            adapter.TriggerDoTelemetryFromTest(app);
+            // Line-grounded path: the [DO TEL] line's own timestamp travels with the callback.
+            adapter.TriggerDoTelemetryFromTest(app, ClockNow.AddDays(-7));
             Assert.Empty(f.InfoEvents(SharedEventTypes.DoTelemetry));
 
-            f.Tracker.LastMatchedLogTimestamp = ClockNow.AddMinutes(-1);
-            adapter.TriggerDoTelemetryFromTest(app);
-            Assert.Single(f.InfoEvents(SharedEventTypes.DoTelemetry));
+            adapter.TriggerDoTelemetryFromTest(app, ClockNow.AddMinutes(-1));
+            var info = Assert.Single(f.InfoEvents(SharedEventTypes.DoTelemetry));
+            Assert.Equal(ClockNow.AddMinutes(-1), info.OccurredAtUtc);
+        }
+
+        [Fact]
+        public void Poll_driven_do_telemetry_stamps_clock_ignoring_unrelated_last_matched_line()
+        {
+            // Session df1fcf47: the DO collector observed the completion live, but the event
+            // inherited LastMatchedLogTimestamp from an unrelated, tz-skewed log line 8h in
+            // the past — which dragged Sessions.StartedAt back and inflated the duration.
+            // Poll-driven telemetry (null source timestamp) must stamp the clock, never the
+            // last matched line.
+            using var f = new ImeLogTrackerAdapterFixture(ClockNow);
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+            var app = new AppPackageState("app-do-poll", 0);
+
+            f.Tracker.LastMatchedLogTimestamp = ClockNow.AddHours(-8);
+            adapter.TriggerDoTelemetryFromTest(app, sourceTimestampUtc: null);
+
+            var info = Assert.Single(f.InfoEvents(SharedEventTypes.DoTelemetry));
+            Assert.Equal(ClockNow, info.OccurredAtUtc);
+            Assert.Equal("true", info.Payload!["derivedTimestamp"]);
+            // Not a replay — live observation must never trip the replay suppression,
+            // even with a stale unrelated line on the tracker.
+            Assert.Empty(f.InfoEvents(SharedEventTypes.HistoricImeReplayDetected));
         }
 
         [Fact]

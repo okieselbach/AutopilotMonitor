@@ -112,7 +112,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     $"size={fileSize}, peers={bytesFromPeers} ({peerCachingPct}%), " +
                     $"http={bytesFromHttp}, cache={bytesFromCacheServer}, mode={downloadMode}, duration={downloadDuration}");
 
-                OnDoTelemetryReceived?.Invoke(pkg);
+                OnDoTelemetryReceived?.Invoke(pkg, LastMatchedLogTimestamp);
                 _stateDirty = true;
             }
             catch (Exception ex)
