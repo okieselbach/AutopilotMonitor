@@ -22,9 +22,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
     /// </summary>
     public static class CmTraceLogParser
     {
-        // Pre-compiled regex for the CMTrace format
+        // Pre-compiled regex for the CMTrace format. The time field may carry a UTC-bias
+        // suffix in minutes ("06:08:04.8834397+480", GetTimeZoneInformation convention:
+        // UTC = local + bias) — without the optional bias group such lines would not match
+        // at all and their content would be invisible to every pattern.
         private static readonly Regex CmTraceRegex = new Regex(
-            @"<!\[LOG\[(?<message>.*)\]LOG\]!><time=""(?<time>[\d:.]+)""\s+date=""(?<date>[\d-]+)""\s+component=""(?<component>[^""]*)""\s+context=""[^""]*""\s+type=""(?<type>\d+)""\s+thread=""(?<thread>\d+)""\s+file=""[^""]*"">",
+            @"<!\[LOG\[(?<message>.*)\]LOG\]!><time=""(?<time>[\d:.]+)(?<bias>[+-]\d{1,4})?""\s+date=""(?<date>[\d-]+)""\s+component=""(?<component>[^""]*)""\s+context=""[^""]*""\s+type=""(?<type>\d+)""\s+thread=""(?<thread>\d+)""\s+file=""[^""]*"">",
             RegexOptions.Compiled | RegexOptions.Singleline
         );
 
@@ -45,6 +48,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
             var message = match.Groups["message"].Value;
             var timeStr = match.Groups["time"].Value;
+            var biasStr = match.Groups["bias"].Value;
             var dateStr = match.Groups["date"].Value;
             var component = match.Groups["component"].Value;
             var typeStr = match.Groups["type"].Value;
@@ -52,7 +56,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
             // Parse timestamp: date is "M-d-yyyy", time is "HH:mm:ss.ticks"
             DateTime timestamp;
-            if (!TryParseTimestamp(dateStr, timeStr, out timestamp))
+            if (!TryParseTimestamp(dateStr, timeStr, biasStr, out timestamp))
             {
                 timestamp = DateTime.UtcNow;
             }
@@ -72,7 +76,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             return true;
         }
 
-        private static bool TryParseTimestamp(string dateStr, string timeStr, out DateTime result)
+        private static bool TryParseTimestamp(string dateStr, string timeStr, string biasStr, out DateTime result)
         {
             result = DateTime.MinValue;
 
@@ -116,7 +120,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 "M-d-yyyy HH:mm:ss"
             };
 
-            // CMTrace timestamps are always in LOCAL time. Parse as local, then convert to UTC.
+            // Bias-suffixed time ("+480"): the writer declared its own UTC offset in minutes
+            // (GetTimeZoneInformation convention: UTC = written time + bias). Honor it instead
+            // of assuming the agent's local timezone — writer and agent can disagree (mixed
+            // components, mid-enrollment timezone change; session df1fcf47).
+            if (!string.IsNullOrEmpty(biasStr)
+                && int.TryParse(biasStr, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var biasMinutes))
+            {
+                if (DateTime.TryParseExact(combined, formats, CultureInfo.InvariantCulture,
+                    DateTimeStyles.None, out result))
+                {
+                    result = DateTime.SpecifyKind(result.AddMinutes(biasMinutes), DateTimeKind.Utc);
+                    return true;
+                }
+                return false;
+            }
+
+            // No bias: CMTrace timestamps are in LOCAL time. Parse as local, then convert to UTC.
             if (DateTime.TryParseExact(combined, formats, CultureInfo.InvariantCulture,
                 DateTimeStyles.AssumeLocal, out result))
             {

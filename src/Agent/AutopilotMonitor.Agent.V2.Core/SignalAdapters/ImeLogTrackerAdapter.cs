@@ -72,7 +72,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private readonly Action<AppPackageState, AppInstallationState, AppInstallationState>? _prevOnAppStateChanged;
         private readonly Action<string>? _prevOnPatternMatched;
         private readonly Action<string>? _prevOnImeAgentVersion;
-        private readonly Action<AppPackageState>? _prevOnDoTelemetryReceived;
+        private readonly Action<AppPackageState, DateTime?>? _prevOnDoTelemetryReceived;
         private readonly Action<ScriptExecutionState>? _prevOnScriptCompleted;
         private readonly Action<ScriptStartedInfo>? _prevOnScriptStarted;
 
@@ -82,7 +82,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private readonly Action<AppPackageState, AppInstallationState, AppInstallationState> _ourOnAppStateChanged;
         private readonly Action<string> _ourOnPatternMatched;
         private readonly Action<string> _ourOnImeAgentVersion;
-        private readonly Action<AppPackageState> _ourOnDoTelemetryReceived;
+        private readonly Action<AppPackageState, DateTime?> _ourOnDoTelemetryReceived;
         private readonly Action<ScriptExecutionState> _ourOnScriptCompleted;
         private readonly Action<ScriptStartedInfo> _ourOnScriptStarted;
 
@@ -242,10 +242,10 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             EmitImeAgentVersion(version);
         }
 
-        private void OnDoTelemetryReceived(AppPackageState app)
+        private void OnDoTelemetryReceived(AppPackageState app, DateTime? sourceTimestampUtc)
         {
-            _prevOnDoTelemetryReceived?.Invoke(app);
-            EmitDoTelemetry(app);
+            _prevOnDoTelemetryReceived?.Invoke(app, sourceTimestampUtc);
+            EmitDoTelemetry(app, sourceTimestampUtc);
         }
 
         private void OnScriptCompleted(ScriptExecutionState script)
@@ -266,7 +266,8 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             EmitAppState(app, oldState, newState);
         internal void TriggerPatternMatchedFromTest(string patternId) => MaybeEmitWhiteGloveSealingPattern(patternId);
         internal void TriggerImeAgentVersionFromTest(string version) => EmitImeAgentVersion(version);
-        internal void TriggerDoTelemetryFromTest(AppPackageState app) => EmitDoTelemetry(app);
+        internal void TriggerDoTelemetryFromTest(AppPackageState app, DateTime? sourceTimestampUtc = null) =>
+            EmitDoTelemetry(app, sourceTimestampUtc);
         internal void TriggerScriptCompletedFromTest(ScriptExecutionState script) => EmitScriptCompleted(script);
         internal void TriggerScriptStartedFromTest(ScriptStartedInfo info) => EmitScriptStarted(info);
 
@@ -876,7 +877,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _logger?.Info($"ImeAdapter: IME agent version detected: {version}");
         }
 
-        private void EmitDoTelemetry(AppPackageState app)
+        private void EmitDoTelemetry(AppPackageState app, DateTime? sourceTimestampUtc)
         {
             if (app == null || string.IsNullOrEmpty(app.Id)) return;
 
@@ -912,11 +913,31 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             var patternId = _tracker.LastMatchedPatternId;
             if (!string.IsNullOrEmpty(patternId)) data["patternId"] = patternId!;
 
-            var now = ResolveOccurredAt(out var derivedFromClock, out var rawSourceTs);
+            // Two trigger paths with different time grounding (session df1fcf47: a single
+            // tz-skewed unrelated log line inherited via LastMatchedLogTimestamp dragged the
+            // session StartedAt back 7h and inflated the reported duration):
+            //  - [DO TEL] log line (sourceTimestampUtc set): the line's own timestamp is the
+            //    event time — resolve/clamp it and apply historic-replay suppression.
+            //  - DO collector poll (sourceTimestampUtc null): the completion was observed live
+            //    via Get-DeliveryOptimizationStatus; no log line is involved, so the clock is
+            //    the only honest source. LastMatchedLogTimestamp must NOT be consulted here.
+            DateTime now;
+            bool derivedFromClock;
+            DateTime? rawSourceTs;
+            if (sourceTimestampUtc.HasValue)
+            {
+                now = ResolveOccurredAt(sourceTimestampUtc, out derivedFromClock, out rawSourceTs);
 
-            // Historic replay — a week-old DO summary is not this enrollment's download.
-            if (SuppressIfHistoricReplay(derivedFromClock, rawSourceTs, SharedEventTypes.DoTelemetry, app.Id))
-                return;
+                // Historic replay — a week-old DO summary is not this enrollment's download.
+                if (SuppressIfHistoricReplay(derivedFromClock, rawSourceTs, SharedEventTypes.DoTelemetry, app.Id))
+                    return;
+            }
+            else
+            {
+                now = _clock.UtcNow;
+                derivedFromClock = true;
+                rawSourceTs = null;
+            }
 
             TagDerivedTimestamp(data, derivedFromClock, rawSourceTs);
 

@@ -647,13 +647,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             int priorDoCalls = 0;
             int priorScriptCalls = 0;
             f.Tracker.OnImeAgentVersion = _ => priorVersionCalls++;
-            f.Tracker.OnDoTelemetryReceived = _ => priorDoCalls++;
+            f.Tracker.OnDoTelemetryReceived = (_, _) => priorDoCalls++;
             f.Tracker.OnScriptCompleted = _ => priorScriptCalls++;
 
             using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
 
             f.Tracker.OnImeAgentVersion("1.0.0.0");
-            f.Tracker.OnDoTelemetryReceived(new AppPackageState("app-1", 0));
+            f.Tracker.OnDoTelemetryReceived(new AppPackageState("app-1", 0), null);
             f.Tracker.OnScriptCompleted(new ScriptExecutionState { PolicyId = "p", ScriptType = "platform" });
 
             Assert.Equal(1, priorVersionCalls);
@@ -667,7 +667,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
         {
             using var f = new ImeLogTrackerAdapterFixture();
             Action<string> priorVersion = _ => { };
-            Action<AppPackageState> priorDo = _ => { };
+            Action<AppPackageState, DateTime?> priorDo = (_, _) => { };
             Action<ScriptExecutionState> priorScript = _ => { };
             f.Tracker.OnImeAgentVersion = priorVersion;
             f.Tracker.OnDoTelemetryReceived = priorDo;

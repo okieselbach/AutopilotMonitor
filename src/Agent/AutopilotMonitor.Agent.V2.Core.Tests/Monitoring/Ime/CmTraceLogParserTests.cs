@@ -92,6 +92,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             Assert.InRange(entry.Timestamp, before.AddSeconds(-5), after.AddSeconds(5));
         }
 
+        // ── UTC-bias suffix on the time field → honored, not dropped ──────────
+
+        [Theory]
+        [InlineData("+480", 8 * 60)]   // PST writer (UTC-8): UTC = local + 480min
+        [InlineData("-060", -60)]      // UTC+1 writer: UTC = local - 60min
+        public void TryParseLine_applies_utc_bias_suffix(string bias, int expectedOffsetMinutes)
+        {
+            // Session df1fcf47: a writer whose timezone differs from the agent's stamped its
+            // lines with an explicit bias. Without bias handling the line either failed to
+            // match at all (old regex) or would be misread in agent-local time.
+            var line = CmTraceLine("msg", "11:46:19.0226610" + bias, "7-29-2026");
+
+            var ok = CmTraceLogParser.TryParseLine(line, out var entry);
+
+            Assert.True(ok);
+            Assert.Equal(
+                new DateTime(2026, 7, 29, 11, 46, 19, DateTimeKind.Utc).AddTicks(226610).AddMinutes(expectedOffsetMinutes),
+                entry.Timestamp);
+            Assert.Equal(DateTimeKind.Utc, entry.Timestamp.Kind);
+        }
+
         // ── Oversized line → parses, no throw, no truncation of the message ───
 
         [Fact]

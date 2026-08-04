@@ -272,6 +272,45 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Upper bound for how far the earliest-event timestamp may sit BEFORE the session's
+        /// current StartedAt and still be trusted as the new session anchor. Legitimate cases
+        /// (events ingested before registration, agent bootstrapping mid-ESP and replaying
+        /// accumulated IME log lines) are minutes to at most ~an hour. Anything beyond is a
+        /// skewed source timestamp — session df1fcf47: ONE do_telemetry event whose OccurredUtc
+        /// inherited a tz-shifted IME log line 8h in the past re-anchored StartedAt and inflated
+        /// DurationSeconds from ~1h16m to 8h15m. The agent accepts source timestamps up to 24h
+        /// old by design (replay timeline fidelity), so the session anchor needs its own,
+        /// much tighter plausibility window.
+        /// </summary>
+        internal static readonly TimeSpan MaxStartedAtBackwardShift = TimeSpan.FromHours(2);
+
+        /// <summary>
+        /// Returns <paramref name="earliestEventTimestamp"/> when it is a plausible session
+        /// anchor (missing anchor, forward-in-time, or backward within
+        /// <see cref="MaxStartedAtBackwardShift"/>), null when the backward shift is implausible.
+        /// Mutation sites MUST apply this before BOTH the StartedAt alignment and the
+        /// SyncSessionIndexAsync call — the index derives its shift-vs-merge decision from the
+        /// same comparison, so feeding it the unsanitized value would move the index RowKey
+        /// while the session row keeps its anchor. The rejected event itself stays in the
+        /// timeline; only the anchor refuses to follow it.
+        /// </summary>
+        private DateTime? SanitizeEarliestEventTimestamp(
+            DateTime? earliestEventTimestamp, DateTime currentStartedAt, string sessionId)
+        {
+            if (!earliestEventTimestamp.HasValue || currentStartedAt == DateTime.MaxValue)
+                return earliestEventTimestamp;
+
+            var backwardShift = currentStartedAt - earliestEventTimestamp.Value;
+            if (backwardShift <= MaxStartedAtBackwardShift)
+                return earliestEventTimestamp;
+
+            _logger.LogWarning(
+                "Session {SessionId}: earliest event timestamp {EarliestEventTimestamp:o} is {ShiftHours:F1}h before StartedAt {StartedAt:o} — backward shift rejected as skewed source timestamp",
+                sessionId, earliestEventTimestamp.Value, backwardShift.TotalHours, currentStartedAt);
+            return null;
+        }
+
+        /// <summary>
         /// Centralizes the SessionsIndex dual-write decision shared by the session-mutation paths
         /// (UpdateSessionStatusAsync normal + ETag force-write, IncrementSessionEventCountAsync): when
         /// an earlier event shifted StartedAt the index RowKey (inverted ticks) changes, so rebuild the
@@ -483,8 +522,11 @@ namespace AutopilotMonitor.Functions.Services
                 }
 
                 // If events were ingested before session registration succeeded, align StartedAt
-                // with the earliest event we already have for this session.
-                var earliestEventTimestamp = await GetEarliestSessionEventTimestampAsync(registration.TenantId, registration.SessionId);
+                // with the earliest event we already have for this session (plausibility-guarded:
+                // a skewed source timestamp must not pre-poison the anchor at registration).
+                var earliestEventTimestamp = SanitizeEarliestEventTimestamp(
+                    await GetEarliestSessionEventTimestampAsync(registration.TenantId, registration.SessionId),
+                    startedAt, registration.SessionId);
                 if (earliestEventTimestamp.HasValue && earliestEventTimestamp.Value < startedAt)
                 {
                     startedAt = earliestEventTimestamp.Value;
@@ -1655,10 +1697,12 @@ namespace AutopilotMonitor.Functions.Services
                     }
 
                     // Align StartedAt with the earliest event timestamp provided by the caller
+                    // (plausibility-guarded — one skewed event must not re-anchor the session).
                     var currentStartedAt = session.GetDateTimeOffset("StartedAt")?.UtcDateTime ?? DateTime.MaxValue;
-                    if (earliestEventTimestamp.HasValue && earliestEventTimestamp.Value < currentStartedAt)
+                    var safeEarliestEventTimestamp = SanitizeEarliestEventTimestamp(earliestEventTimestamp, currentStartedAt, sessionId);
+                    if (safeEarliestEventTimestamp.HasValue && safeEarliestEventTimestamp.Value < currentStartedAt)
                     {
-                        update["StartedAt"] = EnsureUtc(earliestEventTimestamp.Value);
+                        update["StartedAt"] = EnsureUtc(safeEarliestEventTimestamp.Value);
                     }
 
                     // Set completion time if succeeded or failed
@@ -1688,11 +1732,14 @@ namespace AutopilotMonitor.Functions.Services
                             // Standard session (or WhiteGlove without stored Part 1 data — fallback):
                             // Read earliest event from Events table — authoritative source, immune to
                             // concurrent StartedAt update races. This is a single-row lookup (maxPerPage: 1)
-                            // and only happens once per session lifecycle (at completion).
-                            var earliestStoredEvent = await GetEarliestSessionEventTimestampAsync(tenantId, sessionId);
+                            // and only happens once per session lifecycle (at completion). Same
+                            // plausibility guard as the anchor: one skewed stored event must not
+                            // stretch the duration by hours.
+                            var earliestStoredEvent = SanitizeEarliestEventTimestamp(
+                                await GetEarliestSessionEventTimestampAsync(tenantId, sessionId), currentStartedAt, sessionId);
                             var durationStart = earliestStoredEvent ?? currentStartedAt;
-                            if (earliestEventTimestamp.HasValue && earliestEventTimestamp.Value < durationStart)
-                                durationStart = earliestEventTimestamp.Value;
+                            if (safeEarliestEventTimestamp.HasValue && safeEarliestEventTimestamp.Value < durationStart)
+                                durationStart = safeEarliestEventTimestamp.Value;
 
                             if (durationStart < effectiveCompletedAt)
                                 update["DurationSeconds"] = (int)(effectiveCompletedAt - durationStart).TotalSeconds;
@@ -1712,10 +1759,13 @@ namespace AutopilotMonitor.Functions.Services
                     {
                         if (latestEventTimestamp.HasValue)
                         {
-                            var earliestStoredEvent = await GetEarliestSessionEventTimestampAsync(tenantId, sessionId);
+                            // Same plausibility guard as the completion path (session df1fcf47:
+                            // this exact block computed the inflated 8h15m WG Part 1 duration).
+                            var earliestStoredEvent = SanitizeEarliestEventTimestamp(
+                                await GetEarliestSessionEventTimestampAsync(tenantId, sessionId), currentStartedAt, sessionId);
                             var durationStart = earliestStoredEvent ?? currentStartedAt;
-                            if (earliestEventTimestamp.HasValue && earliestEventTimestamp.Value < durationStart)
-                                durationStart = earliestEventTimestamp.Value;
+                            if (safeEarliestEventTimestamp.HasValue && safeEarliestEventTimestamp.Value < durationStart)
+                                durationStart = safeEarliestEventTimestamp.Value;
 
                             if (durationStart < latestEventTimestamp.Value)
                                 update["DurationSeconds"] = (int)(latestEventTimestamp.Value - durationStart).TotalSeconds;
@@ -1826,7 +1876,7 @@ namespace AutopilotMonitor.Functions.Services
                     await tableClient.UpdateEntityAsync(update, session.ETag, TableUpdateMode.Merge);
 
                     // Dual-write: keep SessionsIndex in sync (StartedAt-shift → full upsert, else merge).
-                    await SyncSessionIndexAsync(tenantId, sessionId, session, update, currentStartedAt, earliestEventTimestamp);
+                    await SyncSessionIndexAsync(tenantId, sessionId, session, update, currentStartedAt, safeEarliestEventTimestamp);
 
                     _logger.LogInformation($"Updated session {sessionId} status to {status}");
                     return true;
@@ -1919,8 +1969,10 @@ namespace AutopilotMonitor.Functions.Services
                             }
 
                             var freshStartedAt = freshSession.GetDateTimeOffset("StartedAt")?.UtcDateTime ?? DateTime.MaxValue;
-                            if (earliestEventTimestamp.HasValue && earliestEventTimestamp.Value < freshStartedAt)
-                                forceUpdate["StartedAt"] = EnsureUtc(earliestEventTimestamp.Value);
+                            // Re-sanitize against the FRESH anchor (mirror of the normal path's guard).
+                            var safeForceEarliestEventTimestamp = SanitizeEarliestEventTimestamp(earliestEventTimestamp, freshStartedAt, sessionId);
+                            if (safeForceEarliestEventTimestamp.HasValue && safeForceEarliestEventTimestamp.Value < freshStartedAt)
+                                forceUpdate["StartedAt"] = EnsureUtc(safeForceEarliestEventTimestamp.Value);
 
                             if (status == SessionStatus.Succeeded || status == SessionStatus.Failed)
                             {
@@ -1943,10 +1995,11 @@ namespace AutopilotMonitor.Functions.Services
                                 }
                                 else
                                 {
-                                    var earliestStoredEvent = await GetEarliestSessionEventTimestampAsync(tenantId, sessionId);
+                                    var earliestStoredEvent = SanitizeEarliestEventTimestamp(
+                                        await GetEarliestSessionEventTimestampAsync(tenantId, sessionId), freshStartedAt, sessionId);
                                     var durationStart = earliestStoredEvent ?? freshStartedAt;
-                                    if (earliestEventTimestamp.HasValue && earliestEventTimestamp.Value < durationStart)
-                                        durationStart = earliestEventTimestamp.Value;
+                                    if (safeForceEarliestEventTimestamp.HasValue && safeForceEarliestEventTimestamp.Value < durationStart)
+                                        durationStart = safeForceEarliestEventTimestamp.Value;
 
                                     if (durationStart < effectiveCompletedAt)
                                         forceUpdate["DurationSeconds"] = (int)(effectiveCompletedAt - durationStart).TotalSeconds;
@@ -1956,10 +2009,11 @@ namespace AutopilotMonitor.Functions.Services
                             {
                                 if (latestEventTimestamp.HasValue)
                                 {
-                                    var earliestStoredEvent = await GetEarliestSessionEventTimestampAsync(tenantId, sessionId);
+                                    var earliestStoredEvent = SanitizeEarliestEventTimestamp(
+                                        await GetEarliestSessionEventTimestampAsync(tenantId, sessionId), freshStartedAt, sessionId);
                                     var durationStart = earliestStoredEvent ?? freshStartedAt;
-                                    if (earliestEventTimestamp.HasValue && earliestEventTimestamp.Value < durationStart)
-                                        durationStart = earliestEventTimestamp.Value;
+                                    if (safeForceEarliestEventTimestamp.HasValue && safeForceEarliestEventTimestamp.Value < durationStart)
+                                        durationStart = safeForceEarliestEventTimestamp.Value;
 
                                     if (durationStart < latestEventTimestamp.Value)
                                         forceUpdate["DurationSeconds"] = (int)(latestEventTimestamp.Value - durationStart).TotalSeconds;
@@ -2026,7 +2080,7 @@ namespace AutopilotMonitor.Functions.Services
                             await forceTableClient.UpdateEntityAsync(forceUpdate, ETag.All, TableUpdateMode.Merge);
 
                             // Dual-write: keep SessionsIndex in sync (StartedAt-shift → full upsert, else merge).
-                            await SyncSessionIndexAsync(tenantId, sessionId, freshSession, forceUpdate, freshStartedAt, earliestEventTimestamp);
+                            await SyncSessionIndexAsync(tenantId, sessionId, freshSession, forceUpdate, freshStartedAt, safeForceEarliestEventTimestamp);
 
                             _logger.LogInformation($"Force-updated session {sessionId} status to {status} (unconditional merge after ETag exhaustion)");
                             return true;
@@ -2119,10 +2173,12 @@ namespace AutopilotMonitor.Functions.Services
                     }
 
                     // Align StartedAt with the earliest event timestamp provided by the caller
+                    // (plausibility-guarded — one skewed event must not re-anchor the session).
                     var currentStartedAt = entity.GetDateTimeOffset("StartedAt")?.UtcDateTime ?? DateTime.MaxValue;
-                    if (earliestEventTimestamp.HasValue && earliestEventTimestamp.Value < currentStartedAt)
+                    var safeEarliestEventTimestamp = SanitizeEarliestEventTimestamp(earliestEventTimestamp, currentStartedAt, sessionId);
+                    if (safeEarliestEventTimestamp.HasValue && safeEarliestEventTimestamp.Value < currentStartedAt)
                     {
-                        update["StartedAt"] = EnsureUtc(earliestEventTimestamp.Value);
+                        update["StartedAt"] = EnsureUtc(safeEarliestEventTimestamp.Value);
                     }
 
                     // Track the most recent event timestamp for excessive data sender detection
@@ -2159,7 +2215,7 @@ namespace AutopilotMonitor.Functions.Services
                     await tableClient.UpdateEntityAsync(update, entity.ETag, TableUpdateMode.Merge);
 
                     // Dual-write: keep SessionsIndex in sync (StartedAt-shift → full upsert, else merge).
-                    await SyncSessionIndexAsync(tenantId, sessionId, entity, update, currentStartedAt, earliestEventTimestamp);
+                    await SyncSessionIndexAsync(tenantId, sessionId, entity, update, currentStartedAt, safeEarliestEventTimestamp);
 
                     // Apply the merged fields onto the RMW read and map it through the shared
                     // mapper — the post-merge snapshot the caller would otherwise re-read.
