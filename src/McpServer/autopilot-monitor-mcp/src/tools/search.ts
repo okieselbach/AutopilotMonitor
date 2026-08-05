@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { apiFetch, buildQuery, enforceDelegatedTenant, followNextLink, pickGlobalOrTenantPath } from '../client.js';
-import { withToolTelemetry } from '../telemetry.js';
+import { withToolTelemetry, logSearchZeroHit } from '../telemetry.js';
 import type { SearchProvider, DocsSearchBundle } from '../search-provider.js';
 import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
@@ -1046,7 +1046,7 @@ export function registerSearchTools(
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('search_events', async () => {
+    async (args) => withToolTelemetry('search_events', args, async () => {
       try {
         const { query, sessionId, tenantId: rawTenantId, depth, keywords, guaranteedTopRanked } = args;
         // Delegated (MSP): require a managed tenantId (no cross-tenant aggregate); no-op for others.
@@ -1058,6 +1058,7 @@ export function registerSearchTools(
         // Extract keywords FIRST so we can use them for index-based pre-filtering
         const queryKeywords = resolveQueryKeywords(query, keywords);
         if (queryKeywords.length === 0) {
+          logSearchZeroHit('search_events', query, { reason: 'no_keywords' });
           return toolResultText(
             { query, resultCount: 0, results: [], note: 'No searchable keywords extracted from query.' },
             MAX_RESULT_SIZE_CHARS.small);
@@ -1101,6 +1102,10 @@ export function registerSearchTools(
         // Distinct session UUIDs behind the ranked hits — the set to drill into next.
         const matchedSessionIds = [...new Set(results.map((r) => r.sessionId).filter(Boolean))];
         const semanticOnlyCount = results.filter((r) => r.semanticOnly).length;
+
+        if (results.length === 0) {
+          logSearchZeroHit('search_events', query, { eventsFetched: events.length, sessionsSearched: sessionIds.length });
+        }
 
         return toolResultText({
           query,
@@ -1154,7 +1159,7 @@ export function registerSearchTools(
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('search_knowledge', async () => {
+    async (args) => withToolTelemetry('search_knowledge', args, async () => {
       try {
         const { query, topK, type, minScore } = args;
         if (!knowledgeBase || knowledgeBase.size === 0) {
@@ -1202,6 +1207,8 @@ export function registerSearchTools(
           // Surfaced by literal error-code match rather than (or in addition to) semantic similarity.
           matchType: errorCodeHitIds.has(r.id) ? ('error-code' as const) : undefined,
         }));
+
+        if (formatted.length === 0) logSearchZeroHit('search_knowledge', query);
 
         return toolResultText({
           query,
@@ -1263,7 +1270,7 @@ export function registerSearchTools(
         },
         annotations: READ_ONLY,
       },
-      async (args) => withToolTelemetry('search_docs', async () => {
+      async (args) => withToolTelemetry('search_docs', args, async () => {
         try {
           const { query, topK, section, minScore } = args;
 
@@ -1369,6 +1376,8 @@ export function registerSearchTools(
                 ? ('keyword' as const)
                 : undefined,
           }));
+
+          if (formatted.length === 0) logSearchZeroHit('search_docs', query, section ? { section } : undefined);
 
           return toolResultText({
             query,

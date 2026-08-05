@@ -166,7 +166,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('search_sessions', async () => {
+    async (args) => withToolTelemetry('search_sessions', args, async () => {
       try {
         const { deviceProperties, tenantId: rawTenantId, pageSize, continuation, ...rest } = args;
         // Delegated (MSP): require a managed tenantId (no aggregate); a page-2 call carries it inside the
@@ -223,7 +223,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('search_sessions_by_event', async () => {
+    async (args) => withToolTelemetry('search_sessions_by_event', args, async () => {
       try {
         const { eventType, tenantId: rawTenantId, pageSize, continuation } = args;
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
@@ -258,7 +258,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_session', async () => {
+    async (args) => withToolTelemetry('get_session', args, async () => {
       try {
         const { sessionId, tenantId: rawTenantId, includeAnalysis } = args;
         // Delegated (MSP): the session lives in a managed tenant — require + validate it (the backend
@@ -316,7 +316,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_session_diagnostics', async () => {
+    async (args) => withToolTelemetry('get_session_diagnostics', args, async () => {
       try {
         const { sessionId, tenantId: rawTenantId } = args;
         const tenantId = enforceDelegatedTenant(rawTenantId);
@@ -416,7 +416,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_session_events', async () => {
+    async (args) => withToolTelemetry('get_session_events', args, async () => {
       try {
         const { sessionId, tenantId: rawTenantId, pageSize, continuation, eventType, severity, source, fields } = args;
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
@@ -458,7 +458,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_session_summary', async () => {
+    async (args) => withToolTelemetry('get_session_summary', args, async () => {
       try {
         const { sessionId, tenantId: rawTenantId } = args;
         const tenantId = enforceDelegatedTenant(rawTenantId);
@@ -654,7 +654,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_metrics', async () => {
+    async (args) => withToolTelemetry('get_metrics', args, async () => {
       try {
         const { tenantId: rawTenantId, ...rest } = args;
         const tenantId = enforceDelegatedTenant(rawTenantId);
@@ -719,7 +719,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('search_sessions_by_cve', async () => {
+    async (args) => withToolTelemetry('search_sessions_by_cve', args, async () => {
       try {
         const { cveId, tenantId: rawTenantId, minCvssScore, overallRisk, pageSize, continuation } = args;
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
@@ -755,7 +755,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('list_blocked_devices', async () => {
+    async (args) => withToolTelemetry('list_blocked_devices', args, async () => {
       try {
         const { tenantId } = args;
         // GA: /api/global/devices/blocked (tenantId is filter); non-GA: /api/devices/blocked
@@ -787,7 +787,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
       inputSchema: {},
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_ime_version_history', async () => {
+    async (args) => withToolTelemetry('get_ime_version_history', args, async () => {
       try {
         const data = await apiFetch('/api/metrics/ime-versions');
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);

@@ -18,6 +18,7 @@ import { buildEventTypeSearchDocs } from './resource-catalog.js';
 import { createOAuthRouter } from './oauth.js';
 import { accessGuard } from './access-guard.js';
 import { hasGlobalScope, isGlobalAdmin, isDelegated, getDelegatedTenantIds, getHomeTenantId } from './client.js';
+import { toolLoggingEnabled, logToolCallRejection } from './telemetry.js';
 import { API_BASE_URL } from './config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -370,6 +371,33 @@ app.all('/mcp', async (req, res) => {
       error: { code: -32000, message: 'Method Not Allowed. Stateless MCP server accepts POST only.' },
     });
     return;
+  }
+
+  // Sniff JSON-RPC error envelopes on tool calls (Zod argument rejection,
+  // unknown tool name): the SDK answers these BEFORE any tool handler runs,
+  // so wrapping the response write is the only place they are observable —
+  // and they are the strongest "the schema/description confuses the model"
+  // signal. Stateless mode guarantees one JSON-RPC request per POST and
+  // enableJsonResponse yields a single buffered body, so inspecting the
+  // res.end chunk sees the whole envelope. Error envelopes are tiny; the
+  // length guard skips parsing large (i.e. successful) tool results.
+  if (toolLoggingEnabled && req.body?.method === 'tools/call') {
+    const toolName = typeof req.body?.params?.name === 'string' ? req.body.params.name : 'unknown';
+    const originalEnd = res.end.bind(res);
+    res.end = ((chunk?: unknown, ...rest: unknown[]) => {
+      try {
+        const text = typeof chunk === 'string' ? chunk : Buffer.isBuffer(chunk) ? chunk.toString('utf8') : undefined;
+        if (text && text.length < 10_000 && text.includes('"error"')) {
+          const parsed = JSON.parse(text) as { error?: { code?: number; message?: unknown } };
+          if (parsed?.error?.code !== undefined) {
+            logToolCallRejection(toolName, parsed.error.code, String(parsed.error.message ?? ''));
+          }
+        }
+      } catch {
+        // Sniffing must never break the response.
+      }
+      return originalEnd(chunk as never, ...(rest as never[]));
+    }) as typeof res.end;
   }
 
   const transport = new StreamableHTTPServerTransport({

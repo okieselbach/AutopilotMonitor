@@ -270,7 +270,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_api_usage', async () => {
+    async (args) => withToolTelemetry('get_api_usage', args, async () => {
       try {
         let data: unknown;
         const params: Record<string, string | undefined> = { tenantId: args.tenantId, dateFrom: args.dateFrom, dateTo: args.dateTo };
@@ -310,7 +310,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_geographic_metrics', async () => {
+    async (args) => withToolTelemetry('get_geographic_metrics', args, async () => {
       try {
         const { tenantId: rawTenantId, ...rest } = args;
         // Delegated (MSP): require a managed tenantId (no aggregate); no-op for GA/Reader/tenant users.
@@ -356,7 +356,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_geographic_sessions', async () => {
+    async (args) => withToolTelemetry('get_geographic_sessions', args, async () => {
       try {
         const { tenantId: rawTenantId, locationKey, country, region, city, pageSize, continuation, ...rest } = args;
         // Offset-based client-side pager (geo-offset:N carries no tenantId), so the explicit tenantId is
@@ -420,7 +420,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_platform_metrics', async () => {
+    async (args) => withToolTelemetry('get_platform_metrics', args, async () => {
       try {
         type SessionMetric = {
           sessionId: string; tenantId: string; deviceName?: string; model?: string; status?: string;
@@ -516,7 +516,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_usage_metrics', async () => {
+    async (args) => withToolTelemetry('get_usage_metrics', args, async () => {
       try {
         const { tenantId: rawTenantId, days } = args;
         const tenantId = enforceDelegatedTenant(rawTenantId);
@@ -580,7 +580,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('list_tenants', async () => {
+    async (args) => withToolTelemetry('list_tenants', args, async () => {
       try {
         const { query, tenantId, fields, pageSize, continuation } = args;
 
@@ -689,7 +689,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_audit_logs', async () => {
+    async (args) => withToolTelemetry('get_audit_logs', args, async () => {
       try {
         const { tenantId: rawTenantId, dateFrom, dateTo, action, performedBy, entityType, entityId, pageSize, continuation } = args;
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
@@ -733,7 +733,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_ops_events', async () => {
+    async (args) => withToolTelemetry('get_ops_events', args, async () => {
       try {
         const { category, tenantId, dateFrom, dateTo, pageSize, continuation } = args;
         const path = followNextLink(
@@ -769,7 +769,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('list_session_reports', async () => {
+    async (args) => withToolTelemetry('list_session_reports', args, async () => {
       try {
         const { tenantId, pageSize, continuation } = args;
         const path = followNextLink(
@@ -834,7 +834,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('query_raw_events', async () => {
+    async (args) => withToolTelemetry('query_raw_events', args, async () => {
       try {
         const { tenantId: rawTenantId, sessionId, eventType, severity, source, startedAfter, startedBefore, fields, pageSize, continuation } = args;
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
@@ -904,7 +904,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('query_raw_sessions', async () => {
+    async (args) => withToolTelemetry('query_raw_sessions', args, async () => {
       try {
         const { tenantId: rawTenantId, status, startedAfter, startedBefore, serialNumber, agentVersion, agentVersionPrefix,
           imeAgentVersion, imeAgentVersionPrefix, manufacturer, model, enrollmentType, deviceName, osBuild,
@@ -942,7 +942,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       inputSchema: {},
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('list_tables', async () => {
+    async (args) => withToolTelemetry('list_tables', args, async () => {
       try {
         const data = await apiFetch('/api/global/raw/tables');
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
@@ -982,7 +982,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('query_table', async () => {
+    async (args) => withToolTelemetry('query_table', args, async () => {
       try {
         const { tableName, partitionKey, rowKeyPrefix, filter, fields, pageSize, continuation } = args;
         const basePath = `/api/global/raw/tables/${encodeURIComponent(tableName)}`;
@@ -1029,7 +1029,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY_OPEN,
     },
-    async (args) => withToolTelemetry('query_backend_logs', async () => {
+    async (args) => withToolTelemetry('query_backend_logs', args, async () => {
       try {
         const data = await apiFetch('/api/global/raw/logs', {
           method: 'POST',
@@ -1065,7 +1065,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_tenant_config', async () => {
+    async (args) => withToolTelemetry('get_tenant_config', args, async () => {
       try {
         // view=redacted is load-bearing: without it the backend serves a GA the
         // clear-text secrets, which must never enter model context (pinned by
@@ -1092,7 +1092,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       inputSchema: {},
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_tenant_config_schema', async () => {
+    async (args) => withToolTelemetry('get_tenant_config_schema', args, async () => {
       try {
         const data = await apiFetch('/api/config/fields-schema');
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
@@ -1127,7 +1127,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: MUTATING,
     },
-    async (args) => withToolTelemetry('update_tenant_config', async () => {
+    async (args) => withToolTelemetry('update_tenant_config', args, async () => {
       try {
         const data = await apiFetch(`/api/config/${encodeURIComponent(args.tenantId)}/fields`, {
           method: 'PATCH',
@@ -1156,7 +1156,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('list_tenant_config_backups', async () => {
+    async (args) => withToolTelemetry('list_tenant_config_backups', args, async () => {
       try {
         const query = args.max != null ? `?max=${encodeURIComponent(String(args.max))}` : '';
         const data = await apiFetch(`/api/config/${encodeURIComponent(args.tenantId)}/backups${query}`);
@@ -1189,7 +1189,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: MUTATING,
     },
-    async (args) => withToolTelemetry('revert_tenant_config', async () => {
+    async (args) => withToolTelemetry('revert_tenant_config', args, async () => {
       try {
         const data = await apiFetch(`/api/config/${encodeURIComponent(args.tenantId)}/revert`, {
           method: 'POST',
@@ -1231,7 +1231,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_rule_stats', async () => {
+    async (args) => withToolTelemetry('get_rule_stats', args, async () => {
       try {
         const tenantId = enforceDelegatedTenant(args.tenantId);
         const params: Record<string, string | undefined> = {
@@ -1272,7 +1272,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_vulnerability_summary', async () => {
+    async (args) => withToolTelemetry('get_vulnerability_summary', args, async () => {
       try {
         const { tenantId: rawTenantId, days, topN } = args;
         const tenantId = enforceDelegatedTenant(rawTenantId);
@@ -1312,7 +1312,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_app_install_metrics', async () => {
+    async (args) => withToolTelemetry('get_app_install_metrics', args, async () => {
       try {
         const { tenantId: rawTenantId, days } = args;
         const tenantId = enforceDelegatedTenant(rawTenantId);
@@ -1357,7 +1357,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_time_attribution', async () => {
+    async (args) => withToolTelemetry('get_time_attribution', args, async () => {
       try {
         const { sessionId, tenantId: rawTenantId } = args;
         const tenantId = enforceDelegatedTenant(rawTenantId);
@@ -1410,7 +1410,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_device_history', async () => {
+    async (args) => withToolTelemetry('get_device_history', args, async () => {
       try {
         const { serialNumber, days, tenantId: rawTenantId } = args;
         const tenantId = enforceDelegatedTenant(rawTenantId);
@@ -1483,7 +1483,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('get_software_inventory', async () => {
+    async (args) => withToolTelemetry('get_software_inventory', args, async () => {
       try {
         const { tenantId: rawTenantId, scope, pageSize, continuation } = args as {
           tenantId?: string; scope?: 'inventory' | 'unmatched'; pageSize: number; continuation?: string;
@@ -1551,7 +1551,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       },
       annotations: READ_ONLY_OPEN,
     },
-    async (args) => withToolTelemetry('get_resource', async () => {
+    async (args) => withToolTelemetry('get_resource', args, async () => {
       try {
         const data = getResourceContent(args.name);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);

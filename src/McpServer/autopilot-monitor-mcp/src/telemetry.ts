@@ -1,33 +1,144 @@
-import { runWithToolName } from './client.js';
+import { runWithToolName, hasGlobalScope, isDelegated } from './client.js';
 
-const toolLoggingEnabled = process.env.MCP_TOOL_LOGGING === 'true';
+export const toolLoggingEnabled = process.env.MCP_TOOL_LOGGING === 'true';
+
+// Caps keep a single log line small no matter what the model sends (validate_rule
+// takes whole rule JSON objects; queries are free text).
+const ARG_VALUE_CAP = 200;
+const ARGS_TOTAL_CAP = 1500;
+const QUERY_CAP = 300;
+
+function cap(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max) + `…(+${s.length - max})` : s;
+}
+
+/**
+ * Compact, size-bounded view of the tool arguments for the log line. Values are
+ * individually capped and the whole summary is bounded, so a pathological arg
+ * object can never bloat a log line. Null/undefined entries are dropped.
+ */
+export function summarizeArgs(args: Record<string, unknown>): Record<string, string> | undefined {
+  const out: Record<string, string> = {};
+  let total = 0;
+  for (const [key, value] of Object.entries(args)) {
+    if (value === null || value === undefined) continue;
+    const rendered =
+      typeof value === 'string' ? cap(value, ARG_VALUE_CAP) : cap(JSON.stringify(value) ?? '', ARG_VALUE_CAP);
+    total += key.length + rendered.length;
+    if (total > ARGS_TOTAL_CAP) {
+      out['…'] = 'args summary truncated';
+      break;
+    }
+    out[key] = rendered;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** Caller scope for usage analysis — which audience a tool struggle belongs to. */
+function callerScope(): 'ga' | 'delegated' | 'tenant' {
+  if (hasGlobalScope()) return 'ga';
+  if (isDelegated()) return 'delegated';
+  return 'tenant';
+}
+
+interface ToolResultShape {
+  isError?: boolean;
+  content?: Array<{ type?: string; text?: string }>;
+  _meta?: Record<string, unknown>;
+}
 
 /**
  * Wraps an MCP tool handler to:
  * 1. Always: propagate the tool name via AsyncLocalStorage so apiFetch sends
  *    the X-MCP-Tool-Name header to the backend (tracked in App Insights).
- * 2. Optionally (MCP_TOOL_LOGGING=true): emit structured JSON to stderr,
- *    queryable via Container App Logs in Azure Monitor.
+ * 2. Optionally (MCP_TOOL_LOGGING=true): emit one structured JSON line per call
+ *    to stderr, queryable via Container App Logs in Azure Monitor. Beyond
+ *    duration, the line carries the quality signals backend telemetry cannot
+ *    see: soft errors (handlers never throw — toolError RETURNS `isError:
+ *    true`), result size vs. the tool's inline-size cap (overCap = the host
+ *    will truncate), a size-bounded argument summary, and the caller scope.
+ *    This is also the ONLY telemetry for tools that never call the backend
+ *    (search_docs, search_knowledge ranking, validate_rule, get_resource).
  */
-export async function withToolTelemetry<T>(toolName: string, fn: () => T | Promise<T>): Promise<T> {
+export async function withToolTelemetry<T>(
+  toolName: string,
+  args: Record<string, unknown>,
+  fn: () => T | Promise<T>,
+): Promise<T> {
   if (!toolLoggingEnabled) {
     return runWithToolName(toolName, fn) as Promise<T>;
   }
 
   const start = Date.now();
-  let isError = false;
+  let threw = false;
+  let result: T | undefined;
   try {
-    return await runWithToolName(toolName, fn);
+    result = await runWithToolName(toolName, fn);
+    return result;
   } catch (err) {
-    isError = true;
+    threw = true;
     throw err;
   } finally {
+    try {
+      const r = result as ToolResultShape | undefined;
+      const resultChars = r?.content?.reduce((sum, c) => sum + (c.text?.length ?? 0), 0) ?? 0;
+      const capValue = Number(r?._meta?.['anthropic/maxResultSizeChars']);
+      console.error(JSON.stringify({
+        type: 'tool_call',
+        tool: toolName,
+        durationMs: Date.now() - start,
+        isError: threw || r?.isError === true,
+        resultChars,
+        // Result exceeds the inline-size hint → the host truncates it. A tool
+        // that is frequently overCap needs tighter defaults or projections.
+        overCap: Number.isFinite(capValue) && capValue > 0 ? resultChars > capValue : false,
+        scope: callerScope(),
+        args: summarizeArgs(args),
+        timestamp: new Date().toISOString(),
+      }));
+    } catch {
+      // Telemetry must never break a tool response.
+    }
+  }
+}
+
+/**
+ * Zero-hit search log — the "does content/a tool for this exist at all?" signal.
+ * Reviewing these queries periodically is the most direct way to find unmet
+ * demand (missing docs, missing knowledge-base rules, missing tools).
+ */
+export function logSearchZeroHit(tool: string, query: string, detail?: Record<string, unknown>): void {
+  if (!toolLoggingEnabled) return;
+  try {
     console.error(JSON.stringify({
-      type: 'tool_call',
-      tool: toolName,
-      durationMs: Date.now() - start,
-      isError,
+      type: 'search_zero_hit',
+      tool,
+      query: cap(query, QUERY_CAP),
+      ...detail,
       timestamp: new Date().toISOString(),
     }));
+  } catch {
+    // Telemetry must never break a tool response.
+  }
+}
+
+/**
+ * JSON-RPC-level tool-call rejection (Zod arg validation, unknown tool). These
+ * never reach a tool handler — the SDK rejects them before dispatch — so
+ * without this log the strongest "the schema/description confuses the model"
+ * signal is invisible everywhere.
+ */
+export function logToolCallRejection(toolName: string, errorCode: number, message: string): void {
+  if (!toolLoggingEnabled) return;
+  try {
+    console.error(JSON.stringify({
+      type: 'tool_call_rejected',
+      tool: toolName,
+      errorCode,
+      message: cap(message, 500),
+      timestamp: new Date().toISOString(),
+    }));
+  } catch {
+    // Telemetry must never break a tool response.
   }
 }

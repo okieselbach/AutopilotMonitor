@@ -44,6 +44,7 @@ https://docs.autopilotmonitor.com (separate repository).
 # MCP Server
 
 * [MCP Docs Corpus](mcp/docs-corpus.md) - How the published customer documentation becomes the `search_docs` corpus: CRLF-safe heading chunking, build-time embedding as a third precomputed section, and why a docs edit needs an MCP redeploy.
+* [MCP Tool Telemetry](mcp/tool-telemetry.md) - The three telemetry layers for judging tool quality: backend App Insights via X-MCP-Tool-Name, the per-user usage table, and the MCP_TOOL_LOGGING stderr lines (soft errors, result size vs. cap, zero-hit searches, Zod rejections).
 
 # Web Portal
 

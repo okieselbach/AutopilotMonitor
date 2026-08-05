@@ -80,8 +80,8 @@ param mcpPublicUrl string = ''
 @description('Base64-encoded HMAC key (>=32 bytes after decode) for signing the OAuth proxy state. Naming and format match the backend\'s PaginationTokenSigningKey for consistency. Empty = generate per-instance random key on startup (acceptable for single-replica deployments since state has 10 min lifetime). Generate with PowerShell: [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))')
 param oAuthStateSigningKey string = ''
 
-@description('Enable structured tool-call logging to stderr (queryable via Container App Logs)')
-param toolLoggingEnabled bool = false
+@description('Enable structured tool-call logging to stderr (queryable via Container App Logs). Volume is one small JSON line per tool call - negligible at current usage.')
+param toolLoggingEnabled bool = true
 
 // --- Azure Container Registry ---
 

@@ -34,7 +34,7 @@ export function registerRuleTools(server: McpServer, ga: boolean): void {
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('validate_rule', async () => {
+    async (args) => withToolTelemetry('validate_rule', args, async () => {
       try {
         const result = validateRuleDraft(args.rule as Record<string, unknown>);
         return toolResultText(
@@ -79,7 +79,7 @@ export function registerRuleTools(server: McpServer, ga: boolean): void {
       },
       annotations: READ_ONLY,
     },
-    async (args) => withToolTelemetry('test_analyze_rule', async () => {
+    async (args) => withToolTelemetry('test_analyze_rule', args, async () => {
       try {
         const data = await apiFetch('/api/rules/analyze/dryrun', {
           method: 'POST',
