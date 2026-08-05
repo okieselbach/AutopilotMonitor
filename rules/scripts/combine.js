@@ -161,3 +161,45 @@ ${flatArray(guardrails.blockedEventLogChannels)}
 } else {
   console.warn('guardrails.json not found — skipping guardrails generation');
 }
+
+// ── MCP rule-authoring module generation ────────────────────────────────────
+// The MCP server exposes the rule schemas + guardrails as get_resource content
+// so a customer's AI can author rules against the real contract instead of
+// retrieval fragments. The server's tsconfig (rootDir: src, no resolveJsonModule)
+// and the Docker build (rules/schema not copied) rule out importing the JSON
+// directly — so we bake it into a TS module, exactly like the web mirror above.
+// CI's guardrails-in-sync job re-runs this script and fails on any diff, which
+// makes drift between rules/* and this generated module impossible to merge.
+
+const mcpAuthoringOutput = path.resolve(
+  rulesRoot, '..', 'src', 'McpServer', 'autopilot-monitor-mcp', 'src', 'rule-authoring.generated.ts'
+);
+
+{
+  const guardrails = JSON.parse(fs.readFileSync(guardrailsPath, 'utf8'));
+  const gatherSchema = JSON.parse(fs.readFileSync(path.join(rulesRoot, 'schema', 'gather-rule.schema.json'), 'utf8'));
+  const analyzeSchema = JSON.parse(fs.readFileSync(path.join(rulesRoot, 'schema', 'analyze-rule.schema.json'), 'utf8'));
+
+  const ts = `/**
+ * AUTO-GENERATED from rules/guardrails.json + rules/schema/*.schema.json — DO NOT EDIT.
+ * Run: node rules/scripts/combine.js
+ *
+ * Consumed by the MCP server's rule-authoring surface (get_resource +
+ * validate_rule): the JSON Schemas are the validation contract, the guardrails
+ * are the agent-side collection allowlists. Single source of truth is rules/;
+ * the CI guardrails-in-sync job guards this file against drift.
+ */
+
+/** JSON Schema (2020-12) for gather rules — rules/schema/gather-rule.schema.json verbatim. */
+export const GATHER_RULE_SCHEMA: Record<string, unknown> = ${JSON.stringify(gatherSchema, null, 2)};
+
+/** JSON Schema (2020-12) for analyze rules — rules/schema/analyze-rule.schema.json verbatim. */
+export const ANALYZE_RULE_SCHEMA: Record<string, unknown> = ${JSON.stringify(analyzeSchema, null, 2)};
+
+/** Gather-rule collection guardrails — rules/guardrails.json verbatim. */
+export const RULE_GUARDRAILS = ${JSON.stringify(guardrails, null, 2)} as const;
+`;
+
+  fs.writeFileSync(mcpAuthoringOutput, ts, 'utf8');
+  console.log('rule-authoring.generated.ts: schemas + guardrails baked for MCP server');
+}
