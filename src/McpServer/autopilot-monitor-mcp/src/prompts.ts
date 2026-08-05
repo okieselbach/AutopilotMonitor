@@ -141,6 +141,45 @@ export function registerPrompts(server: McpServer, ga: boolean): void {
     }),
   );
 
+  server.registerPrompt(
+    'author-rule',
+    {
+      title: 'Author a Gather / Analyze Rule',
+      description:
+        'Guided creation of a custom gather or analyze rule from a scenario description, ' +
+        'with validation and a session dry-run before anything is deployed.',
+      argsSchema: {
+        scenario: z.string().describe('What should be detected or collected, in plain language'),
+        sessionId: z.string().optional().describe('Optional: a recent session UUID to dry-run the draft analyze rule against'),
+      },
+    },
+    ({ scenario, sessionId }) => ({
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text:
+              `Create an Autopilot Monitor rule for this scenario: ${scenario}\n\n` +
+              'Work through this order:\n' +
+              '1. Read get_resource(name="rule_authoring_guide") plus get_resource(name="rule_schemas") ' +
+              'and get_resource(name="event_types"). For gather rules also get_resource(name="rule_guardrails").\n' +
+              '2. Decide: does this need a gather rule (new data from the device), an analyze rule ' +
+              '(evaluate existing events), or both? If both, draft the gather rule first and reference ' +
+              'its outputEventType from the analyze rule.\n' +
+              '3. Draft the rule JSON and call validate_rule with it. Fix every error; explain warnings you keep.\n' +
+              (sessionId
+                ? `4. Dry-run the analyze rule: test_analyze_rule(sessionId="${sessionId}", rule=<draft>). ` +
+                  'Walk through the per-condition trace; iterate until the verdict matches the expectation, and check the interpolated explanation reads well.\n'
+                : '4. Ask me for a recent sessionId (one where the rule SHOULD fire and ideally one where it should not) and dry-run the analyze rule with test_analyze_rule.\n') +
+              '5. Present the final rule JSON with a short explanation of when it fires, its confidence ' +
+              'model, and how to create it in the portal (Settings → Gather Rules / Analyze Rules).',
+          },
+        },
+      ],
+    }),
+  );
+
   // Global Admin only — relies on get_platform_metrics (a GA-only tool that is
   // not registered for normal users). Hidden from non-GA so it never references
   // a tool they cannot see.
