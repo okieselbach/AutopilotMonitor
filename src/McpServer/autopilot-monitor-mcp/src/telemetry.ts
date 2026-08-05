@@ -153,13 +153,16 @@ interface SniffableResponse {
 }
 
 /**
- * Observe the JSON-RPC response of a tools/call POST for an error envelope and
- * log it via logToolCallRejection. The SDK (1.30+) bridges the web-standard
- * Response to the Node res through Hono's getRequestListener, which depending
- * on the body type either calls res.end(string | Uint8Array) directly or pipes
- * a ReadableStream through res.write chunks followed by a bare res.end() — so
- * BOTH must be captured. Buffering stops at SNIFF_BUFFER_CAP (real rejections
- * are a few hundred bytes). Never throws into the response path.
+ * Observe the JSON-RPC response of a tools/call POST for a rejection and log
+ * it via logToolCallRejection. Two shapes count as a rejection: a JSON-RPC
+ * error envelope, and — the shape SDK 1.30 actually produces for Zod/unknown-
+ * tool failures — a CallToolResult with isError:true whose text starts with
+ * `MCP error <code>: `. The SDK bridges the web-standard Response to the Node
+ * res through Hono's getRequestListener, which depending on the body type
+ * either calls res.end(string | Uint8Array) directly or pipes a ReadableStream
+ * through res.write chunks followed by a bare res.end() — so BOTH must be
+ * captured. Buffering stops at SNIFF_BUFFER_CAP (real rejections are a few
+ * hundred bytes). Never throws into the response path.
  */
 export function attachToolCallRejectionSniffer(toolName: string, res: SniffableResponse): void {
   if (!toolLoggingEnabled) return;
@@ -193,10 +196,26 @@ export function attachToolCallRejectionSniffer(toolName: string, res: SniffableR
   res.end = ((chunk?: unknown, ...rest: unknown[]) => {
     try {
       capture(chunk);
-      if (!overflowed && captured.includes('"error"')) {
-        const parsed = JSON.parse(captured) as { error?: { code?: number; message?: unknown } };
+      if (!overflowed && (captured.includes('"error"') || captured.includes('"isError"'))) {
+        const parsed = JSON.parse(captured) as {
+          error?: { code?: number; message?: unknown };
+          result?: { isError?: boolean; content?: Array<{ type?: string; text?: string }> };
+        };
         if (parsed?.error?.code !== undefined) {
+          // Protocol-level JSON-RPC error envelope (e.g. malformed request).
           logToolCallRejection(toolName, parsed.error.code, String(parsed.error.message ?? ''));
+        } else if (parsed?.result?.isError === true) {
+          // The SDK catches every McpError thrown before/around the handler
+          // (Zod input validation, unknown/disabled tool) and wraps it as a
+          // CallToolResult whose text is `MCP error <code>: <message>` — NOT
+          // as a JSON-RPC error envelope. Handler-produced soft errors
+          // (toolError) never start with that prefix, so they are not
+          // double-logged here (withToolTelemetry already records them).
+          const text = parsed.result.content?.find((c) => c.type === 'text')?.text ?? '';
+          const match = /^MCP error (-?\d+): /.exec(text);
+          if (match) {
+            logToolCallRejection(toolName, Number(match[1]), text.slice(match[0].length));
+          }
         }
       }
     } catch {

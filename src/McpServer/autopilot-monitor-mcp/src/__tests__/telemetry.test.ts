@@ -158,6 +158,18 @@ describe('attachToolCallRejectionSniffer', () => {
     error: { code: -32602, message: 'Input validation error: Invalid arguments for tool get_session: sessionId must be a UUID' },
   });
 
+  // What SDK 1.30 ACTUALLY sends for Zod/unknown-tool failures: a successful
+  // JSON-RPC response whose RESULT is an isError CallToolResult (verified
+  // against a live server — there is no JSON-RPC error envelope).
+  const REJECTION_RESULT = JSON.stringify({
+    result: {
+      content: [{ type: 'text', text: 'MCP error -32602: Input validation error: Invalid arguments for tool get_session: sessionId must be a UUID at sessionId' }],
+      isError: true,
+    },
+    jsonrpc: '2.0',
+    id: 2,
+  });
+
   function fakeRes() {
     const calls: string[] = [];
     return {
@@ -167,13 +179,13 @@ describe('attachToolCallRejectionSniffer', () => {
     };
   }
 
-  it('catches the Hono streaming path: Uint8Array chunks via write, then a bare end()', async () => {
+  it('catches the real SDK 1.30 shape: isError result streamed as Uint8Array chunks, bare end()', async () => {
     const { attachToolCallRejectionSniffer } = await loadTelemetry(true);
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const res = fakeRes();
     attachToolCallRejectionSniffer('get_session', res);
 
-    const bytes = new TextEncoder().encode(ERROR_ENVELOPE);
+    const bytes = new TextEncoder().encode(REJECTION_RESULT);
     // Split mid-envelope to prove reassembly across chunks works.
     res.write(bytes.slice(0, 40) as never);
     res.write(bytes.slice(40) as never);
@@ -184,16 +196,42 @@ describe('attachToolCallRejectionSniffer', () => {
     expect(line.tool).toBe('get_session');
     expect(line.errorCode).toBe(-32602);
     expect(line.message).toContain('sessionId must be a UUID');
+    // The "MCP error -32602: " prefix is stripped (it lives in errorCode).
+    expect((line.message as string).startsWith('Input validation error')).toBe(true);
     // The response itself went through untouched.
     expect(res.calls).toEqual(['write', 'write', 'end']);
   });
 
-  it('catches the direct path: whole envelope as a single end(string)', async () => {
+  it('also catches a protocol-level JSON-RPC error envelope', async () => {
+    const { attachToolCallRejectionSniffer } = await loadTelemetry(true);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = fakeRes();
+    attachToolCallRejectionSniffer('get_session', res);
+    res.end(ERROR_ENVELOPE as never);
+    const line = lastLoggedJson(spy);
+    expect(line.type).toBe('tool_call_rejected');
+    expect(line.errorCode).toBe(-32602);
+  });
+
+  it('does NOT log a handler soft error (toolError result) — withToolTelemetry owns those', async () => {
+    const { attachToolCallRejectionSniffer } = await loadTelemetry(true);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = fakeRes();
+    attachToolCallRejectionSniffer('get_metrics', res);
+    res.end(JSON.stringify({
+      result: { content: [{ type: 'text', text: '**Backend error in get_metrics** (HTTP 503): the server returned an error.' }], isError: true },
+      jsonrpc: '2.0',
+      id: 3,
+    }) as never);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('catches the direct path: whole rejection result as a single end(string)', async () => {
     const { attachToolCallRejectionSniffer } = await loadTelemetry(true);
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const res = fakeRes();
     attachToolCallRejectionSniffer('query_table', res);
-    res.end(ERROR_ENVELOPE as never);
+    res.end(REJECTION_RESULT as never);
     expect(lastLoggedJson(spy).tool).toBe('query_table');
   });
 
