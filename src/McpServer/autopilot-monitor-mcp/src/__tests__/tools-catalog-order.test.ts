@@ -150,10 +150,12 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'search_sessions',
     'search_sessions_by_cve',
     'search_sessions_by_event',
-    // Rule-authoring pair, available to every role: validate_rule is MCP-local
-    // (no backend call at all) and test_analyze_rule's dryrun endpoint enforces
-    // TenantAdminOrGlobalReader server-side (a Viewer's call 403s there).
+    // Rule-authoring trio, available to every role: validate_rule is MCP-local
+    // (no backend call at all); test_analyze_rule's dryrun endpoint and
+    // test_log_pattern's test-pattern endpoint enforce TenantAdminOrGlobalReader
+    // server-side (a Viewer's call 403s there).
     'test_analyze_rule',
+    'test_log_pattern',
     'update_tenant_config',
     'validate_rule',
   ];

@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-05 (later)
+
+* **Update**: `rules/rule-authoring-surface.md` — new section `POST /api/rules/gather/test-pattern`: the logparser pattern tester (agent-exact .NET matching: no IgnoreCase, first-match-per-line, cmtrace vs text mode, verbatim format=text hint), motivated by a field incident where a PHP-verified regex behaved differently under .NET. `CmTraceLogParser` moved Agent → `AutopilotMonitor.Shared.Logging` so agent and backend share the ONE parsing implementation (timestamp caveat: AssumeLocal = server TZ on backend, endpoint reports no timestamps). MCP: new `test_log_pattern` tool, logparser lint in `validate_rule`, guide gains the case-sensitivity/engine-mismatch pitfalls.
+
 ## 2026-08-05
 
 * **Creation**: Added `mcp/tool-telemetry.md` — the three MCP tool-telemetry layers (App Insights `McpToolName`, per-user usage table, `MCP_TOOL_LOGGING` stderr lines) and the new quality signals: soft-error capture (`toolError` returns instead of throwing, so backend telemetry counted those calls as successes), `resultChars`/`overCap` vs. the inline-size hint, bounded args summaries, caller scope, `search_zero_hit` on the three search tools (unmet-demand signal), and `tool_call_rejected` for JSON-RPC-level Zod/unknown-tool rejections sniffed at the `/mcp` route (previously invisible everywhere). Bicep default for `toolLoggingEnabled` flipped to `true` (documented desired state; live flag set via `az containerapp update`).

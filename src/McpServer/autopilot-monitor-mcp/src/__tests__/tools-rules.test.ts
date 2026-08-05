@@ -114,4 +114,67 @@ describe('validate_rule', () => {
     expect(payload.valid).toBe(true);
     expect(payload.nextStep).toContain('test_analyze_rule');
   });
+
+  it('valid logparser draft points to test_log_pattern as the next step', async () => {
+    const handlers = captureToolHandlers(false);
+    const res = await handlers.validate_rule({
+      rule: {
+        ruleId: 'GATHER-APPS-101',
+        title: 'CustomApp installer errors',
+        collectorType: 'logparser',
+        target: 'C:\\Windows\\Logs\\CustomApp\\install*.log',
+        parameters: { pattern: '(?<level>ERROR|FATAL)', format: 'text' },
+        trigger: 'startup',
+        outputEventType: 'gather_customapp_errors',
+      },
+    });
+    const payload = JSON.parse(res.content[0].text);
+    expect(payload.valid).toBe(true);
+    expect(payload.nextStep).toContain('test_log_pattern');
+  });
+});
+
+describe('test_log_pattern', () => {
+  it('POSTs pattern + sampleLines + format to the test-pattern endpoint', async () => {
+    apiFetchMock.mockResolvedValue({
+      success: true,
+      format: 'text',
+      result: { matchCount: 1, parseFailureCount: 0, timeoutCount: 0, lines: [], notes: [] },
+    });
+
+    const handlers = captureToolHandlers(false);
+    const res = await handlers.test_log_pattern({
+      pattern: '(?<level>ERROR)',
+      sampleLines: ['ERROR one', 'INFO two'],
+      format: 'text',
+    });
+
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+    const [path, init] = apiFetchMock.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe('/api/rules/gather/test-pattern');
+    expect(init.method).toBe('POST');
+    const body = JSON.parse(String(init.body));
+    expect(body.pattern).toBe('(?<level>ERROR)');
+    expect(body.sampleLines).toEqual(['ERROR one', 'INFO two']);
+    expect(body.format).toBe('text');
+
+    expect(res.isError).toBeFalsy();
+    const payload = JSON.parse(res.content[0].text);
+    expect(payload.result.matchCount).toBe(1);
+  });
+
+  it('omits format when not given (backend defaults to cmtrace like the agent)', async () => {
+    apiFetchMock.mockResolvedValue({ success: true, format: 'cmtrace', result: {} });
+    const handlers = captureToolHandlers(false);
+    await handlers.test_log_pattern({ pattern: 'x', sampleLines: ['line'] });
+    const body = JSON.parse(String((apiFetchMock.mock.calls[0] as [string, RequestInit])[1].body));
+    expect(body.format).toBeUndefined();
+  });
+
+  it('surfaces backend errors via toolError (no throw)', async () => {
+    apiFetchMock.mockRejectedValue(new Error('boom'));
+    const handlers = captureToolHandlers(false);
+    const res = await handlers.test_log_pattern({ pattern: 'x', sampleLines: ['line'] });
+    expect(res.isError).toBe(true);
+  });
 });

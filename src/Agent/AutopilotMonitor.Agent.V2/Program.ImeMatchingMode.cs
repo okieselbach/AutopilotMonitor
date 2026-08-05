@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.RegularExpressions;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
+using AutopilotMonitor.Shared.Logging;
 using AutopilotMonitor.Shared.Models;
 using Newtonsoft.Json;
 

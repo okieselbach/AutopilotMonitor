@@ -10,6 +10,7 @@ using AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
+using AutopilotMonitor.Shared.Logging;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
 {
