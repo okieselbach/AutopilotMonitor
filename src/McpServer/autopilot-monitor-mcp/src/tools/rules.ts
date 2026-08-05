@@ -46,13 +46,53 @@ export function registerRuleTools(server: McpServer, ga: boolean): void {
             nextStep: result.valid
               ? (result.ruleType === 'analyze'
                 ? 'No errors. Dry-run it now: test_analyze_rule(sessionId=<recent session>, rule=<this draft>) — once against a session where it SHOULD fire, once where it should not.'
-                : 'No errors. Gather rules run on-device and cannot be dry-run server-side — deploy to a test device and check the emitted events (the gather debug log setting shows per-rule detail).')
+                : (args.rule as Record<string, unknown>).collectorType === 'logparser'
+                  ? 'No errors. Now test the regex with the agent\'s exact .NET engine: test_log_pattern(pattern=<parameters.pattern>, sampleLines=<raw lines from the log file>, format=<parameters.format>) — then deploy to a test device.'
+                  : 'No errors. Gather rules run on-device and cannot be dry-run server-side — deploy to a test device and check the emitted events (the gather debug log setting shows per-rule detail).')
               : 'Fix the error-level findings and validate again.',
           },
           MAX_RESULT_SIZE_CHARS.small,
         );
       } catch (error: unknown) {
         return toolError('validate_rule', args, error);
+      }
+    })
+  );
+
+  // Tool: test_log_pattern (backend .NET-regex test for logparser gather rules)
+  server.registerTool(
+    'test_log_pattern',
+    {
+      title: 'Test Logparser Pattern Against Sample Lines',
+      description:
+        'Tests a logparser gather-rule regex against pasted sample log lines using the AGENT\'s ' +
+        'exact .NET matching semantics — the dry-run for logparser rules (which run on devices ' +
+        'and cannot be tested against a session). Use this INSTEAD of testing the regex in ' +
+        'JS/PHP/Python: .NET behaves subtly differently, and logparser matching is ' +
+        'case-SENSITIVE (unlike analyze-rule regex conditions). Paste 10-50 representative raw ' +
+        'lines from the customer\'s log file (include lines that must match AND lines that must ' +
+        'not). format="cmtrace" (default) parses each line as CMTrace/IME format first and runs ' +
+        'the regex against the parsed message; format="text" matches the raw line. Returns ' +
+        'per-line outcomes with the exact capture groups that would land in the emitted ' +
+        'timeline event\'s data. Nothing is stored.',
+      inputSchema: {
+        pattern: z.string().min(1).max(2000).describe('The regex (named groups become event data fields), .NET syntax'),
+        sampleLines: z.array(z.string().max(8192)).min(1).max(200)
+          .describe('Raw lines pasted from the log file (max 200)'),
+        format: z.enum(['cmtrace', 'text']).optional()
+          .describe('Log format, exactly like the rule\'s parameters.format: "cmtrace" (default, IME/SCCM style) or "text" (plain lines)'),
+      },
+      annotations: READ_ONLY,
+    },
+    async (args) => withToolTelemetry('test_log_pattern', args, async () => {
+      try {
+        const data = await apiFetch('/api/rules/gather/test-pattern', {
+          method: 'POST',
+          body: JSON.stringify({ pattern: args.pattern, format: args.format, sampleLines: args.sampleLines }),
+        });
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
+      } catch (error: unknown) {
+        return toolError('test_log_pattern', args, error);
       }
     })
   );

@@ -1,5 +1,5 @@
 using System;
-using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
+using AutopilotMonitor.Shared.Logging;
 using Xunit;
 
 namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime

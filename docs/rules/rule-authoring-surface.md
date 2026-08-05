@@ -100,15 +100,50 @@ Invariants, pinned by `RuleEngineDryRunTests`:
 explanation/remediation preview via the existing `interpolate-rule-template.ts`
 against the returned `matchedConditions`.
 
+## POST /api/rules/gather/test-pattern (backend)
+
+The logparser counterpart to the analyze dry-run, added after a field incident:
+a customer verified a logparser regex with a PHP tester and the agent's .NET
+engine matched differently. `TestLogPatternFunction` evaluates a pattern against
+pasted sample lines with the AGENT's exact matching semantics:
+
+* Regex construction identical to `LogParserCollector`: `Compiled`, 1 s timeout,
+  **no IgnoreCase** — logparser matching is case-sensitive (unlike analyze-rule
+  regex conditions, which run IgnoreCase).
+* `format` behaves exactly like the rule parameter: `cmtrace` (default) parses
+  each line via the shared `CmTraceLogParser` and matches against the parsed
+  MESSAGE only; `text` matches the raw line. First match per line
+  (`Regex.Match`), group `"0"` excluded, unsuccessful groups omitted — the
+  returned `groups` are exactly the event-data fields the device would emit.
+* Mirrors the agent's diagnostics: per-line outcomes
+  (`matched | no_match | parse_failed | regex_timeout`), the all-lines-parse-fail
+  hint ("set parameter format=text") verbatim, and a case-sensitivity note on
+  zero matches.
+* Pure compute on the request body — no tenant data touched. Same policy tier
+  as the dry-run (`TenantAdminOrGlobalReader`); caps: 200 lines, 8 KB/line,
+  1 MB body.
+
+Parity is structural, not duplicated: `CmTraceLogParser` moved from the agent
+(`Monitoring/Enrollment/Ime`) to **Shared** (`AutopilotMonitor.Shared.Logging`)
+so agent and backend run the SAME parsing implementation. Timestamp caveat:
+bias-less CMTrace lines parse with `AssumeLocal`, which on the backend is the
+server's timezone — the endpoint therefore reports match/parse results, never
+timestamps. `test_log_pattern` (MCP) wraps the endpoint; `validate_rule`
+additionally lints logparser parameters (missing/non-compiling pattern, unknown
+format value) and its `nextStep` routes logparser drafts to `test_log_pattern`.
+
 ## What is deliberately absent
 
 * **No gather-rule remote execution** — gather rules run as SYSTEM on devices;
-  the dry-run surface is analyze-only. Gather authors get guardrail pre-flight
-  plus the on-device debug log ([gather-rule-debug-log](../agent/gather-rule-debug-log.md)).
+  session dry-run is analyze-only. Logparser authors get the pattern tester
+  above; all gather authors get guardrail pre-flight plus the on-device debug
+  log ([gather-rule-debug-log](../agent/gather-rule-debug-log.md)).
 * **No rule write/deploy via MCP** — creating rules stays in the portal.
 
 # Citations
 
+* `src/Backend/AutopilotMonitor.Functions/Functions/Rules/TestLogPatternFunction.cs` — logparser pattern tester
+* `src/Shared/AutopilotMonitor.Shared/Logging/CmTraceLogParser.cs` — shared CMTrace parser (agent + backend)
 * `src/Backend/AutopilotMonitor.Functions/Services/RuleEngine.DryRun.cs` — trace twin + DTOs
 * `src/Backend/AutopilotMonitor.Functions/Functions/Rules/DryRunAnalyzeRuleFunction.cs` — endpoint + draft validation
 * `src/McpServer/autopilot-monitor-mcp/src/rule-validation.ts` — validator

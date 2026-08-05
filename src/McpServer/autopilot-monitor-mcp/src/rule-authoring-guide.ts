@@ -34,9 +34,10 @@ export const RULE_AUTHORING_GUIDE = {
       'session from your tenant (ideally one where the rule SHOULD fire and one where it should ' +
       'NOT). The dry-run returns a per-condition trace with evidence — iterate until the verdict ' +
       'matches your expectation. Nothing is persisted by a dry-run.',
-    '5. Gather rules cannot be dry-run server-side (they execute on devices). Validate them, then ' +
-      'deploy to a test device/VM; the agent debug log setting for gather rules shows per-rule ' +
-      'execution detail on-device.',
+    '5. Gather rules cannot be dry-run against a session (they execute on devices). For logparser ' +
+      'rules, test the regex with test_log_pattern against sample lines pasted from the real log ' +
+      'file — it uses the agent\'s exact .NET matching semantics. Then deploy to a test device/VM; ' +
+      'the agent debug log setting for gather rules shows per-rule execution detail on-device.',
     '6. Create the finished rule in the portal (Settings → Gather Rules / Analyze Rules). Custom ' +
       'rules are tenant-scoped. Well-tested rules can be proposed as community rules via GitHub.',
   ],
@@ -70,8 +71,13 @@ export const RULE_AUTHORING_GUIDE = {
         'Matching is EXACT (trimmed, case-insensitive) — no arguments can be added or removed.',
       logparser:
         'Parse log files with a regex. target = file/glob under an allow-listed prefix. parameters: ' +
-        'pattern (regex, named groups become event data), format ("cmtrace" for IME-style logs), ' +
-        'maxLines, trackPosition ("true" = only new lines on re-runs).',
+        'pattern (regex, named groups become event data fields on the emitted timeline event), ' +
+        'format ("cmtrace" = default: each line is parsed as CMTrace/IME format first and the regex ' +
+        'runs against the parsed MESSAGE only; "text" = regex against the raw line), maxLines, ' +
+        'trackPosition ("true" = only new lines on re-runs). Matching semantics: .NET regex engine, ' +
+        'case-SENSITIVE (unlike analyze-rule regex conditions), first match per line. ALWAYS verify ' +
+        'the pattern with test_log_pattern against real lines from the log file — engines like ' +
+        'JS/PHP/Python behave subtly differently from the agent\'s .NET engine.',
     },
     triggers: {
       startup: 'Once when the agent starts.',
@@ -248,6 +254,8 @@ export const RULE_AUTHORING_GUIDE = {
     'Unanchored allow-list regex with not_regex — anchors (^, \\b) are mandatory or impostor values pass.',
     'A confidenceFactor condition like "count > 3" or "Count >= 3" — only the exact shapes "exists", "count >= N", "phase_duration > N" evaluate.',
     'Gather targets outside the guardrail allowlists — the agent blocks them at run time; validate_rule checks this up front.',
+    'Testing a logparser regex in a JS/PHP/Python tester and assuming it behaves the same on the device — the agent uses the .NET engine and matches case-SENSITIVELY. Use test_log_pattern, which runs the exact agent semantics.',
+    'Running a plain-text log through the default cmtrace format — every line fails CMTrace parsing and nothing ever matches. Set parameters.format="text" (test_log_pattern reports this explicitly).',
     'Duplicate condition signals — evidence is keyed by signal, the second overwrites the first.',
     'Expecting gather events in sessions that ran BEFORE the gather rule was deployed — dry-run against a recent session.',
   ],

@@ -269,6 +269,9 @@ public static class EndpointAccessPolicyCatalog
         // tier so the read-only Global Reader can help debug rules while tenant Operators/Viewers
         // stay excluded from the authoring surface.
         new("POST",   "rules/analyze/dryrun",      EndpointPolicy.TenantAdminOrGlobalReader),
+        // Same shape: POST body in, pure compute out (regex vs pasted sample lines with the
+        // agent's exact .NET matching semantics) — touches no tenant data at all.
+        new("POST",   "rules/gather/test-pattern", EndpointPolicy.TenantAdminOrGlobalReader),
         // Member tier so Operators/Viewers can see their tenant's configuration read-only in the
         // Settings UI. Safe because the handler redacts by default: only a Global Admin or the
         // tenant's OWN admin gets the unredacted secrets — every other admitted caller (Operator,
