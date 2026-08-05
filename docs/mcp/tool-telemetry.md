@@ -34,12 +34,18 @@ Three layers answer "are the MCP tools doing their job, and are tools missing?":
    - `search_zero_hit`: query text (capped) whenever `search_events` /
      `search_knowledge` / `search_docs` return zero results — the most direct
      "missing docs / missing knowledge / missing tool?" demand signal.
-   - `tool_call_rejected`: JSON-RPC-level rejections (Zod argument validation,
-     unknown tool name). The SDK answers these *before* any handler runs, so
-     they are captured by wrapping `res.end` in the `/mcp` route (stateless
-     mode guarantees one JSON-RPC request per POST; `enableJsonResponse` yields
-     a single buffered body). This is the strongest "the schema or description
-     confuses the model" signal and was previously invisible everywhere.
+   - `tool_call_rejected`: rejections the SDK answers *before* any handler runs
+     (Zod argument validation, unknown/disabled tool). Two non-obvious facts,
+     both found by live verification: SDK 1.30 wraps these McpErrors as a
+     *successful* JSON-RPC response whose result is `{ isError: true, text:
+     "MCP error <code>: …" }` — a JSON-RPC error envelope never exists for
+     them — and the Hono bridge (`getRequestListener`) may stream the body as
+     `res.write` chunks with a bare `res.end()`. The sniffer in the `/mcp`
+     route therefore wraps both `write` and `end`, reassembles up to 10 KB and
+     matches both shapes (`attachToolCallRejectionSniffer` in `telemetry.ts`).
+     Handler soft errors never carry the `MCP error` prefix, so they are not
+     double-logged. This is the strongest "the schema or description confuses
+     the model" signal and was previously invisible everywhere.
 
 The env flag defaults to `true` in `infra/mcp-server.bicep` (documented desired
 state — the template is not routinely deployed; the live flag is set with
