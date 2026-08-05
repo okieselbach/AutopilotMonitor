@@ -2,7 +2,7 @@ using System;
 using System.Globalization;
 using System.Text.RegularExpressions;
 
-namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
+namespace AutopilotMonitor.Shared.Logging
 {
     /// <summary>
     /// Represents a single parsed line from a CMTrace-format log file
@@ -19,6 +19,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
     /// <summary>
     /// Parses CMTrace/SCCM log format used by IME and other Microsoft components.
     /// Format: &lt;![LOG[{message}]LOG]!&gt;&lt;time="{time}" date="{date}" component="{comp}" context="" type="{type}" thread="{thread}" file=""&gt;
+    ///
+    /// Lives in Shared because it is the SINGLE parsing implementation for both sides:
+    /// the agent's IME tracker / logparser gather collector (on-device) and the backend's
+    /// rules/gather/test-pattern endpoint, which must reproduce the agent's matching
+    /// semantics exactly so authors can test patterns without a device. Timestamp note:
+    /// bias-less lines parse with DateTimeStyles.AssumeLocal — on the backend that is the
+    /// SERVER's timezone, so the test endpoint reports match/parse results, not timestamps.
     /// </summary>
     public static class CmTraceLogParser
     {

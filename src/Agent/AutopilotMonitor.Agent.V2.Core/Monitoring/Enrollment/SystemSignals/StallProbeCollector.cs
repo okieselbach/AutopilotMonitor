@@ -10,6 +10,7 @@ using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.Logging;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Win32;
 
