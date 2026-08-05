@@ -29,6 +29,7 @@ https://docs.autopilotmonitor.com (separate repository).
 
 * [Gather Rule Phase Scoping, One-Shot Triggers & Emit-on-Change](rules/gather-rule-phase-scoping.md) - Restricting gather rules to enrollment phases (activePhases / activeFromPhase sticky latch), one-shot collection at a phase's start/end (phase_change / phase_exit), and emitMode "on_change" result-dedup.
 * [Gather Rule Guardrails](rules/gather-rule-guardrails.md) - Why the allowlists in rules/guardrails.json are enforced on the agent and nowhere else, which hard blocks survive unrestricted mode, and the rule that every collector must call a guard and emit security_warning on refusal.
+* [Rule Authoring Surface](rules/rule-authoring-surface.md) - How customer AIs author rules against the real contract: the baked MCP resources (guide/schemas/guardrails via combine.js), the MCP-local validate_rule pre-flight, and the side-effect-free POST rules/analyze/dryrun whose trace twin shares the production evaluators (parity + side-effect-freedom pinned by tests).
 
 # Backend
 
