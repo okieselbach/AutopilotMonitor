@@ -142,3 +142,66 @@ export function logToolCallRejection(toolName: string, errorCode: number, messag
     // Telemetry must never break a tool response.
   }
 }
+
+// Error envelopes are tiny; anything larger is a successful tool result and is
+// skipped instead of buffered.
+const SNIFF_BUFFER_CAP = 10_000;
+
+interface SniffableResponse {
+  write: (...args: never[]) => boolean;
+  end: (...args: never[]) => unknown;
+}
+
+/**
+ * Observe the JSON-RPC response of a tools/call POST for an error envelope and
+ * log it via logToolCallRejection. The SDK (1.30+) bridges the web-standard
+ * Response to the Node res through Hono's getRequestListener, which depending
+ * on the body type either calls res.end(string | Uint8Array) directly or pipes
+ * a ReadableStream through res.write chunks followed by a bare res.end() — so
+ * BOTH must be captured. Buffering stops at SNIFF_BUFFER_CAP (real rejections
+ * are a few hundred bytes). Never throws into the response path.
+ */
+export function attachToolCallRejectionSniffer(toolName: string, res: SniffableResponse): void {
+  if (!toolLoggingEnabled) return;
+
+  let captured = '';
+  let overflowed = false;
+  const capture = (chunk: unknown): void => {
+    if (overflowed || chunk == null) return;
+    let text: string | undefined;
+    if (typeof chunk === 'string') text = chunk;
+    // Covers Node Buffers too (Buffer extends Uint8Array).
+    else if (chunk instanceof Uint8Array) text = Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength).toString('utf8');
+    if (text === undefined) return;
+    captured += text;
+    if (captured.length > SNIFF_BUFFER_CAP) {
+      overflowed = true;
+      captured = '';
+    }
+  };
+
+  const originalWrite = res.write.bind(res);
+  const originalEnd = res.end.bind(res);
+  res.write = ((chunk: unknown, ...rest: unknown[]) => {
+    try {
+      capture(chunk);
+    } catch {
+      // Sniffing must never break the response.
+    }
+    return originalWrite(chunk as never, ...(rest as never[]));
+  }) as typeof res.write;
+  res.end = ((chunk?: unknown, ...rest: unknown[]) => {
+    try {
+      capture(chunk);
+      if (!overflowed && captured.includes('"error"')) {
+        const parsed = JSON.parse(captured) as { error?: { code?: number; message?: unknown } };
+        if (parsed?.error?.code !== undefined) {
+          logToolCallRejection(toolName, parsed.error.code, String(parsed.error.message ?? ''));
+        }
+      }
+    } catch {
+      // Sniffing must never break the response.
+    }
+    return originalEnd(chunk as never, ...(rest as never[]));
+  }) as typeof res.end;
+}

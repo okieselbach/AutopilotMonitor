@@ -150,3 +150,70 @@ describe('logToolCallRejection', () => {
     expect((line.message as string).length).toBeLessThan(530);
   });
 });
+
+describe('attachToolCallRejectionSniffer', () => {
+  const ERROR_ENVELOPE = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    error: { code: -32602, message: 'Input validation error: Invalid arguments for tool get_session: sessionId must be a UUID' },
+  });
+
+  function fakeRes() {
+    const calls: string[] = [];
+    return {
+      calls,
+      write: vi.fn((..._args: never[]) => { calls.push('write'); return true; }),
+      end: vi.fn((..._args: never[]) => { calls.push('end'); return undefined as unknown; }),
+    };
+  }
+
+  it('catches the Hono streaming path: Uint8Array chunks via write, then a bare end()', async () => {
+    const { attachToolCallRejectionSniffer } = await loadTelemetry(true);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = fakeRes();
+    attachToolCallRejectionSniffer('get_session', res);
+
+    const bytes = new TextEncoder().encode(ERROR_ENVELOPE);
+    // Split mid-envelope to prove reassembly across chunks works.
+    res.write(bytes.slice(0, 40) as never);
+    res.write(bytes.slice(40) as never);
+    res.end();
+
+    const line = lastLoggedJson(spy);
+    expect(line.type).toBe('tool_call_rejected');
+    expect(line.tool).toBe('get_session');
+    expect(line.errorCode).toBe(-32602);
+    expect(line.message).toContain('sessionId must be a UUID');
+    // The response itself went through untouched.
+    expect(res.calls).toEqual(['write', 'write', 'end']);
+  });
+
+  it('catches the direct path: whole envelope as a single end(string)', async () => {
+    const { attachToolCallRejectionSniffer } = await loadTelemetry(true);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = fakeRes();
+    attachToolCallRejectionSniffer('query_table', res);
+    res.end(ERROR_ENVELOPE as never);
+    expect(lastLoggedJson(spy).tool).toBe('query_table');
+  });
+
+  it('stays silent for successful results and stops buffering past the cap', async () => {
+    const { attachToolCallRejectionSniffer } = await loadTelemetry(true);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = fakeRes();
+    attachToolCallRejectionSniffer('search_sessions', res);
+    // A large successful tool result (which even CONTAINS the word "error" in data).
+    const big = JSON.stringify({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: '"error" '.repeat(3000) }] } });
+    for (let i = 0; i < big.length; i += 1000) res.write(big.slice(i, i + 1000) as never);
+    res.end();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('does not wrap the response at all when logging is disabled', async () => {
+    const { attachToolCallRejectionSniffer } = await loadTelemetry(false);
+    const res = fakeRes();
+    const originalEnd = res.end;
+    attachToolCallRejectionSniffer('get_session', res);
+    expect(res.end).toBe(originalEnd);
+  });
+});
