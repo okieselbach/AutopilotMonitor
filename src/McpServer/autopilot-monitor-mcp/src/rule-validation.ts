@@ -361,6 +361,49 @@ function lintGatherRule(rule: Record<string, unknown>): ValidationFinding[] {
     findings.push(...checkGatherTarget(rule.collectorType, rule.target));
   }
 
+  if (rule.collectorType === 'logparser') {
+    findings.push(...lintLogparserParameters(rule));
+  }
+
+  return findings;
+}
+
+/** logparser-specific parameter lint. Matching runs on the DEVICE with .NET regex —
+ * this only pre-checks what would make the rule dead; real pattern testing belongs in
+ * test_log_pattern (agent-exact engine). */
+function lintLogparserParameters(rule: Record<string, unknown>): ValidationFinding[] {
+  const findings: ValidationFinding[] = [];
+  const parameters = (rule.parameters ?? {}) as Record<string, unknown>;
+  const pattern = parameters.pattern;
+
+  if (typeof pattern !== 'string' || pattern.length === 0) {
+    findings.push({ level: 'error', message: 'logparser requires parameters.pattern — without it the rule can never match.' });
+    return findings;
+  }
+
+  try {
+    // JS compile is only an approximation of the agent's .NET engine — good enough to
+    // catch syntax errors, not equivalence.
+    new RegExp(pattern);
+  } catch (e) {
+    findings.push({ level: 'error', message: `parameters.pattern does not compile (${(e as Error).message}). Note the agent uses .NET regex syntax.` });
+  }
+
+  findings.push({
+    level: 'info',
+    message:
+      'logparser matching is case-SENSITIVE and runs on the agent\'s .NET regex engine — a pattern verified in a JS/PHP/Python tester can behave differently. ' +
+      'Test it with test_log_pattern(pattern, sampleLines) against real lines from the log file before deploying.',
+  });
+
+  const format = parameters.format;
+  if (typeof format === 'string' && format.toLowerCase() !== 'text' && format.toLowerCase() !== 'cmtrace') {
+    findings.push({
+      level: 'warning',
+      message: `parameters.format "${format}" is not a known format — the agent treats anything other than "text" as CMTrace mode.`,
+    });
+  }
+
   return findings;
 }
 

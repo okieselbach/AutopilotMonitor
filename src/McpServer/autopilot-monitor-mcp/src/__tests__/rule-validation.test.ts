@@ -162,6 +162,36 @@ describe('gather guardrails (agent matching semantics)', () => {
   });
 });
 
+describe('logparser parameter lint', () => {
+  function logparserRule(parameters: Record<string, unknown>): Record<string, unknown> {
+    const r = validGather();
+    r.collectorType = 'logparser';
+    r.target = 'C:\\Windows\\Logs\\CustomApp\\install.log';
+    r.parameters = parameters;
+    return r;
+  }
+
+  it('missing pattern is an error', () => {
+    expect(errors(validateRuleDraft(logparserRule({})).findings).some((m) => m.includes('parameters.pattern'))).toBe(true);
+  });
+
+  it('non-compiling pattern is an error', () => {
+    expect(errors(validateRuleDraft(logparserRule({ pattern: '([unclosed' })).findings)
+      .some((m) => m.includes('does not compile'))).toBe(true);
+  });
+
+  it('valid pattern yields the .NET/case-sensitivity info pointing to test_log_pattern', () => {
+    const r = validateRuleDraft(logparserRule({ pattern: '(?<level>ERROR)', format: 'text' }));
+    expect(r.valid).toBe(true);
+    expect(r.findings.some((f) => f.level === 'info' && f.message.includes('test_log_pattern'))).toBe(true);
+  });
+
+  it('unknown format value warns (agent silently treats it as cmtrace)', () => {
+    expect(warnings(validateRuleDraft(logparserRule({ pattern: 'x', format: 'json' })).findings)
+      .some((m) => m.includes('CMTrace mode'))).toBe(true);
+  });
+});
+
 describe('gather semantic lint', () => {
   it('interval without intervalSeconds is an error; on_event without triggerEventType is an error', () => {
     const a = validGather();
