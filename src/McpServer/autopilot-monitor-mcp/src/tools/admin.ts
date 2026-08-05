@@ -1540,9 +1540,14 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'stateless HTTP MCP servers). Available names:\n' +
         '  - "event_types": catalog of valid eventType strings for search_sessions_by_event\n' +
         '  - "device_properties": catalog of dot-notation keys for the deviceProperties filter on search_sessions\n' +
-        '  - "diag_zip_layout": expected file layout of an agent diagnostics ZIP (what get_session_diagnostics returns you for local analysis)',
+        '  - "diag_zip_layout": expected file layout of an agent diagnostics ZIP (what get_session_diagnostics returns you for local analysis)\n' +
+        '  - "rule_authoring_guide": complete guide for authoring gather/analyze rules (read FIRST when asked to create a rule; then validate_rule / test_analyze_rule)\n' +
+        '  - "rule_schemas": the JSON Schemas for gather and analyze rules (the exact contract)\n' +
+        '  - "rule_guardrails": on-device collection allowlists a gather rule target must satisfy',
       inputSchema: {
-        name: z.enum(['event_types', 'device_properties', 'diag_zip_layout']).describe('Resource name'),
+        name: z
+          .enum(['event_types', 'device_properties', 'diag_zip_layout', 'rule_authoring_guide', 'rule_schemas', 'rule_guardrails'])
+          .describe('Resource name'),
       },
       annotations: READ_ONLY_OPEN,
     },

@@ -67,9 +67,9 @@ public enum EndpointPolicy
     /// <summary>
     /// Own-tenant Admin, OR a platform role (Global Admin / Global Reader). Tenant-scoped admin-tier
     /// READ access (e.g. GET tenants/{tenantId}/graph-permissions/status). Like
-    /// <see cref="TenantAdminOrGA"/> but additionally admits the read-only Global Reader — used only
-    /// on GET routes so the reader gets visibility without write power, while tenant
-    /// Operators/Viewers stay excluded. (GET config/{tenantId} moved OFF this tier to MemberRead:
+    /// <see cref="TenantAdminOrGA"/> but additionally admits the read-only Global Reader — used on
+    /// GET routes (and read-in-effect POSTs like rules/analyze/dryrun) so the reader gets
+    /// visibility without write power, while tenant Operators/Viewers stay excluded. (GET config/{tenantId} moved OFF this tier to MemberRead:
     /// its handler redacts secrets for every non-admin caller, so member-tier read is safe there.)
     /// </summary>
     TenantAdminOrGlobalReader,
@@ -264,6 +264,11 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "rules/gather",              EndpointPolicy.MemberRead),
         new("GET",    "rules/analyze",             EndpointPolicy.MemberRead),
         new("GET",    "rules/ime-log-patterns",    EndpointPolicy.MemberRead),
+        // POST by shape (draft rule in the body) but a pure READ in effect: evaluates the draft
+        // against a session's events and persists NOTHING (DryRunAnalyzeRuleFunction). Admin-read
+        // tier so the read-only Global Reader can help debug rules while tenant Operators/Viewers
+        // stay excluded from the authoring surface.
+        new("POST",   "rules/analyze/dryrun",      EndpointPolicy.TenantAdminOrGlobalReader),
         // Member tier so Operators/Viewers can see their tenant's configuration read-only in the
         // Settings UI. Safe because the handler redacts by default: only a Global Admin or the
         // tenant's OWN admin gets the unredacted secrets — every other admitted caller (Operator,

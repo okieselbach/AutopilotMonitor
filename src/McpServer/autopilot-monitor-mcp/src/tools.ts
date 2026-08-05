@@ -3,6 +3,7 @@ import type { SearchProvider } from './search-provider.js';
 import { registerSessionTools } from './tools/sessions.js';
 import { registerSearchTools } from './tools/search.js';
 import { registerAdminTools } from './tools/admin.js';
+import { registerRuleTools } from './tools/rules.js';
 import type { DocsSearchBundle } from './search-provider.js';
 
 /**
@@ -39,6 +40,7 @@ export function registerTools(
   registerSessionTools(server, ga, delegated);
   registerSearchTools(server, knowledgeBase, eventTypeIndex, docs, ga, delegated);
   registerAdminTools(server, ga, strictGa, delegated);
+  registerRuleTools(server, ga);
   sortToolCatalog(server);
 }
 

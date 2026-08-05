@@ -5,6 +5,8 @@
  * stateless-HTTP MCP clients whose resource discovery is broken).
  */
 import { DIAG_ZIP_MAP } from './diag-zip-map.js';
+import { RULE_AUTHORING_GUIDE } from './rule-authoring-guide.js';
+import { GATHER_RULE_SCHEMA, ANALYZE_RULE_SCHEMA, RULE_GUARDRAILS } from './rule-authoring.generated.js';
 
 // Single source of truth for the model-facing event-type catalog. MUST stay in
 // sync with C# `Constants.EventTypes` (Shared) — enforced by the vitest drift test
@@ -378,7 +380,13 @@ export function assertKnownDevicePropertyKeys(keys: string[]): void {
   );
 }
 
-export type ResourceName = 'event_types' | 'device_properties' | 'diag_zip_layout';
+export type ResourceName =
+  | 'event_types'
+  | 'device_properties'
+  | 'diag_zip_layout'
+  | 'rule_authoring_guide'
+  | 'rule_schemas'
+  | 'rule_guardrails';
 
 export function getResourceContent(name: ResourceName): unknown {
   switch (name) {
@@ -388,5 +396,14 @@ export function getResourceContent(name: ResourceName): unknown {
       return DEVICE_PROPERTIES_CATALOG;
     case 'diag_zip_layout':
       return DIAG_ZIP_MAP;
+    case 'rule_authoring_guide':
+      return RULE_AUTHORING_GUIDE;
+    case 'rule_schemas':
+      return {
+        gatherRuleSchema: GATHER_RULE_SCHEMA,
+        analyzeRuleSchema: ANALYZE_RULE_SCHEMA,
+      };
+    case 'rule_guardrails':
+      return RULE_GUARDRAILS;
   }
 }
