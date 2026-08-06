@@ -43,11 +43,15 @@ export const RULE_AUTHORING_GUIDE = {
   ],
 
   ids: {
-    gather: 'GATHER-{CATEGORY}-{NNN}, matching ^GATHER-[A-Z]+-\\d{3}$ (e.g. GATHER-NET-011)',
-    analyze: 'ANALYZE-{CATEGORY}-{NNN}, matching ^ANALYZE-[A-Z]+-\\d{3}$ (e.g. ANALYZE-APP-101)',
+    gather: 'Tenant custom gather rules: GATHER-CUSTOM-{NNN} (e.g. GATHER-CUSTOM-011), matching ^GATHER-[A-Z]+-\\d{3}$.',
+    analyze: 'Tenant custom analyze rules: ANALYZE-CUSTOM-{NNN} (e.g. ANALYZE-CUSTOM-101), matching ^ANALYZE-[A-Z]+-\\d{3}$.',
     note:
-      'Pick an ID that does not collide with built-in rules (the portal rejects collisions). ' +
-      'Common category shorthands: NET, ID, APPS/APP, DEVICE/DEV, ESP, ENRL/ENROLL, SEC, CORR.',
+      'The numeric namespace (ANALYZE|GATHER)-<CATEGORY>-<NUMBER> outside the CUSTOM category is ' +
+      'RESERVED for rules shipped with the platform — the backend rejects tenant custom rules with ' +
+      'such IDs (HTTP 409), including currently unused numbers: gaps are usually retired built-ins ' +
+      'that may return. Use the CUSTOM category: it is the one scheme that passes both the schema ' +
+      'pattern and the reservation. (The portal also accepts free-form IDs like an organization ' +
+      'prefix, but those fail the strict schema check in validate_rule — prefer CUSTOM.)',
   },
 
   gatherRules: {
@@ -108,7 +112,7 @@ export const RULE_AUTHORING_GUIDE = {
       'lifted by config. If a needed target is not allow-listed, the allowlist itself has to be ' +
       'extended via a GitHub contribution to rules/guardrails.json — a rule alone cannot widen it.',
     template: {
-      ruleId: 'GATHER-DEVICE-101',
+      ruleId: 'GATHER-CUSTOM-101',
       title: 'Collect pending file rename operations',
       description: 'Reads PendingFileRenameOperations to detect a pending reboot blocking installs.',
       category: 'device',
@@ -205,7 +209,7 @@ export const RULE_AUTHORING_GUIDE = {
       'status (KO criterion). Use sparingly — only for findings that genuinely mean the ' +
       'enrollment failed.',
     template: {
-      ruleId: 'ANALYZE-APP-101',
+      ruleId: 'ANALYZE-CUSTOM-101',
       title: 'Repeated install failures of the same app',
       description: 'Detects an app failing to install 3+ times in one enrollment.',
       severity: 'high',

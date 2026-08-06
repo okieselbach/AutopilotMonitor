@@ -259,6 +259,14 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         public async Task<bool> CreateRuleAsync(string tenantId, AnalyzeRule rule)
         {
+            // The numeric built-in namespace stays closed to tenant rules even when an
+            // ID is currently unused — a later built-in with that ID would silently
+            // shadow the tenant copy (merge collision guard: global wins).
+            if (RuleIdPolicy.IsReservedBuiltInId(rule.RuleId))
+            {
+                throw new InvalidOperationException(RuleIdPolicy.ReservedMessage(rule.RuleId));
+            }
+
             if (await _ruleRepo.AnalyzeRuleExistsAsync("global", rule.RuleId)
                 || await _ruleRepo.AnalyzeRuleExistsAsync(tenantId, rule.RuleId))
             {
@@ -291,6 +299,13 @@ namespace AutopilotMonitor.Functions.Services
                         : null
                 };
                 return await _ruleRepo.StoreRuleStateAsync(tenantId, rule.RuleId, state);
+            }
+
+            // Custom-rule updates upsert into the tenant partition — without this guard a
+            // PUT with a reserved ID (and IsBuiltIn=false) would bypass the create-time check.
+            if (RuleIdPolicy.IsReservedBuiltInId(rule.RuleId))
+            {
+                throw new InvalidOperationException(RuleIdPolicy.ReservedMessage(rule.RuleId));
             }
 
             // Custom rules are fully tenant-owned: fold a notify override into the row default

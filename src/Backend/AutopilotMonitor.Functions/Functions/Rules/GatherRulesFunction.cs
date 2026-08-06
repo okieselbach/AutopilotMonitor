@@ -124,10 +124,19 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                 return badRequest;
             }
 
-            var success = await _ruleService.UpdateRuleAsync(tenantId, rule);
-            var response = req.CreateResponse(success ? HttpStatusCode.OK : HttpStatusCode.InternalServerError);
-            await response.WriteAsJsonAsync(new { success, message = success ? "Rule updated" : "Failed to update rule" });
-            return response;
+            try
+            {
+                var success = await _ruleService.UpdateRuleAsync(tenantId, rule);
+                var response = req.CreateResponse(success ? HttpStatusCode.OK : HttpStatusCode.InternalServerError);
+                await response.WriteAsJsonAsync(new { success, message = success ? "Rule updated" : "Failed to update rule" });
+                return response;
+            }
+            catch (InvalidOperationException ex)
+            {
+                var conflict = req.CreateResponse(HttpStatusCode.Conflict);
+                await conflict.WriteAsJsonAsync(new { success = false, message = ex.Message });
+                return conflict;
+            }
         }
 
         /// <summary>

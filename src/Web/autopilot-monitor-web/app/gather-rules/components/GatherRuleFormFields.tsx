@@ -22,6 +22,7 @@ import {
 import { KNOWN_EVENT_TYPES, findEventType } from "../eventTypes";
 import { validateGatherRuleTarget } from "@/utils/guardValidation";
 import { ValidationIndicator } from "@/components/ValidationIndicator";
+import { isReservedBuiltInRuleId, RESERVED_RULE_ID_MESSAGE } from "@/lib/ruleIdPolicy";
 
 interface GatherRuleFormFieldsProps {
   form: NewRuleForm;
@@ -39,6 +40,9 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
   const ruleIdTrimmed = form.ruleId.trim().toLowerCase();
   const isDuplicate = showRuleId && existingRuleIds && ruleIdTrimmed.length > 0
     && existingRuleIds.some(id => id.toLowerCase() === ruleIdTrimmed);
+  const isReserved = showRuleId && !isDuplicate && ruleIdTrimmed.length > 0
+    && isReservedBuiltInRuleId(form.ruleId);
+  const ruleIdInvalid = isDuplicate || isReserved;
 
   return (
     <div className="space-y-5">
@@ -55,10 +59,13 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
               onChange={(e) => setForm({ ...form, ruleId: e.target.value })}
               placeholder="e.g., custom-network-check"
               autoComplete="off"
-              className={`w-full px-4 py-2 border rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 transition-colors ${isDuplicate ? "border-red-400 focus:ring-red-300 focus:border-red-400" : "border-gray-300 focus:ring-green-500 focus:border-green-500"}`}
+              className={`w-full px-4 py-2 border rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 transition-colors ${ruleIdInvalid ? "border-red-400 focus:ring-red-300 focus:border-red-400" : "border-gray-300 focus:ring-green-500 focus:border-green-500"}`}
             />
             {isDuplicate && (
               <p className="mt-1 text-xs text-red-600">A rule with this ID already exists. Please choose a unique Rule ID.</p>
+            )}
+            {isReserved && (
+              <p className="mt-1 text-xs text-red-600">{RESERVED_RULE_ID_MESSAGE}</p>
             )}
           </div>
         )}

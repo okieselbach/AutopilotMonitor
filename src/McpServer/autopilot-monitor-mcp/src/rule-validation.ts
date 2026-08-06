@@ -407,6 +407,11 @@ function lintLogparserParameters(rule: Record<string, unknown>): ValidationFindi
   return findings;
 }
 
+// Mirror of AutopilotMonitor.Shared.Models.RuleIdPolicy — keep in sync. The CUSTOM
+// category is the sanctioned tenant namespace; everything else in the numeric grid is
+// reserved for platform built-ins.
+const RESERVED_BUILTIN_ID = /^(ANALYZE|GATHER)-(?!CUSTOM-)[A-Z]+-\d+$/i;
+
 // ── Entry point ─────────────────────────────────────────────────────────────
 
 export function validateRuleDraft(rule: Record<string, unknown>): ValidationResult {
@@ -434,6 +439,20 @@ export function validateRuleDraft(rule: Record<string, unknown>): ValidationResu
   const findings = ruleType === 'gather'
     ? [...schemaValidate(GATHER_RULE_SCHEMA.$id, 'gatherRule', rule), ...lintGatherRule(rule)]
     : [...schemaValidate(ANALYZE_RULE_SCHEMA.$id, 'analyzeRule', rule), ...lintAnalyzeRule(rule)];
+
+  // Warning, not error: platform built-ins legitimately live in this namespace, and this
+  // module cannot see whether the caller is authoring one. For tenant custom rules the
+  // backend enforces the reservation at create/update time (HTTP 409).
+  if (RESERVED_BUILTIN_ID.test(ruleId)) {
+    findings.push({
+      level: 'warning',
+      message:
+        `ruleId '${ruleId}' lies in the reserved built-in namespace (ANALYZE|GATHER)-<CATEGORY>-<NUMBER> — ` +
+        'the backend rejects tenant custom rules with such IDs (gaps included: they are usually retired rules that may return). ' +
+        "Use the CUSTOM category instead (e.g. 'ANALYZE-CUSTOM-001'). " +
+        'Ignore this warning only when authoring a platform built-in rule.',
+    });
+  }
 
   return {
     ruleType,

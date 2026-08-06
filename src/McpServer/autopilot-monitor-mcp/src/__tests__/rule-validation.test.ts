@@ -302,3 +302,27 @@ describe('analyze semantic lint', () => {
     expect(validateRuleDraft(ko).findings.some((f) => f.level === 'info' && f.message.includes('KO criterion'))).toBe(true);
   });
 });
+
+describe('reserved built-in namespace', () => {
+  it('warns for numeric built-in-shaped IDs (backend rejects tenant creates with 409)', () => {
+    const a = validateRuleDraft(validAnalyze()); // ANALYZE-APP-101
+    expect(a.valid).toBe(true); // warning only — platform built-ins legitimately live here
+    expect(warnings(a.findings).some((m) => m.includes('reserved built-in namespace'))).toBe(true);
+
+    const g = validateRuleDraft(validGather()); // GATHER-DEVICE-101
+    expect(warnings(g.findings).some((m) => m.includes('reserved built-in namespace'))).toBe(true);
+  });
+
+  it('case variants are covered', () => {
+    const r = validateRuleDraft({ ...validAnalyze(), ruleId: 'ANALYZE-SEC-002' });
+    expect(warnings(r.findings).some((m) => m.includes("'ANALYZE-SEC-002'"))).toBe(true);
+  });
+
+  it('the CUSTOM category is the sanctioned tenant namespace and stays clean', () => {
+    const a = validateRuleDraft({ ...validAnalyze(), ruleId: 'ANALYZE-CUSTOM-001' });
+    expect(warnings(a.findings).some((m) => m.includes('reserved built-in namespace'))).toBe(false);
+
+    const g = validateRuleDraft({ ...validGather(), ruleId: 'GATHER-CUSTOM-101' });
+    expect(warnings(g.findings).some((m) => m.includes('reserved built-in namespace'))).toBe(false);
+  });
+});

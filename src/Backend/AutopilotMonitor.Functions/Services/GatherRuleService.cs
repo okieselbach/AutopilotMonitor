@@ -133,6 +133,14 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         public async Task<bool> CreateRuleAsync(string tenantId, GatherRule rule)
         {
+            // The numeric built-in namespace stays closed to tenant rules even when an
+            // ID is currently unused — a later built-in with that ID would silently
+            // shadow the tenant copy (merge collision guard: global wins).
+            if (RuleIdPolicy.IsReservedBuiltInId(rule.RuleId))
+            {
+                throw new InvalidOperationException(RuleIdPolicy.ReservedMessage(rule.RuleId));
+            }
+
             if (await _ruleRepo.GatherRuleExistsAsync("global", rule.RuleId)
                 || await _ruleRepo.GatherRuleExistsAsync(tenantId, rule.RuleId))
             {
@@ -165,6 +173,14 @@ namespace AutopilotMonitor.Functions.Services
             {
                 // Built-in/community rule: only persist enabled state per tenant
                 return await _ruleRepo.StoreRuleStateAsync(tenantId, rule.RuleId, new RuleState { Enabled = rule.Enabled });
+            }
+
+            // Custom-rule updates upsert into the tenant partition — without this guard a
+            // PUT with a reserved ID whose global row is absent (e.g. retired) would bypass
+            // the create-time check.
+            if (RuleIdPolicy.IsReservedBuiltInId(rule.RuleId))
+            {
+                throw new InvalidOperationException(RuleIdPolicy.ReservedMessage(rule.RuleId));
             }
 
             // Custom rule. The portal toggle PUTs only { enabled, isBuiltIn, isCommunity } —

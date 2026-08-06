@@ -16,7 +16,7 @@ namespace AutopilotMonitor.Functions.Tests;
 public class GatherRuleUpdatePartialMergeTests
 {
     private const string TenantId = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
-    private const string RuleId = "GATHER-CUST-001";
+    private const string RuleId = "GATHER-CUSTOM-001";
 
     private static GatherRule ExistingCustomRule() => new()
     {
