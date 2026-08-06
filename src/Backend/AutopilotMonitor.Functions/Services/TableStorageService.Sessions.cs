@@ -1543,6 +1543,10 @@ namespace AutopilotMonitor.Functions.Services
                 SessionStatus.Succeeded => existingStatus != SessionStatus.Succeeded.ToString(),
                 SessionStatus.Failed or SessionStatus.Incomplete => !existingTerminal,
                 SessionStatus.AwaitingUser => !existingTerminal,
+                // Idempotency: the agent emits whiteglove_complete twice (raw Shell-Core event
+                // + engine timeline event, ~1s apart). The second Pending write must not report
+                // a "transition" — that fired duplicate Pre-Provisioning Completed webhooks.
+                SessionStatus.Pending => existingStatus != SessionStatus.Pending.ToString(),
                 _ => true,
             };
         }

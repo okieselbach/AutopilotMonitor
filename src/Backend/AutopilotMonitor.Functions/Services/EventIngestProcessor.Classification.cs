@@ -450,16 +450,29 @@ namespace AutopilotMonitor.Functions.Services
 
                 if (!whiteGloveStatusTransitioned)
                 {
-                    _logger.LogWarning("{SessionPrefix} WhiteGlove UpdateSessionStatusAsync failed, attempting unconditional fallback for IsPreProvisioned + Status", sessionPrefix);
-                    try
+                    // Duplicate vs. genuine write failure: the agent emits whiteglove_complete twice
+                    // (raw Shell-Core event + engine timeline event, ~1s apart, usually in separate
+                    // batches). When the session is already sealed as Pending/IsPreProvisioned the
+                    // refused write is the duplicate — the unconditional fallback below must NOT run,
+                    // it forced whiteGloveStatusTransitioned=true and sent a second webhook.
+                    var sealedSession = await _sessionRepo.GetSessionAsync(request.TenantId, request.SessionId);
+                    if (sealedSession?.Status == SessionStatus.Pending && sealedSession.IsPreProvisioned == true)
                     {
-                        await _sessionRepo.SetSessionPreProvisionedAsync(request.TenantId, request.SessionId, true, SessionStatus.Pending, isUserDriven: false);
-                        whiteGloveStatusTransitioned = true;
-                        _logger.LogInformation("{SessionPrefix} WhiteGlove fallback succeeded: IsPreProvisioned + Status=Pending set via unconditional merge", sessionPrefix);
+                        _logger.LogInformation("{SessionPrefix} WhiteGlove already sealed (Pending/IsPreProvisioned) — duplicate whiteglove_complete, no fallback/notification", sessionPrefix);
                     }
-                    catch (Exception fallbackEx)
+                    else
                     {
-                        _logger.LogError(fallbackEx, "{SessionPrefix} WhiteGlove fallback SetSessionPreProvisionedAsync also failed", sessionPrefix);
+                        _logger.LogWarning("{SessionPrefix} WhiteGlove UpdateSessionStatusAsync failed, attempting unconditional fallback for IsPreProvisioned + Status", sessionPrefix);
+                        try
+                        {
+                            await _sessionRepo.SetSessionPreProvisionedAsync(request.TenantId, request.SessionId, true, SessionStatus.Pending, isUserDriven: false);
+                            whiteGloveStatusTransitioned = true;
+                            _logger.LogInformation("{SessionPrefix} WhiteGlove fallback succeeded: IsPreProvisioned + Status=Pending set via unconditional merge", sessionPrefix);
+                        }
+                        catch (Exception fallbackEx)
+                        {
+                            _logger.LogError(fallbackEx, "{SessionPrefix} WhiteGlove fallback SetSessionPreProvisionedAsync also failed", sessionPrefix);
+                        }
                     }
                 }
 

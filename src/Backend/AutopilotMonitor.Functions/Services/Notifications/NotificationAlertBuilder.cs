@@ -22,7 +22,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
             TimeSpan? duration,
             string? sessionUrl = null)
         {
-            var title = success ? "\u2705 Enrollment Succeeded" : "\u274c Enrollment Failed";
+            var title = success ? "\ud83d\udfe2 Enrollment Succeeded" : "\ud83d\udd34 Enrollment Failed";
             var themeColor = success ? "00B050" : "FF0000";
             var severity = success ? NotificationSeverity.Success : NotificationSeverity.Error;
             var summary = success
@@ -76,8 +76,8 @@ namespace AutopilotMonitor.Functions.Services.Notifications
             string? sessionUrl = null)
         {
             var title = isResume
-                ? "▶️ Pre-Provisioning Resumed"
-                : "🚀 Enrollment Started";
+                ? "🟡 Pre-Provisioning Resumed"
+                : "🟡 Enrollment Started";
             var summary = isResume
                 ? $"Pre-Provisioning Resumed: {deviceName ?? "Unknown Device"}"
                 : $"Enrollment Started: {deviceName ?? "Unknown Device"}";
@@ -115,7 +115,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
             TimeSpan? duration,
             string? sessionUrl = null)
         {
-            var title = success ? "\ud83d\udfe2 Pre-Provisioning Completed" : "\u274c Pre-Provisioning Failed";
+            var title = success ? "\ud83d\udfe2 Pre-Provisioning Completed" : "\ud83d\udd34 Pre-Provisioning Failed";
             var themeColor = success ? "0078D4" : "FF0000";
             var severity = success ? NotificationSeverity.Success : NotificationSeverity.Error;
             var summary = success
@@ -181,7 +181,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
             return new NotificationAlert
             {
                 EventType = "hardware_rejected",
-                Title = "\u26a0\ufe0f Hardware Not Whitelisted",
+                Title = "\ud83d\udfe1 Hardware Not Whitelisted",
                 Summary = $"Device rejected: {hardwareText} is not in your hardware whitelist",
                 Severity = NotificationSeverity.Warning,
                 ThemeColor = "FFA500",
@@ -208,7 +208,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
         {
             var (emoji, themeColor, severity) = result.Severity switch
             {
-                "critical" => ("🟥", "FF0000", NotificationSeverity.Error),
+                "critical" => ("🔴", "FF0000", NotificationSeverity.Error),
                 "high" => ("🟠", "FF0000", NotificationSeverity.Error),
                 "warning" => ("🟡", "FFA500", NotificationSeverity.Warning),
                 _ => ("🔵", "0078D4", NotificationSeverity.Info),
@@ -267,7 +267,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
             {
                 var emoji = r.Severity switch
                 {
-                    "critical" => "\ud83d\udfe5",
+                    "critical" => "\ud83d\udd34",
                     "high" => "\ud83d\udfe0",
                     _ => "\ud83d\udfe1"
                 };
@@ -308,7 +308,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
             {
                 case "SuccessRate":
                     label = "Success Rate";
-                    title = $"\u26a0\ufe0f SLA Breach: Success Rate {currentRate:F1}%";
+                    title = $"\ud83d\udfe1 SLA Breach: Success Rate {currentRate:F1}%";
                     summary = $"SLA breach: success rate {currentRate:F1}% is below target {targetRate:F1}%";
                     period = "Current Month";
                     facts.Add(new NotificationFact { Name = "Breach Type", Value = label });
@@ -320,7 +320,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
 
                 case "Duration":
                     label = "Duration (P95)";
-                    title = "\u26a0\ufe0f SLA Breach: P95 Duration Exceeds Target";
+                    title = "\ud83d\udfe1 SLA Breach: P95 Duration Exceeds Target";
                     summary = $"SLA breach: P95 duration {currentRate:F1}min exceeds target {targetRate:F0}min";
                     period = "Current Month";
                     facts.Add(new NotificationFact { Name = "Breach Type", Value = label });
@@ -330,7 +330,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
 
                 case "AppInstall":
                     label = "App Install Success";
-                    title = $"\u26a0\ufe0f SLA Breach: App Install Success Rate {currentRate:F1}%";
+                    title = $"\ud83d\udfe1 SLA Breach: App Install Success Rate {currentRate:F1}%";
                     summary = $"SLA breach: app install success rate {currentRate:F1}% is below target {targetRate:F1}%";
                     period = "Current Week";
                     facts.Add(new NotificationFact { Name = "Breach Type", Value = label });
@@ -342,7 +342,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
 
                 default:
                     label = breachType;
-                    title = $"\u26a0\ufe0f SLA Breach: {breachType}";
+                    title = $"\ud83d\udfe1 SLA Breach: {breachType}";
                     summary = $"SLA breach: {breachType} current {currentRate:F1} vs target {targetRate:F1}";
                     period = "Current Period";
                     facts.Add(new NotificationFact { Name = "Breach Type", Value = label });
@@ -405,7 +405,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
             var alert = new NotificationAlert
             {
                 EventType = "sla_resolved",
-                Title = $"✅ SLA Breach Resolved: {label}",
+                Title = $"🟢 SLA Breach Resolved: {label}",
                 Summary = $"SLA breach resolved for tenant {tenantId}: {label} is back within target.",
                 Severity = NotificationSeverity.Success,
                 ThemeColor = "00B050",
@@ -435,7 +435,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
             var alert = new NotificationAlert
             {
                 EventType = "consecutive_failures",
-                Title = $"\ud83d\udea8 {consecutiveFailures} Consecutive Enrollment Failures",
+                Title = $"\ud83d\udd34 {consecutiveFailures} Consecutive Enrollment Failures",
                 Summary = $"Alert: {consecutiveFailures} enrollments failed in a row for tenant {tenantId}",
                 Severity = NotificationSeverity.Error,
                 ThemeColor = "FF0000",

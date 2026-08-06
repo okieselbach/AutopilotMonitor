@@ -61,6 +61,16 @@ public class SessionStatusTransitionTests
         Assert.True(TableStorageService.IsTerminalTransitionAllowed("Succeeded", incoming));
     }
 
+    // ---- Pending is idempotent: the agent emits whiteglove_complete twice (raw Shell-Core
+    // event + engine timeline event) — the second Pending write must not count as a
+    // transition, it fired duplicate Pre-Provisioning Completed webhooks ----
+    [Fact]
+    public void Pending_over_Pending_is_refused()
+    {
+        Assert.False(TableStorageService.IsTerminalTransitionAllowed("Pending", SessionStatus.Pending));
+        Assert.True(TableStorageService.IsTerminalTransitionAllowed("InProgress", SessionStatus.Pending));
+    }
+
     // ================= ComputeReconcileReason =================
     // The reconcile hygiene clears FailureReason/FailureSnapshotJson on every Succeeded write;
     // ReconcileReason is what keeps a backend-declared success explainable (session 294ab5b4).
