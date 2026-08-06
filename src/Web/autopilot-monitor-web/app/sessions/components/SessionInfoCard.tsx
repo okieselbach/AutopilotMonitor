@@ -128,7 +128,9 @@ function enrollmentTypeLabel(session: Session, isGatherRulesSession: boolean): s
       ? "Device Preparation"
       : session.isSelfDeployingProfile
         ? "Autopilot (Self-Deploying)"
-        : "Autopilot";
+        : session.isCloudPc
+          ? "Windows 365 Cloud PC"
+          : "Autopilot";
   return session.isPreProvisioned ? `${base} (PreProvisioned)` : base;
 }
 

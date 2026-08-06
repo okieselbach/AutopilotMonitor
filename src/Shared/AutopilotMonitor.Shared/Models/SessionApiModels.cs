@@ -363,6 +363,15 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public bool IsSelfDeployingProfile { get; set; }
 
+        /// <summary>
+        /// Whether the agent identified the device as a Windows 365 Cloud PC (Windows365
+        /// registry key + CloudManagedDesktopExtension service, marker AND). Sent by the
+        /// agent at registration; sticky-true across re-registrations. Agent-reported
+        /// context — independent of ValidatedBy == CloudPc, which is the server-derived
+        /// cert-CN-bound Graph verification.
+        /// </summary>
+        public bool IsCloudPc { get; set; }
+
         // Device detail fields — stored in the Sessions table but omitted from earlier versions
         public string OsName { get; set; } = default!;
         public string OsBuild { get; set; } = default!;

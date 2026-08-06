@@ -80,6 +80,17 @@ namespace AutopilotMonitor.DecisionCore.State
         /// </summary>
         public SignalFact<bool>? RegistrySelfDeployingProfile { get; init; }
 
+        /// <summary>
+        /// Raw marker fact from <see cref="Signals.DecisionSignalKind.EnrollmentFactsObserved"/>
+        /// (payload <c>isCloudPc</c>, from the Windows365 registry key + installed
+        /// CloudManagedDesktopExtension service — the marker-AND field-verified by bootstrap
+        /// v2.3-dev.2). <c>true</c> means the session runs on a Windows 365 Cloud PC whose
+        /// Device-ESP already completed headless at provisioning time: no DeviceSetup phase
+        /// signals are expected, monitoring effectively starts at Account Setup. Records BOTH
+        /// values; <c>null</c> means the fact was never observed.
+        /// </summary>
+        public SignalFact<bool>? CloudPc { get; init; }
+
         public EnrollmentScenarioObservations WithShellCoreWhiteGloveSuccessSeen(long sourceSignalOrdinal) =>
             ShellCoreWhiteGloveSuccessSeen != null
                 ? this
@@ -119,5 +130,10 @@ namespace AutopilotMonitor.DecisionCore.State
             RegistrySelfDeployingProfile != null
                 ? this
                 : this with { RegistrySelfDeployingProfile = new SignalFact<bool>(value, sourceSignalOrdinal) };
+
+        public EnrollmentScenarioObservations WithCloudPc(bool value, long sourceSignalOrdinal) =>
+            CloudPc != null
+                ? this
+                : this with { CloudPc = new SignalFact<bool>(value, sourceSignalOrdinal) };
     }
 }

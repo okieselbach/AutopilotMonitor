@@ -132,6 +132,7 @@ namespace AutopilotMonitor.Functions.Services
                 ["IsHybridJoin"] = sessionEntity.GetBoolean("IsHybridJoin") ?? false,
                 ["IsUserDriven"] = sessionEntity.GetBoolean("IsUserDriven") ?? false,
                 ["IsSelfDeployingProfile"] = sessionEntity.GetBoolean("IsSelfDeployingProfile") ?? false,
+                ["IsCloudPc"] = sessionEntity.GetBoolean("IsCloudPc") ?? false,
                 ["AgentVersion"] = sessionEntity.GetString("AgentVersion") ?? string.Empty,
                 // Search-filterable column: search/MCP push an OData filter on ImeAgentVersion against
                 // the index, so it MUST be projected (was previously absent → filter matched nothing).
@@ -433,6 +434,7 @@ namespace AutopilotMonitor.Functions.Services
                 bool isPreProvisioned = registration.IsPreProvisioned;
                 bool isHybridJoin = registration.IsHybridJoin;
                 bool isSelfDeployingProfile = registration.IsSelfDeployingProfile;
+                bool isCloudPc = registration.IsCloudPc;
                 DateTime? lastEventAt = null;
                 int? durationSeconds = null;
                 string? diagnosticsBlobName = null;
@@ -480,6 +482,10 @@ namespace AutopilotMonitor.Functions.Services
                     // the Autopilot policy cache was momentarily unreadable must not pin the
                     // self-deploying marker to false forever — once observed true, it stays true.
                     isSelfDeployingProfile = (existingEntity.GetBoolean("IsSelfDeployingProfile") ?? false) || isSelfDeployingProfile;
+                    // Same sticky-true OR: the W365 markers are read at boot; a transient
+                    // registry/service hiccup on a later re-registration must not clear an
+                    // already-observed Cloud PC fact.
+                    isCloudPc = (existingEntity.GetBoolean("IsCloudPc") ?? false) || isCloudPc;
                     lastEventAt = existingEntity.GetDateTimeOffset("LastEventAt")?.UtcDateTime;
                     durationSeconds = existingEntity.GetInt32("DurationSeconds");
                     diagnosticsBlobName = existingEntity.GetString("DiagnosticsBlobName");
@@ -547,6 +553,7 @@ namespace AutopilotMonitor.Functions.Services
                     ["IsPreProvisioned"] = isPreProvisioned,
                     ["IsHybridJoin"] = isHybridJoin,
                     ["IsSelfDeployingProfile"] = isSelfDeployingProfile,
+                    ["IsCloudPc"] = isCloudPc,
                     ["StartedAt"] = EnsureUtc(startedAt),
                     ["AgentVersion"] = registration.AgentVersion ?? string.Empty,
                     ["EnrollmentType"] = registration.EnrollmentType ?? "v1",
@@ -2939,6 +2946,7 @@ namespace AutopilotMonitor.Functions.Services
                 IsPreProvisioned = entity.GetBoolean("IsPreProvisioned") ?? false,
                 IsHybridJoin = entity.GetBoolean("IsHybridJoin") ?? false,
                 IsSelfDeployingProfile = entity.GetBoolean("IsSelfDeployingProfile") ?? false,
+                IsCloudPc = entity.GetBoolean("IsCloudPc") ?? false,
                 ResumedAt = SafeGetDateTime(entity, "ResumedAt"),
                 StalledAt = SafeGetDateTime(entity, "StalledAt"),
                 OsName = entity.GetString("OsName") ?? string.Empty,

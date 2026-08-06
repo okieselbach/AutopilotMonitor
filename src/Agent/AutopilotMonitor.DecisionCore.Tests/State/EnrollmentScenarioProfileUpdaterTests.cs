@@ -515,6 +515,99 @@ namespace AutopilotMonitor.DecisionCore.Tests.State
 
         // ================================================================== helpers
 
+        // ------------------------------------------------ isCloudPc annotation (W365)
+        // Cloud PC first connect: Device-ESP already ran headless at provisioning, so the
+        // profile records the "no Device-ESP phase expected" expectation as the reason.
+        // Reason-only by design — Mode is classified by AccountSetup/IME signals (Classic),
+        // and EspConfig keeps the CONFIGURED FirstSync semantics.
+
+        [Fact]
+        public void EnrollmentFactsObserved_cloudPc_annotatesReason_keepsModeUnknown()
+        {
+            var signal = MakeSignal(
+                DecisionSignalKind.EnrollmentFactsObserved,
+                ordinal: 0,
+                payload: new Dictionary<string, string>
+                {
+                    [SignalPayloadKeys.EnrollmentType] = "v1",
+                    [SignalPayloadKeys.IsHybridJoin] = "false",
+                    [SignalPayloadKeys.IsCloudPc] = "true",
+                });
+
+            var profile = EnrollmentScenarioProfileUpdater.ApplyEnrollmentFactsObserved(
+                EnrollmentScenarioProfile.Empty, signal);
+
+            Assert.Equal(EnrollmentMode.Unknown, profile.Mode);
+            Assert.Equal(EnrollmentScenarioProfileUpdater.CloudPcNoDeviceEspExpectedReason, profile.Reason);
+            Assert.Equal(EnrollmentJoinMode.AzureAdJoin, profile.JoinMode);
+            Assert.Equal(EspConfig.Unknown, profile.EspConfig);
+        }
+
+        [Fact]
+        public void EnrollmentFactsObserved_cloudPc_repeatPost_isIdempotent()
+        {
+            Dictionary<string, string> Facts() => new Dictionary<string, string>
+            {
+                [SignalPayloadKeys.EnrollmentType] = "v1",
+                [SignalPayloadKeys.IsHybridJoin] = "false",
+                [SignalPayloadKeys.IsCloudPc] = "true",
+            };
+            var first = MakeSignal(DecisionSignalKind.EnrollmentFactsObserved, ordinal: 0, payload: Facts());
+            var second = MakeSignal(DecisionSignalKind.EnrollmentFactsObserved, ordinal: 9, payload: Facts());
+
+            var p1 = EnrollmentScenarioProfileUpdater.ApplyEnrollmentFactsObserved(
+                EnrollmentScenarioProfile.Empty, first);
+            var p2 = EnrollmentScenarioProfileUpdater.ApplyEnrollmentFactsObserved(p1, second);
+
+            // The repeat must be a full no-op: the Cloud PC annotation already owns the
+            // reason slot, and the cloudPcAnnotates gate keeps the generic v1 annotation
+            // from re-claiming it (which would bump EvidenceOrdinal every post).
+            Assert.Same(p1, p2);
+            Assert.Equal(0, p2.EvidenceOrdinal);
+        }
+
+        [Fact]
+        public void EnrollmentFactsObserved_cloudPcFalse_keepsGenericV1Reason()
+        {
+            var signal = MakeSignal(
+                DecisionSignalKind.EnrollmentFactsObserved,
+                ordinal: 0,
+                payload: new Dictionary<string, string>
+                {
+                    [SignalPayloadKeys.EnrollmentType] = "v1",
+                    [SignalPayloadKeys.IsCloudPc] = "false",
+                });
+
+            var profile = EnrollmentScenarioProfileUpdater.ApplyEnrollmentFactsObserved(
+                EnrollmentScenarioProfile.Empty, signal);
+
+            Assert.Equal("enrollment_facts_observed:v1", profile.Reason);
+        }
+
+        [Fact]
+        public void EnrollmentFactsObserved_cloudPc_doesNotDisturbSelfDeployingSeed()
+        {
+            // Defensive combination (not expected in the field — Cloud PCs are never
+            // Autopilot-registered): the deterministic self-deploying Mode seed must
+            // survive; only the reason slot goes to the more specific annotation.
+            var signal = MakeSignal(
+                DecisionSignalKind.EnrollmentFactsObserved,
+                ordinal: 0,
+                payload: new Dictionary<string, string>
+                {
+                    [SignalPayloadKeys.EnrollmentType] = "v1",
+                    [SignalPayloadKeys.IsSelfDeployingProfile] = "true",
+                    [SignalPayloadKeys.IsCloudPc] = "true",
+                });
+
+            var profile = EnrollmentScenarioProfileUpdater.ApplyEnrollmentFactsObserved(
+                EnrollmentScenarioProfile.Empty, signal);
+
+            Assert.Equal(EnrollmentMode.SelfDeploying, profile.Mode);
+            Assert.Equal(ProfileConfidence.High, profile.Confidence);
+            Assert.Equal(EnrollmentScenarioProfileUpdater.CloudPcNoDeviceEspExpectedReason, profile.Reason);
+        }
+
         private static DecisionSignal MakeSignal(
             DecisionSignalKind kind,
             long ordinal,

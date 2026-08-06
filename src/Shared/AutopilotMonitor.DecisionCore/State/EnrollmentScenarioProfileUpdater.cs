@@ -19,6 +19,14 @@ namespace AutopilotMonitor.DecisionCore.State
     /// </summary>
     public static class EnrollmentScenarioProfileUpdater
     {
+        /// <summary>
+        /// Profile reason recorded when the agent's Cloud PC marker detection reports a
+        /// Windows 365 Cloud PC: the Device-ESP phase already ran headless at provisioning
+        /// time, so the engine expects the session to start at Account Setup and DeviceSetup
+        /// phase signals to never arrive.
+        /// </summary>
+        public const string CloudPcNoDeviceEspExpectedReason = "cloud_pc_first_connect:no_device_esp_expected";
+
         // ================================================================== EnrollmentFactsObserved
 
         /// <summary>
@@ -62,6 +70,15 @@ namespace AutopilotMonitor.DecisionCore.State
 
             if (signal.Payload != null)
             {
+                // W365 Cloud PC marker, parsed up front because it steers the reason slot of
+                // the enrollmentType branch below: when the payload carries isCloudPc=true the
+                // final reason is always the Cloud PC annotation, so the generic v1 annotation
+                // must not claim `changed` first (a repeat post would otherwise flip the reason
+                // v1→annotation every time and break idempotency through the ordinal bump).
+                var cloudPcAnnotates = signal.Payload.TryGetValue(SignalPayloadKeys.IsCloudPc, out var rawCloudPc)
+                    && bool.TryParse(rawCloudPc, out var isCloudPc)
+                    && isCloudPc;
+
                 if (signal.Payload.TryGetValue(SignalPayloadKeys.EnrollmentType, out var rawType)
                     && !string.IsNullOrEmpty(rawType)
                     && current.Mode == EnrollmentMode.Unknown)
@@ -87,9 +104,11 @@ namespace AutopilotMonitor.DecisionCore.State
                         reason = newReason;
                         changed = true;
                     }
-                    else if (!string.Equals(current.Reason, newReason, StringComparison.Ordinal))
+                    else if (!cloudPcAnnotates
+                        && !string.Equals(current.Reason, newReason, StringComparison.Ordinal))
                     {
-                        // v1 (or any other): keep Mode=Unknown but record the reason once.
+                        // v1 (or any other): keep Mode=Unknown but record the reason once —
+                        // unless the Cloud PC annotation below owns the slot for this payload.
                         reason = newReason;
                         changed = true;
                     }
@@ -124,6 +143,26 @@ namespace AutopilotMonitor.DecisionCore.State
                     && current.JoinMode == EnrollmentJoinMode.Unknown)
                 {
                     joinMode = isHybrid ? EnrollmentJoinMode.HybridAzureAdJoin : EnrollmentJoinMode.AzureAdJoin;
+                    changed = true;
+                }
+
+                // W365 Cloud PC — record the "no Device-ESP phase expected" expectation as the
+                // profile reason: Device-ESP already ran headless at provisioning, so the
+                // session starts at Account Setup and a missing DeviceSetup phase is normal,
+                // not an anomaly. Deliberately reason-only:
+                //  - Mode stays untouched — a Cloud PC first connect IS a classic user-driven
+                //    flow; ApplyAccountSetupObserved/ApplyImeUserSessionCompleted classify it.
+                //  - EspConfig stays untouched — it carries the CONFIGURED FirstSync semantics
+                //    (skip flags), and on a Cloud PC the tenant config typically still says
+                //    FullEsp even though the device half already happened pre-agent.
+                // Runs last so it wins the reason slot over any annotation set earlier in the
+                // same payload; the comparison against the LOCAL reason keeps repeat posts
+                // idempotent (paired with the cloudPcAnnotates gate on the v1 branch above).
+                // The raw fact (both values) lives in EnrollmentScenarioObservations.CloudPc.
+                if (cloudPcAnnotates
+                    && !string.Equals(reason, CloudPcNoDeviceEspExpectedReason, StringComparison.Ordinal))
+                {
+                    reason = CloudPcNoDeviceEspExpectedReason;
                     changed = true;
                 }
             }

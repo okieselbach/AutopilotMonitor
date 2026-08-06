@@ -93,12 +93,33 @@ user's first connect, and the monitorable phase (Account Setup) only starts at
 that first connect — the single-fresh-profile window (< 15 min) is the time
 anchor there, not boot uptime. The OOBE-restore trigger keeps the uptime guard.
 
-## Deliberately out of scope (follow-up)
+## Agent-side IsCloudPc flag + decision-engine expectation
 
-Agent-side `IsCloudPc` classification (local markers → `SessionRegistration`)
-and decision-engine awareness ("W365 session has no Device ESP phase") are a
-separate change. Until then a Cloud PC session is recognizable by
-`ValidatedBy = CloudPc` (SessionInfoCard renders "Windows 365 Cloud PC").
+Same change set, agent side. `CloudPcDetector` (V2.Core) re-uses the bootstrap's
+field-verified marker AND — `HKLM\SOFTWARE\Microsoft\Windows365` key **plus**
+installed `CloudManagedDesktopExtension` service (probed via its
+`HKLM\SYSTEM\CurrentControlSet\Services` key; the agent deliberately has no
+`System.ServiceProcess` dependency). SKIP-safe: any error resolves `false`.
+
+Two independent transport rails, never an auth input:
+
+- **Session metadata** — `SessionRegistration.IsCloudPc` →
+  Sessions table (sticky-true OR across re-registrations, like
+  `IsSelfDeployingProfile`) → SessionsIndex full mirror → `SessionSummary` →
+  search filter `isCloudPc` (portal, `/api/search/sessions`, `/api/raw/sessions`,
+  MCP `search_sessions`/`query_raw_sessions`). Agent-reported and unverified —
+  can legitimately disagree with the server-derived `ValidatedBy = CloudPc`
+  (e.g. Cloud PC admitted via a stage that ran earlier).
+- **Decision engine** — the marker rides the `EnrollmentFactsObserved` payload
+  (`isCloudPc`), is recorded set-once for BOTH values in
+  `EnrollmentScenarioObservations.CloudPc`, and annotates the scenario profile
+  reason `cloud_pc_first_connect:no_device_esp_expected`. That is the
+  engine-recorded expectation "no Device ESP phase will appear": Device-ESP ran
+  headless at provisioning, the session starts at Account Setup. Deliberately
+  reason+observation only — no completion arm depends on DeviceSetup, `Mode`
+  is still classified by AccountSetup/IME signals (Classic), and `EspConfig`
+  keeps the *configured* FirstSync semantics. The positive marker surfaces as
+  `cloud_pc_marker` in the terminal audit-trail signal census.
 
 # Citations
 
@@ -108,3 +129,5 @@ separate change. Until then a Cloud PC session is recognizable by
 - `scripts/CustomerSetup/Grant-AutopilotMonitorAddOn.ps1` — customer-side grant
 - `scripts/Bootstrap/Install-AutopilotMonitor-dev.ps1` — Cloud-PC relax + guard-4 exemption
 - `src/Backend/AutopilotMonitor.Functions.Tests/CloudPcDeviceValidatorTests.cs`, `SecurityValidatorTests.cs`, `GraphFeatureCatalogSyncTests.cs`
+- `src/Agent/AutopilotMonitor.Agent.V2.Core/Security/CloudPcDetector.cs` — agent-side marker AND
+- `src/Shared/AutopilotMonitor.DecisionCore/State/EnrollmentScenarioObservations.cs` — `CloudPc` fact; reason annotation in `EnrollmentScenarioProfileUpdater`

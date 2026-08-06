@@ -879,6 +879,14 @@ function SessionCell({
                 Self-Deploying
               </span>
             )}
+            {session.isCloudPc && (
+              <span
+                className="px-2 inline-flex items-center gap-1 text-xs leading-5 font-semibold rounded-full bg-sky-100 text-sky-800"
+                title="Windows 365 Cloud PC (agent-detected W365 markers)"
+              >
+                Cloud PC
+              </span>
+            )}
             {blockedDevicesSet.has(`${session.tenantId}:${session.serialNumber}`) && (
               <span
                 className="px-2 inline-flex items-center gap-1 text-xs leading-5 font-semibold rounded-full bg-orange-100 text-orange-800"

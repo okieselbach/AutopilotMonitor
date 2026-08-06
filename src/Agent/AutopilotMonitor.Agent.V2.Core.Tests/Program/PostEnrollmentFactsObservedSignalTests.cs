@@ -66,6 +66,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
             // same facts signal (safe default "false" off-device).
             var selfDeploying = payload["isSelfDeployingProfile"];
             Assert.True(selfDeploying == "true" || selfDeploying == "false");
+            // W365 — the Cloud PC marker fact rides the same signal (safe default "false"
+            // off-device; a build host is not a Cloud PC).
+            Assert.Contains("isCloudPc", (IDictionary<string, string>)payload);
+            var cloudPc = payload["isCloudPc"];
+            Assert.True(cloudPc == "true" || cloudPc == "false");
         }
 
         [Fact]

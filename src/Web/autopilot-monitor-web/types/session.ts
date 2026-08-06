@@ -32,6 +32,8 @@ export interface Session {
   isUserDriven?: boolean;
   /** Self-deploying/kiosk Autopilot profile (CloudAssignedOobeConfig 0x20|0x40, agent-detected at registration). */
   isSelfDeployingProfile?: boolean;
+  /** Windows 365 Cloud PC (agent-detected marker AND: Windows365 registry key + CloudManagedDesktopExtension service). Independent of validatedBy === "CloudPc" (server-side Graph verification). */
+  isCloudPc?: boolean;
   agentVersion?: string;
   // OS details
   osName?: string;

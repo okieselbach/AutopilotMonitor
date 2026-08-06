@@ -118,6 +118,7 @@ export interface SessionCsvData {
   apiRequestCount?: number;
   stalledAt?: string;
   failureSnapshotJson?: string;
+  isCloudPc?: boolean;
 }
 
 export function generateSessionCsvExport(session: SessionCsvData): string {
@@ -126,7 +127,7 @@ export function generateSessionCsvExport(session: SessionCsvData): string {
   // PartitionKey = TenantId, RowKey = SessionId
   // Newer fields are APPENDED (never inserted) so the column prefix stays stable
   // for anything parsing older exports.
-  const header = "PartitionKey,RowKey,SerialNumber,DeviceName,Manufacturer,Model,OsName,OsBuild,OsDisplayVersion,OsEdition,OsLanguage,IsUserDriven,IsPreProvisioned,StartedAt,CompletedAt,AgentVersion,EnrollmentType,CurrentPhase,Status,EventCount,FailureReason,LastEventAt,DurationSeconds,DiagnosticsBlobName,RebootCount,FailureSource,ReconcileReason,AdminMarkedAction,ValidatedBy,IsHybridJoin,IsSelfDeployingProfile,ConnectionType,GeoCountry,GeoRegion,GeoCity,AvgApiLatencyMs,ApiRequestCount,StalledAt,FailureSnapshotJson";
+  const header = "PartitionKey,RowKey,SerialNumber,DeviceName,Manufacturer,Model,OsName,OsBuild,OsDisplayVersion,OsEdition,OsLanguage,IsUserDriven,IsPreProvisioned,StartedAt,CompletedAt,AgentVersion,EnrollmentType,CurrentPhase,Status,EventCount,FailureReason,LastEventAt,DurationSeconds,DiagnosticsBlobName,RebootCount,FailureSource,ReconcileReason,AdminMarkedAction,ValidatedBy,IsHybridJoin,IsSelfDeployingProfile,ConnectionType,GeoCountry,GeoRegion,GeoCity,AvgApiLatencyMs,ApiRequestCount,StalledAt,FailureSnapshotJson,IsCloudPc";
   const row = [
     esc(session.tenantId),
     esc(session.sessionId),
@@ -167,6 +168,7 @@ export function generateSessionCsvExport(session: SessionCsvData): string {
     String(session.apiRequestCount ?? ""),
     esc(session.stalledAt),
     esc(session.failureSnapshotJson),
+    String(session.isCloudPc ?? ""),
   ].join(",");
   return "\uFEFF" + header + "\n" + row;
 }

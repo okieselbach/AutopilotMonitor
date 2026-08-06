@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-07
+
+* **Update**: `backend/cloudpc-device-validation.md` — the "deliberately out of scope" follow-up landed in the same PR: agent-side `IsCloudPc` flag (`CloudPcDetector`, bootstrap-verified marker AND: Windows365 key + CloudManagedDesktopExtension service key, SKIP-safe) rides two rails — `SessionRegistration` → Sessions/Index (sticky-true) → `SessionSummary` + `isCloudPc` search filter (portal/raw/MCP), and the `EnrollmentFactsObserved` payload → `EnrollmentScenarioObservations.CloudPc` (set-once, both values) with profile reason `cloud_pc_first_connect:no_device_esp_expected` + `cloud_pc_marker` in the audit-trail census. Reason+observation only: no completion arm depends on DeviceSetup, Mode stays AccountSetup/IME-classified, EspConfig keeps configured-FirstSync semantics. Never an auth input.
+
 ## 2026-08-06
 
 * **Creation**: Added `backend/cloudpc-device-validation.md` — the CloudPc fallback validator (`ValidatorType.CloudPc = 5`, tenant flag `ValidateCloudPcDevice`): W365 Cloud PCs are structurally never Autopilot-registered, so stage 4 gains a third stage that binds the chain-validated MDM cert's Subject CN (= Intune device id, field-verified on a real Cloud PC) to the tenant's `virtualEndpoint/cloudPCs` inventory — admits exactly the service-provisioned Cloud PCs, no device-type routing, local W365 markers never consulted for auth. New optional Graph add-on `W365CloudPcValidation` → `CloudPC.Read.All` (catalog + grant script now pinned by `GraphFeatureCatalogSyncTests`; Graph 403 = definitive "grant missing", not transient). Bootstrap dev script v2.3-dev.3 exempts guard 4 (uptime) while the Cloud-PC relax is active — the fresh-profile window is the time anchor at first connect, not boot uptime. Follow-up deliberately out of scope: agent-side `IsCloudPc` classification + decision-engine "no Device ESP" expectation.

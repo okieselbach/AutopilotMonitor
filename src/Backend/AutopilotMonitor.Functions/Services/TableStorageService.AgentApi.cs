@@ -696,6 +696,7 @@ namespace AutopilotMonitor.Functions.Services
             if (filter.IsPreProvisioned.HasValue && session.IsPreProvisioned != filter.IsPreProvisioned.Value) return false;
             if (filter.IsHybridJoin.HasValue && session.IsHybridJoin != filter.IsHybridJoin.Value) return false;
             if (filter.IsSelfDeployingProfile.HasValue && session.IsSelfDeployingProfile != filter.IsSelfDeployingProfile.Value) return false;
+            if (filter.IsCloudPc.HasValue && session.IsCloudPc != filter.IsCloudPc.Value) return false;
             if (!string.IsNullOrEmpty(filter.GeoCountry) &&
                 !string.Equals(session.GeoCountry, filter.GeoCountry, StringComparison.OrdinalIgnoreCase))
                 return false;
@@ -911,6 +912,7 @@ namespace AutopilotMonitor.Functions.Services
                 if (filter.IsPreProvisioned.HasValue && session.IsPreProvisioned != filter.IsPreProvisioned.Value) continue;
                 if (filter.IsHybridJoin.HasValue && session.IsHybridJoin != filter.IsHybridJoin.Value) continue;
                 if (filter.IsSelfDeployingProfile.HasValue && session.IsSelfDeployingProfile != filter.IsSelfDeployingProfile.Value) continue;
+                if (filter.IsCloudPc.HasValue && session.IsCloudPc != filter.IsCloudPc.Value) continue;
                 if (!string.IsNullOrEmpty(filter.GeoCountry) &&
                     !string.Equals(session.GeoCountry, filter.GeoCountry, StringComparison.OrdinalIgnoreCase))
                     continue;
@@ -952,6 +954,7 @@ namespace AutopilotMonitor.Functions.Services
                 if (filter.IsPreProvisioned.HasValue && s.IsPreProvisioned != filter.IsPreProvisioned.Value) return false;
                 if (filter.IsHybridJoin.HasValue && s.IsHybridJoin != filter.IsHybridJoin.Value) return false;
                 if (filter.IsSelfDeployingProfile.HasValue && s.IsSelfDeployingProfile != filter.IsSelfDeployingProfile.Value) return false;
+                if (filter.IsCloudPc.HasValue && s.IsCloudPc != filter.IsCloudPc.Value) return false;
                 if (!string.IsNullOrEmpty(filter.GeoCountry) &&
                     !string.Equals(s.GeoCountry, filter.GeoCountry, StringComparison.OrdinalIgnoreCase)) return false;
                 if (filter.StartedAfter.HasValue && s.StartedAt < filter.StartedAfter.Value) return false;

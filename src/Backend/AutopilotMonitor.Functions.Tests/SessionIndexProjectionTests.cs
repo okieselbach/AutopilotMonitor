@@ -43,6 +43,8 @@ public class SessionIndexProjectionTests
             ["ExcessiveEventsAutoActioned"] = true,
             // Self-deploying/kiosk profile marker (session 320b3bf7) — search-filterable.
             ["IsSelfDeployingProfile"] = true,
+            // W365 Cloud PC marker (agent-detected, sticky-true) — search-filterable.
+            ["IsCloudPc"] = true,
             // Device-validation path recorded at registration — shown on the session detail page.
             ["ValidatedBy"] = "AutopilotV1",
             // Agent→backend HTTP latency projection (UpdateSessionNetworkLatencyAsync merges these).
@@ -72,6 +74,7 @@ public class SessionIndexProjectionTests
         Assert.True(idx.GetBoolean("ExcessiveEventsAlerted"));
         Assert.True(idx.GetBoolean("ExcessiveEventsAutoActioned"));
         Assert.True(idx.GetBoolean("IsSelfDeployingProfile"));
+        Assert.True(idx.GetBoolean("IsCloudPc"));
         Assert.Equal("AutopilotV1", idx.GetString("ValidatedBy"));
         Assert.Equal(513.5, idx.GetDouble("AvgApiLatencyMs"));
         Assert.Equal(100, idx.GetInt32("ApiRequestCount"));
@@ -103,6 +106,7 @@ public class SessionIndexProjectionTests
         Assert.Equal(0, idx.GetInt32("RebootCount"));
         Assert.False(idx.GetBoolean("ExcessiveEventsAlerted"));
         Assert.False(idx.GetBoolean("IsSelfDeployingProfile"));
+        Assert.False(idx.GetBoolean("IsCloudPc"));
         Assert.Equal(string.Empty, idx.GetString("ImeAgentVersion"));
     }
 }

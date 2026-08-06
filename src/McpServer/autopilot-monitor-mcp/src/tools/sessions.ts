@@ -125,6 +125,9 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         isHybridJoin: z.boolean().optional().describe('Filter by Hybrid Azure AD Join'),
         isSelfDeployingProfile: z.boolean().optional().describe(
           'Filter by self-deploying/kiosk Autopilot profile (CloudAssignedOobeConfig bits 0x20|0x40, agent-detected at registration)'),
+        isCloudPc: z.boolean().optional().describe(
+          'Filter by Windows 365 Cloud PC (agent-detected marker AND: Windows365 registry key + CloudManagedDesktopExtension service; sticky-true). ' +
+          'Independent of validatedBy="CloudPc" (server-side Graph verification). Sessions from agents predating the field read as false.'),
         geoCountry: z.string().optional().describe('Country of enrollment (2-letter ISO code, e.g. "DE", "US")'),
         startedAfter: IsoDateString.optional().describe('ISO 8601 datetime — only sessions started after this'),
         startedBefore: IsoDateString.optional().describe('ISO 8601 datetime — only sessions started before this'),
@@ -148,7 +151,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
                     'Use for counting / aggregation to avoid the response cap. Available: sessionId, tenantId, status, ' +
                     'serialNumber, manufacturer, model, deviceName, osBuild, osName, startedAt, completedAt, ' +
                     'durationSeconds, currentPhase, failureReason, eventCount, enrollmentType, isPreProvisioned, ' +
-                    'isUserDriven, isHybridJoin, isSelfDeployingProfile, agentVersion, imeAgentVersion, geoCountry, rebootCount, ' +
+                    'isUserDriven, isHybridJoin, isSelfDeployingProfile, isCloudPc, agentVersion, imeAgentVersion, geoCountry, rebootCount, ' +
                     'avgApiLatencyMs, apiRequestCount (agent→backend HTTP round-trip; weight latency by apiRequestCount when aggregating, ' +
                     'e.g. fields=geoCountry,avgApiLatencyMs,apiRequestCount for a per-country latency sweep; null on sessions from agents predating the field), ' +
                     'connectionType ("WiFi"/"Ethernet"; null on sessions predating the projection).'),
@@ -490,6 +493,9 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           isHybridJoin: s.isHybridJoin ?? false,
           isUserDriven: s.isUserDriven ?? false,
           isSelfDeployingProfile: s.isSelfDeployingProfile ?? false,
+          // Agent-detected Windows 365 Cloud PC marker (Windows365 registry key +
+          // CloudManagedDesktopExtension service). Independent of validatedBy="CloudPc".
+          isCloudPc: s.isCloudPc ?? false,
           // Backend device-validation path that admitted the device at registration:
           // "AutopilotV1" | "CorporateIdentifier" | "DeviceAssociation" | "Bootstrap" | "CloudPc".
           // Null for sessions predating the field or tenants with device validation off.
