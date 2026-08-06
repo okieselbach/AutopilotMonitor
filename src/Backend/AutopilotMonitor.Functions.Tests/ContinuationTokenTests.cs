@@ -259,20 +259,21 @@ public class ContinuationTokenTests
     public void TryDecode_rejects_token_signed_with_a_different_key()
     {
         // Simulate key rotation: token issued under key A, validated under key B.
-        // (We toggle the test key around the encode/decode pair.)
+        // The scoped (AsyncLocal) override keeps the swap confined to this test's
+        // execution context — mutating the process-wide test key here raced the
+        // concurrently running pagination test classes.
         var keyA = new byte[32]; for (int i = 0; i < keyA.Length; i++) keyA[i] = (byte)(i * 3 + 1);
         var keyB = new byte[32]; for (int i = 0; i < keyB.Length; i++) keyB[i] = (byte)(i * 5 + 7);
 
         var fp = ContinuationToken.ComputeFingerprint(FilterArgsA());
 
-        ContinuationToken.SetSigningKeyForTesting(keyA);
+        ContinuationToken.SetScopedSigningKeyForTesting(keyA);
         var encoded = ContinuationToken.Encode(AzureToken, TenantA, fp);
 
-        ContinuationToken.SetSigningKeyForTesting(keyB);
+        ContinuationToken.SetScopedSigningKeyForTesting(keyB);
         var ok = ContinuationToken.TryDecode(encoded, TenantA, fp, out _, out var reason);
 
-        // Restore the test default before leaving so subsequent tests aren't affected.
-        TestSetup.Initialize();
+        ContinuationToken.SetScopedSigningKeyForTesting(null);
 
         Assert.False(ok);
         Assert.Equal("bad_signature", reason);

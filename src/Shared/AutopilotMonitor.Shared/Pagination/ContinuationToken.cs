@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -59,14 +60,31 @@ namespace AutopilotMonitor.Shared.Pagination
 
         private static byte[]? _testOverrideKey;
 
+        // Execution-context-local, so a test that swaps keys mid-test (key
+        // rotation) cannot race concurrently running test classes that sign
+        // and verify under the process-wide default.
+        private static readonly AsyncLocal<byte[]?> _scopedTestOverrideKey = new AsyncLocal<byte[]?>();
+
         /// <summary>
-        /// Test-only hook to inject a fixed signing key. Production code reads
-        /// the key from the <c>PaginationTokenSigningKey</c> env var.
+        /// Test-only hook to inject a fixed signing key process-wide. Production
+        /// code reads the key from the <c>PaginationTokenSigningKey</c> env var.
         /// </summary>
         internal static void SetSigningKeyForTesting(byte[]? key) => _testOverrideKey = key;
 
+        /// <summary>
+        /// Test-only hook to inject a signing key for the current async context
+        /// only. Use this instead of <see cref="SetSigningKeyForTesting"/> when a
+        /// test needs a key that differs from the process-wide test default —
+        /// tests run in parallel and a mid-test swap of the static key bleeds
+        /// into every other test's Encode/TryDecode.
+        /// </summary>
+        internal static void SetScopedSigningKeyForTesting(byte[]? key) => _scopedTestOverrideKey.Value = key;
+
         private static byte[] GetSigningKey()
         {
+            var scoped = _scopedTestOverrideKey.Value;
+            if (scoped != null) return scoped;
+
             var test = _testOverrideKey;
             if (test != null) return test;
 
