@@ -68,6 +68,7 @@ export interface UseDashboardSessionsReturn {
   loading: boolean;
   hasMore: boolean;
   loadingMore: boolean;
+  loadingAll: boolean;
   refetch: () => void;
   refetchWith: (tenantIdOverride: string) => void;
   loadMore: () => void;
@@ -102,6 +103,9 @@ export function useDashboardSessions({
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  // True only while the progressive loadAll() sweep runs — loadMore() sets just
+  // loadingMore. Lets the UI label a full sweep differently from a single batch.
+  const [loadingAll, setLoadingAll] = useState(false);
   const [continuation, setContinuation] = useState<string | null>(null);
 
   // Refs for SignalR handlers to access current filter state without restarting subscriptions
@@ -343,6 +347,7 @@ export function useDashboardSessions({
     fetchLockRef.current = true;
     const myToken = ++loadAllTokenRef.current;
     setLoadingMore(true);
+    setLoadingAll(true);
     try {
       let currentContinuation: string | null = continuationRef.current;
       while (currentContinuation && loadAllTokenRef.current === myToken) {
@@ -357,6 +362,7 @@ export function useDashboardSessions({
     } finally {
       fetchLockRef.current = false;
       setLoadingMore(false);
+      setLoadingAll(false);
     }
   }, [fetchSessionsBatch, continuationRef]);
 
@@ -523,6 +529,7 @@ export function useDashboardSessions({
     loading,
     hasMore,
     loadingMore,
+    loadingAll,
     refetch,
     refetchWith,
     loadMore,

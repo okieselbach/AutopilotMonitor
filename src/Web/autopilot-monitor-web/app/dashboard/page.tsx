@@ -128,7 +128,7 @@ function HomeContent() {
   } = useBlockDevice(getAccessToken, addNotification, adminMode, crossTenant);
 
   const {
-    sessions, loading, hasMore, loadingMore,
+    sessions, loading, hasMore, loadingMore, loadingAll,
     refetch, refetchWith, loadMore, loadAll, removeSession,
   } = useDashboardSessions({
     user, tenantId, globalAdminMode: crossTenant, joinGlobalAdmins, tenantIdFilter, adminMode,
@@ -478,6 +478,7 @@ function HomeContent() {
               onSessionsPerPageChange={handleSessionsPerPageChange}
               hasMore={hasMore}
               loadingMore={loadingMore}
+              loadingAll={loadingAll}
               onLoadAll={loadAll}
               adminMode={adminMode}
               globalAdminMode={crossTenant}
