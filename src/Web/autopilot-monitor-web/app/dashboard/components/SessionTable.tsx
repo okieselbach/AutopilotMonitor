@@ -728,8 +728,11 @@ export function SessionTable({
           Renders whenever there's somewhere to navigate (more local pages OR more
           on the server). */}
       {(totalPages > 1 || hasMore) && (
-        <div className="mt-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="mt-4 flex items-center justify-between gap-3">
+          {/* On phones the page info and "Load all" stack vertically so the link sits
+              far left on its own line — not right next to the Previous button where
+              it gets tapped by accident. */}
+          <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-3">
             <span className="text-sm text-gray-700">
               Page {currentPage} of {totalPages}{hasMore ? '+' : ''} ({sortedSessions.length}{hasMore ? '+' : ''} total sessions)
             </span>
@@ -740,20 +743,21 @@ export function SessionTable({
                   onLoadAll();
                 }}
                 disabled={loadingMore}
-                className="text-sm font-medium text-green-700 hover:text-green-800 hover:underline transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
+                className="whitespace-nowrap text-sm font-medium text-green-700 hover:text-green-800 hover:underline transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
                 title="Fetch all remaining sessions from the server so sorting and filters cover everything"
               >
                 {loadingAll ? "Loading all..." : "Load all"}
               </button>
             )}
           </div>
-          <div className="flex gap-2">
+          <div className="flex shrink-0 gap-2">
             <button
               onClick={onPreviousPage}
               disabled={currentPage === 1 || loadingMore}
               className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              ← Previous
+              <span className="sm:hidden">← Prev.</span>
+              <span className="hidden sm:inline">← Previous</span>
             </button>
             <button
               onClick={onNextPage}
