@@ -158,6 +158,12 @@ export function SessionTable({
   const searchDropdownRef = useRef<HTMLDivElement>(null);
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
   const [searchSelectedIndex, setSearchSelectedIndex] = useState(-1);
+  // Distinguishes a running "Load all" sweep from a single Next-click batch —
+  // both surface as loadingMore, but only the sweep should relabel the button.
+  const [loadAllActive, setLoadAllActive] = useState(false);
+  useEffect(() => {
+    if (!loadingMore) setLoadAllActive(false);
+  }, [loadingMore]);
 
   // Fuzzy-match sessions by multiple fields for search dropdown (two-phase: exact then Levenshtein)
   interface SearchSuggestion {
@@ -727,8 +733,24 @@ export function SessionTable({
           on the server). */}
       {(totalPages > 1 || hasMore) && (
         <div className="mt-4 flex items-center justify-between">
-          <div className="text-sm text-gray-700">
-            Page {currentPage} of {totalPages}{hasMore ? '+' : ''} ({sortedSessions.length}{hasMore ? '+' : ''} total sessions)
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-700">
+              Page {currentPage} of {totalPages}{hasMore ? '+' : ''} ({sortedSessions.length}{hasMore ? '+' : ''} total sessions)
+            </span>
+            {hasMore && (
+              <button
+                onClick={() => {
+                  trackEvent("session_load_all_clicked", { loadedSessions: sessions.length });
+                  setLoadAllActive(true);
+                  onLoadAll();
+                }}
+                disabled={loadingMore}
+                className="text-sm font-medium text-green-700 hover:text-green-800 hover:underline transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
+                title="Fetch all remaining sessions from the server so sorting and filters cover everything"
+              >
+                {loadAllActive ? "Loading all..." : "Load all"}
+              </button>
+            )}
           </div>
           <div className="flex gap-2">
             <button
