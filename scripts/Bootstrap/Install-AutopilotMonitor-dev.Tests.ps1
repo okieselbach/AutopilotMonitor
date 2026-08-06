@@ -23,29 +23,44 @@ BeforeAll {
     }
 }
 
-Describe 'Get-CloudPcModel' {
+Describe 'Test-IsCloudPc' {
+    # Marker set captured 2026-08-06 from a real W365 Enterprise Cloud PC: local WMI
+    # is generic ('Virtual Machine'), so detection rests on the Windows365 registry
+    # key AND the CloudManagedDesktopExtension service (both required).
     BeforeEach {
         Mock Write-Log { }
+        Mock Get-CimInstance { [pscustomobject]@{ Manufacturer = 'Microsoft Corporation'; Model = 'Virtual Machine' } }
     }
 
-    It 'returns the model string for a Cloud PC' {
-        Mock Get-CimInstance { [pscustomobject]@{ Manufacturer = 'Microsoft Corporation'; Model = 'Cloud PC Enterprise 2vCPU/8GB/128GB' } }
-        Get-CloudPcModel | Should -Be 'Cloud PC Enterprise 2vCPU/8GB/128GB'
+    It 'detects a Cloud PC when both markers are present' {
+        Mock Test-Path { $true } -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\Microsoft\Windows365' }
+        Mock Get-Service { [pscustomobject]@{ Name = 'CloudManagedDesktopExtension'; Status = 'Running' } }
+        Test-IsCloudPc | Should -BeTrue
     }
 
-    It 'returns null for a physical device' {
-        Mock Get-CimInstance { [pscustomobject]@{ Manufacturer = 'Dell Inc.'; Model = 'Latitude 7450' } }
-        Get-CloudPcModel | Should -BeNullOrEmpty
+    It 'does not detect with the registry key alone (e.g. W365-Boot physical client)' {
+        Mock Test-Path { $true } -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\Microsoft\Windows365' }
+        Mock Get-Service { $null }
+        Test-IsCloudPc | Should -BeFalse
     }
 
-    It 'returns null for a non-Microsoft device whose model happens to match' {
-        Mock Get-CimInstance { [pscustomobject]@{ Manufacturer = 'Contoso Ltd.'; Model = 'Cloud PC Clone' } }
-        Get-CloudPcModel | Should -BeNullOrEmpty
+    It 'does not detect with the service alone' {
+        Mock Test-Path { $false } -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\Microsoft\Windows365' }
+        Mock Get-Service { [pscustomobject]@{ Name = 'CloudManagedDesktopExtension'; Status = 'Running' } }
+        Test-IsCloudPc | Should -BeFalse
     }
 
-    It 'returns null when the WMI query fails (SKIP-safe)' {
+    It 'does not detect a plain device (no markers)' {
+        Mock Test-Path { $false } -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\Microsoft\Windows365' }
+        Mock Get-Service { $null }
+        Test-IsCloudPc | Should -BeFalse
+    }
+
+    It 'still evaluates markers when the WMI identity query fails' {
         Mock Get-CimInstance { throw 'RPC server unavailable' }
-        Get-CloudPcModel | Should -BeNullOrEmpty
+        Mock Test-Path { $true } -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\Microsoft\Windows365' }
+        Mock Get-Service { [pscustomobject]@{ Name = 'CloudManagedDesktopExtension'; Status = 'Running' } }
+        Test-IsCloudPc | Should -BeTrue
     }
 }
 
@@ -109,19 +124,19 @@ Describe 'Get-RelaxDecision' {
         Mock Write-Log { }
         # Defaults: physical device, OOBE long done. Individual tests override.
         Mock Get-OobeState { 'Completed' }
-        Mock Get-CloudPcModel { $null }
+        Mock Test-IsCloudPc { $false }
     }
 
     Context 'Windows 365 Cloud PC' {
         BeforeEach {
-            Mock Get-CloudPcModel { 'Cloud PC Enterprise 2vCPU/8GB/128GB' }
+            Mock Test-IsCloudPc { $true }
         }
 
         It 'relaxes for a single fresh profile although OOBE is Completed (W365 field case)' {
             $p = New-FakeProfile 'LeonGottschalk' 0.6
             $d = Get-RelaxDecision -ProfilePaths @($p) -OobeProfileMaxAgeMinutes 15
             $d.Active | Should -BeTrue
-            $d.CloudPcModel | Should -Be 'Cloud PC Enterprise 2vCPU/8GB/128GB'
+            $d.IsCloudPc | Should -BeTrue
         }
 
         It 'does not relax for an old profile (productive Cloud PC)' {
@@ -176,7 +191,7 @@ Describe 'Get-BootstrapDecision' {
         Mock Get-ItemProperty { $null }
         Mock Get-RealUserProfilePaths { @() }
         Mock Get-OobeState { 'Completed' }
-        Mock Get-CloudPcModel { $null }
+        Mock Test-IsCloudPc { $false }
         Mock Get-CimInstance { [pscustomobject]@{ LastBootUpTime = (Get-Date).AddHours(-1) } } -ParameterFilter { $ClassName -eq 'Win32_OperatingSystem' }
         $script:cleanAgentBin = Join-Path $TestDrive 'AgentBin'
     }
@@ -206,7 +221,7 @@ Describe 'Get-BootstrapDecision' {
     It 'installs on a freshly provisioned Cloud PC with one fresh profile (W365 field case)' {
         $script:fakeProfile = New-FakeProfile 'LeonGottschalk' 0.6
         Mock Get-RealUserProfilePaths { @($script:fakeProfile) }
-        Mock Get-CloudPcModel { 'Cloud PC Enterprise 2vCPU/8GB/128GB' }
+        Mock Test-IsCloudPc { $true }
         # First-connect user is already visible in LogonUI on W365 -- must not block either.
         Mock Get-ItemProperty { [pscustomobject]@{ LastLoggedOnUser = 'AzureAD\LeonGottschalk' } } -ParameterFilter { $Path -like '*LogonUI*' }
         $d = Get-BootstrapDecision -MaxBootstrapWindowHours 12 -OobeProfileMaxAgeMinutes 15 -AgentBinPath $script:cleanAgentBin

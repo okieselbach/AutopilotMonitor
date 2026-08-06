@@ -37,8 +37,10 @@
         complete before any user ever connects, so OutOfBoxExperienceState is NEVER
         InProgress when this script runs. The assigned user's profile is created at
         first connect, typically seconds before IME pulls this script. Trigger: the
-        device positively identifies as a Cloud PC via Win32_ComputerSystem
-        (Manufacturer 'Microsoft Corporation' + Model 'Cloud PC*').
+        device positively identifies as a Cloud PC via TWO local markers (both
+        required; captured from a real Cloud PC -- local WMI reports only the
+        generic 'Virtual Machine' model): HKLM\SOFTWARE\Microsoft\Windows365
+        registry key AND the CloudManagedDesktopExtension service.
 
     Either trigger relaxes guards 2+3 ONLY when additionally:
       (a) there is exactly ONE real user profile, AND
@@ -84,6 +86,13 @@
       PowerShell 5.1 (IME) reads scripts without BOM as ANSI, corrupting multi-byte chars.
 
 .CHANGELOG
+    2026-08-06  v2.3-dev.2  Cloud PC detection rebuilt on captured evidence: first field
+                      test proved local WMI reports only Manufacturer='Microsoft
+                      Corporation' + Model='Virtual Machine' (the 'Cloud PC ...' model
+                      string exists only in Intune/Graph). Detection now requires the
+                      HKLM\SOFTWARE\Microsoft\Windows365 registry key AND the
+                      CloudManagedDesktopExtension service (both verified present on a
+                      real Cloud PC); raw identity + marker states are always logged.
     2026-08-05  v2.3-dev  DEV variant (-dev.ps1, own log file bootstrap_agent_dev.log)
                       to validate on Windows 365 before promotion to v2.3:
                       Cloud-PC-relax -- a positively identified Cloud PC
@@ -126,7 +135,7 @@ param(
 )
 
 # Script version (bump on meaningful changes; see .CHANGELOG above)
-$ScriptVersion = "2.3-dev"
+$ScriptVersion = "2.3-dev.2"
 
 # Configuration - Everything in ProgramData for easy cleanup
 $AgentBasePath = "$env:ProgramData\AutopilotMonitor"
@@ -161,23 +170,35 @@ function Get-OobeState {
     }
 }
 
-# Positive Windows 365 Cloud PC detection via the documented WMI identity.
-# Cloud PCs report Manufacturer 'Microsoft Corporation' and a Model starting with
-# 'Cloud PC' (e.g. 'Cloud PC Enterprise 2vCPU/8GB/128GB').
-# Returns the model string, or $null when not a Cloud PC / on any error (SKIP-safe).
-function Get-CloudPcModel {
+# Positive Windows 365 Cloud PC detection.
+# Evidence captured 2026-08-06 on a real, freshly provisioned W365 Enterprise Cloud PC:
+#   - Win32_ComputerSystem is GENERIC there: Manufacturer='Microsoft Corporation',
+#     Model='Virtual Machine'. The 'Cloud PC Enterprise ...' model string exists only
+#     in the Intune/Graph inventory, NOT in local WMI/SMBIOS -- it cannot be used here.
+#   - HKLM:\SOFTWARE\Microsoft\Windows365 exists.
+#   - Service 'CloudManagedDesktopExtension' (Microsoft Cloud Managed Desktop
+#     Extension, the W365 management agent that runs ON Cloud PCs) is installed.
+# BOTH markers are required (AND): each alone has plausible look-alikes (W365-Boot
+# physical clients may carry Windows365 policy state; the MCMD agent family also
+# served other managed-desktop offerings). Raw identity and both marker states are
+# always logged for field diagnosis; any error returns $false (SKIP-safe).
+function Test-IsCloudPc {
     try {
         $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
-        # Always log the raw identity: field diagnosis must never depend on a
-        # matched pattern (2026-08-06 W365 test: detection missed and the log
-        # could not tell why).
         Write-Log "Computer identity: Manufacturer='$($cs.Manufacturer)' Model='$($cs.Model)'."
-        if ($cs.Manufacturer -eq 'Microsoft Corporation' -and $cs.Model -like 'Cloud PC*') {
-            return $cs.Model
-        }
     }
     catch { Write-Log "INFO: computer identity query failed: $($_.Exception.Message)" }
-    return $null
+
+    try {
+        $regMarker = Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows365'
+        $svcMarker = $null -ne (Get-Service -Name 'CloudManagedDesktopExtension' -ErrorAction SilentlyContinue)
+        Write-Log "Cloud PC markers: Windows365 registry key=$regMarker; CloudManagedDesktopExtension service=$svcMarker."
+        return ($regMarker -and $svcMarker)
+    }
+    catch {
+        Write-Log "INFO: Cloud PC marker check failed: $($_.Exception.Message)"
+        return $false
+    }
 }
 
 # Collects real (non-special) user profiles as full paths (WMI Special flag + filesystem).
@@ -203,7 +224,7 @@ function Get-RealUserProfilePaths {
 #   (2) Cloud PC identity        -> Windows 365 (headless OOBE, profile at first connect)
 # Either trigger additionally requires: exactly one real profile AND that profile
 # created < $OobeProfileMaxAgeMinutes minutes ago. Any miss keeps the original skip.
-# Returns an object with: Active (bool), OobeState (string), CloudPcModel (string or null).
+# Returns an object with: Active (bool), OobeState (string), IsCloudPc (bool).
 function Get-RelaxDecision {
     param(
         [string[]]$ProfilePaths,
@@ -214,16 +235,16 @@ function Get-RelaxDecision {
     $relaxActive = $false
     $oobeState = Get-OobeState
     $oobeInProgress = ($oobeState -eq 'InProgress')
-    $cloudPcModel = Get-CloudPcModel
-    if ($cloudPcModel) {
-        Write-Log "Cloud PC detected: model '$cloudPcModel' (OOBE state: $oobeState)."
+    $isCloudPc = Test-IsCloudPc
+    if ($isCloudPc) {
+        Write-Log "Cloud PC detected (OOBE state: $oobeState)."
     }
 
     $relaxTrigger = $null
     if ($oobeInProgress) {
         $relaxTrigger = "OOBE InProgress (Windows Backup restore case)"
-    } elseif ($cloudPcModel) {
-        $relaxTrigger = "Cloud PC '$cloudPcModel' (headless provisioning, OOBE state: $oobeState)"
+    } elseif ($isCloudPc) {
+        $relaxTrigger = "Cloud PC (headless provisioning, OOBE state: $oobeState)"
     }
 
     if ($ProfilePaths.Count -eq 1 -and $relaxTrigger) {
@@ -240,13 +261,13 @@ function Get-RelaxDecision {
     } elseif ($ProfilePaths.Count -eq 1) {
         Write-Log "Relax NOT applied: single profile present but neither OOBE InProgress nor Cloud PC (OOBE state: $oobeState)."
     } elseif ($ProfilePaths.Count -gt 1) {
-        Write-Log ("Relax NOT applied: {0} real profiles present (relax requires exactly one). OOBE state: {1}; CloudPC: {2}." -f $ProfilePaths.Count, $oobeState, [bool]$cloudPcModel)
+        Write-Log ("Relax NOT applied: {0} real profiles present (relax requires exactly one). OOBE state: {1}; CloudPC: {2}." -f $ProfilePaths.Count, $oobeState, $isCloudPc)
     }
 
     return [pscustomobject]@{
-        Active       = $relaxActive
-        OobeState    = $oobeState
-        CloudPcModel = $cloudPcModel
+        Active    = $relaxActive
+        OobeState = $oobeState
+        IsCloudPc = $isCloudPc
     }
 }
 
@@ -282,7 +303,7 @@ function Get-BootstrapDecision {
                 "{0} (created {1:u}, {2:N1}min ago)" -f $leaf, $c, ((Get-Date).ToUniversalTime() - $c).TotalMinutes
             } catch { "$leaf (age unknown)" }
         }) | Select-Object -First 3) -join '; '
-        Write-Log "SKIP: Real user profile(s) found ($details). OOBE state: $($relax.OobeState). CloudPC: $([bool]$relax.CloudPcModel). Device appears productive."
+        Write-Log "SKIP: Real user profile(s) found ($details). OOBE state: $($relax.OobeState). CloudPC: $($relax.IsCloudPc). Device appears productive."
         return [pscustomobject]@{ Install = $false; ReasonCode = 'ProfilesFound'; RelaxActive = $false }
     }
 
