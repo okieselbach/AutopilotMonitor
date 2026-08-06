@@ -491,7 +491,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           isUserDriven: s.isUserDriven ?? false,
           isSelfDeployingProfile: s.isSelfDeployingProfile ?? false,
           // Backend device-validation path that admitted the device at registration:
-          // "AutopilotV1" | "CorporateIdentifier" | "DeviceAssociation" | "Bootstrap".
+          // "AutopilotV1" | "CorporateIdentifier" | "DeviceAssociation" | "Bootstrap" | "CloudPc".
           // Null for sessions predating the field or tenants with device validation off.
           validatedBy: s.validatedBy || null,
           device: {

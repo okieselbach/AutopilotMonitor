@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-06
+
+* **Creation**: Added `backend/cloudpc-device-validation.md` — the CloudPc fallback validator (`ValidatorType.CloudPc = 5`, tenant flag `ValidateCloudPcDevice`): W365 Cloud PCs are structurally never Autopilot-registered, so stage 4 gains a third stage that binds the chain-validated MDM cert's Subject CN (= Intune device id, field-verified on a real Cloud PC) to the tenant's `virtualEndpoint/cloudPCs` inventory — admits exactly the service-provisioned Cloud PCs, no device-type routing, local W365 markers never consulted for auth. New optional Graph add-on `W365CloudPcValidation` → `CloudPC.Read.All` (catalog + grant script now pinned by `GraphFeatureCatalogSyncTests`; Graph 403 = definitive "grant missing", not transient). Bootstrap dev script v2.3-dev.3 exempts guard 4 (uptime) while the Cloud-PC relax is active — the fresh-profile window is the time anchor at first connect, not boot uptime. Follow-up deliberately out of scope: agent-side `IsCloudPc` classification + decision-engine "no Device ESP" expectation.
+
 ## 2026-08-05 (later)
 
 * **Update**: `rules/rule-authoring-surface.md` — new section `POST /api/rules/gather/test-pattern`: the logparser pattern tester (agent-exact .NET matching: no IgnoreCase, first-match-per-line, cmtrace vs text mode, verbatim format=text hint), motivated by a field incident where a PHP-verified regex behaved differently under .NET. `CmTraceLogParser` moved Agent → `AutopilotMonitor.Shared.Logging` so agent and backend share the ONE parsing implementation (timestamp caveat: AssumeLocal = server TZ on backend, endpoint reports no timestamps). MCP: new `test_log_pattern` tool, logparser lint in `validate_rule`, guide gains the case-sensitivity/engine-mismatch pitfalls.

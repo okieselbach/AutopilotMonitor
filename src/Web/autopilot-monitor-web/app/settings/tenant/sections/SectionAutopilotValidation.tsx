@@ -16,6 +16,8 @@ export function SectionAutopilotValidation() {
     validateCorporateIdentifier,
     validateDeviceAssociation,
     handleToggleDeviceAssociationValidation,
+    validateCloudPcDevice,
+    handleToggleCloudPcValidation,
     saveValidationGate,
     autopilotConsentInProgress, savingSection,
     beginDeviceValidationConsentFlow, detectExistingAccess,
@@ -142,6 +144,8 @@ export function SectionAutopilotValidation() {
         validateDeviceAssociation={validateDeviceAssociation}
         onToggleDeviceAssociation={handleToggleDeviceAssociationValidation}
         showDeviceAssociationToggle={showDeviceAssociationToggle}
+        validateCloudPcDevice={validateCloudPcDevice}
+        onToggleCloudPc={handleToggleCloudPcValidation}
         autopilotConsentInProgress={autopilotConsentInProgress}
         saving={savingSection === "autopilotValidation"}
         onBeginConsent={beginDeviceValidationConsentFlow}

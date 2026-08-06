@@ -25,5 +25,13 @@ namespace AutopilotMonitor.Shared.Models.Graph
 
         /// <summary>Read Intune managed apps (future use — Win32 app display names not yet covered).</summary>
         public const string DeviceManagementAppsReadAll = "DeviceManagementApps.Read.All";
+
+        /// <summary>
+        /// Read Windows 365 Cloud PC objects (<c>virtualEndpoint/cloudPCs</c>). Optional add-on
+        /// permission backing the W365 Cloud PC device validator — Cloud PCs are never
+        /// Autopilot-registered, so validation resolves them through the service-side Cloud PC
+        /// inventory instead.
+        /// </summary>
+        public const string CloudPCReadAll = "CloudPC.Read.All";
     }
 }

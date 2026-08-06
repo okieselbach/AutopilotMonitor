@@ -23,7 +23,11 @@
     One or more high-level feature identifiers. The script translates each to the underlying
     Graph permissions. Use this when you don't want to know permission strings.
     Available features:
-      - ScriptDisplayNames -> DeviceManagementScripts.Read.All
+      - ScriptDisplayNames     -> DeviceManagementScripts.Read.All
+      - W365CloudPcValidation  -> CloudPC.Read.All
+        (validates Windows 365 Cloud PCs against the tenant's Cloud PC inventory --
+         Cloud PCs are never Autopilot-registered, so this enables agent monitoring
+         of Cloud PC first-connect enrollment)
 
 .PARAMETER Permissions
     Microsoft Graph application permission names to grant directly. Use when the admin UI
@@ -76,7 +80,7 @@ param(
     [string]$ClientId,
 
     [Parameter(Mandatory = $true, ParameterSetName = 'ByFeatures')]
-    [ValidateSet('ScriptDisplayNames')]
+    [ValidateSet('ScriptDisplayNames', 'W365CloudPcValidation')]
     [string[]]$Features,
 
     [Parameter(Mandatory = $true, ParameterSetName = 'ByPermissions')]
@@ -97,7 +101,8 @@ $ErrorActionPreference = 'Stop'
 # ---- Feature -> Graph permission catalog -----------------------------------
 # Keep in lock-step with src/Shared/AutopilotMonitor.Shared/Models/Graph/GraphFeatureCatalog.cs
 $FeatureCatalog = @{
-    'ScriptDisplayNames' = @('DeviceManagementScripts.Read.All')
+    'ScriptDisplayNames'    = @('DeviceManagementScripts.Read.All')
+    'W365CloudPcValidation' = @('CloudPC.Read.All')
 }
 
 # Translate Features -> Permissions when caller used the high-level form.

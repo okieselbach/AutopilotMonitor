@@ -394,6 +394,7 @@ builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.GraphTokenServ
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.AutopilotDeviceValidator>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.CorporateIdentifierValidator>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.DeviceAssociationValidator>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.CloudPcDeviceValidator>();
 
 // Graph add-on permission detection + script display-name resolution.
 // Detector parses the `roles` claim of the SP access token; Resolver fetches

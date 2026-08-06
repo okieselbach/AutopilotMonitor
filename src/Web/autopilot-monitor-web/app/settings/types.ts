@@ -43,6 +43,14 @@ export interface TenantConfiguration {
    * UI surface is gated to Global Admins until DevPrep ships GA.
    */
   validateDeviceAssociation?: boolean;
+  /**
+   * Windows 365 Cloud PC validation (fallback after Autopilot/Corporate Identifier).
+   * Cloud PCs are never Autopilot-registered; the backend instead matches the Intune device
+   * id from the agent's MDM client certificate against the tenant's Cloud PC inventory
+   * (Graph virtualEndpoint/cloudPCs). Requires the optional CloudPC.Read.All add-on
+   * permission ("W365CloudPcValidation" in Optional Graph capabilities).
+   */
+  validateCloudPcDevice?: boolean;
   allowInsecureAgentRequests?: boolean;
   /**
    * Dual app-reg window: client id of the Entra app registration this tenant is homed on.

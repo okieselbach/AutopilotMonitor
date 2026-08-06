@@ -22,7 +22,8 @@ namespace AutopilotMonitor.Shared.Models
         AutopilotV1 = 1,           // AutopilotDeviceValidator (windowsAutopilotDeviceIdentities)
         CorporateIdentifier = 2,   // CorporateIdentifierValidator (importedDeviceIdentities)
         DeviceAssociation = 3,     // DevPrep DeviceAssociationValidator (tenantAssociatedDevices) — future
-        Bootstrap = 4              // Bootstrap token auth (pre-MDM OOBE)
+        Bootstrap = 4,             // Bootstrap token auth (pre-MDM OOBE)
+        CloudPc = 5                // CloudPcDeviceValidator (virtualEndpoint/cloudPCs, cert-CN bound) — W365
     }
 
     /// <summary>

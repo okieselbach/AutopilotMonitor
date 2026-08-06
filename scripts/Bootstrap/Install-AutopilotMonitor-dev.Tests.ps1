@@ -248,6 +248,36 @@ Describe 'Get-BootstrapDecision' {
         $d.ReasonCode | Should -Be 'UptimeExceeded'
     }
 
+    It 'installs on a Cloud PC despite uptime over the window when the relax is active (guard 4 exemption, v2.3-dev.3)' {
+        # W365 reality: provisioned days ago, running headless ever since; the user's
+        # first connect just created the profile. Uptime is meaningless here.
+        $script:fakeProfile = New-FakeProfile 'FirstConnectUser' 0.6
+        Mock Get-RealUserProfilePaths { @($script:fakeProfile) }
+        Mock Test-IsCloudPc { $true }
+        Mock Get-CimInstance { [pscustomobject]@{ LastBootUpTime = (Get-Date).AddHours(-90) } } -ParameterFilter { $ClassName -eq 'Win32_OperatingSystem' }
+        $d = Get-BootstrapDecision -MaxBootstrapWindowHours 12 -OobeProfileMaxAgeMinutes 15 -AgentBinPath $script:cleanAgentBin
+        $d.Install | Should -BeTrue
+        $d.RelaxActive | Should -BeTrue
+    }
+
+    It 'still skips an over-uptime Cloud PC when the relax is NOT active (no fresh profile)' {
+        Mock Test-IsCloudPc { $true }
+        Mock Get-CimInstance { [pscustomobject]@{ LastBootUpTime = (Get-Date).AddHours(-90) } } -ParameterFilter { $ClassName -eq 'Win32_OperatingSystem' }
+        $d = Get-BootstrapDecision -MaxBootstrapWindowHours 12 -OobeProfileMaxAgeMinutes 15 -AgentBinPath $script:cleanAgentBin
+        $d.Install | Should -BeFalse
+        $d.ReasonCode | Should -Be 'UptimeExceeded'
+    }
+
+    It 'keeps guard 4 for the OOBE-restore relax (physical device, uptime is meaningful)' {
+        $script:fakeProfile = New-FakeProfile 'RestoreUser' 3
+        Mock Get-RealUserProfilePaths { @($script:fakeProfile) }
+        Mock Get-OobeState { 'InProgress' }
+        Mock Get-CimInstance { [pscustomobject]@{ LastBootUpTime = (Get-Date).AddHours(-20) } } -ParameterFilter { $ClassName -eq 'Win32_OperatingSystem' }
+        $d = Get-BootstrapDecision -MaxBootstrapWindowHours 12 -OobeProfileMaxAgeMinutes 15 -AgentBinPath $script:cleanAgentBin
+        $d.Install | Should -BeFalse
+        $d.ReasonCode | Should -Be 'UptimeExceeded'
+    }
+
     It 'skips when the agent binary is already present (guard 5)' {
         $binPath = Join-Path $TestDrive 'AgentBinExisting'
         New-Item -ItemType Directory -Path $binPath -Force | Out-Null

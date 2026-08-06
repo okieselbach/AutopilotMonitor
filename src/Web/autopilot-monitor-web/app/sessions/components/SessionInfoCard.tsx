@@ -149,6 +149,7 @@ function validatedByLabel(session: Session): string | null {
     case "CorporateIdentifier": return "Corporate Identifier";
     case "DeviceAssociation": return "Device Association";
     case "Bootstrap": return "Bootstrap Token (pre-MDM)";
+    case "CloudPc": return "Windows 365 Cloud PC";
     default: return null;
   }
 }

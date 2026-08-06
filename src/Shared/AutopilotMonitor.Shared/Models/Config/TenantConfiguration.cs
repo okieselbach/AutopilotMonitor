@@ -203,6 +203,19 @@ namespace AutopilotMonitor.Shared.Models
         public bool ValidateDeviceAssociation { get; set; } = false;
 
         /// <summary>
+        /// Whether to validate Windows 365 Cloud PCs as a fallback when the Autopilot /
+        /// Corporate Identifier lookups miss. Cloud PCs are provisioned by the Windows 365
+        /// service and are structurally never Autopilot-registered; this validator instead
+        /// resolves the Intune device id from the (chain-validated) MDM client certificate's
+        /// Subject CN and requires a matching <c>cloudPC</c> object
+        /// (<c>virtualEndpoint/cloudPCs</c>, <c>managedDeviceId eq CN</c>) in the tenant.
+        /// Only service-provisioned Cloud PCs have such an object, so no other enrolled
+        /// device can pass this stage. Requires the optional Graph permission
+        /// CloudPC.Read.All (feature "W365CloudPcValidation" in the grant script).
+        /// </summary>
+        public bool ValidateCloudPcDevice { get; set; } = false;
+
+        /// <summary>
         /// Emergency bypass for agent security gate (Global Admin use only).
         /// If true, agent requests are accepted even when ValidateAutopilotDevice is false.
         /// Default: false

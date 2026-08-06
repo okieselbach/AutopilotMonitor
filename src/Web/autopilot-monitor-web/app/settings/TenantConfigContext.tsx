@@ -130,6 +130,13 @@ interface TenantConfigContextValue {
   setValidateDeviceAssociation: (v: boolean) => void;
   /** Toggle + persist DevPrep Device Association validation in one shot (no consent flow needed). */
   handleToggleDeviceAssociationValidation: (newValue: boolean) => Promise<void>;
+  validateCloudPcDevice: boolean;
+  setValidateCloudPcDevice: (v: boolean) => void;
+  /**
+   * Toggle + persist W365 Cloud PC validation in one shot. No consent flow — the backing
+   * CloudPC.Read.All permission is granted via the Optional Graph capabilities add-on script.
+   */
+  handleToggleCloudPcValidation: (newValue: boolean) => Promise<void>;
   /**
    * Persist a validation-gate change immediately. The validation section has NO save bar —
    * every gate change that doesn't run the consent flow (disable, and enabling the second
@@ -384,6 +391,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const [validateAutopilotDevice, setValidateAutopilotDevice] = useState(false);
   const [validateCorporateIdentifier, setValidateCorporateIdentifier] = useState(false);
   const [validateDeviceAssociation, setValidateDeviceAssociation] = useState(false);
+  const [validateCloudPcDevice, setValidateCloudPcDevice] = useState(false);
   const [dataRetentionDays, setDataRetentionDays] = useState(90);
   const [sessionTimeoutHours, setSessionTimeoutHours] = useState(5);
 
@@ -524,6 +532,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         setValidateAutopilotDevice(data.validateAutopilotDevice);
         setValidateCorporateIdentifier(data.validateCorporateIdentifier ?? false);
         setValidateDeviceAssociation(data.validateDeviceAssociation ?? false);
+        setValidateCloudPcDevice(data.validateCloudPcDevice ?? false);
         setDataRetentionDays(data.dataRetentionDays ?? 90);
         setSessionTimeoutHours(data.sessionTimeoutHours ?? 5);
         setEnablePerformanceCollector(data.enablePerformanceCollector ?? true);
@@ -702,7 +711,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // -----------------------------------------------------------------------
   // Save configuration (shared by all sections)
   // -----------------------------------------------------------------------
-  const saveConfiguration = useCallback(async (sectionName: string, overrides?: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean; validateDeviceAssociation?: boolean; unrestrictedMode?: boolean }): Promise<boolean> => {
+  const saveConfiguration = useCallback(async (sectionName: string, overrides?: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean; validateDeviceAssociation?: boolean; validateCloudPcDevice?: boolean; unrestrictedMode?: boolean }): Promise<boolean> => {
     // Read-only viewers (Operators) have no save affordances; this guard covers any path
     // that still reaches a save (the backend would 403 the PUT regardless).
     if (!tenantId || !config || !canEditConfig) return false;
@@ -715,6 +724,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       const autopilotDeviceValidationValue = overrides?.validateAutopilotDevice ?? validateAutopilotDevice;
       const corporateIdentifierValidationValue = overrides?.validateCorporateIdentifier ?? validateCorporateIdentifier;
       const deviceAssociationValidationValue = overrides?.validateDeviceAssociation ?? validateDeviceAssociation;
+      const cloudPcValidationValue = overrides?.validateCloudPcDevice ?? validateCloudPcDevice;
       const unrestrictedModeValue = overrides?.unrestrictedMode ?? unrestrictedMode;
 
       const updatedConfig: TenantConfiguration = {
@@ -725,6 +735,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         validateAutopilotDevice: autopilotDeviceValidationValue,
         validateCorporateIdentifier: corporateIdentifierValidationValue,
         validateDeviceAssociation: deviceAssociationValidationValue,
+        validateCloudPcDevice: cloudPcValidationValue,
         dataRetentionDays,
         sessionTimeoutHours,
         enablePerformanceCollector,
@@ -794,6 +805,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       setValidateAutopilotDevice(result.config.validateAutopilotDevice);
       setValidateCorporateIdentifier(result.config.validateCorporateIdentifier ?? false);
       setValidateDeviceAssociation(result.config.validateDeviceAssociation ?? false);
+      setValidateCloudPcDevice(result.config.validateCloudPcDevice ?? false);
       setUnrestrictedMode(result.config.unrestrictedMode ?? false);
       trackEvent("settings_saved", { section: sectionName });
       setSuccessMessage("Configuration saved successfully!");
@@ -813,7 +825,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     }
   }, [
     tenantId, config, canEditConfig, getAccessToken, addNotification,
-    manufacturerWhitelist, modelWhitelist, webhookNotifyOnHardwareRejection, validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation,
+    manufacturerWhitelist, modelWhitelist, webhookNotifyOnHardwareRejection, validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation, validateCloudPcDevice,
     dataRetentionDays, sessionTimeoutHours, enablePerformanceCollector, performanceCollectorInterval,
     helloWaitTimeoutSeconds, selfDestructOnComplete, keepLogFile, rebootOnComplete, rebootDelaySeconds,
     contactEmail, enableGeoLocation, enableTimezoneAutoSet, enableImeMatchLog, enableGatherRuleDebugLog, logLevel, showScriptOutput, showEnrollmentSummary,
@@ -1292,6 +1304,17 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     await saveConfiguration("autopilotValidation", { validateDeviceAssociation: newValue });
   }, [saveConfiguration]);
 
+  /**
+   * Toggle the Windows 365 Cloud PC validation fallback. No consent flow — the backing
+   * CloudPC.Read.All permission is an Optional Graph capabilities add-on (grant script);
+   * without the grant the backend simply keeps rejecting Cloud PCs with a pointer to the
+   * add-on, so enabling early is safe.
+   */
+  const handleToggleCloudPcValidation = useCallback(async (newValue: boolean) => {
+    setValidateCloudPcDevice(newValue);
+    await saveConfiguration("autopilotValidation", { validateCloudPcDevice: newValue });
+  }, [saveConfiguration]);
+
   // -----------------------------------------------------------------------
   // Admin management handlers
   // -----------------------------------------------------------------------
@@ -1613,6 +1636,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       validateCorporateIdentifier, setValidateCorporateIdentifier,
       validateDeviceAssociation, setValidateDeviceAssociation,
       handleToggleDeviceAssociationValidation,
+      validateCloudPcDevice, setValidateCloudPcDevice,
+      handleToggleCloudPcValidation,
       saveValidationGate,
       autopilotConsentInProgress, beginDeviceValidationConsentFlow, detectExistingAccess,
 

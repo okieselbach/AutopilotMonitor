@@ -45,6 +45,8 @@
     Either trigger relaxes guards 2+3 ONLY when additionally:
       (a) there is exactly ONE real user profile, AND
       (b) that profile was created within $OobeProfileMaxAgeMinutes minutes.
+    The Cloud PC trigger additionally exempts guard 4 (uptime window) -- see
+    .PARAMETER MaxBootstrapWindowHours for why boot uptime is meaningless there.
     Any miss keeps the original skip (SKIP-safe: we never install on uncertainty).
     On productive devices the profile is old, so (b) keeps skipping correctly.
     Known accepted edge: a W365 Frontline shared-mode device can legitimately show a
@@ -63,9 +65,11 @@
     Maximum device uptime (hours) within which the bootstrap is still considered
     valid. Devices booted more than this many hours ago are skipped because we no
     longer trust their OOBE state. Default: 12.
-    Cloud PC note: a Cloud PC may run for days between provisioning and the user's
-    first connect; this guard then skips INTENTIONALLY -- the enrollment finished
-    long ago and there is nothing left to monitor.
+    Cloud PC note: NOT applied when the Cloud-PC relax is active. A Cloud PC runs
+    headless for days between provisioning and the user's first connect, and the
+    phase worth monitoring (Account Setup) only starts at that first connect --
+    there the fresh-profile window (OobeProfileMaxAgeMinutes) is the time anchor,
+    not boot uptime.
 
 .PARAMETER OobeProfileMaxAgeMinutes
     Maximum age (minutes) of the single profile that may appear for the relax
@@ -86,6 +90,11 @@
       PowerShell 5.1 (IME) reads scripts without BOM as ANSI, corrupting multi-byte chars.
 
 .CHANGELOG
+    2026-08-06  v2.3-dev.3  Guard 4 (uptime window) exempted while the Cloud-PC relax is
+                      active: Cloud PCs run headless for days before the user's first
+                      connect, so boot uptime says nothing about enrollment freshness --
+                      the single-fresh-profile window (< OobeProfileMaxAgeMinutes) already
+                      anchors the relax in time. OOBE-restore keeps the uptime guard.
     2026-08-06  v2.3-dev.2  Cloud PC detection rebuilt on captured evidence: first field
                       test proved local WMI reports only Manufacturer='Microsoft
                       Corporation' + Model='Virtual Machine' (the 'Cloud PC ...' model
@@ -135,7 +144,7 @@ param(
 )
 
 # Script version (bump on meaningful changes; see .CHANGELOG above)
-$ScriptVersion = "2.3-dev.2"
+$ScriptVersion = "2.3-dev.3"
 
 # Configuration - Everything in ProgramData for easy cleanup
 $AgentBasePath = "$env:ProgramData\AutopilotMonitor"
@@ -317,14 +326,22 @@ function Get-BootstrapDecision {
 
     # Guard 4: Bootstrap window check - device uptime must be within accepted OOBE window.
     # Sleep/standby does not reset uptime, only real boot/restart does.
-    # Cloud PC note: uptime may exceed the window when the user first connects days after
-    # provisioning -> skip is intentional (enrollment finished long ago, nothing to monitor).
+    # Cloud PC exemption (v2.3-dev.3): a Cloud PC runs headless from provisioning until the
+    # user's first connect -- often days -- and the phase worth monitoring (Account Setup)
+    # only STARTS at that first connect. Boot uptime is therefore meaningless there; the
+    # single-fresh-profile window of the relax (< $OobeProfileMaxAgeMinutes min) is the time
+    # anchor instead. The OOBE-restore trigger keeps the original uptime guard (physical
+    # device, uptime is meaningful).
     $lastBoot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
     $uptimeHours = ((Get-Date) - $lastBoot).TotalHours
     Write-Log "Device uptime: $([int]$uptimeHours)h (last boot: $lastBoot)"
     if ($uptimeHours -gt $MaxBootstrapWindowHours) {
-        Write-Log "SKIP: Device uptime is $([int]$uptimeHours)h. OOBE state is older than accepted bootstrap window of ${MaxBootstrapWindowHours}h."
-        return [pscustomobject]@{ Install = $false; ReasonCode = 'UptimeExceeded'; RelaxActive = $relax.Active }
+        if ($relax.Active -and $relax.IsCloudPc) {
+            Write-Log "Uptime $([int]$uptimeHours)h exceeds the ${MaxBootstrapWindowHours}h window, but the Cloud PC relax is active (fresh first-connect profile is the time anchor). Continuing."
+        } else {
+            Write-Log "SKIP: Device uptime is $([int]$uptimeHours)h. OOBE state is older than accepted bootstrap window of ${MaxBootstrapWindowHours}h."
+            return [pscustomobject]@{ Install = $false; ReasonCode = 'UptimeExceeded'; RelaxActive = $relax.Active }
+        }
     }
 
     # Guard 5: Is the agent already installed? (leftover from previous run)

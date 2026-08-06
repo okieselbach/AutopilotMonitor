@@ -13,6 +13,10 @@ interface AutopilotValidationSectionProps {
   onToggleDeviceAssociation?: (newValue: boolean) => void | Promise<void>;
   /** Render the DevPrep Device Association toggle. Gated to Global Admins by the parent. */
   showDeviceAssociationToggle?: boolean;
+  /** Windows 365 Cloud PC validation — fallback gate for Cloud PCs (never Autopilot-registered). */
+  validateCloudPcDevice?: boolean;
+  /** Toggle + persist Cloud PC validation in one shot (permission comes via the Optional Graph capabilities add-on, no consent dialog). */
+  onToggleCloudPc?: (newValue: boolean) => void | Promise<void>;
   autopilotConsentInProgress: boolean;
   saving: boolean;
   onBeginConsent: (trigger: 'autopilot' | 'corporate' | 'device-preparation') => void;
@@ -31,13 +35,15 @@ export default function AutopilotValidationSection({
   validateDeviceAssociation = false,
   onToggleDeviceAssociation,
   showDeviceAssociationToggle = false,
+  validateCloudPcDevice = false,
+  onToggleCloudPc,
   autopilotConsentInProgress,
   saving,
   onBeginConsent,
   onDetectExistingAccess,
 }: AutopilotValidationSectionProps) {
-  const anyValidationEnabled = validateAutopilotDevice || validateCorporateIdentifier;
-  const [disableConfirm, setDisableConfirm] = useState<'autopilot' | 'corporate' | null>(null);
+  const anyValidationEnabled = validateAutopilotDevice || validateCorporateIdentifier || validateCloudPcDevice;
+  const [disableConfirm, setDisableConfirm] = useState<'autopilot' | 'corporate' | 'cloudpc' | null>(null);
 
   const handleToggleAutopilot = () => {
     if (validateAutopilotDevice) {
@@ -63,11 +69,23 @@ export default function AutopilotValidationSection({
     }
   };
 
+  // Cloud PC validation is a hard gate like the two above, but its permission is an add-on
+  // grant (CloudPC.Read.All via the grant script) — no consent dialog, direct toggle+persist.
+  const handleToggleCloudPc = () => {
+    if (validateCloudPcDevice) {
+      setDisableConfirm('cloudpc');
+    } else if (onToggleCloudPc) {
+      void onToggleCloudPc(true);
+    }
+  };
+
   const confirmDisable = () => {
     if (disableConfirm === 'autopilot') {
       setValidateAutopilotDevice(false);
     } else if (disableConfirm === 'corporate') {
       setValidateCorporateIdentifier(false);
+    } else if (disableConfirm === 'cloudpc' && onToggleCloudPc) {
+      void onToggleCloudPc(false);
     }
     setDisableConfirm(null);
   };
@@ -162,6 +180,34 @@ export default function AutopilotValidationSection({
           {!validateCorporateIdentifier && renderDetectButton('corporate')}
         </div>
 
+        {/* Windows 365 Cloud PC — fallback gate for Cloud PCs; permission via the Optional Graph capabilities add-on */}
+        {onToggleCloudPc && (
+          <div className="border-t border-gray-100 pt-5 space-y-3" data-testid="cloudpc-validation-toggle">
+            <p className="text-sm font-semibold text-gray-700 tracking-wide">Windows 365</p>
+            <label className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-gray-900">Enable Windows 365 Cloud PC Validation</p>
+                <p className="text-sm text-gray-500">
+                  Validates Windows 365 Cloud PCs against the tenant&apos;s Cloud PC inventory (Graph{" "}
+                  <code className="text-xs">virtualEndpoint/cloudPCs</code>), matched by the Intune device id
+                  from the agent&apos;s MDM certificate. Cloud PCs are never Autopilot-registered — enable this
+                  as a fallback so first-connect enrollment (Account Setup) of Cloud PCs can be monitored.
+                  Requires the optional <strong>CloudPC.Read.All</strong> permission — grant the{" "}
+                  <strong>W365CloudPcValidation</strong> add-on under <em>Optional Graph capabilities</em>.
+                </p>
+              </div>
+              <button
+                onClick={handleToggleCloudPc}
+                disabled={saving}
+                aria-label="Toggle Windows 365 Cloud PC validation"
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${validateCloudPcDevice ? 'bg-emerald-500' : 'bg-gray-300'}`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${validateCloudPcDevice ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </label>
+          </div>
+        )}
+
         {/* DevPrep Device Association — Private Preview, GA-gated, shadow-mode (no enrollment block) */}
         {showDeviceAssociationToggle && onToggleDeviceAssociation && (
           <div className="border-t border-gray-100 pt-5 space-y-3" data-testid="devprep-association-toggle">
@@ -194,7 +240,7 @@ export default function AutopilotValidationSection({
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
           <p className="text-sm text-amber-900">
             <strong>Important:</strong>{" "}
-            If both validations are disabled, backend agent endpoints reject requests for this tenant. Enable at least one and complete admin consent first.
+            If all validations are disabled, backend agent endpoints reject requests for this tenant. Enable at least one and complete admin consent first.
           </p>
         </div>
 
@@ -218,7 +264,9 @@ export default function AutopilotValidationSection({
               <div>
                 <h3 className="text-lg font-bold text-gray-900">Disable Validation</h3>
                 <p className="text-sm text-amber-600 font-medium">
-                  {disableConfirm === 'autopilot' ? 'Autopilot Device Validation' : 'Corporate Identifier Validation'}
+                  {disableConfirm === 'autopilot' ? 'Autopilot Device Validation'
+                    : disableConfirm === 'corporate' ? 'Corporate Identifier Validation'
+                      : 'Windows 365 Cloud PC Validation'}
                 </p>
               </div>
             </div>
@@ -226,12 +274,17 @@ export default function AutopilotValidationSection({
             <p className="text-sm text-gray-700 mb-2">
               Are you sure you want to disable this validation?
             </p>
-            {disableConfirm === 'autopilot' && !validateCorporateIdentifier && (
+            {disableConfirm === 'autopilot' && !validateCorporateIdentifier && !validateCloudPcDevice && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-800">
                 This is the last active validation. Disabling it will cause the backend to <strong>reject all agent requests</strong> for this tenant.
               </div>
             )}
-            {disableConfirm === 'corporate' && !validateAutopilotDevice && (
+            {disableConfirm === 'corporate' && !validateAutopilotDevice && !validateCloudPcDevice && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-800">
+                This is the last active validation. Disabling it will cause the backend to <strong>reject all agent requests</strong> for this tenant.
+              </div>
+            )}
+            {disableConfirm === 'cloudpc' && !validateAutopilotDevice && !validateCorporateIdentifier && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-800">
                 This is the last active validation. Disabling it will cause the backend to <strong>reject all agent requests</strong> for this tenant.
               </div>

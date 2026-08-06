@@ -90,4 +90,55 @@ public class SecurityValidatorTests
     {
         Assert.False(SecurityValidator.IsValidGuid(payload));
     }
+
+    // --- Intune device id extraction from the MDM client certificate subject ---
+    // Intune MDM Device CA certs carry the Intune managedDevice id as the Subject CN
+    // (field-verified 2026-08-06 on a W365 Cloud PC). This is the identity anchor for the
+    // CloudPc validator, so the parse must be strict: CN present AND a canonical GUID.
+
+    [Fact]
+    public void TryGetIntuneDeviceId_PlainCnGuid_Extracts()
+    {
+        Assert.True(SecurityValidator.TryGetIntuneDeviceIdFromCertSubject(
+            "CN=07623d56-1e77-4948-bff5-5bdac8167560", out var id));
+        Assert.Equal("07623d56-1e77-4948-bff5-5bdac8167560", id);
+    }
+
+    [Fact]
+    public void TryGetIntuneDeviceId_UppercaseGuid_NormalizedToLower()
+    {
+        Assert.True(SecurityValidator.TryGetIntuneDeviceIdFromCertSubject(
+            "CN=07623D56-1E77-4948-BFF5-5BDAC8167560", out var id));
+        Assert.Equal("07623d56-1e77-4948-bff5-5bdac8167560", id);
+    }
+
+    [Fact]
+    public void TryGetIntuneDeviceId_MultiRdnSubject_FindsCn()
+    {
+        Assert.True(SecurityValidator.TryGetIntuneDeviceIdFromCertSubject(
+            "O=Contoso, CN=07623d56-1e77-4948-bff5-5bdac8167560, C=DE", out var id));
+        Assert.Equal("07623d56-1e77-4948-bff5-5bdac8167560", id);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("O=Contoso, C=DE")]                              // no CN at all
+    [InlineData("CN=not-a-guid")]                                // CN present but not a GUID
+    [InlineData("CN=hostname.contoso.com")]                      // typical non-Intune device cert
+    [InlineData("CN=' or '1'='1")]                               // injection payload never survives
+    public void TryGetIntuneDeviceId_InvalidSubjects_ReturnFalse(string? subject)
+    {
+        Assert.False(SecurityValidator.TryGetIntuneDeviceIdFromCertSubject(subject, out var id));
+        Assert.Null(id);
+    }
+
+    [Fact]
+    public void TryGetIntuneDeviceId_NonGuidFirstCn_IsDefinitive()
+    {
+        // A first CN that is not a GUID means "not an Intune MDM device cert shape" — a
+        // later GUID-valued CN must NOT resurrect the parse (no CN-shopping).
+        Assert.False(SecurityValidator.TryGetIntuneDeviceIdFromCertSubject(
+            "CN=hostname, CN=07623d56-1e77-4948-bff5-5bdac8167560", out _));
+    }
 }
