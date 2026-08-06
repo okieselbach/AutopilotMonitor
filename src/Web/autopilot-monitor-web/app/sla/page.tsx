@@ -118,7 +118,9 @@ export default function SlaPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [months, setMonths] = useState(3);
-  const [initialLoad, setInitialLoad] = useState(true);
+  // First fetch bypasses the server cache (fresh=true), all later ones use it. A ref, not
+  // state: it is only read inside fetchMetrics and must not retrigger the fetch effect.
+  const initialLoadRef = useRef(true);
 
   // Global admin tenant scope (tenant list, selector state, override/effective tenant)
   const scope = useGlobalAdminScope();
@@ -137,8 +139,8 @@ export default function SlaPage() {
       if (showRefreshing) setRefreshing(true);
       else setLoading(true);
 
-      const useFresh = initialLoad;
-      if (initialLoad) setInitialLoad(false);
+      const useFresh = initialLoadRef.current;
+      initialLoadRef.current = false;
 
       const url = isGlobalOverride
         ? api.metrics.globalSla(effectiveTenantId, months, useFresh)

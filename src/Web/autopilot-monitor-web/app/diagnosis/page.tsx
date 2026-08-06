@@ -1,7 +1,7 @@
 "use client";
 
 import { sessionUrl } from "@/lib/routes";
-import { Suspense, useEffect, useState, useRef } from "react";
+import { Suspense, useCallback, useEffect, useState, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSignalR } from "../../contexts/SignalRContext";
 import { useTenant } from "../../contexts/TenantContext";
@@ -51,11 +51,11 @@ function DiagnosisContent() {
   const sessionFetchDone = useRef(false);
   const analysisFetchDone = useRef(false);
 
-  const finishLoadingWhenSettled = () => {
+  const finishLoadingWhenSettled = useCallback(() => {
     if (sessionFetchDone.current && analysisFetchDone.current) {
       setLoading(false);
     }
-  };
+  }, []);
 
   const { on, off, isConnected, joinGroup, leaveGroup } = useSignalR();
   const { tenantId } = useTenant();
@@ -66,7 +66,7 @@ function DiagnosisContent() {
 
   // Declared ahead of the effects that call them (react-hooks/immutability:
   // a later declaration would freeze the effect's view of the binding).
-  const fetchSessionDetails = async () => {
+  const fetchSessionDetails = useCallback(async () => {
     try {
       // Fetch the single session directly instead of pulling the entire session
       // list and .find()-ing client-side. The backend resolves the tenant via
@@ -100,9 +100,9 @@ function DiagnosisContent() {
       sessionFetchDone.current = true;
       finishLoadingWhenSettled();
     }
-  };
+  }, [sessionId, sessionTenantId, tenantId, globalAdminMode, getAccessToken, addNotification, finishLoadingWhenSettled]);
 
-  const fetchEvents = async () => {
+  const fetchEvents = useCallback(async () => {
     const effectiveTenantId = sessionTenantId || tenantId;
     try {
       const response = await authenticatedFetch(
@@ -123,9 +123,9 @@ function DiagnosisContent() {
         addNotification('error', 'Backend Not Reachable', 'Unable to load session events. Please check your connection.', 'diagnosis-events-error');
       }
     }
-  };
+  }, [sessionId, sessionTenantId, tenantId, getAccessToken, addNotification]);
 
-  const fetchAnalysisResults = async () => {
+  const fetchAnalysisResults = useCallback(async () => {
     const effectiveTenantId = sessionTenantId || tenantId;
     try {
       const response = await authenticatedFetch(
@@ -153,7 +153,7 @@ function DiagnosisContent() {
       analysisFetchDone.current = true;
       finishLoadingWhenSettled();
     }
-  };
+  }, [sessionId, sessionTenantId, tenantId, getAccessToken, addNotification, finishLoadingWhenSettled]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -180,13 +180,13 @@ function DiagnosisContent() {
     }
 
     fetchSessionDetails();
-  }, [sessionId, tenantId, globalAdminMode]);
+  }, [sessionId, tenantId, globalAdminMode, fetchSessionDetails]);
 
   useEffect(() => {
     if (sessionTenantId && sessionId) {
       Promise.all([fetchEvents(), fetchAnalysisResults()]);
     }
-  }, [sessionTenantId, sessionId]);
+  }, [sessionTenantId, sessionId, fetchEvents, fetchAnalysisResults]);
 
   // SignalR groups - subscribe-then-fetch pattern
   useEffect(() => {
@@ -207,7 +207,7 @@ function DiagnosisContent() {
         hasJoinedGroups.current = false;
       }
     };
-  }, [sessionId, isConnected, sessionTenantId, tenantId]);
+  }, [sessionId, isConnected, sessionTenantId, tenantId, joinGroup, leaveGroup, fetchEvents, fetchAnalysisResults]);
 
   // Real-time analysis updates
   useEffect(() => {

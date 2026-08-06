@@ -222,7 +222,7 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
         connectionRef.current = null;
       }
     };
-  }, [isAuthenticated, getAccessToken]);
+  }, [isAuthenticated, getAccessToken, syncJoinedGroups]);
 
   const on = (eventName: string, callback: SignalRHandler) => {
     if (connectionRef.current) {

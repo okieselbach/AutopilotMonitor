@@ -261,6 +261,9 @@ export function useDashboardStats({
   useEffect(() => {
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      // Intentionally the LIVE ref at unmount time — bumping the generation
+      // invalidates in-flight fetches; a snapshot taken at mount would not.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       fetchGenRef.current++;
     };
   }, []);

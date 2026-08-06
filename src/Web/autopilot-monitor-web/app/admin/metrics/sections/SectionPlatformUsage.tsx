@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAuth } from '../../../../contexts/AuthContext';
@@ -112,7 +112,7 @@ export function SectionPlatformUsage() {
   const progress = useFetchProgress('platformUsage.lastFreshFetchMs');
   const { begin: progressBegin, finish: progressFinish } = progress;
 
-  const fetchMetrics = async (showRefreshing = false) => {
+  const fetchMetrics = useCallback(async (showRefreshing = false) => {
     let recordEstimate = false;
     try {
       if (showRefreshing) {
@@ -151,13 +151,13 @@ export function SectionPlatformUsage() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [getAccessToken, progressBegin, progressFinish]);
 
   useEffect(() => {
     // Fetch metrics on mount
     // Authorization is handled by admin layout ProtectedRoute
     fetchMetrics();
-  }, []);
+  }, [fetchMetrics]);
 
   const formatDuration = (minutes: number) => {
     if (minutes < 60) {

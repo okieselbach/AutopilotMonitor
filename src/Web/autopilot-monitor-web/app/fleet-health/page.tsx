@@ -168,7 +168,7 @@ export default function FleetHealthPage() {
         hasJoinedGroup.current = false;
       }
     };
-  }, [isConnected, effectiveTenantId]);
+  }, [isConnected, effectiveTenantId, joinGroup, leaveGroup]);
 
   // Server payload, with presentation-friendly defaults so the JSX renders
   // without null guards once loading clears. `avgDuration` keeps the card's
@@ -199,7 +199,9 @@ export default function FleetHealthPage() {
     return `/dashboard?${params.toString()}`;
   };
   const topFailingModels = data?.topFailingModels ?? [];
-  const failureReasons = data?.failureReasons ?? [];
+  // Memoized (unlike the sibling defaults above) because it feeds the maxFailureCount
+  // useMemo below — a fresh [] each render would invalidate that memo every time.
+  const failureReasons = useMemo(() => data?.failureReasons ?? [], [data]);
 
   // Timeline points with presentation labels derived from the UTC date string.
   const dailyData = useMemo(() => {

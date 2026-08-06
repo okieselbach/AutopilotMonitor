@@ -374,6 +374,9 @@ export function useDashboardSessions({
   // doesn't call setSessions against a torn-down component.
   useEffect(() => {
     return () => {
+      // Intentionally the LIVE ref at unmount time — bumping the counter is the
+      // cancellation signal; a snapshot taken at mount would cancel nothing.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       loadAllTokenRef.current++;
     };
   }, []);

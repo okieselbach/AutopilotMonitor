@@ -207,7 +207,7 @@ function HomeContent() {
       console.log('[Home] User has no platform scope, disabling global mode');
       setGlobalAdminMode(false);
     }
-  }, [user, globalAdminMode]);
+  }, [user, globalAdminMode, setGlobalAdminMode]);
 
   // Clear the tenant filter when cross-tenant mode turns off (refetch is owned by useDashboardSessions).
   // Keyed on crossTenant (not raw globalAdminMode) so a delegated ("MSP") admin — whose crossTenant is

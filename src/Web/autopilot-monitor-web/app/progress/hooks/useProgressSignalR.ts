@@ -38,10 +38,15 @@ export function useProgressSignalR({
 }: UseProgressSignalRParams): void {
   const { on, off, isConnected, joinGroup, leaveGroup } = signalR;
 
-  useEffect(() => {
-    if (!isConnected || !session) return;
+  // Primitives extracted so the join effect keys on identity of the selected
+  // session, not object identity — a refetched session object must not rejoin.
+  const sessionId = session?.sessionId;
+  const sessionTenantId = session?.tenantId;
 
-    const sessionGroup = `session-${session.tenantId}-${session.sessionId}`;
+  useEffect(() => {
+    if (!isConnected || !sessionId || !sessionTenantId) return;
+
+    const sessionGroup = `session-${sessionTenantId}-${sessionId}`;
     console.log("[Progress] Joining session group:", sessionGroup);
     joinGroup(sessionGroup);
 
@@ -49,7 +54,7 @@ export function useProgressSignalR({
       console.log("[Progress] Leaving session group:", sessionGroup);
       leaveGroup(sessionGroup);
     };
-  }, [isConnected, session?.sessionId, session?.tenantId, joinGroup, leaveGroup]);
+  }, [isConnected, sessionId, sessionTenantId, joinGroup, leaveGroup]);
 
   useEffect(() => {
     const scheduleRefetch = (source: string, sessionId: string) => {

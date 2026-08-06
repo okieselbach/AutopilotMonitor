@@ -616,7 +616,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     };
 
     fetchConfiguration();
-  }, [tenantId]);
+  }, [tenantId, getAccessToken, addNotification, user?.isTenantAdmin, user?.isGlobalAdmin]);
 
   // -----------------------------------------------------------------------
   // Fetch admins
@@ -813,7 +813,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     }
   }, [
     tenantId, config, canEditConfig, getAccessToken, addNotification,
-    manufacturerWhitelist, modelWhitelist, validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation,
+    manufacturerWhitelist, modelWhitelist, webhookNotifyOnHardwareRejection, validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation,
     dataRetentionDays, sessionTimeoutHours, enablePerformanceCollector, performanceCollectorInterval,
     helloWaitTimeoutSeconds, selfDestructOnComplete, keepLogFile, rebootOnComplete, rebootDelaySeconds,
     contactEmail, enableGeoLocation, enableTimezoneAutoSet, enableImeMatchLog, enableGatherRuleDebugLog, logLevel, showScriptOutput, showEnrollmentSummary,
