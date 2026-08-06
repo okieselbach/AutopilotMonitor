@@ -168,11 +168,15 @@ function Get-OobeState {
 function Get-CloudPcModel {
     try {
         $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
+        # Always log the raw identity: field diagnosis must never depend on a
+        # matched pattern (2026-08-06 W365 test: detection missed and the log
+        # could not tell why).
+        Write-Log "Computer identity: Manufacturer='$($cs.Manufacturer)' Model='$($cs.Model)'."
         if ($cs.Manufacturer -eq 'Microsoft Corporation' -and $cs.Model -like 'Cloud PC*') {
             return $cs.Model
         }
     }
-    catch { }
+    catch { Write-Log "INFO: computer identity query failed: $($_.Exception.Message)" }
     return $null
 }
 

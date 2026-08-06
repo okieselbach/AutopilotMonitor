@@ -24,6 +24,10 @@ BeforeAll {
 }
 
 Describe 'Get-CloudPcModel' {
+    BeforeEach {
+        Mock Write-Log { }
+    }
+
     It 'returns the model string for a Cloud PC' {
         Mock Get-CimInstance { [pscustomobject]@{ Manufacturer = 'Microsoft Corporation'; Model = 'Cloud PC Enterprise 2vCPU/8GB/128GB' } }
         Get-CloudPcModel | Should -Be 'Cloud PC Enterprise 2vCPU/8GB/128GB'
