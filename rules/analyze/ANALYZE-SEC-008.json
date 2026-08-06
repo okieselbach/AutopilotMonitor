@@ -1,6 +1,6 @@
 {
   "$schema": "../schema/analyze-rule.schema.json",
-  "ruleId": "ANALYZE-SEC-002",
+  "ruleId": "ANALYZE-SEC-008",
   "title": "Secure Boot is disabled",
   "description": "Detects devices enrolling with Secure Boot turned off. Secure Boot is a firmware-level protection against boot-time malware and is a prerequisite for several Windows security features (VBS/Credential Guard, device health attestation) and common Intune compliance policies. Devices that support Secure Boot but have it disabled should be flagged during enrollment. Legacy BIOS devices (no Secure Boot capability) are excluded — the agent marks those with a note field when the SecureBoot registry state key is absent.",
   "severity": "warning",
