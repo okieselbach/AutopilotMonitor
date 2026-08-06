@@ -129,12 +129,12 @@ export function SectionMcpUsage() {
     // self-wrap with their own min-h-screen layout; this one is a plain content block).
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Global MCP Usage</h2>
           <p className="text-sm text-gray-500">API usage across all MCP-enabled users</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <SegmentedControl
             options={TIME_RANGE_OPTIONS}
             value={dateRange}
@@ -157,22 +157,22 @@ export function SectionMcpUsage() {
       )}
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg shadow p-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white rounded-lg shadow p-4 sm:p-6">
           <div className="text-sm text-gray-500 mb-1">Today</div>
-          <div className="text-3xl font-bold text-indigo-600">{todayRequests.toLocaleString()}</div>
+          <div className="text-2xl sm:text-3xl font-bold text-indigo-600">{todayRequests.toLocaleString()}</div>
         </div>
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-white rounded-lg shadow p-4 sm:p-6">
           <div className="text-sm text-gray-500 mb-1">Total ({dateRange})</div>
-          <div className="text-3xl font-bold text-blue-600">{totalRequests.toLocaleString()}</div>
+          <div className="text-2xl sm:text-3xl font-bold text-blue-600">{totalRequests.toLocaleString()}</div>
         </div>
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-white rounded-lg shadow p-4 sm:p-6">
           <div className="text-sm text-gray-500 mb-1">Unique Users</div>
-          <div className="text-3xl font-bold text-green-600">{uniqueUsersTotal}</div>
+          <div className="text-2xl sm:text-3xl font-bold text-green-600">{uniqueUsersTotal}</div>
         </div>
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-white rounded-lg shadow p-4 sm:p-6">
           <div className="text-sm text-gray-500 mb-1">Active Days</div>
-          <div className="text-3xl font-bold text-purple-600">{sortedDaily.length}</div>
+          <div className="text-2xl sm:text-3xl font-bold text-purple-600">{sortedDaily.length}</div>
         </div>
       </div>
 
@@ -182,8 +182,8 @@ export function SectionMcpUsage() {
           <h3 className="text-sm font-medium text-gray-900 mb-4">Daily Request Volume</h3>
           <div className="space-y-2">
             {sortedDaily.slice(0, 30).map((day) => (
-              <div key={day.date} className="flex items-center gap-3">
-                <div className="w-24 text-xs text-gray-500 font-mono shrink-0">
+              <div key={day.date} className="flex items-center gap-2 sm:gap-3">
+                <div className="w-20 sm:w-24 text-xs text-gray-500 font-mono shrink-0">
                   {formatDate(day.date)}
                 </div>
                 <div className="flex-1 bg-gray-100 rounded-full h-5 relative">
@@ -192,8 +192,9 @@ export function SectionMcpUsage() {
                     style={{ width: `${Math.max((day.totalRequests / maxDaily) * 100, 2)}%` }}
                   />
                 </div>
-                <div className="w-24 text-xs text-gray-600 text-right shrink-0">
-                  {day.totalRequests.toLocaleString()} / {day.uniqueUsers} users
+                <div className="w-12 sm:w-24 text-xs text-gray-600 text-right shrink-0">
+                  {day.totalRequests.toLocaleString()}
+                  <span className="hidden sm:inline"> / {day.uniqueUsers} users</span>
                 </div>
               </div>
             ))}
@@ -212,49 +213,59 @@ export function SectionMcpUsage() {
           .slice(0, 15);
         return topEndpoints.length > 0 ? (
           <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200">
+            <div className="px-4 sm:px-6 py-4 border-b border-gray-200">
               <h3 className="text-sm font-medium text-gray-900">Top Endpoints</h3>
             </div>
             <div className="divide-y divide-gray-200">
-              {topEndpoints.map(([endpoint, count]) => (
-                <div key={endpoint} className="px-6 py-3 flex justify-between items-center hover:bg-gray-50">
-                  <span className="text-sm font-mono text-gray-700">{endpoint}</span>
-                  <span className="text-sm text-gray-500">{count.toLocaleString()} requests</span>
-                </div>
-              ))}
+              {topEndpoints.map(([endpoint, count]) => {
+                // MCP tool calls are recorded as "toolname:/api/route" — show the
+                // tool name prominently and the route as a secondary line.
+                const sep = endpoint.indexOf(":");
+                const tool = sep > 0 ? endpoint.slice(0, sep) : endpoint;
+                const route = sep > 0 ? endpoint.slice(sep + 1) : null;
+                return (
+                  <div key={endpoint} className="px-4 sm:px-6 py-3 flex items-center justify-between gap-3 hover:bg-gray-50">
+                    <div className="min-w-0">
+                      <div className="text-sm font-mono text-gray-700 truncate">{tool}</div>
+                      {route && (
+                        <div className="text-xs font-mono text-gray-400 truncate">{route}</div>
+                      )}
+                    </div>
+                    <span className="text-sm text-gray-500 shrink-0">
+                      {count.toLocaleString()}
+                      <span className="hidden sm:inline"> requests</span>
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         ) : null;
       })()}
 
-      {/* Top Users Table */}
+      {/* Top Users */}
       {userAggregates.length > 0 && (
         <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
+          <div className="px-4 sm:px-6 py-4 border-b border-gray-200">
             <h3 className="text-sm font-medium text-gray-900">Top Users by Request Count</h3>
           </div>
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tenant</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Requests</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Last Active</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {userAggregates.slice(0, 25).map((user) => (
-                <tr key={user.userId || user.upn} className="hover:bg-gray-50">
-                  <td className="px-6 py-3 text-sm text-gray-900">{user.upn || user.userId}</td>
-                  <td className="px-6 py-3 text-sm text-gray-500 font-mono">{user.tenantId ? user.tenantId.slice(0, 8) + "..." : "—"}</td>
-                  <td className="px-6 py-3 text-sm text-gray-900 text-right font-medium">{user.totalRequests.toLocaleString()}</td>
-                  <td className="px-6 py-3 text-sm text-gray-500 text-right">
+          <div className="divide-y divide-gray-200">
+            {userAggregates.slice(0, 25).map((user) => (
+              <div key={user.userId || user.upn} className="px-4 sm:px-6 py-3 flex items-center justify-between gap-3 hover:bg-gray-50">
+                <div className="min-w-0">
+                  <div className="text-sm text-gray-900 truncate">{user.upn || user.userId}</div>
+                  <div className="text-xs text-gray-500 truncate">
+                    <span className="font-mono">{user.tenantId ? user.tenantId.slice(0, 8) : "—"}</span>
+                    {" · "}
                     {user.lastActive ? new Date(user.lastActive).toLocaleDateString() : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </div>
+                </div>
+                <div className="text-sm font-medium text-gray-900 shrink-0">
+                  {user.totalRequests.toLocaleString()}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

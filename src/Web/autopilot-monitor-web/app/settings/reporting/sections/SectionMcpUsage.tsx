@@ -104,12 +104,12 @@ export function SectionMcpUsage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">MCP Usage</h2>
           {upn && <p className="text-sm text-gray-500">{upn}</p>}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {/* Plan Badge */}
           {usagePlan && (
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
@@ -144,18 +144,18 @@ export function SectionMcpUsage() {
       )}
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white rounded-lg shadow p-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <div className="bg-white rounded-lg shadow p-4 sm:p-6">
           <div className="text-sm text-gray-500 mb-1">Today&apos;s Requests</div>
-          <div className="text-3xl font-bold text-indigo-600">{todayRequests.toLocaleString()}</div>
+          <div className="text-2xl sm:text-3xl font-bold text-indigo-600">{todayRequests.toLocaleString()}</div>
         </div>
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-white rounded-lg shadow p-4 sm:p-6">
           <div className="text-sm text-gray-500 mb-1">Total Requests ({dateRange})</div>
-          <div className="text-3xl font-bold text-blue-600">{totalRequests.toLocaleString()}</div>
+          <div className="text-2xl sm:text-3xl font-bold text-blue-600">{totalRequests.toLocaleString()}</div>
         </div>
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-white rounded-lg shadow p-4 sm:p-6">
           <div className="text-sm text-gray-500 mb-1">Active Days</div>
-          <div className="text-3xl font-bold text-green-600">{dailyAggregates.length}</div>
+          <div className="text-2xl sm:text-3xl font-bold text-green-600">{dailyAggregates.length}</div>
         </div>
       </div>
 
