@@ -44,6 +44,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         // Strict limits for the unauthenticated endpoint.
         // MaxContentLength bumped from 1024 -> 1536 to accommodate the V2 cert-context fields
         // (Thumbprint + Subject + Issuer + NotBefore/After + SourceState ~430 bytes worst-case).
+        // The IsCloudPc bool (2026-08) adds ≤ 18 bytes ("\"IsCloudPc\":false,") — well within
+        // the existing headroom, no bump needed.
         // Rate-limiting (per-IP + per-tenant + global circuit breaker) remains the primary
         // DoS defense — the size cap is a payload-shape gate, not the throttle.
         internal const int MaxContentLength = 1536;
@@ -204,6 +206,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     AgentTimestamp  = report.Timestamp,
                     IngestedAt      = DateTime.UtcNow,
                     SourceIp        = clientIp,
+                    IsCloudPc       = report.IsCloudPc,
                     CertSourceState = certSourceState,
                     CertThumbprint  = certThumbprint,
                     CertSubject     = certSubject,
@@ -297,8 +300,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
 
                 // Structured log (Warning, not Critical — data is unverified)
                 _logger.LogWarning(
-                    "AgentDistress [{ErrorType}] tenant={TenantId} mfr={Manufacturer} model={Model} sn={SerialNumber} http={HttpStatusCode} ver={AgentVersion} certState={CertSourceState} thumbprint={CertThumbprint}: {Message}",
-                    report.ErrorType, tenantId, manufacturer, model, serialNumber,
+                    "AgentDistress [{ErrorType}] tenant={TenantId} mfr={Manufacturer} model={Model} sn={SerialNumber} cloudPc={IsCloudPc} http={HttpStatusCode} ver={AgentVersion} certState={CertSourceState} thumbprint={CertThumbprint}: {Message}",
+                    report.ErrorType, tenantId, manufacturer, model, serialNumber, report.IsCloudPc,
                     report.HttpStatusCode, agentVersion, certSourceState ?? "n/a", certThumbprint ?? "n/a", message);
 
                 // Custom event for KQL queries:
@@ -315,6 +318,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     ["Message"]         = message ?? string.Empty,
                     ["AgentTimestamp"]  = report.Timestamp.ToString("O"),
                     ["SourceIp"]        = clientIp,
+                    ["IsCloudPc"]       = report.IsCloudPc.ToString(),
                     ["CertSourceState"] = certSourceState ?? string.Empty,
                     ["CertThumbprint"]  = certThumbprint ?? string.Empty,
                     ["CertSubject"]     = certSubject ?? string.Empty,

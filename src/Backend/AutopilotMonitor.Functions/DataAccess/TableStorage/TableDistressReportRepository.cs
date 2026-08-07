@@ -43,6 +43,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 ["AgentTimestamp"]  = entry.AgentTimestamp,
                 ["IngestedAt"]      = entry.IngestedAt,
                 ["SourceIp"]        = Truncate(entry.SourceIp, 45), // max IPv6 length
+                ["IsCloudPc"]       = entry.IsCloudPc,
                 ["CertSourceState"] = Truncate(entry.CertSourceState, 32),
                 ["CertThumbprint"]  = Truncate(entry.CertThumbprint, 40),
                 ["CertSubject"]     = Truncate(entry.CertSubject, 96),
@@ -125,6 +126,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 AgentTimestamp  = entity.GetDateTimeOffset("AgentTimestamp")?.UtcDateTime ?? DateTime.MinValue,
                 IngestedAt      = entity.GetDateTimeOffset("IngestedAt")?.UtcDateTime ?? DateTime.MinValue,
                 SourceIp        = entity.GetString("SourceIp"),
+                IsCloudPc       = entity.GetBoolean("IsCloudPc") ?? false,
                 CertSourceState = entity.GetString("CertSourceState"),
                 CertThumbprint  = entity.GetString("CertThumbprint"),
                 CertSubject     = entity.GetString("CertSubject"),

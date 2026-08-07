@@ -101,7 +101,7 @@ installed `CloudManagedDesktopExtension` service (probed via its
 `HKLM\SYSTEM\CurrentControlSet\Services` key; the agent deliberately has no
 `System.ServiceProcess` dependency). SKIP-safe: any error resolves `false`.
 
-Two independent transport rails, never an auth input:
+Three independent transport rails, never an auth input:
 
 - **Session metadata** — `SessionRegistration.IsCloudPc` →
   Sessions table (sticky-true OR across re-registrations, like
@@ -110,6 +110,15 @@ Two independent transport rails, never an auth input:
   MCP `search_sessions`/`query_raw_sessions`). Agent-reported and unverified —
   can legitimately disagree with the server-derived `ValidatedBy = CloudPc`
   (e.g. Cloud PC admitted via a stage that ran earlier).
+- **Distress channel** — `DistressReport.IsCloudPc` (captured once at
+  `DistressReporter` construction, `BackendClientFactory`) rides every pre-auth
+  distress report → `DistressReportEntry.IsCloudPc` → the "Devices Not
+  Registered" report aggregates it **sticky-true** per serial
+  (`GetDeviceNotRegisteredFunction`) and the portal insight renders a Cloud PC
+  badge plus a hint pointing at the Cloud PC validation toggle + the
+  `W365CloudPcValidation` add-on. Same UNVERIFIED contract as all distress
+  fields; rows from older agents read false. Fits the existing 1536-byte
+  payload cap without a bump.
 - **Decision engine** — the marker rides the `EnrollmentFactsObserved` payload
   (`isCloudPc`), is recorded set-once for BOTH values in
   `EnrollmentScenarioObservations.CloudPc`, and annotates the scenario profile

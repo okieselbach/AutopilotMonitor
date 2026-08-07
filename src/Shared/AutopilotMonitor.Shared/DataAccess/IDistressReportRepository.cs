@@ -30,6 +30,12 @@ namespace AutopilotMonitor.Shared.DataAccess
         public DateTime IngestedAt { get; set; }
         public string? SourceIp { get; set; }
 
+        /// <summary>
+        /// Agent-reported W365 marker verdict (CloudPcDetector). UNVERIFIED like every distress
+        /// field; false for rows written before the field existed.
+        /// </summary>
+        public bool IsCloudPc { get; set; }
+
         // Cert-context fields (V2 agents only). All optional; legacy entries leave these null.
         // Format-validated and length-capped at ingest; treat as UNVERIFIED claims.
         public string? CertSourceState { get; set; }

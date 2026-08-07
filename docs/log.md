@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-07 (later)
+
+* **Update**: `backend/cloudpc-device-validation.md` — third `IsCloudPc` transport rail: the pre-auth distress channel. `DistressReport.IsCloudPc` (CloudPcDetector verdict captured at `DistressReporter` construction) → `DistressReportEntry`/table column → "Devices Not Registered" aggregation (sticky-true per serial, same OR semantics as the Sessions merge) → portal Cloud PC badge + actionable hint ("enable Windows 365 Cloud PC Validation + W365CloudPcValidation add-on"). Motivated by the first W365 field run: the rejected Cloud PC showed up as anonymous "Microsoft Corporation / Virtual Machine" with no clue that the fix is the Cloud PC validator, not Autopilot registration. UNVERIFIED like all distress fields; ≤18 bytes, fits the 1536-byte cap.
+
 ## 2026-08-07
 
 * **Update**: `backend/cloudpc-device-validation.md` — the "deliberately out of scope" follow-up landed in the same PR: agent-side `IsCloudPc` flag (`CloudPcDetector`, bootstrap-verified marker AND: Windows365 key + CloudManagedDesktopExtension service key, SKIP-safe) rides two rails — `SessionRegistration` → Sessions/Index (sticky-true) → `SessionSummary` + `isCloudPc` search filter (portal/raw/MCP), and the `EnrollmentFactsObserved` payload → `EnrollmentScenarioObservations.CloudPc` (set-once, both values) with profile reason `cloud_pc_first_connect:no_device_esp_expected` + `cloud_pc_marker` in the audit-trail census. Reason+observation only: no completion arm depends on DeviceSetup, Mode stays AccountSetup/IME-classified, EspConfig keeps configured-FirstSync semantics. Never an auth input.

@@ -102,7 +102,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 serialNumber: hardware.SerialNumber,
                 agentVersion: agentVersion,
                 logger: logger,
-                clientCertificate: clientCertificate);
+                clientCertificate: clientCertificate,
+                isCloudPc: CloudPcDetector.DetectIsCloudPc());
 
             var emergencyReporter = new EmergencyReporter(
                 apiClient: backendApiClient,

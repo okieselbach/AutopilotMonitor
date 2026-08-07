@@ -8,6 +8,8 @@ interface AggregatedNotRegistered {
   serialNumber: string;
   manufacturer: string;
   model: string;
+  /** Agent-reported W365 marker verdict (unverified, like all distress fields). Absent on older backends. */
+  isCloudPc?: boolean;
   attemptCount: number;
   firstSeen: string;
   lastSeen: string;
@@ -145,14 +147,24 @@ export default function NotRegisteredDevicesInsights({
       {/* Data quality notice + table (only when devices exist) */}
       {hasDevices && (
         <>
-          <div className="px-6 pt-4">
+          <div className="px-6 pt-4 space-y-3">
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
               <p className="text-xs text-amber-800">
-                This data comes from pre-authentication distress signals. Serial number, manufacturer, and
-                model values are self-reported and unverified. Use it to sanity-check whether your enrollment
-                scoping/assignment covers these devices.
+                This data comes from pre-authentication distress signals. Serial number, manufacturer,
+                model, and the Cloud PC marker are self-reported and unverified. Use it to sanity-check
+                whether your enrollment scoping/assignment covers these devices.
               </p>
             </div>
+            {data!.aggregated.some((row) => row.isCloudPc) && (
+              <div className="bg-sky-50 border border-sky-200 rounded-lg p-3">
+                <p className="text-xs text-sky-800">
+                  Devices marked <strong>Cloud PC</strong> identify as Windows 365 Cloud PCs. Cloud PCs are
+                  never Autopilot-registered — enable <strong>Windows 365 Cloud PC Validation</strong> above
+                  (and grant the <strong>W365CloudPcValidation</strong> add-on under Optional Graph
+                  capabilities) so they can be admitted.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="p-6">
@@ -173,7 +185,17 @@ export default function NotRegisteredDevicesInsights({
                     <tr key={`${row.serialNumber}|${idx}`}>
                       <td className="py-3 pr-4 font-mono text-gray-900">{row.serialNumber || "–"}</td>
                       <td className="py-3 pr-4 text-gray-700">{row.manufacturer || "–"}</td>
-                      <td className="py-3 pr-4 text-gray-700">{row.model || "–"}</td>
+                      <td className="py-3 pr-4 text-gray-700">
+                        {row.model || "–"}
+                        {row.isCloudPc && (
+                          <span
+                            className="ml-2 px-2 inline-flex items-center gap-1 text-xs leading-5 font-semibold rounded-full bg-sky-100 text-sky-800"
+                            title="Windows 365 Cloud PC (agent-detected W365 markers, unverified)"
+                          >
+                            Cloud PC
+                          </span>
+                        )}
+                      </td>
                       <td className="py-3 pr-4 text-right font-mono text-gray-900">{row.attemptCount}</td>
                       <td className="py-3 pr-4 text-gray-500 whitespace-nowrap">{formatDate(row.firstSeen)}</td>
                       <td className="py-3 text-gray-500 whitespace-nowrap">{formatDate(row.lastSeen)}</td>

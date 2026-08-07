@@ -49,7 +49,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                     success = true,
                     aggregated,
                     totalRawReports,
-                    dataQualityNotice = "This data is from pre-authentication distress reports and is UNVERIFIED. Devices reported here were rejected with HTTP 403 because they were not found in the tenant's Autopilot or Corporate Identifier registry. Serial number, manufacturer, and model values are self-reported by devices."
+                    dataQualityNotice = "This data is from pre-authentication distress reports and is UNVERIFIED. Devices reported here were rejected with HTTP 403 because they were not found in the tenant's Autopilot or Corporate Identifier registry. Serial number, manufacturer, model, and the Cloud PC marker are self-reported by devices."
                 });
             }
             catch (Exception ex)
@@ -81,6 +81,10 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                         serialNumber = mostRecent.SerialNumber ?? "",
                         manufacturer = mostRecent.Manufacturer ?? "",
                         model = mostRecent.Model ?? "",
+                        // Sticky-true across the group (same OR semantics as the Sessions-table
+                        // IsCloudPc merge): older agents in the mix report false for the same
+                        // device, and a once-seen W365 marker must not flap back to false.
+                        isCloudPc = g.Any(r => r.IsCloudPc),
                         attemptCount = g.Count(),
                         firstSeen = g.Min(r => r.IngestedAt),
                         lastSeen = g.Max(r => r.IngestedAt)

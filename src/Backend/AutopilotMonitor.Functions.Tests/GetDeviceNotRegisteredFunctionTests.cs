@@ -165,11 +165,48 @@ public class GetDeviceNotRegisteredFunctionTests
     }
 
     // =========================================================================
+    // Cloud PC marker aggregation
+    // =========================================================================
+
+    [Fact]
+    public void BuildAggregatedResult_IsCloudPc_StickyTrueAcrossGroup()
+    {
+        // One old agent (no field → false) + one new agent reporting the W365 marker:
+        // the aggregate must say Cloud PC even though the MOST RECENT report is false —
+        // same OR semantics as the Sessions-table IsCloudPc merge.
+        var reports = new List<DistressReportEntry>
+        {
+            MakeEntry("DeviceNotRegistered", "Microsoft Corporation", "Virtual Machine", "SN1", T0, isCloudPc: true),
+            MakeEntry("DeviceNotRegistered", "Microsoft Corporation", "Virtual Machine", "SN1", T0.AddMinutes(5), isCloudPc: false),
+        };
+
+        var (aggregated, _) = GetDeviceNotRegisteredFunction.BuildAggregatedResult(reports);
+
+        var item = ToDynamic(aggregated[0]);
+        Assert.True((bool)item.isCloudPc);
+    }
+
+    [Fact]
+    public void BuildAggregatedResult_IsCloudPc_FalseWhenNoReportCarriesMarker()
+    {
+        var reports = new List<DistressReportEntry>
+        {
+            MakeEntry("DeviceNotRegistered", "Lenovo", "ThinkPad T14", "SN1", T0),
+        };
+
+        var (aggregated, _) = GetDeviceNotRegisteredFunction.BuildAggregatedResult(reports);
+
+        var item = ToDynamic(aggregated[0]);
+        Assert.False((bool)item.isCloudPc);
+    }
+
+    // =========================================================================
     // Helpers
     // =========================================================================
 
     private static DistressReportEntry MakeEntry(
-        string errorType, string? manufacturer, string? model, string? serial, DateTime ingestedAt) =>
+        string errorType, string? manufacturer, string? model, string? serial, DateTime ingestedAt,
+        bool isCloudPc = false) =>
         new()
         {
             TenantId = "test-tenant",
@@ -179,6 +216,7 @@ public class GetDeviceNotRegisteredFunctionTests
             SerialNumber = serial,
             IngestedAt = ingestedAt,
             AgentTimestamp = ingestedAt,
+            IsCloudPc = isCloudPc,
         };
 
     private static dynamic ToDynamic(object obj)

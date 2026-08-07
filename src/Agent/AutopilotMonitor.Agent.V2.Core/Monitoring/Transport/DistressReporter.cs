@@ -56,6 +56,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         private DateTime? _lastReportTime;
         private int _reportCount;
 
+        // Local W365 marker verdict, captured once at construction (same UNVERIFIED contract
+        // as the hardware fields). Optional ctor arg so test fakes stay source-compatible.
+        private readonly bool _isCloudPc;
+
         public DistressReporter(
             string baseUrl,
             string tenantId,
@@ -64,7 +68,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             string serialNumber,
             string agentVersion,
             AgentLogger logger,
-            X509Certificate2 clientCertificate = null)
+            X509Certificate2 clientCertificate = null,
+            bool isCloudPc = false)
         {
             _tenantId = tenantId;
             _manufacturer = manufacturer;
@@ -72,6 +77,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             _serialNumber = serialNumber;
             _agentVersion = agentVersion;
             _logger = logger;
+            _isCloudPc = isCloudPc;
 
             // Capture cert context. Each field is independently nullable so the backend can tell
             // "agent had no cert at all" (NoCertInStore + all-null fields) from "agent had a cert
@@ -169,6 +175,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                 HttpStatusCode = httpStatusCode,
                 Message = Truncate(message, 256),
                 Timestamp = DateTime.UtcNow,
+                IsCloudPc = _isCloudPc,
                 CertSourceState = _capturedCertState,
                 CertThumbprint = _capturedCertThumbprint,
                 CertSubject = Truncate(_capturedCertSubject, 96),

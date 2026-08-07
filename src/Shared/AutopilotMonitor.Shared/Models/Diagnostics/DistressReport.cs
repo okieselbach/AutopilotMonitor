@@ -129,6 +129,15 @@ namespace AutopilotMonitor.Shared.Models
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 
         /// <summary>
+        /// True when the agent's local W365 marker check (<c>CloudPcDetector</c>: Windows365
+        /// registry key AND CloudManagedDesktopExtension service) identified the device as a
+        /// Windows 365 Cloud PC. Unverified like all distress fields — pure triage context:
+        /// a rejected Cloud PC points the admin at the Cloud PC validation toggle instead of
+        /// a futile Autopilot-registration hunt. False for older agents that predate the field.
+        /// </summary>
+        public bool IsCloudPc { get; set; }
+
+        /// <summary>
         /// Agent's classification of the cert state at the time of the failing call. V2 agents only.
         /// Optional; left null/Unknown by V1 agents. Validated server-side with <c>Enum.IsDefined</c>.
         /// </summary>
