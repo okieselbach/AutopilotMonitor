@@ -80,7 +80,9 @@ export const metadata: Metadata = {
   icons: {
     icon: "/icon.svg",
     shortcut: "/icon.svg",
-    apple: "/icon.svg",
+    // Safari cannot use SVG for apple-touch-icon; must be an opaque PNG
+    // (served by the app/apple-icon.png file convention).
+    apple: "/apple-icon.png",
   },
 };
 
