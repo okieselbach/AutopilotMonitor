@@ -39,9 +39,9 @@ public static class EmailTemplates
 
         <!-- Header -->
         <tr>
-          <td style=""background:linear-gradient(135deg,#2563eb,#4f46e5); padding:32px 40px; text-align:center;"">
+          <td style=""background:linear-gradient(135deg,#1e8a4c,#33b161); padding:32px 40px; text-align:center;"">
             <h1 style=""color:#ffffff; margin:0; font-size:24px; font-weight:700;"">Autopilot Monitor</h1>
-            <p style=""color:#c7d2fe; margin:8px 0 0; font-size:14px;"">Windows Autopilot monitoring</p>
+            <p style=""color:#c9efd8; margin:8px 0 0; font-size:14px;"">Windows Autopilot monitoring</p>
           </td>
         </tr>
 
@@ -68,8 +68,8 @@ public static class EmailTemplates
             </p>
 
             <ul style=""color:#374151; font-size:14px; line-height:1.8; margin:0 0 24px; padding-left:20px;"">
-              <li><a href=""https://github.com/okieselbach/AutopilotMonitor/issues"" target=""_blank"" style=""color:#2563eb; text-decoration:underline;"">Open a GitHub Issue</a></li>
-              <li><a href=""https://www.linkedin.com/in/oliver-kieselbach/"" target=""_blank"" style=""color:#2563eb; text-decoration:underline;"">Connect on LinkedIn</a></li>
+              <li><a href=""https://github.com/okieselbach/AutopilotMonitor/issues"" target=""_blank"" style=""color:#1e8a4c; text-decoration:underline;"">Open a GitHub Issue</a></li>
+              <li><a href=""https://www.linkedin.com/in/oliver-kieselbach/"" target=""_blank"" style=""color:#1e8a4c; text-decoration:underline;"">Connect on LinkedIn</a></li>
             </ul>
 
             <p style=""color:#374151; font-size:15px; line-height:1.6; margin:0 0 24px;"">
@@ -117,9 +117,9 @@ public static class EmailTemplates
 
         <!-- Header -->
         <tr>
-          <td style=""background:linear-gradient(135deg,#2563eb,#4f46e5); padding:32px 40px; text-align:center;"">
+          <td style=""background:linear-gradient(135deg,#1e8a4c,#33b161); padding:32px 40px; text-align:center;"">
             <h1 style=""color:#ffffff; margin:0; font-size:24px; font-weight:700;"">Autopilot Monitor</h1>
-            <p style=""color:#c7d2fe; margin:8px 0 0; font-size:14px;"">Windows Autopilot monitoring</p>
+            <p style=""color:#c9efd8; margin:8px 0 0; font-size:14px;"">Windows Autopilot monitoring</p>
           </td>
         </tr>
 
@@ -140,7 +140,7 @@ public static class EmailTemplates
             <!-- CTA Button -->
             <table cellpadding=""0"" cellspacing=""0"" style=""margin:0 auto 32px;"">
               <tr>
-                <td style=""background-color:#2563eb; border-radius:8px;"">
+                <td style=""background-color:#1e8a4c; border-radius:8px;"">
                   <a href=""{Constants.DocsBaseUrl}"" target=""_blank""
                      style=""display:inline-block; padding:14px 32px; color:#ffffff; font-size:15px; font-weight:600; text-decoration:none;"">
                     View Documentation
@@ -164,8 +164,8 @@ public static class EmailTemplates
             </p>
 
             <ul style=""color:#374151; font-size:14px; line-height:1.8; margin:0 0 24px; padding-left:20px;"">
-              <li><a href=""https://github.com/okieselbach/AutopilotMonitor/issues"" target=""_blank"" style=""color:#2563eb; text-decoration:underline;"">Open a GitHub Issue</a></li>
-              <li><a href=""https://www.linkedin.com/in/oliver-kieselbach/"" target=""_blank"" style=""color:#2563eb; text-decoration:underline;"">Connect on LinkedIn</a></li>
+              <li><a href=""https://github.com/okieselbach/AutopilotMonitor/issues"" target=""_blank"" style=""color:#1e8a4c; text-decoration:underline;"">Open a GitHub Issue</a></li>
+              <li><a href=""https://www.linkedin.com/in/oliver-kieselbach/"" target=""_blank"" style=""color:#1e8a4c; text-decoration:underline;"">Connect on LinkedIn</a></li>
             </ul>
 
             <p style=""color:#6b7280; font-size:14px; line-height:1.6; margin:0;"">
