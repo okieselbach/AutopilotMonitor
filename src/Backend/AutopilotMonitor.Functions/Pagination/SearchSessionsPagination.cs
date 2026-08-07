@@ -48,6 +48,7 @@ namespace AutopilotMonitor.Functions.Pagination
                 new KeyValuePair<string, string?>("isPreProvisioned", filter.IsPreProvisioned?.ToString()),
                 new KeyValuePair<string, string?>("isHybridJoin", filter.IsHybridJoin?.ToString()),
                 new KeyValuePair<string, string?>("isSelfDeployingProfile", filter.IsSelfDeployingProfile?.ToString()),
+                new KeyValuePair<string, string?>("isCloudPc", filter.IsCloudPc?.ToString()),
                 new KeyValuePair<string, string?>("geoCountry", filter.GeoCountry),
                 new KeyValuePair<string, string?>("startedAfter", filter.StartedAfter?.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture)),
                 new KeyValuePair<string, string?>("startedBefore", filter.StartedBefore?.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture)),

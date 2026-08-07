@@ -22,7 +22,8 @@ namespace AutopilotMonitor.Shared.Models
         AutopilotV1 = 1,           // AutopilotDeviceValidator (windowsAutopilotDeviceIdentities)
         CorporateIdentifier = 2,   // CorporateIdentifierValidator (importedDeviceIdentities)
         DeviceAssociation = 3,     // DevPrep DeviceAssociationValidator (tenantAssociatedDevices) — future
-        Bootstrap = 4              // Bootstrap token auth (pre-MDM OOBE)
+        Bootstrap = 4,             // Bootstrap token auth (pre-MDM OOBE)
+        CloudPc = 5                // CloudPcDeviceValidator (virtualEndpoint/cloudPCs, cert-CN bound) — W365
     }
 
     /// <summary>
@@ -361,6 +362,15 @@ namespace AutopilotMonitor.Shared.Models
         /// sticky-true across re-registrations.
         /// </summary>
         public bool IsSelfDeployingProfile { get; set; }
+
+        /// <summary>
+        /// Whether the agent identified the device as a Windows 365 Cloud PC (Windows365
+        /// registry key + CloudManagedDesktopExtension service, marker AND). Sent by the
+        /// agent at registration; sticky-true across re-registrations. Agent-reported
+        /// context — independent of ValidatedBy == CloudPc, which is the server-derived
+        /// cert-CN-bound Graph verification.
+        /// </summary>
+        public bool IsCloudPc { get; set; }
 
         // Device detail fields — stored in the Sessions table but omitted from earlier versions
         public string OsName { get; set; } = default!;

@@ -168,6 +168,69 @@ public class StoreSessionReregistrationPreserveTests
         Assert.True(harness.Written!.GetBoolean("IsSelfDeployingProfile"));
     }
 
+    [Fact]
+    public async Task StoreSessionAsync_cloudPc_isStickyTrue_acrossReregistration()
+    {
+        // W365 marker mirrors the self-deploying sticky-true contract: once a boot observed
+        // the Cloud PC markers, a later re-registration whose registry/service probe degraded
+        // (registration.IsCloudPc=false) must NOT clear the fact.
+        var existing = new TableEntity(TenantId, SessionId)
+        {
+            ["StartedAt"] = new DateTimeOffset(new DateTime(2026, 1, 1, 8, 0, 0, DateTimeKind.Utc)),
+            ["Status"] = "InProgress",
+            ["IsCloudPc"] = true,
+        };
+        existing.ETag = new ETag("0xEXISTING");
+        var harness = new Harness(existing);
+
+        var registration = new SessionRegistration
+        {
+            TenantId = TenantId,
+            SessionId = SessionId,
+            StartedAt = new DateTime(2026, 1, 1, 9, 0, 0, DateTimeKind.Utc),
+            SerialNumber = "SN-1",
+            Manufacturer = "Contoso",
+            Model = "Model-X",
+            DeviceName = "PC-1",
+            IsCloudPc = false, // fresh marker read degraded
+        };
+
+        var ok = await harness.Sut.StoreSessionAsync(registration);
+
+        Assert.True(ok);
+        Assert.True(harness.Written!.GetBoolean("IsCloudPc"));
+    }
+
+    [Fact]
+    public async Task StoreSessionAsync_cloudPc_upgradesFalseToTrue_onReregistration()
+    {
+        var existing = new TableEntity(TenantId, SessionId)
+        {
+            ["StartedAt"] = new DateTimeOffset(new DateTime(2026, 1, 1, 8, 0, 0, DateTimeKind.Utc)),
+            ["Status"] = "InProgress",
+            ["IsCloudPc"] = false,
+        };
+        existing.ETag = new ETag("0xEXISTING");
+        var harness = new Harness(existing);
+
+        var registration = new SessionRegistration
+        {
+            TenantId = TenantId,
+            SessionId = SessionId,
+            StartedAt = new DateTime(2026, 1, 1, 9, 0, 0, DateTimeKind.Utc),
+            SerialNumber = "SN-1",
+            Manufacturer = "Contoso",
+            Model = "Model-X",
+            DeviceName = "PC-1",
+            IsCloudPc = true,
+        };
+
+        var ok = await harness.Sut.StoreSessionAsync(registration);
+
+        Assert.True(ok);
+        Assert.True(harness.Written!.GetBoolean("IsCloudPc"));
+    }
+
     // ============================================================ Harness ====
 
     /// <summary>

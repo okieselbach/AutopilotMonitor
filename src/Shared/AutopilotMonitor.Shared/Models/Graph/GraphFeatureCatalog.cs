@@ -14,11 +14,15 @@ namespace AutopilotMonitor.Shared.Models.Graph
         /// <summary>Resolves Intune Platform Script + Remediation Script display names in session timelines.</summary>
         public const string FeatureScriptDisplayNames = "ScriptDisplayNames";
 
+        /// <summary>Validates Windows 365 Cloud PCs via the service-side Cloud PC inventory (cert-CN bound).</summary>
+        public const string FeatureW365CloudPcValidation = "W365CloudPcValidation";
+
         // Backed by a plain dictionary (netstandard2.0 + C# 9, no Immutable types).
         private static readonly Dictionary<string, string[]> _byFeature
             = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
             {
                 [FeatureScriptDisplayNames] = new[] { GraphAppPermissions.DeviceManagementScriptsReadAll },
+                [FeatureW365CloudPcValidation] = new[] { GraphAppPermissions.CloudPCReadAll },
             };
 
         /// <summary>All registered feature identifiers.</summary>

@@ -137,6 +137,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
             Assert.Equal(Environment.MachineName, captured.DeviceName);
             Assert.False(string.IsNullOrEmpty(captured.EnrollmentType));
             Assert.True(captured.IsUserDriven);
+            // W365 marker rides the registration body. A build host is not a Cloud PC
+            // (marker-AND: Windows365 key + CloudManagedDesktopExtension service), so the
+            // detector's SKIP-safe default is what must land here.
+            Assert.False(captured.IsCloudPc);
         }
 
         [Fact]

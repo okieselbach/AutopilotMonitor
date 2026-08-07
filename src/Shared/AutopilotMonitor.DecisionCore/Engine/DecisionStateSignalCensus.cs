@@ -155,6 +155,14 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     ["withUser"] = obs.AadUserJoinWithUserObserved.Value,
                 };
             }
+            // W365 — surfaced so terminal audit trails show the session ran on a Cloud PC,
+            // where a missing DeviceSetup phase is expected (Device-ESP completed headless at
+            // provisioning), not an anomaly. Positive marker only; false adds no signal.
+            if (obs.CloudPc?.Value == true)
+            {
+                seen.Add("cloud_pc_marker");
+                evidence["cloudPcMarker"] = OrdinalEvidence(obs.CloudPc.SourceSignalOrdinal);
+            }
 
             return new SignalCensusResult(seen, timestamps, evidence);
         }

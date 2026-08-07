@@ -2,7 +2,7 @@ import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/utils/config";
 
-const LAST_UPDATED = "31 July 2026";
+const LAST_UPDATED = "6 August 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
 const DOCS_DATA_FLOWS = `${DOCS_URL}/trust/data-flows`;
 
@@ -197,7 +197,7 @@ export default function PrivacyPage() {
           <h2 className="text-lg font-semibold text-gray-900 mt-6">How Your Data Is Protected</h2>
           <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
             <li><strong>Device authentication by mutual TLS</strong> using the Intune MDM client certificate, validated against pinned Intune root CAs rather than the operating system trust store — and rejected if no trust anchor loads</li>
-            <li><strong>Autopilot device validation via Microsoft Graph</strong> — only devices registered in your tenant are accepted, with an optional hardware allow-list on top</li>
+            <li><strong>Device registration validation via Microsoft Graph</strong> — only devices your tenant actually knows are accepted (Windows Autopilot registration, corporate device identifiers, or the Windows 365 Cloud PC inventory), with an optional hardware allow-list on top</li>
             <li><strong>Entra ID authentication</strong> for portal users with a restricted signing-algorithm allow-list and identity PII logging disabled</li>
             <li><strong>Fail-closed authorization</strong> — every API route must be registered with an access policy; an unregistered route is unreachable</li>
             <li><strong>Structural tenant isolation</strong> — storage partitioning by tenant, with the tenant identity taken from the validated token and never from a client-supplied header</li>

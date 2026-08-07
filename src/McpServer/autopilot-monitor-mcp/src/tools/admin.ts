@@ -894,6 +894,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         isPreProvisioned: z.boolean().optional().describe('Filter pre-provisioned (white-glove) sessions'),
         isHybridJoin: z.boolean().optional().describe('Filter hybrid AAD-join sessions'),
         isSelfDeployingProfile: z.boolean().optional().describe('Filter self-deploying/kiosk profile sessions (CloudAssignedOobeConfig 0x20|0x40)'),
+        isCloudPc: z.boolean().optional().describe('Filter Windows 365 Cloud PC sessions (agent-detected W365 markers, sticky-true; independent of ValidatedBy="CloudPc")'),
         connectionType: z.enum(['WiFi', 'Ethernet']).optional()
           .describe('Active network connection type ("WiFi" or "Ethernet", exact match on the indexed column; last emission wins). Sessions predating the projection lack the column and are excluded.'),
         fields: z.string().optional().describe('Comma-separated pass-through projection over the literal stored column names (case-insensitive, PascalCase, e.g. "Status,OsEdition,ImeAgentVersion,GeoCity"); narrows the row but never drops a real column. PartitionKey + RowKey are always kept. Omit for the full raw row.'),
@@ -908,14 +909,14 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       try {
         const { tenantId: rawTenantId, status, startedAfter, startedBefore, serialNumber, agentVersion, agentVersionPrefix,
           imeAgentVersion, imeAgentVersionPrefix, manufacturer, model, enrollmentType, deviceName, osBuild,
-          geoCountry, isPreProvisioned, isHybridJoin, isSelfDeployingProfile, connectionType, fields, pageSize, continuation } = args;
+          geoCountry, isPreProvisioned, isHybridJoin, isSelfDeployingProfile, isCloudPc, connectionType, fields, pageSize, continuation } = args;
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         const basePath = pickGlobalOrTenantPath('/api/global/raw/sessions', '/api/raw/sessions', tenantId);
         const path = followNextLink(
           basePath,
           { tenantId, status, startedAfter, startedBefore, serialNumber, agentVersion, agentVersionPrefix,
             imeAgentVersion, imeAgentVersionPrefix, manufacturer, model, enrollmentType, deviceName, osBuild,
-            geoCountry, isPreProvisioned, isHybridJoin, isSelfDeployingProfile, connectionType, fields, pageSize },
+            geoCountry, isPreProvisioned, isHybridJoin, isSelfDeployingProfile, isCloudPc, connectionType, fields, pageSize },
           continuation,
         );
         const data = await apiFetch(path);

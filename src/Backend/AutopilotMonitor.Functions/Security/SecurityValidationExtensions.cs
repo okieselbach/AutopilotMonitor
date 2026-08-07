@@ -33,9 +33,10 @@ namespace AutopilotMonitor.Functions.Security
             ILogger logger,
             string? sessionId = null,
             BootstrapSessionService? bootstrapSessionService = null,
-            DeviceAssociationValidator? deviceAssociationValidator = null)
+            DeviceAssociationValidator? deviceAssociationValidator = null,
+            CloudPcDeviceValidator? cloudPcDeviceValidator = null)
         {
-            var validator = new SecurityValidator(configService, adminConfigService, rateLimitService, autopilotDeviceValidator, corporateIdentifierValidator, logger, bootstrapSessionService, deviceAssociationValidator);
+            var validator = new SecurityValidator(configService, adminConfigService, rateLimitService, autopilotDeviceValidator, corporateIdentifierValidator, logger, bootstrapSessionService, deviceAssociationValidator, cloudPcDeviceValidator);
             var validation = await validator.ValidateRequestAsync(req, tenantId, sessionId);
 
             if (!validation.IsValid)

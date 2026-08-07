@@ -103,6 +103,16 @@ namespace AutopilotMonitor.Shared.Models
         public bool IsSelfDeployingProfile { get; set; }
 
         /// <summary>
+        /// Whether the agent identified the device as a Windows 365 Cloud PC (marker AND:
+        /// HKLM\SOFTWARE\Microsoft\Windows365 key + installed CloudManagedDesktopExtension
+        /// service — the evidence set field-verified by bootstrap v2.3-dev.2). Display/filter
+        /// metadata only, agent-reported and NOT server-verified; the authoritative Cloud PC
+        /// auth signal is ValidatedBy == CloudPc (cert-CN-bound Graph lookup). The two can
+        /// legitimately disagree, e.g. when a Cloud PC is admitted via Autopilot validation.
+        /// </summary>
+        public bool IsCloudPc { get; set; }
+
+        /// <summary>
         /// Which backend device-validation path accepted this registration (Autopilot S/N,
         /// Corporate Identifier, Device Association, or Bootstrap token). SERVER-POPULATED:
         /// RegisterSessionFunction overwrites this unconditionally from its own

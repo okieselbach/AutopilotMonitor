@@ -131,6 +131,16 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// </summary>
         public const string IsSelfDeployingProfile = "isSelfDeployingProfile";
 
+        /// <summary>
+        /// On <c>EnrollmentFactsObserved</c>: "true" / "false" from
+        /// <c>CloudPcDetector.DetectIsCloudPc()</c> — the Windows 365 Cloud PC marker AND
+        /// (Windows365 registry key + CloudManagedDesktopExtension service). On a Cloud PC
+        /// first connect the Device-ESP phase already ran headless at provisioning time, so
+        /// the engine must expect the session to start at Account Setup with no DeviceSetup
+        /// signals ever arriving.
+        /// </summary>
+        public const string IsCloudPc = "isCloudPc";
+
         // --- InformationalEvent payload (plan §1.3, single-rail refactor) ------------
         // Mirrors the EnrollmentEvent fields the reducer must reconstruct for the
         // EmitEventTimelineEntry effect. EventType / Source are mandatory; the rest are

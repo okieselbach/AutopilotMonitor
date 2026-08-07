@@ -47,6 +47,7 @@ namespace AutopilotMonitor.Functions.Security
         private readonly AutopilotDeviceValidator _autopilotDeviceValidator;
         private readonly CorporateIdentifierValidator _corporateIdentifierValidator;
         private readonly DeviceAssociationValidator? _deviceAssociationValidator;
+        private readonly CloudPcDeviceValidator? _cloudPcDeviceValidator;
         private readonly BootstrapSessionService? _bootstrapSessionService;
         private readonly ILogger _logger;
 
@@ -58,7 +59,8 @@ namespace AutopilotMonitor.Functions.Security
             CorporateIdentifierValidator corporateIdentifierValidator,
             ILogger logger,
             BootstrapSessionService? bootstrapSessionService = null,
-            DeviceAssociationValidator? deviceAssociationValidator = null)
+            DeviceAssociationValidator? deviceAssociationValidator = null,
+            CloudPcDeviceValidator? cloudPcDeviceValidator = null)
         {
             _configService = configService;
             _adminConfigService = adminConfigService;
@@ -66,6 +68,7 @@ namespace AutopilotMonitor.Functions.Security
             _autopilotDeviceValidator = autopilotDeviceValidator;
             _corporateIdentifierValidator = corporateIdentifierValidator;
             _deviceAssociationValidator = deviceAssociationValidator;
+            _cloudPcDeviceValidator = cloudPcDeviceValidator;
             _bootstrapSessionService = bootstrapSessionService;
             _logger = logger;
         }
@@ -235,14 +238,14 @@ namespace AutopilotMonitor.Functions.Security
             // Security validation is always enforced (no longer configurable per tenant)
             // Hard gate: tenant must enable at least one device validation method before agent traffic is accepted.
             // Global Admins can set AllowInsecureAgentRequests=true in the config row for test tenants.
-            if (!config.ValidateAutopilotDevice && !config.ValidateCorporateIdentifier && !config.AllowInsecureAgentRequests)
+            if (!config.ValidateAutopilotDevice && !config.ValidateCorporateIdentifier && !config.ValidateCloudPcDevice && !config.AllowInsecureAgentRequests)
             {
                 return new SecurityValidationResult
                 {
                     IsValid = false,
                     StatusCode = HttpStatusCode.Forbidden,
                     ErrorMessage = "Device validation is required",
-                    Details = "Enable 'Autopilot Device Validation' or 'Corporate Identifier Validation' in Configuration before using the agent ingestion endpoints."
+                    Details = "Enable 'Autopilot Device Validation', 'Corporate Identifier Validation' or 'Windows 365 Cloud PC Validation' in Configuration before using the agent ingestion endpoints."
                 };
             }
 
@@ -364,7 +367,29 @@ namespace AutopilotMonitor.Functions.Security
                 }
             }
 
-            if ((config.ValidateAutopilotDevice || config.ValidateCorporateIdentifier) && !deviceValidated)
+            // W365 fallback: Cloud PCs are structurally never Autopilot-registered, so the serial
+            // lookups above always miss for them. Identity here comes from the chain-validated
+            // client certificate, NOT from spoofable headers: the Subject CN carries the Intune
+            // device id, and only a Windows-365-service-provisioned machine has a cloudPC object
+            // with that managedDeviceId — a regular Intune-enrolled (non-Autopilot) device still
+            // ends in the 403 below.
+            if (!deviceValidated && config.ValidateCloudPcDevice && _cloudPcDeviceValidator != null)
+            {
+                TryGetIntuneDeviceIdFromCertSubject(certValidation.Subject, out var intuneDeviceId);
+                var cloudPcResult = await _cloudPcDeviceValidator.ValidateCloudPcAsync(tenantId, intuneDeviceId, sessionId);
+                if (cloudPcResult.IsValid)
+                {
+                    deviceValidated = true;
+                    validatedBy = ValidatorType.CloudPc;
+                }
+                else
+                {
+                    deviceValidationError = cloudPcResult.ErrorMessage;
+                    deviceValidationTransient = cloudPcResult.IsTransient;
+                }
+            }
+
+            if ((config.ValidateAutopilotDevice || config.ValidateCorporateIdentifier || config.ValidateCloudPcDevice) && !deviceValidated)
             {
                 // Transient failures (Graph API down, token issues) → 503 Retry-After so agent retries
                 // Definitive failures (device not registered) → 403 Forbidden
@@ -439,6 +464,37 @@ namespace AutopilotMonitor.Functions.Security
                 RateLimitResult = rateLimitResult,
                 ValidatedBy = validatedBy
             };
+        }
+
+        /// <summary>
+        /// Extracts the Intune device id from an MDM client certificate subject. Certs issued by
+        /// the Microsoft Intune MDM Device CA carry the Intune managedDevice id as the CN
+        /// (field-verified 2026-08-06 on a W365 Cloud PC). Returns false when the subject has no
+        /// CN or the CN is not a canonical GUID — the CloudPc validator then rejects it as
+        /// "not a valid Intune device id" without ever touching Graph.
+        /// </summary>
+        internal static bool TryGetIntuneDeviceIdFromCertSubject(string? subject, out string? intuneDeviceId)
+        {
+            intuneDeviceId = null;
+            if (string.IsNullOrWhiteSpace(subject))
+                return false;
+
+            foreach (var part in subject!.Split(','))
+            {
+                var trimmed = part.Trim();
+                if (!trimmed.StartsWith("CN=", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var value = trimmed.Substring(3).Trim();
+                if (IsValidGuid(value))
+                {
+                    intuneDeviceId = value.ToLowerInvariant();
+                    return true;
+                }
+                return false; // first CN wins; a non-GUID CN is definitive (not an Intune MDM device cert shape)
+            }
+
+            return false;
         }
 
         /// <summary>

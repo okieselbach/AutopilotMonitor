@@ -26,6 +26,7 @@ namespace AutopilotMonitor.Shared.Models
         public bool? IsPreProvisioned { get; set; }
         public bool? IsHybridJoin { get; set; }
         public bool? IsSelfDeployingProfile { get; set; }
+        public bool? IsCloudPc { get; set; }
         public string? GeoCountry { get; set; }
         public DateTime? StartedAfter { get; set; }
         public DateTime? StartedBefore { get; set; }

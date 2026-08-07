@@ -25,6 +25,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
         private readonly AutopilotDeviceValidator _autopilotDeviceValidator;
         private readonly CorporateIdentifierValidator _corporateIdentifierValidator;
         private readonly DeviceAssociationValidator _deviceAssociationValidator;
+        private readonly CloudPcDeviceValidator _cloudPcDeviceValidator;
         private readonly BootstrapSessionService _bootstrapSessionService;
         private readonly KillSwitchEvaluator _killSwitchEvaluator;
 
@@ -38,6 +39,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             AutopilotDeviceValidator autopilotDeviceValidator,
             CorporateIdentifierValidator corporateIdentifierValidator,
             DeviceAssociationValidator deviceAssociationValidator,
+            CloudPcDeviceValidator cloudPcDeviceValidator,
             BootstrapSessionService bootstrapSessionService,
             KillSwitchEvaluator killSwitchEvaluator)
         {
@@ -50,6 +52,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             _autopilotDeviceValidator = autopilotDeviceValidator;
             _corporateIdentifierValidator = corporateIdentifierValidator;
             _deviceAssociationValidator = deviceAssociationValidator;
+            _cloudPcDeviceValidator = cloudPcDeviceValidator;
             _bootstrapSessionService = bootstrapSessionService;
             _killSwitchEvaluator = killSwitchEvaluator;
         }
@@ -84,7 +87,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     _corporateIdentifierValidator,
                     _logger,
                     bootstrapSessionService: _bootstrapSessionService,
-                    deviceAssociationValidator: _deviceAssociationValidator
+                    deviceAssociationValidator: _deviceAssociationValidator,
+                    cloudPcDeviceValidator: _cloudPcDeviceValidator
                 );
 
                 if (errorResponse != null)

@@ -125,6 +125,9 @@ public class GetGraphPermissionsStatusFunction
                 ["ScriptDisplayNamesGranted"] = GraphFeatureCatalog
                     .IsFeatureGranted(GraphFeatureCatalog.FeatureScriptDisplayNames, snapshot.GrantedRoles)
                     .ToString(CultureInfo.InvariantCulture),
+                ["W365CloudPcValidationGranted"] = GraphFeatureCatalog
+                    .IsFeatureGranted(GraphFeatureCatalog.FeatureW365CloudPcValidation, snapshot.GrantedRoles)
+                    .ToString(CultureInfo.InvariantCulture),
             });
         }
         catch (Exception ex)

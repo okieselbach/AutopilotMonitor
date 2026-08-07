@@ -545,6 +545,18 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     .WithRegistrySelfDeployingProfile(isSelfDeploying, signal.SessionSignalOrdinal);
             }
 
+            // W365 — record the Cloud PC marker fact for BOTH values (same rationale as the
+            // self-deploying fact above). `true` is the engine's "no Device-ESP phase
+            // expected" context: Device-ESP already ran headless at provisioning, the session
+            // starts at Account Setup and DeviceSetup signals will never arrive. Set-once.
+            if (signal.Payload != null
+                && signal.Payload.TryGetValue(SignalPayloadKeys.IsCloudPc, out var rawCloudPc)
+                && bool.TryParse(rawCloudPc, out var isCloudPc))
+            {
+                builder.ScenarioObservations = builder.ScenarioObservations
+                    .WithCloudPc(isCloudPc, signal.SessionSignalOrdinal);
+            }
+
             var newState = builder.Build();
             var transition = BuildTakenTransition(
                 before: state,

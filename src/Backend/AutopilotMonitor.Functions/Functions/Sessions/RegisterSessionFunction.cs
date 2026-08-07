@@ -30,6 +30,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         private readonly AutopilotDeviceValidator _autopilotDeviceValidator;
         private readonly CorporateIdentifierValidator _corporateIdentifierValidator;
         private readonly DeviceAssociationValidator _deviceAssociationValidator;
+        private readonly CloudPcDeviceValidator _cloudPcDeviceValidator;
         private readonly BootstrapSessionService _bootstrapSessionService;
         private readonly WebhookNotificationService _webhookNotificationService;
         private readonly SessionDeletionGuard _deletionGuard;
@@ -45,6 +46,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             AutopilotDeviceValidator autopilotDeviceValidator,
             CorporateIdentifierValidator corporateIdentifierValidator,
             DeviceAssociationValidator deviceAssociationValidator,
+            CloudPcDeviceValidator cloudPcDeviceValidator,
             BootstrapSessionService bootstrapSessionService,
             WebhookNotificationService webhookNotificationService,
             SessionDeletionGuard deletionGuard)
@@ -58,6 +60,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             _autopilotDeviceValidator = autopilotDeviceValidator;
             _corporateIdentifierValidator = corporateIdentifierValidator;
             _deviceAssociationValidator = deviceAssociationValidator;
+            _cloudPcDeviceValidator = cloudPcDeviceValidator;
             _bootstrapSessionService = bootstrapSessionService;
             _webhookNotificationService = webhookNotificationService;
             _deletionGuard = deletionGuard;
@@ -101,7 +104,8 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     _logger,
                     registration.SessionId,
                     bootstrapSessionService: _bootstrapSessionService,
-                    deviceAssociationValidator: _deviceAssociationValidator
+                    deviceAssociationValidator: _deviceAssociationValidator,
+                    cloudPcDeviceValidator: _cloudPcDeviceValidator
                 );
 
                 if (errorResponse2 != null)

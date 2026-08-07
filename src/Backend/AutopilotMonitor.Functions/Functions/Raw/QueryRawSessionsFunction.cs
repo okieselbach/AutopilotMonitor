@@ -92,6 +92,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
             var isPreProvisioned = query["isPreProvisioned"];
             var isHybridJoin = query["isHybridJoin"];
             var isSelfDeployingProfile = query["isSelfDeployingProfile"];
+            var isCloudPc = query["isCloudPc"];
             var fieldsParam = query["fields"];
 
             var pagination = SearchSessionsPagination.ParsePagination(query);
@@ -128,6 +129,8 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 filter.IsHybridJoin = hj;
             if (!string.IsNullOrEmpty(isSelfDeployingProfile) && bool.TryParse(isSelfDeployingProfile, out var sdp))
                 filter.IsSelfDeployingProfile = sdp;
+            if (!string.IsNullOrEmpty(isCloudPc) && bool.TryParse(isCloudPc, out var icp))
+                filter.IsCloudPc = icp;
             if (int.TryParse(query["rebootCountMin"], out var rcMin)) filter.RebootCountMin = rcMin;
             if (int.TryParse(query["rebootCountMax"], out var rcMax)) filter.RebootCountMax = rcMax;
             var connectionType = query["connectionType"];
