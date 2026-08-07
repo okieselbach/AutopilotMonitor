@@ -135,7 +135,7 @@ namespace AutopilotMonitor.Agent.V2
                         $"{(bootstrapTokenGiven ? "*" : "")}, " +
                         $"tenantId={(string.IsNullOrEmpty(merged.TenantId) ? "no" : "yes")}" +
                         $"{(tenantIdGiven ? "*" : "")}, " +
-                        $"tenantIdWait={merged.TenantIdWaitSeconds}s" +
+                        $"tenantIdWait={(merged.TenantIdWaitSeconds is int w ? $"{w}s" : "default")}" +
                         $"{(tenantIdWaitGiven ? "*" : "")})." +
                         " Star = explicitly set on this --install invocation, others were preserved from prior config.");
                 }
@@ -361,9 +361,12 @@ namespace AutopilotMonitor.Agent.V2
             {
                 BootstrapToken = bootstrapTokenGiven ? bootstrapTokenArg : existing?.BootstrapToken,
                 TenantId = tenantIdGiven ? tenantIdArg : existing?.TenantId,
+                // Not given → carry the prior value through, INCLUDING null. Persisting a
+                // number here would freeze the agent-side default into the file; persisting
+                // null keeps "not configured" distinguishable from an explicit opt-out (0).
                 TenantIdWaitSeconds = tenantIdWaitGiven
                     ? tenantIdWaitSeconds
-                    : (existing?.TenantIdWaitSeconds ?? 600),
+                    : existing?.TenantIdWaitSeconds,
             };
         }
 

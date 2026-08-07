@@ -16,8 +16,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
         /// <summary>
         /// TenantId-wait timeout in seconds, persisted from the <c>--tenant-id-wait</c>
         /// install-time arg. Read by AgentBootstrap when the registry probe finds no
-        /// TenantId on first try. 0 / missing = no wait, legacy fast-fail.
+        /// TenantId on first try. 0 = explicit opt-out (legacy fast-fail).
+        /// Null / missing (files written before this property existed) = not configured —
+        /// the agent-side default (600 s) applies. Nullable so a legacy file without the
+        /// property cannot masquerade as an explicit 0 and silently disable the wait.
         /// </summary>
-        public int TenantIdWaitSeconds { get; set; }
+        public int? TenantIdWaitSeconds { get; set; }
     }
 }

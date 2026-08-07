@@ -339,13 +339,15 @@ namespace AutopilotMonitor.Agent.V2
             // over the agent-side default (600 s). Hybrid-AAD-joined devices typically
             // need ~5 min for the AAD device cert to land in the registry; 600 s leaves
             // headroom. Pass `--tenant-id-wait 0` to opt out (legacy fast-fail).
+            // A bootstrap-config.json whose TenantIdWaitSeconds is null (file predates the
+            // property) is "not configured", NOT an opt-out — the default must still apply.
             var tenantIdWaitRaw = GetArgValue(args, "--tenant-id-wait");
             const int tenantIdWaitDefaultSeconds = 600;
             int tenantIdWaitSeconds = tenantIdWaitDefaultSeconds;
             if (!string.IsNullOrEmpty(tenantIdWaitRaw) && int.TryParse(tenantIdWaitRaw, out var parsedTenantIdWait))
                 tenantIdWaitSeconds = parsedTenantIdWait;
-            else if (bootstrapConfig != null)
-                tenantIdWaitSeconds = bootstrapConfig.TenantIdWaitSeconds;
+            else if (bootstrapConfig?.TenantIdWaitSeconds != null)
+                tenantIdWaitSeconds = bootstrapConfig.TenantIdWaitSeconds.Value;
 
             var useBootstrapTokenAuth = !string.IsNullOrEmpty(bootstrapToken);
 

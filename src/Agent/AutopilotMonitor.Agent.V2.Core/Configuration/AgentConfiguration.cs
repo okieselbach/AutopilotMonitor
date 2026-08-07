@@ -272,9 +272,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
         /// CloudDomainJoin keys and re-probes on every change until either resolution
         /// or this timeout. 0 = no wait, fast-fail on miss (legacy behaviour).
         /// <para>
-        /// Set via the install-time CLI flag <c>--tenant-id-wait &lt;sec&gt;</c>, persisted
-        /// to <c>bootstrap-config.json</c>. The PS1 bootstrap script owns the production
-        /// default; the agent itself never assumes one.
+        /// Set via the CLI flag <c>--tenant-id-wait &lt;sec&gt;</c> or a persisted
+        /// <c>bootstrap-config.json</c> value; when neither supplies a value the agent
+        /// applies its own default of 600 s in BuildAgentConfiguration. The 0 default
+        /// here is only the POCO baseline, not the effective runtime default.
         /// </para>
         /// </summary>
         public int TenantIdWaitSeconds { get; set; } = 0;

@@ -132,10 +132,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
         }
 
         [Fact]
-        public void First_install_without_wait_arg_uses_agent_default_of_600()
+        public void First_install_without_wait_arg_persists_null_so_runtime_default_applies()
         {
             // Generic bootstrap path: PS1 calls `--install` without --tenant-id-wait,
-            // and there is no persisted config yet. Agent owns the default (600 s).
+            // and there is no persisted config yet. "Not configured" is persisted as null
+            // so BuildAgentConfiguration applies the agent-side default (600 s) — freezing
+            // a number into the file would decouple deployed devices from default changes.
             var merged = AutopilotMonitor.Agent.V2.Program.MergeBootstrapConfig(
                 existing: null,
                 bootstrapTokenArg: null!, bootstrapTokenGiven: false,
@@ -144,20 +146,42 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
 
             Assert.Null(merged.BootstrapToken);
             Assert.Null(merged.TenantId);
-            Assert.Equal(600, merged.TenantIdWaitSeconds);
+            Assert.Null(merged.TenantIdWaitSeconds);
         }
 
         [Fact]
-        public void Existing_config_without_wait_field_treated_as_zero()
+        public void Legacy_config_without_wait_field_stays_null_on_plain_reinstall()
         {
-            // BackCompat: pre-fix bootstrap-config.json has no TenantIdWaitSeconds field;
-            // Newtonsoft deserialises that to 0. New install with --tenant-id-wait 600
-            // overrides cleanly; no extra migration logic required.
+            // BackCompat: pre-feature bootstrap-config.json has no TenantIdWaitSeconds
+            // property → nullable deserialisation yields null. A reinstall that does not
+            // pass --tenant-id-wait must NOT turn that into 0 (which would silently
+            // disable the wait); null carries through and the runtime default applies.
             var existing = new BootstrapConfigFile
             {
                 BootstrapToken = "tok-legacy",
                 TenantId = "tenant-legacy",
-                TenantIdWaitSeconds = 0,
+                TenantIdWaitSeconds = null,
+            };
+
+            var merged = AutopilotMonitor.Agent.V2.Program.MergeBootstrapConfig(
+                existing,
+                bootstrapTokenArg: null!, bootstrapTokenGiven: false,
+                tenantIdArg: null!, tenantIdGiven: false,
+                tenantIdWaitSeconds: 0, tenantIdWaitGiven: false);
+
+            Assert.Equal("tok-legacy", merged.BootstrapToken);
+            Assert.Equal("tenant-legacy", merged.TenantId);
+            Assert.Null(merged.TenantIdWaitSeconds);
+        }
+
+        [Fact]
+        public void Legacy_config_without_wait_field_takes_explicit_wait_arg()
+        {
+            var existing = new BootstrapConfigFile
+            {
+                BootstrapToken = "tok-legacy",
+                TenantId = "tenant-legacy",
+                TenantIdWaitSeconds = null,
             };
 
             var merged = AutopilotMonitor.Agent.V2.Program.MergeBootstrapConfig(
@@ -169,6 +193,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
             Assert.Equal("tok-legacy", merged.BootstrapToken);
             Assert.Equal("tenant-legacy", merged.TenantId);
             Assert.Equal(600, merged.TenantIdWaitSeconds);
+        }
+
+        [Fact]
+        public void Explicit_zero_opt_out_survives_redeploy_without_wait_arg()
+        {
+            // An admin's deliberate `--tenant-id-wait 0` must not be resurrected to a
+            // wait by a later redeploy that omits the flag.
+            var existing = new BootstrapConfigFile
+            {
+                BootstrapToken = "tok-abc",
+                TenantId = "tenant-xyz",
+                TenantIdWaitSeconds = 0,
+            };
+
+            var merged = AutopilotMonitor.Agent.V2.Program.MergeBootstrapConfig(
+                existing,
+                bootstrapTokenArg: null!, bootstrapTokenGiven: false,
+                tenantIdArg: null!, tenantIdGiven: false,
+                tenantIdWaitSeconds: 0, tenantIdWaitGiven: false);
+
+            Assert.Equal(0, merged.TenantIdWaitSeconds);
         }
     }
 }
