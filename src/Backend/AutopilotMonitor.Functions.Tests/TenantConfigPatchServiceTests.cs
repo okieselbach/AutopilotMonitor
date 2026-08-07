@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
+using AutopilotMonitor.Functions.Functions.Admin;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
@@ -152,6 +153,68 @@ public class TenantConfigPatchServiceTests
 
         Assert.True(outcome.Success);
         Assert.Null(harness.Current!.ContactEmail);
+    }
+
+    // ── Mid-offboarding freeze ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task Patch_OffboardingTombstone_IsFrozen_EvenForGa()
+    {
+        // While the row is the offboarding tombstone, the cascade owns it: a GA patch
+        // lifting Disabled would un-gate agents against a tenant whose partitions are
+        // queued for deletion (un-offboard race).
+        var stored = Stored();
+        stored.Disabled = true;
+        stored.DisabledReason = TenantOffboardFunction.OffboardingDisabledReason;
+        var harness = new Harness(stored);
+
+        var outcome = await harness.Sut.ApplyFieldPatchAsync(
+            TenantId, Fields(("disabled", false)), Ga, "mcp-patch", "trying to un-offboard");
+
+        Assert.False(outcome.Success);
+        Assert.Equal(PatchFailure.ValidationFailed, outcome.Failure);
+        Assert.Contains("offboarding", outcome.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.True(harness.Current!.Disabled, "tombstone must be untouched");
+        Assert.Equal(0, harness.ReplaceCalls);
+    }
+
+    [Fact]
+    public async Task Patch_OrdinarySuspension_IsNotFrozen()
+    {
+        // The freeze is specific to the offboarding tombstone — a normally suspended
+        // tenant (different DisabledReason) stays fully patchable.
+        var stored = Stored();
+        stored.Disabled = true;
+        stored.DisabledReason = "Manual suspension";
+        var harness = new Harness(stored);
+
+        var outcome = await harness.Sut.ApplyFieldPatchAsync(
+            TenantId, Fields(("dataRetentionDays", 60)), Ga, "mcp-patch", null);
+
+        Assert.True(outcome.Success);
+        Assert.Equal(60, harness.Current!.DataRetentionDays);
+    }
+
+    [Fact]
+    public async Task Revert_OffboardingTombstone_IsFrozen()
+    {
+        // A revert restores a pre-offboarding snapshot with Disabled=false — the exact
+        // un-offboard race. Build a backup while the tenant is healthy, then tombstone.
+        var harness = new Harness(Stored());
+        var patched = await harness.Sut.ApplyFieldPatchAsync(
+            TenantId, Fields(("dataRetentionDays", 90)), Ga, "mcp-patch", null);
+        Assert.True(patched.Success);
+
+        harness.Current!.Disabled = true;
+        harness.Current.DisabledReason = TenantOffboardFunction.OffboardingDisabledReason;
+
+        var outcome = await harness.Sut.RevertAsync(
+            TenantId, backupId: null, includeProtectedFields: false, Ga, "mcp-revert", null);
+
+        Assert.False(outcome.Success);
+        Assert.Equal(PatchFailure.ValidationFailed, outcome.Failure);
+        Assert.Contains("offboarding", outcome.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.True(harness.Current.Disabled, "tombstone must be untouched");
     }
 
     [Fact]

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
+using AutopilotMonitor.Functions.Functions.Admin;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
@@ -185,6 +186,14 @@ namespace AutopilotMonitor.Functions.Services
                     return PatchOutcome.Fail(PatchFailure.NotFound, $"Tenant {tenantId} has no configuration row.");
                 var (initial, etag) = read.Value;
 
+                // Mid-offboarding freeze: while the row is the offboarding tombstone, the
+                // cascade owns it. Any patch — a GA lifting Disabled included — would race
+                // the queued wipe: data written afterwards gets destroyed, and sessions
+                // registered after enumeration would survive as orphans.
+                if (TenantOffboardFunction.IsOffboardingTombstone(initial))
+                    return PatchOutcome.Fail(PatchFailure.ValidationFailed,
+                        "Tenant offboarding is in progress — the configuration is frozen until the cascade completes.");
+
                 // Patch onto a deep clone; MissingMemberHandling.Error is belt-and-braces on
                 // top of the key gate above. JSON null = explicit clear; omitted = untouched;
                 // camelCase input binds case-insensitively to the PascalCase model.
@@ -274,6 +283,12 @@ namespace AutopilotMonitor.Functions.Services
                 if (read == null)
                     return PatchOutcome.Fail(PatchFailure.NotFound, $"Tenant {tenantId} has no configuration row.");
                 var (current, etag) = read.Value;
+
+                // Same mid-offboarding freeze as ApplyFieldPatchAsync: a revert restores a
+                // pre-offboarding snapshot with Disabled=false — the exact un-offboard race.
+                if (TenantOffboardFunction.IsOffboardingTombstone(current))
+                    return PatchOutcome.Fail(PatchFailure.ValidationFailed,
+                        "Tenant offboarding is in progress — the configuration is frozen until the cascade completes.");
 
                 var candidate = DeepClone(target);
                 // Identity is never restored from a snapshot; protected/system-owned fields

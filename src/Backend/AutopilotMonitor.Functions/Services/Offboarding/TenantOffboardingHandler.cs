@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
+using AutopilotMonitor.Functions.Functions.Admin;
 using AutopilotMonitor.Functions.Services.Deletion;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
@@ -167,6 +168,7 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
         private readonly ITenantOffboardingEnqueuer _reEnqueuer;
         private readonly OpsEventService _opsEvents;
         private readonly ITenantCustomsArchiveRepository _customsArchive;
+        private readonly IConfigRepository _configRepo;
         private readonly IOffboardFarewellEmailSender _farewellEmail;
         private readonly ILogger<TenantOffboardingHandler> _logger;
 
@@ -182,6 +184,7 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             ITenantOffboardingEnqueuer reEnqueuer,
             OpsEventService opsEvents,
             ITenantCustomsArchiveRepository customsArchive,
+            IConfigRepository configRepo,
             IOffboardFarewellEmailSender farewellEmail,
             ILogger<TenantOffboardingHandler> logger)
         {
@@ -196,6 +199,7 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             _reEnqueuer = reEnqueuer;
             _opsEvents = opsEvents;
             _customsArchive = customsArchive;
+            _configRepo = configRepo;
             _farewellEmail = farewellEmail;
             _logger = logger;
         }
@@ -582,6 +586,27 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
         private async Task RunPostDrainPhasesAsync(
             OffboardingHistoryEntry history, string tenantId, CancellationToken ct)
         {
+            // 2.D-guard — un-offboard race check. The destructive phases below are only
+            // legal while the TenantConfiguration row is still the Phase-1 offboarding
+            // tombstone (or already deleted by a previous 2.F-final on this resume path;
+            // null passes). If an operator re-enabled the tenant mid-cascade — the config
+            // write paths refuse that, but this is the last line of defense — wiping now
+            // would destroy data of a live tenant, and sessions registered after the 2.B
+            // enumeration would survive as orphan rows while their Events/Signals
+            // partitions get wiped. Fail-closed; the Failed marker + OpsEvent route the
+            // conflict to an operator instead.
+            var currentConfig = await _configRepo.GetTenantConfigurationAsync(tenantId);
+            if (currentConfig != null && !TenantOffboardFunction.IsOffboardingTombstone(currentConfig))
+            {
+                var msg =
+                    $"TenantConfiguration is no longer the offboarding tombstone " +
+                    $"(Disabled={currentConfig.Disabled}, Reason={currentConfig.DisabledReason ?? "<null>"}) " +
+                    "— refusing to wipe a re-enabled tenant.";
+                await FailAsync(history, tenantId, "unoffboard_race", msg, ct);
+                throw new InvalidOperationException(
+                    $"TenantOffboarding fail-closed for tenant={tenantId} phase=unoffboard_race");
+            }
+
             // 2.D-archive (PR3.B §3) — Archive then wipe GatherRules / AnalyzeRules /
             // ImeLogPatterns. Fail-loud: a row that cannot be archived must NOT be wiped.
             // After the third iteration if the source still has rows, throw with

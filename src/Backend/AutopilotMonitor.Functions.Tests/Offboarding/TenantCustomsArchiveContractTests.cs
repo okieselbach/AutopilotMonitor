@@ -42,6 +42,7 @@ public sealed class TenantCustomsArchiveContractTests
             reEnqueuer: null!,
             opsEvents: null!,
             customsArchive: archive,
+            configRepo: null!,
             farewellEmail: new FakeOffboardFarewellEmailSender(),
             logger: NullLogger<TenantOffboardingHandler>.Instance);
     }

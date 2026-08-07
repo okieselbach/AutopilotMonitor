@@ -518,6 +518,17 @@ public class TenantOffboardFunction
     internal const string OffboardingDisabledReason = "Offboarding in progress";
 
     /// <summary>
+    /// True when the row is the offboarding tombstone written by
+    /// <c>EnsureTenantDisabledAsync</c>. Shared predicate for every config writer and
+    /// wiper that must distinguish the mid-offboarding freeze from an ordinary
+    /// suspended (or re-onboarded) tenant: while this is true, the tenant's
+    /// configuration is frozen and the offboarding cascade owns the row.
+    /// </summary>
+    internal static bool IsOffboardingTombstone(TenantConfiguration? config) =>
+        config is { Disabled: true }
+        && string.Equals(config.DisabledReason, OffboardingDisabledReason, StringComparison.Ordinal);
+
+    /// <summary>
     /// Result of <see cref="EnsureTenantDisabledAsync"/>. Carries both whether a fresh
     /// write happened AND the tombstone's <c>LastUpdated</c> timestamp so the resume-path
     /// can compute a safe drain-deadline without depending on the (optionally-failing)

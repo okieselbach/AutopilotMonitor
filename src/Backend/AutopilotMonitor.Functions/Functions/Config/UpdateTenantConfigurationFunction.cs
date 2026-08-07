@@ -3,6 +3,7 @@ using System.IO;
 using System.Net;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using AutopilotMonitor.Functions.Functions.Admin;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
@@ -70,6 +71,23 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // Load the stored config up-front so we can (1) restore any redacted secret placeholders
                 // before validation/save and (2) protect GA-only fields below.
                 var existingConfig = await _configService.GetConfigurationAsync(requestCtx.TargetTenantId);
+
+                // Mid-offboarding freeze: the Disabled tombstone written by TenantOffboardFunction
+                // is the cascade's ONLY auth gate. A PUT that lifts it (or edits anything else)
+                // races the queued wipe — data written afterwards gets destroyed, and agents
+                // would be un-gated against a tenant whose partitions are being deleted. Refuse
+                // for ALL callers, GA included; once the cascade completes the row is deleted
+                // and re-onboarding starts from a fresh default config anyway.
+                if (TenantOffboardFunction.IsOffboardingTombstone(existingConfig))
+                {
+                    var conflict = req.CreateResponse(HttpStatusCode.Conflict);
+                    await conflict.WriteAsJsonAsync(new
+                    {
+                        success = false,
+                        message = "Tenant offboarding is in progress — the configuration is frozen until the cascade completes."
+                    });
+                    return conflict;
+                }
 
                 // Defense-in-depth: a read-only GlobalReader is served a redacted config (secrets replaced
                 // with the ***REDACTED*** sentinel). If such a view is ever round-tripped back on a save,

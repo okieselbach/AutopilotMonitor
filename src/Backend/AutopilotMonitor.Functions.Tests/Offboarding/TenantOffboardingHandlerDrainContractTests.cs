@@ -9,6 +9,7 @@ using Azure;
 using Azure.Data.Tables;
 using Azure.Storage.Blobs;
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
+using AutopilotMonitor.Functions.Functions.Admin;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Deletion;
 using AutopilotMonitor.Functions.Services.Notifications;
@@ -302,6 +303,47 @@ public class TenantOffboardingHandlerDrainContractTests
     }
 
     [Fact]
+    public async Task UnoffboardRace_ConfigNoLongerTombstone_FailsClosed_NoSafeWipe()
+    {
+        // 2.D-guard: an operator re-enabled the tenant while the cascade was queued/draining
+        // (the config write paths refuse this, but the guard is the last line of defense).
+        // Wiping now would destroy data of a live tenant → fail-closed, zero wipes.
+        var harness = Harness.New();
+        harness.ConfigRepo
+            .Setup(r => r.GetTenantConfigurationAsync(TenantId))
+            .ReturnsAsync(new TenantConfiguration { TenantId = TenantId, Disabled = false });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            harness.Sut.HandleAsync(harness.Envelope(drainPollCount: 0)));
+
+        Assert.Equal("Failed", harness.Repo.Markers[TenantId].Status);
+        Assert.Equal("unoffboard_race", harness.Repo.Markers[TenantId].FailedPhase);
+        Assert.Equal("Failed", harness.Repo.History[HistoryRowKey].Status);
+        Assert.Equal(0, harness.SafeWipeProbe.WipeCallCount);
+    }
+
+    [Fact]
+    public async Task UnoffboardGuard_TombstoneStillInPlace_ProceedsToWipeAndCompleted()
+    {
+        // The normal case: Phase 1's tombstone is untouched → the guard must NOT get in
+        // the way of a legitimate offboarding.
+        var harness = Harness.New();
+        harness.ConfigRepo
+            .Setup(r => r.GetTenantConfigurationAsync(TenantId))
+            .ReturnsAsync(new TenantConfiguration
+            {
+                TenantId = TenantId,
+                Disabled = true,
+                DisabledReason = TenantOffboardFunction.OffboardingDisabledReason,
+            });
+
+        await harness.Sut.HandleAsync(harness.Envelope(drainPollCount: 0));
+
+        Assert.Equal("Completed", harness.Repo.Markers[TenantId].Status);
+        Assert.True(harness.SafeWipeProbe.WipeCallCount > 0);
+    }
+
+    [Fact]
     public async Task SessionNotFound_CountsAsSatisfied_NoDrainProbeCall()
     {
         var harness = Harness.New();
@@ -393,6 +435,7 @@ public class TenantOffboardingHandlerDrainContractTests
         public Mock<OffboardingSessionEnumerator> Enumerator { get; }
         public CountingSafeWipeService SafeWipeProbe { get; } = new();
         public Mock<IMaintenanceRepository> Maintenance { get; } = new();
+        public Mock<IConfigRepository> ConfigRepo { get; } = new();
         public List<string> EnumeratorYields { get; } = new();
         public Exception? EnumeratorThrow { get; set; }
 
@@ -450,6 +493,7 @@ public class TenantOffboardingHandlerDrainContractTests
                 h.ReEnqueuer.Object,
                 opsService,
                 Mock.Of<ITenantCustomsArchiveRepository>(),
+                h.ConfigRepo.Object,
                 new FakeOffboardFarewellEmailSender(),
                 NullLogger<TenantOffboardingHandler>.Instance);
 
@@ -622,10 +666,11 @@ public class TenantOffboardingHandlerDrainContractTests
             ITenantOffboardingEnqueuer reEnqueuer,
             OpsEventService opsEvents,
             ITenantCustomsArchiveRepository customsArchive,
+            IConfigRepository configRepo,
             IOffboardFarewellEmailSender farewellEmail,
             ILogger<TenantOffboardingHandler> logger)
             : base(auditRepo, enumerator, cascadeEnqueuer, expectations, drainProbe, safeWipe,
-                   storage, maintenance, reEnqueuer, opsEvents, customsArchive, farewellEmail, logger)
+                   storage, maintenance, reEnqueuer, opsEvents, customsArchive, configRepo, farewellEmail, logger)
         {
         }
 

@@ -245,6 +245,7 @@ public class TenantOffboardingWorkerPoisonTests
                 Mock.Of<ITenantOffboardingEnqueuer>(),
                 BuildOpsService(),
                 Mock.Of<ITenantCustomsArchiveRepository>(),
+                Mock.Of<IConfigRepository>(),
                 new FakeOffboardFarewellEmailSender(),
                 NullLogger<TenantOffboardingHandler>.Instance);
         }
@@ -255,9 +256,9 @@ public class TenantOffboardingWorkerPoisonTests
                 IOffboardingAuditRepository a, OffboardingSessionEnumerator e, ISessionDeletionEnqueuer c,
                 IOffboardingExpectationsStore exp, IDeletionProgressDrainProbe d, SafeWipeService sw,
                 TableStorageService s, IMaintenanceRepository m, ITenantOffboardingEnqueuer re,
-                OpsEventService o, ITenantCustomsArchiveRepository ca, IOffboardFarewellEmailSender fe,
-                ILogger<TenantOffboardingHandler> log)
-                : base(a, e, c, exp, d, sw, s, m, re, o, ca, fe, log) { }
+                OpsEventService o, ITenantCustomsArchiveRepository ca, IConfigRepository cr,
+                IOffboardFarewellEmailSender fe, ILogger<TenantOffboardingHandler> log)
+                : base(a, e, c, exp, d, sw, s, m, re, o, ca, cr, fe, log) { }
 
             internal override Task ArchiveAndWipeRulesTableAsync(
                 string tableName, string tenantId, string historyRowKey, CancellationToken ct)
