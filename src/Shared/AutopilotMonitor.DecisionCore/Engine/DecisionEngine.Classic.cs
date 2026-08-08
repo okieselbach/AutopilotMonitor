@@ -565,13 +565,23 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // and surfaces hello_resolution via completion_waiting; the wait is bounded by an
             // already-armed HelloSafety, the tracker's Hello completion timer, or the
             // AdvisoryCompletion backstop.
+            // Continue-Anyway observation completion (2026-08-08): while a Device-phase
+            // observation advisory is live (see IsContinueAnywayObservationActive — ESP
+            // failed in DeviceSetup, tenant opted into observation, AccountSetup never
+            // entered), the strong post-AccountSetup gate is unsatisfiable by construction.
+            // The DAD-validated real-user desktop IS the observation's completion evidence:
+            // the user pressed "Continue anyway" and reached a working desktop. Complete
+            // eagerly here instead of waiting out the 60-min window so the session end
+            // reflects the real end.
+            var observationCompletion = IsContinueAnywayObservationActive(state);
+
             if (!helloAlreadyResolved
                 && HelloPolicyDisabledWithoutWizard(state.HelloPolicyEnabled, state.HelloWizardStartedUtc)
                 // desktopArrivedInFlight: the desktop fact was just recorded on the builder
                 // (line above) and is invisible to the pre-mutation state — arm C's "desktop
                 // arrives last" ordering (session a4537c36) must count it. Arms A/B ignore
                 // the flag entirely.
-                && ShouldTransitionToAwaitingHello(state, desktopArrivedInFlight: true))
+                && (ShouldTransitionToAwaitingHello(state, desktopArrivedInFlight: true) || observationCompletion))
             {
                 SynthesizeHelloSkipped(builder, signal);
 
@@ -600,12 +610,16 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
                 // Completion gates (ARCH-F1): synthetic Hello + Desktop are recorded; complete
                 // through Finalizing when all gates are open, else defer until a gate releases.
+                // The observation trigger label keeps the two doors apart on the audit trail —
+                // the observation path deliberately bypassed the post-AccountSetup gate.
                 return CompleteThroughFinalizingOrDefer(
                     state: state,
                     signal: signal,
                     preparedBuilder: builder,
                     nextStepIndex: nextStep,
-                    trigger: nameof(DecisionSignalKind.DesktopArrived) + ":HelloDisabledFastPath",
+                    trigger: ShouldTransitionToAwaitingHello(state, desktopArrivedInFlight: true)
+                        ? nameof(DecisionSignalKind.DesktopArrived) + ":HelloDisabledFastPath"
+                        : nameof(DecisionSignalKind.DesktopArrived) + ":ContinueAnywayObservation",
                     leadingEffects: extraEffects);
             }
 
@@ -1029,16 +1043,37 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// </param>
         internal static DecisionEffect BuildEnrollmentCompleteEffect(DecisionState state, string completionTrigger)
         {
+            var trail = DecisionAuditTrailBuilder.Build(
+                postState: state,
+                decidedStage: state.Stage,
+                trigger: completionTrigger);
+
+            // Soft-failure honesty (2026-08-08): a session completing while an ESP-failure
+            // advisory is still unresolved reached the desktop, but the ESP demonstrably gave
+            // up on at least one blocking item first (Continue-Anyway observation, or the
+            // classic post-AccountSetup defang). Stamp that on the terminal event so the
+            // backend can mark the session "completed with issues" instead of presenting a
+            // clean success. A RESOLVED advisory (category re-ran to success after
+            // "Try again") is a genuine recovery and stays unstamped.
+            if (state.EspAdvisoryFailureRecordedUtc != null && state.EspAdvisoryFailureResolvedUtc == null)
+            {
+                trail["espSoftFailure"] = "true";
+                trail["completionSource"] = state.AccountSetupEnteredUtc == null
+                    ? "continue_anyway_observation"
+                    : "continue_anyway_post_accountsetup";
+                if (state.EspAdvisoryFailureCategory != null)
+                {
+                    trail["espSoftFailureCategory"] = state.EspAdvisoryFailureCategory.Value;
+                }
+            }
+
             return new DecisionEffect(
                 kind: DecisionEffectKind.EmitEventTimelineEntry,
                 parameters: new Dictionary<string, string>
                 {
                     ["eventType"] = SharedConstants.EventTypes.EnrollmentComplete,
                 },
-                typedPayload: DecisionAuditTrailBuilder.Build(
-                    postState: state,
-                    decidedStage: state.Stage,
-                    trigger: completionTrigger));
+                typedPayload: trail);
         }
     }
 }

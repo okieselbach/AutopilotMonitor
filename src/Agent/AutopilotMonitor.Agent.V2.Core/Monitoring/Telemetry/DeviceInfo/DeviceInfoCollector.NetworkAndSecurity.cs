@@ -1021,6 +1021,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                     .ToString(System.Globalization.CultureInfo.InvariantCulture);
             if (snapshot.AllowContinueAnyway.HasValue)
                 payload[SignalPayloadKeys.EspAllowContinueAnyway] = snapshot.AllowContinueAnyway.Value ? "true" : "false";
+            // Tenant opt-in (remote config, not a registry fact) — only stamped when
+            // enabled; absent = default hard-fail semantics in the engine.
+            if (_espContinueAnywayObservationEnabled?.Invoke() == true)
+                payload[SignalPayloadKeys.EspContinueAnywayObservationEnabled] = "true";
 
             var derivationInputs = new Dictionary<string, string>(payload, StringComparer.Ordinal)
             {

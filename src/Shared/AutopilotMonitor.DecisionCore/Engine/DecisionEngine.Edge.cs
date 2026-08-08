@@ -237,18 +237,59 @@ namespace AutopilotMonitor.DecisionCore.Engine
             var observations = state.ScenarioObservations;
             var continueAnywayEnabled = observations?.EspAllowContinueAnyway?.Value == true;
             var advisoryEligible = continueAnywayEnabled && state.AccountSetupEnteredUtc != null;
+
+            // Continue-Anyway observation mode (tenant c9787ba2, session 53d1e9f6, 2026-08-08):
+            // a Device-phase ESP terminal failure (AccountSetup never entered) is a hard fail
+            // by default — the classic advisory gate above requires AccountSetupEnteredUtc.
+            // Fleets held at the ESP timeout wall by one slow blocking app then show 100%
+            // Failed although the profile allows "Continue anyway" and users demonstrably
+            // reach the desktop. When the tenant explicitly opted in
+            // (EnableEspContinueAnywayObservation → EspContinueAnywayObservationEnabled
+            // observation), defang this case too: arm a 60-min observation window instead of
+            // failing immediately. The DAD-validated real-user desktop + the Hello gate then
+            // detect the true end (see HandleDesktopArrivedV1's observation completion and
+            // the observation branch in HandleAdvisoryCompletionDeadlineFired); an expired
+            // window un-defangs to the original esp_terminal_failure. Scope: Classic /
+            // Unknown user-driven flows only — WhiteGlove / SelfDeploying / DevicePreparation
+            // have no Continue-Anyway user desktop to observe.
+            var observationEligible = !advisoryEligible
+                && continueAnywayEnabled
+                && observations?.EspContinueAnywayObservationEnabled?.Value == true
+                && state.AccountSetupEnteredUtc == null
+                && IsObservationEligibleScenario(state);
+
             var parameters = BuildEspFailureParameters(
                 signal: signal,
                 reason: reason,
-                advisoryPath: advisoryEligible,
+                advisoryPath: advisoryEligible || observationEligible,
                 observations: observations);
 
-            if (advisoryEligible)
+            if (advisoryEligible || observationEligible)
             {
-                return BuildAdvisoryStep(state, signal, nextStep, reason, parameters);
+                if (observationEligible)
+                {
+                    parameters["advisoryReason"] = "esp_failure_defanged_continueanyway_observation";
+                }
+                return BuildAdvisoryStep(state, signal, nextStep, reason, parameters, observationVariant: observationEligible);
             }
 
             return BuildFailedStep(state, signal, nextStep, reason, parameters);
+        }
+
+        /// <summary>
+        /// Scenario gate for the Continue-Anyway observation defang: only Classic (or
+        /// still-unclassified) non-pre-provisioning flows qualify. WhiteGlove technician
+        /// sessions, SelfDeploying/kiosk profiles and DevicePreparation have no interactive
+        /// user who could press "Continue anyway" and produce a real-user desktop, so the
+        /// observation window could only ever expire — the immediate hard fail is more
+        /// truthful there.
+        /// </summary>
+        private static bool IsObservationEligibleScenario(DecisionState state)
+        {
+            var profile = state.ScenarioProfile;
+            return (profile.Mode == EnrollmentMode.Unknown || profile.Mode == EnrollmentMode.Classic)
+                && profile.PreProvisioningSide == PreProvisioningSide.None
+                && state.ScenarioObservations?.RegistrySelfDeployingProfile?.Value != true;
         }
 
         /// <summary>
@@ -323,6 +364,17 @@ namespace AutopilotMonitor.DecisionCore.Engine
         private static readonly TimeSpan s_advisoryCompletionWindow = TimeSpan.FromMinutes(30);
 
         /// <summary>
+        /// Observation window for the Continue-Anyway observation defang (Device-phase ESP
+        /// terminal failure, tenant opt-in — see <c>HandleEspTerminalFailureV1</c>). Longer
+        /// than <see cref="s_advisoryCompletionWindow"/> because the user must first notice
+        /// the failure screen, press "Continue anyway", sign in and reach the desktop —
+        /// or press "Try again" and let the ESP re-run the whole device phase. Fixed 60 min
+        /// (user decision 2026-08-08): well under the agent max lifetime, and every observed
+        /// session still gets a terminal verdict when the window expires.
+        /// </summary>
+        private static readonly TimeSpan s_observationCompletionWindow = TimeSpan.FromMinutes(60);
+
+        /// <summary>
         /// Arming-time baseline keys carried on the AdvisoryCompletion deadline's
         /// <see cref="ActiveDeadline.FiresPayload"/> (session 1924092e enforcement-progress
         /// guard). The baselines live on the deadline — not on <see cref="DecisionState"/>
@@ -343,10 +395,10 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// <see cref="HasEnforcementProgressSinceArming"/> can tell an idle dead-end from a
         /// still-progressing enrollment at fire time.
         /// </summary>
-        internal static ActiveDeadline BuildAdvisoryCompletionDeadline(DecisionState state, DecisionSignal signal) =>
+        internal static ActiveDeadline BuildAdvisoryCompletionDeadline(DecisionState state, DecisionSignal signal, TimeSpan? window = null) =>
             new ActiveDeadline(
                 name: DeadlineNames.AdvisoryCompletion,
-                dueAtUtc: EffectiveDeadlineBase(state, signal).Add(s_advisoryCompletionWindow),
+                dueAtUtc: EffectiveDeadlineBase(state, signal).Add(window ?? s_advisoryCompletionWindow),
                 firesSignalKind: DecisionSignalKind.DeadlineFired,
                 firesPayload: new Dictionary<string, string>
                 {
@@ -357,6 +409,23 @@ namespace AutopilotMonitor.DecisionCore.Engine
                         (state.AppInstallFacts.CompletedCount + state.AppInstallFacts.FailedCount)
                             .ToString(CultureInfo.InvariantCulture),
                 });
+
+        /// <summary>
+        /// True while a Continue-Anyway observation advisory is live: an ESP-failure advisory
+        /// is recorded, not resolved, and AccountSetup was never entered. Only the
+        /// observation arming site in <see cref="HandleEspTerminalFailureV1"/> can produce
+        /// this shape — the classic advisory requires <see cref="DecisionState.AccountSetupEnteredUtc"/>
+        /// at arm time and neither fact is ever retracted — so no separate opt-in re-check is
+        /// needed. Consumed by the observation completion path in
+        /// <c>HandleDesktopArrivedV1</c> and the observation branches in
+        /// <see cref="HandleAdvisoryCompletionDeadlineFired"/>. Deliberately flips false when
+        /// AccountSetup IS entered later (user pressed "Try again" and the ESP re-ran into
+        /// the user phase) — from that point the classic advisory semantics apply.
+        /// </summary>
+        internal static bool IsContinueAnywayObservationActive(DecisionState state) =>
+            state.EspAdvisoryFailureRecordedUtc != null
+            && state.EspAdvisoryFailureResolvedUtc == null
+            && state.AccountSetupEnteredUtc == null;
 
         /// <summary>True when <see cref="DeadlineNames.AdvisoryCompletion"/> is armed in <paramref name="state"/>.</summary>
         internal static bool HasAdvisoryCompletionDeadline(DecisionState state)
@@ -417,7 +486,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
             DecisionSignal signal,
             int nextStep,
             string reason,
-            Dictionary<string, string> parameters)
+            Dictionary<string, string> parameters,
+            bool observationVariant = false)
         {
             // Session 4910a5a5: remember WHICH category failed so the recovery hook
             // (TryResolveAdvisoryOnCategoryRecovery) can later match a ProvisioningComplete
@@ -443,7 +513,13 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // session either way (see HandleAdvisoryCompletionDeadlineFired). AddDeadline
             // replaces by name, so an earlier esp_exiting arm is intentionally re-based on the
             // (later) failure instant — the freshest dead-end signal owns the window.
-            var advisoryCompletion = BuildAdvisoryCompletionDeadline(state, signal);
+            //
+            // Observation variant (2026-08-08): the Device-phase Continue-Anyway observation
+            // uses the longer 60-min window — the user must traverse failure screen →
+            // Continue anyway → sign-in → desktop (or a full device-phase re-run via
+            // "Try again") before completion evidence can exist.
+            var advisoryCompletion = BuildAdvisoryCompletionDeadline(
+                state, signal, observationVariant ? s_observationCompletionWindow : (TimeSpan?)null);
             builder.AddDeadline(advisoryCompletion);
 
             var newState = builder.Build();
@@ -636,7 +712,17 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // Shared with ShouldTransitionToAwaitingHello's proactive arm C (session a4537c36).
             var imeUserSessionGenuine = IsImeUserSessionGenuine(state);
 
-            if (desktopArrived && helloSatisfied && imeUserSessionGenuine)
+            // Continue-Anyway observation variant (2026-08-08): a Device-phase advisory —
+            // AccountSetup never entered — cannot satisfy the IME user-session gate by
+            // construction (the gate anchors on AccountSetupEnteredUtc). The DAD-validated
+            // real-user desktop plus the Hello gate ARE the completion evidence there: the
+            // user pressed "Continue anyway" and reached a working desktop. Only the
+            // observation arming site can produce this shape (the classic advisory requires
+            // AccountSetupEnteredUtc at arm time and the fact is never retracted), so the
+            // predicate needs no separate opt-in re-check.
+            var isObservationAdvisory = IsContinueAnywayObservationActive(state);
+
+            if (desktopArrived && helloSatisfied && (imeUserSessionGenuine || isObservationAdvisory))
             {
                 if (state.HelloResolvedUtc == null)
                 {
@@ -669,7 +755,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // the Hello wizard right now. Promote to AwaitingHello and let a real
             // HelloResolved — or the HelloSafety timeout — decide instead.
             if (desktopArrived
-                && imeUserSessionGenuine
+                && (imeUserSessionGenuine || isObservationAdvisory)
                 && state.HelloResolvedUtc == null
                 && state.HelloPolicyEnabled?.Value == false
                 && state.HelloWizardStartedUtc != null)
@@ -722,7 +808,13 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // — the failure DID un-happen, so a live AccountSetup must not be failed on the
             // stale advisory). Convergent either way: each re-arm renews the baselines, so a
             // session that stalls after the recovery still fails one window later.
-            if ((!hasAdvisoryAnchor || advisoryResolved) && HasEnforcementProgressSinceArming(state, armedDeadline!))
+            // The observation variant participates too (2026-08-08): its whole point is to
+            // keep watching while there is evidence of life — a user who pressed "Try again"
+            // late in the window keeps apps reaching terminal states, and failing mid-retry
+            // would be exactly the false positive the guard exists to prevent. Convergent:
+            // each re-arm (30 min) demands NEW progress.
+            if ((!hasAdvisoryAnchor || advisoryResolved || isObservationAdvisory)
+                && HasEnforcementProgressSinceArming(state, armedDeadline!))
             {
                 var rearmedDeadline = BuildAdvisoryCompletionDeadline(state, signal);
                 builder.AddDeadline(rearmedDeadline);
@@ -778,7 +870,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // through Finalizing. Deliberately does NOT require the IME user-session gate —
             // the FP sessions never saw an IME user-session completion (that gate guards
             // completion evidence, not user presence; presence is the DAD-validated desktop).
-            if ((!hasAdvisoryAnchor || advisoryResolved)
+            if ((!hasAdvisoryAnchor || advisoryResolved || isObservationAdvisory)
                 && desktopArrived
                 && state.HelloResolvedUtc == null
                 && state.HelloPolicyEnabled == null
@@ -861,7 +953,14 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     reason: reason,
                     advisoryPath: false,
                     observations: state.ScenarioObservations);
-                parameters["advisoryReason"] = "advisory_completion_window_expired_without_completion_evidence";
+                // Observation variant: the 60-min Continue-Anyway observation produced no
+                // real-user desktop — either nobody pressed the button or the device truly
+                // is stuck at the failure screen. The un-defang is identical (the failure
+                // cause IS the ESP failure), only the advisoryReason tells the two windows
+                // apart on the timeline.
+                parameters["advisoryReason"] = isObservationAdvisory
+                    ? "continue_anyway_observation_window_expired_without_completion_evidence"
+                    : "advisory_completion_window_expired_without_completion_evidence";
                 builder.WithLastFailureTrigger(nameof(DecisionSignalKind.EspTerminalFailure), signal.SessionSignalOrdinal);
             }
             else

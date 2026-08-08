@@ -33,6 +33,8 @@ export interface TenantConfiguration {
   bootstrapTokenEnabled?: boolean;
   unrestrictedModeEnabled?: boolean;
   entraAppRolesEnabled?: boolean;
+  /** Operator-set (GA-only): Device-phase ESP failures on Continue-Anyway profiles get a 60-min observation instead of an immediate hard fail. */
+  enableEspContinueAnywayObservation?: boolean;
   dataRetentionDays: number;
   sessionTimeoutHours: number;
   planTier?: string;
@@ -1004,6 +1006,24 @@ function TenantManagementSectionInner({
                 />
                 <span className="text-sm font-medium text-gray-700">Enable Unrestricted Mode</span>
               </label>
+
+              <div>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingTenant.enableEspContinueAnywayObservation ?? false}
+                    onChange={(e) => setEditingTenant({ ...editingTenant, enableEspContinueAnywayObservation: e.target.checked })}
+                    className="w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Enable Continue-Anyway Observation</span>
+                </label>
+                <p className="text-xs text-gray-400 mt-1 ml-6">
+                  Device-phase ESP terminal failures on profiles that allow &quot;Continue anyway&quot; are
+                  observed for up to 60 min instead of failing immediately: a real-user desktop completes
+                  the session as Succeeded with an amber &quot;with issues&quot; badge; otherwise it fails with
+                  the original reason. Needs agent with ConfigVersion 37+; applies to new sessions only.
+                </p>
+              </div>
 
               <div>
                 <label className="flex items-center space-x-2 cursor-pointer">

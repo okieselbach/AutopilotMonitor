@@ -31,6 +31,8 @@ interface SessionSummary {
   completedAt: string | null;
   status: string;
   failureReason: string | null;
+  /** Succeeded despite an unresolved ESP failure (Continue-Anyway) — amber "with issues" badge. */
+  espSoftFailure?: boolean;
   durationSeconds: number | null;
   enrollmentType: string;
   /** Session-wide average agent→backend HTTP round-trip (ms); absent for pre-feature agents. */
@@ -360,7 +362,7 @@ function LocationSessionsContent() {
                           {session.model || "—"}
                         </td>
                         <td className="px-4 py-3 text-sm">
-                          <SessionStatusBadge status={session.status} failureReason={session.failureReason} />
+                          <SessionStatusBadge status={session.status} failureReason={session.failureReason} espSoftFailure={session.espSoftFailure} />
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600">
                           {formatDuration(session.durationSeconds)}

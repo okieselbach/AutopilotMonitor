@@ -103,6 +103,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
 
             agentConfig.SendTraceEvents = remoteConfig.SendTraceEvents;
 
+            // ---------------- Continue-Anyway observation — remote wins (operator-set tenant
+            //                  opt-in; false must clear a stale cached true).
+            agentConfig.EnableEspContinueAnywayObservation = remoteConfig.EnableEspContinueAnywayObservation;
+
             // ---------------- UnrestrictedMode audit — track old/new for the caller so the
             //                  agent_unrestricted_mode_changed event can fire AFTER the
             //                  orchestrator emitter is alive (V1 parity with

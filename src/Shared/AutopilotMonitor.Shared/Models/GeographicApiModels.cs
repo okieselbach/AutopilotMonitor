@@ -131,6 +131,8 @@ namespace AutopilotMonitor.Shared.Models
                 Status = s.Status,
                 FailureReason = s.FailureReason,
                 FailureSource = s.FailureSource,
+                EspSoftFailure = s.EspSoftFailure,
+                CompletionSource = s.CompletionSource,
                 EventCount = s.EventCount,
                 DurationSeconds = s.DurationSeconds,
                 EnrollmentType = s.EnrollmentType,

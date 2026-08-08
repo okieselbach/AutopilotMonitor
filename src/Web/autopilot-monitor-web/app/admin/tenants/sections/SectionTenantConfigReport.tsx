@@ -59,6 +59,7 @@ interface TenantConfig {
   ntpServer?: string | null;
   enableImeMatchLog?: boolean | null;
   enableGatherRuleDebugLog?: boolean | null;
+  enableEspContinueAnywayObservation?: boolean | null;
   logLevel?: string | null;
   maxBatchSize?: number | null;
   showEnrollmentSummary?: boolean | null;
@@ -132,6 +133,7 @@ const DEFAULTS: Record<string, unknown> = {
   ntpServer: 'time.windows.com',
   enableImeMatchLog: null,
   enableGatherRuleDebugLog: null,
+  enableEspContinueAnywayObservation: null,
   logLevel: null,
   maxBatchSize: null,
   showEnrollmentSummary: null,
@@ -171,6 +173,7 @@ const RUNTIME_DEFAULTS: Record<string, unknown> = {
   ntpServer: 'time.windows.com',
   enableImeMatchLog: false,
   enableGatherRuleDebugLog: false,
+  enableEspContinueAnywayObservation: false,
   maxAuthFailures: 5,
   authFailureTimeoutMinutes: 0,
   logLevel: 'Info',
@@ -300,6 +303,7 @@ function computeRuntime(c: TenantConfig): Record<string, unknown> {
     ntpServer: c.ntpServer ?? 'time.windows.com',
     enableImeMatchLog: c.enableImeMatchLog ?? false,
     enableGatherRuleDebugLog: c.enableGatherRuleDebugLog ?? false,
+    enableEspContinueAnywayObservation: c.enableEspContinueAnywayObservation ?? false,
     maxAuthFailures: c.maxAuthFailures ?? 5,
     authFailureTimeoutMinutes: c.authFailureTimeoutMinutes ?? 0,
     logLevel: c.logLevel ?? 'Info',
@@ -581,6 +585,7 @@ export function SectionTenantConfigReport() {
                 <ConfigRow label="NTP Server" value={config.ntpServer} configKey="ntpServer" defaults={DEFAULTS} />
                 <ConfigRow label="IME Match Log" value={config.enableImeMatchLog} configKey="enableImeMatchLog" defaults={DEFAULTS} />
                 <ConfigRow label="Gather Rule Debug Log" value={config.enableGatherRuleDebugLog} configKey="enableGatherRuleDebugLog" defaults={DEFAULTS} />
+                <ConfigRow label="Continue-Anyway Observation" value={config.enableEspContinueAnywayObservation} configKey="enableEspContinueAnywayObservation" defaults={DEFAULTS} />
                 <ConfigRow label="Log Level" value={config.logLevel} configKey="logLevel" defaults={DEFAULTS} />
                 <ConfigRow label="Max Batch Size" value={config.maxBatchSize} configKey="maxBatchSize" defaults={DEFAULTS} />
                 <ConfigRow label="Show Script Output" value={config.showScriptOutput} configKey="showScriptOutput" defaults={DEFAULTS} />
@@ -654,6 +659,7 @@ export function SectionTenantConfigReport() {
                     <ConfigRow label="NTP Server" value={runtime.ntpServer} configKey="ntpServer" defaults={RUNTIME_DEFAULTS} />
                     <ConfigRow label="IME Match Log" value={runtime.enableImeMatchLog} configKey="enableImeMatchLog" defaults={RUNTIME_DEFAULTS} />
                     <ConfigRow label="Gather Rule Debug Log" value={runtime.enableGatherRuleDebugLog} configKey="enableGatherRuleDebugLog" defaults={RUNTIME_DEFAULTS} />
+                    <ConfigRow label="Continue-Anyway Observation" value={runtime.enableEspContinueAnywayObservation} configKey="enableEspContinueAnywayObservation" defaults={RUNTIME_DEFAULTS} />
                     <ConfigRow label="Log Level" value={runtime.logLevel} configKey="logLevel" defaults={RUNTIME_DEFAULTS} />
                     <ConfigRow label="Send Trace Events" value={runtime.sendTraceEvents} configKey="sendTraceEvents" defaults={RUNTIME_DEFAULTS} />
                     <ConfigRow label="Unrestricted Mode" value={runtime.unrestrictedMode} configKey="unrestrictedMode" defaults={RUNTIME_DEFAULTS} />

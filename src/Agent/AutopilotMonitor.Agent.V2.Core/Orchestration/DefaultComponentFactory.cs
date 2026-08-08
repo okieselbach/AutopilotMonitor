@@ -127,7 +127,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 ingress: ingress,
                 clock: clock,
                 logger: logger,
-                startupGate: _startupEventGate));
+                startupGate: _startupEventGate,
+                // Live accessor (not the current value): a remote-config merge landing after
+                // factory construction must still reach the phase-triggered re-emissions.
+                espContinueAnywayObservationEnabled: () => _agentConfig.EnableEspContinueAnywayObservation));
 
             // Session caa6cf50 gate-starvation fix: the EspAndHelloTracker's user-ESP-apps-settled
             // probe reads the IME log host, which is constructed further down. Same closure-over-

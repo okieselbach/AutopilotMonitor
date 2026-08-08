@@ -18,6 +18,10 @@ export interface Session {
   failureSource?: string;
   /** Non-empty only when the BACKEND declared this session Succeeded (timeout-sweep reconcile or late-completion upgrade) — carries the justification so operators can tell it apart from an agent-reported success. */
   reconcileReason?: string;
+  /** True only on a Succeeded session that completed while an ESP failure was unresolved — the user most likely pressed "Continue anyway". Rendered as the amber "with issues" badge. */
+  espSoftFailure?: boolean;
+  /** How a soft-failure completion was detected: "continue_anyway_observation" | "continue_anyway_post_accountsetup". Empty on clean successes. */
+  completionSource?: string;
   /** Non-null only when an administrator flipped the session manually via the portal. Values: "Succeeded" | "Failed". */
   adminMarkedAction?: string;
   /** Backend device-validation path that accepted the device at registration: "AutopilotV1" | "CorporateIdentifier" | "DeviceAssociation" | "Bootstrap" — absent for sessions before this feature or tenants with device validation off. */

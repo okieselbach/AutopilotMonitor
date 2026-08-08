@@ -175,6 +175,15 @@ namespace AutopilotMonitor.Functions.Services
             if (!string.IsNullOrEmpty(reconcileReason))
                 indexEntity["ReconcileReason"] = reconcileReason;
 
+            // Soft-failure marker — rendered as the amber "completed with issues" badge in the
+            // index-served session list, so it must survive a StartedAt-shift full upsert too.
+            var espSoftFailure = sessionEntity.GetBoolean("EspSoftFailure");
+            if (espSoftFailure == true)
+                indexEntity["EspSoftFailure"] = true;
+            var completionSource = sessionEntity.GetString("CompletionSource");
+            if (!string.IsNullOrEmpty(completionSource))
+                indexEntity["CompletionSource"] = completionSource;
+
             // Device-validation path recorded at registration (AutopilotV1 / CorporateIdentifier /
             // DeviceAssociation / Bootstrap) — index-served session reads must carry it too.
             var validatedBy = sessionEntity.GetString("ValidatedBy");
@@ -647,6 +656,7 @@ namespace AutopilotMonitor.Functions.Services
                                 // fresh-read window isn't reverted by the Replace below (see guard).
                                 "Status", "CurrentPhase", "CompletedAt", "FailureReason", "ReconcileReason",
                                 "FailureSnapshotJson", "FailureSource", "AdminMarkedAction", "DurationSeconds",
+                                "EspSoftFailure", "CompletionSource",
                             });
                         freshEtag = freshResponse.Value.ETag;
                         freshEntity = freshResponse.Value;
@@ -686,7 +696,7 @@ namespace AutopilotMonitor.Functions.Services
                         || freshStatus == SessionStatus.Incomplete.ToString())
                     {
                         entity["Status"] = freshStatus;
-                        foreach (var col in new[] { "CurrentPhase", "CompletedAt", "FailureReason", "ReconcileReason", "FailureSnapshotJson", "FailureSource", "AdminMarkedAction", "DurationSeconds" })
+                        foreach (var col in new[] { "CurrentPhase", "CompletedAt", "FailureReason", "ReconcileReason", "FailureSnapshotJson", "FailureSource", "AdminMarkedAction", "DurationSeconds", "EspSoftFailure", "CompletionSource" })
                         {
                             if (freshEntity!.TryGetValue(col, out var val) && val is not null)
                                 entity[col] = val;
@@ -1590,7 +1600,7 @@ namespace AutopilotMonitor.Functions.Services
                 : null;
         }
 
-        public async Task<bool> UpdateSessionStatusAsync(string tenantId, string sessionId, SessionStatus status, EnrollmentPhase? currentPhase = null, string? failureReason = null, DateTime? completedAt = null, DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null, bool? isPreProvisioned = null, bool? isUserDriven = null, DateTime? resumedAt = null, DateTime? stalledAt = null, bool clearStalledAt = false, bool clearFailureReason = false, string? failureSource = null, string? adminMarkedAction = null, string? failureSnapshotJson = null, bool allowTerminalReclassification = false)
+        public async Task<bool> UpdateSessionStatusAsync(string tenantId, string sessionId, SessionStatus status, EnrollmentPhase? currentPhase = null, string? failureReason = null, DateTime? completedAt = null, DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null, bool? isPreProvisioned = null, bool? isUserDriven = null, DateTime? resumedAt = null, DateTime? stalledAt = null, bool clearStalledAt = false, bool clearFailureReason = false, string? failureSource = null, string? adminMarkedAction = null, string? failureSnapshotJson = null, bool allowTerminalReclassification = false, bool espSoftFailure = false, string? completionSource = null)
         {
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
             SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
@@ -1701,6 +1711,18 @@ namespace AutopilotMonitor.Functions.Services
                         var reconcileReason = ComputeReconcileReason(existingStatusStr, failureReason, adminMarkedAction);
                         if (reconcileReason != null)
                             update["ReconcileReason"] = reconcileReason;
+
+                        // Soft-failure marker (Continue-Anyway observation / advisory-defang):
+                        // the session succeeded, but the ESP demonstrably gave up on at least
+                        // one blocking item first. Rendered as the amber "completed with
+                        // issues" badge. Only ever stamped alongside a Succeeded transition —
+                        // absence means a clean success.
+                        if (espSoftFailure)
+                        {
+                            update["EspSoftFailure"] = true;
+                            if (!string.IsNullOrEmpty(completionSource))
+                                update["CompletionSource"] = completionSource;
+                        }
                     }
                     else if (status == SessionStatus.Failed)
                     {
@@ -1973,6 +1995,13 @@ namespace AutopilotMonitor.Functions.Services
                                 var forceReconcileReason = ComputeReconcileReason(freshStatusStr, failureReason, adminMarkedAction);
                                 if (forceReconcileReason != null)
                                     forceUpdate["ReconcileReason"] = forceReconcileReason;
+                                // Mirror the normal path's soft-failure marker.
+                                if (espSoftFailure)
+                                {
+                                    forceUpdate["EspSoftFailure"] = true;
+                                    if (!string.IsNullOrEmpty(completionSource))
+                                        forceUpdate["CompletionSource"] = completionSource;
+                                }
                             }
                             else if (status == SessionStatus.Failed)
                             {
@@ -2928,6 +2957,8 @@ namespace AutopilotMonitor.Functions.Services
                 FailureReason = entity.GetString("FailureReason") ?? string.Empty,
                 FailureSource = entity.GetString("FailureSource") ?? string.Empty,
                 ReconcileReason = entity.GetString("ReconcileReason") ?? string.Empty,
+                EspSoftFailure = entity.GetBoolean("EspSoftFailure") ?? false,
+                CompletionSource = entity.GetString("CompletionSource") ?? string.Empty,
                 AdminMarkedAction = entity.GetString("AdminMarkedAction"),
                 ValidatedBy = entity.GetString("ValidatedBy") ?? string.Empty,
                 PendingActionsJson = entity.GetString("PendingActionsJson") ?? string.Empty,

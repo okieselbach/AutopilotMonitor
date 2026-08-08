@@ -35,6 +35,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
         private readonly IClock _clock;
         private readonly Persistence.StartupEventGate _startupGate;
 
+        // Live accessor for AgentConfiguration.EnableEspContinueAnywayObservation — read at
+        // esp_config_detected stamping time so a late remote-config merge takes effect on
+        // the phase-triggered re-emissions. Null (tests / legacy callers) means disabled.
+        private readonly Func<bool> _espContinueAnywayObservationEnabled;
+
         private const string RegKeyWindowsCurrentVersion = @"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion";
 
         // Restart dedup (StartupEventGate) — exemptions. boot_time is genuinely new per boot
@@ -65,7 +70,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
             AgentLogger logger,
             ISignalIngressSink signalIngress = null,
             IClock clock = null,
-            Persistence.StartupEventGate startupGate = null)
+            Persistence.StartupEventGate startupGate = null,
+            Func<bool> espContinueAnywayObservationEnabled = null)
         {
             _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
             _tenantId  = tenantId  ?? throw new ArgumentNullException(nameof(tenantId));
@@ -74,6 +80,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
             _signalIngress = signalIngress;
             _clock = clock;
             _startupGate = startupGate;
+            _espContinueAnywayObservationEnabled = espContinueAnywayObservationEnabled;
         }
 
         /// <summary>

@@ -391,11 +391,24 @@ namespace AutopilotMonitor.Functions.Services
 
             if (c.CompletionEvent != null)
             {
+                // Soft-failure marker from the V2 engine's enrollment_complete audit payload:
+                // the session completed while an ESP-failure advisory was still unresolved
+                // (Continue-Anyway observation / classic advisory defang). Stamped on the
+                // Sessions row so the UI can render the amber "completed with issues" badge.
+                var espSoftFailure = string.Equals(
+                    c.CompletionEvent.Data?.ContainsKey("espSoftFailure") == true
+                        ? c.CompletionEvent.Data["espSoftFailure"]?.ToString() : null,
+                    "true", StringComparison.OrdinalIgnoreCase);
+                var completionSource = c.CompletionEvent.Data?.ContainsKey("completionSource") == true
+                    ? c.CompletionEvent.Data["completionSource"]?.ToString() : null;
+
                 statusTransitioned = await _sessionRepo.UpdateSessionStatusAsync(
                     request.TenantId, request.SessionId, SessionStatus.Succeeded, c.CompletionEvent.Phase,
                     completedAt: c.CompletionEvent.Timestamp,
-                    earliestEventTimestamp: c.EarliestEventTimestamp, latestEventTimestamp: c.LatestEventTimestamp);
-                _logger.LogInformation("{SessionPrefix} Status: Succeeded (transitioned={Transitioned})", sessionPrefix, statusTransitioned);
+                    earliestEventTimestamp: c.EarliestEventTimestamp, latestEventTimestamp: c.LatestEventTimestamp,
+                    espSoftFailure: espSoftFailure, completionSource: completionSource);
+                _logger.LogInformation("{SessionPrefix} Status: Succeeded (transitioned={Transitioned}, espSoftFailure={EspSoftFailure})",
+                    sessionPrefix, statusTransitioned, espSoftFailure);
             }
             else if (c.FailureEvent != null)
             {

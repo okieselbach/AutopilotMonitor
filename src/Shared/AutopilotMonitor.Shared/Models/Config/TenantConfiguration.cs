@@ -383,6 +383,17 @@ namespace AutopilotMonitor.Shared.Models
         public bool? EnableGatherRuleDebugLog { get; set; }
 
         /// <summary>
+        /// Continue-Anyway observation mode: when true AND the ESP profile allows
+        /// "Continue anyway", a Device-phase ESP terminal failure (AccountSetup never
+        /// entered) does not fail the session immediately — the agent keeps monitoring for
+        /// up to 60 minutes and completes with an esp-soft-failure marker once the
+        /// DAD-validated real-user desktop (plus the Hello gate) proves the user continued;
+        /// an expired window fails with the original esp_terminal_failure. Operator-set only
+        /// (not exposed in the tenant admin UI). null = use agent default (false).
+        /// </summary>
+        public bool? EnableEspContinueAnywayObservation { get; set; }
+
+        /// <summary>
         /// Log verbosity level override for this tenant's agents.
         /// null = use agent default ("Info"). Values: "Info", "Debug", "Verbose", "Trace".
         /// </summary>

@@ -46,6 +46,14 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public bool EnableGatherRuleDebugLog { get; set; } = false;
 
+        /// <summary>
+        /// Continue-Anyway observation mode (operator-set tenant opt-in): a Device-phase ESP
+        /// terminal failure on a Continue-Anyway-enabled profile is observed for up to 60
+        /// minutes instead of failing immediately — the real-user desktop then completes the
+        /// session with an esp-soft-failure marker. Default false = immediate hard fail.
+        /// </summary>
+        public bool EnableEspContinueAnywayObservation { get; set; } = false;
+
         public CollectorConfiguration Collectors { get; set; } = default!;
 
         /// <summary>

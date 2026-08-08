@@ -119,6 +119,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                         config.BootstrapTokenEnabled != existingConfig.BootstrapTokenEnabled ||
                         config.UnrestrictedModeEnabled != existingConfig.UnrestrictedModeEnabled ||
                         config.EntraAppRolesEnabled != existingConfig.EntraAppRolesEnabled ||
+                        config.EnableEspContinueAnywayObservation != existingConfig.EnableEspContinueAnywayObservation ||
                         config.CustomRateLimitRequestsPerMinute != existingConfig.CustomRateLimitRequestsPerMinute ||
                         config.CustomUserRateLimitRequestsPerMinute != existingConfig.CustomUserRateLimitRequestsPerMinute ||
                         config.Disabled != existingConfig.Disabled ||
@@ -133,6 +134,9 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     config.BootstrapTokenEnabled = existingConfig.BootstrapTokenEnabled;
                     config.UnrestrictedModeEnabled = existingConfig.UnrestrictedModeEnabled;
                     config.EntraAppRolesEnabled = existingConfig.EntraAppRolesEnabled;
+                    // Continue-Anyway observation is an operator-set behavioral override —
+                    // a tenant admin must not be able to relax their own failure semantics.
+                    config.EnableEspContinueAnywayObservation = existingConfig.EnableEspContinueAnywayObservation;
                     config.CustomRateLimitRequestsPerMinute = existingConfig.CustomRateLimitRequestsPerMinute;
                     config.CustomUserRateLimitRequestsPerMinute = existingConfig.CustomUserRateLimitRequestsPerMinute;
                     config.Disabled = existingConfig.Disabled;

@@ -110,6 +110,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
         public bool EnableTimezoneAutoSet { get; set; } = false;
 
         /// <summary>
+        /// Continue-Anyway observation mode (operator-set tenant opt-in, delivered via
+        /// remote config): stamped into the esp_config_detected decision-signal payload so
+        /// the DecisionEngine defangs a Device-phase ESP terminal failure into a bounded
+        /// 60-min observation instead of failing immediately. Default: false.
+        /// </summary>
+        public bool EnableEspContinueAnywayObservation { get; set; } = false;
+
+        /// <summary>
         /// Optional custom path to IME logs directory for testing.
         /// If set, overrides the default %ProgramData%\Microsoft\IntuneManagementExtension\Logs path.
         /// </summary>

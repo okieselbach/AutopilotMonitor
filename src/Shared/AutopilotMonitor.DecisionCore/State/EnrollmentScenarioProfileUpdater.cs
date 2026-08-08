@@ -226,6 +226,11 @@ namespace AutopilotMonitor.DecisionCore.State
                 {
                     newObservations = newObservations.WithEspAllowContinueAnyway(allowContinue, signal.SessionSignalOrdinal);
                 }
+                if (signal.Payload.TryGetValue(SignalPayloadKeys.EspContinueAnywayObservationEnabled, out var rawObservation)
+                    && bool.TryParse(rawObservation, out var observationEnabled))
+                {
+                    newObservations = newObservations.WithEspContinueAnywayObservationEnabled(observationEnabled, signal.SessionSignalOrdinal);
+                }
             }
 
             var newProfile = currentProfile;

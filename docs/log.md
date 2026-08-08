@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-08
+
+* **New**: `agent/continue-anyway-observation.md` — Continue-Anyway observation mode (`EnableEspContinueAnywayObservation`, ConfigVersion 37, operator-set): Device-phase ESP terminal failures on Continue-Anyway profiles are defanged into a 60-min observation window (Classic/Unknown, non-pre-prov only); real-user desktop + Hello gate complete the session as Succeeded + `EspSoftFailure`/`CompletionSource` (amber "with issues" badge + detail banner), category recovery resolves clean, expiry un-defangs to the original `esp_terminal_failure`. Registered in the Agent index section. Related backend fix (no doc): the auto-analyze enqueue now carries a 30 s `visibilityTimeout` so rule evaluation no longer races the agent's terminal flush (ANALYZE-ESP-004's `{{appName}}` placeholder).
+
 ## 2026-08-07 (later)
 
 * **Update**: `backend/cloudpc-device-validation.md` — third `IsCloudPc` transport rail: the pre-auth distress channel. `DistressReport.IsCloudPc` (CloudPcDetector verdict captured at `DistressReporter` construction) → `DistressReportEntry`/table column → "Devices Not Registered" aggregation (sticky-true per serial, same OR semantics as the Sessions merge) → portal Cloud PC badge + actionable hint ("enable Windows 365 Cloud PC Validation + W365CloudPcValidation add-on"). Motivated by the first W365 field run: the rejected Cloud PC showed up as anonymous "Microsoft Corporation / Virtual Machine" with no clue that the fix is the Cloud PC validator, not Autopilot registration. UNVERIFIED like all distress fields; ≤18 bytes, fits the 1536-byte cap.

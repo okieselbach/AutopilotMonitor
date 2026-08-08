@@ -59,7 +59,7 @@ export default function SessionInfoCard({ session, enrollmentDuration, displaySt
         <InfoItem label="Duration" value={enrollmentDuration ?? `${Math.round(session.durationSeconds / 60)} min`} tooltip={lastContactTooltip} />
         <InfoItem label="Events" value={session.eventCount.toString()} tooltip={lastContactTooltip} />
         <InfoItem label="Reboots" value={(session.rebootCount ?? 0).toString()} tooltip="System reboots observed during enrollment (V2 only)" />
-        <InfoItem label="Status" value={<StatusBadge status={displayStatus} failureReason={session.failureReason} failureSource={session.failureSource} adminMarkedAction={session.adminMarkedAction} reconcileReason={session.reconcileReason} />} />
+        <InfoItem label="Status" value={<StatusBadge status={displayStatus} failureReason={session.failureReason} failureSource={session.failureSource} adminMarkedAction={session.adminMarkedAction} reconcileReason={session.reconcileReason} espSoftFailure={session.espSoftFailure} />} />
         <InfoItem label="Enrollment Type" value={enrollmentTypeLabel(session, isGatherRulesSession)} />
         <InfoItem label="Join Type" value={joinTypeLabel(session)} />
         {validatedByLabel(session) && (
@@ -82,6 +82,19 @@ export default function SessionInfoCard({ session, enrollmentDuration, displaySt
             </span>
             <ReconcileTimingFacts session={session} />
           </div>
+        </div>
+      )}
+      {displayStatus === "Succeeded" && session.espSoftFailure && (
+        <div className="mt-4 flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800 dark:bg-amber-900/30 dark:border-amber-800 dark:text-amber-200">
+          <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+          </svg>
+          <span>
+            <strong>Completed with issues:</strong> the ESP reported a terminal failure, but the user
+            reached a working desktop — most likely via the &quot;Continue anyway&quot; button. At least one
+            blocking item did not finish inside the ESP window; check the timeline and app list for the
+            item that held the ESP at its timeout wall.
+          </span>
         </div>
       )}
       {ntpOffset && Math.abs(ntpOffset.offsetSeconds) > 30 && (
@@ -250,12 +263,12 @@ function ReconcileTimingFacts({ session }: { session: Session }) {
   );
 }
 
-function StatusBadge({ status, failureReason, failureSource, adminMarkedAction, reconcileReason }: { status: string; failureReason?: string; failureSource?: string; adminMarkedAction?: string; reconcileReason?: string }) {
+function StatusBadge({ status, failureReason, failureSource, adminMarkedAction, reconcileReason, espSoftFailure }: { status: string; failureReason?: string; failureSource?: string; adminMarkedAction?: string; reconcileReason?: string; espSoftFailure?: boolean }) {
   // Delegate the status pill (+ timeout affordance + "manual"/"reconciled" badges) to the shared,
   // canonical SessionStatusBadge so this page picks up every status — incl. the AwaitingUser/Incomplete
   // reclassification states — from one source instead of a divergent local map.
   const badge = (
-    <SessionStatusBadge status={status} failureReason={failureReason} adminMarkedAction={adminMarkedAction} reconcileReason={reconcileReason} />
+    <SessionStatusBadge status={status} failureReason={failureReason} adminMarkedAction={adminMarkedAction} reconcileReason={reconcileReason} espSoftFailure={espSoftFailure} />
   );
 
   // Session-detail-only affordance: link a rule-attributed failure back to its analyze rule.

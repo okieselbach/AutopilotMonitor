@@ -65,13 +65,14 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             bool? isUserDriven = null, DateTime? resumedAt = null,
             DateTime? stalledAt = null, bool clearStalledAt = false, bool clearFailureReason = false,
             string? failureSource = null, string? adminMarkedAction = null,
-            string? failureSnapshotJson = null, bool allowTerminalReclassification = false)
+            string? failureSnapshotJson = null, bool allowTerminalReclassification = false,
+            bool espSoftFailure = false, string? completionSource = null)
         {
             var transitioned = await _storage.UpdateSessionStatusAsync(tenantId, sessionId, status,
                 currentPhase, failureReason, completedAt, earliestEventTimestamp,
                 latestEventTimestamp, isPreProvisioned, isUserDriven, resumedAt,
                 stalledAt, clearStalledAt, clearFailureReason, failureSource, adminMarkedAction,
-                failureSnapshotJson, allowTerminalReclassification);
+                failureSnapshotJson, allowTerminalReclassification, espSoftFailure, completionSource);
 
             // Reconcile the authoritative EventCount + RebootCount whenever a session actually
             // transitions to a terminal state through ANY caller — ingest, admin mark

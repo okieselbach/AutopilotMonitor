@@ -69,6 +69,18 @@ namespace AutopilotMonitor.DecisionCore.State
         public SignalFact<bool>? EspAllowContinueAnyway { get; init; }
 
         /// <summary>
+        /// Tenant-config opt-in from <see cref="Signals.DecisionSignalKind.EspConfigDetected"/>
+        /// (payload <c>espContinueAnywayObservationEnabled</c>, stamped by the agent from
+        /// <c>RemoteConfig.EnableEspContinueAnywayObservation</c> — an operator-set tenant
+        /// setting, not an ESP registry fact). When <c>true</c> AND the ESP profile allows
+        /// "Continue anyway", a Device-phase ESP terminal failure (AccountSetup never entered)
+        /// is defanged into an observation advisory instead of failing the session immediately
+        /// — see <c>HandleEspTerminalFailureV1</c>. Default (absent/false) keeps the immediate
+        /// hard-fail semantics. Set-once.
+        /// </summary>
+        public SignalFact<bool>? EspContinueAnywayObservationEnabled { get; init; }
+
+        /// <summary>
         /// Raw registry fact from <see cref="Signals.DecisionSignalKind.EnrollmentFactsObserved"/>
         /// (payload <c>isSelfDeployingProfile</c>, from <c>CloudAssignedOobeConfig</c> bits
         /// 0x20|0x40 — deterministic, validated platform-wide as exclusive to self-deploying /
@@ -125,6 +137,11 @@ namespace AutopilotMonitor.DecisionCore.State
             EspAllowContinueAnyway != null
                 ? this
                 : this with { EspAllowContinueAnyway = new SignalFact<bool>(value, sourceSignalOrdinal) };
+
+        public EnrollmentScenarioObservations WithEspContinueAnywayObservationEnabled(bool value, long sourceSignalOrdinal) =>
+            EspContinueAnywayObservationEnabled != null
+                ? this
+                : this with { EspContinueAnywayObservationEnabled = new SignalFact<bool>(value, sourceSignalOrdinal) };
 
         public EnrollmentScenarioObservations WithRegistrySelfDeployingProfile(bool value, long sourceSignalOrdinal) =>
             RegistrySelfDeployingProfile != null

@@ -91,6 +91,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         // (tests / legacy callers) means trace events always flow.
         private readonly Func<bool>? _traceEventsEnabled;
 
+        // Live accessor for AgentConfiguration.EnableEspContinueAnywayObservation — read at
+        // esp_config_detected stamping time so a remote-config merge that lands after
+        // construction still takes effect. Null (tests / legacy callers) means disabled.
+        private readonly Func<bool>? _espContinueAnywayObservationEnabled;
+
         // Max-lifetime watchdog (M4.6.α). Timer is armed in Start() when _agentMaxLifetime != null.
         private System.Threading.Timer? _maxLifetimeTimer;
         private int _terminatedFired;
@@ -173,7 +178,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             TimeSpan? agentMaxLifetime = null,
             int uploadBatchSize = 100,
             IDeadlineScheduler? schedulerOverride = null,
-            Func<bool>? traceEventsEnabled = null)
+            Func<bool>? traceEventsEnabled = null,
+            Func<bool>? espContinueAnywayObservationEnabled = null)
         {
             if (string.IsNullOrEmpty(sessionId)) throw new ArgumentException("SessionId is mandatory.", nameof(sessionId));
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentException("TenantId is mandatory.", nameof(tenantId));
@@ -214,6 +220,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
             _schedulerOverride = schedulerOverride;
             _traceEventsEnabled = traceEventsEnabled;
+            _espContinueAnywayObservationEnabled = espContinueAnywayObservationEnabled;
         }
 
         /// <summary>
@@ -773,6 +780,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                         .ToString(System.Globalization.CultureInfo.InvariantCulture);
                 if (snapshot.AllowContinueAnyway.HasValue)
                     payload[SignalPayloadKeys.EspAllowContinueAnyway] = snapshot.AllowContinueAnyway.Value ? "true" : "false";
+                // Tenant opt-in (remote config, not a registry fact) — only stamped when
+                // enabled; absent = default hard-fail semantics in the engine.
+                if (_espContinueAnywayObservationEnabled?.Invoke() == true)
+                    payload[SignalPayloadKeys.EspContinueAnywayObservationEnabled] = "true";
 
                 _ingress!.Post(
                     kind: DecisionSignalKind.EspConfigDetected,

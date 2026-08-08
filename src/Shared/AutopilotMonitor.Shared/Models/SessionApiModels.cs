@@ -232,6 +232,26 @@ namespace AutopilotMonitor.Shared.Models
         public string ReconcileReason { get; set; } = string.Empty;
 
         /// <summary>
+        /// True only on a Succeeded session that completed while an ESP-failure advisory was
+        /// still unresolved: the ESP demonstrably gave up on at least one blocking item
+        /// (typically the 30-min timeout wall) and the user most likely pressed
+        /// "Continue anyway" — the device reached a working desktop, but not everything the
+        /// ESP tracked finished inside its window. Rendered as the amber "completed with
+        /// issues" badge. False/absent = clean success.
+        /// </summary>
+        public bool EspSoftFailure { get; set; }
+
+        /// <summary>
+        /// How a soft-failure completion was detected. Values:
+        ///   - "continue_anyway_observation": Device-phase ESP failure, tenant opted into the
+        ///     Continue-Anyway observation window, real-user desktop arrived inside it
+        ///   - "continue_anyway_post_accountsetup": classic advisory defang (AccountSetup had
+        ///     already been entered when the ESP failure fired)
+        /// Empty on clean successes.
+        /// </summary>
+        public string CompletionSource { get; set; } = string.Empty;
+
+        /// <summary>
         /// Non-null only when an administrator explicitly flipped the session via the portal
         /// (MarkSessionSucceeded / MarkSessionFailed). Values: <c>null</c> (default, agent-driven),
         /// <c>"Succeeded"</c>, <c>"Failed"</c>.

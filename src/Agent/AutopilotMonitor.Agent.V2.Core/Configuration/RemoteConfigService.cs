@@ -328,6 +328,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
                 EnableGeoLocation = true,
                 EnableImeMatchLog = false,
                 EnableGatherRuleDebugLog = false,
+                EnableEspContinueAnywayObservation = false,
                 Collectors = CollectorConfiguration.CreateDefault(),
                 GatherRules = new System.Collections.Generic.List<GatherRule>(),
                 ImeLogPatterns = new System.Collections.Generic.List<ImeLogPattern>()

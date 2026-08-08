@@ -111,6 +111,16 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// </summary>
         public const string EspAllowContinueAnyway = "espAllowContinueAnyway";
 
+        /// <summary>
+        /// On <c>EspConfigDetected</c>: "true" when the tenant opted into the
+        /// Continue-Anyway observation mode (operator-set
+        /// <c>EnableEspContinueAnywayObservation</c> tenant setting, stamped into the signal
+        /// payload by the agent from RemoteConfig — NOT an ESP registry fact). Only stamped
+        /// when enabled; missing → fact stays unset and a Device-phase ESP terminal failure
+        /// keeps the immediate hard-fail semantics.
+        /// </summary>
+        public const string EspContinueAnywayObservationEnabled = "espContinueAnywayObservationEnabled";
+
         /// <summary>On <c>HelloPolicyDetected</c>: "true" / "false". PR4 (882fef64 debrief).</summary>
         public const string HelloEnabled = "helloEnabled";
 

@@ -81,7 +81,8 @@ namespace AutopilotMonitor.Shared.DataAccess
             bool? isUserDriven = null, DateTime? resumedAt = null,
             DateTime? stalledAt = null, bool clearStalledAt = false, bool clearFailureReason = false,
             string? failureSource = null, string? adminMarkedAction = null,
-            string? failureSnapshotJson = null, bool allowTerminalReclassification = false);
+            string? failureSnapshotJson = null, bool allowTerminalReclassification = false,
+            bool espSoftFailure = false, string? completionSource = null);
         /// <summary>
         /// Increments per-session counters via read-modify-write. Returns the post-merge session
         /// snapshot (the RMW read with the applied increments) so hot-path callers can skip a
