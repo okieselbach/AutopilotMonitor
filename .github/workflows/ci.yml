@@ -107,8 +107,22 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      # The vector-search tests tokenize with the real all-MiniLM-L6-v2 model
+      # (~23 MB tokenizer + ONNX weights). transformers.js caches under
+      # node_modules by default, which npm ci recreates — so every CI run
+      # re-downloaded from huggingface.co and rate-limits (429) failed the job
+      # (run 31252869254). Persist the model across runs instead; HF_CACHE_DIR
+      # is honored by vector-search-provider.ts.
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.hf-cache
+          key: hf-model-Xenova-all-MiniLM-L6-v2
+
       - name: Tests
         run: npm test
+        env:
+          HF_CACHE_DIR: ${{ github.workspace }}/.hf-cache
 
   guardrails-in-sync:
     name: Generated guardrails match rules/guardrails.json
