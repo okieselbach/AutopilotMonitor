@@ -1,7 +1,9 @@
 # Autopilot Monitor Bootstrap Guard Test
 # Dry-run only: does not exit, does not install, only reports what WOULD happen.
-# Mirrors Install-AutopilotMonitor.ps1 incl. the OOBE-relax exemption for the
-# "Windows Backup for Organizations" restore case (guards 2+3).
+# Mirrors Install-AutopilotMonitor.ps1 (v2.3) incl. the relax exemption for
+# guards 2+3, triggered by "Windows Backup for Organizations" (OOBE InProgress)
+# or a positively identified Windows 365 Cloud PC, and the guard 4 (uptime)
+# exemption while the Cloud PC relax is active.
 
 param(
     [string]$AgentBinPath = 'C:\ProgramData\AutopilotMonitor\Agent',
@@ -54,6 +56,12 @@ function Test-OobeInProgress {
     }
 }
 
+# Positive Windows 365 Cloud PC detection: two local markers, BOTH required (AND),
+# because each alone has look-alikes. Mirrors Test-IsCloudPc in the bootstrapper.
+$cloudPcRegMarker = Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows365'
+$cloudPcSvcMarker = $null -ne (Get-Service -Name 'CloudManagedDesktopExtension' -ErrorAction SilentlyContinue)
+$isCloudPc = ($cloudPcRegMarker -and $cloudPcSvcMarker)
+
 $AgentExePath = Join-Path $AgentBinPath 'AutopilotMonitor.Agent.exe'
 $MaxBootstrapWindowHours = 12
 
@@ -104,8 +112,9 @@ if ($wmiProfileQueryFailed) {
 
 $profileNames = $profilePaths | ForEach-Object { Split-Path $_ -Leaf }
 
-# OOBE-relax: the ONLY exemption to guards 2+3. Matches exactly the Windows Backup for
-# Organizations restore: OOBE InProgress AND exactly one profile AND that profile fresh.
+# Relax: the ONLY exemption to guards 2+3. Two triggers -- OOBE InProgress (Windows
+# Backup for Organizations restore) or Cloud PC identity (headless provisioning,
+# profile at first connect). Either additionally requires exactly one fresh profile.
 $oobeInProgress = Test-OobeInProgress
 $profileAgeMin = $null
 $oobeRelax = $false
@@ -114,12 +123,13 @@ if ($profilePaths.Count -eq 1) {
         $created = (Get-Item -LiteralPath $profilePaths[0] -Force -ErrorAction Stop).CreationTimeUtc
         $profileAgeMin = [math]::Round(((Get-Date).ToUniversalTime() - $created).TotalMinutes, 1)
     } catch { }
-    if ($oobeInProgress -and $null -ne $profileAgeMin -and $profileAgeMin -ge 0 -and $profileAgeMin -lt $OobeProfileMaxAgeMinutes) {
+    if (($oobeInProgress -or $isCloudPc) -and $null -ne $profileAgeMin -and $profileAgeMin -ge 0 -and $profileAgeMin -lt $OobeProfileMaxAgeMinutes) {
         $oobeRelax = $true
     }
 }
 
-Write-Step -Status 'INFO' -Message "OOBE: OutOfBoxExperienceState InProgress = $oobeInProgress ; profileCount = $($profilePaths.Count) ; singleProfileAgeMin = $profileAgeMin ; OOBE-relax = $oobeRelax"
+Write-Step -Status 'INFO' -Message "Cloud PC markers: Windows365 registry key = $cloudPcRegMarker ; CloudManagedDesktopExtension service = $cloudPcSvcMarker ; IsCloudPc = $isCloudPc"
+Write-Step -Status 'INFO' -Message "OOBE: OutOfBoxExperienceState InProgress = $oobeInProgress ; profileCount = $($profilePaths.Count) ; singleProfileAgeMin = $profileAgeMin ; relax = $oobeRelax"
 
 # Guard 2: No real user profile should exist yet (unless OOBE-relax holds)
 if ($profilePaths.Count -gt 0 -and -not $oobeRelax) {
@@ -129,7 +139,8 @@ if ($profilePaths.Count -gt 0 -and -not $oobeRelax) {
     $reasons.Add("Real user profile(s) found: $names")
 } elseif ($profilePaths.Count -gt 0 -and $oobeRelax) {
     $names = ($profileNames | Select-Object -First 3) -join ', '
-    Write-Step -Status 'PASS' -Message "Guard 2: Profile ($names) present but OOBE-relax active (single fresh profile in OOBE) -- not blocking."
+    $trigger = if ($oobeInProgress) { 'OOBE InProgress' } else { 'Cloud PC' }
+    Write-Step -Status 'PASS' -Message "Guard 2: Profile ($names) present but relax active ($trigger + single fresh profile) -- not blocking."
 } else {
     Write-Step -Status 'PASS' -Message 'Guard 2: No real user profiles found (combined WMI/filesystem view).'
 }
@@ -141,7 +152,7 @@ if ($lastLoggedOnUser -and $lastLoggedOnUser -notmatch 'defaultuser\d*' -and -no
     $wouldInstall = $false
     $reasons.Add("LastLoggedOnUser found: $lastLoggedOnUser")
 } elseif ($lastLoggedOnUser -and $lastLoggedOnUser -notmatch 'defaultuser\d*' -and $oobeRelax) {
-    Write-Step -Status 'PASS' -Message "Guard 3: LastLoggedOnUser ($lastLoggedOnUser) present but OOBE-relax active -- not blocking."
+    Write-Step -Status 'PASS' -Message "Guard 3: LastLoggedOnUser ($lastLoggedOnUser) present but relax active -- not blocking."
 } else {
     Write-Step -Status 'PASS' -Message "Guard 3: No real LastLoggedOnUser (value: '$lastLoggedOnUser')."
 }
@@ -155,9 +166,15 @@ try {
     $uptimeHours = ((Get-Date) - $lastBoot).TotalHours
 
     if ($uptimeHours -gt $MaxBootstrapWindowHours) {
-        Write-Step -Status 'SKIP' -Message "Guard 4: Device uptime is $([int]$uptimeHours)h. Older than accepted bootstrap window of ${MaxBootstrapWindowHours}h."
-        $wouldInstall = $false
-        $reasons.Add("Uptime exceeds bootstrap window: $([int]$uptimeHours)h > ${MaxBootstrapWindowHours}h")
+        if ($oobeRelax -and $isCloudPc) {
+            # Cloud PCs run headless for days before the user's first connect; the
+            # fresh-profile window is the time anchor there, not boot uptime.
+            Write-Step -Status 'PASS' -Message "Guard 4: Device uptime is $([int]$uptimeHours)h (over ${MaxBootstrapWindowHours}h), but the Cloud PC relax is active -- not blocking."
+        } else {
+            Write-Step -Status 'SKIP' -Message "Guard 4: Device uptime is $([int]$uptimeHours)h. Older than accepted bootstrap window of ${MaxBootstrapWindowHours}h."
+            $wouldInstall = $false
+            $reasons.Add("Uptime exceeds bootstrap window: $([int]$uptimeHours)h > ${MaxBootstrapWindowHours}h")
+        }
     } else {
         Write-Step -Status 'PASS' -Message "Guard 4: Device uptime is $([int]$uptimeHours)h and within bootstrap window of ${MaxBootstrapWindowHours}h."
     }
@@ -202,9 +219,12 @@ Write-Host "Deployed marker           : $deployed"
 Write-Host "DetectedProfileNames      : $($profileNames -join ', ')"
 Write-Host "ProfileCount              : $($profilePaths.Count)"
 Write-Host "OobeInProgress (WinRT)    : $oobeInProgress"
+Write-Host "CloudPcRegistryMarker     : $cloudPcRegMarker"
+Write-Host "CloudPcServiceMarker      : $cloudPcSvcMarker"
+Write-Host "IsCloudPc                 : $isCloudPc"
 Write-Host "SingleProfileAgeMinutes   : $profileAgeMin"
 Write-Host "OobeProfileMaxAgeMinutes  : $OobeProfileMaxAgeMinutes"
-Write-Host "OobeRelaxActive           : $oobeRelax"
+Write-Host "RelaxActive               : $oobeRelax"
 Write-Host "LastLoggedOnUser          : $lastLoggedOnUser"
 Write-Host "MaxBootstrapWindowHours   : $MaxBootstrapWindowHours"
 Write-Host "LastBootUpTime            : $lastBoot"

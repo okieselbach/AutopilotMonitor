@@ -1,5 +1,5 @@
 # Pester tests (Pester 5+) for the bootstrap guard/relax logic in
-# Install-AutopilotMonitor-dev.ps1 (v2.3-dev).
+# Install-AutopilotMonitor.ps1.
 #
 # The script under test is dot-sourced; its entry guard prevents the bootstrap
 # from executing, so loading it here is side-effect free. External state (WMI,
@@ -12,7 +12,7 @@
 # This file MUST remain pure ASCII (PS 5.1 reads BOM-less files as ANSI).
 
 BeforeAll {
-    . (Join-Path $PSScriptRoot 'Install-AutopilotMonitor-dev.ps1')
+    . (Join-Path $PSScriptRoot 'Install-AutopilotMonitor.ps1')
 
     function New-FakeProfile {
         param([string]$Name, [double]$AgeMinutes)
@@ -24,9 +24,9 @@ BeforeAll {
 }
 
 Describe 'Test-IsCloudPc' {
-    # Marker set captured 2026-08-06 from a real W365 Enterprise Cloud PC: local WMI
-    # is generic ('Virtual Machine'), so detection rests on the Windows365 registry
-    # key AND the CloudManagedDesktopExtension service (both required).
+    # Local WMI on a Cloud PC is generic ('Virtual Machine'), so detection rests on
+    # the Windows365 registry key AND the CloudManagedDesktopExtension service
+    # (both required).
     BeforeEach {
         Mock Write-Log { }
         Mock Get-CimInstance { [pscustomobject]@{ Manufacturer = 'Microsoft Corporation'; Model = 'Virtual Machine' } }
@@ -78,21 +78,21 @@ Describe 'Get-RealUserProfilePaths' {
     It 'merges WMI and filesystem views, drops special/system profiles, dedupes' {
         Mock Get-CimInstance {
             @(
-                [pscustomobject]@{ Special = $false; LocalPath = 'C:\Users\LeonGottschalk' }
+                [pscustomobject]@{ Special = $false; LocalPath = 'C:\Users\UserOne' }
                 [pscustomobject]@{ Special = $true; LocalPath = 'C:\Users\systemprofile' }
                 [pscustomobject]@{ Special = $false; LocalPath = 'D:\Profiles\Elsewhere' }
             )
         }
         Mock Get-ChildItem {
             @(
-                [pscustomobject]@{ FullName = 'C:\Users\LeonGottschalk' }
+                [pscustomobject]@{ FullName = 'C:\Users\UserOne' }
                 [pscustomobject]@{ FullName = 'C:\Users\Public' }
                 [pscustomobject]@{ FullName = 'C:\Users\defaultuser0' }
                 [pscustomobject]@{ FullName = 'C:\Users\WDAGUtilityAccount' }
             )
         }
         $result = @(Get-RealUserProfilePaths)
-        $result | Should -Be @('C:\Users\LeonGottschalk')
+        $result | Should -Be @('C:\Users\UserOne')
     }
 
     It 'falls back to the filesystem view when the WMI query fails' {
@@ -132,15 +132,15 @@ Describe 'Get-RelaxDecision' {
             Mock Test-IsCloudPc { $true }
         }
 
-        It 'relaxes for a single fresh profile although OOBE is Completed (W365 field case)' {
-            $p = New-FakeProfile 'LeonGottschalk' 0.6
+        It 'relaxes for a single fresh profile although OOBE is Completed (first connect)' {
+            $p = New-FakeProfile 'CloudPcUser' 0.6
             $d = Get-RelaxDecision -ProfilePaths @($p) -OobeProfileMaxAgeMinutes 15
             $d.Active | Should -BeTrue
             $d.IsCloudPc | Should -BeTrue
         }
 
         It 'does not relax for an old profile (productive Cloud PC)' {
-            $p = New-FakeProfile 'LeonGottschalk' 30
+            $p = New-FakeProfile 'CloudPcUser' 30
             (Get-RelaxDecision -ProfilePaths @($p) -OobeProfileMaxAgeMinutes 15).Active | Should -BeFalse
         }
 
@@ -162,7 +162,7 @@ Describe 'Get-RelaxDecision' {
         }
     }
 
-    Context 'OOBE InProgress (Windows Backup for Organizations, v2.2 behaviour)' {
+    Context 'OOBE InProgress (Windows Backup for Organizations)' {
         It 'relaxes for a single fresh profile during OOBE' {
             Mock Get-OobeState { 'InProgress' }
             $p = New-FakeProfile 'RestoreUser' 3
@@ -218,12 +218,12 @@ Describe 'Get-BootstrapDecision' {
         $d.ReasonCode | Should -Be 'ProfilesFound'
     }
 
-    It 'installs on a freshly provisioned Cloud PC with one fresh profile (W365 field case)' {
-        $script:fakeProfile = New-FakeProfile 'LeonGottschalk' 0.6
+    It 'installs on a freshly provisioned Cloud PC with one fresh profile' {
+        $script:fakeProfile = New-FakeProfile 'CloudPcUser' 0.6
         Mock Get-RealUserProfilePaths { @($script:fakeProfile) }
         Mock Test-IsCloudPc { $true }
         # First-connect user is already visible in LogonUI on W365 -- must not block either.
-        Mock Get-ItemProperty { [pscustomobject]@{ LastLoggedOnUser = 'AzureAD\LeonGottschalk' } } -ParameterFilter { $Path -like '*LogonUI*' }
+        Mock Get-ItemProperty { [pscustomobject]@{ LastLoggedOnUser = 'AzureAD\CloudPcUser' } } -ParameterFilter { $Path -like '*LogonUI*' }
         $d = Get-BootstrapDecision -MaxBootstrapWindowHours 12 -OobeProfileMaxAgeMinutes 15 -AgentBinPath $script:cleanAgentBin
         $d.Install | Should -BeTrue
         $d.RelaxActive | Should -BeTrue
@@ -248,7 +248,7 @@ Describe 'Get-BootstrapDecision' {
         $d.ReasonCode | Should -Be 'UptimeExceeded'
     }
 
-    It 'installs on a Cloud PC despite uptime over the window when the relax is active (guard 4 exemption, v2.3-dev.3)' {
+    It 'installs on a Cloud PC despite uptime over the window when the relax is active (guard 4 exemption)' {
         # W365 reality: provisioned days ago, running headless ever since; the user's
         # first connect just created the profile. Uptime is meaningless here.
         $script:fakeProfile = New-FakeProfile 'FirstConnectUser' 0.6
