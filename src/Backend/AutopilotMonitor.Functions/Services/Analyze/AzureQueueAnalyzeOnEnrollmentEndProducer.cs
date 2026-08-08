@@ -28,6 +28,19 @@ namespace AutopilotMonitor.Functions.Services.Analyze
 
         private int _queueEnsured; // 0 = not yet ensured, 1 = CreateIfNotExistsAsync has run
 
+        /// <summary>
+        /// Delay before the enqueued message becomes visible to the worker. The trigger event
+        /// (enrollment_complete / enrollment_failed) is by design the FIRST event of the
+        /// agent's terminal sequence — the terminal flush (stuck-app promotion's synthetic
+        /// app_install_failed, app_tracking_summary, esp_apps_failure_correlation,
+        /// agent_shutting_down) lands in separate uploads seconds later. An immediately
+        /// visible message let the worker evaluate rules against a stream missing those rows
+        /// (session 53d1e9f6: ANALYZE-ESP-004's optional app_install_failed condition never
+        /// matched, {{appName}} stayed a literal placeholder — and the RuleResult dedup makes
+        /// that permanent). 30 s covers the flush including the agent's late-event grace.
+        /// </summary>
+        private static readonly TimeSpan s_visibilityDelay = TimeSpan.FromSeconds(30);
+
         public AzureQueueAnalyzeOnEnrollmentEndProducer(
             QueueClientFactory queueFactory,
             ILogger<AzureQueueAnalyzeOnEnrollmentEndProducer> logger)
@@ -53,7 +66,10 @@ namespace AutopilotMonitor.Functions.Services.Analyze
             try
             {
                 var body = JsonConvert.SerializeObject(envelope);
-                await _queueClient.SendMessageAsync(body, cancellationToken).ConfigureAwait(false);
+                await _queueClient.SendMessageAsync(
+                    body,
+                    visibilityTimeout: s_visibilityDelay,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
                 _logger.LogInformation(
                     "Analyze enqueued (tenant={Tenant} session={Session} reason={Reason})",
                     envelope.TenantId, envelope.SessionId, envelope.Reason);
