@@ -7,14 +7,14 @@ description: >-
   guard rather than trusting rule.Target.
 resource: src/Agent/AutopilotMonitor.Agent.V2.Core/Monitoring/Telemetry/Gather
 tags: [gather-rules, security, guardrails, agent]
-timestamp: 2026-07-22
+timestamp: 2026-08-10
 ---
 
 # Concept
 
 A gather rule is authored by a **tenant administrator** through `POST /api/rules/gather` and executed by the agent as **SYSTEM** on an enrolling device. The backend does not validate `collectorType`, `target`, or `parameters` at all — it only enforces scope/emit-mode fields, a 1 MB body cap, and that the rule lands in the caller's own tenant partition. Everything that decides *what a rule may reach* is therefore enforced **on the agent**, in `GatherRuleGuards`.
 
-This is the security boundary. The portal's `ValidationIndicator` is a convenience: it does not block submit, and the API is reachable directly.
+This is the security boundary. The portal's `ValidationIndicator` is a convenience — the API stays reachable directly and the backend stays validation-free — but since 2026-08 the portal additionally **gates enabling** on the same client-side validation: a custom rule whose target fails validation cannot be toggled on, is created `enabled=false`, and an edit that makes the target invalid force-disables the rule (`targetBlocked` in `app/gather-rules/types.ts`). An enabled rule with an invalid target shows a "Blocked on devices" badge. All of this is UX, not security — the agent guard remains the enforcement point.
 
 # Schema
 
@@ -27,7 +27,7 @@ item in `AutopilotMonitor.Agent.V2.Core.csproj`) and regenerated into the portal
 | --- | --- | --- |
 | `IsRegistryPathAllowed` | `registryPrefixes` | prefix, boundary `\` or end |
 | `IsFilePathAllowed` | `filePrefixes` | `Path.GetFullPath` first, then prefix + boundary |
-| `IsWmiQueryAllowed` | `wmiQueryPrefixes` | prefix, boundary whitespace or end |
+| `IsWmiQueryAllowed` | `wmiQueryPrefixes` | `SELECT <* \| property-list> FROM <class>`; class = case-insensitive equality against classes derived from the `SELECT * FROM <class>` entries, boundary whitespace or end (trailing `WHERE` allowed). Non-canonical entries (none today) fall back to literal prefix + boundary |
 | `IsCommandAllowed` | `allowedCommands` | **exact** match, trimmed — never prefix |
 | `IsEventLogChannelAllowed` | `eventLogChannels` | prefix, boundary `/` or end |
 
@@ -70,6 +70,15 @@ Two collectors were added to this contract on 2026-07-22 after shipping without 
 `ImeLogPathOverride` comes only from the local `--ime-log-path` CLI flag, never from
 remote config. The operator using it is already a local admin, so it relaxes the
 allowlist exactly the way unrestricted mode does — hard blocks still apply.
+
+**WMI property projections (2026-08):** `SELECT BatteryStatus FROM Win32_Battery` is
+allowed because `SELECT * FROM Win32_Battery` is — a projection exposes a strict subset
+of the allowed class. The matcher parses the query shape instead of literal-prefix
+matching; the allowed-class set is derived at load time from the existing
+`wmiQueryPrefixes` entries, so `rules/guardrails.json` needs no new key. The same
+algorithm is mirrored in the portal (`utils/guardValidation.ts`) and the MCP server
+(`rule-validation.ts`); agents older than the change still block projections with a
+`security_warning` until they self-update.
 
 # Citations
 

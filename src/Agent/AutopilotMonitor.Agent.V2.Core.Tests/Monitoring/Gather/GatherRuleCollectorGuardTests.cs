@@ -308,8 +308,51 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Gather
         [InlineData("SELECT * FROM Win32_UserAccount")]
         [InlineData("SELECT * FROM Win32_ShadowCopy")]
         [InlineData("SELECT * FROM Win32_OperatingSystemExtra")]          // prefix spoofing
+        [InlineData("SELECT Name FROM Win32_Process")]                    // projection of a disallowed class
+        [InlineData("SELECT BatteryStatus FROM Win32_BatteryX")]          // class spoofing via projection
         public void WmiCollector_OffAllowlistQuery_IsBlockedBeforeTheQueryRuns(string query)
             => AssertBlocked(new WmiCollector().Execute(Rule("wmi", query), Context()), query);
+
+        // -------------------------------------------------------------------
+        // WMI query matcher: "SELECT <* | property-list> FROM <allowed class>"
+        //
+        // Guard-level (no WMI touched): a property projection of an allowed class
+        // exposes a strict subset of the already-allowed SELECT *, so it is admitted.
+        // -------------------------------------------------------------------
+
+        [Theory]
+        [InlineData("SELECT * FROM Win32_Battery")]                                       // legacy form unchanged
+        [InlineData("SELECT * FROM Win32_BIOS WHERE PrimaryBIOS = TRUE")]                 // legacy + WHERE
+        [InlineData("SELECT BatteryStatus FROM Win32_Battery")]
+        [InlineData("SELECT BatteryStatus, EstimatedChargeRemaining FROM Win32_Battery")]
+        [InlineData("select batterystatus from win32_battery")]                           // case-insensitive
+        [InlineData("SELECT\tBatteryStatus\tFROM\tWin32_Battery")]                        // tabs as separators
+        [InlineData("  SELECT BatteryStatus FROM Win32_Battery  ")]                       // surrounding whitespace
+        [InlineData("SELECT BatteryStatus,EstimatedChargeRemaining FROM Win32_Battery")]  // no space after comma
+        [InlineData("SELECT Status FROM Win32_Battery WHERE BatteryStatus = 1")]          // projection + WHERE
+        public void WmiGuard_ProjectionOfAllowedClass_IsAllowed(string query)
+            => Assert.True(GatherRuleGuards.IsWmiQueryAllowed(query));
+
+        [Theory]
+        [InlineData("SELECT Name FROM Win32_Process")]                    // class not on the allowlist
+        [InlineData("SELECT BatteryStatus FROM Win32_BatteryX")]          // class spoofing
+        [InlineData("SELECT * FROM Win32_BatteryX")]
+        [InlineData("SELECT *, Name FROM Win32_BIOS")]                    // star mixed into a property list
+        [InlineData("SELECT FROM Win32_BIOS")]                            // empty property list
+        [InlineData("SELECT BatteryStatus FROM")]                         // missing class
+        [InlineData("SELECT BatteryStatus FROM Win32_Battery;DROP")]      // non-whitespace boundary after class
+        [InlineData("SELECT BatteryStatus, FROM Win32_Battery")]          // trailing comma
+        [InlineData("")]
+        public void WmiGuard_MalformedOrDisallowedQuery_IsBlocked(string query)
+            => Assert.False(GatherRuleGuards.IsWmiQueryAllowed(query));
+
+        [Fact]
+        public void WmiGuard_NullQuery_IsBlocked()
+            => Assert.False(GatherRuleGuards.IsWmiQueryAllowed(null));
+
+        [Fact]
+        public void WmiGuard_UnrestrictedMode_AllowsAnyQuery()
+            => Assert.True(GatherRuleGuards.IsWmiQueryAllowed("SELECT Name FROM Win32_Process", unrestrictedMode: true));
 
         [Fact]
         public void JsonCollector_UserProfilePath_IsBlockedBeforeTheFileIsOpened()

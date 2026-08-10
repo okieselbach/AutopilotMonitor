@@ -67,6 +67,25 @@ const flatRegistryPrefixes = RULE_GUARDRAILS.registryPrefixes.flatMap((g) => [..
 const flatCommands = RULE_GUARDRAILS.allowedCommands.flatMap((g) => [...g.commands]);
 const flatEventLogChannels = RULE_GUARDRAILS.eventLogChannels.flatMap((g) => [...g.channels]);
 
+// Canonical WMI allowlist entry: exactly "SELECT * FROM <class>". Such entries
+// contribute their class name; any other entry (none today) stays on the legacy
+// literal-prefix path. Mirrors GatherRuleGuards.cs.
+const CANONICAL_WMI_ENTRY_REGEX = /^SELECT\s+\*\s+FROM\s+([A-Za-z_][A-Za-z0-9_]*)$/i;
+
+// WQL shape "SELECT <* | property-list> FROM <class>", class token bounded by
+// whitespace or end of string (trailing WHERE permitted, Win32_BIOSX cannot
+// pass as Win32_BIOS).
+const WMI_QUERY_REGEX =
+  /^SELECT\s+(?:\*|[A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s+FROM\s+([A-Za-z_][A-Za-z0-9_]*)(?=\s|$)/i;
+
+const allowedWmiClasses = new Set<string>();
+const residualWmiPrefixes: string[] = [];
+for (const entry of RULE_GUARDRAILS.wmiQueryPrefixes) {
+  const m = CANONICAL_WMI_ENTRY_REGEX.exec(entry.trim());
+  if (m) allowedWmiClasses.add(m[1].toLowerCase());
+  else residualWmiPrefixes.push(entry);
+}
+
 /** Hard blocks enforced in agent CODE (not liftable via guardrails.json). Keep in
  * sync with GatherRuleGuards.cs — additions there are fail-safe (agent still blocks),
  * missing ones here just cost a pre-flight warning. */
@@ -121,15 +140,24 @@ function checkGatherTarget(collectorType: string, target: string): ValidationFin
       break;
     }
     case 'wmi': {
-      const t = target.toLowerCase();
-      const ok = RULE_GUARDRAILS.wmiQueryPrefixes.some((p) => {
-        const pl = p.toLowerCase();
-        // Whitespace-bounded: the query is the prefix or continues with whitespace
-        // (mirrors the agent's boundary check, prevents Win32_BIOSX spoofing).
-        return t === pl || (t.startsWith(pl) && /\s/.test(t.charAt(pl.length)));
-      });
+      // Trim like the agent does — an untrimmed target must not be a false positive.
+      const t = target.trim().toLowerCase();
+      const m = WMI_QUERY_REGEX.exec(t);
+      let ok = m !== null && allowedWmiClasses.has(m[1]);
       if (!ok) {
-        findings.push({ level: 'error', message: `guardrails: WMI query "${target}" does not start with any allowed query prefix (rule_guardrails → wmiQueryPrefixes).` });
+        // Non-canonical allowlist entries keep the legacy literal-prefix match.
+        ok = residualWmiPrefixes.some((p) => {
+          const pl = p.toLowerCase();
+          return t === pl || (t.startsWith(pl) && /\s/.test(t.charAt(pl.length)));
+        });
+      }
+      if (!ok) {
+        findings.push({
+          level: 'error',
+          message:
+            `guardrails: WMI query "${target}" is not allowed — use "SELECT <properties or *> FROM <class>" against a class from rule_guardrails → wmiQueryPrefixes. ` +
+            'Allowing additional classes requires a contribution to rules/guardrails.json in the product repository.',
+        });
       }
       break;
     }

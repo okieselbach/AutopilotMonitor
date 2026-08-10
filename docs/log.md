@@ -1,6 +1,8 @@
 # Log
 
-## 2026-08-08
+## 2026-08-10
+
+* **Update**: `rules/gather-rule-guardrails.md` — WMI matcher generalized from literal prefix matching to shape parsing: `SELECT <* | property-list> FROM <class>` is allowed when the class is derived from the existing `SELECT * FROM <class>` entries (a projection is a strict subset; motivated by `SELECT BatteryStatus FROM Win32_Battery` + `on_change` battery polling that `SELECT *` defeats via fluctuating charge %). Same algorithm mirrored agent/portal/MCP; guardrails.json unchanged. Portal now also gates enabling on the client-side validation (invalid-target custom rules create disabled, cannot be toggled on, force-disable on invalid edit, "Blocked on devices" badge) — UX only, the agent guard stays the boundary. Gather-rule Author is now stamped from the creator's JWT (display name → UPN) at create and immutable on update.
 
 * **New**: `agent/continue-anyway-observation.md` — Continue-Anyway observation mode (`EnableEspContinueAnywayObservation`, ConfigVersion 37, operator-set): Device-phase ESP terminal failures on Continue-Anyway profiles are defanged into a 60-min observation window (Classic/Unknown, non-pre-prov only); real-user desktop + Hello gate complete the session as Succeeded + `EspSoftFailure`/`CompletionSource` (amber "with issues" badge + detail banner), category recovery resolves clean, expiry un-defangs to the original `esp_terminal_failure`. Registered in the Agent index section. Related backend fix (no doc): the auto-analyze enqueue now carries a 30 s `visibilityTimeout` so rule evaluation no longer races the agent's terminal flush (ANALYZE-ESP-004's `{{appName}}` placeholder).
 

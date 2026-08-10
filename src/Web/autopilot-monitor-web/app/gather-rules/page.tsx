@@ -14,7 +14,7 @@ import { FormJsonToggle, JsonModeToggleButtons } from "@/components/rules/FormJs
 import { useAuthenticatedFetch, useNotificationMessages, useGlobalAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
-import { GatherRule, NewRuleForm, EMPTY_FORM, PHASE_TRIGGERS, buildScopeFields, validateScopeSelection, withDerivedScopeMode } from "./types";
+import { GatherRule, NewRuleForm, EMPTY_FORM, PHASE_TRIGGERS, buildScopeFields, targetBlocked, validateScopeSelection, withDerivedScopeMode } from "./types";
 import { GatherRuleFormFields } from "./components/GatherRuleFormFields";
 import { GatherRuleCard } from "./components/GatherRuleCard";
 import { DOCS_URL } from "@/utils/config";
@@ -125,6 +125,12 @@ export default function GatherRulesPage() {
   }, [effectiveTenantId, getAccessToken]);
 
   const handleToggleRule = async (rule: GatherRule) => {
+    // Defense in depth next to the disabled toggle button: never enable a rule the
+    // agent would block on every device anyway. Disabling always stays possible.
+    if (!rule.enabled && targetBlocked(rule, unrestrictedMode)) {
+      showError(`Rule "${rule.title}" cannot be enabled — its target is not allowed by the collection guardrails.`);
+      return;
+    }
     setTogglingRule(rule.ruleId);
     const result = await mutate(
       gatherRuleWriteUrl(rule.ruleId),
@@ -214,6 +220,9 @@ export default function GatherRulesPage() {
     }
 
     setCreating(true);
+    // Without an explicit enabled the backend model defaults to true — a rule the agent
+    // would block on every device must land disabled instead.
+    const blocked = targetBlocked(form, unrestrictedMode);
     const payload = {
       ruleId: form.ruleId,
       title: form.title,
@@ -229,6 +238,7 @@ export default function GatherRulesPage() {
       ...buildScopeFields(form),
       outputEventType: form.outputEventType,
       outputSeverity: form.outputSeverity,
+      enabled: !blocked,
     };
 
     const result = await mutate(
@@ -241,7 +251,9 @@ export default function GatherRulesPage() {
     );
     if (result !== null) {
       trackEvent("rule_created", { ruleType: "gather" });
-      showSuccess(`Rule "${form.title}" created`);
+      showSuccess(blocked
+        ? `Rule "${form.title}" created (disabled — its target is not allowed by the collection guardrails)`
+        : `Rule "${form.title}" created`);
       setShowCreateForm(false);
       setNewRule({ ...EMPTY_FORM });
       setJsonModeCreate(false);
@@ -306,6 +318,9 @@ export default function GatherRulesPage() {
     }
 
     setSaving(true);
+    // An edit that makes the target invalid force-disables the rule — the agent would
+    // block it on every device, so leaving it enabled only produces security warnings.
+    const forcedOff = rule.enabled && targetBlocked(form, unrestrictedMode);
     const payload = {
       title: form.title,
       description: form.description,
@@ -321,8 +336,7 @@ export default function GatherRulesPage() {
       outputEventType: form.outputEventType,
       outputSeverity: form.outputSeverity,
       version: bumpVersion(rule.version),
-      enabled: rule.enabled,
-      author: rule.author,
+      enabled: rule.enabled && !forcedOff,
       createdAt: rule.createdAt,
       // Same wipe class as the toggle bug: the full-replace PUT must carry tags or they vanish.
       tags: rule.tags ?? [],
@@ -340,7 +354,9 @@ export default function GatherRulesPage() {
     );
     if (result !== null) {
       trackEvent("rule_modified", { ruleType: "gather" });
-      showSuccess(`Rule "${form.title}" saved`);
+      showSuccess(forcedOff
+        ? `Rule "${form.title}" saved and disabled — its target is not allowed by the collection guardrails`
+        : `Rule "${form.title}" saved`);
       setEditingRuleId(null);
       setJsonModeEdit(false);
       setJsonError(null);

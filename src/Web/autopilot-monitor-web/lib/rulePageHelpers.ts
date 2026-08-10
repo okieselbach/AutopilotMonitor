@@ -25,10 +25,16 @@ export function stripInternalFields<T extends { isBuiltIn?: any; isCommunity?: a
   return rest as Omit<T, "isBuiltIn" | "isCommunity" | "createdAt" | "updatedAt">;
 }
 
-/** Bump a semver-style version string: "1.0" -> "1.1", "1.9" -> "1.10", etc. */
+/**
+ * Bump a semver-style version string's minor segment, preserving the segment
+ * count and zeroing anything after the minor: "1.0" -> "1.1", "1.9" -> "1.10",
+ * "1.0.0" -> "1.1.0", "2.3.7" -> "2.4.0".
+ */
 export function bumpVersion(v: string): string {
-  const parts = (v ?? "1.0").split(".");
-  const major = parts[0] ?? "1";
-  const minor = parseInt(parts[1] ?? "0", 10);
-  return `${major}.${minor + 1}`;
+  const parts = (v || "1.0").split(".");
+  const major = parts[0] || "1";
+  const parsedMinor = parseInt(parts[1] ?? "0", 10);
+  const minor = Number.isNaN(parsedMinor) ? 0 : parsedMinor;
+  const trailingZeros = parts.slice(2).map(() => "0");
+  return [major, `${minor + 1}`, ...trailingZeros].join(".");
 }

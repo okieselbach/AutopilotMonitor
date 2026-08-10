@@ -68,6 +68,11 @@ export function GatherRuleCard({
     [rule.collectorType, rule.target, unrestrictedMode]
   );
 
+  // Custom rule whose target the agent would block on every device (security_warning,
+  // no data): the portal refuses to enable it; disabling always stays possible.
+  const isBlockedTarget = canEdit && targetValidation !== null && !targetValidation.allowed;
+  const enableBlocked = !rule.enabled && isBlockedTarget;
+
   return (
     <div
       className={`bg-white rounded-lg shadow border transition-all ${
@@ -99,13 +104,15 @@ export function GatherRuleCard({
                 e.stopPropagation();
                 onToggle();
               }}
-              disabled={togglingRule === rule.ruleId}
+              disabled={togglingRule === rule.ruleId || enableBlocked}
               className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-                togglingRule === rule.ruleId
+                togglingRule === rule.ruleId || enableBlocked
                   ? "opacity-50 cursor-not-allowed"
                   : "cursor-pointer"
               } ${rule.enabled ? "bg-emerald-500" : "bg-gray-300"}`}
-              title={rule.enabled ? "Disable rule" : "Enable rule"}
+              title={enableBlocked
+                ? "Target is not allowed by the collection guardrails — fix the target before enabling"
+                : rule.enabled ? "Disable rule" : "Enable rule"}
             >
               <span
                 className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
@@ -149,6 +156,16 @@ export function GatherRuleCard({
           >
             {rule.isBuiltIn ? "Built-in" : rule.isCommunity ? "Community" : "Custom"}
           </span>
+
+          {/* Enabled rule the agent blocks on every device — visible without expanding */}
+          {rule.enabled && isBlockedTarget && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-50 text-red-600 border border-red-200 flex-shrink-0"
+              title={targetValidation?.reason}
+            >
+              Blocked on devices
+            </span>
+          )}
 
           {/* Expand/Collapse Arrow */}
           <svg
@@ -263,6 +280,20 @@ export function GatherRuleCard({
                   {rule.target}
                 </code>
                 <ValidationIndicator result={targetValidation} className="ml-2" />
+                {isBlockedTarget && (
+                  <p className="mt-1.5 text-xs text-gray-500">
+                    This target isn&apos;t on the collection allowlist. Think it should be?{" "}
+                    <a
+                      href="https://github.com/okieselbach/AutopilotMonitor/issues"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-indigo-600 hover:text-indigo-800 underline"
+                    >
+                      Request an addition via a GitHub issue
+                    </a>
+                    .
+                  </p>
+                )}
               </div>
               {rule.parameters && Object.keys(rule.parameters).length > 0 && (
                 <div className="text-sm">

@@ -196,6 +196,32 @@ describe("validateWmiTarget", () => {
     const r = validateWmiTarget("", false);
     expect(r.allowed).toBe(false);
   });
+
+  // Property projections of an allowed class expose a strict subset of the
+  // already-allowed SELECT * and are therefore admitted.
+  it.each([
+    "SELECT BatteryStatus FROM Win32_Battery",
+    "SELECT BatteryStatus, EstimatedChargeRemaining FROM Win32_Battery",
+    "SELECT BatteryStatus,EstimatedChargeRemaining FROM Win32_Battery",
+    "select batterystatus from win32_battery",
+    "SELECT\tBatteryStatus\tFROM\tWin32_Battery",
+    "  SELECT BatteryStatus FROM Win32_Battery  ",
+    "SELECT Status FROM Win32_Battery WHERE BatteryStatus = 1",
+  ])("allows projection of an allowed class: %s", (query) => {
+    expect(validateWmiTarget(query, false).allowed).toBe(true);
+  });
+
+  it.each([
+    "SELECT Name FROM Win32_Process", // class not on the allowlist
+    "SELECT BatteryStatus FROM Win32_BatteryX", // class spoofing
+    "SELECT *, Name FROM Win32_BIOS", // star mixed into a property list
+    "SELECT FROM Win32_BIOS", // empty property list
+    "SELECT BatteryStatus FROM", // missing class
+    "SELECT BatteryStatus FROM Win32_Battery;DROP", // non-whitespace boundary
+    "SELECT BatteryStatus, FROM Win32_Battery", // trailing comma
+  ])("rejects malformed or disallowed projection: %s", (query) => {
+    expect(validateWmiTarget(query, false).allowed).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

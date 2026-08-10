@@ -33,6 +33,7 @@ public class GatherRuleUpdatePartialMergeTests
         Enabled = true,
         IsBuiltIn = false,
         IsCommunity = false,
+        Author = "Alice Admin",
         CreatedAt = new DateTime(2026, 1, 15, 12, 0, 0, DateTimeKind.Utc),
         ActiveFromPhase = "AccountSetup",
         EmitMode = "on_change",
@@ -77,6 +78,7 @@ public class GatherRuleUpdatePartialMergeTests
         Assert.Equal("AccountSetup", written.ActiveFromPhase);
         Assert.Equal("on_change", written.EmitMode);
         Assert.Equal(existing.CreatedAt, written.CreatedAt);
+        Assert.Equal("Alice Admin", written.Author);
     }
 
     [Fact]
@@ -124,6 +126,33 @@ public class GatherRuleUpdatePartialMergeTests
         Assert.False(written.IsBuiltIn);
         Assert.False(written.IsCommunity);
         Assert.Equal(existing.CreatedAt, written.CreatedAt);
+    }
+
+    [Fact]
+    public async Task FullPayload_preserves_original_Author_even_when_payload_carries_one()
+    {
+        var existing = ExistingCustomRule();
+        var (service, _, stored) = BuildService(existing);
+
+        var fullPayload = new GatherRule
+        {
+            RuleId = RuleId,
+            Title = "Collect BIOS Config v2",
+            CollectorType = "registry",
+            Target = "HKLM\\SOFTWARE\\RealmJoin\\Custom\\BIOS2",
+            Trigger = "interval",
+            OutputEventType = "gather_bios_config",
+            Enabled = true,
+            // A hand-crafted PUT could try to rewrite attribution — Author is
+            // stamped at create time and immutable afterwards.
+            Author = "Spoofed Author",
+        };
+
+        var ok = await service.UpdateRuleAsync(TenantId, fullPayload);
+
+        Assert.True(ok);
+        var written = Assert.Single(stored);
+        Assert.Equal("Alice Admin", written.Author);
     }
 
     [Fact]

@@ -137,6 +137,37 @@ describe('gather guardrails (agent matching semantics)', () => {
     expect(validateRuleDraft(spoof).valid).toBe(false);
   });
 
+  it('WMI: property projection of an allowed class is admitted', () => {
+    const single = validGather();
+    single.collectorType = 'wmi';
+    single.target = 'SELECT BatteryStatus FROM Win32_Battery';
+    expect(validateRuleDraft(single).valid).toBe(true);
+
+    const multi = validGather();
+    multi.collectorType = 'wmi';
+    multi.target = 'SELECT BatteryStatus, EstimatedChargeRemaining FROM Win32_Battery WHERE BatteryStatus = 1';
+    expect(validateRuleDraft(multi).valid).toBe(true);
+  });
+
+  it('WMI: projection of a disallowed class and star-in-list are rejected', () => {
+    const badClass = validGather();
+    badClass.collectorType = 'wmi';
+    badClass.target = 'SELECT Name FROM Win32_Process';
+    expect(validateRuleDraft(badClass).valid).toBe(false);
+
+    const starMix = validGather();
+    starMix.collectorType = 'wmi';
+    starMix.target = 'SELECT *, Name FROM Win32_BIOS';
+    expect(validateRuleDraft(starMix).valid).toBe(false);
+  });
+
+  it('WMI: leading whitespace is trimmed like the agent does (no false positive)', () => {
+    const padded = validGather();
+    padded.collectorType = 'wmi';
+    padded.target = '  SELECT * FROM Win32_BIOS';
+    expect(validateRuleDraft(padded).valid).toBe(true);
+  });
+
   it('commands match exactly — extra arguments are rejected', () => {
     const ok = validGather();
     ok.collectorType = 'command_allowlisted';

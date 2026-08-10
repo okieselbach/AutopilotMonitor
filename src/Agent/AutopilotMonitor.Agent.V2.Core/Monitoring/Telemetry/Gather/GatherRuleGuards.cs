@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
@@ -34,6 +35,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
         public static readonly IReadOnlyList<string> AllowedWmiQueryPrefixes;
         public static readonly IReadOnlyCollection<string> AllowedCommands;
         public static readonly IReadOnlyList<string> AllowedEventLogChannels;
+
+        // Derived from AllowedWmiQueryPrefixes: entries of the canonical form
+        // "SELECT * FROM <class>" contribute their class name; any other entry
+        // (none today) stays on the legacy literal-prefix path.
+        private static readonly HashSet<string> AllowedWmiClasses;
+        private static readonly List<string> ResidualWmiPrefixes;
+
+        // Canonical allowlist entry: exactly "SELECT * FROM <class>".
+        private static readonly Regex CanonicalWmiEntryRegex = new Regex(
+            @"^SELECT\s+\*\s+FROM\s+([A-Za-z_][A-Za-z0-9_]*)$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // WQL shape "SELECT <* | property-list> FROM <class>", class token bounded
+        // by whitespace or end of string (a trailing WHERE clause is permitted,
+        // "Win32_BIOSX" cannot pass as "Win32_BIOS").
+        private static readonly Regex WmiQueryRegex = new Regex(
+            @"^SELECT\s+(?:\*|[A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s+FROM\s+([A-Za-z_][A-Za-z0-9_]*)(?=\s|$)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         // Hard blocks: never allowed, even in unrestricted mode
         private static readonly string BlockedUsersPrefix = Path.GetFullPath(@"C:\Users");
@@ -101,6 +120,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                     AllowedCommands = new HashSet<string>(commands, StringComparer.OrdinalIgnoreCase);
 
                     AllowedEventLogChannels = FlattenCategorized(obj, "eventLogChannels", "channels");
+                    DeriveWmiClassAllowlist(AllowedWmiQueryPrefixes, out AllowedWmiClasses, out ResidualWmiPrefixes);
                     return;
                 }
             }
@@ -115,6 +135,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             AllowedWmiQueryPrefixes = new List<string>();
             AllowedCommands = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             AllowedEventLogChannels = new List<string>();
+            AllowedWmiClasses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            ResidualWmiPrefixes = new List<string>();
+        }
+
+        private static void DeriveWmiClassAllowlist(
+            IReadOnlyList<string> entries,
+            out HashSet<string> classes,
+            out List<string> residual)
+        {
+            classes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            residual = new List<string>();
+
+            foreach (var entry in entries)
+            {
+                var match = CanonicalWmiEntryRegex.Match(entry.Trim());
+                if (match.Success)
+                    classes.Add(match.Groups[1].Value);
+                else
+                    residual.Add(entry);
+            }
         }
 
         private static string LoadEmbeddedGuardrails()
@@ -250,8 +290,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
         }
 
         /// <summary>
-        /// Returns true if the WMI query (trimmed) matches an allowed prefix
-        /// with boundary matching (next char must be whitespace or end of string).
+        /// Returns true if the WMI query (trimmed) is "SELECT &lt;* | property-list&gt; FROM &lt;class&gt;"
+        /// (optionally followed by a WHERE clause) against a class on the allowlist.
+        /// A property projection exposes a strict subset of the allowed "SELECT *".
         /// </summary>
         public static bool IsWmiQueryAllowed(string query)
             => IsWmiQueryAllowed(query, unrestrictedMode: false);
@@ -269,7 +310,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                 return true;
 
             var trimmed = query.Trim();
-            return AllowedWmiQueryPrefixes.Any(prefix =>
+
+            var match = WmiQueryRegex.Match(trimmed);
+            if (match.Success && AllowedWmiClasses.Contains(match.Groups[1].Value))
+                return true;
+
+            // Non-canonical allowlist entries keep the legacy literal-prefix match.
+            return ResidualWmiPrefixes.Any(prefix =>
                 trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
                 (trimmed.Length == prefix.Length || char.IsWhiteSpace(trimmed[prefix.Length])));
         }

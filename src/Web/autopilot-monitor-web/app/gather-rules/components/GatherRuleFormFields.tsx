@@ -145,6 +145,21 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
           <p className="text-xs text-gray-400">{TARGET_HINTS[form.collectorType] || "Registry path, WMI class, event log name, file path, or command depending on collector type"}</p>
           <ValidationIndicator result={targetValidation} />
         </div>
+        {targetValidation && !targetValidation.allowed && (
+          <p className="mt-1 text-xs text-gray-500">
+            This target isn&apos;t on the collection allowlist — the rule can be saved but not enabled.
+            Think it should be allowed?{" "}
+            <a
+              href="https://github.com/okieselbach/AutopilotMonitor/issues"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-indigo-600 hover:text-indigo-800 underline"
+            >
+              Request an addition via a GitHub issue
+            </a>
+            .
+          </p>
+        )}
       </div>
 
       {/* Registry: optional Value Name */}

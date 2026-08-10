@@ -1,3 +1,5 @@
+import { validateGatherRuleTarget } from "@/utils/guardValidation";
+
 export interface GatherRule {
   ruleId: string;
   title: string;
@@ -126,7 +128,7 @@ export const TARGET_PLACEHOLDERS: Record<string, string> = {
 export const TARGET_HINTS: Record<string, string> = {
   registry: "Full registry path including hive (HKLM, HKCU). The agent reads values from this key.",
   eventlog: "Event log name — supports operational/analytic logs like Microsoft-Windows-Shell-Core/Operational.",
-  wmi: "Full WQL query (SELECT * FROM ...). Must use an allowed WMI class.",
+  wmi: "Full WQL query — SELECT * or a comma-separated property list from an allowed WMI class, e.g. SELECT BatteryStatus FROM Win32_Battery. Pairs well with Emit Mode \"On change\": polling a single property only emits when that property changes.",
   file: "File path. Environment variables like %ProgramData% are supported. Must be within allowed directories.",
   command_allowlisted: "Exact command string from the agent's allowlist. Custom commands are not permitted.",
   logparser: "Path to a log file. Supports wildcards (* and ?) in the filename, e.g. AppWorkload-*.log. Environment variables are expanded.",
@@ -201,6 +203,23 @@ export function supportsPhaseScope(form: Pick<NewRuleForm, "trigger" | "triggerP
 /** Emit mode dedups repeated results — meaningless for a rule that fires exactly once. */
 export function supportsEmitMode(form: Pick<NewRuleForm, "trigger" | "triggerPhase">): boolean {
   return !firesExactlyOnce(form);
+}
+
+/**
+ * True when a CUSTOM rule's target fails guardrail validation — the agent would block
+ * it on every device (security_warning, no data), so the portal refuses to enable it.
+ * Built-in/community rules are catalog-validated and never gated; unrestrictedMode is
+ * respected because the validator returns allowed=true for it.
+ */
+export function targetBlocked(
+  rule: Pick<GatherRule, "collectorType" | "target"> & Partial<Pick<GatherRule, "isBuiltIn" | "isCommunity">>,
+  unrestrictedMode: boolean
+): boolean {
+  if (rule.isBuiltIn || rule.isCommunity) return false;
+  if (!rule.target?.trim()) return false;
+  // null = collector type the validator doesn't know — no verdict, don't gate.
+  const result = validateGatherRuleTarget(rule.collectorType, rule.target, unrestrictedMode);
+  return result !== null && !result.allowed;
 }
 
 /**

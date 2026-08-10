@@ -19,26 +19,32 @@ public static class TenantHelper
     /// <param name="req">The HTTP request</param>
     /// <returns>The tenant ID from the JWT token</returns>
     /// <exception cref="UnauthorizedAccessException">Thrown when user is not authenticated or tenant ID is missing</exception>
-    public static string GetTenantId(HttpRequestData req)
+    /// <summary>
+    /// Resolves the authenticated ClaimsPrincipal for the request, or null.
+    /// Azure Functions Isolated Worker: FunctionContext.Items first (set by
+    /// AuthenticationMiddleware, more reliable than httpContext.User), then
+    /// the HTTP context as fallback.
+    /// </summary>
+    private static ClaimsPrincipal? GetAuthenticatedPrincipal(HttpRequestData req)
     {
-        // Azure Functions Isolated Worker: Try FunctionContext.Items first
-        // This is set by AuthenticationMiddleware and is more reliable than httpContext.User
-        ClaimsPrincipal? user = null;
-
         if (req.FunctionContext.Items.TryGetValue("ClaimsPrincipal", out var principalObj)
             && principalObj is ClaimsPrincipal principal)
         {
-            user = principal;
+            return principal;
         }
-        else
+
+        var httpContext = req.FunctionContext.GetHttpContext();
+        if (httpContext?.User?.Identity?.IsAuthenticated == true)
         {
-            // Fallback to HTTP context (may not work reliably in isolated worker)
-            var httpContext = req.FunctionContext.GetHttpContext();
-            if (httpContext?.User?.Identity?.IsAuthenticated == true)
-            {
-                user = httpContext.User;
-            }
+            return httpContext.User;
         }
+
+        return null;
+    }
+
+    public static string GetTenantId(HttpRequestData req)
+    {
+        var user = GetAuthenticatedPrincipal(req);
 
         if (user?.Identity?.IsAuthenticated != true)
         {
@@ -67,23 +73,7 @@ public static class TenantHelper
     /// <returns>User email or name, or "Anonymous" if not authenticated</returns>
     public static string GetUserIdentifier(HttpRequestData req)
     {
-        // Azure Functions Isolated Worker: Try FunctionContext.Items first
-        ClaimsPrincipal? user = null;
-
-        if (req.FunctionContext.Items.TryGetValue("ClaimsPrincipal", out var principalObj)
-            && principalObj is ClaimsPrincipal principal)
-        {
-            user = principal;
-        }
-        else
-        {
-            // Fallback to HTTP context
-            var httpContext = req.FunctionContext.GetHttpContext();
-            if (httpContext?.User?.Identity?.IsAuthenticated == true)
-            {
-                user = httpContext.User;
-            }
-        }
+        var user = GetAuthenticatedPrincipal(req);
 
         if (user?.Identity?.IsAuthenticated != true)
         {
@@ -99,5 +89,33 @@ public static class TenantHelper
                user.FindFirst(ClaimTypes.Name)?.Value ??
                user.FindFirst("name")?.Value ??
                "Unknown";
+    }
+
+    /// <summary>
+    /// Gets the caller's human-readable name for attribution (e.g. rule Author):
+    /// display name first, then UPN/email/preferred_username. Returns null when
+    /// the request carries no user identity (anonymous or app-only token) so the
+    /// caller can choose its own fallback.
+    /// </summary>
+    public static string? GetUserDisplayName(HttpRequestData req)
+        => GetUserDisplayName(GetAuthenticatedPrincipal(req));
+
+    /// <summary>
+    /// Claim-precedence core of <see cref="GetUserDisplayName(HttpRequestData)"/>,
+    /// separated so the precedence is unit-testable without an HttpRequestData.
+    /// </summary>
+    public static string? GetUserDisplayName(ClaimsPrincipal? user)
+    {
+        if (user?.Identity?.IsAuthenticated != true)
+        {
+            return null;
+        }
+
+        return user.FindFirst("name")?.Value ??
+               user.FindFirst(ClaimTypes.Name)?.Value ??
+               user.FindFirst("upn")?.Value ??
+               user.FindFirst(ClaimTypes.Upn)?.Value ??
+               user.FindFirst(ClaimTypes.Email)?.Value ??
+               user.FindFirst("preferred_username")?.Value;
     }
 }

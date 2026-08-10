@@ -39,6 +39,29 @@ const ALLOWED_COMMANDS_SET = new Set(
   ALLOWED_COMMANDS_LIST.map((c) => c.toLowerCase())
 );
 
+// Canonical WMI allowlist entry: exactly "SELECT * FROM <class>".
+// Such entries contribute their class name; any other entry (none today)
+// stays on the legacy literal-prefix path. Mirrors the agent's
+// GatherRuleGuards derivation.
+const CANONICAL_WMI_ENTRY_REGEX = /^SELECT\s+\*\s+FROM\s+([A-Za-z_][A-Za-z0-9_]*)$/i;
+
+// WQL shape "SELECT <* | property-list> FROM <class>", class token bounded by
+// whitespace or end of string (a trailing WHERE clause is permitted,
+// "Win32_BIOSX" cannot pass as "Win32_BIOS").
+const WMI_QUERY_REGEX =
+  /^SELECT\s+(?:\*|[A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s+FROM\s+([A-Za-z_][A-Za-z0-9_]*)(?=\s|$)/i;
+
+const ALLOWED_WMI_CLASSES = new Set<string>();
+const RESIDUAL_WMI_PREFIXES: string[] = [];
+for (const entry of ALLOWED_WMI_QUERY_PREFIXES) {
+  const match = CANONICAL_WMI_ENTRY_REGEX.exec(entry.trim());
+  if (match) {
+    ALLOWED_WMI_CLASSES.add(match[1].toLowerCase());
+  } else {
+    RESIDUAL_WMI_PREFIXES.push(entry);
+  }
+}
+
 const BLOCKED_USERS_PREFIX = BLOCKED_FILE_PREFIXES[0] || "C:\\Users";
 
 // ---------------------------------------------------------------------------
@@ -267,7 +290,15 @@ export function validateWmiTarget(
     return { allowed: true, reason: "All WMI queries allowed in unrestricted mode", unrestricted: true };
   }
 
-  for (const prefix of ALLOWED_WMI_QUERY_PREFIXES) {
+  // "SELECT <* | property-list> FROM <class>" against an allowed class — a
+  // property projection exposes a strict subset of the already-allowed SELECT *.
+  const match = WMI_QUERY_REGEX.exec(trimmed);
+  if (match && ALLOWED_WMI_CLASSES.has(match[1].toLowerCase())) {
+    return { allowed: true, reason: `Class ${match[1]} is on the WMI allowlist`, unrestricted: false };
+  }
+
+  // Non-canonical allowlist entries keep the legacy literal-prefix match.
+  for (const prefix of RESIDUAL_WMI_PREFIXES) {
     if (trimmed.length >= prefix.length) {
       const candidate = trimmed.substring(0, prefix.length);
       if (candidate.toLowerCase() === prefix.toLowerCase()) {
@@ -280,7 +311,7 @@ export function validateWmiTarget(
 
   return {
     allowed: false,
-    reason: "Not a recognized WMI query prefix",
+    reason: "Not an allowed WMI query — use SELECT <properties or *> FROM <allowed class>",
     unrestricted: false,
   };
 }

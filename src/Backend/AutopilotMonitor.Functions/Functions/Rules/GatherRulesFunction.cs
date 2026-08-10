@@ -72,6 +72,10 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                 return badRequest;
             }
 
+            // Author is stamped from the creator's token, never from the payload
+            // (anti-spoof), and stays immutable through every later update.
+            rule.Author = TenantHelper.GetUserDisplayName(req) ?? "Autopilot Monitor";
+
             try
             {
                 var success = await _ruleService.CreateRuleAsync(tenantId, rule);

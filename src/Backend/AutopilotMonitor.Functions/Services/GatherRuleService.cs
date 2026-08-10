@@ -214,7 +214,12 @@ namespace AutopilotMonitor.Functions.Services
             rule.IsBuiltIn = false;
             rule.IsCommunity = false;
             if (existing != null)
+            {
                 rule.CreatedAt = existing.CreatedAt;
+                // Author is stamped from the creator's token at create time and is
+                // immutable afterwards — updates (incl. cross-tenant GA edits) keep it.
+                rule.Author = existing.Author;
+            }
             rule.UpdatedAt = DateTime.UtcNow;
             return await _ruleRepo.StoreGatherRuleAsync(rule, tenantId);
         }
