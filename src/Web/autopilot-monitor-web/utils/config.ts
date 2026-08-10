@@ -50,6 +50,13 @@ export const API_URL_PROD = "https://autopilotmonitor-api-eu.azurewebsites.net";
 export const BLOB_URL_PROD = "https://autopilotmonitoreu.blob.core.windows.net";
 
 /**
+ * Customer-facing download alias for agent artifacts and helper scripts
+ * (Front Door in front of the blob origin). Counterpart of
+ * Constants.AgentDownloadBaseUrl on the C# side.
+ */
+export const AGENT_DOWNLOAD_URL = "https://download.autopilotmonitor.com/agent";
+
+/**
  * Hostnames the portal accepts in a bootstrap response's agentDownloadUrl.
  * Keep in sync with ValidateBootstrapCodeFunction.cs, which builds that URL
  * from Constants.AgentDownloadBaseUrl. The legacy blob host stays allowlisted

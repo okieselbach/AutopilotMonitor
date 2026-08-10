@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../../../contexts/AuthContext";
 import { useTenant } from "../../../../contexts/TenantContext";
 import { api } from "@/lib/api";
+import { AGENT_DOWNLOAD_URL } from "@/utils/config";
 import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { trackEvent } from "@/lib/appInsights";
 
@@ -111,8 +112,9 @@ export function SectionOptionalGraphCapabilities() {
   const allPermissions = Array.from(new Set(featureRows.flatMap(f => f.requiredPermissions)));
   const allPermissionsLine = allPermissions.map(p => `"${p}"`).join(",");
 
+  const scriptDownloadUrl = `${AGENT_DOWNLOAD_URL}/Grant-AutopilotMonitorAddOn.ps1`;
   const psCommand = status?.clientId
-    ? `.\\Grant-AutopilotMonitorAddOn.ps1 \`\n    -ClientId "${status.clientId}" \`\n    -Permissions ${allPermissionsLine} \`\n    -TenantId "${tenantId ?? "<your-tenant-id>"}"`
+    ? `irm '${scriptDownloadUrl}' -OutFile .\\Grant-AutopilotMonitorAddOn.ps1\n.\\Grant-AutopilotMonitorAddOn.ps1 \`\n    -ClientId "${status.clientId}" \`\n    -Permissions ${allPermissionsLine} \`\n    -TenantId "${tenantId ?? "<your-tenant-id>"}"`
     : "";
 
   return (
@@ -205,8 +207,16 @@ export function SectionOptionalGraphCapabilities() {
         <div className="bg-white shadow rounded-lg p-6">
           <h3 className="text-md font-semibold text-gray-900 mb-2">PowerShell grant command</h3>
           <p className="text-sm text-gray-600 mb-3">
-            Open a Windows PowerShell or PowerShell 7 prompt as a tenant administrator and run the script
-            below. It is idempotent — re-running it skips permissions that are already granted.
+            Open a Windows PowerShell or PowerShell 7 prompt as a tenant administrator and run the commands
+            below — the first line downloads the script (
+            <a
+              href={scriptDownloadUrl}
+              className="text-green-700 underline hover:text-green-800"
+              download
+            >
+              direct download
+            </a>
+            ), the second runs it. It is idempotent — re-running it skips permissions that are already granted.
           </p>
 
           <pre className="bg-gray-900 text-gray-100 text-xs font-mono p-3 rounded overflow-x-auto">

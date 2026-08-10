@@ -270,6 +270,12 @@ jobs:
             if (Test-Path "scripts/Bootstrap/Test-ShouldBootstrapAgent.ps1") {
               Send-Blob -Local "scripts/Bootstrap/Test-ShouldBootstrapAgent.ps1" -BlobName "Test-ShouldBootstrapAgent.ps1" -ContentType "text/plain; charset=utf-8"
             }
+
+            # Customer-side Graph add-on grant script -- docs and admin UI link
+            # https://download.autopilotmonitor.com/agent/Grant-AutopilotMonitorAddOn.ps1
+            if (Test-Path "scripts/CustomerSetup/Grant-AutopilotMonitorAddOn.ps1") {
+              Send-Blob -Local "scripts/CustomerSetup/Grant-AutopilotMonitorAddOn.ps1" -BlobName "Grant-AutopilotMonitorAddOn.ps1" -ContentType "text/plain; charset=utf-8"
+            }
           }
 
           # Update AdminConfiguration LatestAgentV2* -- ONLY on stable cutover. The hash-oracle
