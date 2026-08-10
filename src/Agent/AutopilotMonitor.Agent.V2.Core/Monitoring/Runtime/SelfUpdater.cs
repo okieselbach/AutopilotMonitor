@@ -89,6 +89,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         public static string BackendExpectedSha256 { get; set; }
 
         /// <summary>
+        /// True once a <see cref="CheckAndApplyUpdateAsync"/> run actually obtained a version
+        /// from the manifest (regardless of whether an update was then needed/applied).
+        /// <para>
+        /// Consumed by the <c>--await-enrollment</c> path: the startup check runs pre-enrollment
+        /// where OOBE frequently has no network yet, so a failed check there says nothing about
+        /// the latest version. Once the MDM certificate appears the device provably has
+        /// connectivity — the bootstrap retries the check exactly when this is still false.
+        /// </para>
+        /// </summary>
+        public static bool LastVersionCheckSucceeded { get; private set; }
+
+        /// <summary>
         /// Optional: graceful-shutdown request hook, set by the runtime host once its
         /// shutdown machinery is armed (before the orchestrator starts) and cleared in its
         /// shutdown finally. Same static-hook idiom as <see cref="BackendExpectedSha256"/>.
@@ -130,13 +142,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         /// to cover hotfixes that reuse the same version number.
         /// </param>
         /// <param name="triggerReason">
-        /// "startup" (default) or "runtime_hash_mismatch". Recorded in the marker file so the
-        /// agent_version_check event (outcome=updated) can distinguish the two paths.
+        /// "startup" (default), "await_enrollment" (post-cert retry in the bootstrap), or
+        /// "runtime_hash_mismatch". Recorded in the marker file so the agent_version_check
+        /// event (outcome=updated) can distinguish the paths.
         /// </param>
         /// <param name="downloadTimeoutMsOverride">
         /// Overrides the ZIP download timeout. Startup path leaves null (fast-fail, 10s) to preserve
         /// Autopilot boot speed. Runtime trigger passes 60000 because monitoring is already running
         /// and we know an update is required.
+        /// </param>
+        /// <param name="versionCheckTimeoutMsOverride">
+        /// Overrides the version-v2.json fetch timeout (default 2500ms, tuned for boot speed).
+        /// The await-enrollment retry passes a relaxed value: enrollment just completed, the
+        /// device provably has network, and a stranded old build's last self-rescue chance is
+        /// worth a few extra seconds before session registration.
         /// </param>
         /// <param name="allowDowngrade">
         /// When false (default), a latest version strictly lower than <paramref name="currentVersion"/>
@@ -151,7 +170,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             bool forceUpdate = false,
             string triggerReason = "startup",
             int? downloadTimeoutMsOverride = null,
-            bool allowDowngrade = false)
+            bool allowDowngrade = false,
+            int? versionCheckTimeoutMsOverride = null)
         {
             Action<string> log = msg =>
             {
@@ -160,7 +180,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             };
 
             var isStartupTrigger = string.Equals(triggerReason, "startup", StringComparison.Ordinal);
+            // The await-enrollment retry replaces the startup verdict — its markers must win so
+            // the agent_version_check event reflects the LATEST check, not the pre-network one.
+            var writeMarkers = isStartupTrigger || string.Equals(triggerReason, "await_enrollment", StringComparison.Ordinal);
             var downloadTimeoutMs = downloadTimeoutMsOverride ?? DownloadTimeoutMs;
+            var versionCheckTimeoutMs = versionCheckTimeoutMsOverride ?? VersionCheckTimeoutMs;
             var totalSw = Stopwatch.StartNew();
             long versionCheckMs = 0, downloadMs = 0, verifyMs = 0, extractMs = 0, swapMs = 0;
             long zipSizeBytes = 0;
@@ -174,16 +198,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
 
             try
             {
-                // Step 1: Fetch version-v2.json (2.5s timeout)
+                // Step 1: Fetch version-v2.json (default 2.5s timeout, relaxed on retry triggers)
                 var versionSw = Stopwatch.StartNew();
                 string manifestSha256;
-                (latestVersion, manifestSha256) = await GetLatestVersionAsync(log);
+                (latestVersion, manifestSha256) = await GetLatestVersionAsync(log, versionCheckTimeoutMs);
                 versionSw.Stop();
                 versionCheckMs = versionSw.ElapsedMilliseconds;
+                LastVersionCheckSucceeded = latestVersion != null;
 
                 if (latestVersion == null)
                 {
-                    if (isStartupTrigger)
+                    if (writeMarkers)
                         WriteSkipMarker("version_check_failed", currentVersion, null, "version-v2.json fetch failed or timed out", log);
                     return; // Could not determine latest version — continue with current
                 }
@@ -213,7 +238,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                     if (!forceUpdate)
                     {
                         log($"Self-update: current version {currentVersion} is up to date (latest: {latestVersion})");
-                        if (isStartupTrigger)
+                        if (writeMarkers)
                             WriteCheckedMarker(currentVersion, latestVersion, versionCheckMs, log);
                         return;
                     }
@@ -230,7 +255,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                     if (!forceUpdate)
                     {
                         log($"Self-update: cannot compare versions (current={currentVersion}, latest={latestVersion}) — skipping");
-                        if (isStartupTrigger)
+                        if (writeMarkers)
                             WriteSkipMarker("version_compare_failed", currentVersion, latestVersion, "version parse failed", log);
                         return;
                     }
@@ -249,7 +274,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 downloadMs = downloadTimerSw.ElapsedMilliseconds;
                 if (!downloadOk)
                 {
-                    if (isStartupTrigger)
+                    if (writeMarkers)
                         WriteSkipMarker("download_failed", currentVersion, latestVersion, $"ZIP download failed within {downloadTimeoutMs}ms", log);
                     return;
                 }
@@ -282,7 +307,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 if (!integrityOk)
                 {
                     CleanupStaging(null, zipPath);
-                    if (isStartupTrigger)
+                    if (writeMarkers)
                         WriteSkipMarker("integrity_mismatch", currentVersion, latestVersion, "SHA-256 mismatch on downloaded ZIP", log);
                     return;
                 }
@@ -297,7 +322,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 extractMs = extractSw.ElapsedMilliseconds;
                 if (!extractOk)
                 {
-                    if (isStartupTrigger)
+                    if (writeMarkers)
                         WriteSkipMarker("extract_failed", currentVersion, latestVersion, "ZIP extraction failed", log);
                     return;
                 }
@@ -310,7 +335,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 {
                     log("Self-update: staging validation failed — AutopilotMonitor.Agent.exe not found in ZIP");
                     CleanupStaging(stagingDir, zipPath);
-                    if (isStartupTrigger)
+                    if (writeMarkers)
                         WriteSkipMarker("extract_failed", currentVersion, latestVersion, "AutopilotMonitor.Agent.exe not found in ZIP", log);
                     return;
                 }
@@ -323,7 +348,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 if (!swapOk)
                 {
                     CleanupStaging(stagingDir, zipPath);
-                    if (isStartupTrigger)
+                    if (writeMarkers)
                         WriteSkipMarker("swap_failed", currentVersion, latestVersion, "file swap failed", log);
                     return;
                 }
@@ -355,7 +380,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             catch (Exception ex)
             {
                 log($"Self-update: unexpected error — {ex.Message}. Continuing with current version.");
-                if (isStartupTrigger)
+                if (writeMarkers)
                 {
                     try { WriteSkipMarker("unexpected_error", currentVersion, latestVersion, ex.Message, log); } catch { }
                 }
@@ -366,7 +391,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         /// Fetches version-v2.json from blob storage and returns the version string and optional SHA-256 hash.
         /// Returns (null, null) if the check fails or times out.
         /// </summary>
-        private static async Task<(string version, string sha256)> GetLatestVersionAsync(Action<string> log)
+        private static async Task<(string version, string sha256)> GetLatestVersionAsync(Action<string> log, int timeoutMs)
         {
             try
             {
@@ -375,7 +400,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 var versionUrl = $"{Constants.AgentDownloadBaseUrl}/{Constants.AgentVersionFileNameForLine(2)}";
 
                 using (var handler = new HttpClientHandler())
-                using (var client = new HttpClient(handler) { Timeout = TimeSpan.FromMilliseconds(VersionCheckTimeoutMs) })
+                using (var client = new HttpClient(handler) { Timeout = TimeSpan.FromMilliseconds(timeoutMs) })
                 {
                     var json = await client.GetStringAsync(versionUrl);
                     var obj = JObject.Parse(json);
@@ -396,7 +421,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             }
             catch (TaskCanceledException)
             {
-                log($"Self-update: version check timed out ({VersionCheckTimeoutMs}ms) — skipping update");
+                log($"Self-update: version check timed out ({timeoutMs}ms) — skipping update");
                 return (null, null);
             }
             catch (HttpRequestException ex) when (ex.Message.Contains("404"))

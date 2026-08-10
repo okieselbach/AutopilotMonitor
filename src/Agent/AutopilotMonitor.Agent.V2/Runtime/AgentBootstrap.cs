@@ -121,6 +121,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
 
                 // Await-enrollment is one-shot — remove the persisted config so subsequent restarts proceed normally.
                 Program.DeleteAwaitEnrollmentConfig(dataDirectory, logger);
+
+                RetrySelfUpdateAfterEnrollment(logger, consoleMode);
             }
 
             // Event-driven TenantId wait — kicks in only when the user opted-in via
@@ -151,6 +153,46 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 previousExit: previousExit,
                 isWhiteGloveResume: isWhiteGloveResume,
                 cleanupServiceFactory: cleanupServiceFactory);
+        }
+
+        /// <summary>
+        /// One-shot self-update retry after the MDM certificate appeared. The startup check in
+        /// <c>Main</c> runs pre-enrollment, where an --await-enrollment install typically has no
+        /// network yet — its failure says nothing about the latest version. The certificate is
+        /// proof of connectivity, and this is the last chance to swap a stranded old build
+        /// (stale baked-in ApiBaseUrl) for a current one BEFORE session registration hits a
+        /// retired endpoint (field case sits-d.cloud, 2026-08-09). Timeouts are relaxed vs. the
+        /// boot-speed-tuned startup check; enrollment is already past OOBE's critical path here.
+        /// On update success the process restarts and this method never returns; the
+        /// await-enrollment config was already removed, so the new binary proceeds normally.
+        /// </summary>
+        private static void RetrySelfUpdateAfterEnrollment(AgentLogger logger, bool consoleMode)
+        {
+            if (SelfUpdater.LastVersionCheckSucceeded)
+                return; // Startup check reached the manifest — its verdict stands.
+
+            try
+            {
+                logger.Info("Await-enrollment: startup self-update check had failed (no network in early OOBE) — retrying now that enrollment proves connectivity.");
+                var agentDir = System.IO.Path.GetDirectoryName(
+                    System.Reflection.Assembly.GetExecutingAssembly().Location) ?? string.Empty;
+                SelfUpdater.CheckAndApplyUpdateAsync(
+                    currentVersion: Program.GetAgentVersion(),
+                    agentDir: agentDir,
+                    consoleMode: consoleMode,
+                    triggerReason: "await_enrollment",
+                    downloadTimeoutMsOverride: 60000,
+                    // Fresh --await-enrollment installs have no cached remote config yet, so
+                    // there is no admin downgrade override to honour on this path.
+                    allowDowngrade: false,
+                    versionCheckTimeoutMsOverride: 10000).GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                // Same contract as the startup call site: the updater swallows its own errors;
+                // anything escaping must not break bootstrap — the current binary continues.
+                logger.Warning($"Await-enrollment: self-update retry failed unexpectedly: {ex.Message}. Continuing with current version.");
+            }
         }
     }
 

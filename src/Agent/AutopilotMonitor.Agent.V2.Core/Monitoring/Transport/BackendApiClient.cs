@@ -137,7 +137,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                             continue;
                         }
 
-                        ThrowOnAuthFailure(response);
+                        await ThrowOnAuthFailureAsync(response).ConfigureAwait(false);
                         response.EnsureSuccessStatusCode();
 
                         var responseJson = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -236,7 +236,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
 
                 using (response)
                 {
-                    ThrowOnAuthFailure(response);
+                    await ThrowOnAuthFailureAsync(response).ConfigureAwait(false);
                     response.EnsureSuccessStatusCode();
 
                     var responseJson = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -282,16 +282,97 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         /// <summary>
         /// Throws <see cref="BackendAuthException"/> for 401/403 responses so callers can
         /// distinguish authentication failures from transient server errors.
+        /// <para>
+        /// Field case (sits-d.cloud, 2026-08-09): a pre-cutover agent build pointed at a
+        /// retired Function App; Azure answers for a stopped app with a platform-level 403
+        /// carrying an HTML error page ("Web App - Unavailable"). Our backend never returns
+        /// HTML on 401/403 — an HTML body therefore means the response did not come from the
+        /// backend's auth layer at all (stopped/retired app, edge proxy, WAF). Reporting that
+        /// as "device is not authorized" sends troubleshooting down the wrong path, so the
+        /// two cases get distinct messages and the exception carries a flag.
+        /// </para>
         /// </summary>
-        private static void ThrowOnAuthFailure(HttpResponseMessage response)
+        private static async Task ThrowOnAuthFailureAsync(HttpResponseMessage response)
         {
-            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
-                response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            if (response.StatusCode != System.Net.HttpStatusCode.Unauthorized &&
+                response.StatusCode != System.Net.HttpStatusCode.Forbidden)
             {
+                return;
+            }
+
+            var statusText = $"{(int)response.StatusCode} {response.StatusCode}";
+
+            string body = null;
+            try
+            {
+                body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // Body is diagnostic-only; classification below treats null as non-HTML.
+            }
+
+            if (LooksLikeHtmlErrorPage(response, body))
+            {
+                var title = TryExtractHtmlTitle(body);
+                var titleText = title != null ? $" (\"{title}\")" : string.Empty;
+                var host = response.RequestMessage?.RequestUri?.Host ?? "(unknown host)";
                 throw new BackendAuthException(
-                    $"Backend returned {(int)response.StatusCode} {response.StatusCode}. " +
-                    "The device is not authorized. Check client certificate and Autopilot device validation.",
-                    (int)response.StatusCode);
+                    $"Backend returned {statusText} with an HTML platform error page{titleText} from '{host}'. " +
+                    "This response did not come from the Autopilot Monitor backend — the endpoint appears stopped, " +
+                    "retired, or intercepted by a proxy. This is NOT a device-authorization failure; an outdated " +
+                    "agent build pointing at a stale ApiBaseUrl is the most likely cause.",
+                    (int)response.StatusCode,
+                    endpointUnavailable: true);
+            }
+
+            throw new BackendAuthException(
+                $"Backend returned {statusText}. " +
+                "The device is not authorized. Check client certificate and Autopilot device validation.",
+                (int)response.StatusCode);
+        }
+
+        /// <summary>
+        /// True when a 401/403 response is an HTML page rather than a backend JSON/plain-text
+        /// reply. Checks the declared Content-Type first, then falls back to sniffing the body
+        /// prefix so a platform page served with a generic Content-Type is still recognized.
+        /// </summary>
+        private static bool LooksLikeHtmlErrorPage(HttpResponseMessage response, string body)
+        {
+            var mediaType = response.Content?.Headers?.ContentType?.MediaType;
+            if (string.Equals(mediaType, "text/html", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (string.IsNullOrWhiteSpace(body))
+                return false;
+
+            var head = body.TrimStart();
+            return head.StartsWith("<!DOCTYPE", StringComparison.OrdinalIgnoreCase) ||
+                   head.StartsWith("<html", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Best-effort extraction of the HTML &lt;title&gt; (e.g. "Web App - Unavailable") so the
+        /// log line names the platform page without dumping markup. Null when absent/oversized.
+        /// </summary>
+        private static string TryExtractHtmlTitle(string body)
+        {
+            if (string.IsNullOrEmpty(body)) return null;
+            try
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(
+                    body, @"<title[^>]*>\s*(.*?)\s*</title>",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+                    System.Text.RegularExpressions.RegexOptions.Singleline,
+                    TimeSpan.FromMilliseconds(250));
+                if (!match.Success) return null;
+
+                var title = match.Groups[1].Value;
+                return title.Length == 0 ? null : (title.Length > 80 ? title.Substring(0, 80) : title);
+            }
+            catch
+            {
+                return null;
             }
         }
 
@@ -330,7 +411,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
     }
 
     /// <summary>
-    /// Thrown when the backend returns 401 or 403, indicating the device is not authorized.
+    /// Thrown when the backend returns 401 or 403, indicating the device is not authorized —
+    /// or, when <see cref="EndpointUnavailable"/> is set, that the 401/403 was a platform-level
+    /// HTML response (stopped/retired app, edge proxy) rather than a backend auth verdict.
     /// </summary>
     public class BackendAuthException : Exception
     {
@@ -340,9 +423,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         /// </summary>
         public int StatusCode { get; }
 
-        public BackendAuthException(string message, int statusCode = 0) : base(message)
+        /// <summary>
+        /// True when the 401/403 carried an HTML platform error page — the endpoint itself is
+        /// stopped/retired/proxied and the status says nothing about this device's authorization.
+        /// </summary>
+        public bool EndpointUnavailable { get; }
+
+        public BackendAuthException(string message, int statusCode = 0, bool endpointUnavailable = false) : base(message)
         {
             StatusCode = statusCode;
+            EndpointUnavailable = endpointUnavailable;
         }
     }
 }
