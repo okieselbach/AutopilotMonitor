@@ -95,6 +95,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Logging
         }
 
         [Fact]
+        public void Log_transliterates_typographic_punctuation_to_ascii()
+        {
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info, maxFileSizeBytes: 1024L * 1024);
+
+            // The log file is UTF-8 without BOM; cp1252-guessing viewers (Outlook web
+            // preview) render em dashes as mojibake. Our own punctuation must come out
+            // as plain ASCII, while genuine non-ASCII payload stays untouched.
+            logger.Info("check failed \u2014 range 1\u20132 \u2192 done\u2026 \u2018a\u2019 \u201Cb\u201D nb\u00A0sp f\u00FCr M\u00FCller");
+
+            var text = File.ReadAllText(Path.Combine(tmp.Path, TodayBaseName + ".log"));
+            Assert.Contains("check failed - range 1-2 -> done... 'a' \"b\" nb sp f\u00FCr M\u00FCller", text);
+        }
+
+        [Fact]
         public void Log_swallows_io_errors_silently()
         {
             using var tmp = new TempDirectory();

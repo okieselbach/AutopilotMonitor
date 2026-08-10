@@ -197,7 +197,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Logging
         /// <summary>
         /// Sanitizes log messages to prevent log injection attacks.
         /// Escapes control characters that could forge log entries.
-        /// Redaction patterns can be added here later as needed.
+        /// Transliterates typographic punctuation to ASCII: the log file is written as
+        /// UTF-8 without BOM, and customer-side viewers (e.g. Outlook web attachment
+        /// preview) guess cp1252 and render an em dash as mojibake ("â€”"). Only our own
+        /// punctuation is mapped — genuine non-ASCII payload (device names, paths) is
+        /// kept verbatim. Redaction patterns can be added here later as needed.
         /// </summary>
         private static string SanitizeLogMessage(string message)
         {
@@ -205,6 +209,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Logging
 
             // Escape newlines and carriage returns to prevent log injection
             message = message.Replace("\r", "\\r").Replace("\n", "\\n");
+
+            message = message
+                .Replace('\u2014', '-')      // — em dash
+                .Replace('\u2013', '-')      // – en dash
+                .Replace("\u2192", "->")     // → arrow
+                .Replace("\u2026", "...")    // … ellipsis
+                .Replace('\u2018', '\'')     // ' left single quote
+                .Replace('\u2019', '\'')     // ' right single quote
+                .Replace('\u201C', '"')      // " left double quote
+                .Replace('\u201D', '"')      // " right double quote
+                .Replace('\u00A0', ' ');     // non-breaking space
 
             return message;
         }
