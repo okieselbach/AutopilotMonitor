@@ -89,7 +89,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                     // Feed the central auth-failure tracker so the first-failure distress dispatches
                     // and the shutdown threshold advances. V1 parity: no retry on auth-failure —
                     // backend has definitively rejected the cert/token.
-                    authFailureTracker?.RecordFailure(ex.StatusCode, "agent/register-session");
+                    authFailureTracker?.RecordFailure(ex.StatusCode, "agent/register-session", ex.EndpointUnavailable);
                     return SessionRegistrationResult.AuthFailed(ex.StatusCode, ex.Message);
                 }
                 catch (Exception ex)

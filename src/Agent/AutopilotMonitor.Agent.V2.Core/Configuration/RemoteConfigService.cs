@@ -155,7 +155,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
                     // see the AuthCertificateRejected/DeviceNotRegistered distress signal
                     // without 100 s of needless retry delay.
                     _logger.Warning($"Config fetch authentication failed: {ex.Message}");
-                    _authFailureTracker?.RecordFailure(ex.StatusCode, "agent/config");
+                    _authFailureTracker?.RecordFailure(ex.StatusCode, "agent/config", ex.EndpointUnavailable);
                     lastException = ex;
                     LastFetchAuthStatusCode = ex.StatusCode;
                     break;

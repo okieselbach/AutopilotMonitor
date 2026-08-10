@@ -261,6 +261,60 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
         }
 
         [Fact]
+        public void RecordFailure_endpoint_unavailable_suppresses_distress_but_still_counts()
+        {
+            var clock = new FakeClock(new DateTime(2026, 4, 21, 10, 0, 0, DateTimeKind.Utc));
+            var fakeDistress = new FakeDistressReporter();
+            var tracker = new AuthFailureTracker(maxFailures: 2, timeoutMinutes: 0, clock, NewLogger(), fakeDistress);
+
+            int events = 0;
+            tracker.ThresholdExceeded += (_, _) => events++;
+
+            // Platform-403s from a stopped endpoint: a distress report cannot reach it and the
+            // DeviceNotRegistered classification would be wrong — nothing must be dispatched.
+            tracker.RecordFailure(403, "agent/config", endpointUnavailable: true);
+            tracker.RecordFailure(403, "agent/register-session", endpointUnavailable: true);
+
+            Assert.Empty(fakeDistress.Calls);
+            // The shutdown thresholds still apply — a dead endpoint must not retry forever.
+            Assert.Equal(2, tracker.ConsecutiveFailures);
+            Assert.Equal(1, events);
+        }
+
+        [Fact]
+        public void RecordFailure_endpoint_unavailable_does_not_consume_streak_report_slot()
+        {
+            var clock = new FakeClock(new DateTime(2026, 4, 21, 10, 0, 0, DateTimeKind.Utc));
+            var fakeDistress = new FakeDistressReporter();
+            var tracker = new AuthFailureTracker(maxFailures: 50, timeoutMinutes: 0, clock, NewLogger(), fakeDistress);
+
+            // The streak opens with a platform-403 (no dispatch), then a live backend answers
+            // with a genuine 403 — that one must still produce the streak's single report.
+            tracker.RecordFailure(403, "agent/config", endpointUnavailable: true);
+            tracker.RecordFailure(403, "agent/config");
+            tracker.RecordFailure(403, "agent/config");
+
+            Assert.Single(fakeDistress.Calls);
+            Assert.Equal(DistressErrorType.DeviceNotRegistered, fakeDistress.Calls[0].ErrorType);
+        }
+
+        [Fact]
+        public void RecordSuccess_rearms_distress_dispatch_for_the_next_streak()
+        {
+            var clock = new FakeClock(new DateTime(2026, 4, 21, 10, 0, 0, DateTimeKind.Utc));
+            var fakeDistress = new FakeDistressReporter();
+            var tracker = new AuthFailureTracker(maxFailures: 50, timeoutMinutes: 0, clock, NewLogger(), fakeDistress);
+
+            tracker.RecordFailure(401, "agent/config");
+            tracker.RecordSuccess();
+            tracker.RecordFailure(403, "agent/config");
+
+            Assert.Equal(2, fakeDistress.Calls.Count);
+            Assert.Equal(DistressErrorType.AuthCertificateRejected, fakeDistress.Calls[0].ErrorType);
+            Assert.Equal(DistressErrorType.DeviceNotRegistered, fakeDistress.Calls[1].ErrorType);
+        }
+
+        [Fact]
         public void RecordFailure_without_distress_reporter_is_silent_but_still_tracks()
         {
             var clock = new FakeClock(new DateTime(2026, 4, 21, 10, 0, 0, DateTimeKind.Utc));

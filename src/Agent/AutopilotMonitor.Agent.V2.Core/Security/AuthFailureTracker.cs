@@ -46,6 +46,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         private int _consecutiveFailures;
         private DateTime? _firstFailureUtc;
         private int _thresholdFired;           // 0/1 — Interlocked exchange makes the event single-shot
+        private int _distressDispatched;       // 0/1 per failure streak — reset by RecordSuccess
 
         public AuthFailureTracker(
             int maxFailures,
@@ -77,18 +78,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         public void RecordSuccess()
         {
             if (Interlocked.Exchange(ref _consecutiveFailures, 0) == 0) return; // no-op if already zero
+            Interlocked.Exchange(ref _distressDispatched, 0);
             lock (_windowLock) { _firstFailureUtc = null; }
         }
 
         /// <summary>
-        /// Record a 401/403 from the given <paramref name="operation"/>. V1 parity — on the FIRST
-        /// failure this fires a single distress report via the constructor-injected
-        /// <see cref="DistressReporter"/> (401 → AuthCertificateRejected, 403 → DeviceNotRegistered).
-        /// Subsequent failures are logged + counted but do not dispatch further distress signals.
-        /// Emits <see cref="ThresholdExceeded"/> the first time either ceiling is crossed;
-        /// subsequent calls after termination is armed are no-ops.
+        /// Record a 401/403 from the given <paramref name="operation"/>. V1 parity — the first
+        /// qualifying failure of a streak fires a single distress report via the
+        /// constructor-injected <see cref="DistressReporter"/> (401 → AuthCertificateRejected,
+        /// 403 → DeviceNotRegistered). Subsequent failures are logged + counted but do not
+        /// dispatch further distress signals. Emits <see cref="ThresholdExceeded"/> the first
+        /// time either ceiling is crossed; subsequent calls after termination is armed are no-ops.
         /// </summary>
-        public void RecordFailure(int statusCode, string operation)
+        /// <param name="endpointUnavailable">
+        /// True when the 401/403 was a platform-level HTML response (stopped/retired app, edge
+        /// proxy — see <see cref="BackendAuthException.EndpointUnavailable"/>). Suppresses the
+        /// distress dispatch: the report would go to the very endpoint that just answered with a
+        /// platform error page, and its DeviceNotRegistered classification would be wrong anyway.
+        /// Counting and the shutdown thresholds are unaffected. Should a later failure in the
+        /// same streak come from a live backend, that one still dispatches the streak's report.
+        /// </param>
+        public void RecordFailure(int statusCode, string operation, bool endpointUnavailable = false)
         {
             if (Volatile.Read(ref _thresholdFired) == 1) return;
 
@@ -102,10 +112,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                 firstFailureAt = _firstFailureUtc.Value;
             }
 
-            // V1 parity — only the first consecutive failure produces a distress report. Repeat
-            // hits at 2..N use the local log only; the backend already knows from the first
-            // report that the device is unauthorized.
-            if (count == 1 && _distressReporter != null)
+            // V1 parity — only one distress report per failure streak. Repeat hits use the local
+            // log only; the backend already knows from the first report that the device is
+            // unauthorized. Endpoint-unavailable failures never dispatch (nothing to send to) but
+            // also never consume the streak's report slot.
+            if (endpointUnavailable)
+            {
+                if (_distressReporter != null && Volatile.Read(ref _distressDispatched) == 0)
+                {
+                    _logger.Info(
+                        $"AuthFailureTracker: distress report suppressed for {operation} (http {statusCode}) — " +
+                        "endpoint unavailable (platform error page), a report cannot reach a stopped endpoint.");
+                }
+            }
+            else if (_distressReporter != null &&
+                     Interlocked.CompareExchange(ref _distressDispatched, 1, 0) == 0)
             {
                 var distressType = statusCode == 403
                     ? DistressErrorType.DeviceNotRegistered
