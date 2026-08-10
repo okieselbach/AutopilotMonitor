@@ -49,7 +49,7 @@ namespace AutopilotMonitor.Shared.Models
         /// a security matter, or a change that needs an administrator's attention. Editable by
         /// the tenant's own admins under Settings → Tenant → Contact.
         /// <para>
-        /// Seeded once at onboarding from the Private Preview notification address if one was
+        /// Seeded once at onboarding from the tenant's notification address if one was
         /// given, and never re-synced afterwards: from that point the value belongs to the
         /// tenant, and a later edit must not be overwritten by the onboarding source.
         /// </para>
