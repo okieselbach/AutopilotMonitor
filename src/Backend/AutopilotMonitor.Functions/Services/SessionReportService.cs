@@ -29,6 +29,7 @@ namespace AutopilotMonitor.Functions.Services
         private readonly SessionReportDiagnosticsArchiveCopier _diagnosticsArchiveCopier;
         private readonly TenantConfigurationService _configService;
         private readonly IRuleRepository _ruleRepo;
+        private readonly ISessionAnnotationRepository _annotationRepo;
         private const string ContainerName = "session-reports";
 
         public SessionReportService(
@@ -38,6 +39,7 @@ namespace AutopilotMonitor.Functions.Services
             SessionReportDiagnosticsArchiveCopier diagnosticsArchiveCopier,
             TenantConfigurationService configService,
             IRuleRepository ruleRepo,
+            ISessionAnnotationRepository annotationRepo,
             ILogger<SessionReportService> logger)
         {
             _notificationRepo = notificationRepo;
@@ -47,6 +49,7 @@ namespace AutopilotMonitor.Functions.Services
             _diagnosticsArchiveCopier = diagnosticsArchiveCopier;
             _configService = configService;
             _ruleRepo = ruleRepo;
+            _annotationRepo = annotationRepo;
         }
 
         /// <summary>
@@ -95,6 +98,13 @@ namespace AutopilotMonitor.Functions.Services
             // have changed by the time an operator investigates). Fail-soft; never blocks.
             var tenantContext = await CollectTenantContextAsync(request.TenantId, reportId);
 
+            // Human annotations at report time — the submitter's own verdict/notes are exactly
+            // the context an investigating operator wants first, and the snapshot survives the
+            // session's retention/delete. ALL lanes are included: the report blob is readable
+            // only through the GA-only session-reports routes, so the platform-internal
+            // globaladmin lane never reaches tenant callers this way. Fail-soft; never blocks.
+            var annotations = await CollectAnnotationsAsync(request.TenantId, request.SessionId, reportId);
+
             // Decode attachments up front so report-metadata.json can record their outcome
             // instead of silently dropping invalid payloads.
             var (screenshotBytes, screenshotStatus) = DecodeAttachment(request.ScreenshotBase64, reportId, "screenshot");
@@ -128,6 +138,12 @@ namespace AutopilotMonitor.Functions.Services
                     AddTextEntry(archive, "timeline.txt", request.TimelineExportTxt);
                 }
 
+                // Human annotations snapshot (all lanes) — omitted when none exist.
+                if (annotations is { Count: > 0 })
+                {
+                    AddJsonEntry(archive, "annotations.json", annotations);
+                }
+
                 // Report metadata
                 AddJsonEntry(archive, "report-metadata.json", new
                 {
@@ -157,6 +173,9 @@ namespace AutopilotMonitor.Functions.Services
                         screenshot = screenshotStatus,
                         agentLog = agentLogStatus
                     },
+                    // Count only — the rows themselves live in annotations.json. 0 with a
+                    // missing annotations.json ⇒ either none existed or the read failed soft.
+                    annotationCount = annotations?.Count ?? 0,
                     tenantContext
                 });
 
@@ -356,6 +375,35 @@ namespace AutopilotMonitor.Functions.Services
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Report {ReportId}: tenant-context snapshot failed — omitted from metadata", reportId);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Snapshot of the session's human annotations (all lanes) for annotations.json.
+        /// Fail-soft: a failed read yields null and never blocks the report.
+        /// </summary>
+        private async Task<List<object>?> CollectAnnotationsAsync(string tenantId, string sessionId, string reportId)
+        {
+            try
+            {
+                var rows = await _annotationRepo.GetForSessionAsync(tenantId, sessionId);
+                return rows.Select(a => (object)new
+                {
+                    lane = a.Lane,
+                    verdict = a.Verdict,
+                    note = a.Note,
+                    authorUpn = a.AuthorUpn,
+                    authorDisplayName = a.AuthorDisplayName,
+                    createdByUpn = a.CreatedByUpn,
+                    createdAtUtc = a.CreatedAtUtc,
+                    updatedAtUtc = a.UpdatedAtUtc,
+                    ruleIds = a.RuleIds,
+                }).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Report {ReportId}: annotations snapshot failed — omitted from package", reportId);
                 return null;
             }
         }

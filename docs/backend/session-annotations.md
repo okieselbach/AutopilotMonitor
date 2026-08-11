@@ -87,6 +87,10 @@ in the tenant-visible audit log — same convention as GA session-report submiss
   never consume page budget.
 * **MCP write**: `annotate_session` (`strictGa`-gated, MUTATING) always PUTs the `globaladmin`
   lane — no lane argument by design. This is the frictionless labeling path after a session-debug.
+* **Session reports**: `SessionReportService.SubmitReportAsync` snapshots ALL lanes into
+  `annotations.json` inside the report ZIP (`annotationCount` in report-metadata.json; fail-soft).
+  Safe because report blobs are readable only through the GA-only session-reports routes, and
+  valuable because the ZIP outlives the session's retention/delete.
 
 # Citations
 
