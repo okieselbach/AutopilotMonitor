@@ -98,7 +98,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         /// connectivity — the bootstrap retries the check exactly when this is still false.
         /// </para>
         /// </summary>
-        public static bool LastVersionCheckSucceeded { get; private set; }
+        /// <remarks>
+        /// Setter is internal solely as a test seam (InternalsVisibleTo): the bootstrap-retry
+        /// tests arm/reset the guard without running the real network check. Production code
+        /// writes it only from <see cref="CheckAndApplyUpdateAsync"/>.
+        /// </remarks>
+        public static bool LastVersionCheckSucceeded { get; internal set; }
 
         /// <summary>
         /// Optional: graceful-shutdown request hook, set by the runtime host once its

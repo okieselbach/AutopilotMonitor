@@ -154,6 +154,12 @@ ${flatArray(flatEventLogChannels)}
 export const BLOCKED_EVENT_LOG_CHANNELS: readonly string[] = [
 ${flatArray(guardrails.blockedEventLogChannels)}
 ];
+
+export const BLOCKED_COMMAND_PATTERNS: readonly string[] = [
+${flatArray(guardrails.blockedCommandPatterns)}
+];
+
+export const MAX_COMMAND_LENGTH = ${guardrails.maxCommandLength};
 `;
 
   fs.writeFileSync(guardrailsOutput, ts, 'utf8');

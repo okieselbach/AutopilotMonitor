@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-11
+
+* **Update**: `rules/gather-rule-guardrails.md` — hard-block mirroring closed across all pre-flight layers: `rules/guardrails.json` now also mirrors `blockedCommandPatterns` + `maxCommandLength` and carries `C:\Windows\System32\config` in `blockedFilePrefixes`; portal (`guardValidation.ts`) and MCP (`rule-validation.ts`) apply them in agent order (before the unrestricted-mode early-return), so a command the agent hard-blocks no longer shows "Allowed" in unrestricted tenants. `GuardrailsParityTests` pins the JSON mirror to the C# constants. MCP `validate_rule` additionally validates `json`/`xml` targets with file semantics (the schema's `collectorType` enum was missing both) and rejects `activePhases`+`activeFromPhase` set together (backend 400 parity). Author stamping extended to PUT-upserts: tenant and global gather-rule updates stamp the caller's JWT display name before the service call, so an upsert of a non-existing ruleId can no longer store a payload-supplied author (true updates still preserve the original author).
+
 ## 2026-08-10
 
 * **Update**: `rules/gather-rule-guardrails.md` — WMI matcher generalized from literal prefix matching to shape parsing: `SELECT <* | property-list> FROM <class>` is allowed when the class is derived from the existing `SELECT * FROM <class>` entries (a projection is a strict subset; motivated by `SELECT BatteryStatus FROM Win32_Battery` + `on_change` battery polling that `SELECT *` defeats via fluctuating charge %). Same algorithm mirrored agent/portal/MCP; guardrails.json unchanged. Portal now also gates enabling on the client-side validation (invalid-target custom rules create disabled, cannot be toggled on, force-disable on invalid edit, "Blocked on devices" badge) — UX only, the agent guard stays the boundary. Gather-rule Author is now stamped from the creator's JWT (display name → UPN) at create and immutable on update.

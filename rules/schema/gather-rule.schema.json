@@ -67,7 +67,7 @@
         "collectorType": {
           "type": "string",
           "description": "Type of data collection.",
-          "enum": ["registry", "eventlog", "wmi", "file", "command_allowlisted", "logparser"]
+          "enum": ["registry", "eventlog", "wmi", "file", "json", "xml", "command_allowlisted", "logparser"]
         },
         "target": {
           "type": "string",

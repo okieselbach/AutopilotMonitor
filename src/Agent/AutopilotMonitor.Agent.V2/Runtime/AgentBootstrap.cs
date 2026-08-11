@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Configuration;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime;
@@ -156,6 +157,28 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         }
 
         /// <summary>
+        /// Signature of the self-update invocation performed by
+        /// <see cref="RetrySelfUpdateAfterEnrollment"/> — mirrors the
+        /// <see cref="SelfUpdater.CheckAndApplyUpdateAsync"/> parameters this path uses.
+        /// </summary>
+        internal delegate Task SelfUpdateInvoker(
+            string currentVersion,
+            string agentDir,
+            bool consoleMode,
+            string triggerReason,
+            int downloadTimeoutMs,
+            bool allowDowngrade,
+            int versionCheckTimeoutMs);
+
+        /// <summary>
+        /// Test seam replacing the real <see cref="SelfUpdater.CheckAndApplyUpdateAsync"/> call
+        /// in <see cref="RetrySelfUpdateAfterEnrollment"/> (same static-hook idiom as
+        /// <see cref="SelfUpdater.RequestGracefulShutdown"/>). Only the in-repo test project
+        /// (InternalsVisibleTo) can set it; production code never assigns this.
+        /// </summary>
+        internal static SelfUpdateInvoker UpdateInvokerOverride;
+
+        /// <summary>
         /// One-shot self-update retry after the MDM certificate appeared. The startup check in
         /// <c>Main</c> runs pre-enrollment, where an --await-enrollment install typically has no
         /// network yet — its failure says nothing about the latest version. The certificate is
@@ -166,7 +189,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         /// On update success the process restarts and this method never returns; the
         /// await-enrollment config was already removed, so the new binary proceeds normally.
         /// </summary>
-        private static void RetrySelfUpdateAfterEnrollment(AgentLogger logger, bool consoleMode)
+        internal static void RetrySelfUpdateAfterEnrollment(AgentLogger logger, bool consoleMode)
         {
             if (SelfUpdater.LastVersionCheckSucceeded)
                 return; // Startup check reached the manifest — its verdict stands.
@@ -176,16 +199,29 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 logger.Info("Await-enrollment: startup self-update check had failed (no network in early OOBE) — retrying now that enrollment proves connectivity.");
                 var agentDir = System.IO.Path.GetDirectoryName(
                     System.Reflection.Assembly.GetExecutingAssembly().Location) ?? string.Empty;
-                SelfUpdater.CheckAndApplyUpdateAsync(
-                    currentVersion: Program.GetAgentVersion(),
-                    agentDir: agentDir,
-                    consoleMode: consoleMode,
-                    triggerReason: "await_enrollment",
-                    downloadTimeoutMsOverride: 60000,
+                SelfUpdateInvoker invoke = UpdateInvokerOverride;
+                if (invoke == null)
+                {
+                    invoke = (version, dir, console, reason, downloadTimeoutMs, allowDowngrade, versionCheckTimeoutMs) =>
+                        SelfUpdater.CheckAndApplyUpdateAsync(
+                            currentVersion: version,
+                            agentDir: dir,
+                            consoleMode: console,
+                            triggerReason: reason,
+                            downloadTimeoutMsOverride: downloadTimeoutMs,
+                            allowDowngrade: allowDowngrade,
+                            versionCheckTimeoutMsOverride: versionCheckTimeoutMs);
+                }
+                invoke(
+                    Program.GetAgentVersion(),
+                    agentDir,
+                    consoleMode,
+                    "await_enrollment",
+                    60000,
                     // Fresh --await-enrollment installs have no cached remote config yet, so
                     // there is no admin downgrade override to honour on this path.
-                    allowDowngrade: false,
-                    versionCheckTimeoutMsOverride: 10000).GetAwaiter().GetResult();
+                    false,
+                    10000).GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {

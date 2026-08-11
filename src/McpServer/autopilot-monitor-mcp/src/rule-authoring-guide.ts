@@ -70,6 +70,14 @@ export const RULE_AUTHORING_GUIDE = {
       file:
         'Check file/directory existence, optionally read content. target = path under an allow-listed ' +
         'prefix. parameters: readContent ("true"). C:\\Users is blocked.',
+      json:
+        'Query a JSON file with a JSONPath expression. target = file path under an allow-listed ' +
+        'prefix (same file guardrails as collectorType "file", 200 KB cap). parameters: jsonpath ' +
+        '(REQUIRED, e.g. "$.status.lastSync"), maxResults (default 20, max 100).',
+      xml:
+        'Query an XML file with an XPath expression. target = file path under an allow-listed ' +
+        'prefix (same file guardrails as collectorType "file", 200 KB cap). parameters: xpath ' +
+        '(REQUIRED), namespaces (optional "prefix=uri;prefix2=uri2"), maxResults (default 20, max 100).',
       command_allowlisted:
         'Run one of the exactly allow-listed commands (see rule_guardrails allowedCommands). ' +
         'Matching is EXACT (trimmed, case-insensitive) — no arguments can be added or removed.',
@@ -247,7 +255,7 @@ export const RULE_AUTHORING_GUIDE = {
     analyzeCategories: ['network', 'identity', 'enrollment', 'apps', 'esp', 'device', 'security'],
     analyzeSeverities: ['info', 'warning', 'high', 'critical'],
     gatherOutputSeverities: ['Info', 'Warning', 'Error', 'Critical'],
-    gatherCollectorTypes: ['registry', 'eventlog', 'wmi', 'file', 'command_allowlisted', 'logparser'],
+    gatherCollectorTypes: ['registry', 'eventlog', 'wmi', 'file', 'json', 'xml', 'command_allowlisted', 'logparser'],
     gatherTriggers: ['startup', 'phase_change', 'phase_exit', 'interval', 'on_event'],
     analyzeConditionSources: ['event_type', 'event_data', 'event_data_array', 'phase_duration', 'event_count', 'app_install_duration', 'event_correlation'],
   },

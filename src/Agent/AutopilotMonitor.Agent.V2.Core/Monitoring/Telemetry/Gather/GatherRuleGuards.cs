@@ -54,9 +54,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             @"^SELECT\s+(?:\*|[A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s+FROM\s+([A-Za-z_][A-Za-z0-9_]*)(?=\s|$)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-        // Hard blocks: never allowed, even in unrestricted mode
-        private static readonly string BlockedUsersPrefix = Path.GetFullPath(@"C:\Users");
-        private static readonly string[] AdditionalHardBlockedPathPrefixes = new[]
+        // Hard blocks: never allowed, even in unrestricted mode. Internal (not private)
+        // so GuardrailsParityTests can pin the guardrails.json display mirror to these
+        // constants — enforcement stays code-only by design.
+        internal static readonly string BlockedUsersPrefix = Path.GetFullPath(@"C:\Users");
+        internal static readonly string[] AdditionalHardBlockedPathPrefixes = new[]
         {
             Path.GetFullPath(@"C:\Windows\System32\config"),  // SAM, SECURITY, SYSTEM hives
         };
@@ -69,14 +71,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
         };
 
         // Hard limit: maximum command length (even in unrestricted mode)
-        private const int MaxCommandLength = 2000;
+        internal const int MaxCommandLength = 2000;
 
         // Event log channels that are never readable, even in unrestricted mode.
         // Security carries the audit trail of user behaviour; the PowerShell channels
         // carry script-block logging, which routinely contains secrets in clear text.
         // Mirrored in rules/guardrails.json ("blockedEventLogChannels") for the portal
         // to display — enforcement lives here so a parse error cannot lift it.
-        private static readonly string[] HardBlockedEventLogChannels = new[]
+        internal static readonly string[] HardBlockedEventLogChannels = new[]
         {
             "Security",
             "Microsoft-Windows-PowerShell",
@@ -86,7 +88,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
 
         // Hard-blocked command patterns: never allowed, even in unrestricted mode.
         // These prevent privilege escalation, persistence, and data exfiltration.
-        private static readonly string[] HardBlockedCommandPatterns = new[]
+        // Mirrored in rules/guardrails.json ("blockedCommandPatterns") for portal/MCP
+        // pre-flight display — enforcement lives here so a parse error cannot lift it.
+        internal static readonly string[] HardBlockedCommandPatterns = new[]
         {
             // Download / exfiltration
             "Invoke-WebRequest", "Invoke-RestMethod", "Start-BitsTransfer",

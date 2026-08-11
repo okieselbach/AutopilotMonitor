@@ -98,6 +98,8 @@ export const GATHER_RULE_SCHEMA: Record<string, unknown> = {
             "eventlog",
             "wmi",
             "file",
+            "json",
+            "xml",
             "command_allowlisted",
             "logparser"
           ]
@@ -1000,6 +1002,27 @@ export const RULE_GUARDRAILS = {
     "C:\\Install\\Log"
   ],
   "blockedFilePrefixes": [
-    "C:\\Users"
-  ]
+    "C:\\Users",
+    "C:\\Windows\\System32\\config"
+  ],
+  "blockedCommandPatterns": [
+    "Invoke-WebRequest",
+    "Invoke-RestMethod",
+    "Start-BitsTransfer",
+    "wget",
+    "curl",
+    "certutil -urlcache",
+    "New-LocalUser",
+    "Add-LocalGroupMember",
+    "net user",
+    "net localgroup",
+    "bcdedit",
+    "bcdboot",
+    "schtasks /create",
+    "Register-ScheduledTask",
+    "Remove-Item -Recurse",
+    "Format-Volume",
+    "Set-ExecutionPolicy"
+  ],
+  "maxCommandLength": 2000
 } as const;

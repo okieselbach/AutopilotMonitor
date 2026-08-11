@@ -128,6 +128,11 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                 return badRequest;
             }
 
+            // Same anti-spoof stamp as CreateRule: on a true update the service replaces
+            // this with the original author (immutable attribution), but a full-payload PUT
+            // that upserts a rule with no existing row must not store the payload's author.
+            rule.Author = TenantHelper.GetUserDisplayName(req) ?? "Autopilot Monitor";
+
             try
             {
                 var success = await _ruleService.UpdateRuleAsync(tenantId, rule);

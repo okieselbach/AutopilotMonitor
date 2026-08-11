@@ -315,6 +315,7 @@ export const ALLOWED_DIAGNOSTICS_PATH_PREFIXES: readonly string[] = [
 
 export const BLOCKED_FILE_PREFIXES: readonly string[] = [
   "C:\\Users",
+  "C:\\Windows\\System32\\config",
 ];
 
 export const ALLOWED_EVENT_LOG_CHANNELS: readonly string[] = [
@@ -356,3 +357,25 @@ export const BLOCKED_EVENT_LOG_CHANNELS: readonly string[] = [
   "Windows PowerShell",
   "Microsoft-Windows-Sysmon",
 ];
+
+export const BLOCKED_COMMAND_PATTERNS: readonly string[] = [
+  "Invoke-WebRequest",
+  "Invoke-RestMethod",
+  "Start-BitsTransfer",
+  "wget",
+  "curl",
+  "certutil -urlcache",
+  "New-LocalUser",
+  "Add-LocalGroupMember",
+  "net user",
+  "net localgroup",
+  "bcdedit",
+  "bcdboot",
+  "schtasks /create",
+  "Register-ScheduledTask",
+  "Remove-Item -Recurse",
+  "Format-Volume",
+  "Set-ExecutionPolicy",
+];
+
+export const MAX_COMMAND_LENGTH = 2000;

@@ -7,12 +7,12 @@ description: >-
   guard rather than trusting rule.Target.
 resource: src/Agent/AutopilotMonitor.Agent.V2.Core/Monitoring/Telemetry/Gather
 tags: [gather-rules, security, guardrails, agent]
-timestamp: 2026-08-10
+timestamp: 2026-08-11
 ---
 
 # Concept
 
-A gather rule is authored by a **tenant administrator** through `POST /api/rules/gather` and executed by the agent as **SYSTEM** on an enrolling device. The backend does not validate `collectorType`, `target`, or `parameters` at all — it only enforces scope/emit-mode fields, a 1 MB body cap, and that the rule lands in the caller's own tenant partition. Everything that decides *what a rule may reach* is therefore enforced **on the agent**, in `GatherRuleGuards`.
+A gather rule is authored by a **tenant administrator** through `POST /api/rules/gather` and executed by the agent as **SYSTEM** on an enrolling device. The backend does not validate `collectorType`, `target`, or `parameters` at all — it only enforces scope/emit-mode fields, a 1 MB body cap, that the rule lands in the caller's own tenant partition, and that `Author` is stamped from the caller's JWT (create and PUT-upsert; true updates preserve the original author). Everything that decides *what a rule may reach* is therefore enforced **on the agent**, in `GatherRuleGuards`.
 
 This is the security boundary. The portal's `ValidationIndicator` is a convenience — the API stays reachable directly and the backend stays validation-free — but since 2026-08 the portal additionally **gates enabling** on the same client-side validation: a custom rule whose target fails validation cannot be toggled on, is created `enabled=false`, and an edit that makes the target invalid force-disables the rule (`targetBlocked` in `app/gather-rules/types.ts`). An enabled rule with an invalid target shows a "Blocked on devices" badge. All of this is UX, not security — the agent guard remains the enforcement point.
 
@@ -44,7 +44,12 @@ but the hard blocks must hold regardless of configuration:
   PowerShell channels (script-block logging routinely contains secrets in clear text).
 
 `rules/guardrails.json` mirrors the blocked lists (`blockedFilePrefixes`,
-`blockedEventLogChannels`) **for display only**. Enforcement is the C# constant.
+`blockedEventLogChannels`, `blockedCommandPatterns`, `maxCommandLength`) **for display
+and pre-flight only**. Enforcement is the C# constant; `GuardrailsParityTests` (agent
+test project) pins the JSON mirror to the constants so neither side can drift. The
+portal (`utils/guardValidation.ts`) and the MCP validator (`rule-validation.ts`) apply
+the mirrored hard blocks in the same order as the agent — before the unrestricted-mode
+early-return — so a rule the agent would refuse is never shown as "Allowed".
 
 # Examples
 

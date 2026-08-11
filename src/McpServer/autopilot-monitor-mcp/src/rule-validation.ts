@@ -86,10 +86,13 @@ for (const entry of RULE_GUARDRAILS.wmiQueryPrefixes) {
   else residualWmiPrefixes.push(entry);
 }
 
-/** Hard blocks enforced in agent CODE (not liftable via guardrails.json). Keep in
- * sync with GatherRuleGuards.cs — additions there are fail-safe (agent still blocks),
+/** Hard blocks enforced in agent CODE (not liftable via guardrails.json — the JSON
+ * mirrors them for display and pre-flight; an agent-side parity test pins the two
+ * equal). Additions in GatherRuleGuards.cs are fail-safe: the agent still blocks,
  * missing ones here just cost a pre-flight warning. */
-const HARD_BLOCKED_PATH_PREFIXES = ['C:\\Users', 'C:\\Windows\\System32\\config'];
+const HARD_BLOCKED_PATH_PREFIXES: readonly string[] = RULE_GUARDRAILS.blockedFilePrefixes;
+const HARD_BLOCKED_COMMAND_PATTERNS: readonly string[] = RULE_GUARDRAILS.blockedCommandPatterns;
+const MAX_COMMAND_LENGTH: number = RULE_GUARDRAILS.maxCommandLength;
 
 /** Segment-bounded prefix match: target equals the prefix or continues with '\'. */
 function pathPrefixAllowed(target: string, prefixes: readonly string[]): boolean {
@@ -121,6 +124,8 @@ function checkGatherTarget(collectorType: string, target: string): ValidationFin
       break;
     }
     case 'file':
+    case 'json':
+    case 'xml':
     case 'logparser': {
       const blocked = HARD_BLOCKED_PATH_PREFIXES.find((p) => pathPrefixAllowed(target, [p]));
       if (blocked) {
@@ -162,6 +167,24 @@ function checkGatherTarget(collectorType: string, target: string): ValidationFin
       break;
     }
     case 'command_allowlisted': {
+      // Hard guards enforced in agent CODE even in unrestricted mode (mirrors
+      // GatherRuleGuards.IsCommandAllowed order: length cap → blocked patterns → allowlist).
+      if (target.length > MAX_COMMAND_LENGTH) {
+        findings.push({
+          level: 'error',
+          message: `guardrails: command exceeds the ${MAX_COMMAND_LENGTH}-character hard limit — the agent always refuses this, even in unrestricted mode.`,
+        });
+        break;
+      }
+      const targetLower = target.toLowerCase();
+      const blockedPattern = HARD_BLOCKED_COMMAND_PATTERNS.find((p) => targetLower.includes(p.toLowerCase()));
+      if (blockedPattern) {
+        findings.push({
+          level: 'error',
+          message: `guardrails: command contains hard-blocked pattern "${blockedPattern}" — the agent always refuses this, even in unrestricted mode. It cannot be allow-listed.`,
+        });
+        break;
+      }
       const t = target.trim().toLowerCase();
       if (!flatCommands.some((c) => c.trim().toLowerCase() === t)) {
         findings.push({
@@ -362,6 +385,18 @@ function lintAnalyzeRule(rule: Record<string, unknown>): ValidationFinding[] {
 function lintGatherRule(rule: Record<string, unknown>): ValidationFinding[] {
   const findings: ValidationFinding[] = [];
   const trigger = rule.trigger as string | undefined;
+
+  // Mirrors GatherRulesFunction.ValidateScopeAndEmitMode: both scope fields set
+  // is a 400 at create/update time (the schema enums cover the token values, but
+  // cannot express this exclusivity).
+  const hasActivePhases = Array.isArray(rule.activePhases) && rule.activePhases.length > 0;
+  const hasFromPhase = typeof rule.activeFromPhase === 'string' && rule.activeFromPhase.length > 0;
+  if (hasActivePhases && hasFromPhase) {
+    findings.push({
+      level: 'error',
+      message: 'activePhases and activeFromPhase are mutually exclusive — set only one (the backend rejects rules with both, HTTP 400).',
+    });
+  }
 
   if (trigger === 'interval' && typeof rule.intervalSeconds !== 'number') {
     findings.push({ level: 'error', message: 'trigger "interval" requires intervalSeconds.' });

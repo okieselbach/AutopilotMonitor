@@ -1,4 +1,5 @@
 using System.Net;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
@@ -109,6 +110,11 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             var scopeError = GatherRulesFunction.ValidateScopeAndEmitMode(rule);
             if (scopeError != null)
                 return await BadRequestAsync(req, scopeError);
+
+            // Same anti-spoof stamp as the tenant route: true updates keep the original
+            // author (service-level preservation); a PUT-upsert with no existing row
+            // stores the editing admin, never the payload's author.
+            rule.Author = TenantHelper.GetUserDisplayName(req) ?? "Autopilot Monitor";
 
             _logger.LogInformation("Global admin updating gather rule {RuleId} for tenant {TenantId}", ruleId, tenantId);
 

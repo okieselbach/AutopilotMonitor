@@ -15,6 +15,8 @@ import {
   BLOCKED_FILE_PREFIXES,
   ALLOWED_EVENT_LOG_CHANNELS,
   BLOCKED_EVENT_LOG_CHANNELS,
+  BLOCKED_COMMAND_PATTERNS,
+  MAX_COMMAND_LENGTH,
 } from "./guardrails.generated";
 
 // Re-export for consumers that imported from here
@@ -62,7 +64,18 @@ for (const entry of ALLOWED_WMI_QUERY_PREFIXES) {
   }
 }
 
-const BLOCKED_USERS_PREFIX = BLOCKED_FILE_PREFIXES[0] || "C:\\Users";
+const BLOCKED_USERS_PREFIX = "C:\\Users";
+
+// Hard-blocked path prefixes beyond C:\Users (e.g. C:\Windows\System32\config —
+// SAM/SECURITY/SYSTEM hives). No user-profile exception applies to these.
+const ADDITIONAL_BLOCKED_FILE_PREFIXES = BLOCKED_FILE_PREFIXES.filter(
+  (p) => p.toLowerCase() !== BLOCKED_USERS_PREFIX.toLowerCase()
+);
+
+/** Returns the hard-blocked prefix (beyond C:\Users) covering the path, if any. */
+function findAdditionalBlockedPrefix(normalizedDir: string): string | undefined {
+  return ADDITIONAL_BLOCKED_FILE_PREFIXES.find((b) => matchesPrefix(normalizedDir, b, "\\"));
+}
 
 // ---------------------------------------------------------------------------
 // Common Windows environment variables (for client-side expansion)
@@ -260,8 +273,14 @@ export function validateFileTarget(
     return { allowed: false, reason: "C:\\Users is always blocked (privacy protection)", unrestricted: false };
   }
 
+  // Additional hard-blocked paths (even in unrestricted mode)
+  const hardBlockedFile = findAdditionalBlockedPrefix(normalizedDir);
+  if (hardBlockedFile) {
+    return { allowed: false, reason: `${hardBlockedFile} is always blocked (protected system path)`, unrestricted: false };
+  }
+
   if (unrestrictedMode) {
-    return { allowed: true, reason: "All file paths allowed in unrestricted mode (except C:\\Users)", unrestricted: true };
+    return { allowed: true, reason: "All file paths allowed in unrestricted mode (except blocked system paths)", unrestricted: true };
   }
 
   for (const prefix of ALLOWED_FILE_PREFIXES) {
@@ -325,6 +344,26 @@ export function validateCommandTarget(
     return { allowed: false, reason: "No command provided", unrestricted: false };
   }
 
+  // Hard guards apply even in unrestricted mode (mirrors GatherRuleGuards.IsCommandAllowed):
+  // length cap and blocked-pattern scan run on the raw command, before any allowlist check.
+  if (target.length > MAX_COMMAND_LENGTH) {
+    return {
+      allowed: false,
+      reason: `Command exceeds the ${MAX_COMMAND_LENGTH}-character limit (always blocked)`,
+      unrestricted: false,
+    };
+  }
+
+  const targetLower = target.toLowerCase();
+  const blockedPattern = BLOCKED_COMMAND_PATTERNS.find((p) => targetLower.includes(p.toLowerCase()));
+  if (blockedPattern) {
+    return {
+      allowed: false,
+      reason: `Contains "${blockedPattern}" — blocked even in unrestricted mode`,
+      unrestricted: false,
+    };
+  }
+
   if (unrestrictedMode) {
     return { allowed: true, reason: "All commands allowed in unrestricted mode", unrestricted: true };
   }
@@ -384,8 +423,14 @@ export function validateDiagnosticsPath(
     return { allowed: false, reason: "C:\\Users is always blocked (privacy protection)", unrestricted: false };
   }
 
+  // Additional hard-blocked paths (even in unrestricted mode)
+  const hardBlockedDiag = findAdditionalBlockedPrefix(normalizedDir);
+  if (hardBlockedDiag) {
+    return { allowed: false, reason: `${hardBlockedDiag} is always blocked (protected system path)`, unrestricted: false };
+  }
+
   if (unrestrictedMode) {
-    return { allowed: true, reason: "All paths allowed in unrestricted mode (except C:\\Users)", unrestricted: true };
+    return { allowed: true, reason: "All paths allowed in unrestricted mode (except blocked system paths)", unrestricted: true };
   }
 
   for (const prefix of ALLOWED_DIAGNOSTICS_PATH_PREFIXES) {
