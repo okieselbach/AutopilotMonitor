@@ -49,6 +49,14 @@ export const VERDICT_LABELS: Record<AnnotationVerdict, string> = {
   inconclusive: "Inconclusive",
 };
 
+/** Native-tooltip explanations (title attribute) — same wording as the customer docs. */
+export const VERDICT_DESCRIPTIONS: Record<AnnotationVerdict, string> = {
+  root_cause_confirmed: "The analysis was right",
+  analysis_wrong: "The analysis pointed at the wrong cause",
+  different_problem: "The real issue was something the rules did not cover",
+  inconclusive: "The investigation ended without a clear answer",
+};
+
 export const LANE_LABELS: Record<AnnotationLane, string> = {
   operator: "Operator",
   tenantadmin: "Tenant Admin",

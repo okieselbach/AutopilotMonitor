@@ -10,6 +10,7 @@ import {
   canWriteLane,
   hasContent,
   LANE_LABELS,
+  VERDICT_DESCRIPTIONS,
   VERDICT_LABELS,
   visibleLanes,
   validateNote,
@@ -218,7 +219,10 @@ export default function SessionAnnotationsCard({
               <div className="flex items-center flex-wrap gap-2 mb-2">
                 <span className="text-sm font-medium text-gray-900">{LANE_LABELS[lane]}</span>
                 {annotation?.verdict != null && !writable && (
-                  <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${VERDICT_PILL[annotation.verdict] ?? "bg-gray-100 text-gray-600"}`}>
+                  <span
+                    title={VERDICT_DESCRIPTIONS[annotation.verdict as AnnotationVerdict]}
+                    className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${VERDICT_PILL[annotation.verdict] ?? "bg-gray-100 text-gray-600"}`}
+                  >
                     {VERDICT_LABELS[annotation.verdict as AnnotationVerdict] ?? annotation.verdict}
                   </span>
                 )}
@@ -241,6 +245,7 @@ export default function SessionAnnotationsCard({
                           type="button"
                           role="radio"
                           aria-checked={selected}
+                          title={VERDICT_DESCRIPTIONS[verdict]}
                           onClick={() =>
                             setLaneEdit(lane, { verdict: selected ? null : verdict, saveResult: null })
                           }
