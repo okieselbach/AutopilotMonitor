@@ -58,7 +58,7 @@ export default function GlobalError({
                   } catch {
                     // sessionStorage may be unavailable
                   }
-                  window.location.href = "/";
+                  window.location.href = new URL("/", window.location.origin).href;
                 }}
                 style={{
                   padding: "0.625rem 1.25rem",
