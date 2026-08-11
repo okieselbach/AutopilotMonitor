@@ -65,6 +65,10 @@ export default function SessionAnnotationsCard({
   const [annotations, setAnnotations] = useState<Partial<Record<string, SessionAnnotationDto>>>({});
   const [loaded, setLoaded] = useState(false);
   const [edit, setEdit] = useState<Partial<Record<string, LaneEditState>>>({});
+  // Collapsed by default: the verdict comes at the END of a diagnosis — the card must
+  // not take space away from the details/analysis work above it. The header summary
+  // (count + verdict pills) still shows at a glance whether a verdict exists.
+  const [expanded, setExpanded] = useState(false);
 
   const lanes = visibleLanes(user);
 
@@ -152,12 +156,49 @@ export default function SessionAnnotationsCard({
     }
   };
 
+  const annotatedLanes = lanes.filter((lane) => hasContent(annotations[lane]));
+
   return (
     <div className="bg-white shadow rounded-lg p-6 mb-6">
-      <div className="flex items-center justify-between mb-1">
-        <h2 className="text-lg font-medium text-gray-900">Annotations</h2>
+      <div
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-start justify-between gap-2 w-full text-left cursor-pointer"
+      >
+        <div className="flex items-center flex-wrap gap-x-2 gap-y-1 min-w-0">
+          <svg className="w-6 h-6 shrink-0 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
+          </svg>
+          <h2 className="text-xl font-semibold text-gray-900">Annotations</h2>
+          {annotatedLanes.length > 0 && (
+            <>
+              <span className="text-xs text-gray-400">
+                ({annotatedLanes.length} {annotatedLanes.length === 1 ? "annotation" : "annotations"})
+              </span>
+              <div className="flex items-center flex-wrap gap-2 text-xs">
+                {annotatedLanes.map((lane) => {
+                  const verdict = annotations[lane]?.verdict;
+                  return verdict != null ? (
+                    <span
+                      key={lane}
+                      className={`px-2 py-0.5 rounded-full font-medium ${VERDICT_PILL[verdict] ?? "bg-gray-100 text-gray-600"}`}
+                      title={LANE_LABELS[lane]}
+                    >
+                      {VERDICT_LABELS[verdict as AnnotationVerdict] ?? verdict}
+                    </span>
+                  ) : null;
+                })}
+              </div>
+            </>
+          )}
+        </div>
+        <svg className={`w-5 h-5 shrink-0 text-gray-400 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
       </div>
-      <p className="text-sm text-gray-500 mb-4">
+
+      {expanded && (
+      <>
+      <p className="text-sm text-gray-500 mt-2 mb-4">
         Human assessment of this enrollment&apos;s analysis — confirmed root causes and
         corrections feed rule quality.
       </p>
@@ -274,6 +315,8 @@ export default function SessionAnnotationsCard({
             <p className="text-sm text-gray-400">No annotations for this session.</p>
           )}
       </div>
+      </>
+      )}
     </div>
   );
 }
