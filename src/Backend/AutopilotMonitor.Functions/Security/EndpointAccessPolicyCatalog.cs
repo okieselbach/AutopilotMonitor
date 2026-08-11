@@ -234,6 +234,10 @@ public static class EndpointAccessPolicyCatalog
         // sessions/{sessionId}/signals + /decision-graph live in the GlobalAdminOnly block below
         // (Inspector v1 — Plan §M6). Lift back to MemberRead+QueryParam at the v2 adminMode lift.
         new("GET",    "sessions/{sessionId}/analysis", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
+        // Member tier: annotation reads are safe for every tenant member because the handler
+        // filters the platform-internal globaladmin lane for callers without global scope
+        // (GetSessionAnnotationsFunction.FilterLanesForCaller).
+        new("GET",    "sessions/{sessionId}/annotations", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         new("GET",    "sessions/{sessionId}/vulnerability-report", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         new("GET",    "sessions/{sessionId}/time-attribution", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         new("GET",    "metrics/app",               EndpointPolicy.MemberRead),
@@ -297,6 +301,10 @@ public static class EndpointAccessPolicyCatalog
         // the portal); the function re-gates the admin-only action types (terminate_session,
         // rotate_config) on RequestContext.IsTenantAdmin || IsGlobalAdmin.
         new("POST",   "sessions/{sessionId}/actions",          EndpointPolicy.TenantAdminOrOperator),
+        // Operator tier so troubleshooting staff can write the operator annotation lane; the
+        // function re-gates the per-lane matrix (tenantadmin lane → IsTenantAdmin, globaladmin
+        // lane → IsGlobalAdmin) via UpsertSessionAnnotationFunction.IsLaneWritableByCaller.
+        new("PUT",    "sessions/{sessionId}/annotations/{lane}", EndpointPolicy.TenantAdminOrOperator, TenantScoping.QueryParam),
         new("POST",   "sessions/{sessionId}/report",        EndpointPolicy.TenantAdminOrGA),
         // Operator tier: submitting diagnostic files to the Autopilot Monitor team is a
         // troubleshooting action, not a config change — a support-driven Operator may use it.
@@ -449,6 +457,8 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/session-reports",     EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/session-reports/download-url", EndpointPolicy.GlobalReadOrAdmin),
         new("PATCH",  "global/session-reports/{reportId}/note", EndpointPolicy.GlobalAdminOnly),
+        // Flywheel evaluation stream: all annotation lanes across tenants (verdict/rule filters).
+        new("GET",    "global/session-annotations", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/rules/gather",        EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/rules/analyze",       EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         // Cross-tenant rule WRITES (edit/toggle/delete an existing rule in a foreign tenant). GlobalAdminOnly

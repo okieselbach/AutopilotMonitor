@@ -36,9 +36,10 @@ import IntegrityBypassSection from "./components/IntegrityBypassSection";
 import AdminOverrideModal from "./components/AdminOverrideModal";
 import ReportSessionModal from "./components/ReportSessionModal";
 import CollectLogsButton from "./components/CollectLogsButton";
+import SessionAnnotationsCard from "./components/SessionAnnotationsCard";
 import { usePageSections } from "../../hooks/usePageSections";
 import { PageSectionItem } from "../../contexts/SidebarContext";
-import { InformationCircleIcon, ComputerDesktopIcon, PlayCircleIcon, SparklesIcon, ChartBarIcon, CodeBracketIcon, ArrowDownTrayIcon, ListBulletIcon, ClockIcon, ShieldCheckIcon } from "../../lib/sidebarIcons";
+import { InformationCircleIcon, ComputerDesktopIcon, PlayCircleIcon, SparklesIcon, ChartBarIcon, CodeBracketIcon, ArrowDownTrayIcon, ListBulletIcon, ClockIcon, ShieldCheckIcon, PencilSquareIcon } from "../../lib/sidebarIcons";
 import DeviceDetailsCard from "./components/DeviceDetailsCard";
 import { generateUiExport, generateCsvExport, generateSessionCsvExport, generateRuleResultsCsvExport, SessionExportEvent } from "@/utils/sessionExportUtils";
 import { trackEvent } from "@/lib/appInsights";
@@ -412,6 +413,7 @@ function SessionDetailContent() {
     if (!isGatherRulesSession) s.push({ id: "section-device-details", label: "Device Details", icon: <ComputerDesktopIcon /> });
     if (!isGatherRulesSession && session) s.push({ id: "section-enrollment-progress", label: "Enrollment Progress", icon: <PlayCircleIcon /> });
     if (!isGatherRulesSession) s.push({ id: "section-analysis", label: "Analysis", icon: <SparklesIcon /> });
+    if (!isGatherRulesSession) s.push({ id: "section-annotations", label: "Annotations", icon: <PencilSquareIcon /> });
     if (!isGatherRulesSession && enableSoftwareInventoryAnalyzer) s.push({ id: "section-vulnerability-report", label: "Vulnerability Report", icon: <ShieldCheckIcon /> });
     if (!isGatherRulesSession) s.push({ id: "section-performance", label: "Performance", icon: <ChartBarIcon /> });
     if (!isGatherRulesSession) s.push({ id: "section-scripts", label: "Script Executions", icon: <CodeBracketIcon /> });
@@ -635,6 +637,19 @@ function SessionDetailContent() {
               canReanalyze={!isReadOnlyView}
               persistFailureRuleIds={persistFailureRuleIds}
             />
+            </div>
+          )}
+
+          {/* Annotations — human verdict/notes about the analysis (flywheel labels) */}
+          {!isGatherRulesSession && (
+            <div id="section-annotations">
+              <SessionAnnotationsCard
+                sessionId={sessionId}
+                effectiveTenantId={sessionTenantId || tenantId}
+                user={user}
+                isCrossTenantView={isCrossTenantView}
+                getAccessToken={getAccessToken}
+              />
             </div>
           )}
 

@@ -785,6 +785,91 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     })
   );
 
+  // Tool 18b: list_session_annotations — platform scope (GA + Global Reader).
+  if (ga) server.registerTool(
+    'list_session_annotations',
+    {
+      title: 'List Session Annotations',
+      description:
+        'List human session annotations across tenants — the rule-quality evaluation stream. Each annotation is a ' +
+        'per-session, per-lane row (lane = operator | tenantadmin | globaladmin) carrying a structured verdict ' +
+        '(root_cause_confirmed | analysis_wrong | different_problem | inconclusive), an optional free-text note, the ' +
+        'author, and a snapshot of the rule ids that had fired for the session at write time (ruleIds). ' +
+        'Evaluate rule quality by filtering: verdict + ruleId → confirmed vs false-positive rate per rule; ' +
+        'lane=globaladmin → the platform team\'s own labels. Platform scope only. ' +
+        'Pagination: when "nextLink" is present, pass the whole string back as "continuation"; stop when absent.',
+      inputSchema: {
+        tenantId: TenantGuidSchema.optional().describe('Optional — filter to a single tenant. Omit for cross-tenant view.'),
+        lane: z.enum(['operator', 'tenantadmin', 'globaladmin']).optional()
+          .describe('Optional — filter to one annotation lane.'),
+        verdict: z.enum(['root_cause_confirmed', 'analysis_wrong', 'different_problem', 'inconclusive']).optional()
+          .describe('Optional — filter to one structured verdict.'),
+        ruleId: z.string().optional()
+          .describe('Optional — only annotations whose rule-id snapshot contains this rule (e.g. "ANALYZE-ESP-001").'),
+        dateFrom: z.string().optional().describe('ISO 8601 UTC timestamp — inclusive lower bound on the last-updated time.'),
+        dateTo: z.string().optional().describe('ISO 8601 UTC timestamp — exclusive upper bound on the last-updated time.'),
+        pageSize: z.coerce.number().int().min(1).max(1000).optional().default(200)
+          .describe('Page size (1-1000, default 200). Returns this many annotations per call; follow nextLink to fetch more.'),
+        continuation: z.string().optional()
+          .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so all filters round-trip correctly.'),
+      },
+      annotations: READ_ONLY,
+    },
+    async (args) => withToolTelemetry('list_session_annotations', args, async () => {
+      try {
+        const { tenantId, lane, verdict, ruleId, dateFrom, dateTo, pageSize, continuation } = args;
+        const path = followNextLink(
+          '/api/global/session-annotations',
+          { tenantId, lane, verdict, ruleId, dateFrom, dateTo, pageSize },
+          continuation,
+        );
+        const data = await apiFetch(path);
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
+      } catch (error: unknown) {
+        return toolError('list_session_annotations', args, error);
+      }
+    })
+  );
+
+  // Tool 18c: annotate_session — real Global Admin only (write).
+  if (strictGa) server.registerTool(
+    'annotate_session',
+    {
+      title: 'Annotate Session',
+      description:
+        'Write the platform team\'s annotation on an enrollment session — a structured verdict about the analysis ' +
+        'plus an optional note. Global Admin only; always writes the platform-internal "globaladmin" lane (never a ' +
+        'tenant\'s own lanes), which tenant users cannot see. Use after debugging a session to label it: verdict ' +
+        'root_cause_confirmed | analysis_wrong | different_problem | inconclusive. The backend stamps the author from ' +
+        'your identity and snapshots the currently-fired rule ids onto the annotation for later rule-quality ' +
+        'evaluation (list_session_annotations). Passing BOTH verdict and note as null clears the annotation. ' +
+        'Re-annotating overwrites the previous verdict/note (first author + creation time are preserved).',
+      inputSchema: {
+        sessionId: SessionIdSchema.describe('Session UUID to annotate.'),
+        tenantId: TenantGuidSchema.optional()
+          .describe('Optional — the session\'s tenant. If omitted, auto-resolved from the session.'),
+        verdict: z.enum(['root_cause_confirmed', 'analysis_wrong', 'different_problem', 'inconclusive']).nullable().optional()
+          .describe('Structured verdict, or null. At least one of verdict/note must be non-null unless clearing.'),
+        note: z.string().max(4096).nullable().optional()
+          .describe('Free-text note (max 4096 chars), or null.'),
+      },
+      annotations: MUTATING,
+    },
+    async (args) => withToolTelemetry('annotate_session', args, async () => {
+      try {
+        const { sessionId, tenantId, verdict, note } = args;
+        const query = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
+        const data = await apiFetch(`/api/sessions/${sessionId}/annotations/globaladmin${query}`, {
+          method: 'PUT',
+          body: JSON.stringify({ verdict: verdict ?? null, note: note ?? null }),
+        });
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
+      } catch (error: unknown) {
+        return toolError('annotate_session', args, error);
+      }
+    })
+  );
+
   // ── Raw Data Tools ────────────────────────────────────────────────────
 
   // Tool 18: query_raw_events

@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-11 (later)
+
+* **Creation**: Added `backend/session-annotations.md` — session annotations: the new `SessionAnnotations` table (PK=tenantId, RK=`{sessionId}_{lane}`, lanes operator/tenantadmin/globaladmin) storing structured verdicts (`root_cause_confirmed | analysis_wrong | different_problem | inconclusive`) + notes with server-stamped authorship and a fired-rule-id snapshot for join-free rule-quality evaluation. Per-lane write matrix re-gated in-function with own-tenant binding (a GA writes only the platform-internal `globaladmin` lane cross-tenant; tenant callers never see that lane). Surfaces: portal `SessionAnnotationsCard` (session detail, after Analysis), MCP `list_session_annotations` (ga) + `annotate_session` (strictGa, always the GA lane) + `annotations` key in `get_session_summary`. Lifecycle: per-session cascade steps 17–19, offboarding wipe, critical-backup member.
+
 ## 2026-08-11
 
 * **Update**: `rules/gather-rule-guardrails.md` — hard-block mirroring closed across all pre-flight layers: `rules/guardrails.json` now also mirrors `blockedCommandPatterns` + `maxCommandLength` and carries `C:\Windows\System32\config` in `blockedFilePrefixes`; portal (`guardValidation.ts`) and MCP (`rule-validation.ts`) apply them in agent order (before the unrestricted-mode early-return), so a command the agent hard-blocks no longer shows "Allowed" in unrestricted tenants. `GuardrailsParityTests` pins the JSON mirror to the C# constants. MCP `validate_rule` additionally validates `json`/`xml` targets with file semantics (the schema's `collectorType` enum was missing both) and rejects `activePhases`+`activeFromPhase` set together (backend 400 parity). Author stamping extended to PUT-upserts: tenant and global gather-rule updates stamp the caller's JWT display name before the service call, so an upsert of a non-existing ruleId can no longer store a payload-supplied author (true updates still preserve the original author).

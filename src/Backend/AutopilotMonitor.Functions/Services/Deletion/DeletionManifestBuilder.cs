@@ -12,6 +12,7 @@ using Azure.Data.Tables;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services.Tables;
 using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Deletion;
 using Microsoft.Extensions.Logging;
 
@@ -117,17 +118,25 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             // ---- Step 16: F1 time-attribution breakdown (PK=tenant, RK=sessionId; PR2). ----
             await AddPkRkExactStepAsync(manifest, order: 16, table: Constants.TableNames.SessionTimeBreakdowns, partitionKey: tenantId, rowKey: sessionId, cancellationToken);
 
-            // ---- Steps 17 + 18: SoftwareInventory side-row (omit both for pre-side-row sessions). ----
+            // ---- Steps 17-19: session annotations (PK=tenant, RK="{sessionId}_{lane}"). ----
+            // Lanes are a closed set of 3, so exact-RK steps cover every possible row.
+            var annotationOrder = 17;
+            foreach (var lane in AnnotationLanes.All)
+            {
+                await AddPkRkExactStepAsync(manifest, order: annotationOrder++, table: Constants.TableNames.SessionAnnotations, partitionKey: tenantId, rowKey: $"{sessionId}_{lane}", cancellationToken);
+            }
+
+            // ---- Steps 20 + 21: SoftwareInventory side-row (omit both for pre-side-row sessions). ----
             var contributionsRow = await _reader.GetEntityOrNullAsync(
                 Constants.TableNames.SessionInventoryContributions, tenantId, sessionId, cancellationToken);
             if (contributionsRow != null)
             {
-                AddSoftwareInventoryDecrementStep(manifest, order: 17, contributionsRow);
-                AddContributionsRowStep(manifest, order: 18, contributionsRow);
+                AddSoftwareInventoryDecrementStep(manifest, order: 20, contributionsRow);
+                AddContributionsRowStep(manifest, order: 21, contributionsRow);
             }
 
-            // ---- Step 19: Tombstone (SessionsIndex first, then Sessions). ----
-            AddTombstoneStep(manifest, order: 19, sessionsIndexRow, sessionRow);
+            // ---- Step 22: Tombstone (SessionsIndex first, then Sessions). ----
+            AddTombstoneStep(manifest, order: 22, sessionsIndexRow, sessionRow);
 
             // PreflightCounts derive from each step's RowCount, plus the AGGREGATE decrements length.
             manifest.PreflightCounts = ComputePreflightCounts(manifest);
@@ -433,7 +442,9 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                     continue;
                 }
                 if (string.IsNullOrEmpty(step.Table)) continue;
-                counts[CamelCase(step.Table!)] = step.RowCount;
+                // Sum, don't overwrite: SessionAnnotations emits one step per lane on the same table.
+                var key = CamelCase(step.Table!);
+                counts[key] = counts.TryGetValue(key, out var existing) ? existing + step.RowCount : step.RowCount;
             }
             return counts;
         }

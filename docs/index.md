@@ -42,6 +42,7 @@ https://docs.autopilotmonitor.com (separate repository).
 * [Tenant Activation & the Once-Only Welcome Mail](backend/tenant-activation-welcome-mail.md) - How a signup becomes an activated tenant (manual approve or the auto-approve queue), and the write-then-read + conditional-marker arbitration that sends the welcome mail exactly once even though activation and the user-typed notification address race each other.
 * [W365 Cloud PC Device Validation](backend/cloudpc-device-validation.md) - Why Cloud PCs can never pass the Autopilot serial lookup, and the cert-CN-bound CloudPc fallback validator: Subject CN (= Intune device id) matched against the tenant's Graph virtualEndpoint/cloudPCs inventory — admits exactly the service-provisioned Cloud PCs, nothing else.
 * [ServerActions & On-Demand Diagnostics](backend/server-actions-on-demand-diagnostics.md) - The queue-on-session, deliver-on-ingest action channel, the TenantAdminOrOperator tier with in-function per-type re-gating, the portal's Collect Logs flow (quick-config orders rotate_config before request_diagnostics), and the hosted-prefix sweep in the offboarding cascade.
+* [Session Annotations](backend/session-annotations.md) - Role-separated human verdicts on sessions (operator / tenantadmin / globaladmin lanes, one row each): the per-lane write matrix with own-tenant binding, the platform-internal GA lane, the fired-rule-id snapshot that makes annotations rule-quality labels, and the portal card + MCP list/annotate surfaces.
 
 # MCP Server
 

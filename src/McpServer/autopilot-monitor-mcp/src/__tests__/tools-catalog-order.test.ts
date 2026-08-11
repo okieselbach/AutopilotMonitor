@@ -108,6 +108,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
   // This is the source of truth. A new tool MUST be added here, or the GA test
   // fails — that failure is the deliberate prompt to decide its role placement.
   const GA_FULL = [
+    'annotate_session',
     'get_api_usage',
     'get_app_install_metrics',
     'get_audit_logs',
@@ -136,6 +137,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'get_usage_metrics',
     'get_vulnerability_summary',
     'list_blocked_devices',
+    'list_session_annotations',
     'list_session_reports',
     'list_tables',
     'list_tenant_config_backups',
@@ -178,17 +180,23 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'update_tenant_config',
   ];
 
+  // Session-annotation write surface: strictGa only — a read-only Global Reader
+  // reads annotations (list_session_annotations) but never writes the GA lane.
+  const ANNOTATION_WRITE_GA_STRICT = ['annotate_session'];
+
   // Platform-only tools: a non-platform caller (tenant or delegated) gets no
   // cross-fleet aggregate surface at all. Superset of RAW_GA_STRICT and
   // CONFIG_WRITE_GA_STRICT (those are also platform-only) plus the curated
   // cross-tenant aggregates.
   const PLATFORM_ONLY = [
+    'annotate_session',
     'get_api_usage',
     'get_ops_events',
     'get_platform_metrics',
     'get_tenant_config',
     'get_tenant_config_schema',
     'list_blocked_devices',
+    'list_session_annotations',
     'list_session_reports',
     'list_tables',
     'list_tenant_config_backups',
@@ -212,9 +220,9 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     expect(registeredToolNames(true, true)).toEqual(GA_FULL);
   });
 
-  it('Global Reader = GA minus the secret-bearing raw tools and the config-write surface (strictGa split)', () => {
+  it('Global Reader = GA minus the secret-bearing raw tools, the config-write surface and the annotation write (strictGa split)', () => {
     expect(registeredToolNames(true, false)).toEqual(
-      without(GA_FULL, [...RAW_GA_STRICT, ...CONFIG_WRITE_GA_STRICT]));
+      without(GA_FULL, [...RAW_GA_STRICT, ...CONFIG_WRITE_GA_STRICT, ...ANNOTATION_WRITE_GA_STRICT]));
   });
 
   it('tenant user = GA minus all platform-only tools', () => {
@@ -232,6 +240,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     for (const [label, list] of [
       ['RAW_GA_STRICT', RAW_GA_STRICT],
       ['CONFIG_WRITE_GA_STRICT', CONFIG_WRITE_GA_STRICT],
+      ['ANNOTATION_WRITE_GA_STRICT', ANNOTATION_WRITE_GA_STRICT],
       ['PLATFORM_ONLY', PLATFORM_ONLY],
       ['DELEGATED_HIDDEN', DELEGATED_HIDDEN],
       ['DELEGATED_ADDED', DELEGATED_ADDED],
@@ -251,5 +260,10 @@ describe('role catalog snapshot — privilege-leak guard', () => {
   it('the config-write tools are a subset of the platform-only tools', () => {
     const leaked = CONFIG_WRITE_GA_STRICT.filter((n) => !PLATFORM_ONLY.includes(n));
     expect(leaked, 'a config-write GA-strict tool is not also marked platform-only').toEqual([]);
+  });
+
+  it('the annotation write tool is a subset of the platform-only tools', () => {
+    const leaked = ANNOTATION_WRITE_GA_STRICT.filter((n) => !PLATFORM_ONLY.includes(n));
+    expect(leaked, 'the annotation write tool is not also marked platform-only').toEqual([]);
   });
 });

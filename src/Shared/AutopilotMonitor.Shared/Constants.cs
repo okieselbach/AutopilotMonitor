@@ -1106,6 +1106,16 @@ namespace AutopilotMonitor.Shared
             // for the watchdog (5min staleness threshold for Running, 60min for Queued).
             public const string BackupJobs = "BackupJobs";
 
+            // Human-entered per-session verdict + note, role-separated into lanes
+            // (operator / tenantadmin / globaladmin — the globaladmin lane is
+            // platform-internal and filtered out for tenant callers).
+            //   - PartitionKey = tenantId
+            //   - RowKey       = "{sessionId}_{lane}"
+            // One row per session + lane, edited in place. Wiped on tenant offboarding,
+            // cascade-deleted with the session, and in the critical-backup set because
+            // annotations are hand-labeled rule-quality data.
+            public const string SessionAnnotations = "SessionAnnotations";
+
             /// <summary>
             /// Returns all table names for initialization
             /// </summary>
@@ -1174,6 +1184,7 @@ namespace AutopilotMonitor.Shared
                 ScriptNameCache,
                 BackupJobs,
                 ConfigurationBackups,
+                SessionAnnotations,
             };
         }
 
@@ -1366,6 +1377,7 @@ namespace AutopilotMonitor.Shared
                 TableNames.PreviewConfig,
                 TableNames.PreviewWhitelist,
                 TableNames.RuleStates,
+                TableNames.SessionAnnotations,
                 TableNames.TenantAdmins,
                 TableNames.TenantConfiguration,
                 TableNames.TenantOffboardingCustomsArchive,

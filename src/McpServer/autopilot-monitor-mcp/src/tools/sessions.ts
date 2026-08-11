@@ -468,10 +468,13 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         const q = buildQuery({ tenantId } as Record<string, string | undefined>);
         const fetchOpts = { signal: AbortSignal.timeout(90_000) };
 
-        const [sessionData, eventsData, analysisData] = await Promise.all([
+        const [sessionData, eventsData, analysisData, annotationsData] = await Promise.all([
           apiFetch(`/api/sessions/${sessionId}${q}`, fetchOpts) as Promise<Record<string, unknown>>,
           apiFetch(`/api/sessions/${sessionId}/events${q}`, fetchOpts) as Promise<{ events?: Array<Record<string, unknown>>; count?: number }>,
           apiFetch(`/api/sessions/${sessionId}/analysis${q}`, fetchOpts).catch(() => null) as Promise<Record<string, unknown> | null>,
+          // Human annotations (verdict + note per lane). Backend filters the platform-internal
+          // globaladmin lane for non-global callers — pass-through, no re-shaping needed.
+          apiFetch(`/api/sessions/${sessionId}/annotations${q}`, fetchOpts).catch(() => null) as Promise<{ annotations?: Array<Record<string, unknown>> } | null>,
         ]);
 
         const s = (sessionData.session ?? sessionData) as Record<string, unknown>;
@@ -611,10 +614,17 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           };
         }
 
+        // Null when no lanes are annotated (or the read failed) — omitting keeps old output stable.
+        const annotations =
+          annotationsData?.annotations && annotationsData.annotations.length > 0
+            ? annotationsData.annotations
+            : null;
+
         const result = {
           overview,
           keyEvents: mappedEvents,
           analysis,
+          annotations,
           stats: {
             totalEvents: allEvents.length,
             keyEventsTotal: sortedKey.length,

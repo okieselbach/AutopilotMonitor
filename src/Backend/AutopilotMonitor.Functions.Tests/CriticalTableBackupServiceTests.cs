@@ -47,7 +47,7 @@ public class CriticalTableBackupServiceTests
 
         Assert.Equal(BackupOutcome.Success, result.Outcome);
         Assert.True(store.ManifestWritten, "manifest must be written LAST");
-        Assert.Equal(17, result.Manifest.Tables.Count);   // critical-tables catalog count (incl. DelegatedAdmins + ConfigurationBackups)
+        Assert.Equal(18, result.Manifest.Tables.Count);   // critical-tables catalog count (incl. DelegatedAdmins + ConfigurationBackups + SessionAnnotations)
         Assert.All(result.Manifest.Tables, t =>
             Assert.True(t.Status == TableBackupStatus.Ok || t.Status == TableBackupStatus.Empty));
     }

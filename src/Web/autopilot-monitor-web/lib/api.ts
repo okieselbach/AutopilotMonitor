@@ -64,6 +64,13 @@ export const api = {
       `${API_BASE_URL}/api/sessions/${sessionId}/actions${qs({ tenantId })}`,
     report: (sessionId: string, tenantId?: string) =>
       `${API_BASE_URL}/api/sessions/${sessionId}/report${qs({ tenantId })}`,
+    // GET — all annotation lanes visible to the caller (backend hides the globaladmin
+    // lane from callers without global scope).
+    annotations: (sessionId: string, tenantId?: string) =>
+      `${API_BASE_URL}/api/sessions/${sessionId}/annotations${qs({ tenantId })}`,
+    // PUT { verdict, note } — upserts one lane; both fields null/empty clears it.
+    annotation: (sessionId: string, lane: string, tenantId?: string) =>
+      `${API_BASE_URL}/api/sessions/${sessionId}/annotations/${lane}${qs({ tenantId })}`,
     quickSearch: (q: string) =>
       `${API_BASE_URL}/api/search/quick${qs({ q })}`,
     // NOTE: lives under /api/stats/sessions (NOT /api/sessions/stats) — Azure

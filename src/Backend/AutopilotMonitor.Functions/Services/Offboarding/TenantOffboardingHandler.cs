@@ -89,6 +89,10 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             // save), so the wipe cannot re-create a snapshot afterwards. The admin-config
             // "GlobalConfig" partition never matches a tenant GUID and survives untouched.
             Constants.TableNames.ConfigurationBackups,
+            // Session annotations (PK=tenantId). Deliberately WIPED — unlike Feedback, these
+            // are customer-entered notes tied to the tenant's sessions, not product feedback.
+            // Rows also die per-session via the deletion manifest; this covers offboarding.
+            Constants.TableNames.SessionAnnotations,
         };
 
         // Plan §6.4 — composite-PK "{tenantId}_..." wipes (Variant A range).

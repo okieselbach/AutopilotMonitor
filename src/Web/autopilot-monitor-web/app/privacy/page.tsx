@@ -2,7 +2,7 @@ import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/utils/config";
 
-const LAST_UPDATED = "6 August 2026";
+const LAST_UPDATED = "11 August 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
 const DOCS_DATA_FLOWS = `${DOCS_URL}/trust/data-flows`;
 
@@ -76,6 +76,7 @@ export default function PrivacyPage() {
           <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
             <li>Sign-in identity from Microsoft Entra ID — user principal name, display name, and tenant ID</li>
             <li>Audit records of administrative actions, including who performed them and when</li>
+            <li>Content you choose to enter about a session — report comments and annotations (a verdict on the analysis plus notes) — stored with your tenant&apos;s data and attributed to the author</li>
             <li>Operational request telemetry used to run and support the service</li>
             <li>A <strong>contact address</strong> for your tenant, if one is provided</li>
           </ul>

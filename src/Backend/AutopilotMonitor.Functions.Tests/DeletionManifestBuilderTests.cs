@@ -75,9 +75,9 @@ public class DeletionManifestBuilderTests
         Assert.Equal(2,  c["classifierVerdictsByIdLevel"]);
         Assert.Equal(11, c["signalsByKind"]);
 
-        // 16 cascade tables (incl. SessionTimeBreakdowns, F1 PR2) + tombstone = 17 steps;
-        // no inventory steps when no contributions row.
-        Assert.Equal(17, manifest.Steps.Count);
+        // 19 cascade tables (incl. SessionTimeBreakdowns F1 PR2 + 3 SessionAnnotations lanes)
+        // + tombstone = 20 steps; no inventory steps when no contributions row.
+        Assert.Equal(20, manifest.Steps.Count);
         Assert.Equal(DeletionStepClass.Final, manifest.Steps.Last().Class);
     }
 
@@ -104,7 +104,8 @@ public class DeletionManifestBuilderTests
             .WithDeadEndsByReason(1, propValue: "deadend_marker")
             .WithClassifierVerdictsByIdLevel(1, propValue: "classifier_marker")
             .WithSignalsByKind(1, propValue: "signalkind_marker")
-            .WithSessionTimeBreakdown(propValue: "breakdown_marker"));
+            .WithSessionTimeBreakdown(propValue: "breakdown_marker")
+            .WithSessionAnnotations(propValue: "annotation_marker"));
 
         var manifest = await NewBuilder(reader).BuildAsync(
             TenantId, SessionId, "admin_delete",
@@ -147,8 +148,9 @@ public class DeletionManifestBuilderTests
             new DeletionRetentionContext { TenantRetentionDays = 90 });
 
         var nonTombstoneSteps = manifest.Steps.Where(s => s.Class != DeletionStepClass.Final).ToList();
-        // Without a contributions row, neither inventory step is emitted → exactly 16 cascade-table steps.
-        Assert.Equal(16, nonTombstoneSteps.Count);
+        // Without a contributions row, neither inventory step is emitted → exactly 19 cascade-table steps
+        // (16 + the 3 SessionAnnotations lane steps).
+        Assert.Equal(19, nonTombstoneSteps.Count);
         foreach (var step in nonTombstoneSteps)
         {
             Assert.Equal(0, step.RowCount);
@@ -177,8 +179,8 @@ public class DeletionManifestBuilderTests
             new DeletionActor { Type = "admin", Actor = "alice@example.com" },
             new DeletionRetentionContext { TenantRetentionDays = 90 });
 
-        // Expect: 16 cascade + 2 inventory + 1 tombstone = 19 steps.
-        Assert.Equal(19, manifest.Steps.Count);
+        // Expect: 19 cascade + 2 inventory + 1 tombstone = 22 steps.
+        Assert.Equal(22, manifest.Steps.Count);
 
         var aggregate = manifest.Steps.Single(s => s.Class == DeletionStepClass.Aggregate);
         Assert.Equal(DeletionStepNames.SoftwareInventoryDecrement, aggregate.Step);
@@ -229,7 +231,7 @@ public class DeletionManifestBuilderTests
     [Fact]
     public async Task Build_omits_inventory_steps_when_no_side_row()
     {
-        // The default reader returns no inventory row → 15 cascade + 1 tombstone, no inventory steps.
+        // The default reader returns no inventory row → 19 cascade + 1 tombstone, no inventory steps.
         var reader = NewReader(seed => seed.WithSessionsRow().WithSessionsIndexRow());
 
         var manifest = await NewBuilder(reader).BuildAsync(
@@ -644,6 +646,7 @@ public class DeletionManifestBuilderTests
         private TableEntity? _eventSessionIndex;
         private TableEntity? _sessionTimeBreakdown;
         private TableEntity? _sessionInventoryContributions;
+        private readonly Dictionary<string, TableEntity> _sessionAnnotations = new(StringComparer.Ordinal);
         private string _sessionsIndexRowKey = "INDEX_" + SessionId;
 
         public ReaderSeed WithSessionsRow(string? diagnosticsBlobName = null)
@@ -774,6 +777,23 @@ public class DeletionManifestBuilderTests
         public ReaderSeed WithClassifierVerdictsByIdLevel(int n, string propValue = "cls") => SeedDiscriminatorPkProp(Constants.TableNames.ClassifierVerdictsByIdLevel, n, propValue, "EspApps_High");
         public ReaderSeed WithSignalsByKind(int n, string propValue = "sk")        => SeedDiscriminatorPkProp(Constants.TableNames.SignalsByKind, n, propValue, "EspPhaseChanged");
 
+        public ReaderSeed WithSessionAnnotations(string propValue = "anno")
+        {
+            // One row per lane — the builder emits one exact-RK step per lane.
+            foreach (var lane in AutopilotMonitor.Shared.Models.AnnotationLanes.All)
+            {
+                var e = new TableEntity(TenantId, $"{SessionId}_{lane}")
+                {
+                    ["Marker"] = propValue,
+                    ["SessionId"] = SessionId,
+                    ["Lane"] = lane,
+                };
+                e.ETag = new ETag("0xANNO" + lane);
+                _sessionAnnotations[lane] = e;
+            }
+            return this;
+        }
+
         public ReaderSeed WithSessionInventoryContributions(TableEntity row)
         {
             _sessionInventoryContributions = row;
@@ -813,6 +833,11 @@ public class DeletionManifestBuilderTests
                   .ReturnsAsync(_sessionTimeBreakdown);
             reader.Setup(r => r.GetEntityOrNullAsync(Constants.TableNames.SessionInventoryContributions, TenantId, SessionId, It.IsAny<CancellationToken>()))
                   .ReturnsAsync(_sessionInventoryContributions);
+            foreach (var (lane, row) in _sessionAnnotations)
+            {
+                reader.Setup(r => r.GetEntityOrNullAsync(Constants.TableNames.SessionAnnotations, TenantId, $"{SessionId}_{lane}", It.IsAny<CancellationToken>()))
+                      .ReturnsAsync(row);
+            }
 
             // QueryAsync: per-table seeded list, otherwise empty.
             reader.Setup(r => r.QueryAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
