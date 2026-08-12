@@ -170,9 +170,14 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
   const autopilotProfile = normalizeAutopilotProfile(getEventData<AutopilotProfileData>("autopilot_profile"));
   // Explicit agent signal (new sessions) OR ProfileAvailable=0 in the cached profile
   // (also covers sessions recorded before autopilot_profile_missing existed).
+  const autopilotProfileMissingEvent = getEventData("autopilot_profile_missing");
   const autopilotProfileMissing =
-    getEventData("autopilot_profile_missing") !== null ||
+    autopilotProfileMissingEvent !== null ||
     (autopilotProfile !== null && `${autopilotProfile.ProfileAvailable}` === "0");
+  // Windows 365 Cloud PCs have no Autopilot profile by design — session flag (covers
+  // historic sessions, sticky-true) OR the event's own isCloudPc marker (newer agents).
+  const profileMissingIsCloudPc =
+    session?.isCloudPc === true || `${autopilotProfileMissingEvent?.isCloudPc}` === "true";
   const aadJoinStatus = getEventData("aad_join_status");
   const imeVersion = getEventData<ImeVersionData>("ime_agent_version");
   const realmJoinInfo = getEventData<RealmJoinInfoData>("realmjoin_detected");
@@ -456,7 +461,22 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
             {/* Autopilot Profile */}
             {autopilotProfile && (
               <DetailSection title="Autopilot Profile">
-                {autopilotProfileMissing && (
+                {autopilotProfileMissing && profileMissingIsCloudPc && (
+                  <div className="my-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-2 text-xs text-blue-800">
+                    <div className="flex items-start gap-1.5">
+                      <svg className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span>
+                        <span className="font-semibold">No Autopilot profile — expected for this Cloud PC.</span>{" "}
+                        Windows 365 Cloud PCs are provisioned by the Windows 365 service and do
+                        not use Autopilot deployment profiles. OOBE ran as a standard Entra ID
+                        join, which is the normal path for Cloud PCs.
+                      </span>
+                    </div>
+                  </div>
+                )}
+                {autopilotProfileMissing && !profileMissingIsCloudPc && (
                   <div className="my-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
                     <div className="flex items-start gap-1.5">
                       <svg className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">

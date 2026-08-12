@@ -277,6 +277,7 @@ export const DEVICE_PROPERTIES_CATALOG = {
     'autopilot_profile_missing.profileAvailable': { type: 'string', description: 'Always "0" — Windows recorded that no Autopilot profile was available during OOBE' },
     'autopilot_profile_missing.zeroTouchTenantDomain': { type: 'string', description: 'CloudAssignedTenantDomain from the cached ZeroTouchConfig (empty when no profile was downloaded)' },
     'autopilot_profile_missing.likelyCauses': { type: 'string', description: 'Comma-separated candidate causes (profile_not_assigned, profile_assignment_not_propagated) — the device itself passed backend device-registration validation, so the gap is the profile assignment, not the registration' },
+    'autopilot_profile_missing.isCloudPc': { type: 'boolean', description: 'true when the device is a Windows 365 Cloud PC — there the missing profile is expected (Cloud PCs are provisioned by the Windows 365 service, not Autopilot) and the event is emitted as Info instead of Warning' },
   },
   hardware_spec: {
     'hardware_spec.cpuName': { type: 'string', description: 'CPU model name (e.g. "Intel Core i7-1265U")' },

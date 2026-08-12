@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-12
+
+* **Update**: `agent/autopilot-ztd-diagnostics.md` — Windows 365 Cloud PC exception documented: on Cloud PCs `ProfileAvailable=0` is expected (provisioned by the Windows 365 service, not Autopilot), so `autopilot_profile_missing` is emitted as Info with a Cloud-PC-specific message and an `isCloudPc` payload marker (`ResolveAutopilotProfileMissingPresentation`); the portal's Autopilot Profile card renders a neutral note instead of the amber warning for Cloud PC sessions (`session.isCloudPc` or the event marker).
+
 ## 2026-08-11 (later)
 
 * **Creation**: Added `backend/session-annotations.md` — session annotations: the new `SessionAnnotations` table (PK=tenantId, RK=`{sessionId}_{lane}`, lanes operator/tenantadmin/globaladmin) storing structured verdicts (`root_cause_confirmed | analysis_wrong | different_problem | inconclusive`) + notes with server-stamped authorship and a fired-rule-id snapshot for join-free rule-quality evaluation. Per-lane write matrix re-gated in-function with own-tenant binding (a GA writes only the platform-internal `globaladmin` lane cross-tenant; tenant callers never see that lane). Surfaces: portal `SessionAnnotationsCard` (session detail, after Analysis), MCP `list_session_annotations` (ga) + `annotate_session` (strictGa, always the GA lane) + `annotations` key in `get_session_summary`. Lifecycle: per-session cascade steps 17–19, offboarding wipe, critical-backup member.

@@ -21,6 +21,14 @@ three of them to turn the `autopilot_profile_missing` warning from a guess into 
 evidence-backed verdict, and the backend rule engine uses the error-code map for
 known-issue enrichment.
 
+Windows 365 Cloud PC exception: on Cloud PCs (`CloudPcDetector.DetectIsCloudPc()`)
+`ProfileAvailable=0` is the expected state — Cloud PCs are provisioned by the Windows 365
+service, not by Autopilot. The event is still emitted with the full evidence payload plus
+an `isCloudPc` marker, but as severity Info with a "this is expected" message instead of
+a Warning (`DeviceInfoCollector.ResolveAutopilotProfileMissingPresentation`). The portal's
+Autopilot Profile card mirrors this: a neutral note for Cloud PC sessions
+(`session.isCloudPc` or the event marker), the amber warning otherwise.
+
 Consumers in this repo:
 
 * `ZtdEvidence.cs` (agent) — one-shot event-log query + `Diagnostics\Autopilot` registry

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo;
+using AutopilotMonitor.Shared.Models;
 using Xunit;
 
 namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry.DeviceInfo;
@@ -108,5 +109,29 @@ public class DeviceInfoCollectorAutopilotProfileMissingTests
     {
         Assert.False(DeviceInfoCollector.TryExtractZeroTouchTenantDomain(null, out var domain));
         Assert.Null(domain);
+    }
+
+    [Fact]
+    public void ResolveAutopilotProfileMissingPresentation_PhysicalDevice_WarnsAboutAssignment()
+    {
+        var (message, severity) = DeviceInfoCollector.ResolveAutopilotProfileMissingPresentation(isCloudPc: false);
+
+        Assert.Equal(EventSeverity.Warning, severity);
+        Assert.Equal(
+            "No Autopilot profile was available during OOBE (ProfileAvailable=0) — most likely no deployment profile was assigned to the device, or the assignment had not finished propagating when OOBE ran. OOBE proceeded as a standard Entra ID join instead of an Autopilot deployment.",
+            message);
+    }
+
+    [Fact]
+    public void ResolveAutopilotProfileMissingPresentation_CloudPc_InformationalAndExpected()
+    {
+        // On a Windows 365 Cloud PC a missing Autopilot profile is the normal state —
+        // the event must not read as an alarm there.
+        var (message, severity) = DeviceInfoCollector.ResolveAutopilotProfileMissingPresentation(isCloudPc: true);
+
+        Assert.Equal(EventSeverity.Info, severity);
+        Assert.Contains("Windows 365 Cloud PC", message);
+        Assert.Contains("expected", message);
+        Assert.DoesNotContain("no deployment profile was assigned", message);
     }
 }

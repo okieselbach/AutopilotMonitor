@@ -305,10 +305,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                 // (see docs/agent/autopilot-ztd-diagnostics.md for the evidence model).
                 if (IsAutopilotProfileMissing(data))
                 {
+                    // On Windows 365 Cloud PCs a missing profile is the expected state — Cloud PCs
+                    // are provisioned by the Windows 365 service, not by Autopilot — so the event
+                    // is demoted to Info there instead of raising a misleading warning.
+                    var isCloudPc = CloudPcDetector.DetectIsCloudPc();
+
                     var missingData = new Dictionary<string, object>
                     {
                         { "profileAvailable", "0" },
-                        { "likelyCauses", "profile_not_assigned,profile_assignment_not_propagated" }
+                        { "likelyCauses", "profile_not_assigned,profile_assignment_not_propagated" },
+                        { "isCloudPc", isCloudPc }
                     };
                     if (TryExtractZeroTouchTenantDomain(data, out var ztdTenantDomain))
                     {
@@ -347,12 +353,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                     missingData["ztdEndpointLatencyMs"] = probe.LatencyMs;
                     missingData["ztdEndpointDetail"] = probe.Detail;
 
+                    var presentation = ResolveAutopilotProfileMissingPresentation(isCloudPc);
                     EmitDeviceInfoEvent(Constants.EventTypes.AutopilotProfileMissing,
-                        "No Autopilot profile was available during OOBE (ProfileAvailable=0) — most likely no deployment profile was assigned to the device, or the assignment had not finished propagating when OOBE ran. OOBE proceeded as a standard Entra ID join instead of an Autopilot deployment.",
+                        presentation.Message,
                         missingData,
-                        EventSeverity.Warning);
+                        presentation.Severity);
 
-                    _logger.Warning($"EnrollmentTracker: no Autopilot profile available during OOBE (ProfileAvailable=0) — ztdVerdict={missingData["ztdVerdict"]}, endpointReachable={probe.Reachable}");
+                    var logLine = $"EnrollmentTracker: no Autopilot profile available during OOBE (ProfileAvailable=0) — isCloudPc={isCloudPc}, ztdVerdict={missingData["ztdVerdict"]}, endpointReachable={probe.Reachable}";
+                    if (isCloudPc)
+                        _logger.Info(logLine);
+                    else
+                        _logger.Warning(logLine);
                 }
 
                 // Emit dedicated enrollment_type_detected event for easy filtering. Routed through
@@ -394,6 +405,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
             return data != null
                 && data.TryGetValue("ProfileAvailable", out var profileAvailable)
                 && profileAvailable?.ToString() == "0";
+        }
+
+        /// <summary>
+        /// Message and severity for the autopilot_profile_missing event. On Windows 365
+        /// Cloud PCs the missing profile is expected (Cloud PCs are provisioned by the
+        /// Windows 365 service, not by Autopilot), so the event is informational there;
+        /// on physical devices it stays a warning about a missing profile ASSIGNMENT.
+        /// </summary>
+        internal static (string Message, EventSeverity Severity) ResolveAutopilotProfileMissingPresentation(bool isCloudPc)
+        {
+            if (isCloudPc)
+            {
+                return (
+                    "No Autopilot profile was available during OOBE (ProfileAvailable=0). This device is a Windows 365 Cloud PC — Cloud PCs are provisioned by the Windows 365 service and do not use Autopilot deployment profiles, so this is expected. OOBE ran as a standard Entra ID join, which is the normal path for Cloud PCs.",
+                    EventSeverity.Info);
+            }
+
+            return (
+                "No Autopilot profile was available during OOBE (ProfileAvailable=0) — most likely no deployment profile was assigned to the device, or the assignment had not finished propagating when OOBE ran. OOBE proceeded as a standard Entra ID join instead of an Autopilot deployment.",
+                EventSeverity.Warning);
         }
 
         /// <summary>
