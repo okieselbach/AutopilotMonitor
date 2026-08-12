@@ -215,7 +215,7 @@ function ScriptCardView({ card, showScriptOutput, latestBootstrapVersion, displa
     <div className={`rounded-lg ${containerClass}`}>
       <button
         onClick={() => setPhasesOpen(!phasesOpen)}
-        className="flex flex-wrap items-center justify-between gap-y-1 w-full text-left p-3 hover:bg-black/[.02]"
+        className="flex flex-wrap items-center justify-between gap-y-1 w-full text-left p-3 hover:bg-black/[.02] dark:hover:bg-white/[.03]"
         aria-expanded={phasesOpen}
       >
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
@@ -256,7 +256,7 @@ function ScriptCardView({ card, showScriptOutput, latestBootstrapVersion, displa
 
       {phasesOpen && (
         // Nested phase rows. Slightly inset so the parent → child relationship is visual.
-        <div className="border-t border-black/5 px-3 py-2 space-y-2">
+        <div className="border-t border-black/5 dark:border-white/10 px-3 py-2 space-y-2">
           {card.phases.map((phase) => (
             <ScriptItemRow
               key={scriptItemKey(phase)}
@@ -326,7 +326,7 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
   // already-coloured parent card so they use a lighter, neutral inner background to
   // avoid the noisy double-tinting effect.
   const containerClass = nested
-    ? "bg-white/60 border border-black/5"
+    ? "bg-white/60 dark:bg-gray-900/30 border border-black/5 dark:border-white/10"
     : item.state === "Failed"
       ? "bg-red-50 border border-red-200"
       : item.state === "Running"
