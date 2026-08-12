@@ -57,6 +57,14 @@ export const VERDICT_DESCRIPTIONS: Record<AnnotationVerdict, string> = {
   inconclusive: "The investigation ended without a clear answer",
 };
 
+/** Shared verdict pill styling (session card + annotations overview page). */
+export const VERDICT_PILL_CLASSES: Record<string, string> = {
+  root_cause_confirmed: "bg-green-100 text-green-800",
+  analysis_wrong: "bg-red-100 text-red-800",
+  different_problem: "bg-amber-100 text-amber-800",
+  inconclusive: "bg-slate-100 text-slate-600",
+};
+
 export const LANE_LABELS: Record<AnnotationLane, string> = {
   operator: "Operator",
   tenantadmin: "Tenant Admin",

@@ -236,8 +236,10 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "sessions/{sessionId}/analysis", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         // Member tier: annotation reads are safe for every tenant member because the handler
         // filters the platform-internal globaladmin lane for callers without global scope
-        // (GetSessionAnnotationsFunction.FilterLanesForCaller).
+        // (GetSessionAnnotationsFunction.FilterLanesForCaller; the tenant list excludes the
+        // lane server-side in the OData query).
         new("GET",    "sessions/{sessionId}/annotations", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
+        new("GET",    "session-annotations",              EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         new("GET",    "sessions/{sessionId}/vulnerability-report", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         new("GET",    "sessions/{sessionId}/time-attribution", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         new("GET",    "metrics/app",               EndpointPolicy.MemberRead),

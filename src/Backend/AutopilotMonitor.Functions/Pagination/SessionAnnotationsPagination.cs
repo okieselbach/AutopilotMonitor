@@ -108,9 +108,12 @@ namespace AutopilotMonitor.Functions.Pagination
             return ContinuationToken.Encode(rawAzureToken, callerTenantId, fp);
         }
 
-        public static string BuildNextLink(Parsed parsed, string wireContinuation)
+        public const string GlobalBasePath = "/api/global/session-annotations";
+        public const string TenantBasePath = "/api/session-annotations";
+
+        public static string BuildNextLink(Parsed parsed, string wireContinuation, string basePath = GlobalBasePath)
         {
-            var sb = new StringBuilder("/api/global/session-annotations");
+            var sb = new StringBuilder(basePath);
             sb.Append("?pageSize=").Append(parsed.PageSize.ToString(CultureInfo.InvariantCulture));
             sb.Append("&continuation=").Append(Uri.EscapeDataString(wireContinuation));
             AppendIfSet(sb, "tenantId", parsed.FilterTenantId);

@@ -141,4 +141,25 @@ public class TableSessionAnnotationRepositoryTests
 
         Assert.Equal("PartitionKey eq 'ten''ant'", filter);
     }
+
+    [Fact]
+    public void BuildQueryFilter_excludes_globaladmin_lane_for_tenant_scope()
+    {
+        var filter = TableSessionAnnotationRepository.BuildQueryFilter(
+            TenantId, null, null, null, null, excludeGlobalAdminLane: true);
+
+        Assert.Equal($"PartitionKey eq '{TenantId}' and Lane ne 'globaladmin'", filter);
+    }
+
+    [Fact]
+    public void BuildQueryFilter_explicit_globaladmin_lane_with_exclusion_contradicts_to_empty()
+    {
+        // A tenant caller explicitly asking for lane=globaladmin gets a self-contradicting
+        // filter (eq + ne on the same value) — structurally an empty result, never a leak.
+        var filter = TableSessionAnnotationRepository.BuildQueryFilter(
+            TenantId, AnnotationLanes.GlobalAdmin, null, null, null, excludeGlobalAdminLane: true);
+
+        Assert.Contains("Lane eq 'globaladmin'", filter);
+        Assert.Contains("Lane ne 'globaladmin'", filter);
+    }
 }

@@ -126,9 +126,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             DateTime? dateFrom,
             DateTime? dateTo,
             int pageSize,
-            string? continuation)
+            string? continuation,
+            bool excludeGlobalAdminLane = false)
         {
-            var filter = BuildQueryFilter(tenantId, lane, verdict, dateFrom, dateTo);
+            var filter = BuildQueryFilter(tenantId, lane, verdict, dateFrom, dateTo, excludeGlobalAdminLane);
             var items = new List<SessionAnnotation>();
             var token = continuation;
 
@@ -165,7 +166,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         internal static string BuildRowKey(string sessionId, string lane) => $"{sessionId}_{lane}";
 
         internal static string? BuildQueryFilter(
-            string? tenantId, string? lane, string? verdict, DateTime? dateFrom, DateTime? dateTo)
+            string? tenantId, string? lane, string? verdict, DateTime? dateFrom, DateTime? dateTo,
+            bool excludeGlobalAdminLane = false)
         {
             var sb = new StringBuilder();
             void Append(string clause)
@@ -176,6 +178,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
             if (!string.IsNullOrEmpty(tenantId)) Append($"PartitionKey eq '{Escape(tenantId!)}'");
             if (!string.IsNullOrEmpty(lane)) Append($"Lane eq '{Escape(lane!)}'");
+            // Server-side, so hidden rows never consume page budget; combined with an explicit
+            // lane=globaladmin filter this contradicts to an empty result — fail-safe by shape.
+            if (excludeGlobalAdminLane) Append($"Lane ne '{AnnotationLanes.GlobalAdmin}'");
             if (!string.IsNullOrEmpty(verdict)) Append($"Verdict eq '{Escape(verdict!)}'");
             if (dateFrom.HasValue) Append($"UpdatedAtUtc ge datetime'{dateFrom.Value.ToUniversalTime():yyyy-MM-ddTHH:mm:ssZ}'");
             if (dateTo.HasValue) Append($"UpdatedAtUtc lt datetime'{dateTo.Value.ToUniversalTime():yyyy-MM-ddTHH:mm:ssZ}'");

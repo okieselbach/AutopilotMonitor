@@ -7,6 +7,7 @@ import {
   SparklesIcon,
   FolderIcon,
   WrenchScrewdriverIcon,
+  PencilSquareIcon,
 } from "./sidebarIcons";
 import type { Route } from "next";
 import { route } from "./routes";
@@ -160,6 +161,7 @@ export const NAV_GROUPS: NavGroup[] = [
     visibility: "adminOrOperator",
     items: [
       { id: "progress", label: "Progress Portal", href: "/progress", icon: <MonitorIcon /> },
+      { id: "annotations", label: "Annotations", href: "/annotations", icon: <PencilSquareIcon /> },
       { id: "geographic-performance", label: "Geographic Perf.", href: "/geographic-performance", icon: <GlobeAltIcon /> },
       { id: "fleet-health", label: "Fleet Health", href: "/fleet-health", icon: <ChartBarIcon /> },
       { id: "sla", label: "SLA Compliance", href: "/sla", icon: <ShieldCheckIcon /> },

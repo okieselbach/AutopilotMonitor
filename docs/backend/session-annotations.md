@@ -78,7 +78,16 @@ in the tenant-visible audit log — same convention as GA session-report submiss
 * **Portal**: `SessionAnnotationsCard` on the session detail page (`#section-annotations`, after
   Analysis; registered in BOTH the section div and the `sessionSections` sidebar registry). The
   card mirrors the matrix via the pure module `sessionAnnotationLogic.ts` (vitest-pinned) and
-  uses the explicit-Save pattern; the backend re-gates every save.
+  uses the explicit-Save pattern; the backend re-gates every save. Collapsed by default with a
+  count + verdict-pill summary header.
+* **Portal overview page** `/annotations` (Monitoring sidebar group — deliberately NO new
+  "Insights" group; Fleet Health & co. are insights too and a second analytics group would
+  dilute both): tenant-scoped list backed by `GET session-annotations`
+  (`ListTenantSessionAnnotationsFunction`, MemberRead + QueryParam). The tenant is always the
+  middleware-validated `TargetTenantId`, and for callers without global scope the repository
+  adds a server-side `Lane ne 'globaladmin'` OData clause — hidden rows never consume page
+  budget, and an explicit lane=globaladmin filter self-contradicts to an empty page. Rows
+  deep-link to `sessions?id=…#section-annotations`.
 * **MCP read**: `get_session_summary` carries an `annotations` key (4th parallel leg, fail-soft
   null); `list_session_annotations` (`ga`-gated) is the evaluation stream with `tenantId / lane /
   verdict / ruleId / dateFrom / dateTo` filters and nextLink pagination. The `ruleId` filter is

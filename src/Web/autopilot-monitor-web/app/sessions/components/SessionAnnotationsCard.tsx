@@ -12,6 +12,7 @@ import {
   LANE_LABELS,
   VERDICT_DESCRIPTIONS,
   VERDICT_LABELS,
+  VERDICT_PILL_CLASSES,
   visibleLanes,
   validateNote,
   type AnnotationLane,
@@ -32,13 +33,6 @@ interface AnnotationsResponse {
   success: boolean;
   annotations?: SessionAnnotationDto[] | null;
 }
-
-const VERDICT_PILL: Record<string, string> = {
-  root_cause_confirmed: "bg-green-100 text-green-800",
-  analysis_wrong: "bg-red-100 text-red-800",
-  different_problem: "bg-amber-100 text-amber-800",
-  inconclusive: "bg-slate-100 text-slate-600",
-};
 
 interface LaneEditState {
   verdict: string | null;
@@ -181,7 +175,7 @@ export default function SessionAnnotationsCard({
                   return verdict != null ? (
                     <span
                       key={lane}
-                      className={`px-2 py-0.5 rounded-full font-medium ${VERDICT_PILL[verdict] ?? "bg-gray-100 text-gray-600"}`}
+                      className={`px-2 py-0.5 rounded-full font-medium ${VERDICT_PILL_CLASSES[verdict] ?? "bg-gray-100 text-gray-600"}`}
                       title={LANE_LABELS[lane]}
                     >
                       {VERDICT_LABELS[verdict as AnnotationVerdict] ?? verdict}
@@ -221,7 +215,7 @@ export default function SessionAnnotationsCard({
                 {annotation?.verdict != null && !writable && (
                   <span
                     title={VERDICT_DESCRIPTIONS[annotation.verdict as AnnotationVerdict]}
-                    className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${VERDICT_PILL[annotation.verdict] ?? "bg-gray-100 text-gray-600"}`}
+                    className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${VERDICT_PILL_CLASSES[annotation.verdict] ?? "bg-gray-100 text-gray-600"}`}
                   >
                     {VERDICT_LABELS[annotation.verdict as AnnotationVerdict] ?? annotation.verdict}
                   </span>
@@ -251,7 +245,7 @@ export default function SessionAnnotationsCard({
                           }
                           className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
                             selected
-                              ? `${VERDICT_PILL[verdict]} border-transparent ring-1 ring-inset ring-gray-300`
+                              ? `${VERDICT_PILL_CLASSES[verdict]} border-transparent ring-1 ring-inset ring-gray-300`
                               : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
                           }`}
                         >

@@ -34,6 +34,11 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// (bounded round-trips) — a filtered-out row never consumes page budget.
         /// </summary>
         /// <returns>The page items plus the raw Azure continuation token for the next page (null when done).</returns>
+        /// <param name="excludeGlobalAdminLane">
+        /// True for callers without global scope: adds a server-side <c>Lane ne 'globaladmin'</c>
+        /// clause so the platform-internal lane never consumes page budget (and an explicit
+        /// <paramref name="lane"/>=globaladmin filter simply yields an empty page).
+        /// </param>
         Task<(List<SessionAnnotation> Items, string? NextRawToken)> QueryPageAsync(
             string? tenantId,
             string? lane,
@@ -42,6 +47,7 @@ namespace AutopilotMonitor.Shared.DataAccess
             DateTime? dateFrom,
             DateTime? dateTo,
             int pageSize,
-            string? continuation);
+            string? continuation,
+            bool excludeGlobalAdminLane = false);
     }
 }

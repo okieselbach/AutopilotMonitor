@@ -377,6 +377,26 @@ export const api = {
       `${API_BASE_URL}/api/bootstrap/sessions/${code}${qs({ tenantId })}`,
   },
 
+  // ── Annotations (tenant-scoped overview list) ─────────────────────────────
+  annotations: {
+    // GET — the tenant's annotation rows, newest-first per partition order; the
+    // backend excludes the platform-internal globaladmin lane for tenant callers.
+    list: (opts?: {
+      tenantId?: string;
+      lane?: string;
+      verdict?: string;
+      pageSize?: number;
+      continuation?: string;
+    }) =>
+      `${API_BASE_URL}/api/session-annotations${qs({
+        tenantId: opts?.tenantId,
+        lane: opts?.lane,
+        verdict: opts?.verdict,
+        pageSize: opts?.pageSize?.toString(),
+        continuation: opts?.continuation,
+      })}`,
+  },
+
   // ── Reports ───────────────────────────────────────────────────────────────
   reports: {
     list: (opts?: { tenantId?: string; pageSize?: number; continuation?: string }) =>
