@@ -55,10 +55,11 @@ export default function AnnotationsPage() {
 
   const lanes = visibleLanes(user);
 
+  // Callers must set loading=true / loadError=null before invoking (the initial
+  // state covers the mount fetch) — no synchronous setState here, this runs
+  // inside the effect below.
   const fetchPage = useCallback(
     async (url: string, append: boolean) => {
-      setLoading(true);
-      setLoadError(null);
       try {
         const res = await authenticatedFetch(url, getAccessToken);
         if (res.status === 404) {
@@ -83,13 +84,18 @@ export default function AnnotationsPage() {
   );
 
   useEffect(() => {
-    fetchPage(
-      api.annotations.list({
-        verdict: verdictFilter || undefined,
-        lane: laneFilter || undefined,
-      }),
-      false
-    );
+    // Inner async wrapper: set-state-in-effect flags a direct call to a
+    // state-setting callback even when every setState sits behind an await.
+    const loadFirstPage = async () => {
+      await fetchPage(
+        api.annotations.list({
+          verdict: verdictFilter || undefined,
+          lane: laneFilter || undefined,
+        }),
+        false
+      );
+    };
+    void loadFirstPage();
   }, [fetchPage, verdictFilter, laneFilter]);
 
   return (
@@ -109,7 +115,11 @@ export default function AnnotationsPage() {
             <div className="flex flex-wrap items-center gap-3 mb-4">
               <select
                 value={verdictFilter}
-                onChange={(e) => setVerdictFilter(e.target.value)}
+                onChange={(e) => {
+                  setVerdictFilter(e.target.value);
+                  setLoading(true);
+                  setLoadError(null);
+                }}
                 className="border border-gray-300 rounded-md px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500"
                 aria-label="Filter by verdict"
               >
@@ -120,7 +130,11 @@ export default function AnnotationsPage() {
               </select>
               <select
                 value={laneFilter}
-                onChange={(e) => setLaneFilter(e.target.value)}
+                onChange={(e) => {
+                  setLaneFilter(e.target.value);
+                  setLoading(true);
+                  setLoadError(null);
+                }}
                 className="border border-gray-300 rounded-md px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500"
                 aria-label="Filter by role"
               >
@@ -198,7 +212,11 @@ export default function AnnotationsPage() {
               {loading && <span className="text-sm text-gray-400">Loading…</span>}
               {!loading && nextLink && (
                 <button
-                  onClick={() => fetchPage(`${API_BASE_URL}${nextLink}`, true)}
+                  onClick={() => {
+                    setLoading(true);
+                    setLoadError(null);
+                    fetchPage(`${API_BASE_URL}${nextLink}`, true);
+                  }}
                   className="px-4 py-1.5 text-sm font-medium bg-white border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
                 >
                   Load more
