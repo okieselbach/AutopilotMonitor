@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 const tips = [
   "Auto-set the device timezone under Settings \u2192 Agent Settings.",
@@ -19,12 +19,21 @@ const tips = [
   "Spotted a session with the wrong status? Use Report Session to flag it to the team.",
 ];
 
-export default function TipOfTheDay() {
-  const [tip, setTip] = useState("");
+// One random tip per mount, read via useSyncExternalStore: the server snapshot is ""
+// (renders nothing, matching the prerendered HTML — Math.random() at build time would
+// freeze one tip and mismatch on hydration); the client re-render then shows the pick.
+let chosenTip: string | null = null;
+const subscribeNever = () => () => {};
+const getTipSnapshot = () => {
+  if (chosenTip === null) chosenTip = tips[Math.floor(Math.random() * tips.length)];
+  return chosenTip;
+};
 
-  useEffect(() => {
-    setTip(tips[Math.floor(Math.random() * tips.length)]);
-  }, []);
+export default function TipOfTheDay() {
+  const tip = useSyncExternalStore(subscribeNever, getTipSnapshot, () => "");
+
+  // Re-roll on the next mount so each dashboard visit gets a fresh tip.
+  useEffect(() => () => { chosenTip = null; }, []);
 
   if (!tip) return null;
 

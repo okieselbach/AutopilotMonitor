@@ -21,3 +21,5 @@ export type {
   UseNotificationMessagesOptions,
   UseNotificationMessagesReturn,
 } from "./useNotificationMessages";
+
+export { useMediaQuery } from "./useMediaQuery";

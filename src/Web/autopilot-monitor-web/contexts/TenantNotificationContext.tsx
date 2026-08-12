@@ -26,6 +26,9 @@ interface TenantNotificationContextType {
 
 const TenantNotificationContext = createContext<TenantNotificationContextType | undefined>(undefined);
 
+// Stable identity for the rights-masked empty list.
+const EMPTY_TENANT_NOTIFICATIONS: TenantNotification[] = [];
+
 export function TenantNotificationProvider({ children }: { children: React.ReactNode }) {
   const { user, getAccessToken } = useAuth();
   const { connection, isConnected, joinGroup, leaveGroup } = useSignalR();
@@ -62,14 +65,16 @@ export function TenantNotificationProvider({ children }: { children: React.React
   }, [canFetchNotifications, getAccessToken]);
 
   // Initial state hydration. Runs once on mount and again after every SignalR reconnect to
-  // recover any deltas that were emitted while the SignalR connection was down.
+  // recover any deltas that were emitted while the SignalR connection was down. Without
+  // fetch rights nothing is fetched — the provider value below masks the list to empty
+  // instead of clearing state here.
   useEffect(() => {
-    if (!canFetchNotifications) {
-      setTenantNotifications([]);
-      return;
-    }
-    setIsLoading(true);
-    fetchNotifications().finally(() => setIsLoading(false));
+    if (!canFetchNotifications) return;
+    const run = async () => {
+      setIsLoading(true);
+      await fetchNotifications().finally(() => setIsLoading(false));
+    };
+    void run();
   }, [canFetchNotifications, fetchNotifications]);
 
   // Re-fetch on SignalR reconnect — covers the deltas pushed during the disconnect window.
@@ -156,11 +161,16 @@ export function TenantNotificationProvider({ children }: { children: React.React
     }
   }, [getAccessToken]);
 
-  const tenantUnreadCount = tenantNotifications.length;
+  // Without fetch rights consumers see an empty list — derived here rather than
+  // clearing state, so a rights re-grant simply re-exposes the refetched data.
+  const visibleTenantNotifications = canFetchNotifications
+    ? tenantNotifications
+    : EMPTY_TENANT_NOTIFICATIONS;
+  const tenantUnreadCount = visibleTenantNotifications.length;
 
   return (
     <TenantNotificationContext.Provider value={{
-      tenantNotifications,
+      tenantNotifications: visibleTenantNotifications,
       tenantUnreadCount,
       dismissTenantNotification,
       dismissAllTenant,

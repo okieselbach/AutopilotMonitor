@@ -25,6 +25,9 @@ interface GlobalNotificationContextType {
 
 const GlobalNotificationContext = createContext<GlobalNotificationContextType | undefined>(undefined);
 
+// Stable identity for the scope-masked empty list.
+const EMPTY_NOTIFICATIONS: GlobalNotification[] = [];
+
 export function GlobalNotificationProvider({ children }: { children: React.ReactNode }) {
   const { user, hasGlobalScope, getAccessToken } = useAuth();
   const { connection, isConnected, joinGroup, leaveGroup } = useSignalR();
@@ -59,14 +62,15 @@ export function GlobalNotificationProvider({ children }: { children: React.React
   }, [hasGlobalScope, getAccessToken]);
 
   // Initial state hydration. Re-fetched on SignalR reconnect to recover any deltas
-  // pushed during the disconnect window.
+  // pushed during the disconnect window. Without scope nothing is fetched — the
+  // provider value below masks the list to empty instead of clearing state here.
   useEffect(() => {
-    if (!hasGlobalScope) {
-      setNotifications([]);
-      return;
-    }
-    setIsLoading(true);
-    fetchNotifications().finally(() => setIsLoading(false));
+    if (!hasGlobalScope) return;
+    const run = async () => {
+      setIsLoading(true);
+      await fetchNotifications().finally(() => setIsLoading(false));
+    };
+    void run();
   }, [hasGlobalScope, fetchNotifications]);
 
   useEffect(() => {
@@ -155,10 +159,15 @@ export function GlobalNotificationProvider({ children }: { children: React.React
     }
   }, [canManageGlobal, getAccessToken]);
 
-  const unreadCount = notifications.length;
+  // Without platform scope consumers see an empty list — derived here rather than
+  // clearing state, so a scope re-grant simply re-exposes the refetched data.
+  const visibleNotifications = hasGlobalScope ? notifications : EMPTY_NOTIFICATIONS;
+  const unreadCount = visibleNotifications.length;
 
   return (
-    <GlobalNotificationContext.Provider value={{ notifications, unreadCount, dismissNotification, dismissAll, isLoading }}>
+    <GlobalNotificationContext.Provider
+      value={{ notifications: visibleNotifications, unreadCount, dismissNotification, dismissAll, isLoading }}
+    >
       {children}
     </GlobalNotificationContext.Provider>
   );

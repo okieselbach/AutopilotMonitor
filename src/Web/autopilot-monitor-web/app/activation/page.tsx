@@ -2,10 +2,13 @@
 
 import { useAuth } from "../../contexts/AuthContext";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { api } from "@/lib/api";
 import { DOCS_URL } from "@/utils/config";
 import { BrandMark } from "../../components/BrandMark";
+
+// The URL query string is fixed for the lifetime of a page load — nothing to subscribe to.
+const subscribeNever = () => () => {};
 
 export default function ActivationPage() {
   const { isAuthenticated, isLoading, user, isActivationPending, activationMessage, logout, getAccessToken, refreshUserInfo } = useAuth();
@@ -17,14 +20,17 @@ export default function ActivationPage() {
 
   // ?demo=1 renders the page without auth/redirects (placeholder data) so
   // the design can be reviewed locally and on SWA preview environments.
-  const [demo, setDemo] = useState<boolean | null>(null);
-  useEffect(() => {
-    setDemo(new URLSearchParams(window.location.search).has("demo"));
-  }, []);
+  // The prerendered HTML uses the server snapshot (false); the client re-renders
+  // with the real query flag — no hydration mismatch, no effect-phase setState.
+  const demo = useSyncExternalStore(
+    subscribeNever,
+    () => new URLSearchParams(window.location.search).has("demo"),
+    () => false,
+  );
 
   // If the tenant is activated (e.g. activated tenant navigates here), redirect away
   useEffect(() => {
-    if (demo === null || demo) return;
+    if (demo) return;
     if (!isLoading && isAuthenticated && user && !isActivationPending) {
       if (user.isTenantAdmin || user.isGlobalAdmin) {
         router.push("/dashboard");
@@ -41,7 +47,7 @@ export default function ActivationPage() {
   // ~1 minute after signup. refreshUserInfo clears isActivationPending on a successful
   // auth/me, which triggers the redirect effect above — no manual reload needed.
   useEffect(() => {
-    if (demo === null || demo) return;
+    if (demo) return;
     if (isLoading || !isAuthenticated || !isActivationPending) return;
     const id = setInterval(() => {
       refreshUserInfo().catch(() => { /* transient — next tick retries */ });

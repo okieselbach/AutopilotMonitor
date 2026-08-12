@@ -39,23 +39,19 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Update tenant ID from authenticated user
-  useEffect(() => {
-    if (!isLoading && isAuthenticated && user) {
-      // Use tenant ID from authenticated user's token
-      // This is the APPLICATION tenant ID, not the Azure AD tenant ID
-      if (user.tenantId && user.tenantId !== tenantId) {
-        console.log(`[TenantContext] Setting application tenant ID from auth: ${user.tenantId}`);
-        setTenantId(user.tenantId);
-      }
-    } else if (!isLoading && !isAuthenticated) {
-      // Not authenticated - clear tenant ID
-      if (tenantId !== '') {
-        console.log(`[TenantContext] User not authenticated, clearing tenant ID`);
-        setTenantId('');
-      }
-    }
-  }, [user, isAuthenticated, isLoading, tenantId]);
+  // Mirror the tenant ID from the authenticated user — adjust-during-render instead of
+  // an effect. This is the APPLICATION tenant ID, not the Azure AD tenant ID. While auth
+  // is still loading the previous value is deliberately RETAINED (no flicker to '' during
+  // token refresh); it only clears on a settled signed-out state.
+  const authTenantId =
+    !isLoading && isAuthenticated && user?.tenantId
+      ? user.tenantId
+      : !isLoading && !isAuthenticated
+        ? ''
+        : null; // null = auth still resolving, keep the current value
+  if (authTenantId !== null && authTenantId !== tenantId) {
+    setTenantId(authTenantId);
+  }
 
   return (
     <TenantContext.Provider value={{ tenantId, setTenantId }}>

@@ -241,14 +241,6 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
   const [isActivationPending, setActivationPending] = useState(false);
   const [activationMessage, setActivationMessage] = useState('');
 
-  // Handle SSR - if we're on the server, MSAL won't initialize
-  // Set loading to false immediately on mount in browser
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      setIsLoading(false);
-    }
-  }, []);
-
   /**
    * Fetches user info from backend API
    */

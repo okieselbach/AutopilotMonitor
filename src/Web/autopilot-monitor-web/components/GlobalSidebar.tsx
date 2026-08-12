@@ -9,6 +9,7 @@ import { CollapseState } from "../hooks/useSidebarState";
 import { DefaultSectionIcon, BookOpenIcon, InformationCircleIcon, DocumentTextIcon, ShieldCheckIcon } from "../lib/sidebarIcons";
 import { DASHBOARD_ITEM, NAV_GROUPS, EXPANDABLE_NAV_GROUPS, REGULAR_USER_ITEMS, NavItem, NavGroup, ExpandableNavGroup } from "../lib/globalNavConfig";
 import { useAdminMode } from "../hooks/useAdminMode";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 import { DOCS_URL } from "@/utils/config";
 
 // Sidebar pixel widths
@@ -40,14 +41,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
   const pathname = rawPathname.length > 1 ? rawPathname.replace(/\/+$/, "") : rawPathname;
 
   // Track desktop breakpoint
-  const [isDesktop, setIsDesktop] = useState(false);
-  useEffect(() => {
-    const mql = window.matchMedia("(min-width: 768px)");
-    setIsDesktop(mql.matches);
-    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
-    mql.addEventListener("change", handler);
-    return () => mql.removeEventListener("change", handler);
-  }, []);
+  const isDesktop = useMediaQuery("(min-width: 768px)");
 
   // Global admin mode toggle — gates the (purple) Global Admin section, identical to a real GA.
   const { globalAdminMode } = useAdminMode();
@@ -92,19 +86,18 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
     return () => observer.disconnect();
   }, [pageSections, pageSectionsMode]);
 
-  // Route mode for page sections
-  useEffect(() => {
-    if (pageSectionsMode !== "route" || pageSections.length === 0) return;
+  // Route mode: the active section is a pure function of the pathname — derived at
+  // render instead of synced into state. Scroll-spy and manual scrollTo keep using the
+  // state; the route match wins whenever it resolves.
+  const routeActiveSectionId = useMemo(() => {
+    if (pageSectionsMode !== "route" || pageSections.length === 0) return null;
     // Match by href first (more precise), fall back to last segment matching id
     const hrefMatch = pageSections.find((item) => item.href && pathname === item.href);
-    if (hrefMatch) {
-      setActiveSectionId(hrefMatch.id);
-    } else {
-      const segment = pathname.split("/").pop() ?? "";
-      const match = pageSections.find((item) => item.id === segment);
-      if (match) setActiveSectionId(match.id);
-    }
+    if (hrefMatch) return hrefMatch.id;
+    const segment = pathname.split("/").pop() ?? "";
+    return pageSections.find((item) => item.id === segment)?.id ?? null;
   }, [pathname, pageSections, pageSectionsMode]);
+  const effectiveActiveSectionId = routeActiveSectionId ?? activeSectionId;
 
   const scrollTo = useCallback((id: string) => {
     const el = document.getElementById(id);
@@ -138,21 +131,20 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
   // Track which groups are expanded — default: group containing active item
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
-  // Auto-expand the group of the active section
-  useEffect(() => {
-    if (!groupedSections || !activeSectionId) return;
-    for (const group of groupedSections) {
-      if (group.items.some((item) => item.id === activeSectionId)) {
-        setExpandedGroups((prev) => {
-          if (prev.has(group.name)) return prev;
-          const next = new Set(prev);
-          next.add(group.name);
-          return next;
-        });
-        break;
+  // Auto-expand the group of the active section — adjust-during-render (react.dev
+  // "storing information from previous renders"): expands once when the active section
+  // changes, while still letting the user collapse that group afterwards.
+  const [prevActiveForGroups, setPrevActiveForGroups] = useState("");
+  if (prevActiveForGroups !== effectiveActiveSectionId) {
+    setPrevActiveForGroups(effectiveActiveSectionId);
+    if (groupedSections && effectiveActiveSectionId) {
+      const activeGroup = groupedSections.find((group) =>
+        group.items.some((item) => item.id === effectiveActiveSectionId));
+      if (activeGroup && !expandedGroups.has(activeGroup.name)) {
+        setExpandedGroups(new Set(expandedGroups).add(activeGroup.name));
       }
     }
-  }, [activeSectionId, groupedSections]);
+  }
 
   const toggleGroup = useCallback((groupName: string) => {
     setExpandedGroups((prev) => {
@@ -246,33 +238,34 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdminOrOperator, hasGlobalScope, isGlobalAdmin, globalAdminMode, hasMcpAccess, isAdminLike, canManageBootstrapTokens, bootstrapTokenEnabled, unrestrictedModeEnabled]);
 
-  // Auto-expand the group containing the current pathname. Depends on
-  // visibleExpandableGroups too: on a hard load (deep link, F5, post-deploy
-  // chunk-recovery reload) this effect first runs while MSAL is still
-  // resolving and the groups array is empty — without the dep it would never
-  // re-run once auth lands, leaving the active group collapsed.
-  useEffect(() => {
-    for (const group of visibleExpandableGroups) {
+  // Auto-expand the group containing the current pathname — adjust-during-render on
+  // (pathname, visibleExpandableGroups). The groups identity matters too: on a hard
+  // load (deep link, F5, post-deploy chunk-recovery reload) the first renders happen
+  // while MSAL is still resolving and the groups array is empty — without re-running
+  // once auth lands, the active group would stay collapsed.
+  const [prevAutoExpand, setPrevAutoExpand] = useState<{
+    path: string;
+    groups: typeof visibleExpandableGroups;
+  } | null>(null);
+  if (prevAutoExpand?.path !== pathname || prevAutoExpand?.groups !== visibleExpandableGroups) {
+    setPrevAutoExpand({ path: pathname, groups: visibleExpandableGroups });
+    outer: for (const group of visibleExpandableGroups) {
       for (const item of group.items) {
         if (item.items.some((sub) => pathname === sub.href || pathname.startsWith(sub.href + "/"))) {
           // Auto-expand the category if collapsed
-          setCollapsedCategories((prev) => {
-            if (!prev.has(group.id)) return prev;
-            const next = new Set(prev);
+          if (collapsedCategories.has(group.id)) {
+            const next = new Set(collapsedCategories);
             next.delete(group.id);
-            return next;
-          });
-          setExpandedGroups((prev) => {
-            if (prev.has(item.id)) return prev;
-            const next = new Set(prev);
-            next.add(item.id);
-            return next;
-          });
-          return;
+            setCollapsedCategories(next);
+          }
+          if (!expandedGroups.has(item.id)) {
+            setExpandedGroups(new Set(expandedGroups).add(item.id));
+          }
+          break outer;
         }
       }
     }
-  }, [pathname, visibleExpandableGroups]);
+  }
 
   // Landing page: never show sidebar
   if (pathname === "/") {
@@ -359,7 +352,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
 
   // --- Render a page section item ---
   const renderSectionItem = (item: PageSectionItem) => {
-    const active = activeSectionId === item.id;
+    const active = effectiveActiveSectionId === item.id;
     const base = `flex items-center gap-2.5 rounded-md text-sm transition-colors ${itemClass(active)}`;
 
     if (collapseState === "icons") {
@@ -647,7 +640,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
             <ul className="space-y-0.5">
             {groupedSections.map((group) => {
               const isExpanded = expandedGroups.has(group.name);
-              const groupHasActive = group.items.some((item) => item.id === activeSectionId);
+              const groupHasActive = group.items.some((item) => item.id === effectiveActiveSectionId);
               const firstHref = group.items[0]?.href;
 
               if (collapseState === "icons" && !isMobile) {

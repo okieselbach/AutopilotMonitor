@@ -1,8 +1,13 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
-
-type Theme = "light" | "dark";
+import { createContext, useContext, useEffect, useSyncExternalStore } from "react";
+import {
+  Theme,
+  getServerThemeSnapshot,
+  getThemeSnapshot,
+  setStoredTheme,
+  subscribeTheme,
+} from "@/lib/themeStore";
 
 interface ThemeContextType {
   theme: Theme;
@@ -15,48 +20,18 @@ const ThemeContext = createContext<ThemeContextType>({
 });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>("light");
+  // localStorage preference (falling back to the OS preference) read as an external
+  // store: the prerendered HTML hydrates light and re-renders with the real theme,
+  // OS-level changes stream in via the store subscription.
+  const theme = useSyncExternalStore(subscribeTheme, getThemeSnapshot, getServerThemeSnapshot);
 
-  // Initialize from localStorage on mount; fall back to system preference
+  // Apply class to <html>
   useEffect(() => {
-    const stored = localStorage.getItem("theme") as Theme | null;
-    if (stored === "dark" || stored === "light") {
-      setTheme(stored);
-    } else {
-      // No stored preference — use system preference
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      setTheme(prefersDark ? "dark" : "light");
-    }
-  }, []);
-
-  // Listen for OS-level changes, but only when the user hasn't set a manual preference
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    const handleChange = (e: MediaQueryListEvent) => {
-      if (!localStorage.getItem("theme")) {
-        setTheme(e.matches ? "dark" : "light");
-      }
-    };
-    mediaQuery.addEventListener("change", handleChange);
-    return () => mediaQuery.removeEventListener("change", handleChange);
-  }, []);
-
-  // Apply class to <html> and persist manual preference
-  useEffect(() => {
-    const root = document.documentElement;
-    if (theme === "dark") {
-      root.classList.add("dark");
-    } else {
-      root.classList.remove("dark");
-    }
+    document.documentElement.classList.toggle("dark", theme === "dark");
   }, [theme]);
 
   const toggleTheme = () => {
-    setTheme((prev) => {
-      const next = prev === "dark" ? "light" : "dark";
-      localStorage.setItem("theme", next);
-      return next;
-    });
+    setStoredTheme(theme === "dark" ? "light" : "dark");
   };
 
   return (

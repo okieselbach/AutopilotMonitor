@@ -31,49 +31,12 @@ export default function Navbar() {
   const [showOverflow, setShowOverflow] = useState(false);
   const [overflowSubmenu, setOverflowSubmenu] = useState<'help' | 'settings' | null>(null);
   const { adminMode, setAdminMode, globalAdminMode, setGlobalAdminMode } = useAdminMode();
-  const [previewMode, setPreviewMode] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('previewMode') === 'true';
-    }
-    return false;
-  });
 
   const notificationRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
   const helpRef = useRef<HTMLDivElement>(null);
   const overflowRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('previewMode', previewMode.toString());
-      window.dispatchEvent(new Event('localStorageChange'));
-    }
-  }, [previewMode]);
-
-  // Seed preview mode from ?preview=1 URL parameter (one-shot)
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const previewParam = params.get('preview');
-      if (previewParam === '1' || previewParam === 'true') {
-        setPreviewMode(true);
-        // Clean up URL
-        params.delete('preview');
-        const cleanUrl = params.toString()
-          ? `${window.location.pathname}?${params.toString()}`
-          : window.location.pathname;
-        window.history.replaceState({}, '', cleanUrl);
-      } else if (previewParam === '0' || previewParam === 'false') {
-        setPreviewMode(false);
-        params.delete('preview');
-        const cleanUrl = params.toString()
-          ? `${window.location.pathname}?${params.toString()}`
-          : window.location.pathname;
-        window.history.replaceState({}, '', cleanUrl);
-      }
-    }
-  }, []);
 
   // Close dropdowns when clicking outside
   useEffect(() => {

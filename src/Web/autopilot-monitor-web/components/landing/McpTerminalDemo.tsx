@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 
 type Step =
   | { kind: "user"; text: string }
@@ -45,16 +46,14 @@ const RESTART_PAUSE_MS = 7000;
 export function McpTerminalDemo() {
   const ref = useRef<HTMLDivElement>(null);
   const [started, setStarted] = useState(false);
-  const [reduced, setReduced] = useState(false);
+  const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
   const [stepIndex, setStepIndex] = useState(0);
   const [charCount, setCharCount] = useState(0);
+  // Reduced motion shows the finished transcript immediately — derived, not seeded.
+  const effectiveStepIndex = reduced ? SCRIPT.length : stepIndex;
 
   useEffect(() => {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setReduced(true);
-      setStepIndex(SCRIPT.length);
-      return;
-    }
+    if (reduced) return;
     const el = ref.current;
     if (!el) return;
     const observer = new IntersectionObserver(
@@ -68,7 +67,7 @@ export function McpTerminalDemo() {
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [reduced]);
 
   useEffect(() => {
     if (!started || reduced) return;
@@ -92,11 +91,11 @@ export function McpTerminalDemo() {
     return () => window.clearTimeout(timer);
   }, [started, reduced, stepIndex, charCount]);
 
-  const finished = stepIndex >= SCRIPT.length;
+  const finished = effectiveStepIndex >= SCRIPT.length;
 
   const renderStep = (step: Step, index: number) => {
-    if (index > stepIndex) return null;
-    const isCurrent = index === stepIndex;
+    if (index > effectiveStepIndex) return null;
+    const isCurrent = index === effectiveStepIndex;
 
     switch (step.kind) {
       case "user": {
