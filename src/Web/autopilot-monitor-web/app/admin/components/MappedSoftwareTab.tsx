@@ -104,6 +104,14 @@ export function MappedSoftwareTab({
   const getMappedRowKey = (entry: CpeMappingEntry): string =>
     `${entry.source}::${entry.normalizedVendor}::${entry.normalizedProduct}`;
 
+  // Jump back to page 0 when the search changes (adjust-during-render pattern,
+  // see react.dev "storing information from previous renders").
+  const [prevSearchQuery, setPrevSearchQuery] = useState(searchQuery);
+  if (prevSearchQuery !== searchQuery) {
+    setPrevSearchQuery(searchQuery);
+    setMappedPage(0);
+  }
+
   const filteredMappedEntries = mappedEntries.filter((m) => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
@@ -125,11 +133,6 @@ export function MappedSoftwareTab({
     mappedPage * pageSize,
     (mappedPage + 1) * pageSize
   );
-
-  // Reset page when search changes
-  useEffect(() => {
-    setMappedPage(0);
-  }, [searchQuery]);
 
   const getSourceBadge = (source: string) => {
     switch (source) {

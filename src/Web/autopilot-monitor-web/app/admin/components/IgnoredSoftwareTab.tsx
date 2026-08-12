@@ -56,22 +56,13 @@ export function IgnoredSoftwareTab({
     }
   }, [getAccessToken, setError, onCountChanged]);
 
-  // Lazy load on mount
+  // Fetch on mount and refetch when refreshTrigger changes (e.g. unmapped tab ignored an item)
   useEffect(() => {
-    if (!ignoredLoaded) {
-      const run = async () => {
-        await fetchIgnoredSoftware();
-      };
-      void run();
-    }
+    const run = async () => {
+      await fetchIgnoredSoftware();
+    };
+    void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ignoredLoaded]);
-
-  // Reset when refreshTrigger changes (e.g. unmapped tab ignored an item)
-  useEffect(() => {
-    if (refreshTrigger > 0) {
-      setIgnoredLoaded(false);
-    }
   }, [refreshTrigger]);
 
   // --- Handlers ---

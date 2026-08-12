@@ -76,7 +76,9 @@ function SessionDetailContent() {
   const [phaseTimelineExpanded, setPhaseTimelineExpanded] = useState(true);
   const [perfExpanded, setPerfExpanded] = useState(true);
   const [timelineExpanded, setTimelineExpanded] = useState(true);
-  const [expandedPhases, setExpandedPhases] = useState<Set<string>>(new Set());
+  // Inverted expansion model: collapsed phases are stored, expansion is derived. A phase
+  // that newly appears is expanded by default without any effect-driven state sync.
+  const [collapsedPhases, setCollapsedPhases] = useState<Set<string>>(new Set());
 
   const { adminMode, globalAdminMode } = useAdminMode();
 
@@ -133,12 +135,12 @@ function SessionDetailContent() {
   const sessionStatusForAttribution = session?.status;
   useEffect(() => {
     if (!sessionId) return;
-    if (sessionStatusForAttribution !== "Succeeded" && sessionStatusForAttribution !== "Failed") {
-      setTimeBreakdown(null);
-      return;
-    }
     let cancelled = false;
-    (async () => {
+    const run = async () => {
+      if (sessionStatusForAttribution !== "Succeeded" && sessionStatusForAttribution !== "Failed") {
+        setTimeBreakdown(null);
+        return;
+      }
       try {
         const effectiveTenantId = sessionTenantId || tenantIdOverride || undefined;
         const response = await authenticatedFetch(
@@ -149,7 +151,8 @@ function SessionDetailContent() {
       } catch {
         // fail-soft: no lane
       }
-    })();
+    };
+    void run();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, sessionStatusForAttribution, sessionTenantId]);
@@ -199,30 +202,23 @@ function SessionDetailContent() {
     userEnrollGrouped,
   } = derived;
 
-  // Auto-expand new phases as they appear (keeps existing expanded/collapsed state).
-  // For WhiteGlove sessions we use prefixed keys (pre-X, user-X) to avoid collisions.
-  useEffect(() => {
-    setExpandedPhases(prev => {
-      const newExpanded = new Set(prev);
-      let hasChanges = false;
-
-      const allPhases = isWhiteGloveSession
+  // All phase keys currently present. For WhiteGlove sessions we use prefixed keys
+  // (pre-X, user-X) to avoid collisions.
+  const allPhaseKeys = useMemo(
+    () =>
+      isWhiteGloveSession
         ? [
             ...preProvGrouped.orderedPhases.map(p => `pre-${p}`),
             ...userEnrollGrouped.orderedPhases.map(p => `user-${p}`),
           ]
-        : orderedPhases;
+        : orderedPhases,
+    [orderedPhases, preProvGrouped.orderedPhases, userEnrollGrouped.orderedPhases, isWhiteGloveSession]
+  );
 
-      for (const phase of allPhases) {
-        if (!prev.has(phase)) {
-          newExpanded.add(phase);
-          hasChanges = true;
-        }
-      }
-
-      return hasChanges ? newExpanded : prev;
-    });
-  }, [orderedPhases, preProvGrouped.orderedPhases, userEnrollGrouped.orderedPhases, isWhiteGloveSession]);
+  const expandedPhases = useMemo(
+    () => new Set(allPhaseKeys.filter(p => !collapsedPhases.has(p))),
+    [allPhaseKeys, collapsedPhases]
+  );
 
   const markAsFailed = () => setShowMarkFailedConfirm(true);
   const markAsSucceeded = () => setShowMarkSucceededConfirm(true);
@@ -347,32 +343,23 @@ function SessionDetailContent() {
     });
   };
 
-  const expandAll = () => {
-    if (isWhiteGloveSession) {
-      setExpandedPhases(new Set([
-        ...preProvGrouped.orderedPhases.map(p => `pre-${p}`),
-        ...userEnrollGrouped.orderedPhases.map(p => `user-${p}`),
-      ]));
-    } else {
-      setExpandedPhases(new Set(orderedPhases));
-    }
-  };
+  const expandAll = () => setCollapsedPhases(new Set());
 
-  const collapseAll = () => setExpandedPhases(new Set());
+  const collapseAll = () => setCollapsedPhases(new Set(allPhaseKeys));
 
   const scrollToPhase = (phaseName: string) => {
     const id = `phase-${phaseName.replace(/[^a-zA-Z0-9]/g, '-')}`;
     const el = document.getElementById(id);
     if (el) {
-      setExpandedPhases(prev => {
-        const newExpanded = new Set(prev);
+      setCollapsedPhases(prev => {
+        const next = new Set(prev);
         if (isWhiteGloveSession) {
-          newExpanded.add(`pre-${phaseName}`);
-          newExpanded.add(`user-${phaseName}`);
+          next.delete(`pre-${phaseName}`);
+          next.delete(`user-${phaseName}`);
         } else {
-          newExpanded.add(phaseName);
+          next.delete(phaseName);
         }
-        return newExpanded;
+        return next;
       });
       setTimeout(() => {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -385,25 +372,29 @@ function SessionDetailContent() {
     if (loading || events.length === 0) return;
     const hash = window.location.hash;
     if (!hash.startsWith("#event-")) return;
-    // Expand all phases so the event element is in the DOM
-    expandAll();
+    // Deferred so the expansion setState runs in a timer callback, not the effect body;
+    // the inner delay then lets React commit the expanded phases before the DOM lookup.
     setTimeout(() => {
-      const el = document.getElementById(hash.slice(1));
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-        el.classList.add("ring-2", "ring-amber-400", "ring-offset-1");
-        setTimeout(() => el.classList.remove("ring-2", "ring-amber-400", "ring-offset-1"), 3000);
-      }
-    }, 100);
+      // Expand all phases so the event element is in the DOM
+      expandAll();
+      setTimeout(() => {
+        const el = document.getElementById(hash.slice(1));
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          el.classList.add("ring-2", "ring-amber-400", "ring-offset-1");
+          setTimeout(() => el.classList.remove("ring-2", "ring-amber-400", "ring-offset-1"), 3000);
+        }
+      }, 100);
+    }, 0);
     window.history.replaceState(null, "", window.location.pathname + window.location.search);
-  }, [loading, events.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loading, events.length]);
 
   const togglePhase = (phaseName: string) => {
-    setExpandedPhases(prev => {
-      const newExpanded = new Set(prev);
-      if (newExpanded.has(phaseName)) newExpanded.delete(phaseName);
-      else newExpanded.add(phaseName);
-      return newExpanded;
+    setCollapsedPhases(prev => {
+      const next = new Set(prev);
+      if (next.has(phaseName)) next.delete(phaseName);
+      else next.add(phaseName);
+      return next;
     });
   };
 

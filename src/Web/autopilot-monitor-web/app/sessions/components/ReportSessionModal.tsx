@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 import { Session, EnrollmentEvent, RuleResult } from "@/types";
 
 const MAX_AGENT_LOG_SIZE = 5 * 1024 * 1024; // 5 MB
@@ -48,12 +48,17 @@ export default function ReportSessionModal({
   const agentLogInputRef = useRef<HTMLInputElement>(null);
   const screenshotInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
+  // Clear stale result feedback from a previous submission the moment the modal
+  // (re)opens. Adjust-during-render (compare-prev) instead of an effect — same
+  // trigger (show flipping to true), but a stale banner can never paint first.
+  const [prevShow, setPrevShow] = useState(show);
+  if (prevShow !== show) {
+    setPrevShow(show);
     if (show) {
       setSubmitResult(null);
       setSubmitErrorMessage(null);
     }
-  }, [show]);
+  }
 
   if (!show || !session) return null;
 

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { NotificationType } from "@/contexts/NotificationContext";
@@ -9,6 +9,9 @@ interface BlockTarget {
   tenantId: string;
   deviceName?: string;
 }
+
+// Module-level so the masked value returned while scope is off is referentially stable.
+const EMPTY_SET = new Set<string>();
 
 export function useBlockDevice(
   getAccessToken: (forceRefresh?: boolean) => Promise<string | null>,
@@ -21,12 +24,11 @@ export function useBlockDevice(
   const [blockingDevice, setBlockingDevice] = useState(false);
   const [blockedDevicesSet, setBlockedDevicesSet] = useState<Set<string>>(new Set());
 
-  // Reset blocked set when admin mode or global admin mode is turned off
-  useEffect(() => {
-    if (!adminMode || !globalAdminMode) {
-      setBlockedDevicesSet(new Set());
-    }
-  }, [adminMode, globalAdminMode]);
+  // Blocked devices are only meaningful while admin mode AND global admin mode are
+  // both on — mask the set at read instead of clearing state in an effect. The raw
+  // state stays owned by useDashboardSessions.fetchBlockedDevices, which replaces
+  // it wholesale on every fetch (and empties it while scope is off).
+  const hasBlockScope = adminMode && globalAdminMode;
 
   const blockDevice = (serialNumber: string, tenantId: string, deviceName?: string) => {
     setSessionToBlock({ serialNumber, tenantId, deviceName });
@@ -85,7 +87,7 @@ export function useBlockDevice(
     showBlockConfirm,
     sessionToBlock,
     blockingDevice,
-    blockedDevicesSet,
+    blockedDevicesSet: hasBlockScope ? blockedDevicesSet : EMPTY_SET,
     setBlockedDevicesSet,
     blockDevice,
     confirmBlock,

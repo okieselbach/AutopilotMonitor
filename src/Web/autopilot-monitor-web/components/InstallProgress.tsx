@@ -187,19 +187,26 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
 
 function InstallItemRow({ item }: { item: InstallItem }) {
   const [showDetails, setShowDetails] = useState(false);
-  const [elapsedMs, setElapsedMs] = useState<number | null>(null);
+  // Live 1s timer while this app is installing. The tick state carries the
+  // startedAt it was computed from so the read below can mask stale values from
+  // a previous activation — the effect only starts/stops the interval; the
+  // "inactive → null" reset is derived at read instead of written back as state.
+  const [liveElapsed, setLiveElapsed] = useState<{ startedAt: string; elapsedMs: number } | null>(null);
 
   useEffect(() => {
-    if (item.state !== "Installing" || !item.startedAt) {
-      setElapsedMs(null);
-      return;
-    }
-    const startTime = new Date(item.startedAt).getTime();
-    const tick = () => setElapsedMs(Date.now() - startTime);
+    if (item.state !== "Installing" || !item.startedAt) return;
+    const startedAt = item.startedAt;
+    const startTime = new Date(startedAt).getTime();
+    const tick = () => setLiveElapsed({ startedAt, elapsedMs: Date.now() - startTime });
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [item.state, item.startedAt]);
+
+  const elapsedMs =
+    item.state === "Installing" && item.startedAt && liveElapsed?.startedAt === item.startedAt
+      ? liveElapsed.elapsedMs
+      : null;
 
   const sourcePill = SOURCE_PILLS[item.source];
 

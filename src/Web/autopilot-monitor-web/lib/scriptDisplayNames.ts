@@ -39,6 +39,10 @@ export function formatRefKey(r: ScriptRef): string {
  */
 export type DisplayNamesByRefKey = Record<string, string | null>;
 
+// Stable identity for "no names": returned whenever the stored map doesn't match the
+// current tenant+refset, so consumers' memo deps don't churn on every render.
+const EMPTY_DISPLAY_NAMES: DisplayNamesByRefKey = {};
+
 /**
  * Walks a list of session events and emits the distinct script refs we'd want display
  * names for. Event shape is intentionally loose because event.data is not strongly typed.
@@ -144,16 +148,20 @@ export async function fetchScriptDisplayNames(
  *
  * Stale-state protection: the hook keys its effect off a STABLE refset-fingerprint
  * (`refsKey`) instead of the raw `events` array identity, which the parent typically
- * re-creates on every render via `.filter()`. The map is cleared the moment the tenant
- * changes or the refset changes (including the "now empty" case) so a session switch
- * cannot leave stale names hanging on coincidentally-overlapping ids.
+ * re-creates on every render via `.filter()`. The fetched map is stored TOGETHER with
+ * the lookup key it answers, and reads return the empty map whenever the stored key no
+ * longer matches the current tenant+refset — so a session switch can never surface
+ * stale names on coincidentally-overlapping ids, without any effect-phase clearing.
  */
 export function useScriptDisplayNames(
   tenantId: string | null | undefined,
   events: readonly { eventType?: string; data?: unknown }[],
   getAccessToken: GetAccessToken,
 ): DisplayNamesByRefKey {
-  const [byRefKey, setByRefKey] = useState<DisplayNamesByRefKey>({});
+  const [loaded, setLoaded] = useState<{ key: string; map: DisplayNamesByRefKey }>({
+    key: "",
+    map: EMPTY_DISPLAY_NAMES,
+  });
 
   // Memo on `events`: extract once per real change. The returned refs array identity is
   // stable across re-renders that produce the same set of script events.
@@ -165,13 +173,13 @@ export function useScriptDisplayNames(
     [refs],
   );
 
-  useEffect(() => {
-    // ALWAYS clear before deciding what to do. Covers two staleness cases:
-    //   (a) Tenant changed: previous tenant's names must not linger on new tenant's rows.
-    //   (b) Refset changed to empty (events not yet loaded, or filtered to none): we have
-    //       no authoritative data anymore, so the previous map is stale.
-    setByRefKey({});
+  // The key a stored map must answer to be served. Covers both staleness cases:
+  //   (a) Tenant changed: previous tenant's names must not linger on new tenant's rows.
+  //   (b) Refset changed to empty (events not yet loaded, or filtered to none): we have
+  //       no authoritative data anymore, so the previous map is stale.
+  const lookupKey = tenantId && refsKey.length > 0 ? `${tenantId}::${refsKey}` : "";
 
+  useEffect(() => {
     if (!tenantId || refsKey.length === 0) return;
 
     // Reconstruct refs from the stable key so this effect doesn't depend on the
@@ -188,7 +196,7 @@ export function useScriptDisplayNames(
       try {
         const refsMap = await fetchScriptDisplayNames(tenantId, stableRefs, getAccessToken);
         if (cancelled) return;
-        setByRefKey(refsMap);
+        setLoaded({ key: `${tenantId}::${refsKey}`, map: refsMap });
       } catch (err) {
         if (err instanceof TokenExpiredError) return; // user signed out / token expired
         console.warn("useScriptDisplayNames: lookup failed", err);
@@ -198,7 +206,7 @@ export function useScriptDisplayNames(
     return () => { cancelled = true; };
   }, [tenantId, refsKey, getAccessToken]);
 
-  return byRefKey;
+  return loaded.key === lookupKey && lookupKey ? loaded.map : EMPTY_DISPLAY_NAMES;
 }
 
 /**

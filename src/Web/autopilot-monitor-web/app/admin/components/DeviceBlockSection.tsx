@@ -135,10 +135,13 @@ function DeviceBlockSectionInner({
     const reasonParam = searchParams?.get("reason");
     if (!sessionIdParam) return;
     autoResolvedRef.current = true;
-    setBlockSessionId(sessionIdParam);
-    if (actionParam === "Block" || actionParam === "Kill") setBlockAction(actionParam);
-    if (reasonParam) setBlockReason(reasonParam);
-    void handleResolveSession(sessionIdParam);
+    const run = async () => {
+      setBlockSessionId(sessionIdParam);
+      if (actionParam === "Block" || actionParam === "Kill") setBlockAction(actionParam);
+      if (reasonParam) setBlockReason(reasonParam);
+      await handleResolveSession(sessionIdParam);
+    };
+    void run();
     // handleResolveSession intentionally excluded from deps — fires once per mount based on URL params
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);

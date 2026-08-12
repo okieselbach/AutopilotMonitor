@@ -241,18 +241,25 @@ export function useProgressDerivedData(
     };
   }, [events]);
 
-  const [installElapsedMs, setInstallElapsedMs] = useState<number | null>(null);
+  // Live 1s install timer. The tick state carries the startedAt it was computed
+  // from so the returned value can mask stale ticks from a previous install at
+  // read time — the effect's inactive branch just declines to start an interval
+  // instead of writing a null reset back into state.
+  const [installTimer, setInstallTimer] = useState<{ startedAt: string; elapsedMs: number } | null>(null);
   useEffect(() => {
-    if (!currentInstall?.active || !currentInstall?.startedAt) {
-      setInstallElapsedMs(null);
-      return;
-    }
-    const startTime = new Date(currentInstall.startedAt).getTime();
-    const tick = () => setInstallElapsedMs(Date.now() - startTime);
+    if (!currentInstall?.active || !currentInstall?.startedAt) return;
+    const startedAt = currentInstall.startedAt;
+    const startTime = new Date(startedAt).getTime();
+    const tick = () => setInstallTimer({ startedAt, elapsedMs: Date.now() - startTime });
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [currentInstall?.active, currentInstall?.startedAt]);
+
+  const installElapsedMs =
+    currentInstall?.active && currentInstall.startedAt && installTimer?.startedAt === currentInstall.startedAt
+      ? installTimer.elapsedMs
+      : null;
 
   const overallProgress = session
     ? session.status === "Succeeded"

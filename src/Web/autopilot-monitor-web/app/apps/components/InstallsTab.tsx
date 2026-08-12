@@ -165,8 +165,15 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
     return rows;
   }, [data, search, sortKey, sortDir]);
 
-  // Reset to the first page whenever the filtered/sorted set or the loaded data changes.
-  useEffect(() => { setPage(0); }, [search, sortKey, sortDir, data]);
+  // Reset to the first page whenever the filtered/sorted set or the loaded data
+  // changes (adjust-during-render pattern, see react.dev "storing information
+  // from previous renders"). `data` compares by reference, exactly like the
+  // dependency array of the effect this replaces did.
+  const [prevPageResetKey, setPrevPageResetKey] = useState<[string, SortKey, SortDir, AppsListResponse | null]>([search, sortKey, sortDir, data]);
+  if (prevPageResetKey[0] !== search || prevPageResetKey[1] !== sortKey || prevPageResetKey[2] !== sortDir || prevPageResetKey[3] !== data) {
+    setPrevPageResetKey([search, sortKey, sortDir, data]);
+    setPage(0);
+  }
 
   const pageCount = Math.max(1, Math.ceil(filteredAndSorted.length / PAGE_SIZE));
   const pageRows = filteredAndSorted.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);

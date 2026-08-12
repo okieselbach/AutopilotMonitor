@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
@@ -104,22 +104,21 @@ function TenantManagementSectionInner({
 }: TenantManagementSectionProps) {
   // Read-only Global Readers may view tenants (incl. config report) but not edit them.
   const canMutate = useCanMutatePlatform();
-  const [searchQuery, setSearchQuery] = useState("");
+  // Deep link from GA notifications: ?tenantId=… seeds the search box once, so the
+  // list opens filtered to the tenant the notification is about. Seeded via the
+  // useState initializer when the param is present at mount; the adjust-during-render
+  // block below covers a param that only appears on a later soft navigation.
+  const searchParams = useSearchParams();
+  const tenantIdParam = searchParams?.get("tenantId") ?? null;
+  const [searchQuery, setSearchQuery] = useState(() => tenantIdParam ?? "");
+  const [seededSearch, setSeededSearch] = useState(tenantIdParam !== null);
+  if (!seededSearch && tenantIdParam) {
+    setSeededSearch(true);
+    setSearchQuery(tenantIdParam);
+  }
   // Mount-time clock for trial-expiry checks — render must stay pure
   // (react-hooks/purity); day-granularity expiry doesn't need a live clock.
   const [nowMs] = useState(() => Date.now());
-
-  // Deep link from GA notifications: ?tenantId=… seeds the search box once, so the
-  // list opens filtered to the tenant the notification is about.
-  const searchParams = useSearchParams();
-  const seededSearchRef = useRef(false);
-  useEffect(() => {
-    if (seededSearchRef.current) return;
-    const tenantIdParam = searchParams?.get("tenantId");
-    if (!tenantIdParam) return;
-    seededSearchRef.current = true;
-    setSearchQuery(tenantIdParam);
-  }, [searchParams]);
   const [showOnlyWaitlist, setShowOnlyWaitlist] = useState(false);
   const [showOnlyReady, setShowOnlyReady] = useState(false);
   const [tenantSectionExpanded, setTenantSectionExpanded] = useState(false);
@@ -174,10 +173,13 @@ function TenantManagementSectionInner({
   const endIndex = startIndex + tenantsPerPage;
   const paginatedTenants = filteredTenants.slice(startIndex, endIndex);
 
-  // Reset to first page when search changes
-  useEffect(() => {
+  // Reset to first page when the search or a filter changes (adjust-during-render
+  // pattern, see react.dev "storing information from previous renders").
+  const [prevFilterKey, setPrevFilterKey] = useState<[string, boolean, boolean]>([searchQuery, showOnlyWaitlist, showOnlyReady]);
+  if (prevFilterKey[0] !== searchQuery || prevFilterKey[1] !== showOnlyWaitlist || prevFilterKey[2] !== showOnlyReady) {
+    setPrevFilterKey([searchQuery, showOnlyWaitlist, showOnlyReady]);
     setCurrentPage(0);
-  }, [searchQuery, showOnlyWaitlist, showOnlyReady]);
+  }
 
   const handleSaveTenant = async (tenant: TenantConfiguration) => {
     if (!canMutate) return; // read-only Global Reader

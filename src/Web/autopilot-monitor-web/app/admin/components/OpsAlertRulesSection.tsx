@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { type OpsAlertRule } from "../AdminConfigContext";
 import { AUTO_ACTION_MODES, describeAutoActionWarning, type AutoActionMode } from "./excessiveEventAutoAction";
 
@@ -146,6 +146,19 @@ const CATEGORY_COLORS: Record<string, string> = {
   Platform: "text-sky-700 dark:text-sky-300",
 };
 
+// Full rule list: merge saved rules with all known event types
+function buildFullRules(savedRules: OpsAlertRule[]): OpsAlertRule[] {
+  const ruleMap = new Map(savedRules.map(r => [r.eventType, r]));
+  const fullRules: OpsAlertRule[] = [];
+  for (const eventTypes of Object.values(OPS_EVENT_TYPES)) {
+    for (const et of eventTypes) {
+      const existing = ruleMap.get(et);
+      fullRules.push(existing ?? { eventType: et, minSeverity: "Error", enabled: false });
+    }
+  }
+  return fullRules;
+}
+
 interface OpsAlertRulesSectionProps {
   loadingConfig: boolean;
   savingOpsAlerts: boolean;
@@ -190,31 +203,27 @@ export function OpsAlertRulesSection({
   excessiveEventAutoActionDurationHours: autoActionDurationProp,
   onSave,
 }: OpsAlertRulesSectionProps) {
-  // Local state for editing
-  const [rules, setRules] = useState<OpsAlertRule[]>([]);
-  const [telegramEnabled, setTelegramEnabled] = useState(false);
-  const [telegramChatId, setTelegramChatId] = useState("");
-  const [teamsEnabled, setTeamsEnabled] = useState(false);
-  const [teamsWebhookUrl, setTeamsWebhookUrl] = useState("");
-  const [slackEnabled, setSlackEnabled] = useState(false);
-  const [slackWebhookUrl, setSlackWebhookUrl] = useState("");
+  // Local state for editing, seeded from props
+  const [rules, setRules] = useState<OpsAlertRule[]>(() => buildFullRules(opsAlertRules));
+  const [telegramEnabled, setTelegramEnabled] = useState(opsAlertTelegramEnabled);
+  const [telegramChatId, setTelegramChatId] = useState(opsAlertTelegramChatId);
+  const [teamsEnabled, setTeamsEnabled] = useState(opsAlertTeamsEnabled);
+  const [teamsWebhookUrl, setTeamsWebhookUrl] = useState(opsAlertTeamsWebhookUrl);
+  const [slackEnabled, setSlackEnabled] = useState(opsAlertSlackEnabled);
+  const [slackWebhookUrl, setSlackWebhookUrl] = useState(opsAlertSlackWebhookUrl);
   const [excessiveThreshold, setExcessiveThreshold] = useState(excessiveEventCountThresholdProp);
   const [autoActionMode, setAutoActionMode] = useState<AutoActionMode>(autoActionModeProp);
   const [autoActionThreshold, setAutoActionThreshold] = useState(autoActionThresholdProp);
   const [autoActionDuration, setAutoActionDuration] = useState(autoActionDurationProp);
 
-  // Sync from props
-  useEffect(() => {
-    // Build full rule list: merge saved rules with all known event types
-    const ruleMap = new Map(opsAlertRules.map(r => [r.eventType, r]));
-    const fullRules: OpsAlertRule[] = [];
-    for (const eventTypes of Object.values(OPS_EVENT_TYPES)) {
-      for (const et of eventTypes) {
-        const existing = ruleMap.get(et);
-        fullRules.push(existing ?? { eventType: et, minSeverity: "Error", enabled: false });
-      }
-    }
-    setRules(fullRules);
+  // Re-seed the local draft whenever a synced prop changes (config load/save),
+  // replicating the previous sync effect's dependency-array comparison via the
+  // adjust-during-render pattern (react.dev "storing information from previous renders").
+  const syncedProps = [opsAlertRules, opsAlertTelegramEnabled, opsAlertTelegramChatId, opsAlertTeamsEnabled, opsAlertTeamsWebhookUrl, opsAlertSlackEnabled, opsAlertSlackWebhookUrl, excessiveEventCountThresholdProp, autoActionModeProp, autoActionThresholdProp, autoActionDurationProp];
+  const [prevSyncedProps, setPrevSyncedProps] = useState(syncedProps);
+  if (syncedProps.some((value, i) => !Object.is(value, prevSyncedProps[i]))) {
+    setPrevSyncedProps(syncedProps);
+    setRules(buildFullRules(opsAlertRules));
     setTelegramEnabled(opsAlertTelegramEnabled);
     setTelegramChatId(opsAlertTelegramChatId);
     setTeamsEnabled(opsAlertTeamsEnabled);
@@ -225,7 +234,7 @@ export function OpsAlertRulesSection({
     setAutoActionMode(autoActionModeProp);
     setAutoActionThreshold(autoActionThresholdProp);
     setAutoActionDuration(autoActionDurationProp);
-  }, [opsAlertRules, opsAlertTelegramEnabled, opsAlertTelegramChatId, opsAlertTeamsEnabled, opsAlertTeamsWebhookUrl, opsAlertSlackEnabled, opsAlertSlackWebhookUrl, excessiveEventCountThresholdProp, autoActionModeProp, autoActionThresholdProp, autoActionDurationProp]);
+  }
 
   const toggleRule = (eventType: string) => {
     setRules(prev => prev.map(r => r.eventType === eventType ? { ...r, enabled: !r.enabled } : r));

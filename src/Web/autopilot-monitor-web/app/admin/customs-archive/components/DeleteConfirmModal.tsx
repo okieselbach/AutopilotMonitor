@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 interface DeleteConfirmModalProps {
   open: boolean;
@@ -19,8 +19,14 @@ const CONFIRM_WORD = "DELETE";
  * (tenant id, table/row, count) and require a typed "DELETE" before the
  * primary button activates.
  */
-export function DeleteConfirmModal({
-  open,
+export function DeleteConfirmModal(props: DeleteConfirmModalProps) {
+  // The dialog content only mounts while open, so the typed confirmation text
+  // resets naturally on close (unmount) — no state sync needed.
+  if (!props.open) return null;
+  return <DeleteConfirmModalContent {...props} />;
+}
+
+function DeleteConfirmModalContent({
   title,
   description,
   busy = false,
@@ -28,12 +34,6 @@ export function DeleteConfirmModal({
   onConfirm,
 }: DeleteConfirmModalProps) {
   const [text, setText] = useState("");
-
-  useEffect(() => {
-    if (!open) setText("");
-  }, [open]);
-
-  if (!open) return null;
 
   const canConfirm = text === CONFIRM_WORD && !busy;
 

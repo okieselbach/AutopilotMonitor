@@ -233,19 +233,18 @@ function RestoreInputRow({
   const [pk, setPk] = useState<string>("");
   const [rk, setRk] = useState<string>("");
 
-  // Keep the dropdown in sync if the manifest reload changes the restorable set.
-  useEffect(() => {
-    if (!restorable.find((t) => t.tableName === tableName)) {
-      setTableName(restorable[0]?.tableName ?? "");
-    }
-  }, [restorable, tableName]);
+  // The user's pick can go stale when a manifest reload changes the restorable
+  // set — fall back to the first restorable table instead of syncing state.
+  const effectiveTableName = restorable.some((t) => t.tableName === tableName)
+    ? tableName
+    : (restorable[0]?.tableName ?? "");
 
   return (
     <div className="flex flex-wrap items-end gap-2">
       <label className="flex flex-col gap-1 text-xs text-gray-700 dark:text-gray-300">
         Table
         <select
-          value={tableName}
+          value={effectiveTableName}
           onChange={(e) => setTableName(e.target.value)}
           className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm font-mono"
         >
@@ -274,11 +273,11 @@ function RestoreInputRow({
       </label>
       <button
         type="button"
-        onClick={() => onSubmit(tableName, pk, rk)}
+        onClick={() => onSubmit(effectiveTableName, pk, rk)}
         // Backend contract (RestoreTablePreflightValidator) allows empty PK/RK
         // — only null is rejected. Match that here so an Azure Table row with
         // a literal empty key (legal per spec) can be previewed/restored.
-        disabled={disabled || !tableName}
+        disabled={disabled || !effectiveTableName}
         className="px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm rounded-md transition-colors"
       >
         Preview restore

@@ -7,6 +7,17 @@ import type { Session } from "../types";
 const SESSIONS_PER_PAGE_KEY = "sessionsPerPage";
 const DEFAULT_SESSIONS_PER_PAGE = 10;
 
+// Deterministic serialization of the column filters (sorted keys, sorted set values)
+// so structurally identical filter content always yields the same page-reset key
+// regardless of insertion order.
+function serializeColumnFilters(filters: Record<string, Set<string>>): string {
+  return JSON.stringify(
+    Object.keys(filters)
+      .sort()
+      .map((key) => [key, Array.from(filters[key]).sort()])
+  );
+}
+
 interface UseDashboardFiltersParams {
   sessions: Session[];
   blockedDevicesSet: Set<string>;
@@ -88,9 +99,18 @@ export function useDashboardFilters({
 
   // Reset to page 1 whenever the displayed set or its ordering changes —
   // includes external scope changes (tenant switch, global-admin toggle, tenant filter).
-  useEffect(() => {
+  // React's adjust-during-render pattern (compare the previous key, set state while
+  // rendering) instead of an effect, so the stale page never paints first.
+  const pageResetKey = JSON.stringify([
+    searchQuery, statusFilter, sortColumn, sortDirection,
+    serializeColumnFilters(columnFilters), sessionsPerPage,
+    globalAdminMode, tenantIdFilter, tenantId ?? null,
+  ]);
+  const [prevPageResetKey, setPrevPageResetKey] = useState(pageResetKey);
+  if (prevPageResetKey !== pageResetKey) {
+    setPrevPageResetKey(pageResetKey);
     setCurrentPage(1);
-  }, [searchQuery, statusFilter, sortColumn, sortDirection, columnFilters, sessionsPerPage, globalAdminMode, tenantIdFilter, tenantId]);
+  }
 
   const handleSessionsPerPageChange = (value: number) => {
     setSessionsPerPage(value);
@@ -194,45 +214,47 @@ export function useDashboardFilters({
   }, [filteredSessions, sortColumn, sortDirection]);
 
   const totalPages = Math.ceil(sortedSessions.length / sessionsPerPage);
-  const paginatedSessions = useMemo(() => {
-    const startIndex = (currentPage - 1) * sessionsPerPage;
-    return sortedSessions.slice(startIndex, startIndex + sessionsPerPage);
-  }, [sortedSessions, currentPage, sessionsPerPage]);
 
-  const handlePreviousPage = () => setCurrentPage((prev) => Math.max(1, prev - 1));
+  // Snap currentPage back to the last valid page when a load finished that did NOT
+  // grow totalPages (e.g. an active filter narrowed the new batch to zero matches).
+  // Without this the user would be stuck on an empty paginated slice with no way
+  // to recover except clicking Prev. Clamped at read (not written back via an
+  // effect): gated on !loadingMore so a legitimate overshoot is never reverted
+  // mid-fetch, and the moment the load finishes the clamp applies in the very
+  // same render — an effect-based snap-back could otherwise race handleNextPage
+  // (loadingMore still false when the effect ran) and cancel the advance.
+  const effectivePage =
+    !loadingMore && totalPages > 0 && currentPage > totalPages ? totalPages : currentPage;
+
+  const paginatedSessions = useMemo(() => {
+    const startIndex = (effectivePage - 1) * sessionsPerPage;
+    return sortedSessions.slice(startIndex, startIndex + sessionsPerPage);
+  }, [sortedSessions, effectivePage, sessionsPerPage]);
+
+  // Handlers step from effectivePage (the clamped value every consumer sees) so a
+  // raw overshoot left in state can never compound or make Prev a visual no-op.
+  const handlePreviousPage = () => setCurrentPage(Math.max(1, effectivePage - 1));
   // When advancing past locally-loaded pages, fire loadMore() in the SAME event
-  // handler so React batches setLoadingMore(true) with setCurrentPage(prev+1).
-  // If we relied on a follow-up effect to trigger the fetch, the snap-back effect
-  // below would race ahead (loadingMore still false at that point) and reset
-  // currentPage to totalPages — leaving the user on the previous page even though
-  // a load was in flight, forcing a second click to actually advance.
+  // handler so React batches setLoadingMore(true) with setCurrentPage(...): the
+  // clamp above then sees loadingMore === true on the next render and lets the
+  // overshoot page stand while the fetch is in flight.
   const handleNextPage = () => {
-    if (currentPage < totalPages) {
-      setCurrentPage((prev) => prev + 1);
+    if (effectivePage < totalPages) {
+      setCurrentPage(effectivePage + 1);
       return;
     }
     if (hasMore && !loadingMore) {
       loadMore();
-      setCurrentPage((prev) => prev + 1);
+      setCurrentPage(effectivePage + 1);
     }
   };
-
-  // Snap currentPage back to the last valid page once a load finishes that did NOT
-  // grow totalPages (e.g. an active filter narrowed the new batch to zero matches).
-  // Without this the user would be stuck on an empty paginated slice with no way
-  // to recover except clicking Prev. Gated on !loadingMore so it never fires
-  // mid-fetch and reverts a legitimate overshoot.
-  useEffect(() => {
-    if (loadingMore) return;
-    if (totalPages > 0 && currentPage > totalPages) setCurrentPage(totalPages);
-  }, [currentPage, totalPages, loadingMore]);
 
   return {
     searchQuery, setSearchQuery,
     statusFilter, setStatusFilter,
     sortColumn, sortDirection, handleSort,
     columnFilters, setColumnFilters,
-    currentPage, sessionsPerPage, handleSessionsPerPageChange,
+    currentPage: effectivePage, sessionsPerPage, handleSessionsPerPageChange,
     handlePreviousPage, handleNextPage,
     effectiveSessions, filteredSessions, sortedSessions, paginatedSessions,
     totalPages,

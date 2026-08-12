@@ -212,12 +212,17 @@ function HomeContent() {
   // Clear the tenant filter when cross-tenant mode turns off (refetch is owned by useDashboardSessions).
   // Keyed on crossTenant (not raw globalAdminMode) so a delegated ("MSP") admin — whose crossTenant is
   // always on — keeps any `?tenant=` deep-link / typed filter instead of having it wiped on mount.
-  useEffect(() => {
+  // Adjust-during-render (compare-prev) instead of an effect; prev starts at null so the first
+  // render replicates the old effect's mount-time run, which cleared a stray `?tenant=`
+  // deep-link for users who are not in a cross-tenant view.
+  const [prevCrossTenant, setPrevCrossTenant] = useState<boolean | null>(null);
+  if (prevCrossTenant !== crossTenant) {
+    setPrevCrossTenant(crossTenant);
     if (!crossTenant) {
       setTenantIdFilter("");
       setSubmittedTenantIdFilter("");
     }
-  }, [crossTenant]);
+  }
 
   // Auto-load more when the user needs more sessions than currently loaded
   // (e.g. increased sessionsPerPage, paginated forward, or applied a sort/column filter

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
@@ -77,6 +77,113 @@ function CopyButton({ value }: { value: string }) {
   );
 }
 
+function AdminNoteEditor({
+  report,
+  canMutate,
+  getAccessToken,
+  onSaved,
+}: {
+  report: SessionReport;
+  canMutate: boolean;
+  getAccessToken: () => Promise<string | null>;
+  onSaved: (updated: SessionReport) => void;
+}) {
+  const [adminNoteValue, setAdminNoteValue] = useState(report.adminNote ?? "");
+  const [savingNote, setSavingNote] = useState(false);
+  const [noteSaveResult, setNoteSaveResult] = useState<"saved" | string | null>(null);
+
+  // The parent swaps in a fresh report object after a successful save; mirror the
+  // previous reset-on-selection semantics for that same-report identity change
+  // (cross-report switches remount this editor via key={reportId}). Adjust-during-
+  // render pattern, see react.dev "storing information from previous renders".
+  const [prevReport, setPrevReport] = useState(report);
+  if (prevReport !== report) {
+    setPrevReport(report);
+    setAdminNoteValue(report.adminNote ?? "");
+    setNoteSaveResult(null);
+  }
+
+  const handleSaveAdminNote = async () => {
+    try {
+      setSavingNote(true);
+      setNoteSaveResult(null);
+
+      const res = await authenticatedFetch(
+        api.reports.note(report.reportId),
+        getAccessToken,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ adminNote: adminNoteValue }),
+        }
+      );
+      if (!res.ok) throw new Error(`Failed to save note: ${res.statusText}`);
+
+      // Update parent state
+      onSaved({ ...report, adminNote: adminNoteValue });
+      setNoteSaveResult("saved");
+    } catch (err) {
+      if (err instanceof TokenExpiredError) {
+        console.error("Session expired while saving admin note");
+      }
+      setNoteSaveResult(err instanceof Error ? err.message : "Failed to save note");
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
+  return (
+    <div className="pt-1 border-t border-gray-100 dark:border-gray-700">
+      <dt className="font-medium text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+        </svg>
+        Admin Note
+      </dt>
+      <dd className="mt-1.5">
+        <textarea
+          value={adminNoteValue}
+          onChange={e => { setAdminNoteValue(e.target.value); setNoteSaveResult(null); }}
+          readOnly={!canMutate}
+          rows={3}
+          placeholder={canMutate ? "Add an internal note about this report..." : "No note"}
+          className="w-full text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 resize-none placeholder:text-gray-400 read-only:opacity-60 read-only:cursor-not-allowed"
+        />
+        <div className="flex items-center justify-between mt-1.5">
+          <div className="text-xs">
+            {noteSaveResult === "saved" && (
+              <span className="text-green-600 dark:text-green-400 flex items-center gap-1">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Saved
+              </span>
+            )}
+            {noteSaveResult && noteSaveResult !== "saved" && (
+              <span className="text-red-600 dark:text-red-400">{noteSaveResult}</span>
+            )}
+          </div>
+          <button
+            onClick={handleSaveAdminNote}
+            disabled={!canMutate || savingNote}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:bg-indigo-400 text-white rounded-md transition-colors text-xs font-medium disabled:cursor-not-allowed"
+          >
+            {savingNote ? (
+              <>
+                <svg className="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Saving...
+              </>
+            ) : "Save Note"}
+          </button>
+        </div>
+      </dd>
+    </div>
+  );
+}
+
 export function SessionReportsSection(props: SessionReportsSectionProps) {
   // useSearchParams() in the inner component requires a Suspense boundary for
   // static prerender (this section renders inside the prerendered
@@ -101,9 +208,6 @@ function SessionReportsSectionInner({
   const [loading, setLoading] = useState(true);
   const [selectedReport, setSelectedReport] = useState<SessionReport | null>(null);
   const [downloadingBlob, setDownloadingBlob] = useState<string | null>(null);
-  const [adminNoteValue, setAdminNoteValue] = useState("");
-  const [savingNote, setSavingNote] = useState(false);
-  const [noteSaveResult, setNoteSaveResult] = useState<"saved" | string | null>(null);
 
   // Pattern B1 click-next replace state — backend pagination
   const [tenantFilterInput, setTenantFilterInput] = useState("");
@@ -114,30 +218,34 @@ function SessionReportsSectionInner({
   const [pageNumber, setPageNumber] = useState(1);
 
   // Deep link from GA notifications: ?reportId=… auto-opens the report modal once
-  // the first page has loaded. Reports are listed newest-first, so a report reached
-  // via a fresh notification is on page 1; older ones get a hint instead.
+  // the first page has loaded (one-shot). Reports are listed newest-first, so a
+  // report reached via a fresh notification is on page 1; older ones get a hint
+  // instead. Adjust-during-render (react.dev "storing information from previous
+  // renders"); the miss branch only records the id here because the hint lives in
+  // PARENT state, which must not be set during this component's render — the
+  // effect below routes it to setError.
   const searchParams = useSearchParams();
-  const autoOpenedRef = useRef(false);
-
-  useEffect(() => {
-    if (autoOpenedRef.current || loading) return;
-    const reportIdParam = searchParams?.get("reportId");
-    if (!reportIdParam) return;
-    autoOpenedRef.current = true;
+  const reportIdParam = searchParams?.get("reportId") ?? null;
+  const [autoOpenConsumed, setAutoOpenConsumed] = useState(false);
+  const [autoOpenMissId, setAutoOpenMissId] = useState<string | null>(null);
+  if (!autoOpenConsumed && !loading && reportIdParam) {
+    setAutoOpenConsumed(true);
     const match = reports.find((r) => r.reportId === reportIdParam);
     if (match) {
       setSelectedReport(match);
     } else {
-      setError(`Report ${reportIdParam} is not on the first page — it may be older. Page through or filter by tenant to find it.`);
+      setAutoOpenMissId(reportIdParam);
     }
-  }, [loading, reports, searchParams, setError]);
+  }
 
   useEffect(() => {
-    if (selectedReport) {
-      setAdminNoteValue(selectedReport.adminNote ?? "");
-      setNoteSaveResult(null);
-    }
-  }, [selectedReport]);
+    if (autoOpenMissId === null) return;
+    setError(`Report ${autoOpenMissId} is not on the first page — it may be older. Page through or filter by tenant to find it.`);
+    // setError intentionally excluded from deps: the hint fires once per consumed
+    // deep-link miss (autoOpenMissId is set at most once) and must not re-surface
+    // after dismissal just because the parent's setError identity churns.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpenMissId]);
 
   const handleDownload = async (blobName: string) => {
     try {
@@ -166,36 +274,9 @@ function SessionReportsSectionInner({
     }
   };
 
-  const handleSaveAdminNote = async () => {
-    if (!selectedReport) return;
-    try {
-      setSavingNote(true);
-      setNoteSaveResult(null);
-
-      const res = await authenticatedFetch(
-        api.reports.note(selectedReport.reportId),
-        getAccessToken,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ adminNote: adminNoteValue }),
-        }
-      );
-      if (!res.ok) throw new Error(`Failed to save note: ${res.statusText}`);
-
-      // Update local state
-      const updated = { ...selectedReport, adminNote: adminNoteValue };
-      setSelectedReport(updated);
-      setReports(prev => prev.map(r => r.reportId === selectedReport.reportId ? updated : r));
-      setNoteSaveResult("saved");
-    } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while saving admin note");
-      }
-      setNoteSaveResult(err instanceof Error ? err.message : "Failed to save note");
-    } finally {
-      setSavingNote(false);
-    }
+  const handleNoteSaved = (updated: SessionReport) => {
+    setSelectedReport(updated);
+    setReports(prev => prev.map(r => r.reportId === updated.reportId ? updated : r));
   };
 
   const fetchReports = useCallback(async (cursor: string | null, filterTenantId: string | undefined) => {
@@ -238,10 +319,13 @@ function SessionReportsSectionInner({
   // re-fire after every successful page-N click, race a page-1 fetch against
   // it, and snap the user back to page 1.
   useEffect(() => {
-    setContinuation(null);
-    setContinuationStack([]);
-    setPageNumber(1);
-    fetchReports(null, tenantFilterApplied);
+    const run = async () => {
+      setContinuation(null);
+      setContinuationStack([]);
+      setPageNumber(1);
+      await fetchReports(null, tenantFilterApplied);
+    };
+    void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantFilterApplied]);
 
@@ -530,55 +614,15 @@ function SessionReportsSectionInner({
                   </div>
                 )}
 
-                {/* Admin Note */}
-                <div className="pt-1 border-t border-gray-100 dark:border-gray-700">
-                  <dt className="font-medium text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
-                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
-                    </svg>
-                    Admin Note
-                  </dt>
-                  <dd className="mt-1.5">
-                    <textarea
-                      value={adminNoteValue}
-                      onChange={e => { setAdminNoteValue(e.target.value); setNoteSaveResult(null); }}
-                      readOnly={!canMutate}
-                      rows={3}
-                      placeholder={canMutate ? "Add an internal note about this report..." : "No note"}
-                      className="w-full text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 resize-none placeholder:text-gray-400 read-only:opacity-60 read-only:cursor-not-allowed"
-                    />
-                    <div className="flex items-center justify-between mt-1.5">
-                      <div className="text-xs">
-                        {noteSaveResult === "saved" && (
-                          <span className="text-green-600 dark:text-green-400 flex items-center gap-1">
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
-                            Saved
-                          </span>
-                        )}
-                        {noteSaveResult && noteSaveResult !== "saved" && (
-                          <span className="text-red-600 dark:text-red-400">{noteSaveResult}</span>
-                        )}
-                      </div>
-                      <button
-                        onClick={handleSaveAdminNote}
-                        disabled={!canMutate || savingNote}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:bg-indigo-400 text-white rounded-md transition-colors text-xs font-medium disabled:cursor-not-allowed"
-                      >
-                        {savingNote ? (
-                          <>
-                            <svg className="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                            </svg>
-                            Saving...
-                          </>
-                        ) : "Save Note"}
-                      </button>
-                    </div>
-                  </dd>
-                </div>
+                {/* Admin Note — keyed on the report so switching reports remounts
+                    the editor and re-seeds its draft from the report's saved note. */}
+                <AdminNoteEditor
+                  key={selectedReport.reportId}
+                  report={selectedReport}
+                  canMutate={canMutate}
+                  getAccessToken={getAccessToken}
+                  onSaved={handleNoteSaved}
+                />
               </dl>
 
               <div className="mt-6 flex items-center justify-between">
