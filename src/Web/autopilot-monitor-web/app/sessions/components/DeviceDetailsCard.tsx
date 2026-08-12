@@ -135,6 +135,11 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
     : null;
 
   const uptimeUntilEnrollment = useMemo(() => {
+    // bootTime is derived from events inside the memo: the outer const is a live alias
+    // into event data, which the compiler treats as maybe-mutated and would refuse to
+    // memoize against (preserve-manual-memoization).
+    const bootEvents = events.filter(e => e.eventType === "boot_time");
+    const bootTime = (bootEvents[bootEvents.length - 1]?.data as BootTimeData | undefined) ?? null;
     if (!bootTime || events.length === 0) return null;
     const bootTimeStr = bootTime.bootTimeUtc ?? bootTime.bootTime;
     if (!bootTimeStr) return null;
@@ -159,7 +164,7 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
     }
 
     return null;
-  }, [bootTime, events]);
+  }, [events]);
 
   const osInfo = getEventData<OsInfoData>("os_info");
   const networkAdapters = getEventData<NetworkAdaptersData>("network_adapters");

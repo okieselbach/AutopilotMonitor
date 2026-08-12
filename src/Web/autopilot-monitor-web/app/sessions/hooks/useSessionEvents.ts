@@ -114,6 +114,9 @@ export function useSessionEvents({
   // Deduplication: track in-flight fetchEvents to avoid concurrent calls
   const fetchEventsInFlight = useRef(false);
   const fetchEventsQueued = useRef(false);
+  // The queued follow-up re-invokes fetchEvents through this ref: a memoized callback
+  // that calls itself directly cannot be memoized by the React compiler.
+  const fetchEventsRef = useRef<() => Promise<void>>(async () => {});
 
   const fetchEvents = useCallback(async () => {
     // Deduplication: if a fetch is already in flight, queue one follow-up instead of
@@ -232,10 +235,14 @@ export function useSessionEvents({
       // If another fetch was requested while we were in flight, run it now
       if (fetchEventsQueued.current) {
         fetchEventsQueued.current = false;
-        fetchEvents();
+        void fetchEventsRef.current();
       }
     }
   }, [sessionId, resolveEffectiveTenantId, sessionRef, fetchSessionDetails, setLoading, getAccessToken, addNotification]);
+
+  useEffect(() => {
+    fetchEventsRef.current = fetchEvents;
+  }, [fetchEvents]);
 
   const scheduleFetchEvents = useCallback((delayMs = 300) => {
     if (eventRefreshTimeoutRef.current) {
@@ -249,7 +256,10 @@ export function useSessionEvents({
   // Fetch events when we have the session's tenant ID
   useEffect(() => {
     if (sessionTenantId && sessionId) {
-      fetchEvents();
+      const run = async () => {
+        await fetchEvents();
+      };
+      void run();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionTenantId, sessionId]);

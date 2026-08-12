@@ -54,6 +54,62 @@ export interface CurrentInstall {
   active: boolean;
 }
 
+// Module-level pure helper: the loop with its Map mutations and early return keeps the
+// React compiler from memoizing the body inline (preserve-manual-memoization).
+function computeCurrentDownload(events: EnrollmentEvent[]): CurrentDownload | null {
+  const downloadEvents = events.filter((e) => e.eventType === "download_progress");
+  if (downloadEvents.length === 0) return null;
+
+  const appLatest = new Map<
+    string,
+    { bytesDownloaded: number; bytesTotal: number; downloadRateBps: number; isComplete: boolean }
+  >();
+  for (const evt of downloadEvents) {
+    const d = evt.data as ProgressEventData | undefined;
+    if (!d) continue;
+    const appName = d.app_name ?? d.appName ?? d.file_name ?? d.fileName ?? null;
+    if (!appName) continue;
+    const bytesDownloaded = Number(d.bytes_downloaded ?? d.bytesDownloaded ?? 0);
+    const bytesTotal = Number(d.bytes_total ?? d.bytesTotal ?? 0);
+    const downloadRateBps = Number(d.download_rate_bps ?? d.downloadRateBps ?? 0);
+    const status = d.status ?? "";
+    const isComplete =
+      status === "completed" ||
+      status === "failed" ||
+      d.isCompleted === true ||
+      d.is_completed === true;
+    appLatest.set(appName, {
+      bytesDownloaded: isNaN(bytesDownloaded) ? 0 : bytesDownloaded,
+      bytesTotal: isNaN(bytesTotal) ? 0 : bytesTotal,
+      downloadRateBps: isNaN(downloadRateBps) ? 0 : downloadRateBps,
+      isComplete,
+    });
+  }
+
+  const completedCount = Array.from(appLatest.values()).filter((v) => v.isComplete).length;
+
+  for (let i = downloadEvents.length - 1; i >= 0; i--) {
+    const d = downloadEvents[i].data as ProgressEventData | undefined;
+    if (!d) continue;
+    const appName = d.app_name ?? d.appName ?? d.file_name ?? d.fileName ?? null;
+    if (!appName) continue;
+    const latest = appLatest.get(appName);
+    if (latest && !latest.isComplete) {
+      return { appName, ...latest, completedCount, active: true };
+    }
+  }
+
+  return {
+    appName: null,
+    bytesDownloaded: 0,
+    bytesTotal: 0,
+    downloadRateBps: 0,
+    isComplete: true,
+    completedCount,
+    active: false,
+  };
+}
+
 export interface UseProgressDerivedDataReturn {
   appSummary: AppSummary | null;
   currentDownload: CurrentDownload | null;
@@ -110,59 +166,10 @@ export function useProgressDerivedData(
     return null;
   }, [events]);
 
-  const currentDownload = useMemo<CurrentDownload | null>(() => {
-    const downloadEvents = events.filter((e) => e.eventType === "download_progress");
-    if (downloadEvents.length === 0) return null;
-
-    const appLatest = new Map<
-      string,
-      { bytesDownloaded: number; bytesTotal: number; downloadRateBps: number; isComplete: boolean }
-    >();
-    for (const evt of downloadEvents) {
-      const d = evt.data as ProgressEventData | undefined;
-      if (!d) continue;
-      const appName = d.app_name ?? d.appName ?? d.file_name ?? d.fileName ?? null;
-      if (!appName) continue;
-      const bytesDownloaded = Number(d.bytes_downloaded ?? d.bytesDownloaded ?? 0);
-      const bytesTotal = Number(d.bytes_total ?? d.bytesTotal ?? 0);
-      const downloadRateBps = Number(d.download_rate_bps ?? d.downloadRateBps ?? 0);
-      const status = d.status ?? "";
-      const isComplete =
-        status === "completed" ||
-        status === "failed" ||
-        d.isCompleted === true ||
-        d.is_completed === true;
-      appLatest.set(appName, {
-        bytesDownloaded: isNaN(bytesDownloaded) ? 0 : bytesDownloaded,
-        bytesTotal: isNaN(bytesTotal) ? 0 : bytesTotal,
-        downloadRateBps: isNaN(downloadRateBps) ? 0 : downloadRateBps,
-        isComplete,
-      });
-    }
-
-    const completedCount = Array.from(appLatest.values()).filter((v) => v.isComplete).length;
-
-    for (let i = downloadEvents.length - 1; i >= 0; i--) {
-      const d = downloadEvents[i].data as ProgressEventData | undefined;
-      if (!d) continue;
-      const appName = d.app_name ?? d.appName ?? d.file_name ?? d.fileName ?? null;
-      if (!appName) continue;
-      const latest = appLatest.get(appName);
-      if (latest && !latest.isComplete) {
-        return { appName, ...latest, completedCount, active: true };
-      }
-    }
-
-    return {
-      appName: null,
-      bytesDownloaded: 0,
-      bytesTotal: 0,
-      downloadRateBps: 0,
-      isComplete: true,
-      completedCount,
-      active: false,
-    };
-  }, [events]);
+  const currentDownload = useMemo<CurrentDownload | null>(
+    () => computeCurrentDownload(events),
+    [events]
+  );
 
   const currentInstall = useMemo<CurrentInstall | null>(() => {
     const installTypes = new Set([
