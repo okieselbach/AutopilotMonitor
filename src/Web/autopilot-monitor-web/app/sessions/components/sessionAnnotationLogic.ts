@@ -68,7 +68,10 @@ export const VERDICT_PILL_CLASSES: Record<string, string> = {
 export const LANE_LABELS: Record<AnnotationLane, string> = {
   operator: "Operator",
   tenantadmin: "Tenant Admin",
-  globaladmin: "Autopilot Monitor Team",
+  // Only ever rendered for platform-scope users — the backend filters this lane out of
+  // every tenant response. The label must read as INTERNAL, not as a message channel
+  // from the vendor to the customer.
+  globaladmin: "Internal (Autopilot Monitor)",
 };
 
 /**

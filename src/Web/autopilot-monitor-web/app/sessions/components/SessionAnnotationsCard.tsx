@@ -212,6 +212,14 @@ export default function SessionAnnotationsCard({
             <div key={lane} className="border border-gray-200 rounded-lg p-4">
               <div className="flex items-center flex-wrap gap-2 mb-2">
                 <span className="text-sm font-medium text-gray-900">{LANE_LABELS[lane]}</span>
+                {lane === "globaladmin" && (
+                  <span
+                    className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-violet-50 text-violet-700"
+                    title="This lane is platform-internal: it is filtered out of every tenant response server-side."
+                  >
+                    never visible to the tenant
+                  </span>
+                )}
                 {annotation?.verdict != null && !writable && (
                   <span
                     title={VERDICT_DESCRIPTIONS[annotation.verdict as AnnotationVerdict]}
