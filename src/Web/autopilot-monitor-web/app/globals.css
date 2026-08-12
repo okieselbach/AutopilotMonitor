@@ -149,6 +149,9 @@ input[type="radio"] {
 }
 
 /* -- Borders -- */
+.dark .border-gray-100 {
+  border-color: #1e293b !important;
+}
 .dark .border-gray-200 {
   border-color: #334155 !important;
 }
@@ -653,6 +656,9 @@ html:hover ::-webkit-scrollbar-thumb {
 }
 .dark .text-orange-700 {
   color: #fb923c !important; /* orange-400 — apps category badge */
+}
+.dark .text-yellow-700 {
+  color: #facc15 !important; /* yellow-400 — Medium severity badges/cards */
 }
 .dark .text-orange-600 {
   color: #f97316 !important; /* orange-500 — High count stat */
