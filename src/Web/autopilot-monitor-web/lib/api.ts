@@ -381,6 +381,9 @@ export const api = {
   annotations: {
     // GET — the tenant's annotation rows, newest-first per partition order; the
     // backend excludes the platform-internal globaladmin lane for tenant callers.
+    // NOTE: lives under /api/sessions (client-cert exclusion prefix) as a THREE-segment
+    // literal — "sessions/annotations" alone would be eaten by "sessions/{sessionId}"
+    // (same router trap as /api/stats/sessions above).
     list: (opts?: {
       tenantId?: string;
       lane?: string;
@@ -388,7 +391,7 @@ export const api = {
       pageSize?: number;
       continuation?: string;
     }) =>
-      `${API_BASE_URL}/api/session-annotations${qs({
+      `${API_BASE_URL}/api/sessions/annotations/list${qs({
         tenantId: opts?.tenantId,
         lane: opts?.lane,
         verdict: opts?.verdict,

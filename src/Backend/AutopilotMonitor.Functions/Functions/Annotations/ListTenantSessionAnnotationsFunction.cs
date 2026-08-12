@@ -31,9 +31,14 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
             _annotationRepo = annotationRepo;
         }
 
+        // Route lives under the /api/sessions prefix so the platform cert-exclusion list
+        // (Azure-portal-only config) needs no new entry — same convention as
+        // /api/diagnostics/files. Three segments on purpose: a two-segment literal
+        // ("sessions/annotations") would be eaten by the sibling "sessions/{sessionId}"
+        // template (see the /api/stats/sessions incident note in lib/api.ts).
         [Function("ListTenantSessionAnnotations")]
         public async Task<HttpResponseData> Run(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "session-annotations")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "sessions/annotations/list")] HttpRequestData req)
         {
             try
             {

@@ -109,7 +109,8 @@ namespace AutopilotMonitor.Functions.Pagination
         }
 
         public const string GlobalBasePath = "/api/global/session-annotations";
-        public const string TenantBasePath = "/api/session-annotations";
+        // Under /api/sessions so the platform client-cert exclusion prefix covers it.
+        public const string TenantBasePath = "/api/sessions/annotations/list";
 
         public static string BuildNextLink(Parsed parsed, string wireContinuation, string basePath = GlobalBasePath)
         {

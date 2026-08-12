@@ -82,8 +82,11 @@ in the tenant-visible audit log — same convention as GA session-report submiss
   count + verdict-pill summary header.
 * **Portal overview page** `/annotations` (Monitoring sidebar group — deliberately NO new
   "Insights" group; Fleet Health & co. are insights too and a second analytics group would
-  dilute both): tenant-scoped list backed by `GET session-annotations`
-  (`ListTenantSessionAnnotationsFunction`, MemberRead + QueryParam). The tenant is always the
+  dilute both): tenant-scoped list backed by `GET sessions/annotations/list`
+  (`ListTenantSessionAnnotationsFunction`, MemberRead + QueryParam). The path sits under the
+  `/api/sessions` client-cert exclusion prefix (rename-over-exclusion convention; the Azure
+  exclusion list is portal-only config) and uses THREE segments because a two-segment literal
+  would be eaten by the `sessions/{sessionId}` route template. The tenant is always the
   middleware-validated `TargetTenantId`, and for callers without global scope the repository
   adds a server-side `Lane ne 'globaladmin'` OData clause — hidden rows never consume page
   budget, and an explicit lane=globaladmin filter self-contradicts to an empty page. Rows
