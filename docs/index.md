@@ -51,6 +51,7 @@ https://docs.autopilotmonitor.com (separate repository).
 
 # Web Portal
 
+* [Navbar Architecture](web/navbar-architecture.md) - The two-layer navbar: every gating decision (variant, capabilities, bell badge math, clearability, role badges) lives in the pure, unit-tested `lib/navbarPolicy.ts`; desktop and mobile surfaces render shared content components (`helpLinks.ts`, `AdminModeToggles`, `NotificationRow`, `UserMenu`) so they cannot drift apart. Includes the rules: new gating logic → policy module + test, new menu entries → shared component, never one surface.
 * [Portal Navigation Prefetch & the SWA Runtime Bottleneck](web/portal-navigation-prefetch.md) - Why every navigation Link sets `prefetch={false}`: the App Router's viewport prefetch fans out one RSC request per visible link and the Static Web Apps SSR runtime queues them server-side into a multi-minute tail. Records the follow-up measurement (the Standard plan changed nothing; the prefetch storm was an accidental keep-alive), where browser telemetry actually lives, and why this curl build cannot be trusted for HTTP versions.
 
 # Security & Identity

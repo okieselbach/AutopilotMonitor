@@ -2,6 +2,8 @@
 
 ## 2026-08-12
 
+* **Creation**: Added `web/navbar-architecture.md` — the navbar refactor: `components/Navbar.tsx` (810-line monolith) split into a pure, unit-tested decision layer (`lib/navbarPolicy.ts` + `lib/__tests__/navbarPolicy.test.ts`) and composed render surfaces (`components/navbar/*`) with single-source menu content shared between desktop and mobile. Fixes two drift bugs (empty settings gear for Operators on desktop; no settings entry for Global Readers in the mobile overflow) and removes the dead `previewMode` state.
+
 * **Update**: `agent/autopilot-ztd-diagnostics.md` — Windows 365 Cloud PC exception documented: on Cloud PCs `ProfileAvailable=0` is expected (provisioned by the Windows 365 service, not Autopilot), so `autopilot_profile_missing` is emitted as Info with a Cloud-PC-specific message and an `isCloudPc` payload marker (`ResolveAutopilotProfileMissingPresentation`); the portal's Autopilot Profile card renders a neutral note instead of the amber warning for Cloud PC sessions (`session.isCloudPc` or the event marker).
 
 ## 2026-08-11 (later)
