@@ -74,7 +74,10 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
   }, [getAccessToken, setError]);
 
   useEffect(() => {
-    fetchFeedback();
+    const run = async () => {
+      await fetchFeedback();
+    };
+    void run();
   }, [fetchFeedback]);
 
   // Partition by tab. Server returns mixed; client splits + filters per active tab so the

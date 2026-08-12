@@ -92,7 +92,10 @@ export default function PresencePage() {
 
   // Initial load + whenever the window changes.
   useEffect(() => {
-    fetchPresence();
+    const run = async () => {
+      await fetchPresence();
+    };
+    void run();
   }, [fetchPresence, windowMinutes]);
 
   // Auto-refresh on a fixed interval (reads the current window via ref).

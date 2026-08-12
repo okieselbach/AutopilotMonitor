@@ -201,8 +201,11 @@ export function useDashboardStats({
   useEffect(() => {
     if (disabled) return;
     if (!globalAdminMode && !tenantId) return;
-    setStats(null);
-    fetchStats();
+    const run = async () => {
+      setStats(null);
+      await fetchStats();
+    };
+    void run();
     // fetchStats is stable; intentionally not in deps to avoid re-running on identity flips.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId, globalAdminMode, submittedTenantIdFilter, days, disabled]);

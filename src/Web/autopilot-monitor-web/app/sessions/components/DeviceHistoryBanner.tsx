@@ -72,12 +72,12 @@ export default function DeviceHistoryBanner({
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    if (!sessionId || !serialNumber) {
-      setData(null);
-      return;
-    }
     let cancelled = false;
-    (async () => {
+    const run = async () => {
+      if (!sessionId || !serialNumber) {
+        setData(null);
+        return;
+      }
       try {
         const response = await authenticatedFetch(
           api.metrics.deviceHistory(serialNumber, sessionId, effectiveTenantId),
@@ -89,7 +89,8 @@ export default function DeviceHistoryBanner({
       } catch {
         // fail-soft: no banner
       }
-    })();
+    };
+    void run();
     return () => {
       cancelled = true;
     };

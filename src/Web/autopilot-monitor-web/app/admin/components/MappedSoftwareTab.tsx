@@ -83,7 +83,10 @@ export function MappedSoftwareTab({
   // Lazy load on first render
   useEffect(() => {
     if (!mappedLoaded) {
-      fetchCpeMappings();
+      const run = async () => {
+        await fetchCpeMappings();
+      };
+      void run();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mappedLoaded]);

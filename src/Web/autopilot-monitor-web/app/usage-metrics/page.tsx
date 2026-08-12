@@ -148,7 +148,10 @@ export default function UsageMetricsPage() {
 
   useEffect(() => {
     if (!effectiveTenantId) return;
-    fetchMetrics();
+    const run = async () => {
+      await fetchMetrics();
+    };
+    void run();
   }, [effectiveTenantId, fetchMetrics]);
 
   const selectedTenantName = tenants.find(t => t.tenantId === selectedTenantId)?.domainName;

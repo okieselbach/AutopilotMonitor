@@ -60,7 +60,10 @@ function BackupDetailContent() {
   }, [backupId, getAccessToken, setError]);
 
   useEffect(() => {
-    void load();
+    const run = async () => {
+      await load();
+    };
+    void run();
   }, [load]);
 
   const openRestoreModal = async (tableName: string, pk: string, rk: string) => {

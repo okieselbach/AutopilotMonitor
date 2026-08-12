@@ -90,7 +90,10 @@ export function SectionMcpUsage() {
   }, [getAccessToken]);
 
   useEffect(() => {
-    fetchData(dateRange);
+    const run = async () => {
+      await fetchData(dateRange);
+    };
+    void run();
   }, [fetchData, dateRange]);
 
   // Aggregate by user

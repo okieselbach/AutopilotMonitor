@@ -62,10 +62,10 @@ export function DeletionManifestSummaryView({
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setSummary(null);
     (async () => {
+      setLoading(true);
+      setError(null);
+      setSummary(null);
       try {
         const resp = await authenticatedFetch(
           api.sessionDeletions.storedManifest(sessionId, tenantId, manifestId, "summary"),

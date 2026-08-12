@@ -225,7 +225,10 @@ export function SectionAgentMetrics() {
   // accounts refresh which would otherwise re-fire the effect after each
   // request and ping-pong the loading spinner.
   useEffect(() => {
-    fetchMetrics(sampleSize, windowDays);
+    const run = async () => {
+      await fetchMetrics(sampleSize, windowDays);
+    };
+    void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sampleSize, windowDays]);
 

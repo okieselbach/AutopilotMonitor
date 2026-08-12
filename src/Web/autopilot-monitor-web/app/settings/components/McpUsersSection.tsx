@@ -88,8 +88,10 @@ export default function McpUsersSection() {
   }, [getAccessToken]);
 
   useEffect(() => {
-    fetchMcpUsers();
-    fetchPlanTiers();
+    const run = async () => {
+      await Promise.all([fetchMcpUsers(), fetchPlanTiers()]);
+    };
+    void run();
   }, [fetchMcpUsers, fetchPlanTiers]);
 
   const handlePolicyChange = useCallback(async (newPolicy: McpPolicy) => {

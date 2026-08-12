@@ -63,7 +63,10 @@ export default function TpmIncompatibleDevicesInsights({
   }, [getAccessToken]);
 
   useEffect(() => {
-    fetchData();
+    const run = async () => {
+      await fetchData();
+    };
+    void run();
   }, [fetchData]);
 
   if (!data || data.aggregated.length === 0) {

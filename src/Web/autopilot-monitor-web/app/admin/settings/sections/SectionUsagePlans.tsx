@@ -57,7 +57,10 @@ export function SectionUsagePlans() {
   }, [getAccessToken]);
 
   useEffect(() => {
-    fetchTiers();
+    const run = async () => {
+      await fetchTiers();
+    };
+    void run();
   }, [fetchTiers]);
 
   const handleSave = useCallback(async () => {

@@ -112,17 +112,23 @@ export function UnmappedSoftwareTab({
 
   // Load on mount + whenever the page index changes
   useEffect(() => {
-    fetchPage(currentPage);
+    const run = async () => {
+      await fetchPage(currentPage);
+    };
+    void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage]);
 
   // Refresh when parent signals (e.g. item restored from ignored tab) — reset to page 0
   useEffect(() => {
     if (refreshTrigger > 0) {
-      setSavedMappings(new Set());
-      setSelectedEntries(new Map());
-      if (currentPage !== 0) setCurrentPage(0);
-      else fetchPage(0);
+      const run = async () => {
+        setSavedMappings(new Set());
+        setSelectedEntries(new Map());
+        if (currentPage !== 0) setCurrentPage(0);
+        else await fetchPage(0);
+      };
+      void run();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshTrigger]);

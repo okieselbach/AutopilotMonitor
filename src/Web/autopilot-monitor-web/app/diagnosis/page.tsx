@@ -158,33 +158,39 @@ function DiagnosisContent() {
   useEffect(() => {
     if (!sessionId) return;
     if (!globalAdminMode && !tenantId) return; // wait for real tenant ID
-    sessionIdRef.current = sessionId;
-    if (lastFetchedSessionId.current !== sessionId) {
-      hasInitialFetch.current = false;
-      lastFetchedSessionId.current = sessionId;
-      sessionFetchDone.current = false;
-      analysisFetchDone.current = false;
-      setSessionTenantId(null);
-      setLoading(true);
-    }
-    if (hasInitialFetch.current) return;
-    hasInitialFetch.current = true;
+    const run = async () => {
+      sessionIdRef.current = sessionId;
+      if (lastFetchedSessionId.current !== sessionId) {
+        hasInitialFetch.current = false;
+        lastFetchedSessionId.current = sessionId;
+        sessionFetchDone.current = false;
+        analysisFetchDone.current = false;
+        setSessionTenantId(null);
+        setLoading(true);
+      }
+      if (hasInitialFetch.current) return;
+      hasInitialFetch.current = true;
 
-    // Performance: eager-set sessionTenantId from TenantContext when known, so
-    // the events/analysis effect fires in parallel with fetchSessionDetails
-    // instead of waiting for its roundtrip — eliminates the fetch waterfall.
-    // Global Admins in all-tenant view fall through with null (backend resolves
-    // the tenant from the session itself).
-    if (!globalAdminMode && isGuid(tenantId)) {
-      setSessionTenantId(tenantId);
-    }
+      // Performance: eager-set sessionTenantId from TenantContext when known, so
+      // the events/analysis effect fires in parallel with fetchSessionDetails
+      // instead of waiting for its roundtrip — eliminates the fetch waterfall.
+      // Global Admins in all-tenant view fall through with null (backend resolves
+      // the tenant from the session itself).
+      if (!globalAdminMode && isGuid(tenantId)) {
+        setSessionTenantId(tenantId);
+      }
 
-    fetchSessionDetails();
+      await fetchSessionDetails();
+    };
+    void run();
   }, [sessionId, tenantId, globalAdminMode, fetchSessionDetails]);
 
   useEffect(() => {
     if (sessionTenantId && sessionId) {
-      Promise.all([fetchEvents(), fetchAnalysisResults()]);
+      const run = async () => {
+        await Promise.all([fetchEvents(), fetchAnalysisResults()]);
+      };
+      void run();
     }
   }, [sessionTenantId, sessionId, fetchEvents, fetchAnalysisResults]);
 

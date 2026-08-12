@@ -135,27 +135,30 @@ export function useSessionDetail({
     if (!sessionId) return;
     if (!globalAdminMode && !tenantId && !tenantIdOverride) return; // wait for a real target tenant
 
-    // Reset fetch flag only if navigating to a different session
-    if (lastFetchedSessionId.current !== sessionId) {
-      hasInitialFetch.current = false;
-      lastFetchedSessionId.current = sessionId;
-      setSessionTenantId(null);
-    }
+    const run = async () => {
+      // Reset fetch flag only if navigating to a different session
+      if (lastFetchedSessionId.current !== sessionId) {
+        hasInitialFetch.current = false;
+        lastFetchedSessionId.current = sessionId;
+        setSessionTenantId(null);
+      }
 
-    // Prevent duplicate fetches in React StrictMode (development double-mounting)
-    if (hasInitialFetch.current) return;
-    hasInitialFetch.current = true;
+      // Prevent duplicate fetches in React StrictMode (development double-mounting)
+      if (hasInitialFetch.current) return;
+      hasInitialFetch.current = true;
 
-    // Performance: eager-set sessionTenantId if we already know it from TenantContext.
-    // This lets dependent effects kick off fetchEvents/analysis/vulns/config in parallel
-    // with fetchSessionDetails instead of waiting for its roundtrip — eliminates a waterfall.
-    // Global Admins in all-tenant view fall through with null and keep the old behavior.
-    const knownTenantId = resolveEffectiveTenantId();
-    if (knownTenantId && isGuid(knownTenantId)) {
-      setSessionTenantId(knownTenantId);
-    }
+      // Performance: eager-set sessionTenantId if we already know it from TenantContext.
+      // This lets dependent effects kick off fetchEvents/analysis/vulns/config in parallel
+      // with fetchSessionDetails instead of waiting for its roundtrip — eliminates a waterfall.
+      // Global Admins in all-tenant view fall through with null and keep the old behavior.
+      const knownTenantId = resolveEffectiveTenantId();
+      if (knownTenantId && isGuid(knownTenantId)) {
+        setSessionTenantId(knownTenantId);
+      }
 
-    fetchSessionDetails();
+      await fetchSessionDetails();
+    };
+    void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, tenantId, globalAdminMode, tenantIdOverride, user]);
 

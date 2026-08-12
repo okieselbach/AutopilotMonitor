@@ -179,10 +179,13 @@ export function OpsEventsSection({
   // re-fire after every successful page-N click, race a page-1 fetch against
   // it, and snap the user back to page 1.
   useEffect(() => {
-    setContinuation(null);
-    setContinuationStack([]);
-    setPageNumber(1);
-    fetchEvents(null);
+    const run = async () => {
+      setContinuation(null);
+      setContinuationStack([]);
+      setPageNumber(1);
+      await fetchEvents(null);
+    };
+    void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categoryFilter, dateFromIso, dateToIso]);
 

@@ -58,7 +58,10 @@ function CustomsArchiveDetailContent() {
   }, [tenantId, historyRowKey, getAccessToken, setError]);
 
   useEffect(() => {
-    void load();
+    const run = async () => {
+      await load();
+    };
+    void run();
   }, [load]);
 
   const toggleExpand = useCallback(async (entry: CustomsArchiveEntrySummary) => {

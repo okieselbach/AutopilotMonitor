@@ -358,8 +358,11 @@ function AppDetailContent() {
   // wrong scope before the GA default-to-own-tenant has settled.
   useEffect(() => {
     if (!scopeInitialized) return;
-    setSessionsOffset(0);
-    Promise.all([fetchAnalytics(), fetchSessions(0, statusFilter)]);
+    const run = async () => {
+      setSessionsOffset(0);
+      await Promise.all([fetchAnalytics(), fetchSessions(0, statusFilter)]);
+    };
+    void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeInitialized, days, scopeKey]);
 

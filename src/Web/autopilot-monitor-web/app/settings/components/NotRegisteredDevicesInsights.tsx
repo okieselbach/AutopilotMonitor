@@ -62,7 +62,10 @@ export default function NotRegisteredDevicesInsights({
   }, [getAccessToken]);
 
   useEffect(() => {
-    fetchData();
+    const run = async () => {
+      await fetchData();
+    };
+    void run();
   }, [fetchData]);
 
   // Loading state

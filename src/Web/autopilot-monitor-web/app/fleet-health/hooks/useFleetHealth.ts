@@ -210,8 +210,11 @@ export function useFleetHealth({
   // previous-scope numbers don't linger if the refetch errors out.
   useEffect(() => {
     if (!scopeInitialized) return;
-    setData(null);
-    fetchData();
+    const run = async () => {
+      setData(null);
+      await fetchData();
+    };
+    void run();
     // fetchData is stable; scopeKey/days drive the refetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeInitialized, scopeKey, days]);

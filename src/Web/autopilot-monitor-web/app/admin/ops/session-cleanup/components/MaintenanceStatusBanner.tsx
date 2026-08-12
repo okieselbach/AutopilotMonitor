@@ -120,7 +120,10 @@ export function MaintenanceStatusBanner({
   }, [getAccessToken, setError]);
 
   useEffect(() => {
-    void fetchStatus();
+    const run = async () => {
+      await fetchStatus();
+    };
+    void run();
   }, [fetchStatus, refreshKey]);
 
   const triggerRun = useCallback(async () => {

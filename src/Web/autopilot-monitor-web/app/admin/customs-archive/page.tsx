@@ -43,7 +43,10 @@ export default function CustomsArchivePage() {
   }, [filter, getAccessToken, setError]);
 
   useEffect(() => {
-    void load();
+    const run = async () => {
+      await load();
+    };
+    void run();
   }, [load]);
 
   const confirmDelete = useCallback(async () => {

@@ -54,61 +54,64 @@ export function useProgressEvents({
 
   // Reset per-session fetch guard + events when the selected session changes
   useEffect(() => {
-    if (!session) {
-      lastFetchedSessionId.current = null;
-      setEvents([]);
-      return;
-    }
-    if (lastFetchedSessionId.current === session.sessionId) return;
-    lastFetchedSessionId.current = session.sessionId;
-    setEvents([]);
-
-    const fetchEvents = async () => {
-      try {
-        const response = await authenticatedFetch(
-          api.progress.sessionEvents(session.sessionId, tenantId),
-          getAccessToken,
-        );
-        if (response.ok) {
-          const data = await response.json();
-          const fetched: EnrollmentEvent[] = data.events || [];
-          setEvents((prev) => {
-            if (prev.length === 0) return fetched;
-            const existingIds = new Set(prev.map((e) => e.eventId));
-            const newEvents = fetched.filter((e) => !existingIds.has(e.eventId));
-            if (newEvents.length === 0) return prev;
-            return [...prev, ...newEvents].sort(
-              (a, b) => a.sequence - b.sequence,
-            );
-          });
-        } else {
-          addNotification(
-            "error",
-            "Backend Error",
-            `Failed to load enrollment events: ${response.statusText}`,
-            "progress-events-error",
-          );
-        }
-      } catch (error) {
-        if (error instanceof TokenExpiredError) {
-          addNotification(
-            "error",
-            "Session Expired",
-            error.message,
-            "session-expired-error",
-          );
-        } else {
-          console.error("Failed to fetch events:", error);
-          addNotification(
-            "error",
-            "Backend Not Reachable",
-            "Unable to load enrollment events. Please check your connection.",
-            "progress-events-error",
-          );
-        }
+    const run = async () => {
+      if (!session) {
+        lastFetchedSessionId.current = null;
+        setEvents([]);
+        return;
       }
+      if (lastFetchedSessionId.current === session.sessionId) return;
+      lastFetchedSessionId.current = session.sessionId;
+      setEvents([]);
+
+      const fetchEvents = async () => {
+        try {
+          const response = await authenticatedFetch(
+            api.progress.sessionEvents(session.sessionId, tenantId),
+            getAccessToken,
+          );
+          if (response.ok) {
+            const data = await response.json();
+            const fetched: EnrollmentEvent[] = data.events || [];
+            setEvents((prev) => {
+              if (prev.length === 0) return fetched;
+              const existingIds = new Set(prev.map((e) => e.eventId));
+              const newEvents = fetched.filter((e) => !existingIds.has(e.eventId));
+              if (newEvents.length === 0) return prev;
+              return [...prev, ...newEvents].sort(
+                (a, b) => a.sequence - b.sequence,
+              );
+            });
+          } else {
+            addNotification(
+              "error",
+              "Backend Error",
+              `Failed to load enrollment events: ${response.statusText}`,
+              "progress-events-error",
+            );
+          }
+        } catch (error) {
+          if (error instanceof TokenExpiredError) {
+            addNotification(
+              "error",
+              "Session Expired",
+              error.message,
+              "session-expired-error",
+            );
+          } else {
+            console.error("Failed to fetch events:", error);
+            addNotification(
+              "error",
+              "Backend Not Reachable",
+              "Unable to load enrollment events. Please check your connection.",
+              "progress-events-error",
+            );
+          }
+        }
+      };
+      await fetchEvents();
     };
-    fetchEvents();
+    void run();
   }, [session, tenantId, getAccessToken, addNotification]);
 
   const scheduleFetchEvents = useCallback(

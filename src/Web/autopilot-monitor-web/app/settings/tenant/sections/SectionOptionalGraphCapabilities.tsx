@@ -63,7 +63,12 @@ export function SectionOptionalGraphCapabilities() {
     }
   }, [tenantId, getAccessToken]);
 
-  useEffect(() => { void fetchStatus(); }, [fetchStatus]);
+  useEffect(() => {
+    const run = async () => {
+      await fetchStatus();
+    };
+    void run();
+  }, [fetchStatus]);
 
   const onRefresh = useCallback(async () => {
     if (!tenantId) return;

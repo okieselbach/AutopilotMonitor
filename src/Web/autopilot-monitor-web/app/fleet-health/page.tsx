@@ -103,7 +103,10 @@ export default function FleetHealthPage() {
   // App install metrics are already backend-aggregated; fetch alongside fleet data.
   useEffect(() => {
     if (!scopeInitialized) return;
-    fetchAppMetrics(timeRange);
+    const run = async () => {
+      await fetchAppMetrics(timeRange);
+    };
+    void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeInitialized, timeRange, scopeKey]);
 

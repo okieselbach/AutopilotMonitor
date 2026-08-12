@@ -80,7 +80,10 @@ export function SectionDelegatedAdmins() {
   }, [getAccessToken]);
 
   useEffect(() => {
-    fetchAssignments();
+    const run = async () => {
+      await fetchAssignments();
+    };
+    void run();
   }, [fetchAssignments]);
 
   const handleGrant = useCallback(async () => {

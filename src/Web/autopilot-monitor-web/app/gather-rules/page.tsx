@@ -106,10 +106,10 @@ export default function GatherRulesPage() {
   // badge showing the GA's HOME-tenant mode for every foreign tenant.)
   useEffect(() => {
     if (!effectiveTenantId) return;
-    // Reset first so a failed/forbidden fetch never carries the previous tenant's mode over.
-    setUnrestrictedMode(false);
     let stale = false;
-    const fetchConfig = async () => {
+    const run = async () => {
+      // Reset first so a failed/forbidden fetch never carries the previous tenant's mode over.
+      setUnrestrictedMode(false);
       try {
         const response = await authenticatedFetch(api.config.featureFlags(effectiveTenantId), getAccessToken);
         if (!stale && response.ok) {
@@ -120,7 +120,7 @@ export default function GatherRulesPage() {
         // Silently default to restricted mode
       }
     };
-    fetchConfig();
+    void run();
     return () => { stale = true; };
   }, [effectiveTenantId, getAccessToken]);
 

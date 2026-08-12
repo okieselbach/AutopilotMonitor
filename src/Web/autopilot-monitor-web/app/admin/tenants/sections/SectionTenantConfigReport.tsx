@@ -406,7 +406,10 @@ export function SectionTenantConfigReport() {
   }, [selectedTenantId, getAccessToken]);
 
   useEffect(() => {
-    fetchConfig();
+    const run = async () => {
+      await fetchConfig();
+    };
+    void run();
   }, [fetchConfig]);
 
   // Computed runtime

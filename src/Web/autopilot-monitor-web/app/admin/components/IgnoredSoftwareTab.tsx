@@ -59,7 +59,10 @@ export function IgnoredSoftwareTab({
   // Lazy load on mount
   useEffect(() => {
     if (!ignoredLoaded) {
-      fetchIgnoredSoftware();
+      const run = async () => {
+        await fetchIgnoredSoftware();
+      };
+      void run();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ignoredLoaded]);

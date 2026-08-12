@@ -85,8 +85,8 @@ export function RestoreBrowserTab({ getAccessToken, setError, setSuccessMessage 
     if (!onlyWithRestore || tenantsWithRestore !== null) return;
     const controller = new AbortController();
     let cancelled = false;
-    setLoadingRestoreFilter(true);
     (async () => {
+      setLoadingRestoreFilter(true);
       try {
         const resp = await authenticatedFetch(
           api.sessionDeletions.tenantsWithManifests(),
@@ -142,23 +142,24 @@ export function RestoreBrowserTab({ getAccessToken, setError, setSuccessMessage 
   // the operator never sees stale manifests / preview / restore-action that belong to the
   // previous tenant. Codex P2.
   useEffect(() => {
-    // Immediate clear: dropping the displayed data on switch means the operator never has a
-    // "this manifest from tenant A is selected while the dropdown says tenant B" moment.
-    setSessions(null);
-    setExpandedSessions(new Set());
-    setSelection(null);
-    setLoadedTenantId("");
-
-    if (!selectedTenantId) {
-      setLoadingSessions(false);
-      return;
-    }
-
     const controller = new AbortController();
     let cancelled = false;
-    setLoadingSessions(true);
 
     (async () => {
+      // Immediate clear: dropping the displayed data on switch means the operator never has a
+      // "this manifest from tenant A is selected while the dropdown says tenant B" moment.
+      setSessions(null);
+      setExpandedSessions(new Set());
+      setSelection(null);
+      setLoadedTenantId("");
+
+      if (!selectedTenantId) {
+        setLoadingSessions(false);
+        return;
+      }
+
+      setLoadingSessions(true);
+
       try {
         const resp = await authenticatedFetch(
           api.sessionDeletions.tenantManifests(selectedTenantId),

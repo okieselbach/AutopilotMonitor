@@ -117,7 +117,10 @@ export default function HardwareRejectionInsights({
   }, [getAccessToken]);
 
   useEffect(() => {
-    fetchData();
+    const run = async () => {
+      await fetchData();
+    };
+    void run();
   }, [fetchData]);
 
   // Loading state

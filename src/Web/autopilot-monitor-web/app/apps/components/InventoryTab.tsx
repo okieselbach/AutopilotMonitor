@@ -50,10 +50,10 @@ export default function InventoryTab({ scope }: { scope: SoftwareTabScope }) {
   useEffect(() => {
     if (!scopeInitialized) return;
     if (!isGlobalAdmin && !tenantId) return;
-    if (needsTenantPick) { setResp(null); setLoading(false); return; }
     let cancelled = false;
 
     const run = async () => {
+      if (needsTenantPick) { setResp(null); setLoading(false); return; }
       try {
         setLoading(true);
         const url = routeGlobal

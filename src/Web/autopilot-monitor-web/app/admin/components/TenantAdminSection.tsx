@@ -68,7 +68,10 @@ export function TenantAdminSection({
   };
 
   useEffect(() => {
-    fetchTenantAdmins(tenantId);
+    const run = async () => {
+      await fetchTenantAdmins(tenantId);
+    };
+    void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 

@@ -76,7 +76,10 @@ export function SectionMcpUsage() {
   }, [getAccessToken]);
 
   useEffect(() => {
-    fetchUsage(dateRange);
+    const run = async () => {
+      await fetchUsage(dateRange);
+    };
+    void run();
   }, [fetchUsage, dateRange]);
 
   // Aggregate records by date

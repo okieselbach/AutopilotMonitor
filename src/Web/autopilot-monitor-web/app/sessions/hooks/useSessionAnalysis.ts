@@ -68,7 +68,10 @@ export function useSessionAnalysis(
   // delay the analysis render.
   useEffect(() => {
     if (!sessionId || !sessionTenantId || !isGuid(sessionTenantId)) return;
-    Promise.all([fetchAnalysisResults(), fetchVulnerabilityReport()]);
+    const run = async () => {
+      await Promise.all([fetchAnalysisResults(), fetchVulnerabilityReport()]);
+    };
+    void run();
   }, [sessionId, sessionTenantId, fetchAnalysisResults, fetchVulnerabilityReport]);
 
   return {

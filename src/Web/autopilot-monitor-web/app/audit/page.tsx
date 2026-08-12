@@ -156,10 +156,13 @@ export default function AuditPage() {
     // delegated caller) so we don't fire a wasted request in the wrong scope. scopeKey changes on a
     // tenant/GA-mode switch → refetch from page 1.
     if (!scopeInitialized) return;
-    setContinuation(null);
-    setContinuationStack([]);
-    setPageNumber(1);
-    fetchPage(null, true);
+    const run = async () => {
+      setContinuation(null);
+      setContinuationStack([]);
+      setPageNumber(1);
+      await fetchPage(null, true);
+    };
+    void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeKey, scopeInitialized, dateFromIso, dateToIso, excludeDeletions]);
 

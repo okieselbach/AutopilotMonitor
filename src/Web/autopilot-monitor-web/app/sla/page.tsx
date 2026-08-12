@@ -176,7 +176,12 @@ export default function SlaPage() {
     }
   }, [effectiveTenantId, isGlobalOverride, months, getAccessToken, addNotification]);
 
-  useEffect(() => { fetchMetrics(); }, [fetchMetrics]);
+  useEffect(() => {
+    const run = async () => {
+      await fetchMetrics();
+    };
+    void run();
+  }, [fetchMetrics]);
 
   useEffect(() => {
     if (tenantId) trackEvent('sla_page_viewed', { months });

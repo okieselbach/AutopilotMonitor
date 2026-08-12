@@ -44,10 +44,9 @@ export function useSessionAnchorEvents({
     if (!sessionId) return;
     let aborted = false;
 
-    setLoading(true);
-    setError(null);
-
-    (async () => {
+    const run = async () => {
+      setLoading(true);
+      setError(null);
       try {
         const url = api.sessions.events(sessionId, tenantId);
         const response = await authenticatedFetch(url, getAccessToken);
@@ -68,7 +67,8 @@ export function useSessionAnchorEvents({
       } finally {
         if (!aborted) setLoading(false);
       }
-    })();
+    };
+    void run();
 
     return () => {
       aborted = true;

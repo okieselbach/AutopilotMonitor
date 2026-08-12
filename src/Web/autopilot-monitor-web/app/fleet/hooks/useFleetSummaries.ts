@@ -37,16 +37,16 @@ export function useFleetSummaries(tenantIds: string[], days: number, homeTenantI
   const key = [...tenantIds].sort().join(",");
 
   useEffect(() => {
-    if (tenantIds.length === 0) {
-      setSummaries({});
-      setLoading(false);
-      return;
-    }
-
     let cancelled = false;
-    setLoading(true);
 
     const run = async () => {
+      if (tenantIds.length === 0) {
+        setSummaries({});
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+
       const queue = [...tenantIds];
       const result: Record<string, FleetSummary> = {};
 
@@ -79,7 +79,7 @@ export function useFleetSummaries(tenantIds: string[], days: number, homeTenantI
       }
     };
 
-    run();
+    void run();
     return () => {
       cancelled = true;
     };

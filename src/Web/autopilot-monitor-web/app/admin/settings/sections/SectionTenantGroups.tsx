@@ -89,7 +89,10 @@ export function SectionTenantGroups() {
   }, [getAccessToken]);
 
   useEffect(() => {
-    fetchGroups();
+    const run = async () => {
+      await fetchGroups();
+    };
+    void run();
   }, [fetchGroups]);
 
   /** Runs a mutation with shared busy/error/refetch handling. `body` undefined ⇒ no JSON body. */

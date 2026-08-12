@@ -44,10 +44,9 @@ export function useSessionSignals({
     if (!sessionId) return;
     let aborted = false;
 
-    setLoading(true);
-    setError(null);
-
-    (async () => {
+    const run = async () => {
+      setLoading(true);
+      setError(null);
       try {
         const url = api.inspector.signals(sessionId, { tenantId, maxResults });
         const response = await authenticatedFetch(url, getAccessToken);
@@ -69,7 +68,8 @@ export function useSessionSignals({
       } finally {
         if (!aborted) setLoading(false);
       }
-    })();
+    };
+    void run();
 
     return () => {
       aborted = true;

@@ -176,7 +176,10 @@ function InFlightTab({
   }, [getAccessToken, setError]);
 
   useEffect(() => {
-    void fetchAll();
+    const run = async () => {
+      await fetchAll();
+    };
+    void run();
   }, [fetchAll, refreshKey]);
 
   return (
@@ -253,7 +256,10 @@ function PoisonedTab({
   }, [getAccessToken, setError]);
 
   useEffect(() => {
-    void fetchPoisoned();
+    const run = async () => {
+      await fetchPoisoned();
+    };
+    void run();
   }, [fetchPoisoned, refreshKey]);
 
   return (
@@ -353,7 +359,10 @@ function StrandedTab({
   }, [getAccessToken, setError]);
 
   useEffect(() => {
-    void fetchStranded();
+    const run = async () => {
+      await fetchStranded();
+    };
+    void run();
   }, [fetchStranded, refreshKey]);
 
   return (

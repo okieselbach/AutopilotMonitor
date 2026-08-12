@@ -21,12 +21,12 @@ export function useTenantList(
   const [tenantList, setTenantList] = useState<TenantListItem[]>([]);
 
   useEffect(() => {
-    if (!globalAdminMode) {
-      setTenantList([]);
-      return;
-    }
     let cancelled = false;
-    (async () => {
+    const run = async () => {
+      if (!globalAdminMode) {
+        setTenantList([]);
+        return;
+      }
       try {
         const res = await authenticatedFetch(api.config.all(), getAccessToken);
         if (!res.ok || cancelled) return;
@@ -40,7 +40,8 @@ export function useTenantList(
       } catch {
         // Non-critical — tenant autocomplete just won't work
       }
-    })();
+    };
+    void run();
     return () => { cancelled = true; };
   }, [globalAdminMode, getAccessToken]);
 

@@ -109,8 +109,10 @@ export default function HealthCheckPage() {
   // fast backend checks render immediately while the MCP probe (possible cold start) catches up.
   useEffect(() => {
     if (user && !hasRun) {
-      performHealthCheck();
-      performMcpCheck();
+      const run = async () => {
+        await Promise.all([performHealthCheck(), performMcpCheck()]);
+      };
+      void run();
     }
   }, [user, hasRun, performHealthCheck, performMcpCheck]);
 

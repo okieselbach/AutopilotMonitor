@@ -44,7 +44,10 @@ export default function BackupsListPage() {
   }, [getAccessToken, setError]);
 
   useEffect(() => {
-    void load();
+    const run = async () => {
+      await load();
+    };
+    void run();
   }, [load]);
 
   // Poll the active job until terminal, then refresh the list.
@@ -57,7 +60,10 @@ export default function BackupsListPage() {
       activeJob.state === "BlockedTerminal"
     ) {
       // Terminal — final refresh and stop polling.
-      void load();
+      const run = async () => {
+        await load();
+      };
+      void run();
       return;
     }
 

@@ -655,7 +655,10 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     if (!tenantId) return;
     if (!user?.isTenantAdmin && !user?.isGlobalAdmin) return;
-    fetchAdmins();
+    const run = async () => {
+      await fetchAdmins();
+    };
+    void run();
   }, [tenantId, user?.isTenantAdmin, user?.isGlobalAdmin, fetchAdmins]);
 
   // -----------------------------------------------------------------------
@@ -685,7 +688,10 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     // the per-tenant GA flag is the additive Community enable.
     const bootstrapAvailable = editionInfo.edition === "pro" || config?.bootstrapTokenEnabled;
     if (!tenantId || !bootstrapAvailable) return;
-    fetchBootstrapSessions();
+    const run = async () => {
+      await fetchBootstrapSessions();
+    };
+    void run();
   }, [tenantId, editionInfo.edition, config?.bootstrapTokenEnabled, fetchBootstrapSessions]);
 
   // -----------------------------------------------------------------------

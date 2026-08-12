@@ -156,7 +156,10 @@ export function SectionPlatformUsage() {
   useEffect(() => {
     // Fetch metrics on mount
     // Authorization is handled by admin layout ProtectedRoute
-    fetchMetrics();
+    const run = async () => {
+      await fetchMetrics();
+    };
+    void run();
   }, [fetchMetrics]);
 
   const formatDuration = (minutes: number) => {

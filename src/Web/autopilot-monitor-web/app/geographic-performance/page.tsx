@@ -187,12 +187,15 @@ export default function GeographicPerformancePage() {
 
   useEffect(() => {
     if (!scopeInitialized) return;
-    if (isTimeRangeMount.current) {
-      isTimeRangeMount.current = false;
-    } else {
-      setLoading(true);
-    }
-    fetchGeoMetrics(timeRange, groupBy);
+    const run = async () => {
+      if (isTimeRangeMount.current) {
+        isTimeRangeMount.current = false;
+      } else {
+        setLoading(true);
+      }
+      await fetchGeoMetrics(timeRange, groupBy);
+    };
+    void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeInitialized, timeRange, groupBy, scopeKey]);
 
