@@ -61,12 +61,20 @@ export default function AnnotationsPage() {
       setLoadError(null);
       try {
         const res = await authenticatedFetch(url, getAccessToken);
-        if (!res.ok) throw new Error(`Failed to load annotations: ${res.statusText}`);
+        if (res.status === 404) {
+          // Deploy skew: a backend without the route yet. Reads as "nothing annotated",
+          // never as an error — the empty state below carries the call to action.
+          if (!append) setRows([]);
+          setNextLink(null);
+          return;
+        }
+        if (!res.ok) throw new Error(res.statusText);
         const json = (await res.json()) as AnnotationsListResponse;
         setRows((prev) => (append ? [...prev, ...(json.annotations ?? [])] : (json.annotations ?? [])));
         setNextLink(json.nextLink ?? null);
-      } catch (err) {
-        setLoadError(err instanceof Error ? err.message : "Failed to load annotations");
+      } catch {
+        // Non-technical by design — the status text means nothing to the reader.
+        setLoadError("Annotations could not be loaded right now — please try again in a moment.");
       } finally {
         setLoading(false);
       }
@@ -124,7 +132,7 @@ export default function AnnotationsPage() {
             </div>
 
             {loadError ? (
-              <p className="text-sm text-red-600">{loadError}</p>
+              <p className="text-sm text-amber-700">{loadError}</p>
             ) : rows.length === 0 && !loading ? (
               <p className="text-sm text-gray-400">
                 No annotations yet. Open a session and record a verdict in its{" "}
