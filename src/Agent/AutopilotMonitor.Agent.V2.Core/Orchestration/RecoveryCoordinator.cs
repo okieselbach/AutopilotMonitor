@@ -283,6 +283,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             //         and rebuild from the full SignalLog. If the log itself is head-corrupt
             //         (file non-empty but ReadAll yields zero signals) we escalate to a total-
             //         loss quarantine of the log segments and start fresh.
+            //      a2) Snapshot parsed but carries a foreign DecisionState.SchemaVersion (written
+            //         by a different binary generation, e.g. across a self-update) → same
+            //         treatment as (a): the cache is untrustworthy, rebuild from the full log.
             //      b) Snapshot loaded cleanly → replay any SignalLog tail past the snapshot's
             //         LastAppliedSignalOrdinal so a pre-crash Journal/Snapshot lag is closed.
             //      c) No snapshot file — two sub-cases (Codex follow-up post-#50 #A):
@@ -361,6 +364,52 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 {
                     signalsToReplay = loggedSignals;
                     branchTag = "a-full-log-replay";
+                }
+
+                wasStartupQuarantine = true;
+            }
+            else if (loadedState != null
+                && !string.Equals(loadedState.SchemaVersion, DecisionState.CurrentSchemaVersion, StringComparison.Ordinal))
+            {
+                // Branch (a2) — Snapshot parsed, but it was written by a DIFFERENT DecisionState
+                // schema generation (e.g. the pre-self-update binary). Trusting it would let
+                // Newtonsoft silently default/drop any reshaped fields — the mid-session-amnesia
+                // class this check exists to prevent. The snapshot is only a cache: quarantine it
+                // and rebuild from the authoritative SignalLog. Signals carry their own
+                // KindSchemaVersion and replaying them through the CURRENT reducer is the defined
+                // upgrade path. (Snapshots that PREDATE the SchemaVersion field deserialize with
+                // CurrentSchemaVersion via the ctor fallback and are not detectable here — the
+                // guard protects every generation from v4 on.)
+                logger.Warning(
+                    $"EnrollmentOrchestrator: snapshot schema '{loadedState.SchemaVersion}' does not match " +
+                    $"current '{DecisionState.CurrentSchemaVersion}' — quarantining snapshot and rebuilding " +
+                    "state from the full SignalLog.");
+                snapshot.Quarantine($"schema-mismatch:{loadedState.SchemaVersion}->{DecisionState.CurrentSchemaVersion}");
+
+                var loggedSignals = signalLog.ReadAll();
+                var logFileInfo = new FileInfo(signalLogPath);
+                var logIsHeadCorrupt =
+                    logFileInfo.Exists && logFileInfo.Length > 0 && loggedSignals.Count == 0;
+
+                if (logIsHeadCorrupt)
+                {
+                    // Same escalation as branch (a): a cache we must not trust plus a log we
+                    // cannot read leaves nothing to rebuild from — total-loss quarantine.
+                    logger.Warning(
+                        "EnrollmentOrchestrator: SignalLog unreadable from the first line — escalating to total-loss quarantine.");
+                    SegmentQuarantine.QuarantineAll(
+                        stateDirectory, "log-head-corrupt-after-schema-mismatch", () => clock.UtcNow);
+
+                    signalLog = new SignalLogWriter(signalLogPath);
+                    journal = new JournalWriter(journalPath, () => clock.UtcNow);
+                    eventSequence = new EventSequencePersistence(eventSequencePath);
+
+                    branchTag = "a2-schema-mismatch-total-loss";
+                }
+                else
+                {
+                    signalsToReplay = loggedSignals;
+                    branchTag = "a2-schema-mismatch-full-log-replay";
                 }
 
                 wasStartupQuarantine = true;

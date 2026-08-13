@@ -420,6 +420,93 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             sut.Stop();
         }
 
+        // ================================================== Branch (a2): snapshot schema mismatch
+
+        [Fact]
+        public void Stale_schema_snapshot_is_quarantined_and_state_rebuilt_from_full_log()
+        {
+            // Self-update scenario: the pre-update binary persisted a snapshot under an older
+            // DecisionState schema generation. The new binary must NOT trust it (Newtonsoft
+            // would silently default reshaped fields) — the snapshot is a cache, so it gets
+            // quarantined and the state is rebuilt from the authoritative SignalLog.
+            using var rig = new Rig();
+            Directory.CreateDirectory(rig.StateDir);
+
+            var sigs = new[]
+            {
+                MakeSignal(0, DecisionSignalKind.SessionStarted),
+                MakeSignal(1, DecisionSignalKind.AppInstallCompleted),
+                MakeSignal(2, DecisionSignalKind.AppInstallCompleted),
+            };
+            var seedLog = new SignalLogWriter(Path.Combine(rig.StateDir, "signal-log.jsonl"));
+            foreach (var s in sigs) seedLog.Append(s);
+
+            // Snapshot = state after the first two signals, stamped with a FOREIGN schema
+            // version. It parses cleanly (valid checksum via Save), so only the version
+            // check can reject it.
+            var engine = new DecisionEngine();
+            var midState = ReducerReplay.Replay(
+                engine, DecisionState.CreateInitial("S1", "T1"), new[] { sigs[0], sigs[1] });
+            var staleBuilder = midState.ToBuilder();
+            staleBuilder.SchemaVersion = "v0-test-stale";
+            new SnapshotPersistence(Path.Combine(rig.StateDir, "snapshot.json"))
+                .Save(staleBuilder.Build());
+
+            var expected = ReducerReplay.Replay(
+                engine, DecisionState.CreateInitial("S1", "T1"), sigs);
+
+            var sut = rig.Build();
+            sut.Start();
+
+            // Full-log rebuild (not a tail replay): startup quarantine flagged, snapshot moved
+            // to a quarantine bucket whose reason names the schema mismatch, log untouched.
+            Assert.True(sut.WasStartupQuarantine);
+            Assert.Equal(expected.StepIndex, sut.CurrentState.StepIndex);
+            Assert.Equal(expected.LastAppliedSignalOrdinal, sut.CurrentState.LastAppliedSignalOrdinal);
+            Assert.Equal(DecisionState.CurrentSchemaVersion, sut.CurrentState.SchemaVersion);
+
+            Assert.False(File.Exists(Path.Combine(rig.StateDir, "snapshot.json")));
+            var reasons = Directory.GetFiles(rig.StateDir, "reason.txt", SearchOption.AllDirectories)
+                .Select(File.ReadAllText).ToList();
+            Assert.Contains(reasons, r => r.Contains("schema-mismatch:v0-test-stale"));
+
+            var signalLogPath = Path.Combine(rig.StateDir, "signal-log.jsonl");
+            Assert.True(File.Exists(signalLogPath));
+            Assert.True(new FileInfo(signalLogPath).Length > 0); // log NOT quarantined
+
+            sut.Stop();
+        }
+
+        [Fact]
+        public void Stale_schema_snapshot_with_unreadable_log_escalates_to_total_loss()
+        {
+            // Worst case: untrustworthy cache AND a log that is unreadable from the first
+            // line. Nothing remains to rebuild from — same total-loss escalation as the
+            // corrupt-snapshot branch, seeding a fresh Initial state.
+            using var rig = new Rig();
+            Directory.CreateDirectory(rig.StateDir);
+
+            var staleBuilder = DecisionState.CreateInitial("S1", "T1").ToBuilder();
+            staleBuilder.SchemaVersion = "v0-test-stale";
+            staleBuilder.StepIndex = 4;
+            new SnapshotPersistence(Path.Combine(rig.StateDir, "snapshot.json"))
+                .Save(staleBuilder.Build());
+
+            File.WriteAllText(
+                Path.Combine(rig.StateDir, "signal-log.jsonl"),
+                "not-json-at-all\n",
+                Encoding.UTF8);
+
+            var sut = rig.Build();
+            sut.Start();
+
+            Assert.True(sut.WasStartupQuarantine);
+            Assert.Equal(0, sut.CurrentState.StepIndex); // fresh Initial seed
+            Assert.Equal(DecisionState.CurrentSchemaVersion, sut.CurrentState.SchemaVersion);
+
+            sut.Stop();
+        }
+
         [Fact]
         public void Journal_ahead_of_replayed_state_triggers_phantom_truncate()
         {
