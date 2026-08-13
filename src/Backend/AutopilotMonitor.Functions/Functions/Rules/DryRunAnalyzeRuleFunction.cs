@@ -131,13 +131,14 @@ namespace AutopilotMonitor.Functions.Functions.Rules
         // switch is case-sensitive ("event_type", not "Event_Type"), and an unknown source/operator
         // silently evaluates to false in production — for a dry-run that silence is exactly the
         // confusion we want to catch up front.
-        private static readonly HashSet<string> KnownSources = new(StringComparer.Ordinal)
+        // internal: SharedManifestParityTests exports these into the cross-language manifest.
+        internal static readonly HashSet<string> KnownSources = new(StringComparer.Ordinal)
         {
             "event_type", "event_data", "event_data_array", "event_count",
             "phase_duration", "app_install_duration", "event_correlation",
         };
 
-        private static readonly HashSet<string> KnownOperators = new(StringComparer.OrdinalIgnoreCase)
+        internal static readonly HashSet<string> KnownOperators = new(StringComparer.OrdinalIgnoreCase)
         {
             "equals", "not_equals", "contains", "not_contains", "regex", "not_regex",
             "gt", "lt", "gte", "lte", "exists", "not_exists",
