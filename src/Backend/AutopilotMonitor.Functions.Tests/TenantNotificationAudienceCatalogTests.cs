@@ -17,6 +17,8 @@ public class TenantNotificationAudienceCatalogTests
     [InlineData("sla_breach", NotificationAudience.Member)]
     [InlineData("sla_consecutive_failures", NotificationAudience.Member)]
     [InlineData("sla_resolved", NotificationAudience.Member)]
+    [InlineData("rule_frequency_regression", NotificationAudience.Admin)]
+    [InlineData("app_version_duration_regression", NotificationAudience.Admin)]
     public void Resolve_KnownTypes_ReturnsExpectedAudience(string type, NotificationAudience expected)
     {
         Assert.Equal(expected, TenantNotificationAudienceCatalog.Resolve(type));

@@ -17,15 +17,18 @@ namespace AutopilotMonitor.Functions.Functions.Apps
         private readonly ILogger<GetAppAnalyticsFunction> _logger;
         private readonly IMetricsRepository _metricsRepo;
         private readonly ISessionRepository _sessionRepo;
+        private readonly IHardwareRejectionNotificationTracker _notificationTracker;
 
         public GetAppAnalyticsFunction(
             ILogger<GetAppAnalyticsFunction> logger,
             IMetricsRepository metricsRepo,
-            ISessionRepository sessionRepo)
+            ISessionRepository sessionRepo,
+            IHardwareRejectionNotificationTracker notificationTracker)
         {
             _logger = logger;
             _metricsRepo = metricsRepo;
             _sessionRepo = sessionRepo;
+            _notificationTracker = notificationTracker;
         }
 
         [Function("GetAppAnalytics")]
@@ -51,8 +54,12 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     days = parsedDays;
 
                 var summaries = await AppsAnalyticsHelper.LoadSummariesAsync(_metricsRepo, tenantId, days);
+                // Active duration-regression episodes for this app (fail-soft: empty on error).
+                var versionRegressions = (await _notificationTracker.GetAppVersionRegressionsAsync(tenantId))
+                    .Where(a => string.Equals(a.AppName, decodedAppName, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
                 var body = await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
-                    summaries, _sessionRepo, decodedAppName, days);
+                    summaries, _sessionRepo, decodedAppName, days, versionRegressions);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(body);

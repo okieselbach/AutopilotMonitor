@@ -8,9 +8,10 @@ namespace AutopilotMonitor.Shared.DataAccess
     /// <summary>
     /// Notification dedup store (one table, RowKey-prefixed key spaces). Subjects:
     /// hardware rejections per (tenant, manufacturer, model), TPM PSS incompatibilities per
-    /// (tenant, serial number) — both lifetime insert-once — and F3 rule-frequency
-    /// regressions per (tenant, ruleId), whose rows additionally carry the alert payload,
-    /// are refreshed while the episode stays active, and are deleted when the rate re-arms.
+    /// (tenant, serial number) — both lifetime insert-once — F3 rule-frequency
+    /// regressions per (tenant, ruleId), and app-version duration regressions per
+    /// (tenant, app, version). The regression key spaces additionally carry the alert
+    /// payload, are refreshed while the episode stays active, and are deleted on re-arm.
     /// </summary>
     public interface IHardwareRejectionNotificationTracker
     {
@@ -53,6 +54,30 @@ namespace AutopilotMonitor.Shared.DataAccess
 
         /// <summary>Active regression episodes of one tenant (RowKey-prefix scan; empty on failure — fail-soft reads).</summary>
         Task<List<RuleRegressionAlert>> GetRuleRegressionsAsync(string tenantId);
+
+        // --- App-version duration regressions (RowKey "appversionregression|{app}|{version}") ---
+
+        /// <summary>
+        /// Atomically opens a duration-regression episode for (tenantId, alert.AppName,
+        /// alert.CurrentVersion). Returns true when this pass owns the episode (caller fires
+        /// bell + ops event exactly once), false when an episode is already active or on
+        /// failure (fail-closed — never double-fire).
+        /// </summary>
+        Task<bool> TryRegisterAppVersionRegressionAsync(string tenantId, AppVersionRegressionAlert alert);
+
+        /// <summary>
+        /// Refreshes an active episode's numbers (medians, counts, LastEvaluatedAt) so the
+        /// versionRegressions[] block stays current. FirstNotifiedAt is carried from the alert
+        /// unchanged — the retention sweep re-arms on the ORIGINAL notification age.
+        /// Fail-soft; never fires notifications.
+        /// </summary>
+        Task RefreshAppVersionRegressionAsync(string tenantId, AppVersionRegressionAlert alert);
+
+        /// <summary>Closes an episode (median re-armed or the version drained out of the horizon). 404-tolerant.</summary>
+        Task DeleteAppVersionRegressionAsync(string tenantId, string appName, string currentVersion);
+
+        /// <summary>Active app-version regression episodes of one tenant (RowKey-prefix scan; empty on failure — fail-soft reads).</summary>
+        Task<List<AppVersionRegressionAlert>> GetAppVersionRegressionsAsync(string tenantId);
 
         /// <summary>
         /// Retention cleanup: deletes tracker rows whose FirstNotifiedAt is older than

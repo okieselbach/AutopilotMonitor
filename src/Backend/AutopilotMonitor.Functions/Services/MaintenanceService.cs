@@ -148,6 +148,9 @@ namespace AutopilotMonitor.Functions.Services
                 // aggregation so the window rows are fresh. Anchored on YESTERDAY — whole
                 // days only, a partial today would understate the window rate. Fail-soft.
                 await RunRuleRegressionRadarAsync(DateTime.UtcNow.Date.AddDays(-1));
+                // App-version duration regression radar: same episode/tracker pattern over the
+                // install summaries (trailing 35d horizon loaded internally). Fail-soft.
+                await RunAppVersionRegressionRadarAsync();
                 // F1 PR2: rolling 30d breakdown backfill + daily attribution aggregates. Owns
                 // its own window (NOT the snapshot-gated catch-up above) so late-terminating
                 // sessions still reach their StartedAt-date's aggregate. Fail-soft internally.
@@ -222,6 +225,7 @@ namespace AutopilotMonitor.Functions.Services
                 // Timer-path parity: radar re-runs are idempotent (tracker dedup), so a manual
                 // aggregation also re-evaluates regressions anchored on the aggregated date.
                 await RunRuleRegressionRadarAsync(dateToAggregate);
+                await RunAppVersionRegressionRadarAsync();
 
                 // Timer-path parity: manual maintenance also refreshes the attribution
                 // breakdowns + daily aggregates and the device-history/FTR rollups

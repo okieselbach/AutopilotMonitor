@@ -229,8 +229,13 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             List<AppInstallSummary> allSummaries,
             ISessionRepository sessionRepo,
             string appName,
-            int days)
+            int days,
+            IReadOnlyList<AppVersionRegressionAlert>? versionRegressions = null)
         {
+            // Active duration-regression episodes for THIS app (tracker rows; models serialize
+            // camelCase on the wire like the rule-stats regressions[] block).
+            var appVersionRegressions = versionRegressions ?? Array.Empty<AppVersionRegressionAlert>();
+
             var now = DateTime.UtcNow;
             var cutoff = now.AddDays(-days);
             var midpoint = now.AddDays(-days / 2.0);
@@ -275,7 +280,10 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     installerPhaseBreakdown = Array.Empty<object>(),
                     topFailureCodes = Array.Empty<object>(),
                     detectionLiesCount = 0,
-                    deviceModelBreakdown = Array.Empty<object>()
+                    deviceModelBreakdown = Array.Empty<object>(),
+                    // Lockstep with the full response: episodes can outlive the window's data
+                    // (e.g. a shrunk days= selection), so the block is still surfaced here.
+                    versionRegressions = appVersionRegressions
                 };
             }
 
@@ -313,12 +321,23 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     var vFailed = g.Count(s => s.Status == "Failed");
                     // Same PR0 convention as the top-level rate: skips are not attempts.
                     var vSucceeded = g.Count(s => s.Status == "Succeeded" && !MetricsMath.IsSkipTerminalState(s));
+                    // Same measured population as the top-level duration stats: succeeded,
+                    // non-skip, and a plausible observed duration (0s = start unobserved,
+                    // >6h = back-stamped batch — both excluded, never averaged in).
+                    var vDurations = g
+                        .Where(s => s.Status == "Succeeded" && !MetricsMath.IsSkipTerminalState(s))
+                        .Where(MetricsMath.HasMeasuredDuration)
+                        .Select(s => s.DurationSeconds)
+                        .ToList();
                     return new
                     {
                         appVersion = g.Key,
                         installs = vTotal,
                         failed = vFailed,
-                        failureRate = MetricsMath.TerminalFailureRatePct(vFailed, vSucceeded)
+                        failureRate = MetricsMath.TerminalFailureRatePct(vFailed, vSucceeded),
+                        measuredInstalls = vDurations.Count,
+                        medianDurationSeconds = Percentile(vDurations, 0.50),
+                        p95DurationSeconds = Percentile(vDurations, 0.95)
                     };
                 })
                 .OrderByDescending(v => v.installs)
@@ -421,7 +440,8 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 installerPhaseBreakdown,
                 topFailureCodes,
                 detectionLiesCount,
-                deviceModelBreakdown
+                deviceModelBreakdown,
+                versionRegressions = appVersionRegressions
             };
         }
 
@@ -586,7 +606,9 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             return date.AddDays(-diff);
         }
 
-        private static int Percentile(List<int> values, double percentile)
+        // Internal so AppVersionRegressionRadar shares the same nearest-rank convention
+        // (a third percentile implementation would invite subtle median drift).
+        internal static int Percentile(List<int> values, double percentile)
         {
             if (values.Count == 0) return 0;
             var sorted = values.OrderBy(v => v).ToList();

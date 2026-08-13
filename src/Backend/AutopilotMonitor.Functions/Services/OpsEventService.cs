@@ -542,6 +542,35 @@ namespace AutopilotMonitor.Functions.Services
                     lift,
                 });
 
+        /// <summary>
+        /// App-version duration regression radar: an app's newest version installs with a median
+        /// duration ≥2× (and ≥5 min absolute) over the previous version's median. Fired ONCE per
+        /// (app, version) episode (the notification-tracker row is the dedup); the message
+        /// carries the full numbers so the event is verifiable without a portal round-trip.
+        /// Dual-registered in the web OPS_EVENT_TYPES catalog
+        /// (memory: feedback_ops_event_types_dual_register).
+        /// </summary>
+        public Task RecordAppVersionDurationRegressionAsync(
+            string tenantId, string appName, string currentVersion, string previousVersion,
+            int currentMedianSeconds, int previousMedianSeconds,
+            int currentMeasuredCount, int previousMeasuredCount, double lift)
+            => WriteAsync(OpsEventCategory.Tenant, "AppVersionDurationRegression", OpsEventSeverity.Warning,
+                $"App '{appName}' median install duration rose from {Math.Round(previousMedianSeconds / 60.0, 1)} to " +
+                $"{Math.Round(currentMedianSeconds / 60.0, 1)} min after version {currentVersion} " +
+                $"({currentMeasuredCount} measured installs vs {previousMeasuredCount} on {previousVersion}) — lift {lift}x",
+                tenantId, "System.Maintenance",
+                new
+                {
+                    appName,
+                    currentVersion,
+                    previousVersion,
+                    currentMedianSeconds,
+                    previousMedianSeconds,
+                    currentMeasuredCount,
+                    previousMeasuredCount,
+                    lift,
+                });
+
         // ── Agent ──────────────────────────────────────────────────────────────
 
         public Task RecordSessionTimeoutsAsync(string tenantId, int sessionCount, int timeoutHours)

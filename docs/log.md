@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-13 (later)
+
+* **Creation**: Added `backend/app-version-regression-radar.md` — app-version duration regression radar: per (tenant, app) the newest version's median measured install duration (nearest-rank; population Succeeded + non-skip + `HasMeasuredDuration` + no AppId collision + non-empty AppVersion) is compared against the previous version (first-seen ordering, never string sort); fires at median lift ≥2× AND ≥300s absolute with ≥10 measured installs on both sides. Episodes live as `appversionregression|{app}|{version}` tracker rows (one bell `app_version_duration_regression` + one `AppVersionDurationRegression` ops event per episode, refresh keeps `FirstNotifiedAt`, re-arm on drain/median-recovery/30d retention). Surfaces: `versionRegressions[]` + per-version `measuredInstalls`/`medianDurationSeconds`/`p95DurationSeconds` in the apps analytics responses, amber banner + duration-by-version chart on the apps detail page. Kill switch `AppVersionRegressionRadarDisabled`.
+
 ## 2026-08-13
 
 * **Update**: `backend/session-annotations.md` — the `/annotations` portal overview page now carries the standard tenant switcher (GA/Reader: "All tenants" aggregate + per-tenant drill-down via `GET global/session-annotations`; delegated: managed subset), with a tenant column and tenant-qualified session deep links. The global list endpoint now derives `excludeGlobalAdminLane` from `HasGlobalScope`, so delegated-rescue callers on their managed `?tenantId=` path never receive the platform-internal `globaladmin` lane (endpoint-test-pinned).

@@ -33,6 +33,8 @@ public static class TenantNotificationAudienceCatalog
         // F3 regression radar: rule-tuning is an admin concern (the alert deep-links into the
         // analyze-rules page, which members cannot act on).
         ["rule_frequency_regression"] = NotificationAudience.Admin,
+        // App-version duration regression radar: packaging/rollout is an admin concern.
+        ["app_version_duration_regression"] = NotificationAudience.Admin,
     };
 
     public static NotificationAudience Resolve(string? type)

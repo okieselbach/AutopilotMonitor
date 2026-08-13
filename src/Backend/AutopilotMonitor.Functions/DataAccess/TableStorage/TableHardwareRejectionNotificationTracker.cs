@@ -17,6 +17,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
     ///     cannot collide with a hardware key because no real manufacturer is named "tpmpss")
     ///   - F3 rule regression: "ruleregression|{ruleId-lower}" (trimmed; payload-carrying rows
     ///     that are refreshed while the episode is active and deleted on re-arm)
+    ///   - app-version duration regression: "appversionregression|{app-lower}|{version-lower}"
+    ///     (trimmed + table-key-sanitized; same payload-carrying episode semantics — raw
+    ///     AppName/CurrentVersion live in columns, the mapper never parses the RowKey)
     /// Race-safe via AddEntityAsync: Azure Table Storage returns 409 Conflict if the entity already exists.
     /// </summary>
     public class TableHardwareRejectionNotificationTracker : IHardwareRejectionNotificationTracker
@@ -251,6 +254,107 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return $"tpmpss|{sn}";
         }
 
+        public async Task<bool> TryRegisterAppVersionRegressionAsync(string tenantId, AppVersionRegressionAlert alert)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId)
+                || string.IsNullOrWhiteSpace(alert?.AppName)
+                || string.IsNullOrWhiteSpace(alert?.CurrentVersion))
+            {
+                return false;
+            }
+
+            try
+            {
+                await _table.AddEntityAsync(BuildAppVersionRegressionEntity(tenantId, alert!));
+                _logger.LogInformation(
+                    "AppVersionRegression tracker registered: tenant={TenantId} app={AppName} version={Version}",
+                    tenantId, alert!.AppName, alert!.CurrentVersion);
+                return true;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 409)
+            {
+                // Episode already active — one bell per (app, version) episode.
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "AppVersionRegression tracker failed: tenant={TenantId} app={AppName} version={Version}",
+                    tenantId, alert!.AppName, alert!.CurrentVersion);
+                // Fail closed so we do not double-fire if the row was actually written.
+                return false;
+            }
+        }
+
+        public async Task RefreshAppVersionRegressionAsync(string tenantId, AppVersionRegressionAlert alert)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId)
+                || string.IsNullOrWhiteSpace(alert?.AppName)
+                || string.IsNullOrWhiteSpace(alert?.CurrentVersion))
+            {
+                return;
+            }
+            try
+            {
+                // Replace-mode upsert with the FULL payload incl. the caller-carried
+                // FirstNotifiedAt — the retention sweep re-arms on the ORIGINAL age, so a
+                // refresh must never rejuvenate the row.
+                await _table.UpsertEntityAsync(BuildAppVersionRegressionEntity(tenantId, alert!), TableUpdateMode.Replace);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "AppVersionRegression tracker refresh failed: tenant={TenantId} app={AppName} version={Version} (stale numbers remain)",
+                    tenantId, alert!.AppName, alert!.CurrentVersion);
+            }
+        }
+
+        public async Task DeleteAppVersionRegressionAsync(string tenantId, string appName, string currentVersion)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId)
+                || string.IsNullOrWhiteSpace(appName)
+                || string.IsNullOrWhiteSpace(currentVersion))
+            {
+                return;
+            }
+            try
+            {
+                await _table.DeleteEntityAsync(
+                    tenantId.ToLowerInvariant(), BuildAppVersionRegressionRowKey(appName, currentVersion));
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                // Already gone (retention sweep or concurrent pass) — idempotent.
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "AppVersionRegression tracker delete failed: tenant={TenantId} app={AppName} version={Version} (episode stays until retention)",
+                    tenantId, appName, currentVersion);
+            }
+        }
+
+        public async Task<List<AppVersionRegressionAlert>> GetAppVersionRegressionsAsync(string tenantId)
+        {
+            var results = new List<AppVersionRegressionAlert>();
+            if (string.IsNullOrWhiteSpace(tenantId)) return results;
+            try
+            {
+                var partitionKey = tenantId.ToLowerInvariant();
+                // '}' (0x7D) sorts directly after '|' (0x7C) — prefix range over "appversionregression|…".
+                var filter = $"PartitionKey eq '{partitionKey}' and RowKey ge '{AppVersionRegressionRowKeyPrefix}' and RowKey lt 'appversionregression}}'";
+                await foreach (var entity in _table.QueryAsync<TableEntity>(filter: filter))
+                {
+                    results.Add(MapToAppVersionRegressionAlert(entity));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "AppVersionRegression tracker list failed for tenant {TenantId}", tenantId);
+            }
+            return results;
+        }
+
         internal const string RuleRegressionRowKeyPrefix = "ruleregression|";
 
         internal static string BuildRuleRegressionRowKey(string ruleId)
@@ -313,6 +417,70 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 WindowStartDate = entity.GetString("WindowStartDate") ?? string.Empty,
                 WindowEndDate = entity.GetString("WindowEndDate") ?? string.Empty,
                 Dimension = dimension,
+                FirstNotifiedAt = entity.GetDateTimeOffset("FirstNotifiedAt")?.UtcDateTime ?? DateTime.MinValue,
+                LastEvaluatedAt = entity.GetDateTimeOffset("LastEvaluatedAt")?.UtcDateTime ?? DateTime.MinValue,
+            };
+        }
+
+        internal const string AppVersionRegressionRowKeyPrefix = "appversionregression|";
+
+        /// <summary>
+        /// App names and versions are free-form agent payloads — they can contain characters
+        /// Azure Table keys reject ('/', '\', '#', '?'). Sanitized for the KEY only (worst case
+        /// two apps share an episode row — tolerable); the raw values live in columns and the
+        /// mapper reads them, never the RowKey.
+        /// </summary>
+        internal static string BuildAppVersionRegressionRowKey(string appName, string version)
+        {
+            var app = SanitizeTableKey((appName ?? string.Empty).Trim().ToLowerInvariant());
+            var ver = SanitizeTableKey((version ?? string.Empty).Trim().ToLowerInvariant());
+            return $"{AppVersionRegressionRowKeyPrefix}{app}|{ver}";
+        }
+
+        /// <summary>Replace characters not allowed in Azure Table Storage keys (/, \, #, ?).</summary>
+        private static string SanitizeTableKey(string key)
+        {
+            return key
+                .Replace("/", "_")
+                .Replace("\\", "_")
+                .Replace("#", "_")
+                .Replace("?", "_");
+        }
+
+        // internal static: entity builder + mapper are pinned by round-trip unit tests
+        // (table-storage-serialization rule — every property must survive Store→Map).
+        internal static TableEntity BuildAppVersionRegressionEntity(string tenantId, AppVersionRegressionAlert alert)
+        {
+            return new TableEntity(
+                tenantId.ToLowerInvariant(), BuildAppVersionRegressionRowKey(alert.AppName, alert.CurrentVersion))
+            {
+                ["TenantId"] = tenantId,
+                ["AppName"] = alert.AppName,
+                ["CurrentVersion"] = alert.CurrentVersion,
+                ["PreviousVersion"] = alert.PreviousVersion ?? string.Empty,
+                ["CurrentMedianSeconds"] = alert.CurrentMedianSeconds,
+                ["PreviousMedianSeconds"] = alert.PreviousMedianSeconds,
+                ["CurrentMeasuredCount"] = alert.CurrentMeasuredCount,
+                ["PreviousMeasuredCount"] = alert.PreviousMeasuredCount,
+                ["Lift"] = alert.Lift,
+                ["FirstNotifiedAt"] = alert.FirstNotifiedAt,
+                ["LastEvaluatedAt"] = alert.LastEvaluatedAt,
+            };
+        }
+
+        internal static AppVersionRegressionAlert MapToAppVersionRegressionAlert(TableEntity entity)
+        {
+            return new AppVersionRegressionAlert
+            {
+                TenantId = entity.GetString("TenantId") ?? entity.PartitionKey,
+                AppName = entity.GetString("AppName") ?? string.Empty,
+                CurrentVersion = entity.GetString("CurrentVersion") ?? string.Empty,
+                PreviousVersion = entity.GetString("PreviousVersion") ?? string.Empty,
+                CurrentMedianSeconds = entity.GetInt32("CurrentMedianSeconds") ?? 0,
+                PreviousMedianSeconds = entity.GetInt32("PreviousMedianSeconds") ?? 0,
+                CurrentMeasuredCount = entity.GetInt32("CurrentMeasuredCount") ?? 0,
+                PreviousMeasuredCount = entity.GetInt32("PreviousMeasuredCount") ?? 0,
+                Lift = entity.GetDouble("Lift") ?? 0,
                 FirstNotifiedAt = entity.GetDateTimeOffset("FirstNotifiedAt")?.UtcDateTime ?? DateTime.MinValue,
                 LastEvaluatedAt = entity.GetDateTimeOffset("LastEvaluatedAt")?.UtcDateTime ?? DateTime.MinValue,
             };

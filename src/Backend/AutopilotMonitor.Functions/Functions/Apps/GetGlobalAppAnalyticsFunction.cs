@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -17,15 +18,18 @@ namespace AutopilotMonitor.Functions.Functions.Apps
         private readonly ILogger<GetGlobalAppAnalyticsFunction> _logger;
         private readonly IMetricsRepository _metricsRepo;
         private readonly ISessionRepository _sessionRepo;
+        private readonly IHardwareRejectionNotificationTracker _notificationTracker;
 
         public GetGlobalAppAnalyticsFunction(
             ILogger<GetGlobalAppAnalyticsFunction> logger,
             IMetricsRepository metricsRepo,
-            ISessionRepository sessionRepo)
+            ISessionRepository sessionRepo,
+            IHardwareRejectionNotificationTracker notificationTracker)
         {
             _logger = logger;
             _metricsRepo = metricsRepo;
             _sessionRepo = sessionRepo;
+            _notificationTracker = notificationTracker;
         }
 
         [Function("GetGlobalAppAnalytics")]
@@ -61,8 +65,15 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     decodedAppName, userEmail, scopedTenantId ?? "<all>", days);
 
                 var summaries = await AppsAnalyticsHelper.LoadSummariesAsync(_metricsRepo, scopedTenantId, days);
+                // Episodes are per-tenant tracker rows; without a tenant scope the aggregated
+                // cross-tenant view carries none (mirrors the rule-stats global route).
+                var versionRegressions = string.IsNullOrEmpty(scopedTenantId)
+                    ? new List<AppVersionRegressionAlert>()
+                    : (await _notificationTracker.GetAppVersionRegressionsAsync(scopedTenantId!))
+                        .Where(a => string.Equals(a.AppName, decodedAppName, StringComparison.OrdinalIgnoreCase))
+                        .ToList();
                 var body = await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
-                    summaries, _sessionRepo, decodedAppName, days);
+                    summaries, _sessionRepo, decodedAppName, days, versionRegressions);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(body);

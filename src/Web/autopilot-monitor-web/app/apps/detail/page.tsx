@@ -51,6 +51,25 @@ interface VersionRow {
   installs: number;
   failed: number;
   failureRate: number;
+  /** Succeeded installs with a plausible observed duration — the basis of the median/p95 below. */
+  measuredInstalls: number;
+  medianDurationSeconds: number;
+  p95DurationSeconds: number;
+}
+
+/** Active duration-regression episode from the radar (tracker row, camelCase on the wire). */
+interface AppVersionRegressionRow {
+  tenantId: string;
+  appName: string;
+  currentVersion: string;
+  previousVersion: string;
+  currentMedianSeconds: number;
+  previousMedianSeconds: number;
+  currentMeasuredCount: number;
+  previousMeasuredCount: number;
+  lift: number;
+  firstNotifiedAt: string;
+  lastEvaluatedAt: string;
 }
 
 interface PhaseRow {
@@ -102,6 +121,7 @@ interface AnalyticsResponse {
   topFailureCodes: FailureCodeRow[];
   detectionLiesCount: number;
   deviceModelBreakdown: DeviceModelRow[];
+  versionRegressions: AppVersionRegressionRow[];
 }
 
 interface SessionRow {
@@ -527,6 +547,23 @@ function AppDetailContent() {
                 </Card>
               </div>
 
+              {/* Duration regression banner: active radar episodes for this app (bell-deduped
+                  server-side; this is the durable badge while the episode burns). */}
+              {(analytics.versionRegressions ?? []).length > 0 && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 space-y-1">
+                  {analytics.versionRegressions.map((reg) => (
+                    <p key={`${reg.appName}|${reg.currentVersion}`} className="text-sm text-amber-800">
+                      <span className="font-semibold">↑ Duration regression:</span>{" "}
+                      median install duration rose from {(reg.previousMedianSeconds / 60).toFixed(1)} to{" "}
+                      {(reg.currentMedianSeconds / 60).toFixed(1)} min after version{" "}
+                      <span className="font-mono">{reg.currentVersion}</span>{" "}
+                      ({reg.currentMeasuredCount} measured installs vs {reg.previousMeasuredCount} on{" "}
+                      <span className="font-mono">{reg.previousVersion}</span> — lift {reg.lift}x)
+                    </p>
+                  ))}
+                </div>
+              )}
+
               {/* Charts row 2: version breakdown + phase breakdown.
                   Each card is hidden when empty so the row collapses gracefully:
                   - Version: will appear once new agents emit AppVersion data
@@ -544,6 +581,17 @@ function AppDetailContent() {
                           const r = Number(row.failureRate);
                           return r >= 20 ? chartColors.danger : r >= 5 ? chartColors.warning : chartColors.success;
                         }}
+                      />
+                    </Card>
+                  )}
+                  {analytics.versionBreakdown.some((v) => v.measuredInstalls > 0) && (
+                    <Card title="Median Install Duration by Version">
+                      <AppBarChart
+                        data={analytics.versionBreakdown.filter((v) => v.measuredInstalls > 0) as unknown as Array<Record<string, unknown>>}
+                        categoryKey="appVersion"
+                        valueKey="medianDurationSeconds"
+                        valueFormatter={(v) => formatDuration(Number(v))}
+                        barColor={chartColors.primary}
                       />
                     </Card>
                   )}

@@ -108,6 +108,11 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // (Wilson-separated). Warning-tier, once per episode (tracker-deduped). Dual-register
     // per memory feedback_ops_event_types_dual_register.
     "RuleFrequencyRegression",
+    // App-version duration regression radar: an app's newest version installs with a median
+    // duration ≥2× (and ≥5 min absolute) over the previous version. Warning-tier, once per
+    // (app, version) episode (tracker-deduped). Dual-register per memory
+    // feedback_ops_event_types_dual_register.
+    "AppVersionDurationRegression",
     // Auto-activation audit: the tenant-auto-approve worker activated a new signup
     // (AutoApproveNewTenants enabled). Info-tier. Dual-register per memory
     // feedback_ops_event_types_dual_register.
