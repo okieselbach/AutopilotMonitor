@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
+import { dashboardUrl } from "@/lib/routes";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTenantList, type TenantInfo } from "@/hooks/useTenantList";
 import { delegatedScopedTenantList, upnDomain } from "@/utils/homeTenantScope";
@@ -114,7 +115,7 @@ function RollupTile({ label, value, tone = "default" }: { label: string; value: 
 function FleetCard({ tenant, summary }: { tenant: TenantInfo; summary?: FleetSummary }) {
   return (
     <Link
-      href={`/dashboard?tenant=${encodeURIComponent(tenant.tenantId)}`}
+      href={dashboardUrl({ tenant: tenant.tenantId })}
       className="block rounded-lg border border-gray-200 bg-white p-5 shadow-sm transition-colors hover:border-blue-400 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-blue-500"
     >
       <div className="flex items-center gap-2">

@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import Link from "next/link";
 import type { Route } from "next";
+import { dashboardUrl } from "@/lib/routes";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
 import { useSignalR } from "../../contexts/SignalRContext";
 import { useTenant } from "../../contexts/TenantContext";
@@ -196,11 +197,12 @@ export default function FleetHealthPage() {
   // model. The model key is "{Manufacturer} {Model}", which the dashboard search matches
   // against its combined manufacturer+model text. Carry the selected tenant so a global
   // admin scoped to one tenant lands on that tenant's list rather than their default scope.
-  const dashboardModelHref = (model: string): Route => {
-    const params = new URLSearchParams({ status: "Failed", search: model });
-    if (isGlobalAdmin && selectedTenantId) params.set("tenant", selectedTenantId);
-    return `/dashboard?${params.toString()}`;
-  };
+  const dashboardModelHref = (model: string): Route =>
+    dashboardUrl({
+      status: "Failed",
+      search: model,
+      tenant: isGlobalAdmin && selectedTenantId ? selectedTenantId : undefined,
+    });
   const topFailingModels = data?.topFailingModels ?? [];
   // Memoized (unlike the sibling defaults above) because it feeds the maxFailureCount
   // useMemo below — a fresh [] each render would invalidate that memo every time.

@@ -257,6 +257,10 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "metrics/usage",             EndpointPolicy.MemberRead),
         new("GET",    "metrics/sla",               EndpointPolicy.MemberRead),
         new("GET",    "metrics/rule-stats",        EndpointPolicy.MemberRead),
+        // Fleet-context deep link (session-detail analysis cards → dashboard rule filter):
+        // QueryParam scoping so the link works cross-tenant (GA/delegated drill-in) like
+        // metrics/device-history — no global duplicate needed.
+        new("GET",    "metrics/rule-hit-sessions", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         new("GET",    "metrics/vulnerability",     EndpointPolicy.MemberRead),
         new("GET",    "metrics/software-inventory", EndpointPolicy.MemberRead),
         new("GET",    "metrics/geographic",        EndpointPolicy.MemberRead),

@@ -31,6 +31,12 @@ interface UseDashboardFiltersParams {
   // to Failed + that model). Applied once as the initial state, then user-owned.
   initialSearchQuery?: string;
   initialStatusFilter?: string | null;
+  // Fleet-context deep link (`?ruleId=`): restrict to sessions where that rule fired.
+  // `ruleSessionIds === null` means the hit set is still loading — no filtering yet,
+  // so the list never flashes empty before the fetch resolves. The id string keys the
+  // page reset (the Set identity alone would reset on every fetch object).
+  ruleFilterId?: string | null;
+  ruleSessionIds?: Set<string> | null;
 }
 
 export interface UseDashboardFiltersReturn {
@@ -72,6 +78,8 @@ export function useDashboardFilters({
   loadMore,
   initialSearchQuery = "",
   initialStatusFilter = null,
+  ruleFilterId = null,
+  ruleSessionIds = null,
 }: UseDashboardFiltersParams): UseDashboardFiltersReturn {
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [statusFilter, setStatusFilter] = useState<string | null>(initialStatusFilter);
@@ -105,6 +113,7 @@ export function useDashboardFilters({
     searchQuery, statusFilter, sortColumn, sortDirection,
     serializeColumnFilters(columnFilters), sessionsPerPage,
     globalAdminMode, tenantIdFilter, tenantId ?? null,
+    ruleFilterId, ruleSessionIds === null ? -1 : ruleSessionIds.size,
   ]);
   const [prevPageResetKey, setPrevPageResetKey] = useState(pageResetKey);
   if (prevPageResetKey !== pageResetKey) {
@@ -140,6 +149,10 @@ export function useDashboardFilters({
 
   const filteredSessions = useMemo(() => {
     return effectiveSessions.filter((session) => {
+      // Fleet-context rule filter: only while the hit set is loaded (null = still
+      // loading → unfiltered, so the table never flashes empty before the fetch).
+      if (ruleSessionIds && !ruleSessionIds.has(session.sessionId)) return false;
+
       if (statusFilter && session.status !== statusFilter) return false;
 
       for (const [field, allowedValues] of Object.entries(columnFilters)) {
@@ -187,7 +200,7 @@ export function useDashboardFilters({
 
       return searchableText.includes(query);
     });
-  }, [effectiveSessions, statusFilter, columnFilters, searchQuery, blockedDevicesSet]);
+  }, [effectiveSessions, ruleSessionIds, statusFilter, columnFilters, searchQuery, blockedDevicesSet]);
 
   const sortedSessions = useMemo(() => {
     if (!sortColumn) return filteredSessions;

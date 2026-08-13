@@ -627,6 +627,7 @@ function SessionDetailContent() {
               onReanalyze={() => { trackEvent("analyze_now_clicked", { sessionId: sessionId ?? "" }); fetchAnalysisResults(true); }}
               canReanalyze={!isReadOnlyView}
               persistFailureRuleIds={persistFailureRuleIds}
+              sessionTenantId={sessionTenantId || undefined}
             />
             </div>
           )}

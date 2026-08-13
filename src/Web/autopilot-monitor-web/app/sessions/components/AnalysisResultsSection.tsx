@@ -1,11 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
+import type { Route } from "next";
 import { RuleResult } from "@/types";
 import { formatInlineMarkdown } from "@/lib/formatInlineMarkdown";
 import { interpolateRuleTemplate } from "@/lib/interpolateRuleTemplate";
 import { api } from "@/lib/api";
 import { authenticatedFetch } from "@/lib/authenticatedFetch";
+import { dashboardUrl } from "@/lib/routes";
+import { recentWindowStartIso, sumRecentFires } from "@/lib/ruleRecentFires";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTenant } from "@/contexts/TenantContext";
 
@@ -26,6 +30,10 @@ interface AnalysisResultsSectionProps {
   /** Hides the "Analyze Now" control when false — a read-only cross-tenant (delegated/MSP) viewer must not
    * trigger a re-analysis. Defaults to true, so own-tenant / Global Admin behavior is unchanged. */
   canReanalyze?: boolean;
+  /** The session's owning tenant. When it differs from the viewer's own tenant (GA/delegated
+   * drill-in) the rule-stats fetch switches to the global route scoped to THIS tenant, so the
+   * hit-rate and fleet-context numbers describe the session's fleet — not the viewer's. */
+  sessionTenantId?: string;
 }
 
 export default function AnalysisResultsSection({
@@ -36,35 +44,47 @@ export default function AnalysisResultsSection({
   onReanalyze,
   persistFailureRuleIds,
   canReanalyze = true,
+  sessionTenantId,
 }: AnalysisResultsSectionProps) {
   const { getAccessToken } = useAuth();
   const { tenantId } = useTenant();
   const [ruleHitRates, setRuleHitRates] = useState<Record<string, number>>({});
+  const [ruleRecentFires, setRuleRecentFires] = useState<Record<string, number>>({});
+
+  const crossTenant = !!sessionTenantId && !!tenantId && sessionTenantId !== tenantId;
 
   useEffect(() => {
     if (!tenantId || analysisResults.length === 0) return;
     const fetchStats = async () => {
       try {
-        const response = await authenticatedFetch(
-          api.metrics.ruleStats(undefined, undefined, "analyze"),
-          getAccessToken
-        );
+        // Cross-tenant viewers read the session tenant's stats via the global route;
+        // a 403 (viewer without that scope) degrades to no stats — better than
+        // showing the viewer's own-tenant numbers next to a foreign session.
+        const url = crossTenant
+          ? api.metrics.globalRuleStats(undefined, undefined, "analyze", sessionTenantId)
+          : api.metrics.ruleStats(undefined, undefined, "analyze");
+        const response = await authenticatedFetch(url, getAccessToken);
         if (response.ok) {
           const data = await response.json();
           const map: Record<string, number> = {};
+          const fires: Record<string, number> = {};
+          const windowStart = recentWindowStartIso(new Date(), 14);
           if (data.rules && Array.isArray(data.rules)) {
             for (const r of data.rules) {
               if (r.hitRate > 0) map[r.ruleId] = r.hitRate;
+              const recent = sumRecentFires(r.trend, windowStart);
+              if (recent > 0) fires[r.ruleId] = recent;
             }
           }
           setRuleHitRates(map);
+          setRuleRecentFires(fires);
         }
       } catch {
         // Non-critical
       }
     };
     fetchStats();
-  }, [tenantId, analysisResults.length, getAccessToken]);
+  }, [tenantId, crossTenant, sessionTenantId, analysisResults.length, getAccessToken]);
 
   return (
     <div className="bg-white shadow rounded-lg p-6 mb-6">
@@ -163,7 +183,16 @@ export default function AnalysisResultsSection({
           ) : (
             <div className="space-y-3">
               {analysisResults.map((result) => (
-                <AnalysisResultCard key={result.ruleId} result={result} hitRate={ruleHitRates[result.ruleId]} />
+                <AnalysisResultCard
+                  key={result.ruleId}
+                  result={result}
+                  hitRate={ruleHitRates[result.ruleId]}
+                  recentFires={ruleRecentFires[result.ruleId]}
+                  sessionsHref={dashboardUrl({
+                    ruleId: result.ruleId,
+                    tenant: crossTenant ? sessionTenantId : undefined,
+                  })}
+                />
               ))}
             </div>
           )}
@@ -173,7 +202,17 @@ export default function AnalysisResultsSection({
   );
 }
 
-function AnalysisResultCard({ result, hitRate }: { result: RuleResult; hitRate?: number }) {
+function AnalysisResultCard({
+  result,
+  hitRate,
+  recentFires,
+  sessionsHref,
+}: {
+  result: RuleResult;
+  hitRate?: number;
+  recentFires?: number;
+  sessionsHref: Route;
+}) {
   const [expanded, setExpanded] = useState(false);
 
   const severityColors: Record<string, string> = {
@@ -223,6 +262,22 @@ function AnalysisResultCard({ result, hitRate }: { result: RuleResult; hitRate?:
             {hitRate != null && hitRate > 0 && (
               <span className="text-xs text-gray-500 italic" title="Based on rule telemetry from the last 30 days">
                 Fires on {hitRate}% of enrollments in your tenant
+              </span>
+            )}
+            {recentFires != null && recentFires > 0 && (
+              <span
+                className="text-xs text-gray-500 italic"
+                title="May include this enrollment; based on rule telemetry (enrollments, not distinct devices)"
+              >
+                Fired in {recentFires} enrollment{recentFires === 1 ? "" : "s"} in the last 14 days
+                {" · "}
+                <Link
+                  href={sessionsHref}
+                  onClick={(e) => e.stopPropagation()}
+                  className="not-italic font-medium text-amber-700 hover:text-amber-800 underline"
+                >
+                  View sessions →
+                </Link>
               </span>
             )}
           </div>

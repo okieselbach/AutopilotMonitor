@@ -25,6 +25,8 @@ import { delegatedScopedTenantList, upnDomain } from "@/utils/homeTenantScope";
 import { useDashboardFilters } from "./hooks/useDashboardFilters";
 import { useDashboardSessions } from "./hooks/useDashboardSessions";
 import { useDashboardStats } from "./hooks/useDashboardStats";
+import { api } from "@/lib/api";
+import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { DOCS_URL } from "@/utils/config";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 
@@ -104,6 +106,13 @@ function HomeContent() {
   const initialStatusFilter = rawStatusParam && VALID_STATUS_FILTERS.has(rawStatusParam)
     ? rawStatusParam
     : null;
+  // `?ruleId=` deep-links the fleet-context filter — reached from a session-detail analysis
+  // card's "View sessions" link. The hit set (sessions where the rule fired, last 14 days)
+  // loads once from the backend; until it resolves the list stays unfiltered.
+  const initialRuleId = searchParams?.get("ruleId") ?? null;
+  const [ruleFilter, setRuleFilter] = useState<{ ruleId: string; sessionIds: Set<string> | null } | null>(
+    initialRuleId ? { ruleId: initialRuleId, sessionIds: null } : null
+  );
   const [tenantIdFilter, setTenantIdFilter] = useState(initialTenantFilter);
   // Mirrors the last filter value the user actually submitted (Submit / Clear).
   // Drives the stats refetch — server-side stats follow the submitted scope so
@@ -160,7 +169,49 @@ function HomeContent() {
     loadMore,
     initialSearchQuery,
     initialStatusFilter,
+    ruleFilterId: ruleFilter?.ruleId ?? null,
+    ruleSessionIds: ruleFilter?.sessionIds ?? null,
   });
+
+  // Resolve the rule filter's hit set once. Failure degrades to an empty set (the
+  // chip then reads "0 enrollments") — same fail-soft posture as the backend read.
+  useEffect(() => {
+    if (!ruleFilter || ruleFilter.sessionIds !== null) return;
+    let cancelled = false;
+    const fetchHits = async () => {
+      const ids = new Set<string>();
+      try {
+        const response = await authenticatedFetch(
+          api.metrics.ruleHitSessions(ruleFilter.ruleId, 14, initialTenantFilter || undefined),
+          getAccessToken
+        );
+        if (response.ok) {
+          const data = await response.json();
+          if (Array.isArray(data.sessionIds)) {
+            for (const id of data.sessionIds) ids.add(String(id));
+          }
+        }
+      } catch {
+        // Fail-soft: empty set below.
+      }
+      if (!cancelled) {
+        setRuleFilter((prev) =>
+          prev && prev.sessionIds === null ? { ...prev, sessionIds: ids } : prev
+        );
+      }
+    };
+    fetchHits();
+    return () => { cancelled = true; };
+  }, [ruleFilter, initialTenantFilter, getAccessToken]);
+
+  const clearRuleFilter = useCallback(() => {
+    setRuleFilter(null);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("ruleId");
+      window.history.replaceState(null, "", url.toString());
+    }
+  }, []);
 
   // Stats cards: server-side aggregation so the numbers don't drift with whatever
   // the client has paginated into view. Refreshes on SignalR newSession/newevents
@@ -455,6 +506,31 @@ function HomeContent() {
 
           {/* Welcome message - only show when no sessions */}
           {!loading && sessions.length === 0 && <WelcomeMessage />}
+
+          {/* Fleet-context rule filter chip (from a session-detail "View sessions" link). */}
+          {ruleFilter && (
+            <div className="mt-4 flex items-center">
+              <span
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50 border border-amber-300 text-sm text-amber-800"
+                title="Shows loaded sessions where this rule fired in the last 14 days. Only sessions already loaded are filtered — use Load more to widen."
+              >
+                <span className="font-medium">Rule:</span>
+                <span className="font-mono">{ruleFilter.ruleId}</span>
+                <span className="text-amber-600">
+                  {ruleFilter.sessionIds === null
+                    ? "loading…"
+                    : `${ruleFilter.sessionIds.size} enrollment${ruleFilter.sessionIds.size === 1 ? "" : "s"} · last 14 days`}
+                </span>
+                <button
+                  onClick={clearRuleFilter}
+                  aria-label="Clear rule filter"
+                  className="ml-1 text-amber-500 hover:text-amber-700 font-bold leading-none"
+                >
+                  ×
+                </button>
+              </span>
+            </div>
+          )}
 
           {/* Sessions List — skeleton fills the slot on the initial fetch so
               the page has no blank gap; once data (or the empty states above)

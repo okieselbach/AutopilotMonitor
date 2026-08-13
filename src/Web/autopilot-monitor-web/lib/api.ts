@@ -286,6 +286,8 @@ export const api = {
       })}`,
     ruleStats: (startDate?: string, endDate?: string, ruleType?: string) =>
       `${API_BASE_URL}/api/metrics/rule-stats${qs({ startDate, endDate, ruleType })}`,
+    ruleHitSessions: (ruleId: string, days?: number, tenantId?: string) =>
+      `${API_BASE_URL}/api/metrics/rule-hit-sessions${qs({ ruleId, days: days?.toString(), tenantId })}`,
     globalRuleStats: (startDate?: string, endDate?: string, ruleType?: string, tenantId?: string) =>
       `${API_BASE_URL}/api/global/metrics/rule-stats${qs({ startDate, endDate, ruleType, tenantId })}`,
     vulnerability: (days?: number, topN?: number) =>

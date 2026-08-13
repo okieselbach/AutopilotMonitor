@@ -54,6 +54,20 @@ export function appDetailUrl(
   });
 }
 
+export function dashboardUrl(opts?: {
+  status?: string;
+  search?: string;
+  tenant?: string;
+  ruleId?: string;
+}): Route {
+  return withQuery("/dashboard", {
+    status: opts?.status,
+    search: opts?.search,
+    tenant: opts?.tenant,
+    ruleId: opts?.ruleId,
+  });
+}
+
 export function backupUrl(backupId: string): Route {
   return withQuery("/admin/backups/detail", { id: backupId });
 }
