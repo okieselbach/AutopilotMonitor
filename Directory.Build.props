@@ -1,0 +1,11 @@
+<Project>
+  <!-- Warning freeze (2026-08-13, backlog cleared to zero): every .NET build in this repo
+       must stay warning-free. Compiler, MSBuild and NuGet restore warnings are all fatal.
+       Deliberately includes NuGet audit advisories (NU1901-NU1904): a newly published CVE
+       against a referenced package fails the build until it is bumped or mitigated
+       (fail-closed, same philosophy as the ops alert chain). -->
+  <PropertyGroup>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <MSBuildTreatWarningsAsErrors>true</MSBuildTreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>
