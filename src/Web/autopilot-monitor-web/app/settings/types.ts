@@ -60,7 +60,6 @@ export interface TenantConfiguration {
   homedAppClientId?: string | null;
   dataRetentionDays: number;
   sessionTimeoutHours: number;
-  customSettings?: string;
   // Agent collector settings
   enablePerformanceCollector: boolean;
   performanceCollectorIntervalSeconds: number;

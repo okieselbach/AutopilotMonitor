@@ -35,8 +35,9 @@ export const EXPORT_V1_PHASE_ORDER = ["Start", "Device Preparation", "Device Set
 export const EXPORT_V2_PHASE_ORDER = ["Start", "Device Preparation", "App Installation",
   "Finalizing Setup", "Complete", "Failed"];
 
-const SEVERITY_INT: Record<string, number> = {
-  Debug: 0, Info: 1, Warning: 2, Error: 3, Critical: 4
+// Exported for the shared-manifest parity test — must match the C# EventSeverity enum.
+export const SEVERITY_INT: Record<string, number> = {
+  Trace: -1, Debug: 0, Info: 1, Warning: 2, Error: 3, Critical: 4
 };
 
 export function generateCsvExport(events: SessionExportEvent[]) {

@@ -61,6 +61,18 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // PR2: GA restored a single row from a backup. Warning severity so operators
     // can wire a Telegram rule and see the audit in near-real-time.
     "BackupRowRestored",
+    // Orphan cleanup sweep (Warning): events whose parent session no longer exists were
+    // deleted during maintenance aggregation. Backend helper RecordOrphanEventsCleanedAsync.
+    "OrphanEventsCleaned",
+  ],
+  // SLA breach evaluation (SlaBreachEvaluationService). Dual-register per memory
+  // feedback_ops_event_types_dual_register. BreachNotification = Warning per tenant+type
+  // (cooldown-gated), ConsecutiveFailures = Error (threshold crossed), EvaluationCompleted =
+  // Info run summary. Backend helpers RecordSla{BreachNotification,ConsecutiveFailures,EvaluationCompleted}Async.
+  Sla: [
+    "SlaBreachNotification",
+    "SlaConsecutiveFailures",
+    "SlaEvaluationCompleted",
   ],
   Security: [
     "DeviceBlocked",
@@ -145,6 +157,7 @@ const SEVERITIES = ["Info", "Warning", "Error", "Critical"];
 const CATEGORY_COLORS: Record<string, string> = {
   Consent: "text-indigo-700 dark:text-indigo-300",
   Maintenance: "text-purple-700 dark:text-purple-300",
+  Sla: "text-rose-700 dark:text-rose-300",
   Security: "text-orange-700 dark:text-orange-300",
   Tenant: "text-teal-700 dark:text-teal-300",
   Agent: "text-cyan-700 dark:text-cyan-300",

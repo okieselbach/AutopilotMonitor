@@ -309,6 +309,9 @@ export const api = {
       `${API_BASE_URL}/api/apps/list${qs({ tenantId, days: String(days) })}`,
     analytics: (tenantId: string, appName: string, days: number) =>
       `${API_BASE_URL}/api/apps/${encodeURIComponent(appName)}/analytics${qs({ tenantId, days: String(days) })}`,
+    // model/version live in an options object: as trailing positional strings they sat
+    // adjacent to other optional strings, so a forgotten argument silently shifted the
+    // next one into its place (compiles fine, queries the wrong thing).
     sessions: (
       tenantId: string,
       appName: string,
@@ -316,8 +319,7 @@ export const api = {
       status: "all" | "failed" | "succeeded" = "all",
       offset = 0,
       limit = 50,
-      model?: string,
-      version?: string
+      opts?: { model?: string; version?: string }
     ) =>
       `${API_BASE_URL}/api/apps/${encodeURIComponent(appName)}/sessions${qs({
         tenantId,
@@ -325,8 +327,8 @@ export const api = {
         status,
         offset: String(offset),
         limit: String(limit),
-        model,
-        version,
+        model: opts?.model,
+        version: opts?.version,
       })}`,
 
     // Global Admin variants — tenantId is optional:
@@ -343,8 +345,7 @@ export const api = {
       offset = 0,
       limit = 50,
       tenantId?: string,
-      model?: string,
-      version?: string
+      opts?: { model?: string; version?: string }
     ) =>
       `${API_BASE_URL}/api/global/apps/${encodeURIComponent(appName)}/sessions${qs({
         days: String(days),
@@ -352,8 +353,8 @@ export const api = {
         offset: String(offset),
         limit: String(limit),
         tenantId,
-        model,
-        version,
+        model: opts?.model,
+        version: opts?.version,
       })}`,
   },
 

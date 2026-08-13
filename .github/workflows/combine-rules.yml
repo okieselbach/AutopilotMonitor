@@ -8,6 +8,7 @@ on:
       - 'rules/ime-log-patterns/**'
       - 'rules/schema/**'
       - 'rules/scripts/**'
+      - 'rules/guardrails.json'
   pull_request:
     paths:
       - 'rules/gather/**'
@@ -15,6 +16,7 @@ on:
       - 'rules/ime-log-patterns/**'
       - 'rules/schema/**'
       - 'rules/scripts/**'
+      - 'rules/guardrails.json'
 
 jobs:
   validate-and-combine:
@@ -55,9 +57,11 @@ jobs:
       - name: Combine rules into dist/
         run: node rules/scripts/combine.js
 
-      - name: Commit dist/ changes
+      - name: Commit generated outputs
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: stefanzweifel/git-auto-commit-action@v7
         with:
-          commit_message: "chore: regenerate rules/dist from individual files"
-          file_pattern: "rules/dist/*"
+          commit_message: "chore: regenerate rules/dist + generated TS from individual files"
+          # combine.js writes THREE outputs; committing only dist/ would silently discard
+          # the two generated TS modules and leave the guardrails-in-sync CI check red.
+          file_pattern: "rules/dist/* src/Web/autopilot-monitor-web/utils/guardrails.generated.ts src/McpServer/autopilot-monitor-mcp/src/rule-authoring.generated.ts"

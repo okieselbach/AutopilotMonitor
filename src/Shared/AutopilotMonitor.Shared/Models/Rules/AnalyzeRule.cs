@@ -211,7 +211,9 @@ namespace AutopilotMonitor.Shared.Models
         public string Signal { get; set; } = default!;
 
         /// <summary>
-        /// Source of the signal: "event_type", "event_data", "phase_duration", "event_count", "app_install_duration", "event_correlation"
+        /// Source of the signal: "event_type", "event_data", "event_data_array", "phase_duration",
+        /// "event_count", "app_install_duration", "event_correlation".
+        /// Must stay in sync with DryRunAnalyzeRuleFunction.KnownSources and the RuleEngine switch.
         /// </summary>
         public string Source { get; set; } = default!;
 
@@ -240,8 +242,10 @@ namespace AutopilotMonitor.Shared.Models
         public string ItemField { get; set; } = default!;
 
         /// <summary>
-        /// Comparison operator: "equals", "not_equals", "contains", "not_contains", "regex", "not_regex", "gt", "lt", "gte", "lte", "exists", "not_exists", "count_gte"
+        /// Comparison operator: "equals", "not_equals", "contains", "not_contains", "regex", "not_regex",
+        /// "gt", "lt", "gte", "lte", "exists", "not_exists", "count_gte", "count_per_group_gte", "in", "not_in".
         /// For "event_correlation": operator for the Event B filter (applied to DataField).
+        /// Must stay in sync with DryRunAnalyzeRuleFunction.KnownOperators.
         /// </summary>
         public string Operator { get; set; } = default!;
 

@@ -16,8 +16,10 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>
         /// Event upload debounce interval in seconds.
+        /// Sourced from the shared constant so the served value, the offline fallback and
+        /// this deserialization default can never diverge.
         /// </summary>
-        public int UploadIntervalSeconds { get; set; } = 30;
+        public int UploadIntervalSeconds { get; set; } = Constants.DefaultUploadIntervalSeconds;
 
         /// <summary>
         /// Whether to self-destruct after enrollment completion (remove Scheduled Task and all files).

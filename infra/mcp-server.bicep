@@ -25,7 +25,7 @@
 //      az deployment group create \
 //        --resource-group <rg-name> \
 //        --template-file infra/mcp-server.bicep \
-//        --parameters apiUrl=https://autopilotmonitor-api.azurewebsites.net \
+//        --parameters apiUrl=https://autopilotmonitor-api-eu.azurewebsites.net \
 //                     entraClientSecret=<secret-value>
 //      This emits `containerAppUrl` as an output (e.g. https://autopilotmonitor-mcp.<env-suffix>.<region>.azurecontainerapps.io).
 //

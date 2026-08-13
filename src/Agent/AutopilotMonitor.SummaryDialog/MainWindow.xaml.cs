@@ -869,9 +869,26 @@ namespace AutopilotMonitor.SummaryDialog
 
         private static string FormatPhaseName(string phase)
         {
-            // Convert "DeviceSetup" -> "Device Setup", "AccountSetup" -> "Account Setup"
             if (string.IsNullOrEmpty(phase)) return phase;
 
+            // Canonical display names, mirroring EnrollmentEvent.GetPhaseName in Shared.
+            // This dialog is deliberately dependency-free (standalone EXE), so the mapping is
+            // restated here instead of referencing Shared — the camel-case splitter below is
+            // only the fallback for unknown tokens and cannot produce "Apps (Device)".
+            switch (phase)
+            {
+                case "Start": return "Start";
+                case "DevicePreparation": return "Device Preparation";
+                case "DeviceSetup": return "Device Setup";
+                case "AppsDevice": return "Apps (Device)";
+                case "AccountSetup": return "Account Setup";
+                case "AppsUser": return "Apps (User)";
+                case "FinalizingSetup": return "Finalizing Setup";
+                case "Complete": return "Complete";
+                case "Failed": return "Failed";
+            }
+
+            // Fallback: "SomeNewPhase" -> "Some New Phase"
             var result = new System.Text.StringBuilder();
             for (int i = 0; i < phase.Length; i++)
             {

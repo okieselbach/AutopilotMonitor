@@ -322,7 +322,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
             return new AgentConfigResponse
             {
                 ConfigVersion = 0,
-                UploadIntervalSeconds = 30,
+                UploadIntervalSeconds = Shared.Constants.DefaultUploadIntervalSeconds,
                 SelfDestructOnComplete = true,
                 KeepLogFile = false,
                 EnableGeoLocation = true,

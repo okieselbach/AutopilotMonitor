@@ -38,7 +38,22 @@ export interface AdminConfiguration {
   opsEventRetentionDays?: number;
   slaNotificationCooldownHours?: number;
   diagnosticsGlobalLogPathsJson?: string;
-  customSettings?: string;
+  /** Max diagnostics download size in MB; blobs above are rejected (413). 0 = no limit. Default 500. */
+  maxDiagnosticsDownloadSizeMB?: number;
+  /** Timeout in seconds for the whole diagnostics download+stream. 0 = no timeout. Default 120. */
+  diagnosticsDownloadTimeoutSeconds?: number;
+  /** JSON tier name → rate limits/features, e.g. {"pro":{"apiRateLimit":300}}. */
+  planTierDefinitionsJson?: string;
+  /** MCP server access: "Disabled" | "WhitelistOnly" (default) | "AllMembers". */
+  mcpAccessPolicy?: string;
+  /** Global kill-switch for the in-app feedback prompt. Default true. */
+  feedbackEnabled?: boolean;
+  /** Minimum tenant age in days before the feedback prompt shows. Default 14. */
+  feedbackMinTenantAgeDays?: number;
+  /** Cooldown in days before a user is re-prompted for feedback. 0 = single wave. Default 60. */
+  feedbackCooldownDays?: number;
+  /** JSON list of ImeLogPattern IDs re-emitted as WhiteGloveSealingPatternDetected. Empty = off. */
+  whiteGloveSealingPatternIdsJson?: string;
   nvdApiKey?: string;
   vulnerabilityCorrelationEnabled?: boolean;
   vulnerabilityDataLastSyncUtc?: string;
@@ -52,12 +67,9 @@ export interface AdminConfiguration {
   opsAlertSlackWebhookUrl?: string;
   allowAgentDowngrade?: boolean;
   modernDeploymentHarmlessEventIdsJson?: string;
-  // Agent hash oracle (written by CI/CD / build scripts, surfaced read-only; must round-trip via Save to survive Replace)
-  latestAgentVersion?: string;
-  latestAgentSha256?: string;
-  latestAgentExeSha256?: string;
-  latestBootstrapScriptVersion?: string;
-  // V2 agent hash oracle (separate release line — written by scripts/Deployment/V2/*.ps1)
+  // V2 agent hash oracle (written by CI/CD / build scripts, surfaced read-only; must
+  // round-trip via Save to survive Replace). The V1-era latestAgent*/latestBootstrapScriptVersion
+  // fields were retired with the legacy agent line and no longer exist on the C# model.
   latestAgentV2Version?: string;
   latestAgentV2Sha256?: string;
   latestAgentV2ExeSha256?: string;

@@ -275,7 +275,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             await response.WriteAsJsonAsync(new AgentConfigResponse
             {
                 ConfigVersion = 37, // EnableEspContinueAnywayObservation (Continue-Anyway observation mode)
-                UploadIntervalSeconds = 10,
+                UploadIntervalSeconds = Shared.Constants.DefaultUploadIntervalSeconds,
                 SelfDestructOnComplete = tenantConfig.SelfDestructOnComplete ?? true,
                 KeepLogFile = tenantConfig.KeepLogFile ?? false,
                 EnableGeoLocation = tenantConfig.EnableGeoLocation ?? true,

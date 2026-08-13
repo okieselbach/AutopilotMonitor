@@ -40,7 +40,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         // or hour-long gaps that hide live UI from operators).
         private const int MinUploadIntervalSeconds = 5;
         private const int MaxUploadIntervalSeconds = 300;
-        private const int DefaultUploadIntervalSeconds = 30;
+        private const int DefaultUploadIntervalSeconds = Shared.Constants.DefaultUploadIntervalSeconds;
         private const int MinUploadBatchSize = 1;
         private const int MaxUploadBatchSize = 500;
         private const int DefaultUploadBatchSize = 100;

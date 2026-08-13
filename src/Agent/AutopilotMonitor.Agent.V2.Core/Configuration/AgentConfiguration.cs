@@ -39,7 +39,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
         /// <summary>
         /// Upload interval in seconds
         /// </summary>
-        public int UploadIntervalSeconds { get; set; } = 30;
+        public int UploadIntervalSeconds { get; set; } = Shared.Constants.DefaultUploadIntervalSeconds;
 
         /// <summary>
         /// Maximum batch size for events

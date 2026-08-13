@@ -238,9 +238,12 @@ namespace AutopilotMonitor.Shared
         public const int MaxBatchSize = 100;
 
         /// <summary>
-        /// Default upload interval in seconds (fallback timer; normal path uses FileSystemWatcher)
+        /// Default upload interval in seconds (fallback timer; normal path uses FileSystemWatcher).
+        /// Single source for this default: GetAgentConfigFunction serves it, AgentConfigResponse
+        /// and AgentConfiguration initialize from it, RemoteConfigService's offline fallback and
+        /// AgentRuntimeHost's clamp fallback reuse it — keep them referencing this constant.
         /// </summary>
-        public const int DefaultUploadIntervalSeconds = 30;
+        public const int DefaultUploadIntervalSeconds = 10;
 
         // -----------------------------------------------------------------------
         // API endpoint paths (relative to ApiBaseUrl)
