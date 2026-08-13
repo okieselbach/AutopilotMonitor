@@ -27,6 +27,7 @@ import { useDashboardSessions } from "./hooks/useDashboardSessions";
 import { useDashboardStats } from "./hooks/useDashboardStats";
 import { api } from "@/lib/api";
 import { authenticatedFetch } from "@/lib/authenticatedFetch";
+import { hasTenantReadScope } from "@/lib/tenantScope";
 import { DOCS_URL } from "@/utils/config";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 
@@ -216,7 +217,7 @@ function HomeContent() {
   // Stats cards: server-side aggregation so the numbers don't drift with whatever
   // the client has paginated into view. Refreshes on SignalR newSession/newevents
   // (debounced) and on SignalR reconnect to recover from any missed messages.
-  const isRegularUser = !!user && !user.isTenantAdmin && !user.isGlobalAdmin && !user.isGlobalReader && !user.isDelegated && user.role !== "Operator";
+  const isRegularUser = !!user && !hasTenantReadScope(user);
   const { stats: dashboardStats } = useDashboardStats({
     tenantId,
     globalAdminMode: crossTenant,
@@ -235,7 +236,7 @@ function HomeContent() {
   // delegated ("MSP") admin now STAYS on the dashboard (cross-tenant bounded session browser); their /fleet
   // card grid is the landing overview but they may browse sessions here. A read-only Global Reader stays too.
   useEffect(() => {
-    if (user && !user.isTenantAdmin && !user.isGlobalAdmin && !user.isGlobalReader && !user.isDelegated && user.role !== 'Operator') {
+    if (user && !hasTenantReadScope(user)) {
       router.replace("/progress");
     }
   }, [user, router]);

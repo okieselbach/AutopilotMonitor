@@ -791,13 +791,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return member.Role == null || member.Role == Constants.TenantRoles.Admin;
         }
 
-        public async Task<bool> IsTenantMemberAsync(string tenantId, string upn)
-        {
-            var member = await GetTenantMemberAsync(tenantId, upn);
-            if (member == null || !member.IsEnabled) return false;
-            return member.Role != Constants.TenantRoles.Viewer;
-        }
-
         // --- Helpers ---
 
         private static DelegatedAdminEntry MapToDelegatedEntry(DelegatedAdminEntity entity)

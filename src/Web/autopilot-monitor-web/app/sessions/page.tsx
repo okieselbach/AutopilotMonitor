@@ -625,7 +625,9 @@ function SessionDetailContent() {
               analysisExpanded={analysisExpanded}
               setAnalysisExpanded={setAnalysisExpanded}
               onReanalyze={() => { trackEvent("analyze_now_clicked", { sessionId: sessionId ?? "" }); fetchAnalysisResults(true); }}
-              canReanalyze={!isReadOnlyView}
+              // Viewer tier is see-everything/do-nothing: re-analysis is a recompute trigger,
+              // so it stays with Admin/GA/Operator (the backend serves it read-tier regardless).
+              canReanalyze={!isReadOnlyView && ((user?.isTenantAdmin ?? false) || (user?.isGlobalAdmin ?? false) || user?.role === "Operator")}
               persistFailureRuleIds={persistFailureRuleIds}
               sessionTenantId={sessionTenantId || undefined}
             />

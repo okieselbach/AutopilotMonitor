@@ -242,15 +242,6 @@ public class TenantAdminsService
     }
 
     /// <summary>
-    /// Checks if a user is a tenant member (Admin or Operator) and enabled.
-    /// </summary>
-    public async Task<bool> IsTenantMemberAsync(string tenantId, string? upn)
-    {
-        var role = await GetMemberRoleAsync(tenantId, upn);
-        return role != null && role.Role != Constants.TenantRoles.Viewer;
-    }
-
-    /// <summary>
     /// Checks if a user can manage bootstrap tokens (Admin, or Operator with CanManageBootstrapTokens).
     /// </summary>
     public async Task<bool> CanManageBootstrapAsync(string tenantId, string? upn)

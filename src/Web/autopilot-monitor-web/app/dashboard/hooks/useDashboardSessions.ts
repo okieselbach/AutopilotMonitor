@@ -8,6 +8,7 @@ import { extractContinuation } from "@/lib/paginationLink";
 import { asGuidOrUndefined } from "@/utils/inputValidation";
 import { boundTenantToDelegatedScope } from "@/utils/delegatedScope";
 import { isHomeTenantTarget } from "@/utils/homeTenantScope";
+import { hasTenantReadScope } from "@/lib/tenantScope";
 import type { NotificationType } from "@/contexts/NotificationContext";
 import type { Session } from "../types";
 
@@ -383,7 +384,7 @@ export function useDashboardSessions({
 
   // Initial fetch — gated on user role + tenant readiness
   useEffect(() => {
-    if (user && !user.isTenantAdmin && !user.isGlobalAdmin && !user.isGlobalReader && !user.isDelegated && user.role !== "Operator") {
+    if (user && !hasTenantReadScope(user)) {
       return; // regular users are redirected elsewhere; don't fetch
     }
     if (!globalAdminMode && !tenantId) return; // wait for real tenant ID

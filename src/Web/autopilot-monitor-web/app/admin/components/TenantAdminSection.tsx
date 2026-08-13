@@ -344,6 +344,7 @@ export function TenantAdminSection({
                         >
                           <option value="Admin">Admin</option>
                           <option value="Operator">Operator</option>
+                          <option value="Viewer">Viewer</option>
                         </select>
                         <button
                           onClick={() => handleToggleTenantAdmin(admin.upn, admin.isEnabled)}
@@ -441,6 +442,7 @@ export function TenantAdminSection({
               >
                 <option value="Admin">Admin</option>
                 <option value="Operator">Operator</option>
+                <option value="Viewer">Viewer</option>
               </select>
               <button
                 onClick={() => handleAddTenantAdmin()}

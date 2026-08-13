@@ -79,7 +79,6 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<bool> SetTenantMemberEnabledAsync(string tenantId, string upn, bool isEnabled);
         Task<TenantMember?> GetTenantMemberAsync(string tenantId, string upn);
         Task<bool> IsTenantAdminAsync(string tenantId, string upn);
-        Task<bool> IsTenantMemberAsync(string tenantId, string upn);
     }
 
     public class GlobalAdminEntry

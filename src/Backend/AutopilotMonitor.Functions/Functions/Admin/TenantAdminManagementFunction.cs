@@ -79,8 +79,17 @@ public class TenantAdminManagementFunction
             return badRequestResponse;
         }
 
-        // Determine role (default to Admin for backward compat)
-        var role = !string.IsNullOrWhiteSpace(body.Role) ? body.Role : AutopilotMonitor.Shared.Constants.TenantRoles.Admin;
+        // Determine role (default to Admin for backward compat), then validate against the
+        // allow-list so arbitrary strings never reach storage.
+        var requestedRole = !string.IsNullOrWhiteSpace(body.Role) ? body.Role : AutopilotMonitor.Shared.Constants.TenantRoles.Admin;
+        var role = TryCanonicalizeRole(requestedRole);
+        if (role == null)
+        {
+            var badRoleResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+            await badRoleResponse.WriteAsJsonAsync(new { error = $"Invalid role '{body.Role}'. Valid roles: Admin, Operator, Viewer." });
+            return badRoleResponse;
+        }
+
         var newAdmin = await _tenantAdminsService.AddTenantMemberAsync(requestCtx.TargetTenantId, body.Upn, upn!, role, body.CanManageBootstrapTokens);
 
         await _maintenanceRepo.LogAuditEntryAsync(
@@ -252,8 +261,17 @@ public class TenantAdminManagementFunction
             return badRequestResponse;
         }
 
+        // Validate against the allow-list so arbitrary strings never reach storage
+        var role = TryCanonicalizeRole(body.Role);
+        if (role == null)
+        {
+            var badRoleResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+            await badRoleResponse.WriteAsJsonAsync(new { error = $"Invalid role '{body.Role}'. Valid roles: Admin, Operator, Viewer." });
+            return badRoleResponse;
+        }
+
         // Prevent demoting yourself if you're the last Admin
-        if (adminUpn.Equals(upn, StringComparison.OrdinalIgnoreCase) && body.Role != AutopilotMonitor.Shared.Constants.TenantRoles.Admin)
+        if (adminUpn.Equals(upn, StringComparison.OrdinalIgnoreCase) && role != AutopilotMonitor.Shared.Constants.TenantRoles.Admin)
         {
             if (!requestCtx.IsGlobalAdmin)
             {
@@ -268,7 +286,7 @@ public class TenantAdminManagementFunction
             }
         }
 
-        var updated = await _tenantAdminsService.UpdateMemberPermissionsAsync(requestCtx.TargetTenantId, adminUpn, body.Role, body.CanManageBootstrapTokens);
+        var updated = await _tenantAdminsService.UpdateMemberPermissionsAsync(requestCtx.TargetTenantId, adminUpn, role, body.CanManageBootstrapTokens);
         if (!updated)
         {
             var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
@@ -285,16 +303,32 @@ public class TenantAdminManagementFunction
             new Dictionary<string, string>
             {
                 { "Action", "UpdatePermissions" },
-                { "Role", body.Role },
+                { "Role", role },
                 { "CanManageBootstrapTokens", body.CanManageBootstrapTokens.ToString() }
             }
         );
 
-        _logger.LogInformation("Member permissions updated: {AdminUpn} -> role={Role} in tenant {TenantId} by {Upn}", adminUpn, body.Role, requestCtx.TargetTenantId, upn);
+        _logger.LogInformation("Member permissions updated: {AdminUpn} -> role={Role} in tenant {TenantId} by {Upn}", adminUpn, role, requestCtx.TargetTenantId, upn);
 
         var response = req.CreateResponse(HttpStatusCode.OK);
         await response.WriteAsJsonAsync(new { message = "Member permissions updated successfully" });
         return response;
+    }
+
+    /// <summary>
+    /// Validates a requested tenant role against the allow-list (Admin/Operator/Viewer),
+    /// matching case-insensitively and canonicalizing to the exact constant casing so only
+    /// canonical values are ever persisted. Returns null for anything not in the allow-list.
+    /// </summary>
+    internal static string? TryCanonicalizeRole(string role)
+    {
+        string[] validRoles =
+        {
+            AutopilotMonitor.Shared.Constants.TenantRoles.Admin,
+            AutopilotMonitor.Shared.Constants.TenantRoles.Operator,
+            AutopilotMonitor.Shared.Constants.TenantRoles.Viewer
+        };
+        return validRoles.FirstOrDefault(v => string.Equals(v, role, StringComparison.OrdinalIgnoreCase));
     }
 }
 

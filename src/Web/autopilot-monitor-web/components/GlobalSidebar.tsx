@@ -170,7 +170,10 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
   // --- Visibility filtering ---
   const isTenantAdmin = user?.isTenantAdmin ?? false;
   const isOperator = user?.role === "Operator";
-  const isAdminOrOperator = isTenantAdmin || isOperator;
+  const isViewer = user?.role === "Viewer";
+  // Any resolved tenant role — Admin, Operator, or read-only Viewer. The Viewer sees the same
+  // monitoring/rules/operations/configuration nav; read-only is enforced inside the pages.
+  const isTenantMember = isTenantAdmin || isOperator || isViewer;
   const isGlobalAdmin = user?.isGlobalAdmin ?? false;
   const isDelegated = user?.isDelegated ?? false;
 
@@ -178,10 +181,10 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
     switch (group.visibility) {
       case "all": return true;
       // A GlobalReader is "GA minus writes" — it must see the SAME sidebar as a real GA. The standard
-      // monitoring/rules/operations/configuration groups are normally tenant-admin scope; open them to any
+      // monitoring/rules/operations/configuration groups are normally tenant-member scope; open them to any
       // platform scope so a pure GlobalReader (no own-tenant role) gets Fleet Health, Usage Metrics, SLA,
       // etc. Read-only is enforced inside the pages (useCanMutatePlatform + backend), not by hiding nav.
-      case "adminOrOperator": return isAdminOrOperator || hasGlobalScope;
+      case "tenantMember": return isTenantMember || hasGlobalScope;
       // The (purple) Global Admin section is gated on the Global View toggle — IDENTICAL to a real GA:
       // toggle off → hidden, toggle on → shown. Item-level globalAdminOnly entries (Settings/Ops/Software)
       // still drop out for a read-only reader via the item filter below.
@@ -221,8 +224,8 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
               if (sub.id === "cfg-agent-unrestricted") {
                 return isAdminLike && unrestrictedModeEnabled;
               }
-              // Tenant-admin-only sub-sections: Operators (read-only settings viewers) don't
-              // see them — matches the in-page "tenant administrators only" gates. A platform
+              // Tenant-admin-only sub-sections: Operators and Viewers (read-only settings
+              // viewers) don't see them — matches the in-page "tenant administrators only" gates. A platform
               // scope (GA / read-only GlobalReader) keeps the full GA-identical sidebar.
               if (sub.id === "cfg-autopilot" || sub.id === "cfg-access-mgmt" || sub.id === "cfg-offboarding") {
                 return isAdminLike || hasGlobalScope;
@@ -236,7 +239,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
         return { ...group, items: filteredItems };
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAdminOrOperator, hasGlobalScope, isGlobalAdmin, globalAdminMode, hasMcpAccess, isAdminLike, canManageBootstrapTokens, bootstrapTokenEnabled, unrestrictedModeEnabled]);
+  }, [isTenantMember, hasGlobalScope, isGlobalAdmin, globalAdminMode, hasMcpAccess, isAdminLike, canManageBootstrapTokens, bootstrapTokenEnabled, unrestrictedModeEnabled]);
 
   // Auto-expand the group containing the current pathname — adjust-during-render on
   // (pathname, visibleExpandableGroups). The groups identity matters too: on a hard
@@ -411,12 +414,12 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
 
   // Regular users see minimal nav. A read-only Global Reader has platform scope, and a delegated MSP admin
   // has fleet scope → both get the (group-filtered) nav rather than the minimal regular-user list.
-  const isRegularUser = !isAdminOrOperator && !hasFleetScope;
+  const isRegularUser = !isTenantMember && !hasFleetScope;
   // The Dashboard is the cross-tenant session browser. Own-tenant/platform users see their own/all
   // sessions; a delegated ("MSP") admin sees an aggregate across their managed tenants (bounded server-side)
   // with the tenant filter scoped to that subset — so they get the link too (the /fleet card grid stays
   // their landing overview).
-  const showDashboard = isAdminOrOperator || hasGlobalScope || isDelegated;
+  const showDashboard = isTenantMember || hasGlobalScope || isDelegated;
 
   const renderNavContent = (isMobile = false) => (
     <>

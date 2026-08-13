@@ -95,10 +95,16 @@ export default function AdminManagementSection({
             <div className="text-sm text-blue-800">
               <p className="font-medium">About Roles</p>
               <p className="mt-1">
-                <strong>Admin</strong> — Full access to all tenant configuration, sessions, diagnostics, and settings.
+                <strong>Member</strong> — No role assigned. Sees only the Progress Portal for their own enrollments.
               </p>
               <p className="mt-1">
-                <strong>Operator</strong> — Access to dashboard, sessions, and monitoring. Can optionally manage bootstrap tokens if permitted.
+                <strong>Viewer</strong> — Read-only access to everything: sessions, rules, settings, and reports. Cannot change anything or trigger actions.
+              </p>
+              <p className="mt-1">
+                <strong>Operator</strong> — Day-to-day operations: dashboard, sessions, and monitoring. Can optionally manage bootstrap tokens if permitted.
+              </p>
+              <p className="mt-1">
+                <strong>Admin</strong> — Full management: all tenant configuration, sessions, diagnostics, and settings.
               </p>
               <p className="mt-2">
                 <strong>Your email:</strong> {user?.upn}
@@ -220,6 +226,7 @@ export default function AdminManagementSection({
                                     >
                                       <option value="Admin">Admin</option>
                                       <option value="Operator">Operator</option>
+                                      <option value="Viewer">Viewer</option>
                                     </select>
                                     <button
                                       onClick={() => onToggleAdmin(admin.upn, admin.isEnabled)}
@@ -328,6 +335,7 @@ export default function AdminManagementSection({
               >
                 <option value="Admin">Admin</option>
                 <option value="Operator">Operator</option>
+                <option value="Viewer">Viewer</option>
               </select>
               <button
                 onClick={onAddAdmin}

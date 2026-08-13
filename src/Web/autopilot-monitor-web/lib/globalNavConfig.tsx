@@ -112,7 +112,11 @@ export interface NavGroup {
   id: string;
   label: string;
   items: NavItem[];
-  visibility: "all" | "adminOrOperator" | "globalAdmin" | "fleet";
+  /**
+   * "tenantMember" = any resolved tenant role (Admin, Operator, or read-only Viewer).
+   * Read-only enforcement happens inside the pages, not by hiding nav.
+   */
+  visibility: "all" | "tenantMember" | "globalAdmin" | "fleet";
   style?: "global";
 }
 
@@ -121,7 +125,7 @@ export interface ExpandableNavGroup {
   id: string;
   label: string;
   items: ExpandableNavItem[];
-  visibility: "all" | "adminOrOperator" | "globalAdmin";
+  visibility: "all" | "tenantMember" | "globalAdmin";
   style?: "global";
 }
 
@@ -158,7 +162,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     id: "monitoring",
     label: "Monitoring",
-    visibility: "adminOrOperator",
+    visibility: "tenantMember",
     items: [
       { id: "progress", label: "Progress Portal", href: "/progress", icon: <MonitorIcon /> },
       { id: "annotations", label: "Annotations", href: "/annotations", icon: <PencilSquareIcon /> },
@@ -172,7 +176,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     id: "rules",
     label: "Rules",
-    visibility: "adminOrOperator",
+    visibility: "tenantMember",
     items: [
       { id: "gather-rules", label: "Gather Rules", href: "/gather-rules", icon: <FolderIcon /> },
       { id: "analyze-rules", label: "Analyze Rules", href: "/analyze-rules", icon: <SparklesIcon /> },
@@ -182,7 +186,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     id: "operations",
     label: "Operations",
-    visibility: "adminOrOperator",
+    visibility: "tenantMember",
     items: [
       { id: "audit", label: "Audit Log", href: "/audit", icon: <ClipboardDocumentIcon /> },
       { id: "health-check", label: "System Health", href: "/health-check", icon: <HeartIcon /> },
@@ -196,7 +200,7 @@ export const EXPANDABLE_NAV_GROUPS: ExpandableNavGroup[] = [
   {
     id: "configuration",
     label: "Configuration",
-    visibility: "adminOrOperator",
+    visibility: "tenantMember",
     items: [
       {
         id: "cfg-tenant", label: "Tenant", icon: <BuildingOfficeIcon />,

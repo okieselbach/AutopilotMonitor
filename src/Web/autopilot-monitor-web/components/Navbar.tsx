@@ -118,15 +118,18 @@ export default function Navbar() {
 
   const isTenantAdmin = user?.isTenantAdmin ?? false;
   const isOperator = user?.role === 'Operator';
+  const isViewer = user?.role === 'Viewer';
   const isAdminOrOperator = isTenantAdmin || isOperator;
   // Tenant notification dismiss is currently tenant-shared (clearing for one user clears for
   // all). Only Admins / Global Admins are permitted to dismiss; Operators and Viewers see the
   // bell as read-only. See TenantNotificationContext + EndpointAccessPolicyCatalog.
   const canDismissTenant = isTenantAdmin || (user?.isGlobalAdmin ?? false);
 
-  // Regular users (non-Admin, non-Operator, no platform scope): show minimal navbar with only
-  // Progress Portal. A read-only Global Reader has platform scope → gets the full navbar.
-  if (!isAdminOrOperator && !hasGlobalScope) {
+  // Role-less members (no tenant role, no platform scope): show minimal navbar with only
+  // Progress Portal. Viewers get the full navbar (read-only tier — they see everything,
+  // mutating affordances stay gated elsewhere). A read-only Global Reader has platform
+  // scope → gets the full navbar.
+  if (!isAdminOrOperator && !isViewer && !hasGlobalScope) {
     return (
       <nav className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-30">
         <div className="px-3">

@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import type { Route } from "next";
 import { trustedRoute } from "../../lib/routes";
 import { consumePostLoginReturnUrl } from "../../lib/postLoginReturn";
+import { hasOwnTenantOrPlatformRole, hasTenantReadScope } from "../../lib/tenantScope";
 import { PORTAL_HOST, shouldCrossOriginToPortal } from "../../lib/hostRouting";
 
 /**
@@ -28,10 +29,10 @@ export function AuthGate() {
       } else if (returnUrl) {
         // Restore the deep link the user originally opened before re-auth.
         target = trustedRoute(returnUrl);
-      } else if (user.isDelegated && !user.isTenantAdmin && !user.isGlobalAdmin && !user.isGlobalReader && user.role !== 'Operator') {
+      } else if (user.isDelegated && !hasOwnTenantOrPlatformRole(user)) {
         // A delegated ("MSP") admin with no own-tenant/platform role manages a fleet → land on /fleet.
         target = "/fleet";
-      } else if (user.isTenantAdmin || user.isGlobalAdmin || user.isGlobalReader || user.role === 'Operator') {
+      } else if (hasTenantReadScope(user)) {
         target = "/dashboard";
       } else {
         target = "/progress";
