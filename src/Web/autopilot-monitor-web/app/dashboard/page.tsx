@@ -563,7 +563,7 @@ function HomeContent() {
               loadingMore={loadingMore}
               loadingAll={loadingAll}
               onLoadAll={loadAll}
-              onSearchAll={() => searchAll(searchQuery)}
+              onSearchAll={() => searchAll(searchQuery, { force: true })}
               adminMode={adminMode}
               globalAdminMode={crossTenant}
               tenantIdFilter={tenantIdFilter}

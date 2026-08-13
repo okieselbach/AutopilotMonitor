@@ -86,10 +86,14 @@ export interface UseDashboardSessionsReturn {
   /**
    * Server-side search sweep for the dashboard search box: fetches only sessions matching
    * the query (backend `q=` filter) and merges them into the loaded list, instead of
-   * downloading the whole history like loadAll(). Falls back to loadAll() for delegated
-   * (MSP) callers in cross-tenant mode — the global search route has no delegated tier.
+   * downloading the whole history like loadAll(). Runs at most ONCE per query (the
+   * auto-sweep effect refires on every loading-flag toggle; a sweep that adds no new
+   * sessions leaves the trigger conditions unchanged — without the guard that loops the
+   * same request forever). Pass force for the explicit "Search all sessions" button.
+   * Falls back to loadAll() for delegated (MSP) callers in cross-tenant mode — the
+   * global search route has no delegated tier.
    */
-  searchAll: (query: string) => void;
+  searchAll: (query: string, opts?: { force?: boolean }) => void;
   removeSession: (sessionId: string) => void;
 }
 
@@ -165,6 +169,15 @@ export function useDashboardSessions({
   // (the live ref updates per-keystroke; the filter input drives client-side display via
   // effectiveSessions but is NOT applied to the backend until Submit / refetch).
   const submittedTenantIdFilterRef = useRef<string>("");
+  // Last query a server sweep was started for. The auto-sweep effect in page.tsx refires
+  // whenever loadingMore toggles; a sweep whose matches are all already loaded changes
+  // nothing the effect watches, so without this once-per-query latch the same request
+  // would loop indefinitely (observed live post-deploy: ~6 req/s). Cleared on
+  // refetch/refetchWith/mode-toggle so a new backend scope may search again.
+  // (Declared with the other refs, BEFORE the callbacks that mutate it — the React
+  // compiler only recognizes ref mutations as legal when the useRef declaration
+  // precedes the closure.)
+  const lastServerSearchRef = useRef<string | null>(null);
 
   const hasInitialFetch = useRef(false);
   const hasGlobalModeInitialized = useRef(false);
@@ -327,6 +340,7 @@ export function useDashboardSessions({
   const refetch = useCallback(() => {
     loadAllTokenRef.current++; // cancel any in-flight progressive loader
     fetchGenRef.current++; // invalidate any in-flight loadMore result
+    lastServerSearchRef.current = null; // new backend scope → server search may run again
     // Capture the live filter as the new submitted scope — subsequent loadMore
     // calls will query under this filter regardless of further keystrokes.
     submittedTenantIdFilterRef.current = tenantIdFilterRef.current;
@@ -341,6 +355,7 @@ export function useDashboardSessions({
   const refetchWith = useCallback((tenantIdOverride: string) => {
     loadAllTokenRef.current++; // cancel any in-flight progressive loader
     fetchGenRef.current++; // invalidate any in-flight loadMore result
+    lastServerSearchRef.current = null; // new backend scope → server search may run again
     submittedTenantIdFilterRef.current = tenantIdOverride;
     setContinuation(null);
     setHasMore(false);
@@ -386,9 +401,14 @@ export function useDashboardSessions({
   // Server-side search sweep — see UseDashboardSessionsReturn.searchAll. Shares the
   // fetchLock/loadAllToken discipline with loadAll() so refetch/unmount cancels it and
   // the two sweeps can never interleave.
-  const searchAll = useCallback(async (query: string) => {
+  const searchAll = useCallback(async (query: string, opts?: { force?: boolean }) => {
     const q = query.trim();
     if (q.length < 2 || fetchLockRef.current) return;
+    if (!opts?.force && lastServerSearchRef.current === q) return;
+    // Latch BEFORE the first await — also on failure: retrying a failing query in a
+    // tight loop is exactly the storm this guard exists to prevent. The explicit
+    // "Search all sessions" button bypasses via force.
+    lastServerSearchRef.current = q;
 
     const rawFilter = submittedTenantIdFilterRef.current.trim();
     const homeSelected = isDelegatedScopeRef.current &&
@@ -599,6 +619,7 @@ export function useDashboardSessions({
     }
 
     fetchGenRef.current++; // invalidate any in-flight loadMore from the previous mode
+    lastServerSearchRef.current = null; // new backend scope → server search may run again
     submittedTenantIdFilterRef.current = tenantIdFilterRef.current;
     setSessions([]);
     setContinuation(null);
