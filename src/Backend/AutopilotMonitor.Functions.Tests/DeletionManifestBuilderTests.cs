@@ -293,6 +293,11 @@ public class DeletionManifestBuilderTests
         Assert.NotEqual(SessionId, tombstone.Rows[0].Rk);                          // SessionsIndex first
         Assert.Contains(SessionId, tombstone.Rows[0].Rk, StringComparison.Ordinal); // RK still references the session
         Assert.Equal(SessionId, tombstone.Rows[1].Rk);                              // Sessions row second
+
+        // FINAL rows carry their source table explicitly (DeletionStep.Table is null on this
+        // step); delete/restore route by it instead of the legacy RowKey-shape heuristic.
+        Assert.Equal(Constants.TableNames.SessionsIndex, tombstone.Rows[0].Table);
+        Assert.Equal(Constants.TableNames.Sessions, tombstone.Rows[1].Table);
     }
 
     [Fact]

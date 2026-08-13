@@ -605,7 +605,7 @@ public class PolicyEnforcementMiddlewareTests
         Assert.True(result.Allowed);
     }
 
-    // ── Transactional config patch / backups / revert — GlobalAdminOnly (phase 1) ──
+    // ── Transactional config patch (TenantAdminOrGA) / backups + revert (GlobalAdminOnly) ──
 
     [Fact]
     public async Task ConfigFieldPatchRoutes_GlobalAdmin_IsAllowed()
@@ -658,13 +658,12 @@ public class PolicyEnforcementMiddlewareTests
     }
 
     [Fact]
-    public async Task ConfigFieldPatchRoutes_TenantAdmin_GlobalReader_Delegated_AreForbidden()
+    public async Task ConfigBackupAndRevertRoutes_TenantAdmin_GlobalReader_Delegated_AreForbidden()
     {
-        // Phase 1 is deliberately GA-only — even the tenant's OWN admin is denied until the
-        // phase-2 flip to TenantAdminOrGA (+ the caller-tier field deny-list in the service).
+        // Backups + revert stay deliberately GA-only (operator restore surface) — even the
+        // tenant's OWN admin is denied. Only the PATCH line was widened in phase 2.
         foreach (var (method, path) in new[]
         {
-            ("PATCH", $"/api/config/{TenantA}/fields"),
             ("GET", $"/api/config/{TenantA}/backups"),
             ("POST", $"/api/config/{TenantA}/revert"),
         })
@@ -672,7 +671,7 @@ public class PolicyEnforcementMiddlewareTests
             var ownAdmin = BuildHarness();
             ownAdmin.AsTenantAdmin(TenantA, "admin@contoso.com");
             var adminResult = await ownAdmin.Middleware.DecideAsync(method, path, null, AuthedPrincipal(TenantA, "admin@contoso.com"));
-            Assert.False(adminResult.Allowed, $"{method} {path} must deny a tenant admin in phase 1");
+            Assert.False(adminResult.Allowed, $"{method} {path} must deny a tenant admin");
 
             var reader = BuildHarness();
             reader.AsGlobalRole(Constants.GlobalRoles.GlobalReader);
@@ -682,8 +681,47 @@ public class PolicyEnforcementMiddlewareTests
             var delegated = BuildHarness();
             delegated.AsDelegated(TenantA, Constants.DelegatedRoles.DelegatedAdmin);
             var delegatedResult = await delegated.Middleware.DecideAsync(method, path, null, AuthedPrincipal(TenantB, "msp@partner.example"));
-            Assert.False(delegatedResult.Allowed, $"{method} {path} must deny a delegated (MSP) admin in phase 1");
+            Assert.False(delegatedResult.Allowed, $"{method} {path} must deny a delegated (MSP) admin");
         }
+    }
+
+    [Fact]
+    public async Task ConfigFieldPatch_OwnTenantAdmin_IsAllowed()
+    {
+        // Phase 2: the web's per-section save PATCHes the caller's own config row. The
+        // GA-only field protection moved into the service's TenantAdmin caller tier
+        // (explicit 400 per field) — the route itself admits the own-tenant admin.
+        var h = BuildHarness();
+        h.AsTenantAdmin(TenantA, "admin@contoso.com");
+
+        var result = await h.Middleware.DecideAsync(
+            "PATCH", $"/api/config/{TenantA}/fields", null, AuthedPrincipal(TenantA, "admin@contoso.com"));
+
+        Assert.True(result.Allowed);
+    }
+
+    [Fact]
+    public async Task ConfigFieldPatch_ForeignTenant_Reader_Delegated_AreForbidden()
+    {
+        // RouteParam scoping: a tenant admin cannot patch ANOTHER tenant's row; the read-only
+        // Global Reader and delegated (MSP) admins stay excluded entirely.
+        var foreignAdmin = BuildHarness();
+        foreignAdmin.AsTenantAdmin(TenantA, "admin@contoso.com");
+        var foreignResult = await foreignAdmin.Middleware.DecideAsync(
+            "PATCH", $"/api/config/{TenantB}/fields", null, AuthedPrincipal(TenantA, "admin@contoso.com"));
+        Assert.False(foreignResult.Allowed, "own-tenant admin must not patch a foreign tenant's config");
+
+        var reader = BuildHarness();
+        reader.AsGlobalRole(Constants.GlobalRoles.GlobalReader);
+        var readerResult = await reader.Middleware.DecideAsync(
+            "PATCH", $"/api/config/{TenantA}/fields", null, AuthedPrincipal(TenantB, "reader@vendor.example"));
+        Assert.False(readerResult.Allowed, "read-only Global Reader must not patch config fields");
+
+        var delegated = BuildHarness();
+        delegated.AsDelegated(TenantA, Constants.DelegatedRoles.DelegatedAdmin);
+        var delegatedResult = await delegated.Middleware.DecideAsync(
+            "PATCH", $"/api/config/{TenantA}/fields", null, AuthedPrincipal(TenantB, "msp@partner.example"));
+        Assert.False(delegatedResult.Allowed, "delegated (MSP) admin must not patch config fields");
     }
 
     [Fact]

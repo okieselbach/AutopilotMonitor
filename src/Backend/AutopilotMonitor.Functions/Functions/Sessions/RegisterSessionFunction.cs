@@ -1,5 +1,6 @@
 using AutopilotMonitor.Shared;
 using System.Net;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Deletion;
@@ -241,14 +242,14 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             };
 
             // 1. Tenant-specific notification (normal users)
-            var tenantMessage = new SignalRMessageAction("newSession")
+            var tenantMessage = new SignalRMessageAction(Constants.SignalRMessages.NewSession)
             {
                 GroupName = $"tenant-{registration.TenantId}",
                 Arguments = new[] { messagePayload }
             };
 
             // 2. Global Admins notification (cross-tenant visibility)
-            var globalAdminMessage = new SignalRMessageAction("newSession")
+            var globalAdminMessage = new SignalRMessageAction(Constants.SignalRMessages.NewSession)
             {
                 GroupName = "global-admins",
                 Arguments = new[] { messagePayload }
@@ -313,7 +314,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                         "Superseded stale {StaleStatus} session {StaleSessionId} (started {StaleStartedAt:yyyy-MM-dd}) with new session {SessionId} for device serial (tenant {TenantId})",
                         stale.Status, stale.SessionId, stale.StartedAt, registration.SessionId, registration.TenantId);
 
-                    messages.Add(new SignalRMessageAction("newevents")
+                    messages.Add(new SignalRMessageAction(Constants.SignalRMessages.NewEvents)
                     {
                         GroupName = $"tenant-{registration.TenantId}",
                         Arguments = new object[] { new {
@@ -408,7 +409,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         [HttpResult]
         public HttpResponseData? HttpResponse { get; set; }
 
-        [SignalROutput(HubName = "autopilotmonitor")]
+        [SignalROutput(HubName = SignalRGroupHelper.HubName)]
         public SignalRMessageAction[]? SignalRMessages { get; set; }
     }
 }

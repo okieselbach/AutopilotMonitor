@@ -217,13 +217,14 @@ function DiagnosisContent() {
 
   // Real-time analysis updates
   useEffect(() => {
+    // eventStream carries { sessionId, tenantId, newEventCount, newRuleResults } — the full
+    // session object was removed from the payload long ago (see useSessionSignalR), so only
+    // the rule-result delta is consumed here.
     const handleEventStream = (data: {
       sessionId: string;
-      session: Session;
       newRuleResults?: RuleResult[];
     }) => {
       if (data.sessionId !== sessionIdRef.current) return;
-      if (data.session) setSession(data.session);
       if (data.newRuleResults?.length) {
         setAnalysisResults((prev) => {
           const existingIds = new Set(prev.map((r) => r.ruleId));

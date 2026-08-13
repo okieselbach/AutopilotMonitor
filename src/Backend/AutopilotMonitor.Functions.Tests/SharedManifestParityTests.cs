@@ -81,6 +81,9 @@ public sealed class SharedManifestParityTests
             ["analyzeRuleSources"] = DryRunAnalyzeRuleFunction.KnownSources.OrderBy(s => s, StringComparer.Ordinal).ToArray(),
             ["analyzeRuleOperators"] = DryRunAnalyzeRuleFunction.KnownOperators.OrderBy(s => s, StringComparer.Ordinal).ToArray(),
             ["eventTypes"] = ConstStrings(typeof(Constants.EventTypes)).OrderBy(s => s, StringComparer.Ordinal).ToArray(),
+            // Declaration order kept: the web derives a union type from this list, order is cosmetic
+            // but a stable order keeps the generated file diff-minimal.
+            ["signalRMessages"] = ConstStrings(typeof(Constants.SignalRMessages)),
         };
 
         var json = JsonSerializer.Serialize(manifest, new JsonSerializerOptions

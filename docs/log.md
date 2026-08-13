@@ -1,5 +1,11 @@
 # Log
 
+## 2026-08-13 (late evening)
+
+* **Creation**: Added `drift-guards.md` — the fragility-audit follow-up contracts (P5.x + P7): SignalR message-name catalog in `Constants.SignalRMessages`, exported through the shared manifest and typed into the web's `SignalRContext.on/off` union; the `RowKeyCodec` single encoder for inverted-tick RowKeys (persisted widths pinned, incl. UserActivity's legacy D20); `DeletionRowDump.Table` on tombstone rows with `DeletionTombstoneTables.Resolve` replacing the duplicated `Contains('_')` heuristic (legacy fallback retained one retention cycle); the shrink-only `OkAsyncBaselineGuardTests` per-file baseline (44 sites frozen); the Settings per-section PATCH (section field map + diff-based `config/{tenantId}/fields` writes on the TenantAdmin caller tier); and the web's `scopedApi` endpoint-pair builders, single admin-scope hook, `navVisibility` matrix and guard-consistency ratchet.
+
+* **Update**: `versioning.md` — the web portal joins the version contract commit-only: `public/version.json` generated at build time from `GITHUB_SHA`, served with `Cache-Control: no-store`, polled by `deploy-web.yml` until the deployed commit matches before `versions/web.json` is published.
+
 ## 2026-08-13 (evening)
 
 * **Creation**: Added `backend/lifecycle-manifests-and-session-scope.md` — the fragility-audit P5/P6 completeness nets: (1) `TableLifecycleBucketTests` classifies every `TableNames` constant into offboarding-wipe / per-session-cascade / kept-by-design (fixed en route: UsageMetrics wiped via the new RowKey-anchored SafeWipe Variant D — the exact-PK wipe matched 0 rows; PlatformStats tenant partition + ScriptNameCache added to the tenant-PK bucket); (2) `SessionIndexFieldManifest` as the declared SessionsIndex column set with bidirectional builder/reader test pinning, Replace-mode full rebuilds, and a fail-soft merge-key guard; (3) `ResolveSessionScopeAsync` as the single session-scope fallback (16 former copies), backed by the new `SessionTenantLookup` point-read table (scan fallback + self-heal, cascade step before the tombstone), plus the `RecomputeTriggerGate` 403 for reanalyze/rescan by read-only roles; (4) server-side dashboard free-text search (`q=`) with page-backfill loop and fingerprint binding, replacing the client's full-history loadAll sweep.

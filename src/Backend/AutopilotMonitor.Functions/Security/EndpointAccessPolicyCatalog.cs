@@ -414,12 +414,14 @@ public static class EndpointAccessPolicyCatalog
         new("PUT",    "global/config",             EndpointPolicy.GlobalAdminOnly),
         new("POST",   "global/config",             EndpointPolicy.GlobalAdminOnly),
         new("GET",    "config/all",                EndpointPolicy.GlobalReadOrDelegatedSubset),
-        // Transactional field-level config writes + snapshot list/revert (MCP-first surface).
-        // GlobalAdminOnly for now; phase 2 widens these three lines to TenantAdminOrGA (own row)
-        // and a delegated-admin write policy — the service's caller-tier field deny-lists and
-        // TenantScoping.RouteParam already carry the per-tenant guardrail. The backups GET is
-        // metadata-only (masked diff, never the raw EntityJson snapshot).
-        new("PATCH",  "config/{tenantId}/fields",  EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
+        // Transactional field-level config writes + snapshot list/revert (MCP + web Settings).
+        // PATCH is TenantAdminOrGA (phase 2, the web's per-section save): RouteParam binds a
+        // tenant admin to their OWN row, and the service's caller-tier deny-list turns the
+        // GA-only toggles into explicit 400s for the TenantAdmin tier. Backups GET + revert
+        // POST stay GlobalAdminOnly (operator-only restore surface; the backups GET is
+        // metadata-only — masked diff, never the raw EntityJson snapshot). Delegated (MSP)
+        // config writes remain a future policy decision.
+        new("PATCH",  "config/{tenantId}/fields",  EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("GET",    "config/{tenantId}/backups", EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
         new("POST",   "config/{tenantId}/revert",  EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
         // Field schema for the write surface above: tenant-independent reflection over the model

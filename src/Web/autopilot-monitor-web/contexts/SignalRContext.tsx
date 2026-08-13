@@ -5,6 +5,7 @@ import * as signalR from '@microsoft/signalr';
 import { api } from '@/lib/api';
 import { authenticatedFetch } from '@/lib/authenticatedFetch';
 import { trackEvent } from '@/lib/appInsights';
+import type { SignalRMessageName } from '@/lib/signalrMessages';
 import { useAuth } from './AuthContext';
 
 // Hub payloads are untyped JSON; mirror @microsoft/signalr's own callback signature so
@@ -15,8 +16,10 @@ interface SignalRContextType {
   connection: signalR.HubConnection | null;
   connectionState: signalR.HubConnectionState;
   connectionId: string | null;
-  on: (eventName: string, callback: SignalRHandler) => void;
-  off: (eventName: string, callback: SignalRHandler) => void;
+  // Event names are pinned to the backend's message-name catalog (shared manifest) so a
+  // subscription to a name the backend never sends is a compile error, not a silent no-op.
+  on: (eventName: SignalRMessageName, callback: SignalRHandler) => void;
+  off: (eventName: SignalRMessageName, callback: SignalRHandler) => void;
   invoke: (methodName: string, ...args: unknown[]) => Promise<unknown>;
   joinGroup: (groupName: string) => Promise<void>;
   leaveGroup: (groupName: string) => Promise<void>;
@@ -186,7 +189,7 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
     // connection. onclose clears the joined-group tracking, and every consumer hook re-joins on
     // the next Connected transition — through the join endpoint, which re-runs authorization
     // against the fresh scope. Revoked groups 403; still-authorized streams recover automatically.
-    newConnection.on('accessRevoked', async () => {
+    newConnection.on('accessRevoked' satisfies SignalRMessageName, async () => {
       // Dropping an event that arrives mid-restart is safe: the rejoin after start() re-runs
       // authorization against the CURRENT scope, which already reflects that later revoke.
       if (revokeRestartInFlightRef.current) return;
@@ -224,13 +227,13 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
     };
   }, [isAuthenticated, getAccessToken, syncJoinedGroups]);
 
-  const on = (eventName: string, callback: SignalRHandler) => {
+  const on = (eventName: SignalRMessageName, callback: SignalRHandler) => {
     if (connectionRef.current) {
       connectionRef.current.on(eventName, callback);
     }
   };
 
-  const off = (eventName: string, callback: SignalRHandler) => {
+  const off = (eventName: SignalRMessageName, callback: SignalRHandler) => {
     if (connectionRef.current) {
       connectionRef.current.off(eventName, callback);
     }

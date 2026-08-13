@@ -14,12 +14,12 @@ using Newtonsoft.Json.Linq;
 namespace AutopilotMonitor.Functions.Functions.Config
 {
     /// <summary>
-    /// Transactional field-level patch of a tenant's configuration (GlobalAdminOnly for now;
-    /// phase 2 widens the policy line + caller tier). Unlike the full-model PUT, this takes
-    /// ONLY the fields to change, and the service verifies after the conditional write that
-    /// exactly those fields changed — rolling back automatically on drift. Every write is
-    /// preceded by a fail-closed snapshot into ConfigurationBackups (revertible via
-    /// POST config/{tenantId}/revert).
+    /// Transactional field-level patch of a tenant's configuration (TenantAdminOrGA: a tenant
+    /// admin patches their own row on the stricter TenantAdmin caller tier — GA-only fields are
+    /// an explicit 400 there). Unlike the full-model PUT, this takes ONLY the fields to change,
+    /// and the service verifies after the conditional write that exactly those fields changed —
+    /// rolling back automatically on drift. Every write is preceded by a fail-closed snapshot
+    /// into ConfigurationBackups (revertible via POST config/{tenantId}/revert, GA-only).
     /// </summary>
     public class PatchTenantConfigurationFieldsFunction
     {
@@ -49,7 +49,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
         {
             try
             {
-                // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware.
+                // Authentication + TenantAdminOrGA authorization enforced by PolicyEnforcementMiddleware
+                // (RouteParam scoping binds non-GA callers to their own tenant row).
                 var requestCtx = req.GetRequestContext();
 
                 if (req.Headers.TryGetValues("Content-Length", out var clValues)
@@ -79,13 +80,19 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     "PatchTenantConfigurationFields: {TenantId} by {User} ({FieldCount} fields)",
                     requestCtx.TargetTenantId, requestCtx.UserPrincipalName, request.Fields.Count);
 
+                // Caller tier selects the field deny-list: tenant admins additionally lose the
+                // GA-only toggles (explicit 400 instead of the PUT's silent restore).
+                var callerTier = requestCtx.IsGlobalAdmin
+                    ? TenantConfigCallerTier.GlobalAdmin
+                    : TenantConfigCallerTier.TenantAdmin;
+
                 var outcome = await _patchService.ApplyFieldPatchAsync(
                     requestCtx.TargetTenantId,
                     request.Fields,
                     requestCtx.UserPrincipalName,
                     ResolveSource(req, "patch"),
                     request.Reason,
-                    TenantConfigCallerTier.GlobalAdmin);
+                    callerTier);
 
                 return await WriteOutcome(req, outcome);
             }

@@ -22,7 +22,7 @@ namespace AutopilotMonitor.Functions.Services
         /// Format: "{invertedTicks:D19}_{sessionId}" to guarantee uniqueness.
         /// </summary>
         private static string ComputeIndexRowKey(DateTime startedAt, string sessionId)
-            => $"{(DateTime.MaxValue.Ticks - startedAt.Ticks):D19}_{sessionId}";
+            => $"{RowKeyCodec.InvertedTicks(startedAt)}_{sessionId}";
 
         /// <summary>
         /// Computes the SessionsIndex RowKey upper bound (D19 inverted-tick prefix) for a
@@ -32,7 +32,7 @@ namespace AutopilotMonitor.Functions.Services
         internal static string ComputeCutoffRowKeyPrefix(int days)
         {
             var cutoffDate = DateTime.UtcNow.AddDays(-days);
-            return $"{(DateTime.MaxValue.Ticks - cutoffDate.Ticks):D19}";
+            return RowKeyCodec.InvertedTicks(cutoffDate);
         }
 
         /// <summary>

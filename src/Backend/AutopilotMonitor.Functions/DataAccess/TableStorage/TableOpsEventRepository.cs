@@ -34,7 +34,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public async Task SaveOpsEventAsync(OpsEventEntry entry)
         {
             var pk = entry.Category;
-            var rk = $"{DateTime.MaxValue.Ticks - DateTime.UtcNow.Ticks:D19}";
+            var rk = RowKeyCodec.InvertedTicks(DateTime.UtcNow);
 
             var entity = new TableEntity(pk, rk)
             {

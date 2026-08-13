@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Azure.Data.Tables;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
@@ -29,7 +30,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public async Task SaveDistressReportAsync(string tenantId, DistressReportEntry entry)
         {
             var pk = tenantId.ToLowerInvariant();
-            var rk = $"{DateTime.MaxValue.Ticks - DateTime.UtcNow.Ticks:D19}";
+            var rk = RowKeyCodec.InvertedTicks(DateTime.UtcNow);
 
             var entity = new TableEntity(pk, rk)
             {

@@ -1,0 +1,106 @@
+---
+type: Concept
+title: Drift Guards — SignalR Names, RowKeys, Config Sections, Scoped Routing
+description: The 2026-08 fragility-audit follow-up contracts that turn formerly hand-synchronized mirrors into enforced ones — SignalR message-name catalog, the inverted-tick RowKey codec, tombstone table tagging, the OkAsync ratchet, per-section config PATCH, and the web's scoped-endpoint builders.
+resource: /src/Backend/AutopilotMonitor.Functions.Tests/OkAsyncBaselineGuardTests.cs
+tags:
+  - contracts
+  - guard-tests
+  - signalr
+  - web
+timestamp: 2026-08-13T00:00:00+02:00
+---
+
+# Drift Guards
+
+Follow-up to the 2026-08 fragility audit (see [Lifecycle Manifests & Session Scope
+Resolution](backend/lifecycle-manifests-and-session-scope.md) for the earlier rounds).
+Each section below replaces a hand-synchronized mirror with an enforced contract: a
+change on one side now fails a build, a type check, or a test on the other side.
+
+# Schema
+
+## SignalR message names — one catalog, typed on both ends
+
+`Constants.SignalRMessages` (Shared) is the complete catalog of SignalR target names.
+Backend senders (output bindings and the imperative `SignalRNotificationService`)
+reference the constants; the hub name is `SignalRGroupHelper.HubName`. The catalog is
+exported into `shared-manifests.json` (`signalRMessages` section) by
+`SharedManifestParityTests`, and the web's `SignalRContext.on/off` type their event
+name against the generated union (`lib/signalrMessages.ts`) — subscribing to a name
+the backend never sends is a tsc error, not a silent no-op. `newevents` is the one
+legacy lowercase name; it is a persisted wire name, do not "fix" the casing.
+
+## Inverted-tick RowKeys — one codec
+
+`RowKeyCodec` (Functions/Helpers) is the single encoder/decoder for
+`rev(t) = MaxTicks - t.Ticks` RowKeys. Every writer routes through it; the persisted
+per-table shapes (D19 standard, AuditLogs `!`-prefix, UserActivity's legacy D20 width,
+ConfigurationBackups' 28-char truncation) are pinned by `RowKeyCodecTests` and must
+never change — a width/prefix change reorders live tables against their existing rows.
+`BusinessTimestamp` keeps the OData clause builders and delegates decode to the codec.
+
+## Tombstone rows carry their table
+
+`DeletionRowDump.Table` names the source table on FINAL (Tombstone) rows — the one
+step that mixes two tables while `DeletionStep.Table` is null.
+`DeletionTombstoneTables.Resolve` is the only consumer-side resolution (delete +
+restore + dry-run); the historical `Contains('_')` RowKey-shape heuristic survives
+solely as the fallback for manifests written before the field existed and must outlive
+one full manifest-retention cycle.
+
+## Anonymous OkAsync responses — frozen, shrink-only
+
+`OkAsyncBaselineGuardTests` freezes the 44 existing `req.OkAsync(new { … })` call
+sites as a per-file baseline. A new anonymous response (new file or count above
+baseline) fails; converting a site to a typed DTO (Shared response models, picked up
+by the manifest parity tests) fails too until its baseline entry is lowered — the debt
+list stays truthful and only ever shrinks.
+
+## Tenant settings — per-section PATCH
+
+The web's Settings sections no longer PUT the full ~92-field configuration. Each
+section's exact write surface lives in `app/settings/sectionFieldMap.ts` (owned fields
+plus documented `alsoWrites` write-throughs); `saveConfiguration` diffs those fields
+against the loaded config and PATCHes only the changes through
+`PATCH config/{tenantId}/fields` — the transactional endpoint (CAS + fail-closed
+backup + exactly-these-fields verify + auto-rollback) that previously served MCP only.
+The policy line is TenantAdminOrGA; a tenant admin runs on the stricter
+`TenantConfigCallerTier.TenantAdmin` whose deny-list turns GA-only fields into
+explicit 400s. Deploy order: backend before web. `sectionFieldMap.test.ts` pins
+field↔section ownership (each field exactly one owner, all fields on the model, none
+server-denied); backups/revert stay GlobalAdminOnly.
+
+## Scoped endpoint routing — one decision object
+
+`lib/scopedApi.ts` owns the tenant/global endpoint-pair choice: pages pass their scope
+hook object (`routeGlobal`, `selectedTenantId`, `effectiveTenantId`) instead of
+hand-rolling `routeGlobal ? global(..., sel || undefined) : tenant(tid, ...)` with the
+tenant parameter at a different position per pair. `useGlobalAdminScope` is now a thin
+projection over `useAggregatedAdminScope` (one hook, aggregated as a mode) via the
+pure `resolveConcreteScopeView`. `lib/scopedFetch.ts` adds the shared JSON+ok-check
+fetch layer. `lib/navVisibility.ts` extracts the sidebar's roles × nav-config × guard
+logic; its matrix test also ratchets the known "sidebar shows it, guard bounces it"
+mismatches (plain Operator and GlobalReader vs. `/settings` — pending a user decision).
+
+# Examples
+
+Renaming a SignalR message end to end: change the constant in
+`Constants.SignalRMessages` → `AM_WRITE_SHARED_MANIFESTS=1 dotnet test --filter
+SharedManifestParityTests` → `node scripts/generate-shared-manifest-types.js` → tsc
+now flags every stale web subscription literal.
+
+Adding a field to a Settings section: add it to the section in `sectionFieldMap.ts`
+(tsc validates the name against the manifest), wire the form state into the
+`updatedConfig` construction in `TenantConfigContext`, and extend the expected-fields
+list in `sectionFieldMap.test.ts`.
+
+# Citations
+
+- `src/Shared/AutopilotMonitor.Shared/Constants.cs` — SignalRMessages catalog
+- `src/Backend/AutopilotMonitor.Functions/Helpers/RowKeyCodec.cs` + `RowKeyCodecTests.cs`
+- `src/Shared/AutopilotMonitor.Shared/Models/Deletion/DeletionManifest.cs` — `DeletionRowDump.Table`, `DeletionTombstoneTables`
+- `src/Backend/AutopilotMonitor.Functions.Tests/OkAsyncBaselineGuardTests.cs`
+- `src/Web/autopilot-monitor-web/app/settings/sectionFieldMap.ts` + `__tests__/sectionFieldMap.test.ts`
+- `src/Web/autopilot-monitor-web/lib/scopedApi.ts`, `lib/navVisibility.ts`, `hooks/concreteAdminScopeView.ts`
+- [Version Contract](versioning.md) — the web `/version.json` stamp + deploy verify added in the same round

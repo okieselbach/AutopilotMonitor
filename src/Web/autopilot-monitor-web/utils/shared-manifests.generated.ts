@@ -639,5 +639,20 @@ export const SHARED_MANIFEST = {
     "windows_update_reboot_pending",
     "windows_update_started",
     "windows_update_succeeded"
+  ],
+  "signalRMessages": [
+    "newSession",
+    "newevents",
+    "eventStream",
+    "ruleResultsReady",
+    "vulnerabilityReportReady",
+    "sessionDeleted",
+    "tenantNotification",
+    "tenantNotificationDismissed",
+    "tenantNotificationsDismissedAll",
+    "globalNotification",
+    "globalNotificationDismissed",
+    "globalNotificationsDismissedAll",
+    "accessRevoked"
   ]
 } as const;

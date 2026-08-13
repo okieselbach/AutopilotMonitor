@@ -94,21 +94,7 @@ namespace AutopilotMonitor.Functions.Helpers
         }
 
         private static bool TryDecodeReverseTicks(ReadOnlySpan<char> revTickDigits, out DateTime utc)
-        {
-            utc = default;
-            foreach (var c in revTickDigits)
-            {
-                if (c < '0' || c > '9')
-                    return false;
-            }
-            if (!long.TryParse(revTickDigits, NumberStyles.None, CultureInfo.InvariantCulture, out var rev))
-                return false;
-            var ticks = DateTime.MaxValue.Ticks - rev;
-            if (ticks < DateTime.MinValue.Ticks || ticks > DateTime.MaxValue.Ticks)
-                return false;
-            utc = new DateTime(ticks, DateTimeKind.Utc);
-            return true;
-        }
+            => RowKeyCodec.TryDecodeInvertedTicks(revTickDigits, out utc);
 
         // ===== OData date-window clauses (RowKey ranges) =====
         // Date windows filter on the RowKey rather than a property: rows missing a property are
@@ -117,7 +103,7 @@ namespace AutopilotMonitor.Functions.Helpers
         // because the reverse-tick is fixed-width D19. rev(t) = MaxTicks - t.Ticks, so larger
         // timestamps have lexically smaller RowKeys (newest-first).
 
-        private static long Rev(DateTime utc) => DateTime.MaxValue.Ticks - utc.Ticks;
+        private static long Rev(DateTime utc) => RowKeyCodec.InvertedTicksValue(utc);
 
         /// <summary>Audit rows with business time ≥ <paramref name="fromUtc"/> (inclusive):
         /// rev ≤ rev(from) &lt; rev(from)+1. The exclusive upper bound also excludes all legacy

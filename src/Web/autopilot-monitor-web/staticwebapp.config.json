@@ -22,6 +22,8 @@
     { "route": "/changelog", "redirect": "https://docs.autopilotmonitor.com/changelog/platform-changelog", "statusCode": 301 },
     { "route": "/roadmap", "redirect": "/", "statusCode": 302 },
 
+    { "route": "/version.json", "headers": { "Cache-Control": "no-store" } },
+
     { "route": "/sessions/index.txt", "rewrite": "/sessions/index.txt" },
     { "route": "/sessions/inspector/index.txt", "rewrite": "/sessions/inspector/index.txt" },
     { "route": "/diagnosis/index.txt", "rewrite": "/diagnosis/index.txt" },

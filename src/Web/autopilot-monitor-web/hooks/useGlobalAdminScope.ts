@@ -1,12 +1,10 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
 import { useTenant } from "@/contexts/TenantContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { useAdminMode } from "@/hooks/useAdminMode";
-import { useTenantList, type TenantInfo } from "@/hooks/useTenantList";
-import { readTenantScope, writeTenantScope } from "@/utils/tenantScopeStorage";
-import { delegatedScopedTenantList, isHomeTenantTarget, upnDomain } from "@/utils/homeTenantScope";
+import { useAggregatedAdminScope } from "@/hooks/useAggregatedAdminScope";
+import { resolveConcreteScopeView } from "@/hooks/concreteAdminScopeView";
+import type { TenantInfo } from "@/hooks/useTenantList";
 
 export type { TenantInfo };
 
@@ -47,88 +45,36 @@ export interface GlobalAdminScope {
  * own tenant for a GA, or the first managed tenant for a delegated ("MSP") admin — and endpoint choice is
  * keyed on {@link GlobalAdminScope.isGlobalOverride}. There is no aggregated "All tenants" mode here.
  *
+ * Implemented as a thin projection over {@link useAggregatedAdminScope} (one hook, aggregated as a mode):
+ * all selection/seeding/persistence state lives there; resolveConcreteScopeView maps a GA's persisted
+ * aggregated ("") intent to their own tenant locally — WITHOUT clearing storage, so aggregated pages
+ * still honor it.
+ *
  * Pair with {@link "@/components/TenantScopeSelector".TenantScopeSelector} for the header dropdown
  * and {@link "@/components/GlobalAdminBanner".GlobalAdminBanner} for the view bar.
  */
 export function useGlobalAdminScope(): GlobalAdminScope {
   const { tenantId } = useTenant();
-  const { hasGlobalScope, user } = useAuth();
-  const { globalAdminMode } = useAdminMode();
+  const { user } = useAuth();
+  const agg = useAggregatedAdminScope();
 
-  // Cross-tenant mode: GA/Reader in GA mode, OR a delegated ("MSP") admin (always-on). See AggregatedAdminScope.
-  const isDelegated = user?.isDelegated ?? false;
-  const isDelegatedScope = Boolean(isDelegated && !hasGlobalScope);
-  const isGlobalAdmin = Boolean((globalAdminMode && hasGlobalScope) || isDelegatedScope);
-
-  const allTenants = useTenantList(isGlobalAdmin);
-  // Delegated: managed subset PLUS the caller's own home tenant when they hold a member role there
-  // (member-path access — see utils/homeTenantScope.ts). config/all is backend-bounded to the managed
-  // set, so the home entry is synthesized with the UPN-derived domain when absent.
-  const homeTenantId = user?.tenantId;
-  const hasHomeRole = !!user?.role;
-  const tenants = useMemo(
-    () =>
-      isDelegatedScope
-        ? delegatedScopedTenantList(allTenants, user?.delegatedTenantIds, homeTenantId, upnDomain(user?.upn), hasHomeRole)
-        : allTenants,
-    [allTenants, isDelegatedScope, user?.delegatedTenantIds, homeTenantId, user?.upn, hasHomeRole]
-  );
-
-  const [selectedTenantId, setSelectedRaw] = useState<string>("");
-
-  // Persist ONLY on an explicit user action (the selector's onChange). The auto-defaults below use
-  // setSelectedRaw so they never write back — in particular a GA's persisted aggregated ("") intent
-  // is left untouched here (this override-only variant has no aggregate) so aggregated pages still honor it.
-  const setSelectedTenantId = useCallback((id: string) => {
-    setSelectedRaw(id);
-    writeTenantScope(id);
-  }, []);
-
-  // GA/Reader: seed the selection from the tab-persisted choice, else the user's own tenant (never empty
-  // in this variant). A persisted aggregated "" resolves locally to the own tenant without clearing storage.
-  // Render-time (like the delegated seed below), NOT an effect: an effect-time seed exposes one commit
-  // where effectiveTenantId is the caller's own tenant, so pages fire an own-tenant fetch that races the
-  // override fetch — last-resolved wins and the wrong tenant's data can stick until a manual refresh.
-  if (!isDelegatedScope && tenantId && !selectedTenantId) {
-    const stored = readTenantScope();
-    setSelectedRaw(stored ? stored : tenantId);
-  }
-
-  // Delegated: seed from the persisted managed tenant (if still managed) or the first managed tenant once
-  // the scoped list arrives; re-default if the selection falls outside the managed set. Render-time (converges).
-  if (isDelegatedScope && tenants.length > 0 && (!selectedTenantId || !tenants.some((t) => t.tenantId === selectedTenantId))) {
-    const stored = readTenantScope();
-    const storedManaged = stored && tenants.some((t) => t.tenantId === stored) ? stored : null;
-    setSelectedRaw(storedManaged ?? tenants[0].tenantId);
-  }
-
-  // Stale-selection guard (GA): a persisted tenant no longer present in the list falls back to the own
-  // tenant. Local only — never clobbers storage.
-  if (!isDelegatedScope && isGlobalAdmin && selectedTenantId && tenants.length > 0 && !tenants.some((t) => t.tenantId === selectedTenantId)) {
-    setSelectedRaw(tenantId);
-  }
-
-  const isGlobalOverride = Boolean(
-    isGlobalAdmin && selectedTenantId && selectedTenantId !== tenantId
-  );
-  // Delegated has no valid own-tenant data, so before a managed tenant is selected resolve to "" (empty)
-  // — pages gate their fetch on a truthy effectiveTenantId, so this avoids a transient own-tenant request.
-  const effectiveTenantId = isGlobalAdmin && selectedTenantId
-    ? selectedTenantId
-    : (isDelegatedScope ? "" : tenantId);
-  const isAggregatedGlobalView = Boolean(isGlobalAdmin && !selectedTenantId && !isDelegatedScope);
-  // Delegated + home tenant → member path (see interface doc). GA/Reader always route global here.
-  const routeGlobal = isGlobalAdmin && !(isDelegatedScope && isHomeTenantTarget(selectedTenantId, homeTenantId));
+  const view = resolveConcreteScopeView({
+    isGlobalAdmin: agg.isGlobalAdmin,
+    isDelegatedScope: agg.isDelegatedScope,
+    selectedTenantId: agg.selectedTenantId,
+    ownTenantId: tenantId,
+    homeTenantId: user?.tenantId,
+  });
 
   return {
-    isGlobalAdmin,
-    isDelegatedScope,
-    tenants,
-    selectedTenantId,
-    setSelectedTenantId,
-    effectiveTenantId,
-    isGlobalOverride,
-    isAggregatedGlobalView,
-    routeGlobal,
+    isGlobalAdmin: agg.isGlobalAdmin,
+    isDelegatedScope: agg.isDelegatedScope,
+    tenants: agg.tenants,
+    selectedTenantId: view.selectedTenantId,
+    setSelectedTenantId: agg.setSelectedTenantId,
+    effectiveTenantId: view.effectiveTenantId,
+    isGlobalOverride: view.isGlobalOverride,
+    isAggregatedGlobalView: view.isAggregatedGlobalView,
+    routeGlobal: view.routeGlobal,
   };
 }

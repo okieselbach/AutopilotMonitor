@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useNotifications } from "../../../contexts/NotificationContext";
-import { api } from "@/lib/api";
+import { scopedApi } from "@/lib/scopedApi";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import VulnerabilityExposurePanel, { type VulnerabilitySummary } from "@/components/VulnerabilityExposurePanel";
 import type { SoftwareTabScope, TimeRange } from "./types";
@@ -14,7 +14,7 @@ const TOP_N = 20;
 export default function VulnerabilitiesTab({ scope, timeRange }: { scope: SoftwareTabScope; timeRange: TimeRange }) {
   const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
-  const { isGlobalAdmin, routeGlobal, selectedTenantId, scopeInitialized, scopeKey } = scope;
+  const { isGlobalAdmin, selectedTenantId, scopeInitialized, scopeKey } = scope;
 
   const [summary, setSummary] = useState<VulnerabilitySummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -30,9 +30,7 @@ export default function VulnerabilitiesTab({ scope, timeRange }: { scope: Softwa
     const run = async () => {
       try {
         setLoading(true);
-        const url = routeGlobal
-          ? api.metrics.globalVulnerability(days, TOP_N, selectedTenantId || undefined)
-          : api.metrics.vulnerability(days, TOP_N);
+        const url = scopedApi.vulnerability(scope, days, TOP_N);
         const res = await authenticatedFetch(url, getAccessToken);
         if (cancelled) return;
         if (res.ok) {

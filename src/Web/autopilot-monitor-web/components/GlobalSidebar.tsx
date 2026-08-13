@@ -7,7 +7,8 @@ import { useAuth } from "../contexts/AuthContext";
 import { useSidebar, PageSectionItem } from "../contexts/SidebarContext";
 import { CollapseState } from "../hooks/useSidebarState";
 import { DefaultSectionIcon, BookOpenIcon, InformationCircleIcon, DocumentTextIcon, ShieldCheckIcon } from "../lib/sidebarIcons";
-import { DASHBOARD_ITEM, NAV_GROUPS, EXPANDABLE_NAV_GROUPS, REGULAR_USER_ITEMS, NavItem, NavGroup, ExpandableNavGroup } from "../lib/globalNavConfig";
+import { DASHBOARD_ITEM, NAV_GROUPS, EXPANDABLE_NAV_GROUPS, REGULAR_USER_ITEMS, NavItem } from "../lib/globalNavConfig";
+import { deriveNavFlags, filterExpandableNavGroups, isNavGroupVisible } from "../lib/navVisibility";
 import { useAdminMode } from "../hooks/useAdminMode";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { DOCS_URL } from "@/utils/config";
@@ -168,78 +169,16 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
   }, []);
 
   // --- Visibility filtering ---
-  const isTenantAdmin = user?.isTenantAdmin ?? false;
-  const isOperator = user?.role === "Operator";
-  const isViewer = user?.role === "Viewer";
-  // Any resolved tenant role — Admin, Operator, or read-only Viewer. The Viewer sees the same
-  // monitoring/rules/operations/configuration nav; read-only is enforced inside the pages.
-  const isTenantMember = isTenantAdmin || isOperator || isViewer;
-  const isGlobalAdmin = user?.isGlobalAdmin ?? false;
-  const isDelegated = user?.isDelegated ?? false;
+  // Pure logic in lib/navVisibility.ts (pinned by the roles × nav-config matrix test).
+  const navFlags = useMemo(
+    () => deriveNavFlags({ user, hasGlobalScope, hasFleetScope, globalAdminMode }),
+    [user, hasGlobalScope, hasFleetScope, globalAdminMode],
+  );
 
-  const isGroupVisible = (group: NavGroup | ExpandableNavGroup): boolean => {
-    switch (group.visibility) {
-      case "all": return true;
-      // A GlobalReader is "GA minus writes" — it must see the SAME sidebar as a real GA. The standard
-      // monitoring/rules/operations/configuration groups are normally tenant-member scope; open them to any
-      // platform scope so a pure GlobalReader (no own-tenant role) gets Fleet Health, Usage Metrics, SLA,
-      // etc. Read-only is enforced inside the pages (useCanMutatePlatform + backend), not by hiding nav.
-      case "tenantMember": return isTenantMember || hasGlobalScope;
-      // The (purple) Global Admin section is gated on the Global View toggle — IDENTICAL to a real GA:
-      // toggle off → hidden, toggle on → shown. Item-level globalAdminOnly entries (Settings/Ops/Software)
-      // still drop out for a read-only reader via the item filter below.
-      case "globalAdmin": return hasGlobalScope && globalAdminMode;
-      // Fleet (MSP) nav: shown to a delegated admin who does NOT have full platform scope. A GA/Reader
-      // gets the standard monitoring groups above instead, so it stays hidden for them (no duplication).
-      case "fleet": return isDelegated && !hasGlobalScope;
-      default: return false;
-    }
-  };
-
-  // Visible expandable groups (with item-level filtering for feature-gated items)
-  const hasMcpAccess = user?.hasMcpAccess ?? false;
-  const isAdminLike = isTenantAdmin || isGlobalAdmin;
-  const canManageBootstrapTokens = user?.canManageBootstrapTokens ?? false;
-  const bootstrapTokenEnabled = user?.bootstrapTokenEnabled ?? false;
-  const unrestrictedModeEnabled = user?.unrestrictedModeEnabled ?? false;
-  const visibleExpandableGroups = useMemo(() => {
-    return EXPANDABLE_NAV_GROUPS
-      .filter(isGroupVisible)
-      .map((group) => {
-        // Filter out MCP item if user doesn't have MCP access
-        const filteredItems = group.items
-          .filter((item) => {
-            if (item.id === "cfg-reporting") return hasMcpAccess;
-            // Platform-settings/mutation sub-sections are real-GA-only: hide from a read-only
-            // Global Reader (who reaches the group via hasGlobalScope visibility).
-            if ("visibility" in item && item.visibility === "globalAdminOnly") return isGlobalAdmin;
-            return true;
-          })
-          .map((item) => {
-            // Sub-item gating for feature-flagged entries (tenant feature flags)
-            const filteredSubs = item.items.filter((sub) => {
-              if (sub.id === "cfg-bootstrap-sessions") {
-                return bootstrapTokenEnabled && (isAdminLike || canManageBootstrapTokens);
-              }
-              if (sub.id === "cfg-agent-unrestricted") {
-                return isAdminLike && unrestrictedModeEnabled;
-              }
-              // Tenant-admin-only sub-sections: Operators and Viewers (read-only settings
-              // viewers) don't see them — matches the in-page "tenant administrators only" gates. A platform
-              // scope (GA / read-only GlobalReader) keeps the full GA-identical sidebar.
-              if (sub.id === "cfg-autopilot" || sub.id === "cfg-access-mgmt" || sub.id === "cfg-offboarding") {
-                return isAdminLike || hasGlobalScope;
-              }
-              return true;
-            });
-            return { ...item, items: filteredSubs };
-          })
-          // Drop items whose sub-items have all been filtered out
-          .filter((item) => item.items.length > 0);
-        return { ...group, items: filteredItems };
-      });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isTenantMember, hasGlobalScope, isGlobalAdmin, globalAdminMode, hasMcpAccess, isAdminLike, canManageBootstrapTokens, bootstrapTokenEnabled, unrestrictedModeEnabled]);
+  const visibleExpandableGroups = useMemo(
+    () => filterExpandableNavGroups(EXPANDABLE_NAV_GROUPS, navFlags),
+    [navFlags],
+  );
 
   // Auto-expand the group containing the current pathname — adjust-during-render on
   // (pathname, visibleExpandableGroups). The groups identity matters too: on a hard
@@ -409,17 +348,10 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
   };
 
   // --- Build the nav content (shared between desktop and mobile) ---
-  const visibleGroups = NAV_GROUPS.filter(isGroupVisible);
+  const visibleGroups = NAV_GROUPS.filter((group) => isNavGroupVisible(group, navFlags));
   const hasPageSections = pageSections.length > 0;
 
-  // Regular users see minimal nav. A read-only Global Reader has platform scope, and a delegated MSP admin
-  // has fleet scope → both get the (group-filtered) nav rather than the minimal regular-user list.
-  const isRegularUser = !isTenantMember && !hasFleetScope;
-  // The Dashboard is the cross-tenant session browser. Own-tenant/platform users see their own/all
-  // sessions; a delegated ("MSP") admin sees an aggregate across their managed tenants (bounded server-side)
-  // with the tenant filter scoped to that subset — so they get the link too (the /fleet card grid stays
-  // their landing overview).
-  const showDashboard = isTenantMember || hasGlobalScope || isDelegated;
+  const { isRegularUser, showDashboard } = navFlags;
 
   const renderNavContent = (isMobile = false) => (
     <>

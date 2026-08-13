@@ -16,6 +16,10 @@ on:
       - 'src/Web/autopilot-monitor-web/**'
       - '.github/workflows/deploy-web.yml'
 
+env:
+  PORTAL_VERSION_URL: https://portal.autopilotmonitor.com/version.json
+  VERSIONS_CONTAINER: https://autopilotmonitoreu.blob.core.windows.net/versions
+
 jobs:
   build_and_deploy_job:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.action != 'closed')
@@ -48,6 +52,9 @@ jobs:
           NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
           NEXT_PUBLIC_PLATFORM_STATS_MANIFEST_URL: ${{ vars.NEXT_PUBLIC_PLATFORM_STATS_MANIFEST_URL }}
           NEXT_PUBLIC_APPINSIGHTS_CONNECTION_STRING: ${{ secrets.NEXT_PUBLIC_APPINSIGHTS_CONNECTION_STRING }}
+          # Build stamp for public/version.json (scripts/generate-version.js in prebuild);
+          # the verify step below polls the deployed file for exactly this commit.
+          GITHUB_SHA: ${{ github.sha }}
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_DEPLOY_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }} # Used for Github integrations (i.e. PR comments)
@@ -63,6 +70,55 @@ jobs:
           # next.config + output_location.)
           output_location: "out" # Built app content directory - optional
           ###### End of Repository/Build Configurations ######
+
+      # The SWA action reporting success proves the upload, not that the production host
+      # serves the new build — verify against the live /version.json (Cache-Control:
+      # no-store via staticwebapp.config.json) before publishing the version manifest.
+      # PR builds deploy to per-PR preview environments, so only main deploys are verified.
+      - name: Verify deployed portal build is live
+        if: env.DEPLOY_TOKEN != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: pwsh
+        run: |
+          $expectedCommit = '${{ github.sha }}'.Substring(0, 7)
+          $deadline = [DateTime]::UtcNow.AddMinutes(5)
+          $attempt = 0
+
+          while ([DateTime]::UtcNow -lt $deadline) {
+            $attempt++
+            try {
+              $v = Invoke-RestMethod -Uri '${{ env.PORTAL_VERSION_URL }}' -Method Get -TimeoutSec 30 -Headers @{ 'Cache-Control' = 'no-cache' }
+              if ($v.commit -eq $expectedCommit) {
+                Write-Host "Live after $attempt attempt(s): web @ $($v.commit), built $($v.buildUtc)"
+                exit 0
+              }
+              Write-Host "Attempt ${attempt}: serving $($v.commit) -- waiting for $expectedCommit"
+            } catch {
+              Write-Host "Attempt ${attempt}: /version.json not answering yet -- $($_.Exception.Message)"
+            }
+            Start-Sleep -Seconds 15
+          }
+
+          throw "Portal did not serve commit $expectedCommit within 5 minutes -- deployment not verified, version manifest NOT published"
+
+      # Cross-component deploy record, written last and only on a verified deploy —
+      # same contract as versions/backend.json and versions/mcp.json.
+      - name: Publish version manifest
+        if: env.DEPLOY_TOKEN != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: pwsh
+        run: |
+          $manifest = [ordered]@{
+            component   = 'web'
+            commit      = '${{ github.sha }}'.Substring(0, 7)
+            deployedUtc = [DateTime]::UtcNow.ToString('o')
+            runId       = '${{ github.run_id }}'
+          } | ConvertTo-Json
+
+          $sas = '${{ secrets.AZURE_BLOB_VERSIONS_SAS_TOKEN }}'.TrimStart('?')
+          $url = "${{ env.VERSIONS_CONTAINER }}/web.json?$sas"
+          # no-cache: rotating pointer, must never be served stale by any fronting cache.
+          Invoke-RestMethod -Uri $url -Method Put -Headers @{ 'x-ms-blob-type' = 'BlockBlob'; 'x-ms-blob-cache-control' = 'no-cache' } -Body $manifest -ContentType 'application/json' | Out-Null
+          Write-Host "Published versions/web.json"
+          Write-Host $manifest
 
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'

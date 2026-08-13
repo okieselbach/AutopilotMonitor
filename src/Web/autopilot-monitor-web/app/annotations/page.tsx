@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { sessionUrl } from "@/lib/routes";
-import { api } from "@/lib/api";
+import { scopedApi } from "@/lib/scopedApi";
 import { API_BASE_URL } from "@/utils/config";
 import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -63,7 +63,7 @@ export default function AnnotationsPage() {
   // GA/Reader: "All tenants" aggregate by default (mirrors the MCP evaluation stream) with
   // per-tenant drill-down; delegated ("MSP"): managed tenants only, never aggregated.
   const scope = useAggregatedAdminScope({ defaultAggregated: true });
-  const { isGlobalAdmin: crossTenant, routeGlobal, selectedTenantId, scopeInitialized, tenants } = scope;
+  const { isGlobalAdmin: crossTenant, routeGlobal, selectedTenantId, effectiveTenantId, scopeInitialized, tenants } = scope;
 
   const lanes = visibleLanes(user);
 
@@ -108,14 +108,12 @@ export default function AnnotationsPage() {
         lane: laneFilter || undefined,
       };
       await fetchPage(
-        routeGlobal
-          ? api.annotations.globalList({ ...filters, tenantId: selectedTenantId || undefined })
-          : api.annotations.list(filters),
+        scopedApi.annotationsList({ routeGlobal, selectedTenantId, effectiveTenantId }, filters),
         false
       );
     };
     void loadFirstPage();
-  }, [fetchPage, verdictFilter, laneFilter, scopeInitialized, routeGlobal, selectedTenantId]);
+  }, [fetchPage, verdictFilter, laneFilter, scopeInitialized, routeGlobal, selectedTenantId, effectiveTenantId]);
 
   return (
     <ProtectedRoute>

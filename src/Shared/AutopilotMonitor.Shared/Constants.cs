@@ -834,6 +834,36 @@ namespace AutopilotMonitor.Shared
             public const string DelegatedAdmin = "DelegatedAdmin";
         }
 
+        // -----------------------------------------------------------------------
+        // SignalR message names
+        // -----------------------------------------------------------------------
+
+        /// <summary>
+        /// The complete catalog of SignalR message (target) names sent by the backend and
+        /// subscribed by the web portal. Exported into shared-manifests.json by
+        /// SharedManifestParityTests; the web's SignalRContext types its on/off event names
+        /// against the generated manifest, so adding/renaming a name here without regenerating
+        /// the manifest fails xUnit, and a web subscription to an unknown name fails tsc.
+        /// NOTE: "newevents" predates the camelCase convention the other names follow — it is
+        /// a persisted wire name, do not "fix" the casing.
+        /// </summary>
+        public static class SignalRMessages
+        {
+            public const string NewSession = "newSession";
+            public const string NewEvents = "newevents";
+            public const string EventStream = "eventStream";
+            public const string RuleResultsReady = "ruleResultsReady";
+            public const string VulnerabilityReportReady = "vulnerabilityReportReady";
+            public const string SessionDeleted = "sessionDeleted";
+            public const string TenantNotification = "tenantNotification";
+            public const string TenantNotificationDismissed = "tenantNotificationDismissed";
+            public const string TenantNotificationsDismissedAll = "tenantNotificationsDismissedAll";
+            public const string GlobalNotification = "globalNotification";
+            public const string GlobalNotificationDismissed = "globalNotificationDismissed";
+            public const string GlobalNotificationsDismissedAll = "globalNotificationsDismissedAll";
+            public const string AccessRevoked = "accessRevoked";
+        }
+
         /// <summary>
         /// Lifecycle status of a DelegatedAdmins assignment row. Only <see cref="Active"/> rows confer scope;
         /// <see cref="PendingApproval"/> (customer-delegation awaiting tenant-admin approval) and

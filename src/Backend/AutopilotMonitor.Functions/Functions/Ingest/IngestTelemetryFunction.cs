@@ -1,5 +1,6 @@
 using System.IO;
 using System.Net;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Deletion;
@@ -614,7 +615,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         [HttpResult]
         public HttpResponseData? HttpResponse { get; set; }
 
-        [SignalROutput(HubName = "autopilotmonitor")]
+        [SignalROutput(HubName = SignalRGroupHelper.HubName)]
         public SignalRMessageAction[]? SignalRMessages { get; set; }
     }
 }

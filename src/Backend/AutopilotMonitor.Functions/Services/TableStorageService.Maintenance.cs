@@ -31,10 +31,7 @@ namespace AutopilotMonitor.Functions.Services
         /// of the ordering invariants.
         /// </summary>
         internal static string BuildAuditLogRowKey(DateTime timestampUtc, Guid collisionSuffix)
-        {
-            var revTick = DateTime.MaxValue.Ticks - timestampUtc.Ticks;
-            return $"{AuditLogRowKeyPrefix}{revTick:D19}_{collisionSuffix:N}";
-        }
+            => $"{AuditLogRowKeyPrefix}{RowKeyCodec.InvertedTicks(timestampUtc)}_{collisionSuffix:N}";
 
         /// <summary>
         /// Logs an audit entry. RowKey uses a fixed prefix + reverse-tick (newest-first

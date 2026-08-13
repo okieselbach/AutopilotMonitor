@@ -544,26 +544,15 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                 ct);
 
             // The builder (DeletionManifestBuilder.AddTombstoneStep) emits SessionsIndex first
-            // (if present) then Sessions. Determine table by row.Rk shape: anything matching the
-            // session id is the Sessions row; everything else is SessionsIndex. This works even
-            // if the manifest carries only one of the two rows (corruption-recovery scenario).
+            // (if present) then Sessions, each row carrying its source table (legacy manifests
+            // without the field resolve via the RowKey-shape heuristic). Works even if the
+            // manifest carries only one of the two rows (corruption-recovery scenario).
             foreach (var row in tombstone.Rows)
             {
                 ct.ThrowIfCancellationRequested();
-                var table = IsSessionsRow(row) ? Constants.TableNames.Sessions : Constants.TableNames.SessionsIndex;
+                var table = DeletionTombstoneTables.Resolve(row);
                 await _storage.DeleteByExactKeysInBatchesAsync(table, new[] { (row.Pk, row.Rk) }, ct);
             }
-        }
-
-        private static bool IsSessionsRow(DeletionRowDump row)
-        {
-            // Sessions row: PK = {tenantId}, RK = {sessionId}.
-            // SessionsIndex row: PK = {tenantId}, RK = {indexRowKey} (typically inverted-timestamp + sessionId).
-            // The discriminator is whether the RowKey *equals* a sessionId-shaped string. We use a
-            // simple heuristic: if the RowKey contains a "_" the row is the SessionsIndex (its
-            // RK is always composed); otherwise it's the Sessions row. This matches the builder's
-            // current schema (Sessions RK is the bare session GUID, IndexRowKey is "inverted_…_GUID").
-            return row.Rk != null && !row.Rk.Contains('_');
         }
 
         // ============================================================ Progress CAS retry ====

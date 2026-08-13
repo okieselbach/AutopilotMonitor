@@ -43,7 +43,9 @@ namespace AutopilotMonitor.Functions.Services
                     startedAt = eventList.Min(e => e.Timestamp);
                 }
 
-                var rowKey = $"{(DateTime.MaxValue.Ticks - startedAt.Ticks):D19}_{sessionId}";
+                // Same shape as the SessionsIndex key so per-event-type listings share the
+                // newest-first ordering (partial-class sibling in TableStorageService.Sessions.cs).
+                var rowKey = ComputeIndexRowKey(startedAt, sessionId);
 
                 var groups = eventList.GroupBy(e => e.EventType);
 

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useTenant } from "../../../contexts/TenantContext";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useNotifications } from "../../../contexts/NotificationContext";
-import { api } from "@/lib/api";
+import { scopedApi } from "@/lib/scopedApi";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { formatBytes, formatDuration } from "@/lib/formatting";
 import DoBreakdownBar from "@/components/DoBreakdownBar";
@@ -82,7 +82,7 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
   const { tenantId } = useTenant();
   const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
-  const { isGlobalAdmin, routeGlobal, selectedTenantId, scopeInitialized, scopeKey } = scope;
+  const { isGlobalAdmin, scopeInitialized, scopeKey } = scope;
 
   const [data, setData] = useState<AppsListResponse | null>(null);
   const [doRollup, setDoRollup] = useState<DeliveryOptimizationRollup | null>(null);
@@ -106,12 +106,8 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
       try {
         setLoading(true);
         progressBegin();
-        const listUrl = routeGlobal
-          ? api.apps.globalList(days, selectedTenantId || undefined)
-          : api.apps.list(tenantId, days);
-        const metricsUrl = routeGlobal
-          ? api.metrics.globalApp(days, selectedTenantId || undefined)
-          : api.metrics.app(tenantId, days);
+        const listUrl = scopedApi.appsList(scope, days);
+        const metricsUrl = scopedApi.appMetrics(scope, days);
 
         const [listRes, metricsRes] = await Promise.all([
           authenticatedFetch(listUrl, getAccessToken, { signal: AbortSignal.timeout(APPS_FETCH_TIMEOUT_MS) }),

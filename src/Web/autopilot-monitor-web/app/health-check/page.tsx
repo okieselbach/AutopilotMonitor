@@ -41,6 +41,10 @@ export default function HealthCheckPage() {
   // dashboard on it. The card renders a "checking" state immediately and updates in place.
   const [mcpCheck, setMcpCheck] = useState<HealthCheck | null>(null);
   const [mcpLoading, setMcpLoading] = useState(false);
+  // Portal build stamp: /version.json is a static file from this same origin (generated at
+  // build time, Cache-Control: no-store) — plain fetch, no auth. Card stays hidden when the
+  // file is absent (e.g. a dev server without the prebuild step).
+  const [webBuild, setWebBuild] = useState<{ commit?: string; buildUtc?: string } | null>(null);
 
   const performHealthCheck = useCallback(async () => {
     setLoading(true);
@@ -104,6 +108,16 @@ export default function HealthCheckPage() {
       setMcpLoading(false);
     }
   }, [getAccessToken]);
+
+  useEffect(() => {
+    if (!user?.isGlobalAdmin) return;
+    let cancelled = false;
+    fetch("/version.json", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled && d?.commit) setWebBuild(d); })
+      .catch(() => { /* card simply stays hidden */ });
+    return () => { cancelled = true; };
+  }, [user?.isGlobalAdmin]);
 
   // Auto-run health checks on page load. The two probes are fired independently so the
   // fast backend checks render immediately while the MCP probe (possible cold start) catches up.
@@ -268,6 +282,44 @@ export default function HealthCheckPage() {
                   <dt className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Built</dt>
                   <dd className="mt-1 text-gray-900 dark:text-gray-100">
                     {healthResult.buildUtc ? new Date(healthResult.buildUtc).toLocaleString() : '—'}
+                  </dd>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Portal Build (Global Admin only) */}
+        {user?.isGlobalAdmin && webBuild && (
+          <div className="mb-6">
+            <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Portal Build</h2>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow border-l-4 border-indigo-500">
+              <div className="p-4 grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                <div>
+                  <dt className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Component</dt>
+                  <dd className="mt-1 font-mono text-gray-900 dark:text-gray-100">web</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Commit</dt>
+                  <dd className="mt-1 font-mono text-gray-900 dark:text-gray-100">
+                    {webBuild.commit && webBuild.commit !== "unknown" ? (
+                      <a
+                        href={`https://github.com/okieselbach/AutopilotMonitor/commit/${webBuild.commit}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-indigo-600 dark:text-indigo-400 hover:underline"
+                      >
+                        {webBuild.commit}
+                      </a>
+                    ) : (
+                      <span className="text-gray-400">unknown</span>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Built</dt>
+                  <dd className="mt-1 text-gray-900 dark:text-gray-100">
+                    {webBuild.buildUtc ? new Date(webBuild.buildUtc).toLocaleString() : '—'}
                   </dd>
                 </div>
               </div>

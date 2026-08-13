@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Shared;
 using Microsoft.Azure.SignalR.Management;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -20,7 +21,7 @@ namespace AutopilotMonitor.Functions.Services
         private ServiceHubContext? _hubContext;
         private static readonly SemaphoreSlim _initLock = new(1, 1);
 
-        private const string HubName = "autopilotmonitor";
+        private const string HubName = SignalRGroupHelper.HubName;
 
         /// <summary>
         /// Hard ceiling for every imperative send (hub-context resolution + SendCoreAsync).
@@ -64,7 +65,7 @@ namespace AutopilotMonitor.Functions.Services
                 var hub = await GetHubContextAsync(cts.Token);
                 var groupName = $"session-{tenantId}-{sessionId}";
 
-                await hub.Clients.Group(groupName).SendCoreAsync("ruleResultsReady", new object[]
+                await hub.Clients.Group(groupName).SendCoreAsync(Constants.SignalRMessages.RuleResultsReady, new object[]
                 {
                     new
                     {
@@ -94,7 +95,7 @@ namespace AutopilotMonitor.Functions.Services
                 var hub = await GetHubContextAsync(cts.Token);
                 var groupName = $"session-{tenantId}-{sessionId}";
 
-                await hub.Clients.Group(groupName).SendCoreAsync("vulnerabilityReportReady", new object[]
+                await hub.Clients.Group(groupName).SendCoreAsync(Constants.SignalRMessages.VulnerabilityReportReady, new object[]
                 {
                     new
                     {
@@ -127,7 +128,7 @@ namespace AutopilotMonitor.Functions.Services
                 var hub = await GetHubContextAsync(cts.Token);
                 var groupName = $"session-{tenantId}-{sessionId}";
 
-                await hub.Clients.Group(groupName).SendCoreAsync("sessionDeleted", new object[]
+                await hub.Clients.Group(groupName).SendCoreAsync(Constants.SignalRMessages.SessionDeleted, new object[]
                 {
                     new
                     {
@@ -160,7 +161,7 @@ namespace AutopilotMonitor.Functions.Services
                     ? SignalRGroupHelper.TenantNotifyAdminGroup(tenantId)
                     : SignalRGroupHelper.TenantNotifyMemberGroup(tenantId);
 
-                await hub.Clients.Group(groupName).SendCoreAsync("tenantNotification", new[] { dto }, cts.Token);
+                await hub.Clients.Group(groupName).SendCoreAsync(Constants.SignalRMessages.TenantNotification, new[] { dto }, cts.Token);
                 _logger.LogDebug("Sent tenantNotification to group {Group}", groupName);
             }
             catch (Exception ex)
@@ -185,8 +186,8 @@ namespace AutopilotMonitor.Functions.Services
                 var payload = new { id = notificationId };
 
                 await Task.WhenAll(
-                    hub.Clients.Group(memberGroup).SendCoreAsync("tenantNotificationDismissed", new object[] { payload }, cts.Token),
-                    hub.Clients.Group(adminGroup).SendCoreAsync("tenantNotificationDismissed", new object[] { payload }, cts.Token)
+                    hub.Clients.Group(memberGroup).SendCoreAsync(Constants.SignalRMessages.TenantNotificationDismissed, new object[] { payload }, cts.Token),
+                    hub.Clients.Group(adminGroup).SendCoreAsync(Constants.SignalRMessages.TenantNotificationDismissed, new object[] { payload }, cts.Token)
                 );
                 _logger.LogDebug("Sent tenantNotificationDismissed for tenant {TenantId} id {Id}", tenantId, notificationId);
             }
@@ -209,8 +210,8 @@ namespace AutopilotMonitor.Functions.Services
                 var adminGroup = SignalRGroupHelper.TenantNotifyAdminGroup(tenantId);
 
                 await Task.WhenAll(
-                    hub.Clients.Group(memberGroup).SendCoreAsync("tenantNotificationsDismissedAll", Array.Empty<object>(), cts.Token),
-                    hub.Clients.Group(adminGroup).SendCoreAsync("tenantNotificationsDismissedAll", Array.Empty<object>(), cts.Token)
+                    hub.Clients.Group(memberGroup).SendCoreAsync(Constants.SignalRMessages.TenantNotificationsDismissedAll, Array.Empty<object>(), cts.Token),
+                    hub.Clients.Group(adminGroup).SendCoreAsync(Constants.SignalRMessages.TenantNotificationsDismissedAll, Array.Empty<object>(), cts.Token)
                 );
                 _logger.LogDebug("Sent tenantNotificationsDismissedAll for tenant {TenantId}", tenantId);
             }
@@ -229,7 +230,7 @@ namespace AutopilotMonitor.Functions.Services
             {
                 using var cts = new CancellationTokenSource(SendTimeout);
                 var hub = await GetHubContextAsync(cts.Token);
-                await hub.Clients.Group(SignalRGroupHelper.GlobalAdminsGroup).SendCoreAsync("globalNotification", new[] { dto }, cts.Token);
+                await hub.Clients.Group(SignalRGroupHelper.GlobalAdminsGroup).SendCoreAsync(Constants.SignalRMessages.GlobalNotification, new[] { dto }, cts.Token);
                 _logger.LogDebug("Sent globalNotification to group {Group}", SignalRGroupHelper.GlobalAdminsGroup);
             }
             catch (Exception ex)
@@ -245,7 +246,7 @@ namespace AutopilotMonitor.Functions.Services
                 using var cts = new CancellationTokenSource(SendTimeout);
                 var hub = await GetHubContextAsync(cts.Token);
                 var payload = new { id = notificationId };
-                await hub.Clients.Group(SignalRGroupHelper.GlobalAdminsGroup).SendCoreAsync("globalNotificationDismissed", new object[] { payload }, cts.Token);
+                await hub.Clients.Group(SignalRGroupHelper.GlobalAdminsGroup).SendCoreAsync(Constants.SignalRMessages.GlobalNotificationDismissed, new object[] { payload }, cts.Token);
                 _logger.LogDebug("Sent globalNotificationDismissed for id {Id}", notificationId);
             }
             catch (Exception ex)
@@ -260,7 +261,7 @@ namespace AutopilotMonitor.Functions.Services
             {
                 using var cts = new CancellationTokenSource(SendTimeout);
                 var hub = await GetHubContextAsync(cts.Token);
-                await hub.Clients.Group(SignalRGroupHelper.GlobalAdminsGroup).SendCoreAsync("globalNotificationsDismissedAll", Array.Empty<object>(), cts.Token);
+                await hub.Clients.Group(SignalRGroupHelper.GlobalAdminsGroup).SendCoreAsync(Constants.SignalRMessages.GlobalNotificationsDismissedAll, Array.Empty<object>(), cts.Token);
                 _logger.LogDebug("Sent globalNotificationsDismissedAll");
             }
             catch (Exception ex)
@@ -312,7 +313,7 @@ namespace AutopilotMonitor.Functions.Services
                 using var cts = new CancellationTokenSource(SendTimeout);
                 var hub = await GetHubContextAsync(cts.Token);
                 await hub.UserGroups.RemoveFromAllGroupsAsync(userId, cts.Token);
-                await hub.Clients.User(userId).SendCoreAsync("accessRevoked", new object[]
+                await hub.Clients.User(userId).SendCoreAsync(Constants.SignalRMessages.AccessRevoked, new object[]
                 {
                     new { timestamp = DateTime.UtcNow.ToString("o") }
                 }, cts.Token);

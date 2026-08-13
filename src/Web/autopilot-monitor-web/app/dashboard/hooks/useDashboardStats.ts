@@ -8,6 +8,7 @@ import { asGuidOrUndefined } from "@/utils/inputValidation";
 import { boundTenantToDelegatedScope } from "@/utils/delegatedScope";
 import { isHomeTenantTarget } from "@/utils/homeTenantScope";
 import type { NotificationType } from "@/contexts/NotificationContext";
+import type { SignalRMessageName } from "@/lib/signalrMessages";
 
 export interface DashboardStats {
   days: number;
@@ -32,9 +33,9 @@ type AddNotification = (
 
 interface SignalRApi {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  on: (event: string, handler: (...args: any[]) => void) => void;
+  on: (event: SignalRMessageName, handler: (...args: any[]) => void) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  off: (event: string, handler: (...args: any[]) => void) => void;
+  off: (event: SignalRMessageName, handler: (...args: any[]) => void) => void;
   isConnected: boolean;
 }
 

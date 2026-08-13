@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
@@ -99,7 +100,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         /// same tick cannot collide. The value is the public backupId.
         /// </summary>
         public static string BuildRowKey(DateTime utcNow)
-            => $"{DateTime.MaxValue.Ticks - utcNow.Ticks:D19}_{Guid.NewGuid():N}"[..28];
+            => $"{RowKeyCodec.InvertedTicks(utcNow)}_{Guid.NewGuid():N}"[..28];
 
         private static string Escape(string s) => s.Replace("'", "''");
 

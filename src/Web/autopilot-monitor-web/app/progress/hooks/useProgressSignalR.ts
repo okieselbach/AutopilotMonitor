@@ -2,12 +2,13 @@
 
 import { useEffect } from "react";
 import { Session } from "@/types";
+import type { SignalRMessageName } from "@/lib/signalrMessages";
 
 interface SignalRApi {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  on: (event: string, handler: (...args: any[]) => void) => void;
+  on: (event: SignalRMessageName, handler: (...args: any[]) => void) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  off: (event: string, handler: (...args: any[]) => void) => void;
+  off: (event: SignalRMessageName, handler: (...args: any[]) => void) => void;
   isConnected: boolean;
   joinGroup: (group: string) => Promise<void>;
   leaveGroup: (group: string) => Promise<void>;

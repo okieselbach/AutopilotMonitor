@@ -1,3 +1,4 @@
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
@@ -33,7 +34,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             try
             {
                 var partitionKey = tenantId.ToLowerInvariant();
-                var invertedTicks = (DateTime.MaxValue.Ticks - notification.CreatedAt.Ticks).ToString("D19");
+                var invertedTicks = RowKeyCodec.InvertedTicks(notification.CreatedAt);
                 var notificationId = notification.NotificationId;
                 if (string.IsNullOrEmpty(notificationId))
                     notificationId = Guid.NewGuid().ToString("N")[..12];

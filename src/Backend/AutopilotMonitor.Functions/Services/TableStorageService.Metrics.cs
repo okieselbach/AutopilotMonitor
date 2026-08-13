@@ -949,7 +949,7 @@ namespace AutopilotMonitor.Functions.Services
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.UserActivity);
                 var now = DateTime.UtcNow;
-                var invertedTicks = (DateTime.MaxValue.Ticks - now.Ticks).ToString("D20");
+                var invertedTicks = RowKeyCodec.InvertedTicksD20(now);
 
                 var entity = new TableEntity(tenantId, $"{invertedTicks}_{Guid.NewGuid():N}")
                 {

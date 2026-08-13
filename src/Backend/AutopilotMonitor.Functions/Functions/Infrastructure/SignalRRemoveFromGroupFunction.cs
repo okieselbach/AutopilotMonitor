@@ -167,7 +167,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
         [HttpResult]
         public HttpResponseData? HttpResponse { get; set; }
 
-        [SignalROutput(HubName = "autopilotmonitor")]
+        [SignalROutput(HubName = SignalRGroupHelper.HubName)]
         public SignalRGroupAction? SignalRGroupAction { get; set; }
     }
 }

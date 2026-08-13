@@ -127,7 +127,36 @@ namespace AutopilotMonitor.Shared.Models.Deletion
         /// <summary>ETag as observed at preflight; informational only (not used for restore).</summary>
         public string? Etag { get; set; }
 
+        /// <summary>
+        /// Source table of this row. Set only on FINAL (Tombstone) rows — that step mixes rows
+        /// from two tables while <see cref="DeletionStep.Table"/> is null. Null on rows of
+        /// table-targeted steps (their step carries the table) and on manifests written before
+        /// the field existed; resolve via <see cref="DeletionTombstoneTables.Resolve"/>.
+        /// </summary>
+        public string? Table { get; set; }
+
         public Dictionary<string, DeletionPropValue> Props { get; set; } = new Dictionary<string, DeletionPropValue>();
+    }
+
+    /// <summary>
+    /// Resolves which table a FINAL (Tombstone) row belongs to. Rows written since 2026-08 carry
+    /// <see cref="DeletionRowDump.Table"/> explicitly; older manifests (alive for up to the
+    /// manifest retention window) fall back to the historical RowKey-shape heuristic: the
+    /// Sessions RK is the bare session GUID while the SessionsIndex RK is composed
+    /// ("{invertedTicks}_{sessionId}"), so a '_' marks the index row. The fallback must survive
+    /// at least one full manifest-retention cycle after the field's introduction.
+    /// </summary>
+    public static class DeletionTombstoneTables
+    {
+        public static string Resolve(DeletionRowDump row)
+        {
+            if (!string.IsNullOrEmpty(row.Table))
+                return row.Table!;
+            // IndexOf (not Contains(char)): Shared targets netstandard2.0 for the net48 agent.
+            return row.Rk != null && row.Rk.IndexOf('_') < 0
+                ? Constants.TableNames.Sessions
+                : Constants.TableNames.SessionsIndex;
+        }
     }
 
     /// <summary>

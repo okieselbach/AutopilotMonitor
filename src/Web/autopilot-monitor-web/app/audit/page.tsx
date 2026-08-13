@@ -5,7 +5,7 @@ import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { ProtectedRoute } from '../../components/ProtectedRoute';
-import { api } from '@/lib/api';
+import { scopedApi } from "@/lib/scopedApi";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { extractContinuation } from "@/lib/paginationLink";
 import { useAggregatedAdminScope } from "@/hooks";
@@ -89,7 +89,7 @@ export default function AuditPage() {
   // GA/Reader starts in the aggregated "All tenants" view; a delegated ("MSP") admin has no aggregate and
   // still defaults to its first managed tenant via the normal tenant switcher.
   const scope = useAggregatedAdminScope({ defaultAggregated: true });
-  const { isGlobalAdmin: crossTenant, routeGlobal, selectedTenantId, scopeInitialized, scopeKey } = scope;
+  const { isGlobalAdmin: crossTenant, routeGlobal, selectedTenantId, effectiveTenantId, scopeInitialized, scopeKey } = scope;
 
   // The DEFAULT view ("All (excl. deletions)") is resolved server-side: the
   // backend drops per-session deletion bookkeeping and back-fills the page, so
@@ -114,9 +114,7 @@ export default function AuditPage() {
       // Cross-tenant: globalLogs with the selected tenant ("" → GA aggregate over all tenants; a managed
       // tenant for a delegated caller, validated server-side). Own-tenant member — including a delegated
       // caller viewing their HOME tenant (routeGlobal false): the tenant-scoped logs.
-      const endpoint = routeGlobal
-        ? api.audit.globalLogs({ ...opts, tenantId: selectedTenantId || undefined })
-        : api.audit.logs(opts);
+      const endpoint = scopedApi.auditLogs({ routeGlobal, selectedTenantId, effectiveTenantId }, opts);
       const response = await authenticatedFetch(endpoint, getAccessToken);
       if (!response.ok) {
         addNotification('error', 'Backend Error', `Failed to load audit logs: ${response.statusText}`, 'audit-fetch-error');
@@ -140,7 +138,7 @@ export default function AuditPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [addNotification, dateFromIso, dateToIso, getAccessToken, routeGlobal, selectedTenantId, excludeDeletions]);
+  }, [addNotification, dateFromIso, dateToIso, getAccessToken, routeGlobal, selectedTenantId, effectiveTenantId, excludeDeletions]);
 
   // Initial / window-change fetch resets pagination state.
   // fetchPage is intentionally excluded from deps: its identity churns whenever

@@ -13,6 +13,12 @@ namespace AutopilotMonitor.Functions.Helpers;
 /// </summary>
 public static class SignalRGroupHelper
 {
+    /// <summary>
+    /// The single SignalR hub every binding and imperative send targets. Const so it is usable
+    /// in [SignalROutput(HubName = ...)] attribute arguments.
+    /// </summary>
+    public const string HubName = "autopilotmonitor";
+
     public const string TenantNotifyMemberSuffix = "-notify-member";
     public const string TenantNotifyAdminSuffix = "-notify-admin";
 

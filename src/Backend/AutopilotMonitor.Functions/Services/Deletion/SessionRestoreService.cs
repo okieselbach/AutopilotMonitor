@@ -233,7 +233,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                 {
                     foreach (var row in tombstone.Rows)
                     {
-                        var t = IsSessionsRow(row) ? Constants.TableNames.Sessions : Constants.TableNames.SessionsIndex;
+                        var t = DeletionTombstoneTables.Resolve(row);
                         if (!result.WouldRestoreByTable.TryGetValue(t, out var c)) c = 0;
                         result.WouldRestoreByTable[t] = c + 1;
                     }
@@ -346,7 +346,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                 foreach (var row in tombstone.Rows)
                 {
                     ct.ThrowIfCancellationRequested();
-                    var table = IsSessionsRow(row) ? Constants.TableNames.Sessions : Constants.TableNames.SessionsIndex;
+                    var table = DeletionTombstoneTables.Resolve(row);
                     var res = await _storage.RestoreRowsByExactKeysInBatchesAsync(
                         table, new[] { row }, RestoreMode.Full, ct).ConfigureAwait(false);
                     AddCount(result.RowsRestoredByTable, table, res.Restored);
@@ -439,7 +439,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                 foreach (var row in tombstone.Rows)
                 {
                     ct.ThrowIfCancellationRequested();
-                    var table = IsSessionsRow(row) ? Constants.TableNames.Sessions : Constants.TableNames.SessionsIndex;
+                    var table = DeletionTombstoneTables.Resolve(row);
                     var res = await _storage.RestoreRowsByExactKeysInBatchesAsync(
                         table, new[] { row }, RestoreMode.Partial, ct).ConfigureAwait(false);
                     AddCount(result.RowsRestoredByTable, table, res.Restored);
@@ -579,8 +579,6 @@ namespace AutopilotMonitor.Functions.Services.Deletion
 
         // ============================================================ Helpers ====
 
-        private static bool IsSessionsRow(DeletionRowDump row)
-            => row.Rk != null && !row.Rk.Contains('_');
 
         private static void AddCount(Dictionary<string, int> map, string key, int delta)
         {

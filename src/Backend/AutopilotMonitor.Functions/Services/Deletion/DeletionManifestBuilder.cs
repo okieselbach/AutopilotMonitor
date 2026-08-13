@@ -323,13 +323,20 @@ namespace AutopilotMonitor.Functions.Services.Deletion
         {
             var rows = new List<DeletionRowDump>(2);
             // §5 PR4 mandates SessionsIndex deleted FIRST so UI listings drop the session before the canonical row goes.
+            // The FINAL step mixes two tables while DeletionStep.Table stays null, so each row
+            // carries its source table explicitly (DeletionTombstoneTables.Resolve falls back to
+            // the RowKey-shape heuristic only for manifests written before the field existed).
             if (sessionsIndexRow != null)
             {
-                rows.Add(TableEntityDumpConverter.MapEntityToDump(sessionsIndexRow));
+                var dump = TableEntityDumpConverter.MapEntityToDump(sessionsIndexRow);
+                dump.Table = Constants.TableNames.SessionsIndex;
+                rows.Add(dump);
             }
             if (sessionRow != null)
             {
-                rows.Add(TableEntityDumpConverter.MapEntityToDump(sessionRow));
+                var dump = TableEntityDumpConverter.MapEntityToDump(sessionRow);
+                dump.Table = Constants.TableNames.Sessions;
+                rows.Add(dump);
             }
             manifest.Steps.Add(new DeletionStep
             {

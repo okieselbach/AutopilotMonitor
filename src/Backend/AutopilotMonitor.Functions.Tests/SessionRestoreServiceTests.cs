@@ -93,6 +93,36 @@ public class SessionRestoreServiceTests
     }
 
     [Fact]
+    public async Task Restore_routes_tombstone_rows_by_explicit_table_not_rowkey_shape()
+    {
+        var harness = new Harness();
+        harness.SetCompletedCascade();
+        // Adversarial fixture: each row's explicit Table CONTRADICTS the legacy RowKey-shape
+        // heuristic (Sessions RK carries '_', SessionsIndex RK is bare). New manifests always
+        // carry Table — a call-site regression back to Contains('_') routing flips both
+        // tables and this test goes red. (BuildFullManifest's tombstone rows deliberately
+        // stay Table-less to keep exercising the legacy fallback in the other facts.)
+        var tombstone = harness.Manifest.Steps.First(s => s.Class == DeletionStepClass.Final);
+        tombstone.Rows = new List<DeletionRowDump>
+        {
+            new DeletionRowDump { Pk = TenantId, Rk = "bare-index-key", Table = Constants.TableNames.SessionsIndex },
+            new DeletionRowDump { Pk = TenantId, Rk = $"under_scored_{SessionId}", Table = Constants.TableNames.Sessions },
+        };
+
+        var result = await harness.Sut.RestoreAsync(TenantId, SessionId, ManifestId, dryRun: false, actor: "ga@example.com");
+
+        Assert.Equal(SessionRestoreOutcome.Restored, result.Outcome);
+        harness.Storage.Verify(s => s.RestoreRowsByExactKeysInBatchesAsync(
+            Constants.TableNames.SessionsIndex,
+            It.Is<IReadOnlyList<DeletionRowDump>>(rows => rows.Count == 1 && rows[0].Rk == "bare-index-key"),
+            RestoreMode.Full, It.IsAny<CancellationToken>()), Times.Once);
+        harness.Storage.Verify(s => s.RestoreRowsByExactKeysInBatchesAsync(
+            Constants.TableNames.Sessions,
+            It.Is<IReadOnlyList<DeletionRowDump>>(rows => rows.Count == 1 && rows[0].Rk.StartsWith("under_scored_")),
+            RestoreMode.Full, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task Restore_full_re_increments_software_inventory_via_contributions()
     {
         var harness = new Harness();

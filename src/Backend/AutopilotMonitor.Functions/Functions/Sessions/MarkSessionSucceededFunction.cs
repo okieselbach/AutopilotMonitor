@@ -1,5 +1,6 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
@@ -99,7 +100,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                         sessionUpdate = sessionDelta
                     };
 
-                    var tenantMessage = new SignalRMessageAction("newevents")
+                    var tenantMessage = new SignalRMessageAction(Constants.SignalRMessages.NewEvents)
                     {
                         GroupName = $"tenant-{tenantId}",
                         Arguments = new[] { messagePayload }
@@ -108,7 +109,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     // Also push to the per-session group: the tenant broadcast group is member-role
                     // gated, so a roleless Progress-Portal watcher of this session would otherwise
                     // never see the admin-marked completion.
-                    var sessionMessage = new SignalRMessageAction("newevents")
+                    var sessionMessage = new SignalRMessageAction(Constants.SignalRMessages.NewEvents)
                     {
                         GroupName = $"session-{tenantId}-{sessionId}",
                         Arguments = new[] { messagePayload }
@@ -153,7 +154,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         [HttpResult]
         public HttpResponseData? HttpResponse { get; set; }
 
-        [SignalROutput(HubName = "autopilotmonitor")]
+        [SignalROutput(HubName = SignalRGroupHelper.HubName)]
         public SignalRMessageAction[]? SignalRMessages { get; set; }
     }
 }

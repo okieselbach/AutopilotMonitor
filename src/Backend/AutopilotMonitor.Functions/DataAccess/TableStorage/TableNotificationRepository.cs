@@ -1,3 +1,4 @@
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
@@ -36,7 +37,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         {
             try
             {
-                var invertedTicks = (DateTime.MaxValue.Ticks - notification.CreatedAt.Ticks).ToString("D19");
+                var invertedTicks = RowKeyCodec.InvertedTicks(notification.CreatedAt);
                 var notificationId = notification.NotificationId;
                 if (string.IsNullOrEmpty(notificationId))
                     notificationId = Guid.NewGuid().ToString("N")[..12];
@@ -199,7 +200,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         {
             try
             {
-                var invertedTicks = (DateTime.MaxValue.Ticks - metadata.SubmittedAt.Ticks).ToString("D19");
+                var invertedTicks = RowKeyCodec.InvertedTicks(metadata.SubmittedAt);
                 var entity = new TableEntity("reports", $"{invertedTicks}_{metadata.ReportId}")
                 {
                     ["ReportId"] = metadata.ReportId ?? string.Empty,

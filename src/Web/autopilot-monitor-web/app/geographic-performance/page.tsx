@@ -5,9 +5,8 @@ import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
 import TruncatedLabel from "@/components/TruncatedLabel";
-import { useTenant } from "../../contexts/TenantContext";
 import { useAuth } from "../../contexts/AuthContext";
-import { api } from "@/lib/api";
+import { scopedApi } from "@/lib/scopedApi";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { useAggregatedAdminScope } from "@/hooks";
 import { useFetchProgress } from "@/hooks/useFetchProgress";
@@ -146,13 +145,12 @@ export default function GeographicPerformancePage() {
 
   const isTimeRangeMount = useRef(true);
 
-  const { tenantId } = useTenant();
   const { getAccessToken } = useAuth();
 
   // Global admin tenant scope (aggregated-capable): tenant list, selection ("" = all tenants),
   // and scope flags. Default selection is the GA's own tenant.
   const scope = useAggregatedAdminScope();
-  const { routeGlobal, selectedTenantId, isAggregatedGlobalView, scopeInitialized, scopeKey } = scope;
+  const { routeGlobal, selectedTenantId, effectiveTenantId, isAggregatedGlobalView, scopeInitialized, scopeKey } = scope;
 
   const progress = useFetchProgress("geoPerf.lastFetchMs");
   const { begin: progressBegin, finish: progressFinish } = progress;
@@ -162,9 +160,7 @@ export default function GeographicPerformancePage() {
     try {
       progressBegin();
       const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
-      const endpoint = routeGlobal
-        ? api.metrics.globalGeographic(days, group, selectedTenantId || undefined)
-        : api.metrics.geographic(tenantId, days, group);
+      const endpoint = scopedApi.geographic({ routeGlobal, selectedTenantId, effectiveTenantId }, days, group);
       const response = await authenticatedFetch(endpoint, getAccessToken, {
         signal: AbortSignal.timeout(GEO_FETCH_TIMEOUT_MS),
       });
@@ -183,7 +179,7 @@ export default function GeographicPerformancePage() {
       progressFinish(succeeded);
       setLoading(false);
     }
-  }, [routeGlobal, selectedTenantId, tenantId, getAccessToken, timeRange, groupBy, progressBegin, progressFinish]);
+  }, [routeGlobal, selectedTenantId, effectiveTenantId, getAccessToken, timeRange, groupBy, progressBegin, progressFinish]);
 
   useEffect(() => {
     if (!scopeInitialized) return;

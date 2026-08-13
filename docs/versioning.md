@@ -1,7 +1,7 @@
 ---
 type: Concept
-title: Version Contract — Agent, Backend, MCP
-description: One version shape for all three shipping components, the ETag-CAS counter blob that mints build numbers, and the published manifests that make "what is deployed" checkable from outside.
+title: Version Contract — Agent, Backend, MCP, Web
+description: One version shape for all shipping components, the ETag-CAS counter blob that mints build numbers, and the published manifests that make "what is deployed" checkable from outside.
 resource: /.github/scripts/Request-BuildNumber.ps1
 tags:
   - build
@@ -13,9 +13,12 @@ timestamp: 2026-07-22T00:00:00+02:00
 
 # Version Contract
 
-Three components ship from this repository — the agent, the Functions backend and the
-MCP server. They share one version shape, one way of minting build numbers, and one
-manifest format, so that a version string means the same thing whoever emits it.
+Four components ship from this repository — the agent, the Functions backend, the
+MCP server and the web portal. They share one version shape, one way of minting build
+numbers, and one manifest format, so that a version string means the same thing
+whoever emits it. The web portal is the commit-only exception: a static export has no
+runtime that could report a `major.minor.build`, so it carries `commit` + `buildUtc`
+alone (no counter blob).
 
 ```
 version   = <major>.<minor>.<build>    major.minor curated by hand, build minted per build
@@ -28,6 +31,7 @@ buildUtc  = ISO-8601 build moment
 | Agent V2 | `VersionPrefix` in `AutopilotMonitor.Agent.V2.csproj` | `agent/buildcounter-v2.txt` | `agent/version.json` |
 | Backend | `VersionPrefix` in `AutopilotMonitor.Functions.csproj` | `versions/backend.txt` | `GET /api/health` |
 | MCP | `version` in `package.json` | `versions/mcp.txt` | `GET /health`, MCP handshake |
+| Web portal | — (commit-only) | — | `GET /version.json` on the portal host |
 
 # Schema
 
@@ -77,7 +81,12 @@ exception: `build.ps1` produces uploadable artifacts and reserves a real number 
 ```
 
 The MCP manifest adds `docsCommit`, because for that component "which build" and "which
-documentation" are separate questions.
+documentation" are separate questions. `versions/web.json` carries `component`, `commit`,
+`deployedUtc` and `runId` (no `version`/`buildUtc` — the served `/version.json` holds the
+build moment). The portal's own stamp is generated into `public/version.json` by
+`scripts/generate-version.js` (prebuild) from `GITHUB_SHA`, served with
+`Cache-Control: no-store`, and `deploy-web.yml` polls it until the deployed commit
+matches the pushed SHA before publishing the manifest.
 
 Each is written **last and only after the deploy workflow has polled the component's
 health endpoint until it reports that exact version and commit**. A green deploy step
@@ -104,5 +113,6 @@ remain, being the customer-facing integrity contract.
 
 - `.github/scripts/Request-BuildNumber.ps1` — the CAS protocol
 - `.github/workflows/deploy-backend.yml`, `deploy-mcp.yml` — reserve, verify, publish
+- `.github/workflows/deploy-web.yml`, `src/Web/autopilot-monitor-web/scripts/generate-version.js` — web stamp, verify, publish
 - `.github/workflows/build-agent.yml`, `scripts/Deployment/build.ps1` — agent line
 - [Build Counter Blob](agent/build-counter-blob.md) — agent-specific consequences

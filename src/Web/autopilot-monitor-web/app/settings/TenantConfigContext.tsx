@@ -28,6 +28,7 @@ const validationEnabledSuffix = (t: ValidationTrigger) =>
 import { parseSasExpiry } from "./components/DiagnosticsSection";
 import { COMMUNITY_DEFAULT, parseEditionInfo, type EditionInfo } from "@/lib/edition";
 import { TenantConfiguration, TenantAdmin, DiagnosticsLogPath, NotificationChannel, LEGACY_CHANNEL_ID } from "./types";
+import { SECTION_FIELD_MAP, type SectionFieldSpec, type SettingsSectionName } from "./sectionFieldMap";
 import { type BootstrapSessionItem } from "./components/BootstrapSessionsSection";
 
 /**
@@ -717,9 +718,9 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // -----------------------------------------------------------------------
   // Save configuration (shared by all sections)
   // -----------------------------------------------------------------------
-  const saveConfiguration = useCallback(async (sectionName: string, overrides?: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean; validateDeviceAssociation?: boolean; validateCloudPcDevice?: boolean; unrestrictedMode?: boolean }): Promise<boolean> => {
+  const saveConfiguration = useCallback(async (sectionName: SettingsSectionName, overrides?: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean; validateDeviceAssociation?: boolean; validateCloudPcDevice?: boolean; unrestrictedMode?: boolean }): Promise<boolean> => {
     // Read-only viewers (Operators) have no save affordances; this guard covers any path
-    // that still reaches a save (the backend would 403 the PUT regardless).
+    // that still reaches a save (the backend would 403 the PATCH regardless).
     if (!tenantId || !config || !canEditConfig) return false;
 
     try {
@@ -794,26 +795,49 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         unrestrictedMode: unrestrictedModeValue,
       };
 
-      const response = await authenticatedFetch(api.config.tenant(tenantId), getAccessToken, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updatedConfig),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || errorData.error || `Failed to save configuration: ${response.statusText}`);
+      // Per-section PATCH: send ONLY this section's fields (plus documented write-throughs)
+      // that actually differ from the loaded config. The other ~90 fields never round-trip,
+      // so a stale read cannot revert unrelated fields (the 2026-07-31 incident class), and
+      // GA-only toggles a tenant admin cannot edit are simply never in the payload.
+      const spec: SectionFieldSpec = SECTION_FIELD_MAP[sectionName];
+      const patchFields: Record<string, unknown> = {};
+      for (const field of [...spec.fields, ...(spec.alsoWrites ?? [])]) {
+        // undefined and null both mean "cleared" on the wire; PATCH expresses a clear as
+        // an explicit JSON null (an omitted key would leave the stored value untouched).
+        const next = (updatedConfig as unknown as Record<string, unknown>)[field] ?? null;
+        const prev = (config as unknown as Record<string, unknown>)[field] ?? null;
+        if (JSON.stringify(next) !== JSON.stringify(prev)) {
+          patchFields[field] = next;
+        }
       }
 
-      const result = await response.json();
-      setConfig(result.config);
-      // Sync form state variables with the server response
-      setValidateAutopilotDevice(result.config.validateAutopilotDevice);
-      setValidateCorporateIdentifier(result.config.validateCorporateIdentifier ?? false);
-      setValidateDeviceAssociation(result.config.validateDeviceAssociation ?? false);
-      setValidateCloudPcDevice(result.config.validateCloudPcDevice ?? false);
-      setUnrestrictedMode(result.config.unrestrictedMode ?? false);
-      trackEvent("settings_saved", { section: sectionName });
+      if (Object.keys(patchFields).length > 0) {
+        const response = await authenticatedFetch(api.config.fields(tenantId), getAccessToken, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fields: patchFields, reason: `settings:${sectionName}` }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.message || errorData.error || `Failed to save configuration: ${response.statusText}`);
+        }
+
+        // The PATCH response carries applied field names + masked diff, not the config —
+        // the backend verified exactly these fields changed, so merge them locally.
+        await response.json().catch(() => ({}));
+        setConfig({ ...config, ...patchFields } as TenantConfiguration);
+      }
+
+      // Sync the gate-relevant form state with what is now persisted (merge of loaded
+      // config + this patch) — mirrors the old PUT-response sync.
+      const persisted = { ...config, ...patchFields } as TenantConfiguration;
+      setValidateAutopilotDevice(persisted.validateAutopilotDevice);
+      setValidateCorporateIdentifier(persisted.validateCorporateIdentifier ?? false);
+      setValidateDeviceAssociation(persisted.validateDeviceAssociation ?? false);
+      setValidateCloudPcDevice(persisted.validateCloudPcDevice ?? false);
+      setUnrestrictedMode(persisted.unrestrictedMode ?? false);
+      trackEvent("settings_saved", { section: sectionName, fieldCount: Object.keys(patchFields).length });
       setSuccessMessage("Configuration saved successfully!");
       setTimeout(() => setSuccessMessage(null), 3000);
       return true;
@@ -1218,7 +1242,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     setKeepLogFile(config.keepLogFile ?? false);
     setRebootOnComplete(config.rebootOnComplete ?? false);
     setRebootDelaySeconds(config.rebootDelaySeconds ?? 10);
-    setContactEmail(config.contactEmail ?? "");
+    // contactEmail deliberately NOT reset here — it is owned by the Contact section
+    // (resetting it from the Agent Settings card silently discarded unsaved Contact edits).
     setEnableGeoLocation(config.enableGeoLocation ?? true);
     setEnableTimezoneAutoSet(config.enableTimezoneAutoSet ?? false);
     setEnableImeMatchLog(config.enableImeMatchLog ?? false);

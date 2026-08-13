@@ -9,7 +9,8 @@ import { useSignalR } from "../../contexts/SignalRContext";
 import { useTenant } from "../../contexts/TenantContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNotifications } from "../../contexts/NotificationContext";
-import { api } from "@/lib/api";
+import { scopedApi } from "@/lib/scopedApi";
+import { fetchJson } from "@/lib/scopedFetch";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import FleetStatCard from "./components/FleetStatCard";
 import TimeAttributionSection, { TimeAttributionResponseDto } from "./components/TimeAttributionSection";
@@ -81,9 +82,7 @@ export default function FleetHealthPage() {
   const fetchAppMetrics = async (range: "7d" | "30d" | "90d" = timeRange) => {
     try {
       const d = range === "7d" ? 7 : range === "30d" ? 30 : 90;
-      const endpoint = routeGlobal
-        ? api.metrics.globalApp(d, selectedTenantId || undefined)
-        : api.metrics.app(tenantId, d);
+      const endpoint = scopedApi.appMetrics(scope, d);
       const response = await authenticatedFetch(endpoint, getAccessToken);
       if (response.ok) {
         const json = await response.json();
@@ -119,12 +118,7 @@ export default function FleetHealthPage() {
     let cancelled = false;
     (async () => {
       try {
-        const endpoint = routeGlobal
-          ? api.metrics.globalTimeAttribution(selectedTenantId || undefined)
-          : api.metrics.timeAttribution();
-        const response = await authenticatedFetch(endpoint, getAccessToken);
-        if (!response.ok) return;
-        const json = await response.json();
+        const json = await fetchJson<TimeAttributionResponseDto>(scopedApi.timeAttribution(scope), getAccessToken);
         if (!cancelled) setTimeAttribution(json);
       } catch {
         // fail-soft: section stays hidden
@@ -141,12 +135,7 @@ export default function FleetHealthPage() {
     let cancelled = false;
     (async () => {
       try {
-        const endpoint = routeGlobal
-          ? api.metrics.globalDeviceJourneys(days, selectedTenantId || undefined)
-          : api.metrics.deviceJourneys(days);
-        const response = await authenticatedFetch(endpoint, getAccessToken);
-        if (!response.ok) return;
-        const json = await response.json();
+        const json = await fetchJson<DeviceJourneyResponseDto>(scopedApi.deviceJourneys(scope, days), getAccessToken);
         if (!cancelled) setDeviceJourneys(json);
       } catch {
         // fail-soft: section stays hidden

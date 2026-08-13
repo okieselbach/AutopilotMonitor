@@ -12,6 +12,7 @@ import { isHomeTenantTarget } from "@/utils/homeTenantScope";
 import { hasTenantReadScope } from "@/lib/tenantScope";
 import type { NotificationType } from "@/contexts/NotificationContext";
 import type { Session } from "../types";
+import type { SignalRMessageName } from "@/lib/signalrMessages";
 
 const DEFAULT_PAGE_SIZE = 10;
 const MAX_PAGE_SIZE = 1000;
@@ -43,9 +44,9 @@ interface User {
 
 interface SignalRApi {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  on: (event: string, handler: (...args: any[]) => void) => void;
+  on: (event: SignalRMessageName, handler: (...args: any[]) => void) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  off: (event: string, handler: (...args: any[]) => void) => void;
+  off: (event: SignalRMessageName, handler: (...args: any[]) => void) => void;
   isConnected: boolean;
   joinGroup: (group: string) => Promise<void>;
   leaveGroup: (group: string) => Promise<void>;

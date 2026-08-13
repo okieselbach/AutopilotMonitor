@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "@/lib/api";
+import { scopedApi } from "@/lib/scopedApi";
 import { useLatest } from "@/hooks/useLatest";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
-import { asGuidOrUndefined } from "@/utils/inputValidation";
 import type { NotificationType } from "@/contexts/NotificationContext";
+import type { SignalRMessageName } from "@/lib/signalrMessages";
 
 // Wire shape of the server-aggregated Fleet Health payload (camelCase of the
 // backend FleetHealthMetrics DTO). Presentation-only derivations (bar maxima,
@@ -70,9 +70,9 @@ type AddNotification = (
 
 interface SignalRApi {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  on: (event: string, handler: (...args: any[]) => void) => void;
+  on: (event: SignalRMessageName, handler: (...args: any[]) => void) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  off: (event: string, handler: (...args: any[]) => void) => void;
+  off: (event: SignalRMessageName, handler: (...args: any[]) => void) => void;
   isConnected: boolean;
 }
 
@@ -147,12 +147,15 @@ export function useFleetHealth({
     setError(null);
 
     try {
-      const url = routeGlobalRef.current
-        ? api.metrics.globalFleetHealth(
-            daysRef.current,
-            asGuidOrUndefined(selectedTenantIdRef.current.trim()),
-          )
-        : api.metrics.fleetHealth(daysRef.current);
+      const url = scopedApi.fleetHealth(
+        {
+          routeGlobal: routeGlobalRef.current,
+          selectedTenantId: selectedTenantIdRef.current,
+          // Member path (routeGlobal false) needs no tenant on this endpoint (JWT-scoped).
+          effectiveTenantId: tenantIdRef.current ?? "",
+        },
+        daysRef.current,
+      );
 
       const response = await authenticatedFetch(url, getAccessToken);
 
@@ -188,7 +191,7 @@ export function useFleetHealth({
     } finally {
       if (myGen === fetchGenRef.current) setLoading(false);
     }
-  }, [getAccessToken, addNotification, routeGlobalRef, selectedTenantIdRef, daysRef]);
+  }, [getAccessToken, addNotification, routeGlobalRef, selectedTenantIdRef, tenantIdRef, daysRef]);
 
   const refresh = useCallback(() => {
     if (debounceTimerRef.current) {

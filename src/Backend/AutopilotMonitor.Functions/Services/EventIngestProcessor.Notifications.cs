@@ -137,7 +137,7 @@ namespace AutopilotMonitor.Functions.Services
                 updatedSession.IsPreProvisioned
             } : null;
 
-            var summaryMessage = new SignalRMessageAction("newevents")
+            var summaryMessage = new SignalRMessageAction(Constants.SignalRMessages.NewEvents)
             {
                 GroupName = $"tenant-{request.TenantId}",
                 Arguments = new object[] { new {
@@ -164,7 +164,7 @@ namespace AutopilotMonitor.Functions.Services
                 }).ToList<object>()
                 : null;
 
-            var eventsMessage = new SignalRMessageAction("eventStream")
+            var eventsMessage = new SignalRMessageAction(Constants.SignalRMessages.EventStream)
             {
                 GroupName = $"session-{request.TenantId}-{request.SessionId}",
                 Arguments = new object[] { new {

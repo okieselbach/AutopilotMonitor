@@ -8,7 +8,7 @@ import { ProtectedRoute } from "../../../components/ProtectedRoute";
 import { useTenant } from "../../../contexts/TenantContext";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useNotifications } from "../../../contexts/NotificationContext";
-import { api } from "@/lib/api";
+import { scopedApi } from "@/lib/scopedApi";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { getErrorCodeEntry, formatErrorCode } from "@/utils/errorCodeMap";
 import { useAggregatedAdminScope } from "@/hooks";
@@ -231,11 +231,12 @@ function AppDetailContent() {
   // Global admin tenant scope (aggregated-capable), seeded from the persisted tab scope or a ?tenantId=
   // deep-link; falls back to the GA's own tenant.
   const scope = useAggregatedAdminScope({ urlTenantId });
-  const { isGlobalAdmin, selectedTenantId, tenants, scopeInitialized, scopeKey } = scope;
+  const { isGlobalAdmin, tenants, scopeInitialized, scopeKey } = scope;
 
-  // Detail-page endpoint rule: use the /global/ endpoint when viewing a tenant other than the user's own
-  // (including the aggregated "" view), or when the own tenant isn't resolved yet.
-  const useGlobalEndpoint = Boolean(isGlobalAdmin && (selectedTenantId !== tenantId || !tenantId));
+  // Endpoint routing comes from the scope hook's routeGlobal (via scopedApi) — the former
+  // local formula was equivalent except that a GA viewing their OWN tenant used the member
+  // variant; routeGlobal sends them to the /global/ variant with an explicit tenantId, which
+  // returns the same data under the same authorization.
 
   // Build a tid → friendly name lookup once for the Tenant column.
   const tenantLookup = useMemo(() => {
@@ -315,9 +316,7 @@ function AppDetailContent() {
     try {
       setLoading(true);
       progressBegin();
-      const url = useGlobalEndpoint
-        ? api.apps.globalAnalytics(appName, days, selectedTenantId || undefined)
-        : api.apps.analytics(tenantId, appName, days);
+      const url = scopedApi.appAnalytics(scope, appName, days);
       const response = await authenticatedFetch(url, getAccessToken, {
         signal: AbortSignal.timeout(APPS_FETCH_TIMEOUT_MS),
       });
@@ -355,9 +354,7 @@ function AppDetailContent() {
     if (!isGlobalAdmin && !tenantId) return;
     try {
       setSessionsLoading(true);
-      const url = useGlobalEndpoint
-        ? api.apps.globalSessions(appName, days, status, offset, SESSIONS_PAGE_SIZE, selectedTenantId || undefined)
-        : api.apps.sessions(tenantId, appName, days, status, offset, SESSIONS_PAGE_SIZE);
+      const url = scopedApi.appSessions(scope, appName, days, status, offset, SESSIONS_PAGE_SIZE);
       const response = await authenticatedFetch(url, getAccessToken, {
         signal: AbortSignal.timeout(APPS_FETCH_TIMEOUT_MS),
       });

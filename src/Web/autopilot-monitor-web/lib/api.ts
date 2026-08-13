@@ -132,6 +132,13 @@ export const api = {
   config: {
     all: () => `${API_BASE_URL}/api/config/all`,
     tenant: (tenantId: string) => `${API_BASE_URL}/api/config/${tenantId}`,
+    /**
+     * PATCH — transactional field-level config write (TenantAdminOrGA, own row):
+     * { fields: { <wireFieldName>: value | null, ... }, reason?: string }. The backend
+     * verifies exactly those fields changed and rolls back on drift; every write snapshots
+     * to ConfigurationBackups first. The Settings sections save through this per section.
+     */
+    fields: (tenantId: string) => `${API_BASE_URL}/api/config/${tenantId}/fields`,
     featureFlags: (tenantId: string) => `${API_BASE_URL}/api/config/${tenantId}/feature-flags`,
     /** PATCH — GA-only plan/trial mutation: { planTier?, trialExpiresUtc?: ISO | null }. */
     plan: (tenantId: string) => `${API_BASE_URL}/api/config/${tenantId}/plan`,

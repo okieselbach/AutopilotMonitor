@@ -100,6 +100,29 @@ describe("session statuses", () => {
   });
 });
 
+describe("signalR message names", () => {
+  // The real enforcement is compile-time: SignalRContext.on/off type their event names
+  // against this manifest section (lib/signalrMessages.ts), so a web subscription to a
+  // name the backend never sends fails tsc. These tests pin the section's shape so a
+  // regeneration that drops or duplicates names is caught even before tsc runs.
+  it("exists with the full backend catalog and no duplicates", () => {
+    const names = SHARED_MANIFEST.signalRMessages;
+    expect(names.length).toBeGreaterThanOrEqual(13);
+    expect(new Set(names).size).toBe(names.length);
+    // Session-lifecycle names every dashboard hook depends on:
+    for (const required of ["newSession", "newevents", "eventStream", "sessionDeleted"]) {
+      expect(names).toContain(required);
+    }
+  });
+
+  it("keeps the single legacy lowercase name and camelCase for the rest", () => {
+    for (const name of SHARED_MANIFEST.signalRMessages) {
+      if (name === "newevents") continue; // persisted wire name predating the convention
+      expect(name).toMatch(/^[a-z]+([A-Z][a-z]*)*$/);
+    }
+  });
+});
+
 describe("gather-rule event-type autocomplete", () => {
   it("contains no event type the agent/backend does not know", () => {
     // Typo guard: every autocomplete entry must be a real Constants.EventTypes value.
