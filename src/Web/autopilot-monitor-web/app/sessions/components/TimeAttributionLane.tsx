@@ -144,7 +144,8 @@ export default function TimeAttributionLane({ breakdown }: { breakdown: SessionT
       <div className="mt-4">
         <div className="text-xs font-semibold text-gray-600 mb-1.5">
           ESP-blocking apps
-          {breakdown.espAppsOccupancySeconds !== null && (
+          {/* Loose check: the backend omits null fields (WhenWritingNull), so the client sees undefined. */}
+          {breakdown.espAppsOccupancySeconds != null && (
             <span className="ml-2 font-normal text-gray-400" title="Overlap-merged install time of ESP-blocking apps within the apps phase.">
               critical path {formatDuration(breakdown.espAppsOccupancySeconds)}
             </span>

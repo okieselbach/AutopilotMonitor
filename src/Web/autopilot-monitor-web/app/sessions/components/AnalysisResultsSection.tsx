@@ -244,8 +244,10 @@ function AnalysisResultCard({
             <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">{result.category}</span>
           </div>
           <h3 className="font-medium text-gray-900">{result.ruleTitle}</h3>
-          <div className="flex items-center mt-1 space-x-3">
-            <div className="flex items-center space-x-1">
+          {/* flex-wrap: on narrow screens the fleet-context notes drop to their own
+              full-width lines instead of squeezing into word-per-line columns. */}
+          <div className="flex flex-wrap items-center mt-1 gap-x-3 gap-y-1">
+            <div className="flex items-center space-x-1 shrink-0">
               <span className="text-xs text-gray-500">Confidence:</span>
               <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
                 <div
