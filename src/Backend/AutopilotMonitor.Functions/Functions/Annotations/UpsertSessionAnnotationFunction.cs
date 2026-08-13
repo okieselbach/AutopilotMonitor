@@ -65,20 +65,14 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
                 // Tenant identity: non-GA callers are pinned to their middleware-validated
                 // tenant (never a body value — prevents horizontal escalation). Global
                 // Admins may annotate foreign-tenant sessions (the GA labeling flow), so
-                // resolve the session's actual tenant like the other session reads do.
-                // Resolution happens BEFORE the lane gate: tenant-role lanes must bind to
-                // the caller's OWN tenant, so a GA who is also an own-tenant admin cannot
-                // write another tenant's operator/tenantadmin lanes.
-                var effectiveTenantId = requestCtx.TargetTenantId;
-                if (requestCtx.IsGlobalAdmin)
-                {
-                    var resolvedTenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId);
-                    if (resolvedTenantId != null
-                        && !string.Equals(resolvedTenantId, effectiveTenantId, StringComparison.OrdinalIgnoreCase))
-                    {
-                        effectiveTenantId = resolvedTenantId;
-                    }
-                }
+                // resolve the session's actual tenant like the other session reads do —
+                // requireGlobalAdmin because this is a WRITE (a read-only GlobalReader
+                // must never steer it cross-tenant). Resolution happens BEFORE the lane
+                // gate: tenant-role lanes must bind to the caller's OWN tenant, so a GA
+                // who is also an own-tenant admin cannot write another tenant's
+                // operator/tenantadmin lanes.
+                var effectiveTenantId = await requestCtx.ResolveSessionScopeAsync(
+                    _sessionRepo, sessionId, requireGlobalAdmin: true);
 
                 var isOwnTenant = string.Equals(effectiveTenantId, requestCtx.TenantId, StringComparison.OrdinalIgnoreCase);
                 if (!IsLaneWritableByCaller(

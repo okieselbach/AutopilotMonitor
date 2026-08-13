@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { PublicClientApplication, AccountInfo, InteractionStatus, InteractionRequiredAuthError, BrowserAuthError } from '@azure/msal-browser';
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react';
 import { msalConfig, loginRequest, apiRequest, activeAuthApp, buildMsalConfig, clientIdForApp } from '@/lib/msalConfig';
@@ -531,7 +531,10 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
     }
   }, [instance, accounts]);
 
-  const value: AuthContextType = {
+  // Memoized (P6.3): AuthProvider sits above every page — an unmemoized value object
+  // re-rendered every context consumer on each provider render (MSAL account refreshes
+  // included), which cascaded into the settings/dashboard trees.
+  const value: AuthContextType = useMemo(() => ({
     isAuthenticated,
     user,
     hasGlobalScope: (user?.isGlobalAdmin || user?.isGlobalReader) ?? false,
@@ -543,7 +546,7 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
     logout,
     getAccessToken,
     refreshUserInfo,
-  };
+  }), [isAuthenticated, user, isLoading, isActivationPending, activationMessage, login, logout, getAccessToken, refreshUserInfo]);
 
   return (
     <AuthContext.Provider value={value}>

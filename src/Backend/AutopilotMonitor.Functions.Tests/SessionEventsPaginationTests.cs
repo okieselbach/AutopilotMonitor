@@ -102,7 +102,7 @@ public class SessionEventsPaginationTests
         // Regression: previously the function called BuildNextLink with the raw
         // ?tenantId= query param, which is null when GA reads /api/sessions/{id}/events
         // without explicitly passing tenantId. Page 1 then bound the token to the
-        // resolved tenant (via FindSessionTenantIdAsync), but the nextLink omitted
+        // resolved tenant (via ResolveSessionTenantIdAsync), but the nextLink omitted
         // it — so page 2 validated against the GA's JWT tenant and the token was
         // rejected as cross_tenant. Fix: nextLink now carries the resolved tenantId
         // verbatim, and the function honours ?tenantId= on follow-up pages for GA.

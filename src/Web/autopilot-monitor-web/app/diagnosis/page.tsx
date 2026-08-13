@@ -70,7 +70,7 @@ function DiagnosisContent() {
     try {
       // Fetch the single session directly instead of pulling the entire session
       // list and .find()-ing client-side. The backend resolves the tenant via
-      // FindSessionTenantIdAsync for global admins when tenantId is omitted.
+      // ResolveSessionTenantIdAsync for global admins when tenantId is omitted.
       const knownTenantId = sessionTenantId || (!globalAdminMode ? tenantId : null);
       const endpoint =
         knownTenantId && isGuid(knownTenantId)

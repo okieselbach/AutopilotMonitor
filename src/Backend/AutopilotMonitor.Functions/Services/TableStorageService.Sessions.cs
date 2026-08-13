@@ -49,7 +49,9 @@ namespace AutopilotMonitor.Functions.Services
         /// back in the Sessions entity. Copies all SessionSummary-relevant fields so that
         /// listing queries only need to hit the index table.
         /// </summary>
-        private async Task UpsertSessionIndexAsync(TableEntity sessionEntity, DateTime startedAt)
+        // internal (not private) so SessionIndexFieldManifestTests can pin the Replace-mode
+        // full-rebuild semantics + the stale-RowKey delete without a live table service.
+        internal async Task UpsertSessionIndexAsync(TableEntity sessionEntity, DateTime startedAt)
         {
             try
             {
@@ -77,7 +79,11 @@ namespace AutopilotMonitor.Functions.Services
                 // Build index entity from the single SessionsIndex field manifest (lean read-model contract).
                 var indexEntity = BuildSessionIndexEntity(sessionEntity, indexRowKey, startedAt);
 
-                await indexTableClient.UpsertEntityAsync(indexEntity);
+                // Replace, not merge: the full rebuild is the mirror's truth. Merge-mode upsert
+                // could not clear conditional fields the primary meanwhile blanked (e.g. a
+                // FailureReason cleared on re-Succeed) — the stale column would survive every
+                // non-shift rebuild (re-registration, backfill) forever.
+                await indexTableClient.UpsertEntityAsync(indexEntity, TableUpdateMode.Replace);
 
                 // Store IndexRowKey back in the Sessions entity so Merge-mode updates can find it
                 var sessionsTableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
@@ -100,10 +106,12 @@ namespace AutopilotMonitor.Functions.Services
         /// do). It serves the session list / search / stats AND the <c>/api/raw/sessions</c> endpoint
         /// (which returns every stored index column verbatim, see <c>RawEntityProjection</c>) directly
         /// — no hydration from Sessions — so it must carry the same column set the session lifecycle
-        /// writes. This builder is the ONE place that set is defined; it must stay a SUPERSET of every
-        /// field any <c>MergeSessionIndexAsync</c> call site writes, otherwise a StartedAt-shift full
-        /// upsert would drop a merged field until the next merge (the recurring drift bug, e.g.
-        /// ab90423b). Keep aligned with <c>MapToSessionSummary</c> (read side).
+        /// writes. The declared column set lives in <see cref="SessionIndexFieldManifest"/>; this
+        /// builder is pinned against it bidirectionally by <c>SessionIndexFieldManifestTests</c> and
+        /// must stay a SUPERSET of every field any <c>MergeSessionIndexAsync</c> call site writes
+        /// (guarded fail-soft there), otherwise a StartedAt-shift full upsert would drop a merged
+        /// field until the next merge (the recurring drift bug, e.g. ab90423b). Keep aligned with
+        /// <c>MapToSessionSummary</c> (read side — also pinned by the manifest tests).
         ///
         /// Not mirrored here: fields owned by separate write subsystems that do not touch the index —
         /// <c>PendingActionsJson</c>/<c>PendingActionsQueuedAt</c> (ServerActions) and
@@ -263,6 +271,17 @@ namespace AutopilotMonitor.Functions.Services
                     if (kvp.Key == "odata.etag" || kvp.Key == "PartitionKey" || kvp.Key == "RowKey" || kvp.Key == "Timestamp")
                         continue;
                     indexUpdate[kvp.Key] = kvp.Value;
+                }
+
+                // Fail-soft drift guard: a merged field missing from the manifest (and thus
+                // from BuildSessionIndexEntity) is silently dropped on the next StartedAt-shift
+                // full rebuild — the recurring drift bug. Write it anyway, but surface the gap.
+                var nonManifestKeys = SessionIndexFieldManifest.FindNonManifestKeys(indexUpdate);
+                if (nonManifestKeys.Count > 0)
+                {
+                    _logger.LogWarning(
+                        "SessionsIndex merge for {TenantId}/{IndexRowKey} writes field(s) outside SessionIndexFieldManifest: {Fields} — add them to the manifest + BuildSessionIndexEntity or a full rebuild will drop them",
+                        tenantId, indexRowKey, string.Join(", ", nonManifestKeys));
                 }
 
                 await indexTableClient.UpdateEntityAsync(indexUpdate, ETag.All, TableUpdateMode.Merge);
@@ -729,6 +748,10 @@ namespace AutopilotMonitor.Functions.Services
 
                 // Dual-write: upsert into SessionsIndex for time-sorted listing
                 await UpsertSessionIndexAsync(entity, startedAt);
+
+                // Dual-write: sessionId → tenantId point-read lookup (fail-soft; legacy
+                // sessions heal lazily in ResolveSessionTenantIdAsync).
+                await UpsertSessionTenantLookupAsync(registration.SessionId, registration.TenantId);
 
                 _logger.LogInformation($"Stored session {registration.SessionId}");
                 return true;
@@ -1497,14 +1520,52 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
+        /// <summary>RowKey of the single lookup row per session in <see cref="Constants.TableNames.SessionTenantLookup"/>.</summary>
+        private const string SessionTenantLookupRowKey = "tenant";
+
         /// <summary>
-        /// Finds the tenantId for a session by scanning SessionsIndex.
-        /// Used for Global Admin cross-tenant session lookup when tenantId is unknown.
+        /// Resolves the tenantId owning a session. Point-read on the SessionTenantLookup table
+        /// (PK=sessionId); sessions registered before the table existed fall back to the legacy
+        /// cross-partition SessionsIndex scan and self-heal by writing the lookup row, so the
+        /// scan cost is paid at most once per legacy session. Used for Global Admin cross-tenant
+        /// session access when tenantId is unknown.
         /// </summary>
-        public async Task<string?> FindSessionTenantIdAsync(string sessionId)
+        public async Task<string?> ResolveSessionTenantIdAsync(string sessionId)
         {
             SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
 
+            try
+            {
+                var lookupClient = _tableServiceClient.GetTableClient(Constants.TableNames.SessionTenantLookup);
+                var response = await lookupClient.GetEntityAsync<TableEntity>(sessionId, SessionTenantLookupRowKey);
+                var tenantId = response.Value.GetString("TenantId");
+                if (!string.IsNullOrEmpty(tenantId))
+                    return tenantId;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                // Legacy session (pre-lookup-table) or already deleted — fall through to the scan.
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "SessionTenantLookup point-read failed for {SessionId}, falling back to index scan", sessionId);
+            }
+
+            var scanned = await ScanSessionsIndexForTenantIdAsync(sessionId);
+            if (scanned != null)
+            {
+                // Self-heal: next resolve for this legacy session is a point-read.
+                await UpsertSessionTenantLookupAsync(sessionId, scanned);
+            }
+            return scanned;
+        }
+
+        /// <summary>
+        /// Legacy fallback: finds the tenantId by scanning SessionsIndex cross-partition
+        /// (SessionId is a non-key property there). Reserve for lookup-table misses.
+        /// </summary>
+        private async Task<string?> ScanSessionsIndexForTenantIdAsync(string sessionId)
+        {
             try
             {
                 var indexTableClient = _tableServiceClient.GetTableClient(Constants.TableNames.SessionsIndex);
@@ -1520,6 +1581,27 @@ namespace AutopilotMonitor.Functions.Services
             {
                 _logger.LogError(ex, $"Failed to find tenant for session {sessionId}");
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Writes the sessionId → tenantId lookup row (fail-soft: resolution still works via
+        /// the scan fallback when this write is lost).
+        /// </summary>
+        private async Task UpsertSessionTenantLookupAsync(string sessionId, string tenantId)
+        {
+            try
+            {
+                var lookupClient = _tableServiceClient.GetTableClient(Constants.TableNames.SessionTenantLookup);
+                var row = new TableEntity(sessionId, SessionTenantLookupRowKey)
+                {
+                    ["TenantId"] = tenantId
+                };
+                await lookupClient.UpsertEntityAsync(row);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to upsert SessionTenantLookup for {SessionId}", sessionId);
             }
         }
 
@@ -2115,6 +2197,21 @@ namespace AutopilotMonitor.Functions.Services
 
                             if (resumedAt.HasValue)
                                 forceUpdate["ResumedAt"] = EnsureUtc(resumedAt.Value);
+
+                            // Mirror the stalled-state bookkeeping + heal from the normal path —
+                            // otherwise the force-merge fallback drops a stall marker (or keeps a
+                            // healed session visually stalled) exactly when ETag retries are
+                            // exhausted at the stall/heal transition.
+                            if (stalledAt.HasValue)
+                            {
+                                forceUpdate["StalledAt"] = EnsureUtc(stalledAt.Value);
+                                if (!string.IsNullOrEmpty(failureReason))
+                                    forceUpdate["FailureReason"] = failureReason;
+                            }
+                            if (clearStalledAt)
+                                forceUpdate["StalledAt"] = (DateTime?)null;
+                            if (clearFailureReason)
+                                forceUpdate["FailureReason"] = string.Empty;
 
                             // Unconditional merge write — ETag.All bypasses concurrency check
                             await forceTableClient.UpdateEntityAsync(forceUpdate, ETag.All, TableUpdateMode.Merge);

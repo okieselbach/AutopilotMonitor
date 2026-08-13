@@ -103,7 +103,7 @@ public class SessionAnnotationFunctionsTests
         annotationRepo.Setup(r => r.GetForSessionAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(new List<SessionAnnotation>());
         var sessionRepo = new Mock<ISessionRepository>(MockBehavior.Loose);
-        sessionRepo.Setup(r => r.FindSessionTenantIdAsync(SessionId)).ReturnsAsync(TenantId);
+        sessionRepo.Setup(r => r.ResolveSessionTenantIdAsync(SessionId)).ReturnsAsync(TenantId);
         return new GetSessionAnnotationsFunction(
             NullLogger<GetSessionAnnotationsFunction>.Instance,
             annotationRepo.Object, sessionRepo.Object);
@@ -291,7 +291,7 @@ public class SessionAnnotationFunctionsTests
         var sessionRepo = new Mock<ISessionRepository>(MockBehavior.Loose);
         sessionRepo.Setup(r => r.GetSessionAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(new SessionSummary { SessionId = SessionId, TenantId = TenantId });
-        sessionRepo.Setup(r => r.FindSessionTenantIdAsync(SessionId)).ReturnsAsync(TenantId);
+        sessionRepo.Setup(r => r.ResolveSessionTenantIdAsync(SessionId)).ReturnsAsync(TenantId);
 
         var ruleRepo = new Mock<IRuleRepository>(MockBehavior.Loose);
         ruleRepo.Setup(r => r.GetRuleResultsAsync(It.IsAny<string>(), It.IsAny<string>()))

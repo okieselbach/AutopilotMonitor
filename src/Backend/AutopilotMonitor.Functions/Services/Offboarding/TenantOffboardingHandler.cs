@@ -56,7 +56,6 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
         private static readonly string[] TenantPartitionTables =
         {
             Constants.TableNames.AuditLogs,
-            Constants.TableNames.UsageMetrics,
             Constants.TableNames.UserActivity,
             Constants.TableNames.UserPresence,
             Constants.TableNames.AppInstallSummaries,
@@ -93,6 +92,22 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             // are customer-entered notes tied to the tenant's sessions, not product feedback.
             // Rows also die per-session via the deletion manifest; this covers offboarding.
             Constants.TableNames.SessionAnnotations,
+            // Cumulative per-tenant counters (PK=tenantId, RK="current"). The platform row
+            // lives under PK="global", which can never match a tenant GUID, so the exact-PK
+            // wipe removes only the offboarded tenant's partition.
+            Constants.TableNames.PlatformStats,
+            // Intune script display-name cache (PK=tenantId). Only had TTL eviction before;
+            // tenant script names must not outlive the tenant.
+            Constants.TableNames.ScriptNameCache,
+        };
+
+        // Variant D — RowKey-anchored wipes for tables whose ROW key is the tenant id.
+        // UsageMetrics rows are written as PK=date ("yyyy-MM-dd"), RK=tenantId|"global"
+        // (SaveUsageMetricsSnapshotAsync) — an exact-PK wipe here matched 0 rows, so
+        // per-tenant snapshots silently survived offboarding until the 180d retention sweep.
+        private static readonly string[] RowKeyTables =
+        {
+            Constants.TableNames.UsageMetrics,
         };
 
         // Plan §6.4 — composite-PK "{tenantId}_..." wipes (Variant A range).
@@ -955,6 +970,11 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             {
                 ct.ThrowIfCancellationRequested();
                 counts[table] = await _safeWipe.WipeByTenantIdPropertyAsync(table, tenantId, ct);
+            }
+            foreach (var table in RowKeyTables)
+            {
+                ct.ThrowIfCancellationRequested();
+                counts[table] = await _safeWipe.WipeByRowKeyAsync(table, tenantId, ct);
             }
         }
 

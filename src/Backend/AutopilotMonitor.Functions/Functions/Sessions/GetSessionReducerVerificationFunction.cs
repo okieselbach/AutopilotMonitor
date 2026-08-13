@@ -68,32 +68,16 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
 
             try
             {
+                // Cross-tenant scope resolved upfront (point-read; same pattern as the other
+                // session detail reads). The GlobalReadOrAdmin route gate restricts callers to
+                // platform scope, which is exactly what the helper's HasGlobalScope gate checks.
                 var requestCtx = req.GetRequestContext();
-                var tenantIdForLoad = requestCtx.TargetTenantId;
+                var tenantIdForLoad = await requestCtx.ResolveSessionScopeAsync(_sessionRepo, sessionId);
 
                 var signals = await _signalRepo.QueryBySessionAsync(
                     tenantIdForLoad, sessionId, MaxSignalsToLoad);
                 var transitions = await _transitionRepo.QueryBySessionAsync(
                     tenantIdForLoad, sessionId, MaxTransitionsToLoad);
-
-                // Global-scope cross-tenant fallback — same pattern as the other session detail read
-                // endpoints. Resolve via SessionsIndex when the effective tenant has no data. (The
-                // GlobalReadOrAdmin gate already restricts this route to platform-scope callers — GA or
-                // read-only GlobalReader — so we don't re-check the role here; the SessionsIndex lookup
-                // is the cleanest way to find the actual tenant for a loose sessionId.)
-                if (signals.Count == 0 && transitions.Count == 0)
-                {
-                    var resolvedTenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId);
-                    if (resolvedTenantId != null &&
-                        !string.Equals(resolvedTenantId, tenantIdForLoad, StringComparison.OrdinalIgnoreCase))
-                    {
-                        signals = await _signalRepo.QueryBySessionAsync(
-                            resolvedTenantId, sessionId, MaxSignalsToLoad);
-                        transitions = await _transitionRepo.QueryBySessionAsync(
-                            resolvedTenantId, sessionId, MaxTransitionsToLoad);
-                        tenantIdForLoad = resolvedTenantId;
-                    }
-                }
 
                 // Read the live reducer's version via a transient DecisionEngine instance.
                 // The engine has no heavy construction cost (no DI, no state) so this is

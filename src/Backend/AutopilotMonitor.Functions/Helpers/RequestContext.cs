@@ -1,4 +1,5 @@
 using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.DataAccess;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 
@@ -145,6 +146,37 @@ public static class RequestContextExtensions
         => ctx.UserRole == Constants.TenantRoles.Admin
             || ctx.UserRole == Constants.TenantRoles.Operator
             || ctx.UserRole == Constants.TenantRoles.Viewer;
+
+    /// <summary>
+    /// Resolves the effective tenantId for a session-scoped request (Fragilitätsaudit P5.3 —
+    /// the one implementation of the former 15-site copy-paste fallback).
+    /// <para>
+    /// Non-global callers always keep <see cref="RequestContext.TargetTenantId"/> (the middleware
+    /// already validated it; no cross-tenant reach). Global-scope callers resolve the session's
+    /// owning tenant via <see cref="ISessionRepository.ResolveSessionTenantIdAsync"/> (point-read
+    /// with legacy-scan fallback) and get the resolved tenant when it differs; an unknown session
+    /// keeps <see cref="RequestContext.TargetTenantId"/> so each endpoint's own not-found handling
+    /// (404 / empty 200 / 400) stays in charge.
+    /// </para>
+    /// </summary>
+    /// <param name="requireGlobalAdmin">
+    /// True on WRITE paths: gate the cross-tenant resolve on <see cref="RequestContext.IsGlobalAdmin"/>
+    /// instead of <see cref="RequestContext.HasGlobalScope"/>, so a read-only Global Reader can never
+    /// steer a write into a foreign tenant.
+    /// </param>
+    public static async Task<string> ResolveSessionScopeAsync(
+        this RequestContext ctx, ISessionRepository sessionRepo, string sessionId, bool requireGlobalAdmin = false)
+    {
+        var canReachAcrossTenants = requireGlobalAdmin ? ctx.IsGlobalAdmin : ctx.HasGlobalScope;
+        if (!canReachAcrossTenants)
+            return ctx.TargetTenantId;
+
+        var resolvedTenantId = await sessionRepo.ResolveSessionTenantIdAsync(sessionId);
+        if (resolvedTenantId != null && !string.Equals(resolvedTenantId, ctx.TargetTenantId, StringComparison.OrdinalIgnoreCase))
+            return resolvedTenantId;
+
+        return ctx.TargetTenantId;
+    }
 
     /// <summary>Gets the correlation ID for this request (set by CorrelationIdMiddleware).</summary>
     public static string GetCorrelationId(this FunctionContext context)

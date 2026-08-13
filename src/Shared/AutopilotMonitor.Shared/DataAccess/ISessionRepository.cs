@@ -17,7 +17,13 @@ namespace AutopilotMonitor.Shared.DataAccess
         // --- Session CRUD ---
         Task<bool> StoreSessionAsync(SessionRegistration registration);
         Task<SessionSummary?> GetSessionAsync(string tenantId, string sessionId);
-        Task<string?> FindSessionTenantIdAsync(string sessionId);
+        /// <summary>
+        /// Resolves the tenantId owning <paramref name="sessionId"/> — point-read on the
+        /// SessionTenantLookup table with a legacy SessionsIndex-scan fallback that self-heals
+        /// the lookup row. Null when the session is unknown. Used for global-scope cross-tenant
+        /// session access when tenantId is not supplied (see RequestContextExtensions.ResolveSessionScopeAsync).
+        /// </summary>
+        Task<string?> ResolveSessionTenantIdAsync(string sessionId);
         /// <summary>
         /// Returns all sessions for <paramref name="tenantId"/> newest-first.
         /// Optional <paramref name="days"/> scopes to the last N days. No row cap —

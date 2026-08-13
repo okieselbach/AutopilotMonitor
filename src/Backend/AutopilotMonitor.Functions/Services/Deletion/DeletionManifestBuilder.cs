@@ -135,8 +135,13 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                 AddContributionsRowStep(manifest, order: 21, contributionsRow);
             }
 
-            // ---- Step 22: Tombstone (SessionsIndex first, then Sessions). ----
-            AddTombstoneStep(manifest, order: 22, sessionsIndexRow, sessionRow);
+            // ---- Step 22: sessionId → tenantId lookup row (PK=sessionId, RK="tenant"). ----
+            // Deleted just before the tombstone so cross-tenant resolution keeps working for
+            // as long as the session itself exists; absent for legacy sessions (0-row step).
+            await AddPkRkExactStepAsync(manifest, order: 22, table: Constants.TableNames.SessionTenantLookup, partitionKey: sessionId, rowKey: "tenant", cancellationToken);
+
+            // ---- Step 23: Tombstone (SessionsIndex first, then Sessions). ----
+            AddTombstoneStep(manifest, order: 23, sessionsIndexRow, sessionRow);
 
             // PreflightCounts derive from each step's RowCount, plus the AGGREGATE decrements length.
             manifest.PreflightCounts = ComputePreflightCounts(manifest);

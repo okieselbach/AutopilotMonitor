@@ -98,6 +98,49 @@ public class SafeWipeServiceTests
     }
 
     [Fact]
+    public async Task RowKey_AbortsWhenForeignRowKeyReturned()
+    {
+        // Variant D anchors on the RowKey (UsageMetrics: PK=date, RK=tenantId). The "global"
+        // aggregate row shares partitions with tenant rows — verify must reject anything whose
+        // RowKey is not exactly the tenant id.
+        var harness = new Harness(
+            queriedRows: new[]
+            {
+                new TableEntity("2026-08-01", TenantId),
+                new TableEntity("2026-08-01", "global"), // <-- must never be wiped
+            });
+
+        await Assert.ThrowsAsync<SafeWipeVerificationException>(() =>
+            harness.Sut.WipeByRowKeyAsync("FakeTable", TenantId));
+
+        Assert.Empty(harness.SubmittedBatches);
+        Assert.Empty(harness.PerRowDeletes);
+    }
+
+    [Fact]
+    public async Task RowKey_DeletesAcrossPartitionsWithETagAll()
+    {
+        // One row per date partition — batches are grouped by PK, so 3 partitions = 3 batches.
+        var harness = new Harness(
+            queriedRows: new[]
+            {
+                new TableEntity("2026-08-01", TenantId),
+                new TableEntity("2026-08-02", TenantId),
+                new TableEntity("2026-08-03", TenantId),
+            });
+
+        var deleted = await harness.Sut.WipeByRowKeyAsync("FakeTable", TenantId);
+
+        Assert.Equal(3, deleted);
+        Assert.Equal(3, harness.SubmittedBatches.Count);
+        foreach (var action in harness.SubmittedBatches.SelectMany(b => b))
+        {
+            Assert.Equal(TableTransactionActionType.Delete, action.ActionType);
+            Assert.Equal(ETag.All, action.Entity.ETag);
+        }
+    }
+
+    [Fact]
     public async Task ExactPartition_DeletesEveryRowWithETagAll()
     {
         var harness = new Harness(
@@ -175,6 +218,8 @@ public class SafeWipeServiceTests
             () => harness.Sut.WipeByDiscriminatorAndTenantPropertyAsync("t", "CodeLookup", "not-a-guid"));
         await Assert.ThrowsAsync<ArgumentException>(
             () => harness.Sut.WipeByTenantIdPropertyAsync("t", "not-a-guid"));
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => harness.Sut.WipeByRowKeyAsync("t", "not-a-guid"));
     }
 
     // ── Harness ─────────────────────────────────────────────────────────────────

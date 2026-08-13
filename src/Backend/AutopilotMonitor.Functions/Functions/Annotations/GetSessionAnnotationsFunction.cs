@@ -38,21 +38,11 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
         {
             try
             {
-                // Authentication + MemberRead authorization enforced by PolicyEnforcementMiddleware
+                // Authentication + MemberRead authorization enforced by PolicyEnforcementMiddleware.
+                // Global-scope (GA or read-only GlobalReader) callers resolve the session's actual
+                // tenant upfront so the read works cross-tenant.
                 var requestCtx = req.GetRequestContext();
-                var effectiveTenantId = requestCtx.TargetTenantId;
-
-                // Global-scope (GA or read-only GlobalReader) cross-tenant fallback: resolve
-                // the actual tenant upfront so the read works cross-tenant.
-                if (requestCtx.HasGlobalScope)
-                {
-                    var resolvedTenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId);
-                    if (resolvedTenantId != null
-                        && !string.Equals(resolvedTenantId, effectiveTenantId, StringComparison.OrdinalIgnoreCase))
-                    {
-                        effectiveTenantId = resolvedTenantId;
-                    }
-                }
+                var effectiveTenantId = await requestCtx.ResolveSessionScopeAsync(_sessionRepo, sessionId);
 
                 var annotations = await _annotationRepo.GetForSessionAsync(effectiveTenantId, sessionId);
                 var visible = FilterLanesForCaller(annotations, requestCtx.HasGlobalScope);

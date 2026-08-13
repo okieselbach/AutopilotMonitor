@@ -293,6 +293,33 @@ public class TenantOffboardingHandlerOrderingTests
         Assert.Contains(Constants.TableNames.ConfigurationBackups, harness.SafeWipeProbe.ExactPartitionWipes);
     }
 
+    [Fact]
+    public async Task PostDrain_RowKeyWipe_CoversUsageMetrics()
+    {
+        // UsageMetrics rows are PK=date, RK=tenantId — the former exact-PK wipe matched 0
+        // rows, so per-tenant snapshots survived offboarding. The RowKey-anchored Variant D
+        // wipe is their only tenant-lifecycle deletion.
+        var harness = Harness.New();
+
+        await harness.Sut.HandleAsync(harness.Envelope());
+
+        Assert.Contains(Constants.TableNames.UsageMetrics, harness.SafeWipeProbe.RowKeyWipes);
+        Assert.DoesNotContain(Constants.TableNames.UsageMetrics, harness.SafeWipeProbe.ExactPartitionWipes);
+    }
+
+    [Fact]
+    public async Task PostDrain_ExactPartitionWipe_CoversTenantStatsAndScriptNameCache()
+    {
+        // PlatformStats carries per-tenant counter rows (PK=tenantId, RK="current") and
+        // ScriptNameCache is keyed PK=tenantId — both previously survived offboarding.
+        var harness = Harness.New();
+
+        await harness.Sut.HandleAsync(harness.Envelope());
+
+        Assert.Contains(Constants.TableNames.PlatformStats, harness.SafeWipeProbe.ExactPartitionWipes);
+        Assert.Contains(Constants.TableNames.ScriptNameCache, harness.SafeWipeProbe.ExactPartitionWipes);
+    }
+
     // ── Harness (copied minimal — only what these tests need) ───────────────────
 
     private sealed class Harness
@@ -442,6 +469,8 @@ public class TenantOffboardingHandlerOrderingTests
         public List<string> PropertyOnlyWipes { get; } = new();
         /// <summary>Table names passed to the exact-partition (Variant A) wipe — lets tests assert coverage.</summary>
         public List<string> ExactPartitionWipes { get; } = new();
+        /// <summary>Table names passed to the RowKey-anchored (Variant D) wipe — lets tests assert coverage.</summary>
+        public List<string> RowKeyWipes { get; } = new();
         public CountingSafeWipeService() : base(
             new TableStorageService(Mock.Of<TableServiceClient>(), NullLogger<TableStorageService>.Instance),
             new BlobStorageService(new BlobServiceClient("UseDevelopmentStorage=true"),
@@ -451,6 +480,7 @@ public class TenantOffboardingHandlerOrderingTests
         public override Task<int> WipeByCompositePartitionRangeAsync(string t, string i, CancellationToken c = default) { WipeCallCount++; return Task.FromResult(0); }
         public override Task<int> WipeByDiscriminatorAndTenantPropertyAsync(string t, string d, string i, CancellationToken c = default) { WipeCallCount++; return Task.FromResult(0); }
         public override Task<int> WipeByTenantIdPropertyAsync(string t, string i, CancellationToken c = default) { WipeCallCount++; PropertyOnlyWipes.Add(t); return Task.FromResult(0); }
+        public override Task<int> WipeByRowKeyAsync(string t, string i, CancellationToken c = default) { WipeCallCount++; RowKeyWipes.Add(t); return Task.FromResult(0); }
         public override Task<int> WipeBlobsByTenantPrefixAsync(string c, string i, CancellationToken ct = default) { WipeCallCount++; return Task.FromResult(0); }
     }
 

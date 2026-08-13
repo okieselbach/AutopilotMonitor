@@ -83,8 +83,9 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             //      preview a session in a tenant other than their JWT home tenant.
             //   2. JWT TargetTenantId, where the policy middleware mirrors the JWT tid for
             //      non-RouteParam routes. Sufficient for tenant admins acting on their own tenant.
-            //   3. SessionsIndex lookup keyed by sessionId — the historical fallback for the
-            //      "global" sentinel; preserved so existing callers without ?tenantId still work.
+            //   3. Session-tenant lookup keyed by sessionId (point-read with legacy-scan
+            //      fallback) — the historical fallback for the "global" sentinel; preserved so
+            //      existing callers without ?tenantId still work.
             var explicitTenantId = query["tenantId"];
             string tenantId;
             if (requestCtx.HasGlobalScope
@@ -98,7 +99,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 tenantId = requestCtx.TargetTenantId;
                 if (string.IsNullOrEmpty(tenantId) || string.Equals(tenantId, "global", StringComparison.OrdinalIgnoreCase))
                 {
-                    tenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId) ?? string.Empty;
+                    tenantId = await _sessionRepo.ResolveSessionTenantIdAsync(sessionId) ?? string.Empty;
                 }
             }
             if (string.IsNullOrEmpty(tenantId))

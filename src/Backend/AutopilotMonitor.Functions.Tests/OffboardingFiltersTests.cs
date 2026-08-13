@@ -55,6 +55,14 @@ public class OffboardingFiltersTests
         Assert.Throws<ArgumentException>(() => OffboardingFilters.TenantIdProperty(input));
     }
 
+    [Theory]
+    [InlineData("not-a-guid")]
+    [InlineData("")]
+    public void RowKeyEquals_ThrowsForNonGuid(string input)
+    {
+        Assert.Throws<ArgumentException>(() => OffboardingFilters.RowKeyEquals(input));
+    }
+
     // ── Filter shapes ───────────────────────────────────────────────────────────
 
     [Fact]
@@ -94,6 +102,17 @@ public class OffboardingFiltersTests
     {
         var filter = OffboardingFilters.TenantIdProperty(ValidTenant);
         Assert.Equal($"TenantId eq '{ValidTenant}'", filter);
+        Assert.DoesNotContain("PartitionKey", filter);
+    }
+
+    [Fact]
+    public void RowKeyEquals_EmitsRowKeyOnlyFilter()
+    {
+        // Variant D anchors on the ROW key (UsageMetrics: PK=date, RK=tenantId) — the
+        // filter must not constrain PartitionKey, otherwise it degenerates back into the
+        // exact-PK wipe that matched 0 rows.
+        var filter = OffboardingFilters.RowKeyEquals(ValidTenant);
+        Assert.Equal($"RowKey eq '{ValidTenant}'", filter);
         Assert.DoesNotContain("PartitionKey", filter);
     }
 

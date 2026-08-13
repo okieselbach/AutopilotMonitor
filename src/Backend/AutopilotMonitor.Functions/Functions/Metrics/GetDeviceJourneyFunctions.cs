@@ -61,25 +61,18 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
                 // Junk/placeholder serials have no device identity — by design they never have a
                 // chain (disclosed in the fleet aggregate instead), so null here is honest.
+                //
+                // The primary key here is the SERIAL, not the session — a global-scope caller
+                // without an explicit tenantId query param can only be steered to the owning
+                // tenant when a sessionId travels along (point-read; mirrors
+                // GetSessionTimeAttribution).
                 var serialKey = DeviceJourneyCalculator.NormalizeSerial(rawSerial);
-                var effectiveTenantId = requestCtx.TargetTenantId;
+                var effectiveTenantId = string.IsNullOrEmpty(sessionId)
+                    ? requestCtx.TargetTenantId
+                    : await requestCtx.ResolveSessionScopeAsync(_sessionRepo, sessionId!);
                 var history = serialKey == null
                     ? null
                     : await _metricsRepo.GetDeviceHistoryAsync(effectiveTenantId, serialKey);
-
-                // Global-scope fallback (mirrors GetSessionTimeAttribution): a GA/operator opening
-                // a session without an explicit tenantId query param reads their home partition —
-                // resolve the owning tenant via the session and retry once.
-                if (history == null && serialKey != null && requestCtx.HasGlobalScope && !string.IsNullOrEmpty(sessionId))
-                {
-                    var resolvedTenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId!);
-                    if (resolvedTenantId != null &&
-                        !string.Equals(resolvedTenantId, effectiveTenantId, StringComparison.OrdinalIgnoreCase))
-                    {
-                        effectiveTenantId = resolvedTenantId;
-                        history = await _metricsRepo.GetDeviceHistoryAsync(effectiveTenantId, serialKey);
-                    }
-                }
 
                 // Attempt number for the requesting session — fail-soft: a missing session or an
                 // empty basis yields null, never a guessed position.

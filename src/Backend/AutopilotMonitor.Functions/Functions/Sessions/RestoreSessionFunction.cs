@@ -78,7 +78,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             //   1. Explicit body.TenantId on GA calls (cross-tenant restore — the common case
             //      when restoring from the Session Cleanup admin page).
             //   2. JWT TargetTenantId (single-tenant operators).
-            //   3. SessionsIndex lookup keyed by sessionId (rare but preserved).
+            //   3. Session-tenant lookup keyed by sessionId (rare but preserved).
             //   4. body.TenantId again — last-resort fallback for the "Sessions row gone" path
             //      where neither the index nor the JWT tenant can resolve the target.
             var requestCtx = req.GetRequestContext();
@@ -95,7 +95,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 tenantId = requestCtx.TargetTenantId;
                 if (string.IsNullOrEmpty(tenantId) || string.Equals(tenantId, "global", StringComparison.OrdinalIgnoreCase))
                 {
-                    tenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId) ?? string.Empty;
+                    tenantId = await _sessionRepo.ResolveSessionTenantIdAsync(sessionId) ?? string.Empty;
                 }
                 if (string.IsNullOrEmpty(tenantId))
                 {

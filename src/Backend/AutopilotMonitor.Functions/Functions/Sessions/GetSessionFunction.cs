@@ -40,22 +40,13 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
 
             try
             {
-                // Authentication + MemberRead authorization enforced by PolicyEnforcementMiddleware
-                // Cross-tenant access check handled by middleware (TargetTenantId)
+                // Authentication + MemberRead authorization enforced by PolicyEnforcementMiddleware.
+                // Cross-tenant access check handled by middleware (TargetTenantId); global-scope
+                // callers resolve the session's owning tenant upfront (point-read).
                 var requestCtx = req.GetRequestContext();
+                var effectiveTenantId = await requestCtx.ResolveSessionScopeAsync(_sessionRepo, sessionId);
 
-                var session = await _sessionRepo.GetSessionAsync(requestCtx.TargetTenantId, sessionId);
-
-                // Global-scope (GA or read-only GlobalReader) cross-tenant fallback: if not found in the
-                // effective tenant, try resolving the actual tenant via SessionsIndex
-                if (session == null && requestCtx.HasGlobalScope)
-                {
-                    var resolvedTenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId);
-                    if (resolvedTenantId != null && !string.Equals(resolvedTenantId, requestCtx.TargetTenantId, StringComparison.OrdinalIgnoreCase))
-                    {
-                        session = await _sessionRepo.GetSessionAsync(resolvedTenantId, sessionId);
-                    }
-                }
+                var session = await _sessionRepo.GetSessionAsync(effectiveTenantId, sessionId);
 
                 if (session == null)
                 {

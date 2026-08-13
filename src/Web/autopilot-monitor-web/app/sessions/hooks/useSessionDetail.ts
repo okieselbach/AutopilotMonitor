@@ -100,7 +100,7 @@ export function useSessionDetail({
     try {
       const knownTenantId = resolveEffectiveTenantId();
       // Always use the direct session endpoint — the backend resolves the tenant
-      // via FindSessionTenantIdAsync for global admins when tenantId is unknown.
+      // via ResolveSessionTenantIdAsync for global admins when tenantId is unknown.
       const endpoint = knownTenantId
         ? api.sessions.get(sessionId, knownTenantId)
         : api.sessions.get(sessionId);

@@ -98,17 +98,13 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
 
                 if (pagination.PageSize == null)
                 {
-                    // Legacy unpaginated path — full list, no nextLink.
-                    var events = await _sessionRepo.GetSessionEventsAsync(requestCtx.TargetTenantId, sessionId);
-
-                    if (events.Count == 0 && requestCtx.HasGlobalScope)
-                    {
-                        var resolvedTenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId);
-                        if (resolvedTenantId != null && !string.Equals(resolvedTenantId, requestCtx.TargetTenantId, StringComparison.OrdinalIgnoreCase))
-                        {
-                            events = await _sessionRepo.GetSessionEventsAsync(resolvedTenantId, sessionId);
-                        }
-                    }
+                    // Legacy unpaginated path — full list, no nextLink. Global-scope callers
+                    // resolve the session's owning tenant UPFRONT (point-read) — the former
+                    // "events.Count == 0 → cross-partition scan" retry conflated "session lives
+                    // elsewhere" with "session genuinely has no events" and paid a full
+                    // SessionsIndex scan for every empty result.
+                    var unpaginatedTenantId = await requestCtx.ResolveSessionScopeAsync(_sessionRepo, sessionId);
+                    var events = await _sessionRepo.GetSessionEventsAsync(unpaginatedTenantId, sessionId);
 
                     var filtered = hasFilters
                         ? ApplyFilters(events, filterEventType, filterSeverity, filterSource).ToList()
@@ -154,13 +150,9 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                         // *on every page*, not just page 1, so external callers
                         // that strip nextLink down to the bare continuation token
                         // (older MCP clients, deployed agents) still validate.
-                        // The lookup is one indexed point-read on SessionsIndex —
+                        // The lookup is one point-read on SessionTenantLookup —
                         // negligible compared to the events page fetch itself.
-                        var resolvedTenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId);
-                        if (resolvedTenantId != null && !string.Equals(resolvedTenantId, effectiveTenantId, StringComparison.OrdinalIgnoreCase))
-                        {
-                            effectiveTenantId = resolvedTenantId;
-                        }
+                        effectiveTenantId = await requestCtx.ResolveSessionScopeAsync(_sessionRepo, sessionId);
                     }
                 }
 

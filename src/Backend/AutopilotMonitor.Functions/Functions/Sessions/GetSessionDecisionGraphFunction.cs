@@ -51,24 +51,14 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
 
             try
             {
+                // Global-scope (GA or read-only GlobalReader) callers resolve the session's owning
+                // tenant upfront (point-read; same pattern as the other session-detail reads). The
+                // resolved tenant also stamps the projection below.
                 var requestCtx = req.GetRequestContext();
+                var effectiveTenantId = await requestCtx.ResolveSessionScopeAsync(_sessionRepo, sessionId);
 
                 var transitions = await _transitionRepo.QueryBySessionAsync(
-                    requestCtx.TargetTenantId, sessionId, MaxTransitionsToLoad);
-
-                // Global-scope (GA or read-only GlobalReader) cross-tenant fallback (same pattern as other session-detail reads).
-                var effectiveTenantId = requestCtx.TargetTenantId;
-                if (transitions.Count == 0 && requestCtx.HasGlobalScope)
-                {
-                    var resolvedTenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId);
-                    if (resolvedTenantId != null &&
-                        !string.Equals(resolvedTenantId, requestCtx.TargetTenantId, StringComparison.OrdinalIgnoreCase))
-                    {
-                        transitions = await _transitionRepo.QueryBySessionAsync(
-                            resolvedTenantId, sessionId, MaxTransitionsToLoad);
-                        effectiveTenantId = resolvedTenantId;
-                    }
-                }
+                    effectiveTenantId, sessionId, MaxTransitionsToLoad);
 
                 var projection = DecisionGraphBuilder.Build(effectiveTenantId, sessionId, transitions);
 

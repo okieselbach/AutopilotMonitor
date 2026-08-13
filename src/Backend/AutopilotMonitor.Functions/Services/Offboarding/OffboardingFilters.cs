@@ -66,5 +66,16 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             SecurityValidator.EnsureValidGuid(normalizedTenantId, nameof(normalizedTenantId));
             return $"TenantId eq '{ODataSanitizer.EscapeValue(normalizedTenantId)}'";
         }
+
+        /// <summary>
+        /// <c>RowKey eq '{tenantId}'</c> — Variant D SafeWipe (RowKey-anchored full-table
+        /// filter). For tables keyed <c>PK=&lt;non-tenant dimension&gt;, RK=tenantId</c>
+        /// (UsageMetrics: PK=date). Full-table scan; reserve for retention-bounded tables.
+        /// </summary>
+        public static string RowKeyEquals(string normalizedTenantId)
+        {
+            SecurityValidator.EnsureValidGuid(normalizedTenantId, nameof(normalizedTenantId));
+            return $"RowKey eq '{ODataSanitizer.EscapeValue(normalizedTenantId)}'";
+        }
     }
 }

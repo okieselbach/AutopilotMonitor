@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 
 interface TenantContextType {
@@ -53,8 +53,12 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     setTenantId(authTenantId);
   }
 
+  // Memoized (P6.3): this provider re-renders on every AuthContext emission — without
+  // the memo each of those minted a fresh value object for every tenant consumer.
+  const value = useMemo(() => ({ tenantId, setTenantId }), [tenantId]);
+
   return (
-    <TenantContext.Provider value={{ tenantId, setTenantId }}>
+    <TenantContext.Provider value={value}>
       {children}
     </TenantContext.Provider>
   );

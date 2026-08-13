@@ -43,6 +43,14 @@ namespace AutopilotMonitor.Shared.Models
         // property and are excluded (acceptable — they have no connection data).
         public string? ConnectionType { get; set; }
 
+        // Free-text search (dashboard search box). Case-insensitive substring match,
+        // applied server-side AFTER the OData scan, across the same field set the web
+        // dashboard's client-side filter uses (device name, serial, manufacturer, model,
+        // status, sessionId, geo, agent version, OS fields). Cannot be pushed to OData —
+        // Azure Tables has no substring operator — so the scan path backfills pages
+        // until it has pageSize matches (bounded rounds).
+        public string? Q { get; set; }
+
         public int Limit { get; set; } = 50;
 
         // Dynamic device property filters (key = "eventType.propertyName", value = filter expression)

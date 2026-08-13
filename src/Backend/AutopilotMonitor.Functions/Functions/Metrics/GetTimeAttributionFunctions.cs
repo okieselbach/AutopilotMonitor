@@ -42,23 +42,13 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             try
             {
                 // Authentication + MemberRead authorization enforced by PolicyEnforcementMiddleware;
-                // cross-tenant access via TargetTenantId (TenantScoping.QueryParam).
+                // cross-tenant access via TargetTenantId (TenantScoping.QueryParam). Global-scope
+                // callers resolve the session's owning tenant upfront (point-read; mirrors
+                // GetSessionEventsFunction).
                 var requestCtx = req.GetRequestContext();
+                var effectiveTenantId = await requestCtx.ResolveSessionScopeAsync(_sessionRepo, sessionId);
 
-                var breakdown = await _metricsRepo.GetSessionTimeBreakdownAsync(requestCtx.TargetTenantId, sessionId);
-
-                // Global-scope fallback (mirrors GetSessionEventsFunction): a GA/operator opening
-                // a session without an explicit tenantId query param reads their home partition —
-                // resolve the owning tenant and retry once.
-                if (breakdown == null && requestCtx.HasGlobalScope)
-                {
-                    var resolvedTenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId);
-                    if (resolvedTenantId != null &&
-                        !string.Equals(resolvedTenantId, requestCtx.TargetTenantId, StringComparison.OrdinalIgnoreCase))
-                    {
-                        breakdown = await _metricsRepo.GetSessionTimeBreakdownAsync(resolvedTenantId, sessionId);
-                    }
-                }
+                var breakdown = await _metricsRepo.GetSessionTimeBreakdownAsync(effectiveTenantId, sessionId);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new { success = true, breakdown });

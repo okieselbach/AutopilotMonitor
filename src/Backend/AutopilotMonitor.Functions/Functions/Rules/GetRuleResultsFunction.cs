@@ -40,22 +40,28 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "sessions/{sessionId}/analysis")] HttpRequestData req,
             string sessionId)
         {
-            // Authentication + MemberRead authorization enforced by PolicyEnforcementMiddleware
-            var requestCtx = req.GetRequestContext();
-            var effectiveTenantId = requestCtx.TargetTenantId;
-
+            // Authentication + MemberRead authorization enforced by PolicyEnforcementMiddleware.
             // Global-scope (GA or read-only GlobalReader) cross-tenant fallback: resolve actual tenant
             // upfront so the read works cross-tenant for any platform-scope caller.
-            if (requestCtx.HasGlobalScope)
-            {
-                var resolvedTenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId);
-                if (resolvedTenantId != null && !string.Equals(resolvedTenantId, effectiveTenantId, StringComparison.OrdinalIgnoreCase))
-                {
-                    effectiveTenantId = resolvedTenantId;
-                }
-            }
+            var requestCtx = req.GetRequestContext();
+            var effectiveTenantId = await requestCtx.ResolveSessionScopeAsync(_sessionRepo, sessionId);
 
             var reanalyze = string.Equals(req.Query["reanalyze"], "true", StringComparison.OrdinalIgnoreCase);
+
+            // Re-analysis deletes + rewrites rule results — an ACTION, not a view. The route is
+            // MemberRead (Viewer included) so the read stays open, but the recompute trigger is
+            // gated to write-capable callers (mirrors the UI hiding "Analyze now" for Viewer and
+            // keeps a read-only GlobalReader from steering cross-tenant writes).
+            if (reanalyze && !RecomputeTriggerGate.CanTriggerRecompute(requestCtx, effectiveTenantId))
+            {
+                var forbidden = req.CreateResponse(System.Net.HttpStatusCode.Forbidden);
+                await forbidden.WriteAsJsonAsync(new
+                {
+                    success = false,
+                    message = "Your role does not permit triggering re-analysis.",
+                });
+                return forbidden;
+            }
 
             // Rules whose StoreRuleResultAsync returned false during the on-demand reanalyze.
             // Reported back to the caller so the UI can render a warning banner without losing

@@ -89,14 +89,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
 
             // Global-scope cross-tenant fallback: resolve the session's actual tenant so a GA /
             // Global Reader can dry-run against any tenant's session (mirrors GetRuleResultsFunction).
-            if (requestCtx.HasGlobalScope)
-            {
-                var resolvedTenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId);
-                if (resolvedTenantId != null && !string.Equals(resolvedTenantId, effectiveTenantId, StringComparison.OrdinalIgnoreCase))
-                {
-                    effectiveTenantId = resolvedTenantId;
-                }
-            }
+            effectiveTenantId = await requestCtx.ResolveSessionScopeAsync(_sessionRepo, sessionId);
 
             var session = await _sessionRepo.GetSessionAsync(effectiveTenantId, sessionId);
             if (session == null)

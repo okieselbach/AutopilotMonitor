@@ -7,6 +7,7 @@ import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch"
 import { extractContinuation } from "@/lib/paginationLink";
 import { asGuidOrUndefined } from "@/utils/inputValidation";
 import { boundTenantToDelegatedScope } from "@/utils/delegatedScope";
+import { mergeSessionsById } from "@/lib/sessionSearchMerge";
 import { isHomeTenantTarget } from "@/utils/homeTenantScope";
 import { hasTenantReadScope } from "@/lib/tenantScope";
 import type { NotificationType } from "@/contexts/NotificationContext";
@@ -14,6 +15,14 @@ import type { Session } from "../types";
 
 const DEFAULT_PAGE_SIZE = 10;
 const MAX_PAGE_SIZE = 1000;
+
+// Server-side search sweep bounds: the backend scans up to 10 Azure pages per request
+// (free-text backfill) and returns only matches; the client follows nextLink until it has
+// a comfortable result set or the cap is reached — instead of the former loadAll() walk
+// that downloaded the ENTIRE session history to search it client-side.
+const SEARCH_PAGE_SIZE = 100;
+const SEARCH_MAX_REQUESTS = 10;
+const SEARCH_TARGET_MATCHES = 50;
 
 type AddNotification = (
   type: NotificationType,
@@ -74,6 +83,13 @@ export interface UseDashboardSessionsReturn {
   refetchWith: (tenantIdOverride: string) => void;
   loadMore: () => void;
   loadAll: () => void;
+  /**
+   * Server-side search sweep for the dashboard search box: fetches only sessions matching
+   * the query (backend `q=` filter) and merges them into the loaded list, instead of
+   * downloading the whole history like loadAll(). Falls back to loadAll() for delegated
+   * (MSP) callers in cross-tenant mode — the global search route has no delegated tier.
+   */
+  searchAll: (query: string) => void;
   removeSession: (sessionId: string) => void;
 }
 
@@ -367,6 +383,70 @@ export function useDashboardSessions({
     }
   }, [fetchSessionsBatch, continuationRef]);
 
+  // Server-side search sweep — see UseDashboardSessionsReturn.searchAll. Shares the
+  // fetchLock/loadAllToken discipline with loadAll() so refetch/unmount cancels it and
+  // the two sweeps can never interleave.
+  const searchAll = useCallback(async (query: string) => {
+    const q = query.trim();
+    if (q.length < 2 || fetchLockRef.current) return;
+
+    const rawFilter = submittedTenantIdFilterRef.current.trim();
+    const homeSelected = isDelegatedScopeRef.current &&
+      isHomeTenantTarget(asGuidOrUndefined(rawFilter), tenantIdRef.current ?? undefined);
+    const useGlobal = globalAdminModeRef.current && !homeSelected;
+
+    // Delegated (MSP) callers in cross-tenant mode have no access to the global search
+    // route (GlobalReadOrAdmin) — keep their previous full-sweep behavior.
+    if (useGlobal && isDelegatedScopeRef.current) {
+      await loadAll();
+      return;
+    }
+
+    fetchLockRef.current = true;
+    const myToken = ++loadAllTokenRef.current;
+    setLoadingMore(true);
+    setLoadingAll(true);
+    try {
+      const effectiveTenantFilter = boundTenantToDelegatedScope(
+        asGuidOrUndefined(rawFilter), isDelegatedScopeRef.current, delegatedTenantIdsRef.current);
+
+      let continuation: string | undefined;
+      let matches = 0;
+      for (let round = 0; round < SEARCH_MAX_REQUESTS && loadAllTokenRef.current === myToken; round++) {
+        const endpoint = useGlobal
+          ? api.globalSessions.search(q, effectiveTenantFilter, { pageSize: SEARCH_PAGE_SIZE, continuation })
+          : api.sessions.search(q, { pageSize: SEARCH_PAGE_SIZE, continuation });
+        const response = await authenticatedFetch(endpoint, getAccessToken);
+        if (!response.ok) {
+          console.error(`Server-side session search failed (${response.status})`);
+          break;
+        }
+        const data = await response.json();
+        if (loadAllTokenRef.current !== myToken) break;
+
+        const found: Session[] = data.sessions || [];
+        if (found.length > 0) {
+          matches += found.length;
+          setSessions((prev) => mergeSessionsById(prev, found));
+        }
+
+        const next = extractContinuation(data.nextLink);
+        if (!next || matches >= SEARCH_TARGET_MATCHES) break;
+        continuation = next;
+      }
+    } catch (error) {
+      if (error instanceof TokenExpiredError) {
+        addNotification("error", "Session Expired", error.message, "session-expired-error");
+      } else {
+        console.error("Server-side session search failed:", error);
+      }
+    } finally {
+      fetchLockRef.current = false;
+      setLoadingMore(false);
+      setLoadingAll(false);
+    }
+  }, [getAccessToken, addNotification, loadAll, globalAdminModeRef, tenantIdRef, isDelegatedScopeRef, delegatedTenantIdsRef]);
+
   const removeSession = useCallback((sessionId: string) => {
     setSessions((prev) => prev.filter((s) => s.sessionId !== sessionId));
   }, []);
@@ -538,6 +618,7 @@ export function useDashboardSessions({
     refetchWith,
     loadMore,
     loadAll,
+    searchAll,
     removeSession,
   };
 }

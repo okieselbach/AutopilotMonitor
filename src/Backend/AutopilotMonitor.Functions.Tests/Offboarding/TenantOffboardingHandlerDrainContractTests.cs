@@ -640,6 +640,12 @@ public class TenantOffboardingHandlerDrainContractTests
             return Task.FromResult(0);
         }
 
+        public override Task<int> WipeByRowKeyAsync(string tableName, string normalizedTenantId, CancellationToken ct = default)
+        {
+            WipeCallCount++;
+            return Task.FromResult(0);
+        }
+
         public override Task<int> WipeBlobsByTenantPrefixAsync(string containerName, string normalizedTenantId, CancellationToken ct = default)
         {
             WipeCallCount++;

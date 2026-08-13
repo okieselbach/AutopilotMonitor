@@ -119,6 +119,26 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
         }
 
         /// <summary>
+        /// Variant D (RowKey-anchored full-table filter). For tables where the tenant id is
+        /// the ROW key and the partition key is a non-tenant dimension (UsageMetrics:
+        /// PK=date, RK=tenantId|"global"). Full-table scan — reserve for retention-bounded
+        /// tables.
+        /// </summary>
+        public virtual Task<int> WipeByRowKeyAsync(
+            string tableName, string normalizedTenantId, CancellationToken ct = default)
+        {
+            SecurityValidator.EnsureValidGuid(normalizedTenantId, nameof(normalizedTenantId));
+            var filter = OffboardingFilters.RowKeyEquals(normalizedTenantId);
+
+            return RunFetchVerifyDeleteAsync(
+                tableName,
+                filter,
+                expectedAnchor: $"RowKey={normalizedTenantId}",
+                verifyRow: e => string.Equals(e.RowKey, normalizedTenantId, StringComparison.Ordinal),
+                ct);
+        }
+
+        /// <summary>
         /// Blob-prefix wipe. Lists blobs under <c>{normalizedTenantId}/</c> in the named
         /// container, verifies each returned name starts with the prefix, then deletes
         /// per-blob (DeleteIfExistsAsync) so the helper stays idempotent across crash/resume.

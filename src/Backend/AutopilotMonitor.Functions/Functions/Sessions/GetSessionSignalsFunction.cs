@@ -57,21 +57,14 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
 
             try
             {
+                // Global-scope (GA or read-only GlobalReader) callers resolve the session's owning
+                // tenant upfront (point-read) — mirrors GetSessionEventsFunction; the former
+                // "Count == 0 → scan" retry treated empty results as wrong-tenant evidence.
                 var requestCtx = req.GetRequestContext();
+                var effectiveTenantId = await requestCtx.ResolveSessionScopeAsync(_sessionRepo, sessionId);
 
                 var signals = await _signalRepo.QueryBySessionAsync(
-                    requestCtx.TargetTenantId, sessionId, maxResults);
-
-                // Global-scope (GA or read-only GlobalReader) cross-tenant fallback — mirror GetSessionEventsFunction pattern.
-                if (signals.Count == 0 && requestCtx.HasGlobalScope)
-                {
-                    var resolvedTenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId);
-                    if (resolvedTenantId != null &&
-                        !string.Equals(resolvedTenantId, requestCtx.TargetTenantId, StringComparison.OrdinalIgnoreCase))
-                    {
-                        signals = await _signalRepo.QueryBySessionAsync(resolvedTenantId, sessionId, maxResults);
-                    }
-                }
+                    effectiveTenantId, sessionId, maxResults);
 
                 return await req.OkAsync(new
                 {

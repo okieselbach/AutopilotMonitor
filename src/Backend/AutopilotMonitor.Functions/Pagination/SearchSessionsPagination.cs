@@ -55,6 +55,7 @@ namespace AutopilotMonitor.Functions.Pagination
                 new KeyValuePair<string, string?>("rebootCountMin", filter.RebootCountMin?.ToString(CultureInfo.InvariantCulture)),
                 new KeyValuePair<string, string?>("rebootCountMax", filter.RebootCountMax?.ToString(CultureInfo.InvariantCulture)),
                 new KeyValuePair<string, string?>("connectionType", filter.ConnectionType),
+                new KeyValuePair<string, string?>("q", filter.Q),
             };
             if (filter.DeviceProperties != null)
             {

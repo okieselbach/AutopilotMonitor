@@ -103,7 +103,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 // throws when unauthenticated), so it never reaches this branch with an empty value.
                 if (string.IsNullOrEmpty(tenantId) && scope == "raw-events:global")
                 {
-                    tenantId = await _sessionRepo.FindSessionTenantIdAsync(sessionId);
+                    tenantId = await _sessionRepo.ResolveSessionTenantIdAsync(sessionId);
                 }
                 if (string.IsNullOrEmpty(tenantId))
                 {

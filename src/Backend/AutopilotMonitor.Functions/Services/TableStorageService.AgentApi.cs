@@ -507,28 +507,50 @@ namespace AutopilotMonitor.Functions.Services
                 : await SearchSessionsByScanPageAsync(tenantId, filter, pageSize, continuation);
         }
 
+        /// <summary>
+        /// Cap on the number of Azure pages one free-text (<c>q=</c>) request may walk while
+        /// backfilling matches. Free-text matches can be very sparse (one serial in a large
+        /// tenant), so without backfill every response would be a near-empty page and the
+        /// client would pay one round-trip per Azure page — the filter-after-pagination trap.
+        /// When the cap is hit the accumulated matches return with a nextLink so the caller
+        /// continues from an exact page boundary (no gaps).
+        /// </summary>
+        internal const int FreeTextBackfillMaxRounds = 10;
+
         private async Task<RawPage<SessionSummary>> SearchSessionsByScanPageAsync(
             string? tenantId, SessionSearchFilter filter, int pageSize, string? continuation)
         {
             var indexTableClient = _tableServiceClient.GetTableClient(Constants.TableNames.SessionsIndex);
             var oDataFilter = BuildSearchScanFilter(tenantId, filter);
 
-            var (entities, nextRawToken) = await AzureTablesPaginator.FetchPageAsync<TableEntity>(
-                client: indexTableClient,
-                filter: oDataFilter,
-                pageSize: pageSize,
-                continuation: continuation);
+            // Free-text queries backfill whole Azure pages until pageSize matches accumulated
+            // (bounded rounds); non-q queries keep the single-page contract ("consume until
+            // absent" — a page may contain fewer than pageSize items after client filters).
+            var maxRounds = string.IsNullOrEmpty(filter.Q) ? 1 : FreeTextBackfillMaxRounds;
 
-            var sessions = new List<SessionSummary>(entities.Count);
-            foreach (var entity in entities)
+            var sessions = new List<SessionSummary>(pageSize);
+            var token = continuation;
+            string? nextRawToken = null;
+            for (var round = 0; round < maxRounds; round++)
             {
-                var session = MapIndexEntityToSessionSummary(entity);
-                if (!MatchesScanClientFilters(session, filter)) continue;
-                sessions.Add(session);
+                var (entities, next) = await AzureTablesPaginator.FetchPageAsync<TableEntity>(
+                    client: indexTableClient,
+                    filter: oDataFilter,
+                    pageSize: pageSize,
+                    continuation: token);
+
+                foreach (var entity in entities)
+                {
+                    var session = MapIndexEntityToSessionSummary(entity);
+                    if (!MatchesScanClientFilters(session, filter)) continue;
+                    sessions.Add(session);
+                }
+
+                nextRawToken = next;
+                token = next;
+                if (token == null || sessions.Count >= pageSize)
+                    break;
             }
-            // Note: a page may legitimately contain fewer than pageSize items after
-            // client-side filters; callers should follow nextLink until absent for
-            // forensics-grade exact-count semantics (Plan §"consume until absent").
             return new RawPage<SessionSummary>(sessions, nextRawToken);
         }
 
@@ -688,8 +710,41 @@ namespace AutopilotMonitor.Functions.Services
             return string.Equals(session.ConnectionType, filter.ConnectionType, StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Free-text predicate for the dashboard search box (<c>q=</c>). Case-insensitive
+        /// substring over EXACTLY the fields the web dashboard's client-side filter searches
+        /// (useDashboardFilters.searchableText, minus its derived-only tokens: localized date
+        /// string, "N min" duration, "blocked"). Keep the two lists in sync — a field matched
+        /// only server-side would be filtered back out by the client and read as a ghost result.
+        /// </summary>
+        internal static bool MatchesFreeText(SessionSummary session, string? q)
+        {
+            if (string.IsNullOrEmpty(q)) return true;
+
+            return ContainsIgnoreCase(session.DeviceName, q)
+                || ContainsIgnoreCase(session.SerialNumber, q)
+                || ContainsIgnoreCase(session.Manufacturer, q)
+                || ContainsIgnoreCase(session.Model, q)
+                || ContainsIgnoreCase(session.Status.ToString(), q)
+                || ContainsIgnoreCase(session.SessionId, q)
+                || ContainsIgnoreCase(session.GeoCountry, q)
+                || ContainsIgnoreCase(session.GeoRegion, q)
+                || ContainsIgnoreCase(session.GeoCity, q)
+                || ContainsIgnoreCase(session.AgentVersion, q)
+                || ContainsIgnoreCase(session.OsName, q)
+                || ContainsIgnoreCase(session.OsBuild, q)
+                || ContainsIgnoreCase(session.OsDisplayVersion, q)
+                || ContainsIgnoreCase(session.OsEdition, q)
+                || ContainsIgnoreCase(session.OsLanguage, q);
+        }
+
+        private static bool ContainsIgnoreCase(string? haystack, string needle)
+            => !string.IsNullOrEmpty(haystack)
+               && haystack!.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
+
         private static bool MatchesScanClientFilters(SessionSummary session, SessionSearchFilter filter)
         {
+            if (!MatchesFreeText(session, filter.Q)) return false;
             if (!string.IsNullOrEmpty(filter.SerialNumber) &&
                 !string.Equals(session.SerialNumber, filter.SerialNumber, StringComparison.OrdinalIgnoreCase))
                 return false;
@@ -978,6 +1033,7 @@ namespace AutopilotMonitor.Functions.Services
                 // query can't return non-matching sessions.
                 if (!MatchesRebootCountBounds(s, filter)) return false;
                 if (!MatchesConnectionType(s, filter)) return false;
+                if (!MatchesFreeText(s, filter.Q)) return false;
                 return true;
             }).ToList();
         }

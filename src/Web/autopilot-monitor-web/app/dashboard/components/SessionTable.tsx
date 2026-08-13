@@ -79,6 +79,8 @@ interface SessionTableProps {
   loadingMore: boolean;
   loadingAll: boolean;
   onLoadAll: () => void;
+  /** Server-side search sweep for the current search query (dropdown "Search all sessions"). */
+  onSearchAll: () => void;
   adminMode: boolean;
   globalAdminMode: boolean;
   tenantIdFilter: string;
@@ -130,6 +132,7 @@ export function SessionTable({
   loadingMore,
   loadingAll,
   onLoadAll,
+  onSearchAll,
   adminMode,
   globalAdminMode,
   tenantIdFilter,
@@ -558,7 +561,7 @@ export function SessionTable({
                     <button
                       onClick={() => {
                         setShowSearchSuggestions(false);
-                        onLoadAll();
+                        onSearchAll();
                       }}
                       className="text-xs font-medium text-green-700 hover:text-green-800 transition-colors"
                     >

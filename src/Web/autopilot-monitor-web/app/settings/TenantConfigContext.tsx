@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState, type SetStateAction } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { useTenant } from "../../contexts/TenantContext";
 import { useAuth } from "../../contexts/AuthContext";
@@ -1628,8 +1628,13 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // -----------------------------------------------------------------------
   // Provider value
   // -----------------------------------------------------------------------
-  return (
-    <TenantConfigContext.Provider value={{
+  // Memoized (P6.3): the provider re-renders whenever ANY upstream context emits
+  // (Auth account refresh, a notification anywhere in the app, tenant/theme) — without
+  // the memo every such render minted a fresh value object and re-rendered all 16
+  // settings sections for nothing. Own-state changes still fan out (the value honestly
+  // depends on nearly every field); the memo only cuts the externally-triggered cascade.
+  // The dependency array is enforced by react-hooks/exhaustive-deps (lint cap = 0).
+  const value = useMemo<TenantConfigContextValue>(() => ({
       config, loading, canEditConfig, savingSection,
       error, setError, successMessage, setSuccessMessage,
 
@@ -1745,7 +1750,47 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
 
       // Auth
       user, getAccessToken,
-    }}>
+  }), [
+    config, loading, canEditConfig, savingSection, error, successMessage,
+    editionInfo, startingTrial, startTrial, appHomingFunnelActive, homingFlipped,
+    validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation,
+    handleToggleDeviceAssociationValidation, validateCloudPcDevice, handleToggleCloudPcValidation,
+    saveValidationGate, autopilotConsentInProgress, beginDeviceValidationConsentFlow, detectExistingAccess,
+    manufacturerWhitelist, modelWhitelist, effectiveHwRejectionNotify, setHwRejectionNotifyWriteThrough,
+    handleSaveHardwareWhitelist, handleResetHardwareWhitelist,
+    enablePerformanceCollector, performanceCollectorInterval, helloWaitTimeoutSeconds,
+    selfDestructOnComplete, keepLogFile, rebootOnComplete, rebootDelaySeconds,
+    contactEmail, handleSaveContact, handleResetContact,
+    enableGeoLocation, enableTimezoneAutoSet, enableImeMatchLog, enableGatherRuleDebugLog,
+    logLevel, showScriptOutput, showEnrollmentSummary, enrollmentSummaryTimeoutSeconds,
+    enrollmentSummaryBrandingImageUrl, enrollmentSummaryLaunchRetrySeconds,
+    handleSaveAgentSettings, handleResetAgentSettings,
+    enableLocalAdminAnalyzer, localAdminAllowedAccounts, newAllowedAccount,
+    enableSoftwareInventoryAnalyzer, enableIntegrityBypassAnalyzer, enableRealmJoinWatcher,
+    keepAwakeDuringUserEsp, enableConsoleBypassDetection,
+    handleSaveAgentAnalyzers, handleResetAgentAnalyzers,
+    unrestrictedMode, handleSaveUnrestrictedMode,
+    notificationChannels, testingChannelId, testChannelResult,
+    handleTestChannel, handleSaveNotifications, handleResetNotifications,
+    slaTargetSuccessRate, slaTargetMaxDurationMinutes, slaTargetAppInstallSuccessRate,
+    slaNotifyOnSuccessRateBreach, slaSuccessRateNotifyThreshold, slaNotifyOnDurationBreach,
+    slaNotifyOnAppInstallBreach, slaNotifyOnConsecutiveFailures, slaConsecutiveFailureThreshold,
+    handleSaveSlaTargets, handleResetSlaTargets,
+    diagnosticsBlobSasUrl, diagnosticsUploadMode, diagnosticsUploadDestination,
+    tenantDiagPaths, globalDiagPaths, newDiagPath, newDiagDesc,
+    handleSaveDiagnostics, handleResetDiagnostics,
+    admins, loadingAdmins, newAdminEmail, newMemberRole, addingAdmin, removingAdmin, togglingAdmin,
+    adminSearchQuery, currentAdminPage,
+    handleAddAdmin, handleRemoveAdmin, handleToggleTenantAdmin, handleUpdatePermissions,
+    bootstrapSessions, bootstrapLoading, fetchBootstrapSessions, createBootstrapSession, revokeBootstrapSession,
+    dataRetentionDays, sessionTimeoutHours, handleSaveDataManagement, handleResetDataManagement,
+    showOffboardDialog, offboardConfirmText, offboarding, offboardError, handleOffboard,
+    offboardingInProgress, handleDrainBarrierElapsed,
+    user, getAccessToken,
+  ]);
+
+  return (
+    <TenantConfigContext.Provider value={value}>
       {children}
     </TenantConfigContext.Provider>
   );

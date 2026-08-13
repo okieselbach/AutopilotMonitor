@@ -63,6 +63,15 @@ public class SearchSessionsFunction
 
             var filter = BuildFilter(query);
 
+            // Free-text minimum: a 1-char substring matches nearly every row and turns the
+            // backfill loop into a full scan for nothing (mirrors search/quick's minimum).
+            if (filter.Q != null && filter.Q.Length < 2)
+            {
+                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
+                await bad.WriteAsJsonAsync(new { success = false, message = "q must be at least 2 characters" });
+                return bad;
+            }
+
             var pagination = SearchSessionsPagination.ParsePagination(query);
             if (pagination.Error != null)
             {
@@ -141,6 +150,8 @@ public class SearchSessionsFunction
             AgentVersionPrefix = query["agentVersionPrefix"],
             ImeAgentVersionPrefix = query["imeAgentVersionPrefix"],
             ConnectionType = query["connectionType"],
+            // Free-text search (dashboard search box); trimmed, empty → null.
+            Q = string.IsNullOrWhiteSpace(query["q"]) ? null : query["q"]!.Trim(),
             // Limit field is a no-op in the paged path — pagination drives count.
         };
 

@@ -1119,6 +1119,16 @@ namespace AutopilotMonitor.Shared
             // annotations are hand-labeled rule-quality data.
             public const string SessionAnnotations = "SessionAnnotations";
 
+            // Point-read lookup sessionId → tenantId (Fragilitätsaudit P6.1). Replaces the
+            // cross-partition SessionsIndex scan the global-scope endpoints paid to resolve a
+            // session's owning tenant.
+            //   - PartitionKey = sessionId, RowKey = "tenant", property TenantId
+            // Written on session registration; legacy sessions are healed lazily (scan
+            // fallback writes the row on first resolve). Cascade-deleted with the session
+            // (manifest step right before the tombstone); rebuildable from Sessions, so
+            // NOT in the critical-backup set.
+            public const string SessionTenantLookup = "SessionTenantLookup";
+
             /// <summary>
             /// Returns all table names for initialization
             /// </summary>
@@ -1188,6 +1198,7 @@ namespace AutopilotMonitor.Shared
                 BackupJobs,
                 ConfigurationBackups,
                 SessionAnnotations,
+                SessionTenantLookup,
             };
         }
 

@@ -73,6 +73,14 @@ export const api = {
       `${API_BASE_URL}/api/sessions/${sessionId}/annotations/${lane}${qs({ tenantId })}`,
     quickSearch: (q: string) =>
       `${API_BASE_URL}/api/search/quick${qs({ q })}`,
+    // Server-side free-text search (dashboard search box) — substring across the same
+    // fields the client-side filter uses; JWT-bound tenant. Paginated like list().
+    search: (q: string, opts?: { pageSize?: number; continuation?: string }) =>
+      `${API_BASE_URL}/api/search/sessions${qs({
+        q,
+        pageSize: opts?.pageSize?.toString(),
+        continuation: opts?.continuation,
+      })}`,
     // NOTE: lives under /api/stats/sessions (NOT /api/sessions/stats) — Azure
     // Functions' router lets a literal "sessions/stats" be eaten by the sibling
     // "sessions/{sessionId}" function, which then 404s on "stats" not parsing
@@ -108,6 +116,15 @@ export const api = {
       `${API_BASE_URL}/api/global/stats/sessions${qs({
         tenantId: opts?.tenantId,
         days: opts?.days?.toString(),
+      })}`,
+    // Cross-tenant variant of sessions.search; tenantId narrows to one tenant (filter,
+    // not authorization — the route is GlobalReadOrAdmin).
+    search: (q: string, tenantId?: string, opts?: { pageSize?: number; continuation?: string }) =>
+      `${API_BASE_URL}/api/global/search/sessions${qs({
+        q,
+        tenantId,
+        pageSize: opts?.pageSize?.toString(),
+        continuation: opts?.continuation,
       })}`,
   },
 

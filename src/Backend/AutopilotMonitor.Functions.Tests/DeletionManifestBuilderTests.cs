@@ -75,9 +75,9 @@ public class DeletionManifestBuilderTests
         Assert.Equal(2,  c["classifierVerdictsByIdLevel"]);
         Assert.Equal(11, c["signalsByKind"]);
 
-        // 19 cascade tables (incl. SessionTimeBreakdowns F1 PR2 + 3 SessionAnnotations lanes)
-        // + tombstone = 20 steps; no inventory steps when no contributions row.
-        Assert.Equal(20, manifest.Steps.Count);
+        // 20 cascade tables (incl. SessionTimeBreakdowns F1 PR2, 3 SessionAnnotations lanes +
+        // SessionTenantLookup P6.1) + tombstone = 21 steps; no inventory steps when no contributions row.
+        Assert.Equal(21, manifest.Steps.Count);
         Assert.Equal(DeletionStepClass.Final, manifest.Steps.Last().Class);
     }
 
@@ -105,7 +105,8 @@ public class DeletionManifestBuilderTests
             .WithClassifierVerdictsByIdLevel(1, propValue: "classifier_marker")
             .WithSignalsByKind(1, propValue: "signalkind_marker")
             .WithSessionTimeBreakdown(propValue: "breakdown_marker")
-            .WithSessionAnnotations(propValue: "annotation_marker"));
+            .WithSessionAnnotations(propValue: "annotation_marker")
+            .WithSessionTenantLookup(propValue: "lookup_marker"));
 
         var manifest = await NewBuilder(reader).BuildAsync(
             TenantId, SessionId, "admin_delete",
@@ -148,9 +149,9 @@ public class DeletionManifestBuilderTests
             new DeletionRetentionContext { TenantRetentionDays = 90 });
 
         var nonTombstoneSteps = manifest.Steps.Where(s => s.Class != DeletionStepClass.Final).ToList();
-        // Without a contributions row, neither inventory step is emitted → exactly 19 cascade-table steps
-        // (16 + the 3 SessionAnnotations lane steps).
-        Assert.Equal(19, nonTombstoneSteps.Count);
+        // Without a contributions row, neither inventory step is emitted → exactly 20 cascade-table steps
+        // (16 + the 3 SessionAnnotations lane steps + SessionTenantLookup).
+        Assert.Equal(20, nonTombstoneSteps.Count);
         foreach (var step in nonTombstoneSteps)
         {
             Assert.Equal(0, step.RowCount);
@@ -179,8 +180,8 @@ public class DeletionManifestBuilderTests
             new DeletionActor { Type = "admin", Actor = "alice@example.com" },
             new DeletionRetentionContext { TenantRetentionDays = 90 });
 
-        // Expect: 19 cascade + 2 inventory + 1 tombstone = 22 steps.
-        Assert.Equal(22, manifest.Steps.Count);
+        // Expect: 20 cascade + 2 inventory + 1 tombstone = 23 steps.
+        Assert.Equal(23, manifest.Steps.Count);
 
         var aggregate = manifest.Steps.Single(s => s.Class == DeletionStepClass.Aggregate);
         Assert.Equal(DeletionStepNames.SoftwareInventoryDecrement, aggregate.Step);
@@ -646,6 +647,7 @@ public class DeletionManifestBuilderTests
         private TableEntity? _eventSessionIndex;
         private TableEntity? _sessionTimeBreakdown;
         private TableEntity? _sessionInventoryContributions;
+        private TableEntity? _sessionTenantLookup;
         private readonly Dictionary<string, TableEntity> _sessionAnnotations = new(StringComparer.Ordinal);
         private string _sessionsIndexRowKey = "INDEX_" + SessionId;
 
@@ -801,6 +803,17 @@ public class DeletionManifestBuilderTests
             return this;
         }
 
+        public ReaderSeed WithSessionTenantLookup(string propValue = "lookup_marker")
+        {
+            _sessionTenantLookup = new TableEntity(SessionId, "tenant")
+            {
+                ["TenantId"] = TenantId,
+                ["Marker"] = propValue,
+            };
+            _sessionTenantLookup.ETag = new ETag("0xLOOKUP");
+            return this;
+        }
+
         public ISessionDeletionInventoryReader Build()
         {
             var reader = new Mock<ISessionDeletionInventoryReader>();
@@ -833,6 +846,8 @@ public class DeletionManifestBuilderTests
                   .ReturnsAsync(_sessionTimeBreakdown);
             reader.Setup(r => r.GetEntityOrNullAsync(Constants.TableNames.SessionInventoryContributions, TenantId, SessionId, It.IsAny<CancellationToken>()))
                   .ReturnsAsync(_sessionInventoryContributions);
+            reader.Setup(r => r.GetEntityOrNullAsync(Constants.TableNames.SessionTenantLookup, SessionId, "tenant", It.IsAny<CancellationToken>()))
+                  .ReturnsAsync(_sessionTenantLookup);
             foreach (var (lane, row) in _sessionAnnotations)
             {
                 reader.Setup(r => r.GetEntityOrNullAsync(Constants.TableNames.SessionAnnotations, TenantId, $"{SessionId}_{lane}", It.IsAny<CancellationToken>()))

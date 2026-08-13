@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 
 export type NotificationType = 'error' | 'warning' | 'info' | 'success';
 
@@ -119,7 +119,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  const value: NotificationContextType = {
+  // Memoized (P6.3): every addNotification anywhere in the app re-renders this provider;
+  // without the memo that minted a fresh value object and re-rendered every consumer even
+  // when nothing they read changed.
+  const value: NotificationContextType = useMemo(() => ({
     notifications,
     unreadCount,
     addNotification,
@@ -127,7 +130,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     markAllAsRead,
     removeNotification,
     clearAll,
-  };
+  }), [notifications, unreadCount, addNotification, markAsRead, markAllAsRead, removeNotification, clearAll]);
 
   return (
     <NotificationContext.Provider value={value}>

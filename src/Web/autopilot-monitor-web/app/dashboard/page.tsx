@@ -139,7 +139,7 @@ function HomeContent() {
 
   const {
     sessions, loading, hasMore, loadingMore, loadingAll,
-    refetch, refetchWith, loadMore, loadAll, removeSession,
+    refetch, refetchWith, loadMore, loadAll, searchAll, removeSession,
   } = useDashboardSessions({
     user, tenantId, globalAdminMode: crossTenant, joinGlobalAdmins, tenantIdFilter, adminMode,
     getAccessToken, addNotification, setBlockedDevicesSet, signalR,
@@ -287,7 +287,8 @@ function HomeContent() {
     }
   }, [sessions.length, currentPage, sessionsPerPage, hasMore, loading, loadingMore, loadMore]);
 
-  // Auto-load ALL remaining sessions when search is active and local results are insufficient.
+  // Server-search when search is active and local results are insufficient — fetches only
+  // matching sessions (backend q= filter) instead of the former loadAll() full-history walk.
   // Uses a 500ms debounce so rapid typing doesn't trigger unnecessary loads.
   const autoLoadTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
@@ -301,11 +302,11 @@ function HomeContent() {
     if (filteredSessions.length >= 8) return;
 
     autoLoadTimerRef.current = setTimeout(() => {
-      loadAll();
+      searchAll(query);
     }, 500);
 
     return () => { if (autoLoadTimerRef.current) clearTimeout(autoLoadTimerRef.current); };
-  }, [searchQuery, filteredSessions.length, hasMore, loading, loadingMore, loadAll]);
+  }, [searchQuery, filteredSessions.length, hasMore, loading, loadingMore, searchAll]);
 
   const applyTenantIdFilter = (value: string) => {
     setTenantIdFilter(value);
@@ -562,6 +563,7 @@ function HomeContent() {
               loadingMore={loadingMore}
               loadingAll={loadingAll}
               onLoadAll={loadAll}
+              onSearchAll={() => searchAll(searchQuery)}
               adminMode={adminMode}
               globalAdminMode={crossTenant}
               tenantIdFilter={tenantIdFilter}
