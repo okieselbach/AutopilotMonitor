@@ -398,6 +398,22 @@ export const api = {
         pageSize: opts?.pageSize?.toString(),
         continuation: opts?.continuation,
       })}`,
+    // GET — cross-tenant variant (GlobalReadOrAdmin; delegated reaches it only with a
+    // managed tenantId). No tenantId = the GA "All tenants" aggregate.
+    globalList: (opts?: {
+      tenantId?: string;
+      lane?: string;
+      verdict?: string;
+      pageSize?: number;
+      continuation?: string;
+    }) =>
+      `${API_BASE_URL}/api/global/session-annotations${qs({
+        tenantId: opts?.tenantId,
+        lane: opts?.lane,
+        verdict: opts?.verdict,
+        pageSize: opts?.pageSize?.toString(),
+        continuation: opts?.continuation,
+      })}`,
   },
 
   // ── Reports ───────────────────────────────────────────────────────────────

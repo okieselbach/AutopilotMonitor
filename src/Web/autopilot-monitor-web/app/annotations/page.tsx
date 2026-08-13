@@ -8,6 +8,9 @@ import { API_BASE_URL } from "@/utils/config";
 import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAggregatedAdminScope } from "@/hooks";
+import { TenantScopeSelector } from "@/components/TenantScopeSelector";
+import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import {
   ANNOTATION_VERDICTS,
   LANE_LABELS,
@@ -20,10 +23,14 @@ import {
 } from "../sessions/components/sessionAnnotationLogic";
 
 /**
- * Annotations overview: every annotated session of the tenant in one list, so a judged
- * session can be found again without remembering which one it was. Server-side filters
- * (verdict, lane) + nextLink pagination; rows deep-link into the session's annotation
- * section. The backend excludes the platform-internal globaladmin lane for tenant callers.
+ * Annotations overview: every annotated session in one list, so a judged session can be
+ * found again without remembering which one it was. Server-side filters (verdict, lane)
+ * + nextLink pagination; rows deep-link into the session's annotation section. The
+ * backend excludes the platform-internal globaladmin lane for tenant callers.
+ *
+ * Cross-tenant: a GA/Reader gets the tenant switcher incl. the "All tenants" aggregate
+ * (the same evaluation stream MCP's list_session_annotations serves); a delegated
+ * ("MSP") admin gets the switcher bounded to its managed tenants.
  */
 
 interface AnnotationRow {
@@ -53,11 +60,16 @@ export default function AnnotationsPage() {
   const [verdictFilter, setVerdictFilter] = useState("");
   const [laneFilter, setLaneFilter] = useState("");
 
+  // GA/Reader: "All tenants" aggregate by default (mirrors the MCP evaluation stream) with
+  // per-tenant drill-down; delegated ("MSP"): managed tenants only, never aggregated.
+  const scope = useAggregatedAdminScope({ defaultAggregated: true });
+  const { isGlobalAdmin: crossTenant, routeGlobal, selectedTenantId, scopeInitialized, tenants } = scope;
+
   const lanes = visibleLanes(user);
 
-  // Callers must set loading=true / loadError=null before invoking (the initial
-  // state covers the mount fetch) — no synchronous setState here, this runs
-  // inside the effect below.
+  const tenantLabel = (id: string | null | undefined) =>
+    tenants.find((t) => t.tenantId === id)?.domainName ?? id ?? "—";
+
   const fetchPage = useCallback(
     async (url: string, append: boolean) => {
       try {
@@ -84,29 +96,46 @@ export default function AnnotationsPage() {
   );
 
   useEffect(() => {
-    // Inner async wrapper: set-state-in-effect flags a direct call to a
+    // Wait for the scope's default selection to settle so we never fire a request in the
+    // wrong scope. Inner async wrapper: set-state-in-effect flags a direct call to a
     // state-setting callback even when every setState sits behind an await.
+    if (!scopeInitialized) return;
     const loadFirstPage = async () => {
+      setLoading(true);
+      setLoadError(null);
+      const filters = {
+        verdict: verdictFilter || undefined,
+        lane: laneFilter || undefined,
+      };
       await fetchPage(
-        api.annotations.list({
-          verdict: verdictFilter || undefined,
-          lane: laneFilter || undefined,
-        }),
+        routeGlobal
+          ? api.annotations.globalList({ ...filters, tenantId: selectedTenantId || undefined })
+          : api.annotations.list(filters),
         false
       );
     };
     void loadFirstPage();
-  }, [fetchPage, verdictFilter, laneFilter]);
+  }, [fetchPage, verdictFilter, laneFilter, scopeInitialized, routeGlobal, selectedTenantId]);
 
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gray-50">
+        <GlobalAdminBanner
+          show={crossTenant}
+          delegated={scope.isDelegatedScope}
+          subtitle={globalAdminSubtitle(scope, "aggregating annotations across all tenants")}
+        />
         <header className="bg-white shadow">
           <div className="py-6 px-4 sm:px-6 lg:px-8">
-            <h1 className="text-2xl font-normal text-gray-900">Annotations</h1>
-            <p className="mt-1 text-sm text-gray-500">
-              Every session your team has judged — open one to read or update the verdict.
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-y-3">
+              <div>
+                <h1 className="text-2xl font-normal text-gray-900">Annotations</h1>
+                <p className="mt-1 text-sm text-gray-500">
+                  Every session your team has judged — open one to read or update the verdict.
+                </p>
+              </div>
+              <TenantScopeSelector scope={scope} allowAggregated />
+            </div>
           </div>
         </header>
 
@@ -115,11 +144,7 @@ export default function AnnotationsPage() {
             <div className="flex flex-wrap items-center gap-3 mb-4">
               <select
                 value={verdictFilter}
-                onChange={(e) => {
-                  setVerdictFilter(e.target.value);
-                  setLoading(true);
-                  setLoadError(null);
-                }}
+                onChange={(e) => setVerdictFilter(e.target.value)}
                 className="border border-gray-300 rounded-md px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500"
                 aria-label="Filter by verdict"
               >
@@ -130,11 +155,7 @@ export default function AnnotationsPage() {
               </select>
               <select
                 value={laneFilter}
-                onChange={(e) => {
-                  setLaneFilter(e.target.value);
-                  setLoading(true);
-                  setLoadError(null);
-                }}
+                onChange={(e) => setLaneFilter(e.target.value)}
                 className="border border-gray-300 rounded-md px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500"
                 aria-label="Filter by role"
               >
@@ -158,6 +179,7 @@ export default function AnnotationsPage() {
                 <table className="min-w-full divide-y divide-gray-200 text-sm">
                   <thead>
                     <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      {crossTenant && <th className="px-3 py-2">Tenant</th>}
                       <th className="px-3 py-2">Verdict</th>
                       <th className="px-3 py-2">Role</th>
                       <th className="px-3 py-2">Note</th>
@@ -168,7 +190,12 @@ export default function AnnotationsPage() {
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {rows.map((row) => (
-                      <tr key={`${row.sessionId}_${row.lane}`} className="hover:bg-gray-50">
+                      <tr key={`${row.tenantId ?? ""}_${row.sessionId}_${row.lane}`} className="hover:bg-gray-50">
+                        {crossTenant && (
+                          <td className="px-3 py-2 whitespace-nowrap text-gray-700">
+                            {tenantLabel(row.tenantId)}
+                          </td>
+                        )}
                         <td className="px-3 py-2 whitespace-nowrap">
                           {row.verdict != null ? (
                             <span
@@ -195,7 +222,10 @@ export default function AnnotationsPage() {
                         </td>
                         <td className="px-3 py-2 whitespace-nowrap">
                           <Link
-                            href={sessionUrl(row.sessionId, { hash: "section-annotations" })}
+                            href={sessionUrl(row.sessionId, {
+                              tenantId: crossTenant ? row.tenantId || undefined : undefined,
+                              hash: "section-annotations",
+                            })}
                             className="text-green-700 hover:text-green-800 underline underline-offset-2"
                           >
                             open session

@@ -92,6 +92,48 @@ public class SessionAnnotationFunctionsTests
         Assert.Equal(3, visible.Count);
     }
 
+    // ── global list: GA-lane exclusion follows global scope ─────────────────
+    // The route is GlobalReadOrAdmin, but the delegated ("MSP") read rescue admits a
+    // delegated caller on its managed ?tenantId= path — the platform-internal
+    // globaladmin lane must be excluded server-side for anyone without global scope.
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task GlobalList_derives_globaladmin_lane_exclusion_from_global_scope(
+        bool hasGlobalScope, bool expectedExclude)
+    {
+        var annotationRepo = new Mock<ISessionAnnotationRepository>(MockBehavior.Loose);
+        bool? capturedExclude = null;
+        annotationRepo
+            .Setup(r => r.QueryPageAsync(
+                It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(),
+                It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<int>(), It.IsAny<string?>(),
+                It.IsAny<bool>()))
+            .Callback<string?, string?, string?, string?, DateTime?, DateTime?, int, string?, bool>(
+                (_, _, _, _, _, _, _, _, exclude) => capturedExclude = exclude)
+            .ReturnsAsync((new List<SessionAnnotation>(), (string?)null));
+
+        var function = new ListSessionAnnotationsFunction(
+            NullLogger<ListSessionAnnotationsFunction>.Instance, annotationRepo.Object);
+
+        var requestCtx = new RequestContext
+        {
+            TenantId = TenantId,
+            TargetTenantId = TenantId,
+            UserPrincipalName = "reader@contoso.com",
+            IsGlobalAdmin = hasGlobalScope,
+        };
+        var req = BuildRequest(Principal(("tid", TenantId)), requestCtx, new { });
+        Mock.Get(req).SetupGet(r => r.Url)
+            .Returns(new Uri("https://localhost/api/global/session-annotations"));
+
+        var res = await function.Run(req);
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Equal(expectedExclude, capturedExclude);
+    }
+
     // ── endpoint-level tests (fake HttpRequestData, same harness as
     //    GatherRulesFunctionAuthorEndpointTests) ──────────────────────────────
 

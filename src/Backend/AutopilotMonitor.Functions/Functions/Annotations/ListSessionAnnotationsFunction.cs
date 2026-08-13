@@ -13,7 +13,9 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
 {
     /// <summary>
     /// Cross-tenant evaluation stream over all annotation lanes (the flywheel read:
-    /// verdicts per rule, false-positive rates, labeled sessions). Platform scope only.
+    /// verdicts per rule, false-positive rates, labeled sessions). Platform scope for the
+    /// aggregate; a delegated ("MSP") reader reaches it only on its managed ?tenantId= path
+    /// and never sees the platform-internal globaladmin lane.
     /// </summary>
     public class ListSessionAnnotationsFunction
     {
@@ -35,6 +37,7 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
             try
             {
                 // Authentication + GlobalReadOrAdmin authorization enforced by PolicyEnforcementMiddleware
+                var requestCtx = req.GetRequestContext();
                 var callerTenantId = TenantHelper.GetTenantId(req);
 
                 var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
@@ -63,9 +66,13 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
                     }
                 }
 
+                // Not only GA/Reader reach this route: the delegated ("MSP") read rescue admits a
+                // delegated caller on its managed ?tenantId= path. The platform-internal globaladmin
+                // lane stays global-scope-only, so it is excluded for everyone else.
                 var (items, nextRawToken) = await _annotationRepo.QueryPageAsync(
                     parsed.FilterTenantId, parsed.Lane, parsed.Verdict, parsed.RuleId,
-                    parsed.DateFrom, parsed.DateTo, parsed.PageSize, azureToken);
+                    parsed.DateFrom, parsed.DateTo, parsed.PageSize, azureToken,
+                    excludeGlobalAdminLane: !requestCtx.HasGlobalScope);
 
                 string? nextLink = null;
                 if (!string.IsNullOrEmpty(nextRawToken))

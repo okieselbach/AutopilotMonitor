@@ -42,7 +42,7 @@ Routes (all in `EndpointAccessPolicyCatalog`):
 | --- | --- | --- |
 | `GET sessions/{sessionId}/annotations` | `MemberRead` + QueryParam | handler filters the GA lane |
 | `PUT sessions/{sessionId}/annotations/{lane}` | `TenantAdminOrOperator` + QueryParam | re-gated per lane in-function |
-| `GET global/session-annotations` | `GlobalReadOrAdmin` + QueryParam | evaluation stream |
+| `GET global/session-annotations` | `GlobalReadOrAdmin` + QueryParam | evaluation stream; delegated ("MSP") readers are rescue-admitted on a managed `?tenantId=` only |
 
 **Per-lane write matrix** (`UpsertSessionAnnotationFunction.IsLaneWritableByCaller`, an
 `internal static` pure function like `QueueSessionActionFunction.IsTypeAllowedForCaller`):
@@ -55,7 +55,10 @@ GA writes exactly the `globaladmin` lane (the platform labeling flow).
 
 **GA lane is platform-internal.** `GetSessionAnnotationsFunction.FilterLanesForCaller` drops the
 `globaladmin` lane for every caller without `HasGlobalScope` (tenant members and delegated
-admins). Tenant lanes are readable by all members of that tenant.
+admins). Both list endpoints enforce the same rule server-side via the repository's
+`excludeGlobalAdminLane` OData clause — on the global route this matters exactly for the
+delegated-rescue path, which reaches it without global scope. Tenant lanes are readable by all
+members of that tenant.
 
 **Audit.** Non-GA writes/clears log `LogAuditEntryAsync(..., "SessionAnnotation",
 "{sessionId}/{lane}", ...)`; GA writes are skipped (platform-internal labeling must not surface
@@ -90,7 +93,12 @@ in the tenant-visible audit log — same convention as GA session-report submiss
   middleware-validated `TargetTenantId`, and for callers without global scope the repository
   adds a server-side `Lane ne 'globaladmin'` OData clause — hidden rows never consume page
   budget, and an explicit lane=globaladmin filter self-contradicts to an empty page. Rows
-  deep-link to `sessions?id=…#section-annotations`.
+  deep-link to `sessions?id=…#section-annotations`. The page carries the standard tenant
+  switcher (`useAggregatedAdminScope` + `TenantScopeSelector`): a GA/Reader defaults to the
+  "All tenants" aggregate (the portal twin of MCP's `list_session_annotations`) with per-tenant
+  drill-down, a delegated ("MSP") admin gets the managed subset; cross-tenant scopes route to
+  `GET global/session-annotations`, a tenant column appears, and deep links carry the row's
+  `tenantId`.
 * **MCP read**: `get_session_summary` carries an `annotations` key (4th parallel leg, fail-soft
   null); `list_session_annotations` (`ga`-gated) is the evaluation stream with `tenantId / lane /
   verdict / ruleId / dateFrom / dateTo` filters and nextLink pagination. The `ruleId` filter is

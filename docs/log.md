@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-13
+
+* **Update**: `backend/session-annotations.md` — the `/annotations` portal overview page now carries the standard tenant switcher (GA/Reader: "All tenants" aggregate + per-tenant drill-down via `GET global/session-annotations`; delegated: managed subset), with a tenant column and tenant-qualified session deep links. The global list endpoint now derives `excludeGlobalAdminLane` from `HasGlobalScope`, so delegated-rescue callers on their managed `?tenantId=` path never receive the platform-internal `globaladmin` lane (endpoint-test-pinned).
+
 ## 2026-08-12
 
 * **Update**: `agent/autopilot-ztd-diagnostics.md` — Windows 365 Cloud PC exception documented: on Cloud PCs `ProfileAvailable=0` is expected (provisioned by the Windows 365 service, not Autopilot), so `autopilot_profile_missing` is emitted as Info with a Cloud-PC-specific message and an `isCloudPc` payload marker (`ResolveAutopilotProfileMissingPresentation`); the portal's Autopilot Profile card renders a neutral note instead of the amber warning for Cloud PC sessions (`session.isCloudPc` or the event marker).
