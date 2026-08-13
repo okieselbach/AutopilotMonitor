@@ -178,7 +178,9 @@ export default function AnalysisResultsSection({
             <div className="text-center py-4 text-gray-500">Running analysis...</div>
           ) : analysisResults.length === 0 ? (
             <div className="text-center py-4 text-gray-400 text-sm">
-              No issues detected yet. Click &quot;Analyze Now&quot; to run analysis on the current events, or wait for enrollment to complete for automatic analysis.
+              {canReanalyze
+                ? 'No issues detected yet. Click "Analyze Now" to run analysis on the current events, or wait for enrollment to complete for automatic analysis.'
+                : "No issues detected yet. Analysis runs automatically when enrollment completes."}
             </div>
           ) : (
             <div className="space-y-3">
