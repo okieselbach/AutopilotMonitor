@@ -7,7 +7,6 @@ import {
   ANNOTATION_MAX_NOTE_LENGTH,
   ANNOTATION_VERDICTS,
   buildPutBody,
-  canWriteLane,
   hasContent,
   LANE_LABELS,
   VERDICT_DESCRIPTIONS,
@@ -15,6 +14,7 @@ import {
   VERDICT_PILL_CLASSES,
   visibleLanes,
   validateNote,
+  writableLaneSet,
   type AnnotationLane,
   type AnnotationUser,
   type AnnotationVerdict,
@@ -25,13 +25,17 @@ import {
  * Session annotations: per-lane human verdict + note about this enrollment's analysis
  * (Operator / Tenant Admin / platform team). The structured verdicts feed rule-quality
  * evaluation (confirmed vs false-positive per rule), so lanes are written by their own
- * role only — the backend re-gates every save. Read is fail-soft; an error shows the
- * empty state rather than breaking the page.
+ * role only. Which lanes are writable comes from the SERVER (`writableLanes` on the
+ * GET — computed by the same matrix the PUT re-gates with), so UI and enforcement
+ * cannot drift. Read is fail-soft; an error shows the empty state rather than
+ * breaking the page.
  */
 
 interface AnnotationsResponse {
   success: boolean;
   annotations?: SessionAnnotationDto[] | null;
+  /** Lanes the caller may write, per the backend matrix. Absent on older backends → read-only. */
+  writableLanes?: string[] | null;
 }
 
 interface LaneEditState {
@@ -46,18 +50,16 @@ export default function SessionAnnotationsCard({
   sessionId,
   effectiveTenantId,
   user,
-  isCrossTenantView,
   getAccessToken,
 }: {
   sessionId: string;
   /** Tenant used for the API calls (resolved session tenant / GA override); undefined = own tenant. */
   effectiveTenantId?: string;
   user: AnnotationUser | null | undefined;
-  /** True when the session belongs to a different tenant than the caller's own. */
-  isCrossTenantView: boolean;
   getAccessToken: () => Promise<string | null>;
 }) {
   const [annotations, setAnnotations] = useState<Partial<Record<string, SessionAnnotationDto>>>({});
+  const [writableLanes, setWritableLanes] = useState<Set<string>>(new Set());
   const [loaded, setLoaded] = useState(false);
   const [edit, setEdit] = useState<Partial<Record<string, LaneEditState>>>({});
   // Collapsed by default: the verdict comes at the END of a diagnosis — the card must
@@ -82,6 +84,7 @@ export default function SessionAnnotationsCard({
         const byLane: Partial<Record<string, SessionAnnotationDto>> = {};
         for (const a of json.annotations ?? []) byLane[a.lane] = a;
         setAnnotations(byLane);
+        setWritableLanes(writableLaneSet(json.writableLanes));
         const seeded: Partial<Record<string, LaneEditState>> = {};
         for (const [lane, a] of Object.entries(byLane)) {
           seeded[lane] = {
@@ -201,7 +204,7 @@ export default function SessionAnnotationsCard({
       <div className="space-y-5">
         {lanes.map((lane) => {
           const annotation = annotations[lane];
-          const writable = canWriteLane(lane, user, isCrossTenantView);
+          const writable = writableLanes.has(lane);
           const state = laneEdit(lane);
 
           if (!writable && !hasContent(annotation)) {
@@ -317,7 +320,7 @@ export default function SessionAnnotationsCard({
 
         {loaded &&
           lanes.every(
-            (lane) => !canWriteLane(lane, user, isCrossTenantView) && !hasContent(annotations[lane])
+            (lane) => !writableLanes.has(lane) && !hasContent(annotations[lane])
           ) && (
             <p className="text-sm text-gray-400">No annotations for this session.</p>
           )}

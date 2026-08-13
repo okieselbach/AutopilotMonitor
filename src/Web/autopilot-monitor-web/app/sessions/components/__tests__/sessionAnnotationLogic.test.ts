@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   ANNOTATION_MAX_NOTE_LENGTH,
   buildPutBody,
-  canWriteLane,
   hasContent,
   validateNote,
   visibleLanes,
+  writableLaneSet,
   type AnnotationUser,
 } from "../sessionAnnotationLogic";
 
@@ -33,41 +33,21 @@ describe("visibleLanes", () => {
   });
 });
 
-describe("canWriteLane (own tenant)", () => {
-  it("operator lane: Operator and Tenant Admin may write, Viewer may not", () => {
-    expect(canWriteLane("operator", operator, false)).toBe(true);
-    expect(canWriteLane("operator", tenantAdmin, false)).toBe(true);
-    expect(canWriteLane("operator", viewer, false)).toBe(false);
+describe("writableLaneSet", () => {
+  // The write MATRIX itself lives server-side (UpsertSessionAnnotationFunction.
+  // IsLaneWritableByCaller, served as `writableLanes` on the GET) — the web only
+  // normalizes the list, so these tests pin the normalization, not the matrix.
+  it("normalizes the server list case-insensitively", () => {
+    const set = writableLaneSet(["Operator", "GLOBALADMIN"]);
+    expect(set.has("operator")).toBe(true);
+    expect(set.has("globaladmin")).toBe(true);
+    expect(set.has("tenantadmin")).toBe(false);
   });
 
-  it("tenantadmin lane: Tenant Admin only among tenant roles", () => {
-    expect(canWriteLane("tenantadmin", tenantAdmin, false)).toBe(true);
-    expect(canWriteLane("tenantadmin", operator, false)).toBe(false);
-    expect(canWriteLane("tenantadmin", viewer, false)).toBe(false);
-  });
-
-  it("globaladmin lane: GA only — Global Reader is read-only", () => {
-    expect(canWriteLane("globaladmin", ga, false)).toBe(true);
-    expect(canWriteLane("globaladmin", globalReader, false)).toBe(false);
-    expect(canWriteLane("globaladmin", tenantAdmin, false)).toBe(false);
-  });
-
-  it("no user writes nothing", () => {
-    expect(canWriteLane("operator", null, false)).toBe(false);
-    expect(canWriteLane("globaladmin", undefined, false)).toBe(false);
-  });
-});
-
-describe("canWriteLane (cross-tenant view)", () => {
-  it("tenant-role lanes are never writable cross-tenant, even for a GA who is admin at home", () => {
-    const gaAndHomeAdmin: AnnotationUser = { isGlobalAdmin: true, isTenantAdmin: true, role: "Admin" };
-    expect(canWriteLane("operator", gaAndHomeAdmin, true)).toBe(false);
-    expect(canWriteLane("tenantadmin", gaAndHomeAdmin, true)).toBe(false);
-  });
-
-  it("globaladmin lane stays writable for a GA cross-tenant (the labeling flow)", () => {
-    expect(canWriteLane("globaladmin", ga, true)).toBe(true);
-    expect(canWriteLane("globaladmin", globalReader, true)).toBe(false);
+  it("fails closed when the field is absent (older backend) or empty", () => {
+    expect(writableLaneSet(undefined).size).toBe(0);
+    expect(writableLaneSet(null).size).toBe(0);
+    expect(writableLaneSet([]).size).toBe(0);
   });
 });
 

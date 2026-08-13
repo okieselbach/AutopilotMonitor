@@ -92,6 +92,87 @@ public class SessionAnnotationFunctionsTests
         Assert.Equal(3, visible.Count);
     }
 
+    // ── GET writableLanes: server-computed write matrix ─────────────────────
+    // The web renders lanes writable exactly per this list (it holds no matrix copy),
+    // so the GET must derive it from the SAME function the PUT re-gates with,
+    // including the own-tenant binding of the tenant-role lanes.
+
+    private static GetSessionAnnotationsFunction BuildGetFunction()
+    {
+        var annotationRepo = new Mock<ISessionAnnotationRepository>(MockBehavior.Loose);
+        annotationRepo.Setup(r => r.GetForSessionAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(new List<SessionAnnotation>());
+        var sessionRepo = new Mock<ISessionRepository>(MockBehavior.Loose);
+        sessionRepo.Setup(r => r.FindSessionTenantIdAsync(SessionId)).ReturnsAsync(TenantId);
+        return new GetSessionAnnotationsFunction(
+            NullLogger<GetSessionAnnotationsFunction>.Instance,
+            annotationRepo.Object, sessionRepo.Object);
+    }
+
+    private static async Task<string[]> RunGetAndReadWritableLanes(RequestContext ctx)
+    {
+        var function = BuildGetFunction();
+        var req = BuildRequest(Principal(("tid", ctx.TenantId)), ctx, new { });
+        var res = await function.Run(req, SessionId);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        res.Body.Position = 0;
+        using var reader = new StreamReader(res.Body);
+        var json = JsonConvert.DeserializeAnonymousType(
+            await reader.ReadToEndAsync(), new { writableLanes = Array.Empty<string>() });
+        return json!.writableLanes;
+    }
+
+    [Fact]
+    public async Task Get_writableLanes_tenant_admin_own_tenant()
+    {
+        var lanes = await RunGetAndReadWritableLanes(TenantAdminContext());
+        Assert.Equal(new[] { AnnotationLanes.Operator, AnnotationLanes.TenantAdmin }, lanes);
+    }
+
+    [Fact]
+    public async Task Get_writableLanes_operator_own_tenant()
+    {
+        var lanes = await RunGetAndReadWritableLanes(new RequestContext
+        {
+            TenantId = TenantId,
+            TargetTenantId = TenantId,
+            UserPrincipalName = "op@contoso.com",
+            UserRole = Constants.TenantRoles.Operator,
+        });
+        Assert.Equal(new[] { AnnotationLanes.Operator }, lanes);
+    }
+
+    [Fact]
+    public async Task Get_writableLanes_ga_on_foreign_session_gets_only_globaladmin_lane()
+    {
+        // GA is Admin of their HOME tenant; the session resolves to a foreign tenant —
+        // the home-tenant role must not leak, exactly like the PUT's 403 test above.
+        var lanes = await RunGetAndReadWritableLanes(new RequestContext
+        {
+            TenantId = "99999999-9999-9999-9999-999999999999",
+            TargetTenantId = "99999999-9999-9999-9999-999999999999",
+            UserPrincipalName = "ga@fabrikam.com",
+            IsGlobalAdmin = true,
+            IsTenantAdmin = true,
+            UserRole = Constants.TenantRoles.Admin,
+        });
+        Assert.Equal(new[] { AnnotationLanes.GlobalAdmin }, lanes);
+    }
+
+    [Fact]
+    public async Task Get_writableLanes_global_reader_gets_none()
+    {
+        var lanes = await RunGetAndReadWritableLanes(new RequestContext
+        {
+            TenantId = "99999999-9999-9999-9999-999999999999",
+            TargetTenantId = "99999999-9999-9999-9999-999999999999",
+            UserPrincipalName = "reader@fabrikam.com",
+            IsGlobalReader = true,
+        });
+        Assert.Empty(lanes);
+    }
+
     // ── global list: GA-lane exclusion follows global scope ─────────────────
     // The route is GlobalReadOrAdmin, but the delegated ("MSP") read rescue admits a
     // delegated caller on its managed ?tenantId= path — the platform-internal

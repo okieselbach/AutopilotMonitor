@@ -57,12 +57,25 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
                 var annotations = await _annotationRepo.GetForSessionAsync(effectiveTenantId, sessionId);
                 var visible = FilterLanesForCaller(annotations, requestCtx.HasGlobalScope);
 
+                // Server-computed write matrix: the SAME function the PUT re-gates with,
+                // fed with the same own-tenant binding. The web renders lanes writable
+                // exactly when this list says so — it holds no copy of the matrix.
+                var isOwnTenant = string.Equals(effectiveTenantId, requestCtx.TenantId, StringComparison.OrdinalIgnoreCase);
+                var writableLanes = AnnotationLanes.All
+                    .Where(l => UpsertSessionAnnotationFunction.IsLaneWritableByCaller(
+                        l,
+                        isOwnTenant ? requestCtx.UserRole : null,
+                        requestCtx.IsTenantAdmin && isOwnTenant,
+                        requestCtx.IsGlobalAdmin))
+                    .ToList();
+
                 return await req.OkAsync(new
                 {
                     success = true,
                     sessionId,
                     tenantId = effectiveTenantId,
                     annotations = visible.Select(AnnotationWire.ToWire).ToList(),
+                    writableLanes,
                 });
             }
             catch (Exception ex)

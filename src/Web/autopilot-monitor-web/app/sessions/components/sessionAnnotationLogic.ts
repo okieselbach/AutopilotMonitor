@@ -1,10 +1,13 @@
 /**
  * Pure state helpers for the session-detail "Annotations" card. No React/JSX so
- * vitest can pin the role/lane matrix without rendering. Mirrors the backend gates:
- * UpsertSessionAnnotationFunction.IsLaneWritableByCaller (write matrix, tenant-role
- * lanes bound to the caller's OWN tenant) and
- * GetSessionAnnotationsFunction.FilterLanesForCaller (globaladmin lane is
- * platform-internal).
+ * vitest can pin the helpers without rendering.
+ *
+ * The WRITE matrix is NOT mirrored here: the backend computes it
+ * (UpsertSessionAnnotationFunction.IsLaneWritableByCaller) and serves it as
+ * `writableLanes` on the annotations GET — the card renders exactly that list.
+ * Only lane VISIBILITY (which empty sections to render at all) stays client-side;
+ * the backend independently filters the globaladmin lane out of tenant responses
+ * (GetSessionAnnotationsFunction.FilterLanesForCaller).
  */
 
 export const ANNOTATION_LANES = ["operator", "tenantadmin", "globaladmin"] as const;
@@ -87,22 +90,12 @@ export function visibleLanes(user: AnnotationUser | null | undefined): Annotatio
 }
 
 /**
- * Whether the caller may WRITE a lane. `isCrossTenantView` = the session belongs to
- * a different tenant than the caller's own (fleet/MSP/GA drill-in) — tenant-role
- * lanes bind to the caller's own tenant, so only the globaladmin lane stays
- * writable there (and only for a real Global Admin; Global Reader never writes).
+ * Normalizes the server-computed `writableLanes` list from the annotations GET into
+ * a Set. Absent/null (e.g. an older backend that predates the field) fails CLOSED:
+ * no lane renders writable — the PUT would be re-gated server-side anyway.
  */
-export function canWriteLane(
-  lane: AnnotationLane,
-  user: AnnotationUser | null | undefined,
-  isCrossTenantView: boolean,
-): boolean {
-  if (!user) return false;
-  if (lane === "globaladmin") return !!user.isGlobalAdmin;
-  if (isCrossTenantView) return false;
-  if (lane === "tenantadmin") return !!user.isTenantAdmin || !!user.isGlobalAdmin;
-  // operator lane: Operator or Tenant Admin (admins supervise operator notes)
-  return user.role === "Operator" || !!user.isTenantAdmin || !!user.isGlobalAdmin;
+export function writableLaneSet(writableLanes: string[] | null | undefined): Set<string> {
+  return new Set((writableLanes ?? []).map((l) => l.toLowerCase()));
 }
 
 /** Null-safe note validation. Returns an error string or null when valid. */

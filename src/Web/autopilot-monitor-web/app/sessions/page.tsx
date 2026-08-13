@@ -639,7 +639,6 @@ function SessionDetailContent() {
                 sessionId={sessionId}
                 effectiveTenantId={sessionTenantId || tenantId}
                 user={user}
-                isCrossTenantView={isCrossTenantView}
                 getAccessToken={getAccessToken}
               />
             </div>
