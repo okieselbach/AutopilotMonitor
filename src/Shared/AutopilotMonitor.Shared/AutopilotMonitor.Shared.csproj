@@ -1,12 +1,16 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <!-- netstandard2.0 for the net48 agent; net10.0 so nullable-enabled backend consumers
+         compile against the real BCL nullability attributes instead of the internal
+         netstandard2.0 polyfill (NullableAttributes.cs), which would otherwise collide
+         with System.Runtime's public copy through InternalsVisibleTo (CS0433). -->
+    <TargetFrameworks>netstandard2.0;net10.0</TargetFrameworks>
     <LangVersion>9.0</LangVersion>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
     <PackageReference Include="System.Text.Json" Version="9.0.1" />
   </ItemGroup>
 

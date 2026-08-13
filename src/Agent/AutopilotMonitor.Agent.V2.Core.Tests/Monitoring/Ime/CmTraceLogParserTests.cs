@@ -107,6 +107,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             var ok = CmTraceLogParser.TryParseLine(line, out var entry);
 
             Assert.True(ok);
+            Assert.NotNull(entry);
             Assert.Equal(
                 new DateTime(2026, 7, 29, 11, 46, 19, DateTimeKind.Utc).AddTicks(226610).AddMinutes(expectedOffsetMinutes),
                 entry.Timestamp);

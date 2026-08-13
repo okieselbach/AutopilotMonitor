@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 
 namespace AutopilotMonitor.Shared.Services
 {
@@ -28,10 +29,9 @@ namespace AutopilotMonitor.Shared.Services
         /// normalized base URL (<c>https://{lowercase-host}</c>, no trailing slash) on success.
         /// Rules: absolute https URI, default port, no userinfo/path/query/fragment, host
         /// matching <see cref="AllowedHostSuffixes"/>. <paramref name="normalized"/> is non-null
-        /// exactly when this returns <c>true</c> (netstandard2.0 has no usable
-        /// <c>[NotNullWhen]</c>, so callers must check the bool themselves).
+        /// exactly when this returns <c>true</c>.
         /// </summary>
-        public static bool TryNormalizeTarget(string candidate, out string? normalized)
+        public static bool TryNormalizeTarget(string candidate, [NotNullWhen(true)] out string? normalized)
         {
             normalized = null;
 

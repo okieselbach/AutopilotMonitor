@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.RegularExpressions;
 
@@ -10,10 +11,10 @@ namespace AutopilotMonitor.Shared.Logging
     public class CmTraceLogEntry
     {
         public DateTime Timestamp { get; set; }
-        public string Message { get; set; }
-        public string Component { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public string Component { get; set; } = string.Empty;
         public int Type { get; set; } // 1=Info, 2=Warning, 3=Error
-        public string Thread { get; set; }
+        public string Thread { get; set; } = string.Empty;
     }
 
     /// <summary>
@@ -42,11 +43,12 @@ namespace AutopilotMonitor.Shared.Logging
         /// Attempts to parse a single line of CMTrace-formatted log.
         /// Returns true if parsing succeeded, false if the line doesn't match the format.
         /// </summary>
-        public static bool TryParseLine(string line, out CmTraceLogEntry entry)
+        public static bool TryParseLine(string? line, [NotNullWhen(true)] out CmTraceLogEntry? entry)
         {
             entry = null;
 
-            if (string.IsNullOrEmpty(line) || !line.StartsWith("<![LOG["))
+            // netstandard2.0's IsNullOrEmpty lacks [NotNullWhen(false)] — assert non-null after it.
+            if (string.IsNullOrEmpty(line) || !line!.StartsWith("<![LOG["))
                 return false;
 
             var match = CmTraceRegex.Match(line);

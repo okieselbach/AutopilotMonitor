@@ -16,7 +16,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
     /// </summary>
     public sealed class TenantIdWaitResolutionTests
     {
-        private static AgentConfiguration Build(BootstrapConfigFile bootstrapConfig, params string[] args) =>
+        private static AgentConfiguration Build(BootstrapConfigFile? bootstrapConfig, params string[] args) =>
             AutopilotMonitor.Agent.V2.Program.BuildAgentConfiguration(
                 args: args,
                 tenantId: "tenant-t",
