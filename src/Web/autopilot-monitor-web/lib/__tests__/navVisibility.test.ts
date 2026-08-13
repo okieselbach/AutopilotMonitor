@@ -234,8 +234,9 @@ describe("nav ↔ route-guard consistency", () => {
    *    layouts (settings/ops/backups/customs-archive/software) → requireGlobalAdmin,
    *  - app/sessions/inspector/layout.tsx → requireGlobalAdmin,
    *  - app/fleet/layout.tsx → requireFleetScope,
-   *  - app/settings/layout.tsx → rule A (admin/GA/Operator/Viewer) minus rule B
-   *    (Operator without admin standing needs canManageBootstrapTokens).
+   *  - app/settings/layout.tsx → any own-tenant role or platform scope
+   *    (hasOwnTenantOrPlatformRole; user decision 2026-08-13 — mirrors the sidebar's
+   *    Configuration visibility, read-only enforced by the data layer).
    * Longest prefix wins. Routes without a declared guard have no layout gate.
    */
   const ROUTE_GUARDS: Array<{ prefix: string; admits: (input: NavVisibilityInput, flags: NavFlags) => boolean }> = [
@@ -249,25 +250,16 @@ describe("nav ↔ route-guard consistency", () => {
     { prefix: "/fleet", admits: (_i, f) => f.hasFleetScope },
     {
       prefix: "/settings",
-      admits: (i, f) => {
-        const role = i.user?.role ?? null;
-        const admitted = f.isAdminLike || role === "Operator" || role === "Viewer";
-        const operatorBounced = role === "Operator" && !f.isAdminLike && !(i.user?.canManageBootstrapTokens ?? false);
-        return admitted && !operatorBounced;
-      },
+      admits: (_i, f) => f.isTenantMember || f.hasGlobalScope,
     },
   ];
 
   /**
-   * Ratchet of KNOWN sidebar-shows-it/guard-bounces-it mismatches (pre-existing, user
-   * decision pending — see tasks/todo.md P7.4): a plain Operator and a read-only
-   * GlobalReader both see Configuration entries whose /settings layout bounces them.
-   * Fixing a guard requires deleting its entry here; any NEW mismatch fails the test.
+   * Ratchet of KNOWN sidebar-shows-it/guard-bounces-it mismatches. Empty since the
+   * 2026-08-13 user decision opened /settings to Operators and the GlobalReader
+   * (read-only). Any NEW mismatch fails the test; entries may only ever be removed.
    */
-  const KNOWN_MISMATCHES = new Set([
-    "Operator × /settings",
-    "GlobalReader+adminModeOn × /settings",
-  ]);
+  const KNOWN_MISMATCHES = new Set<string>();
 
   const guardFor = (href: string) =>
     ROUTE_GUARDS.filter((g) => href === g.prefix || href.startsWith(g.prefix + "/"))
