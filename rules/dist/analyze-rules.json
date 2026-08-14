@@ -638,6 +638,95 @@
       ]
     },
     {
+      "ruleId": "ANALYZE-APP-015",
+      "title": "Required App Never Settled — ESP Completion Deferred",
+      "description": "The IME reported its user-session completion line, but at least one required app stayed pending — without ever failing or even starting to install — so the agent kept deferring the enrollment completion signal. Typically an assignment/requirement problem (requirement rules never met, dependency never satisfied, or the app needs a context that is not available during ESP, e.g. a VPN client waiting for user sign-in to a portal).",
+      "severity": "high",
+      "category": "apps",
+      "version": "1.0.0",
+      "author": "Autopilot Monitor",
+      "enabled": true,
+      "trigger": "correlation",
+      "baseConfidence": 60,
+      "confidenceThreshold": 55,
+      "preconditions": [
+        {
+          "source": "event_data",
+          "eventType": "enrollment_complete",
+          "operator": "not_exists",
+          "description": "Suppress when the pending app eventually settled and the enrollment completed — a transient deferral is normal."
+        },
+        {
+          "source": "event_data",
+          "eventType": "enrollment_failed",
+          "operator": "not_exists",
+          "description": "Suppress when the session failed explicitly — the app/ESP failure rules already cover that path; this rule targets the never-finishing case."
+        }
+      ],
+      "conditions": [
+        {
+          "signal": "completion_deferred",
+          "source": "event_type",
+          "eventType": "agent_trace",
+          "dataField": "message",
+          "operator": "contains",
+          "value": "completion signal deferred",
+          "required": true
+        },
+        {
+          "signal": "apps_pending",
+          "source": "event_data",
+          "eventType": "app_tracking_summary",
+          "dataField": "pending",
+          "operator": "gte",
+          "value": "1",
+          "required": true
+        },
+        {
+          "signal": "pending_app_names",
+          "source": "event_data",
+          "eventType": "app_tracking_summary",
+          "dataField": "pendingNames",
+          "operator": "exists",
+          "value": "",
+          "required": false
+        }
+      ],
+      "confidenceFactors": [
+        {
+          "signal": "pending_app_names",
+          "condition": "exists",
+          "weight": 5
+        }
+      ],
+      "explanation": "The Intune Management Extension wrote its user-session completion line, but the agent observed `{{pending}}` required app(s) still pending (`{{pendingNames}}`) and therefore **deferred the enrollment completion signal** — repeatedly, if this happened across several logons or reboots.\n\nA pending app that never transitions to downloading/installing and never fails is almost always an **assignment or requirement problem**, not an install error:\n\n- requirement rules that are never met on this device (OS/architecture/registry/script checks),\n- an unsatisfied dependency or supersedence chain,\n- an app targeted as *required* for the user ESP that needs something unavailable during provisioning (e.g. a VPN client whose portal sign-in only happens after first logon),\n- user-targeted apps on a device where the user identity never fully registered (see the hybrid user-affinity rule if it also fired).",
+      "remediation": [
+        {
+          "title": "Identify and unblock the pending app",
+          "steps": [
+            "Check the app names listed in this finding's evidence (pendingNames) — these are the apps the ESP is waiting for.",
+            "In Intune, review the app's requirement rules and dependencies; test them on the device (IntuneManagementExtension.log logs each requirement evaluation).",
+            "Decide whether the app really must block the ESP: removing it from the ESP's 'blocking apps' list (or making it not-required during enrollment) unblocks completion immediately.",
+            "If the app is user-targeted on a hybrid-joined device, verify the user's Entra affinity first — without a signed-in Entra user, user-targeted policy never applies."
+          ]
+        }
+      ],
+      "relatedDocs": [
+        {
+          "title": "Microsoft Learn: Enrollment Status Page — blocking apps",
+          "url": "https://learn.microsoft.com/en-us/intune/intune-service/enrollment/windows-enrollment-status"
+        }
+      ],
+      "markSessionAsFailedDefault": false,
+      "tags": [
+        "apps",
+        "esp",
+        "completion",
+        "assignment",
+        "pending"
+      ]
+    },
+    {
       "ruleId": "ANALYZE-CORR-003",
       "title": "Proxy Configuration Causing Download Failure",
       "description": "Correlates an active proxy configuration with app content download failures (Delivery Optimization timeout or download error), suggesting the proxy is blocking or throttling Intune content delivery.",
@@ -1268,7 +1357,7 @@
       "description": "Detects when the enrollment session was force-failed by the server-side inactivity timeout (no agent telemetry for the configured SessionTimeoutHours window) without ever completing or explicitly failing.",
       "severity": "high",
       "category": "enrollment",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "enabled": true,
       "baseConfidence": 80,
       "preconditions": [
@@ -1293,9 +1382,26 @@
           "operator": "exists",
           "value": "",
           "required": true
+        },
+        {
+          "signal": "desktop_was_reached",
+          "source": "event_type",
+          "eventType": "desktop_arrived",
+          "operator": "exists",
+          "value": "",
+          "required": false
+        },
+        {
+          "signal": "all_tracked_apps_completed",
+          "source": "event_data",
+          "eventType": "app_tracking_summary",
+          "dataField": "isAllCompleted",
+          "operator": "equals",
+          "value": "true",
+          "required": false
         }
       ],
-      "explanation": "The enrollment session was force-failed by the server-side maintenance sweep after `{{timeoutHours}}` hour(s) of agent inactivity — the device stopped sending telemetry and never reported completion or an explicit failure.\n\nThis usually means the agent process died or the device went offline mid-enrollment (power off, network loss, bluescreen, reimage) rather than a clean enrollment failure. Because there is no terminal `enrollment_failed` event, the more specific app/ESP rules cannot pinpoint a cause — the evidence simply stops at the last event before the gap.",
+      "explanation": "The enrollment session was force-failed by the server-side maintenance sweep after `{{timeoutHours}}` hour(s) of agent inactivity — the device stopped sending telemetry and never reported completion or an explicit failure.\n\nThis usually means the agent process died or the device went offline mid-enrollment (power off, network loss, bluescreen, reimage) rather than a clean enrollment failure. Because there is no terminal `enrollment_failed` event, the more specific app/ESP rules cannot pinpoint a cause — the evidence simply stops at the last event before the gap.\n\n**If the evidence shows the user desktop was reached and all tracked apps completed**, the device most likely got all its content but the ESP never signaled completion — on hybrid-joined devices the usual culprit is the user session never establishing Entra affinity (Account Setup re-running on every logon). Check whether the hybrid user-affinity finding also fired for this session.",
       "remediation": [
         {
           "title": "Investigate the silent session",
@@ -1305,6 +1411,13 @@
             "Look for previous_crash_detected / agent_shutting_down events earlier in the session that hint at an agent or OS crash",
             "If the device is reachable, collect the agent + IME logs and re-run enrollment, correlating with the timeout timestamp",
             "If many sessions time out in the same window, check for a tenant-wide network/connectivity issue or an Intune service incident"
+          ]
+        },
+        {
+          "title": "Desktop reached and apps done, but no completion",
+          "steps": [
+            "Sign in as the affected user and run dsregcmd /status — 'SSO State: AzureAdPrt' must be YES; NO means the user never registered with Entra and the Account Setup ESP will loop",
+            "Verify Entra Connect syncs both the computer object (userCertificate) and the signing-in user, and that the user's UPN suffix is a verified Entra domain"
           ]
         }
       ],
@@ -2220,6 +2333,109 @@
         "kev",
         "critical",
         "security"
+      ]
+    },
+    {
+      "ruleId": "ANALYZE-ID-004",
+      "title": "Hybrid Sign-In Never Establishes Entra User Affinity",
+      "description": "On a hybrid-joined device the real user reached the desktop, but the Autopilot provisioning placeholder stayed active in JoinInfo and the agent repeatedly reported the hybrid sign-in as overdue. The user session never establishes Entra user affinity (no PRT), so the Account Setup ESP re-runs on every logon and the enrollment never completes.",
+      "severity": "high",
+      "category": "identity",
+      "version": "1.0.0",
+      "author": "Autopilot Monitor",
+      "enabled": true,
+      "trigger": "correlation",
+      "baseConfidence": 60,
+      "confidenceThreshold": 65,
+      "preconditions": [
+        {
+          "source": "event_data",
+          "eventType": "enrollment_complete",
+          "operator": "not_exists",
+          "description": "Suppress when the session eventually completed — a single overdue-login warning followed by a successful sign-in is normal hybrid latency, not a broken affinity."
+        }
+      ],
+      "conditions": [
+        {
+          "signal": "hybrid_login_overdue",
+          "source": "event_type",
+          "eventType": "hybrid_login_pending",
+          "operator": "exists",
+          "value": "",
+          "required": true
+        },
+        {
+          "signal": "user_desktop_reached",
+          "source": "event_type",
+          "eventType": "desktop_arrived",
+          "operator": "exists",
+          "value": "",
+          "required": true
+        },
+        {
+          "signal": "placeholder_still_active",
+          "source": "event_type",
+          "eventType": "aad_placeholder_user_detected",
+          "operator": "exists",
+          "value": "",
+          "required": false
+        }
+      ],
+      "confidenceFactors": [
+        {
+          "signal": "hybrid_login_pending",
+          "condition": "count >= 2",
+          "weight": 20
+        },
+        {
+          "signal": "hybrid_login_pending",
+          "condition": "count >= 3",
+          "weight": 10
+        },
+        {
+          "signal": "aad_placeholder_user_detected",
+          "condition": "count >= 3",
+          "weight": 10
+        }
+      ],
+      "explanation": "A real user signed in and reached the desktop, but the device kept reporting the **Autopilot provisioning placeholder** as the active identity in JoinInfo and the hybrid sign-in as **overdue** — across multiple reboots. This means the signed-in user never established **Microsoft Entra user affinity** (no Primary Refresh Token), so:\n\n- the Account Setup ESP page re-appears on every logon,\n- user-targeted required apps and policies cannot settle,\n- the enrollment never reaches completion.\n\nAfter this many hours this is not normal Entra Connect sync latency — something is structurally preventing the user (or the computer object) from registering:\n\n- the computer object's `userCertificate` attribute is not syncing to Entra ID (sync scope / OU filtering),\n- the signing-in user is not synced, or their UPN does not match a verified Entra domain,\n- the device has no line of sight to a domain controller **at logon time**, so the hybrid PRT flow cannot finish,\n- time skew or a proxy blocking `login.microsoftonline.com` / `enterpriseregistration.windows.net` from the user context.",
+      "remediation": [
+        {
+          "title": "Verify user affinity on the device",
+          "steps": [
+            "Sign in as the affected user and run: dsregcmd /status — under 'SSO State' the value AzureAdPrt must be YES. NO means the user has no Entra token and this diagnosis is confirmed.",
+            "Also check 'Device State': AzureAdJoined = YES and DomainJoined = YES are expected for hybrid join.",
+            "Check Event Viewer: Applications and Services Logs > Microsoft > Windows > User Device Registration > Admin for PRT / registration errors (e.g. event 304/305/362).",
+            "Enable the gather rules 'Collect dsregcmd join status' so future sessions capture this state automatically."
+          ]
+        },
+        {
+          "title": "Fix the identity pipeline",
+          "steps": [
+            "Entra Connect: confirm BOTH the computer OU and the user OU are in the sync scope, and the computer object's userCertificate attribute is being exported.",
+            "Verify the user's UPN suffix is a verified domain in Entra ID (no .local / mismatched suffix).",
+            "Ensure domain-controller line of sight at logon from the provisioning network/VLAN (hybrid PRT requires a reachable DC).",
+            "Check proxy/firewall rules for login.microsoftonline.com, device.login.microsoftonline.com and enterpriseregistration.windows.net from the user context."
+          ]
+        }
+      ],
+      "relatedDocs": [
+        {
+          "title": "Autopilot Monitor: Hybrid join — late device registration",
+          "url": "https://docs.autopilotmonitor.com/troubleshooting/hybrid-join-late-device-registration"
+        },
+        {
+          "title": "Microsoft Learn: Troubleshoot hybrid-joined devices",
+          "url": "https://learn.microsoft.com/en-us/entra/identity/devices/troubleshoot-hybrid-join-windows-current"
+        }
+      ],
+      "markSessionAsFailedDefault": false,
+      "tags": [
+        "identity",
+        "hybrid-join",
+        "entra-id",
+        "user-affinity",
+        "esp"
       ]
     },
     {

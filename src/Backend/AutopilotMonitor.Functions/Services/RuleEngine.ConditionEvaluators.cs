@@ -129,7 +129,7 @@ namespace AutopilotMonitor.Functions.Services
                             ["timestamp"] = evt.Timestamp,
                             ["eventType"] = evt.EventType,
                             ["field"] = condition.DataField,
-                            ["value"] = fieldValue
+                            ["value"] = FormatEvidenceValue(fieldValue)
                         };
                         AddDataFieldsToEvidence(evidence, evt, "", "");
                         return (true, evidence);
@@ -175,7 +175,7 @@ namespace AutopilotMonitor.Functions.Services
                         ["sequence"] = evt.Sequence,
                         ["timestamp"] = evt.Timestamp,
                         ["field"] = condition.DataField,
-                        ["value"] = fieldValue
+                        ["value"] = FormatEvidenceValue(fieldValue)
                     };
                     AddDataFieldsToEvidence(evidence, evt, "", "");
                     return (true, evidence);
@@ -183,6 +183,21 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             return (false, "no matching data");
+        }
+
+        /// <summary>
+        /// Evidence values feed the finding UI and {{token}} interpolation, both of which
+        /// render via ToString() — a raw List would surface as its .NET type name
+        /// ("System.Collections.Generic.List`1[System.Object]"). Collections are therefore
+        /// flattened to a comma-joined string; scalars and dictionaries pass through.
+        /// </summary>
+        private static object FormatEvidenceValue(object fieldValue)
+        {
+            if (fieldValue is string || fieldValue is System.Collections.IDictionary)
+                return fieldValue;
+            if (fieldValue is System.Collections.IEnumerable sequence)
+                return string.Join(", ", sequence.Cast<object>().Select(o => o?.ToString()));
+            return fieldValue;
         }
 
         /// <summary>
@@ -931,7 +946,7 @@ namespace AutopilotMonitor.Functions.Services
             if (evt.Data == null) return;
 
             // Whitelist: short identifiers only. errorDetail/message removed (can be multi-KB).
-            var knownFields = new[] { "appId", "appName", "errorPatternId", "errorCode", "exitCode", "status" };
+            var knownFields = new[] { "appId", "appName", "errorPatternId", "errorCode", "exitCode", "status", "timeoutHours" };
 
             foreach (var field in knownFields)
             {

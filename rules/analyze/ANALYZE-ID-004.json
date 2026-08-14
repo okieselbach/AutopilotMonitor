@@ -1,0 +1,86 @@
+{
+  "$schema": "../schema/analyze-rule.schema.json",
+  "ruleId": "ANALYZE-ID-004",
+  "title": "Hybrid Sign-In Never Establishes Entra User Affinity",
+  "description": "On a hybrid-joined device the real user reached the desktop, but the Autopilot provisioning placeholder stayed active in JoinInfo and the agent repeatedly reported the hybrid sign-in as overdue. The user session never establishes Entra user affinity (no PRT), so the Account Setup ESP re-runs on every logon and the enrollment never completes.",
+  "severity": "high",
+  "category": "identity",
+  "version": "1.0.0",
+  "author": "Autopilot Monitor",
+  "enabled": true,
+  "trigger": "correlation",
+  "baseConfidence": 60,
+  "confidenceThreshold": 65,
+  "preconditions": [
+    {
+      "source": "event_data",
+      "eventType": "enrollment_complete",
+      "operator": "not_exists",
+      "description": "Suppress when the session eventually completed — a single overdue-login warning followed by a successful sign-in is normal hybrid latency, not a broken affinity."
+    }
+  ],
+  "conditions": [
+    {
+      "signal": "hybrid_login_overdue",
+      "source": "event_type",
+      "eventType": "hybrid_login_pending",
+      "operator": "exists",
+      "value": "",
+      "required": true
+    },
+    {
+      "signal": "user_desktop_reached",
+      "source": "event_type",
+      "eventType": "desktop_arrived",
+      "operator": "exists",
+      "value": "",
+      "required": true
+    },
+    {
+      "signal": "placeholder_still_active",
+      "source": "event_type",
+      "eventType": "aad_placeholder_user_detected",
+      "operator": "exists",
+      "value": "",
+      "required": false
+    }
+  ],
+  "confidenceFactors": [
+    { "signal": "hybrid_login_pending", "condition": "count >= 2", "weight": 20 },
+    { "signal": "hybrid_login_pending", "condition": "count >= 3", "weight": 10 },
+    { "signal": "aad_placeholder_user_detected", "condition": "count >= 3", "weight": 10 }
+  ],
+  "explanation": "A real user signed in and reached the desktop, but the device kept reporting the **Autopilot provisioning placeholder** as the active identity in JoinInfo and the hybrid sign-in as **overdue** — across multiple reboots. This means the signed-in user never established **Microsoft Entra user affinity** (no Primary Refresh Token), so:\n\n- the Account Setup ESP page re-appears on every logon,\n- user-targeted required apps and policies cannot settle,\n- the enrollment never reaches completion.\n\nAfter this many hours this is not normal Entra Connect sync latency — something is structurally preventing the user (or the computer object) from registering:\n\n- the computer object's `userCertificate` attribute is not syncing to Entra ID (sync scope / OU filtering),\n- the signing-in user is not synced, or their UPN does not match a verified Entra domain,\n- the device has no line of sight to a domain controller **at logon time**, so the hybrid PRT flow cannot finish,\n- time skew or a proxy blocking `login.microsoftonline.com` / `enterpriseregistration.windows.net` from the user context.",
+  "remediation": [
+    {
+      "title": "Verify user affinity on the device",
+      "steps": [
+        "Sign in as the affected user and run: dsregcmd /status — under 'SSO State' the value AzureAdPrt must be YES. NO means the user has no Entra token and this diagnosis is confirmed.",
+        "Also check 'Device State': AzureAdJoined = YES and DomainJoined = YES are expected for hybrid join.",
+        "Check Event Viewer: Applications and Services Logs > Microsoft > Windows > User Device Registration > Admin for PRT / registration errors (e.g. event 304/305/362).",
+        "Enable the gather rules 'Collect dsregcmd join status' so future sessions capture this state automatically."
+      ]
+    },
+    {
+      "title": "Fix the identity pipeline",
+      "steps": [
+        "Entra Connect: confirm BOTH the computer OU and the user OU are in the sync scope, and the computer object's userCertificate attribute is being exported.",
+        "Verify the user's UPN suffix is a verified domain in Entra ID (no .local / mismatched suffix).",
+        "Ensure domain-controller line of sight at logon from the provisioning network/VLAN (hybrid PRT requires a reachable DC).",
+        "Check proxy/firewall rules for login.microsoftonline.com, device.login.microsoftonline.com and enterpriseregistration.windows.net from the user context."
+      ]
+    }
+  ],
+  "relatedDocs": [
+    {
+      "title": "Autopilot Monitor: Hybrid join — late device registration",
+      "url": "https://docs.autopilotmonitor.com/troubleshooting/hybrid-join-late-device-registration"
+    },
+    {
+      "title": "Microsoft Learn: Troubleshoot hybrid-joined devices",
+      "url": "https://learn.microsoft.com/en-us/entra/identity/devices/troubleshoot-hybrid-join-windows-current"
+    }
+  ],
+  "markSessionAsFailedDefault": false,
+  "tags": ["identity", "hybrid-join", "entra-id", "user-affinity", "esp"]
+}

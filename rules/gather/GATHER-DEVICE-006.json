@@ -1,0 +1,17 @@
+{
+  "$schema": "../schema/gather-rule.schema.json",
+  "ruleId": "GATHER-DEVICE-006",
+  "title": "Collect dsregcmd join status on overdue hybrid sign-in",
+  "description": "Runs dsregcmd /status the moment the agent reports a hybrid sign-in as overdue (hybrid_login_pending), capturing the Entra join and registration state at exactly the point where the problem is detected. Complements GATHER-DEVICE-001 (snapshot on entering Account Setup). Note: the agent runs as SYSTEM, so the output shows device join state — the per-user SSO/PRT state still requires running dsregcmd as the signed-in user.",
+  "category": "device",
+  "version": "1.0.0",
+  "author": "Autopilot Monitor",
+  "enabled": false,
+  "collectorType": "command_allowlisted",
+  "target": "dsregcmd /status",
+  "trigger": "on_event",
+  "triggerEventType": "hybrid_login_pending",
+  "outputEventType": "gather_dsregcmd_status",
+  "outputSeverity": "Info",
+  "tags": ["device", "entra", "join", "hybrid"]
+}
