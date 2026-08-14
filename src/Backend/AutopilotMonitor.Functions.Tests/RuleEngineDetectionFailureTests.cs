@@ -38,7 +38,7 @@ public class RuleEngineDetectionFailureTests
         // and there's a co-located esp_failure_settle_started with errorCode=0x87d1041c.
         // The rule must fire and the explanation must interpolate to the Office app.
         var rule = BuiltInAnalyzeRules.GetAll().First(r => r.RuleId == "ANALYZE-APP-013");
-        Assert.Equal("1.1.0", rule.Version);
+        Assert.Equal("1.2.0", rule.Version);
         Assert.True(rule.Enabled);
         Assert.Equal("critical", rule.Severity);
 

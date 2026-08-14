@@ -5,8 +5,12 @@
   "description": "Detects devices where the Windows UEFI CA 2023 certificate has not been deployed to the Secure Boot DB. The 2011 certificates expired in June 2026 — affected devices no longer receive Secure Boot security updates until the 2023 certificate is deployed. Since v3 the agent reads the firmware db/KEK variables directly: when the firmware itself confirms the 2023 certificate, the rule is suppressed even if the Windows servicing status has not caught up yet.",
   "severity": "warning",
   "category": "security",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
   "baseConfidence": 70,
   "preconditions": [
     {
@@ -83,10 +87,26 @@
     }
   ],
   "confidenceFactors": [
-    { "signal": "ca2023_notfound", "condition": "exists", "weight": 20 },
-    { "signal": "ca2023_error", "condition": "exists", "weight": 10 },
-    { "signal": "db_ca2023_firmware_missing", "condition": "exists", "weight": 20 },
-    { "signal": "kek_2023_missing", "condition": "exists", "weight": 10 }
+    {
+      "signal": "ca2023_notfound",
+      "condition": "exists",
+      "weight": 20
+    },
+    {
+      "signal": "ca2023_error",
+      "condition": "exists",
+      "weight": 10
+    },
+    {
+      "signal": "db_ca2023_firmware_missing",
+      "condition": "exists",
+      "weight": 20
+    },
+    {
+      "signal": "kek_2023_missing",
+      "condition": "exists",
+      "weight": 10
+    }
   ],
   "explanation": "This device has Secure Boot enabled but the **Windows UEFI CA 2023** certificate has not been deployed to the Secure Boot DB.\n\nThe original Windows UEFI CA 2011 certificates **expired on June 27, 2026 — this deadline has passed**. The automatic pre-expiry rollout window is over: this device no longer receives Secure Boot security updates (DB/DBX) and cannot trust 2023-signed boot managers until the 2023 certificate is deployed. Deploying it now requires active remediation (Windows servicing opt-in and, on some models, an OEM firmware update) rather than waiting for an automatic update.\n\nOn devices running a current agent this finding is verified against the firmware itself: the agent reads the UEFI `db` signature database directly, and this warning is automatically suppressed when the firmware already contains the 2023 certificate — regardless of the Windows servicing status below.\n\nCurrent UEFI CA 2023 servicing status: `{{uefiCA2023Status}}`",
   "remediation": [
@@ -112,5 +132,11 @@
       "url": "https://support.microsoft.com/en-us/topic/kb5036210"
     }
   ],
-  "tags": ["security", "secureboot", "certificate", "ca2023", "compliance"]
+  "tags": [
+    "security",
+    "secureboot",
+    "certificate",
+    "ca2023",
+    "compliance"
+  ]
 }

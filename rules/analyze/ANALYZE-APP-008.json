@@ -6,6 +6,10 @@
   "severity": "warning",
   "category": "apps",
   "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
   "baseConfidence": 70,
   "conditions": [
     {
@@ -28,5 +32,11 @@
       ]
     }
   ],
-  "tags": ["apps", "performance", "slow-install", "warning"]
+  "tags": [
+    "apps",
+    "performance",
+    "slow-install",
+    "warning"
+  ],
+  "version": "1.1.0"
 }

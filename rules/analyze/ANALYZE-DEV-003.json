@@ -5,8 +5,12 @@
   "description": "Detects devices enrolling with an OS build that has reached end of support: Windows 11 22H2 (build 22621) or older, which includes every Windows 10 build. Maintenance note: raise the build cutoff to 22631 after Windows 11 23H2 reaches end of support on 2026-11-10.",
   "severity": "warning",
   "category": "device",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
   "baseConfidence": 90,
   "conditions": [
     {
@@ -52,5 +56,11 @@
       "url": "https://learn.microsoft.com/en-us/lifecycle/products/windows-11-home-and-pro"
     }
   ],
-  "tags": ["device", "os-version", "end-of-support", "windows-11", "windows-10"]
+  "tags": [
+    "device",
+    "os-version",
+    "end-of-support",
+    "windows-11",
+    "windows-10"
+  ]
 }

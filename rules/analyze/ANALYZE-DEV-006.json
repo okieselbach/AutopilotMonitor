@@ -5,8 +5,12 @@
   "description": "Informational: the OS build (CurrentBuild.UBR) changed across a reboot during enrollment — an update was installed, regardless of which servicing path delivered it. Deterministic corroboration that works even when the Windows Update event channel shows nothing (registry comparison across restart cannot be lost to timing or logging-path differences).",
   "severity": "info",
   "category": "device",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
   "trigger": "single",
   "baseConfidence": 70,
   "confidenceThreshold": 50,
@@ -47,7 +51,11 @@
     }
   ],
   "confidenceFactors": [
-    { "signal": "wu_channel_blind", "condition": "exists", "weight": 10 }
+    {
+      "signal": "wu_channel_blind",
+      "condition": "exists",
+      "weight": 10
+    }
   ],
   "explanation": "The OS build changed from **{{previousBuild}}** to **{{currentBuild}}** across a reboot during enrollment — a Windows update was installed mid-provisioning. This is normal when quality updates run during OOBE, but it adds a reboot and extends enrollment time. If a windows_update_channel_census event is also present, the update installed via a servicing path the Windows Update watcher does not capture yet — its EventID histogram tells which IDs to enable.",
   "remediation": [
@@ -61,5 +69,10 @@
     }
   ],
   "markSessionAsFailedDefault": false,
-  "tags": ["device", "windows-update", "oobe", "reboot"]
+  "tags": [
+    "device",
+    "windows-update",
+    "oobe",
+    "reboot"
+  ]
 }

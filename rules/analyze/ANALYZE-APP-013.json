@@ -5,8 +5,12 @@
   "description": "Detects when the Enrollment Status Page failed because Intune could not verify an app was installed (HRESULT 0x87D1041C). The installer ran but the detection rule did not match afterwards.",
   "severity": "critical",
   "category": "apps",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
   "baseConfidence": 90,
   "preconditions": [
     {
@@ -69,8 +73,20 @@
     }
   ],
   "relatedDocs": [
-    { "title": "Microsoft Learn: Troubleshoot Windows Autopilot ESP error codes", "url": "https://learn.microsoft.com/en-us/autopilot/troubleshoot-tsg" },
-    { "title": "Win32 app detection rules in Intune", "url": "https://learn.microsoft.com/en-us/mem/intune/apps/apps-win32-add#step-4-detection-rules" }
+    {
+      "title": "Microsoft Learn: Troubleshoot Windows Autopilot ESP error codes",
+      "url": "https://learn.microsoft.com/en-us/autopilot/troubleshoot-tsg"
+    },
+    {
+      "title": "Win32 app detection rules in Intune",
+      "url": "https://learn.microsoft.com/en-us/mem/intune/apps/apps-win32-add#step-4-detection-rules"
+    }
   ],
-  "tags": ["apps", "detection", "esp", "0x87d1041c", "intune"]
+  "tags": [
+    "apps",
+    "detection",
+    "esp",
+    "0x87d1041c",
+    "intune"
+  ]
 }

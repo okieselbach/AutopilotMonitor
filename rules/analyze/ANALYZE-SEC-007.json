@@ -5,8 +5,12 @@
   "description": "Fires when the provisioning-package scan hit a per-source collection cap (too many .ppkg files, registry packages, or Recovery\\Customizations residue files to capture them all). When that happens the allow-list rules (ANALYZE-SEC-005/006) could not evaluate every package, so a non-allow-listed package may have gone unseen. A device with that many provisioning packages is itself unusual and worth a manual look.",
   "severity": "warning",
   "category": "security",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
   "baseConfidence": 80,
   "conditions": [
     {
@@ -32,5 +36,11 @@
       ]
     }
   ],
-  "tags": ["security", "provisioning-package", "ppkg", "truncated", "coverage"]
+  "tags": [
+    "security",
+    "provisioning-package",
+    "ppkg",
+    "truncated",
+    "coverage"
+  ]
 }

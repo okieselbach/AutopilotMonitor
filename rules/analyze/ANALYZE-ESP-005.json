@@ -5,9 +5,13 @@
   "description": "Attributes an observed enrollment reboot to device-assigned MDM policies that Windows flagged as reboot-required. Fires ONLY when both facts are present in the session: at least one actually-observed reboot (system_reboot_detected) AND reboot-required policy flags (mdm_policy_reboot_required). Policy flags alone — e.g. from a user-policy sync during AccountSetup — force no reboot and stay advisory-silent.",
   "severity": "warning",
   "category": "esp",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "Autopilot Monitor",
   "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
   "trigger": "single",
   "baseConfidence": 70,
   "conditions": [
@@ -47,8 +51,16 @@
     }
   ],
   "confidenceFactors": [
-    { "signal": "multiple_reboot_uris", "condition": "exists", "weight": 10 },
-    { "signal": "omadm_reboot_flag_set", "condition": "exists", "weight": 15 }
+    {
+      "signal": "multiple_reboot_uris",
+      "condition": "exists",
+      "weight": 10
+    },
+    {
+      "signal": "omadm_reboot_flag_set",
+      "condition": "exists",
+      "weight": 15
+    }
   ],
   "confidenceThreshold": 70,
   "explanation": "This session **rebooted during enrollment**, and Windows flagged one or more device-assigned MDM policies as **reboot-required** — the classic cause of the coalesced mid-ESP restart and the unexpected **second sign-in screen** before AccountSetup.\n\nFirst reboot-forcing policy URI: `{{firstRebootUri}}`\n\nThe complete URI list is in the `mdm_policy_reboot_required` timeline event (`rebootUris`). Policies applied DURING ESP DeviceSetup are coalesced into one forced restart at the end of DeviceSetup; the same flags raised later (e.g. user-policy sync in AccountSetup) have no immediate effect — this advisory only fires when a reboot was actually observed.\n\nThis is expected OS behavior, not a failure — but it degrades the enrollment experience, confuses users, and is invisible in the Intune console.",
@@ -81,5 +93,12 @@
     }
   ],
   "markSessionAsFailedDefault": false,
-  "tags": ["esp", "reboot", "coalescing", "second-sign-in", "policy-attribution", "user-experience"]
+  "tags": [
+    "esp",
+    "reboot",
+    "coalescing",
+    "second-sign-in",
+    "policy-attribution",
+    "user-experience"
+  ]
 }

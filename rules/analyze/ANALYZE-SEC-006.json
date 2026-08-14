@@ -5,8 +5,12 @@
   "description": "Template version of ANALYZE-SEC-005 with a customizable allow-list. Iterates the provisioning_package_scan artifacts[] array and fires for any PPKG whose identity is not on YOUR allow-list regex. The placeholder ships with the same OS-inbox defaults as ANALYZE-SEC-005 — extend it with your own vendor/recovery packages. This rule is OFF by default: enable it, set your allow-list, then disable ANALYZE-SEC-005 so only packages outside your list alert.",
   "severity": "warning",
   "category": "security",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "enabled": false,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
   "baseConfidence": 80,
   "conditions": [
     {
@@ -41,7 +45,13 @@
       ]
     }
   ],
-  "tags": ["security", "provisioning-package", "ppkg", "allow-list", "template"],
+  "tags": [
+    "security",
+    "provisioning-package",
+    "ppkg",
+    "allow-list",
+    "template"
+  ],
   "templateVariables": [
     {
       "name": "allowed_packages",

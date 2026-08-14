@@ -7,8 +7,12 @@
       "description": "Detects when a Win32 app detection script fails or returns unexpected results.",
       "severity": "warning",
       "category": "apps",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "baseConfidence": 60,
       "conditions": [
         {
@@ -48,8 +52,13 @@
       "description": "Detects app installation failures with specific exit codes or HRESULT error codes and suggests fixes.",
       "severity": "high",
       "category": "apps",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed",
+        "on_event:app_install_failed"
+      ],
       "baseConfidence": 80,
       "conditions": [
         {
@@ -92,6 +101,10 @@
       "severity": "high",
       "category": "apps",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "baseConfidence": 70,
       "conditions": [
         {
@@ -118,7 +131,8 @@
       "tags": [
         "apps",
         "dependency"
-      ]
+      ],
+      "version": "1.1.0"
     },
     {
       "ruleId": "ANALYZE-APP-004",
@@ -126,8 +140,13 @@
       "description": "Detects when disk space is critically low during enrollment, which can cause app installation failures. Confidence increases when app installations actually failed while disk space was low.",
       "severity": "critical",
       "category": "apps",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed",
+        "on_event:app_install_failed"
+      ],
       "baseConfidence": 75,
       "conditions": [
         {
@@ -200,6 +219,10 @@
       "severity": "high",
       "category": "apps",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "baseConfidence": 70,
       "conditions": [
         {
@@ -227,7 +250,8 @@
         "apps",
         "download",
         "timeout"
-      ]
+      ],
+      "version": "1.1.0"
     },
     {
       "ruleId": "ANALYZE-APP-006",
@@ -235,8 +259,12 @@
       "description": "Detects when the same app installation is attempted 3 or more times during one enrollment — a retry loop caused by unhonored reboot requests, repeated failures, or detection mismatches.",
       "severity": "high",
       "category": "apps",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "baseConfidence": 70,
       "conditions": [
         {
@@ -274,8 +302,13 @@
       "description": "Detects when the app tracking summary reports multiple failed app installations.",
       "severity": "high",
       "category": "apps",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed",
+        "on_event:app_install_failed"
+      ],
       "baseConfidence": 75,
       "conditions": [
         {
@@ -327,6 +360,10 @@
       "severity": "warning",
       "category": "apps",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "baseConfidence": 70,
       "conditions": [
         {
@@ -354,7 +391,8 @@
         "performance",
         "slow-install",
         "warning"
-      ]
+      ],
+      "version": "1.1.0"
     },
     {
       "ruleId": "ANALYZE-APP-010",
@@ -434,6 +472,10 @@
       "severity": "warning",
       "category": "apps",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "trigger": "correlation",
       "baseConfidence": 80,
       "conditions": [
@@ -473,7 +515,8 @@
         "exit-code",
         "unmapped",
         "resolved"
-      ]
+      ],
+      "version": "1.1.0"
     },
     {
       "ruleId": "ANALYZE-APP-013",
@@ -481,8 +524,12 @@
       "description": "Detects when the Enrollment Status Page failed because Intune could not verify an app was installed (HRESULT 0x87D1041C). The installer ran but the detection rule did not match afterwards.",
       "severity": "critical",
       "category": "apps",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "baseConfidence": 90,
       "preconditions": [
         {
@@ -568,8 +615,12 @@
       "description": "Detects when the Enrollment Status Page failed on the Apps subcategory and the agent's AppX deployment log scan identified a suspected MSIX/Store package. Store/MSIX apps install outside the Win32 pipeline, so the regular per-app tracking sees nothing — this correlation names the likely culprit.",
       "severity": "warning",
       "category": "apps",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "baseConfidence": 75,
       "preconditions": [
         {
@@ -786,8 +837,13 @@
       "description": "Correlates an active proxy configuration with app content download failures (Delivery Optimization timeout or download error), suggesting the proxy is blocking or throttling Intune content delivery.",
       "severity": "high",
       "category": "apps",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed",
+        "on_event:app_install_failed"
+      ],
       "trigger": "correlation",
       "baseConfidence": 60,
       "conditions": [
@@ -895,8 +951,12 @@
       "description": "Detects when memory usage stays above 90% across at least 3 performance snapshots during enrollment, indicating sustained memory pressure that can cause app installation failures or system instability.",
       "severity": "warning",
       "category": "device",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "baseConfidence": 55,
       "conditions": [
         {
@@ -963,8 +1023,12 @@
       "description": "Detects devices enrolling with an OS build that has reached end of support: Windows 11 22H2 (build 22621) or older, which includes every Windows 10 build. Maintenance note: raise the build cutoff to 22631 after Windows 11 23H2 reaches end of support on 2026-11-10.",
       "severity": "warning",
       "category": "device",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "baseConfidence": 90,
       "conditions": [
         {
@@ -1024,8 +1088,13 @@
       "description": "Detects a Windows quality/cumulative update that FAILED to install during the OOBE / ESP enrollment window (WindowsUpdateClient EventID 20). A cumulative update failing mid-OOBE is a known cause of enrollment errors and is otherwise invisible in the Intune console.",
       "severity": "high",
       "category": "device",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed",
+        "on_event:windows_update_failed"
+      ],
       "trigger": "single",
       "baseConfidence": 70,
       "confidenceThreshold": 60,
@@ -1127,8 +1196,12 @@
       "description": "Informational: a Windows quality/cumulative update installed during the OOBE / ESP enrollment window (WindowsUpdateClient EventID 19). Surfaces updates applied mid-enrollment — useful context when correlating enrollment duration, reboots, or later issues with a specific KB.",
       "severity": "info",
       "category": "device",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "trigger": "single",
       "baseConfidence": 60,
       "confidenceThreshold": 50,
@@ -1191,8 +1264,12 @@
       "description": "Informational: the OS build (CurrentBuild.UBR) changed across a reboot during enrollment — an update was installed, regardless of which servicing path delivered it. Deterministic corroboration that works even when the Windows Update event channel shows nothing (registry comparison across restart cannot be lost to timing or logging-path differences).",
       "severity": "info",
       "category": "device",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "trigger": "single",
       "baseConfidence": 70,
       "confidenceThreshold": 50,
@@ -1264,9 +1341,13 @@
       "description": "The device's real-time clock deviates from NTP by more than two minutes. Microsoft documents that a clock off by several minutes causes TPM attestation errors (self-deploying/pre-provisioning) and ESP timeouts. Knowledge source: docs/agent/autopilot-ztd-diagnostics.md.",
       "severity": "warning",
       "category": "device",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": "Autopilot Monitor",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "trigger": "single",
       "baseConfidence": 55,
       "confidenceThreshold": 50,
@@ -1496,9 +1577,14 @@
       "description": "A TPM-attestation-related error code documented in the Microsoft Autopilot known-issues list was observed (0x800705B4, 0x801C03EA, 0x81039001, 0x81039023, 0x81039024, 0x80070490). These block self-deploying and pre-provisioning deployments during 'Securing your hardware'. Observability: attestation precedes MDM enrollment, so in the normal deployment model (agent installed via IME after enrollment) these codes are rarely visible — the rule primarily serves bootstrap-token deployments. See docs/agent/autopilot-ztd-diagnostics.md (Observability section).",
       "severity": "high",
       "category": "enrollment",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": "Autopilot Monitor",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed",
+        "on_event:modern_deployment_error"
+      ],
       "trigger": "single",
       "baseConfidence": 60,
       "confidenceThreshold": 55,
@@ -1581,9 +1667,13 @@
       "description": "An enrollment-blocking error code documented in the Microsoft Autopilot known-issues/troubleshooting pages was observed (0x80180014, 0x80180018, 0xC1036501, 0x801C03F3, 0x80070774). Each has a specific, documented cause and fix. Observability: a blocked MDM enrollment normally means no agent gets installed at all (IME install happens after enrollment) — this rule can realistically only fire for bootstrap-token deployments (pre-MDM reporting) or mixed retry scenarios. See docs/agent/autopilot-ztd-diagnostics.md (Observability section).",
       "severity": "high",
       "category": "enrollment",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": "Autopilot Monitor",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "trigger": "single",
       "baseConfidence": 60,
       "confidenceThreshold": 55,
@@ -1664,9 +1754,13 @@
       "description": "A Microsoft Entra hybrid join Autopilot deployment hit error 0x80004005 — a documented build-dependent known issue, resolved by KB5065789 (25H2, build >= 26200.6725), KB5065426 (24H2, build >= 26100.6584), and KB5070312 (23H2, build >= 22631.6276). Knowledge source: docs/agent/autopilot-ztd-diagnostics.md (error-code map).",
       "severity": "high",
       "category": "enrollment",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": "Autopilot Monitor",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "trigger": "correlation",
       "baseConfidence": 25,
       "confidenceThreshold": 60,
@@ -1772,8 +1866,12 @@
       "description": "Detects when the DeviceSetup phase of the ESP took longer than 30 minutes, indicating a stuck or very slow blocking app. Confidence increases when the phase exceeds 60 minutes.",
       "severity": "high",
       "category": "esp",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "baseConfidence": 50,
       "conditions": [
         {
@@ -1823,9 +1921,13 @@
       "description": "Detects when the Certificates subcategory of the Enrollment Status Page reported a failure, even if the enrollment later appears to have succeeded. Users can click 'Continue anyway' on an ESP error, which masks the underlying certificate provisioning failure — this rule surfaces the transition so it stays visible.",
       "severity": "high",
       "category": "esp",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": "Autopilot Monitor",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "trigger": "single",
       "baseConfidence": 80,
       "conditions": [
@@ -1967,9 +2069,13 @@
       "description": "Attributes an observed enrollment reboot to device-assigned MDM policies that Windows flagged as reboot-required. Fires ONLY when both facts are present in the session: at least one actually-observed reboot (system_reboot_detected) AND reboot-required policy flags (mdm_policy_reboot_required). Policy flags alone — e.g. from a user-policy sync during AccountSetup — force no reboot and stay advisory-silent.",
       "severity": "warning",
       "category": "esp",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "author": "Autopilot Monitor",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "trigger": "single",
       "baseConfidence": 70,
       "conditions": [
@@ -2066,8 +2172,12 @@
       "description": "Detects the recovery story: the ESP reported a terminal failure (typically DeviceSetup/Apps), the user most likely pressed 'Try again' on the failure page, the failed step re-ran and completed successfully. The earlier failure did not stick — the enrollment continued past it.",
       "severity": "info",
       "category": "esp",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "baseConfidence": 85,
       "conditions": [
         {
@@ -2172,7 +2282,11 @@
       "category": "identity",
       "isCommunity": true,
       "enabled": false,
-      "version": "1.2.0",
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
+      "version": "1.3.0",
       "baseConfidence": 75,
       "conditions": [
         {
@@ -2238,9 +2352,13 @@
       "description": "Detects when the LocalAdminAnalyzer flags unexpected local user accounts or profile directories on the device. This is a known Autopilot bypass technique where admin accounts are created before or during enrollment to gain persistent local admin access.",
       "severity": "high",
       "category": "identity",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": "Autopilot Monitor",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "trigger": "single",
       "baseConfidence": 60,
       "conditions": [
@@ -2327,9 +2445,13 @@
       "description": "Fires when the vulnerability correlation finds critical-severity CVEs or CISA KEV entries in installed software. This indicates the device has software with known, actively exploited vulnerabilities.",
       "severity": "critical",
       "category": "security",
-      "version": "1.0.1",
+      "version": "1.1.0",
       "author": "Autopilot Monitor",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "trigger": "single",
       "baseConfidence": 90,
       "conditions": [
@@ -2511,8 +2633,12 @@
       "description": "Detects when the Microsoft 365 Apps (Office Click-to-Run) background install did not reach completion. The V2 OfficeInstallDetector watches the C2R client directly (registry + process) and emits office_install_failed when the install scenario was abandoned (worker gone and streaming never finished) or a C2R failure code was observed. This catches Office failures that the Intune integrated app type hides, because IME reports the app done within 1-2 minutes while C2R keeps installing in the background.",
       "severity": "warning",
       "category": "apps",
-      "version": "1.0.1",
+      "version": "1.1.0",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "baseConfidence": 75,
       "conditions": [
         {
@@ -2568,8 +2694,12 @@
       "description": "Detects devices where the Windows UEFI CA 2023 certificate has not been deployed to the Secure Boot DB. The 2011 certificates expired in June 2026 — affected devices no longer receive Secure Boot security updates until the 2023 certificate is deployed. Since v3 the agent reads the firmware db/KEK variables directly: when the firmware itself confirms the 2023 certificate, the rule is suppressed even if the Windows servicing status has not caught up yet.",
       "severity": "warning",
       "category": "security",
-      "version": "3.0.0",
+      "version": "3.1.0",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "baseConfidence": 70,
       "preconditions": [
         {
@@ -2705,8 +2835,12 @@
       "description": "Fires when the AutoLogon analyzer reports a DefaultPassword value present in Winlogon. A plaintext AutoLogon password stored in the registry is readable by any local administrator and is a credential exposure — more severe than AutoLogon alone (the Sysinternals Autologon tool deliberately avoids this by storing the secret in the LSA instead).",
       "severity": "high",
       "category": "security",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "trigger": "single",
       "baseConfidence": 90,
       "conditions": [
@@ -2759,8 +2893,12 @@
       "description": "Optional kiosk allow-list for AutoLogon. Fires when AutoLogon is enabled for a default user that is NOT on your configured list of approved kiosk / shared-device accounts. Disabled until configured because a normal Autopilot enrollment leaves Windows' own ESP auto-logon for the enrolling user (AutoLogon enabled, a default user, no plaintext password) — so AutoLogon-enabled alone is not graded by default; only a plaintext DefaultPassword on disk (ANALYZE-SEC-003) is. Enable this rule with your expected kiosk account name(s) if you want to surface AutoLogon configured for any other user.",
       "severity": "warning",
       "category": "security",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "enabled": false,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "trigger": "single",
       "baseConfidence": 80,
       "conditions": [
@@ -2833,8 +2971,12 @@
       "description": "Detects provisioning packages (PPKG) that are not on the built-in allow-list. The agent emits one or more provisioning_package_scan events whose artifacts[] arrays list every PPKG (registry package, .ppkg file, or Recovery\\Customizations residue; a large set is split across several events). This rule iterates that array across all of them and fires for any artifact whose identity does not match the allow-list regex. The default allow-list covers the Windows OS-inbox packages (Cosa, Power.EnergyEstimationEngine, Power.Settings, SecureStart) plus common OEM factory-preload families (Intel PPM power profiles, AMD Power profiles, Lenovo ThinkPad power/battery packages, Microsoft Surface defaults and carrier packages) so clean factory devices stay quiet. OEM imaging leftovers (e.g. USMT.PPKG, InstallOrder.ini) and generically named packages deliberately still alert — on a pure-Autopilot device they are worth a look. To allow your own vendor/recovery packages, enable the template rule ANALYZE-SEC-006, extend its allow-list, then disable this rule.",
       "severity": "warning",
       "category": "security",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "baseConfidence": 80,
       "conditions": [
         {
@@ -2876,8 +3018,12 @@
       "description": "Template version of ANALYZE-SEC-005 with a customizable allow-list. Iterates the provisioning_package_scan artifacts[] array and fires for any PPKG whose identity is not on YOUR allow-list regex. The placeholder ships with the same OS-inbox defaults as ANALYZE-SEC-005 — extend it with your own vendor/recovery packages. This rule is OFF by default: enable it, set your allow-list, then disable ANALYZE-SEC-005 so only packages outside your list alert.",
       "severity": "warning",
       "category": "security",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "enabled": false,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "baseConfidence": 80,
       "conditions": [
         {
@@ -2936,8 +3082,12 @@
       "description": "Fires when the provisioning-package scan hit a per-source collection cap (too many .ppkg files, registry packages, or Recovery\\Customizations residue files to capture them all). When that happens the allow-list rules (ANALYZE-SEC-005/006) could not evaluate every package, so a non-allow-listed package may have gone unseen. A device with that many provisioning packages is itself unusual and worth a manual look.",
       "severity": "warning",
       "category": "security",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "baseConfidence": 80,
       "conditions": [
         {
@@ -2977,9 +3127,13 @@
       "description": "Detects devices enrolling with Secure Boot turned off. Secure Boot is a firmware-level protection against boot-time malware and is a prerequisite for several Windows security features (VBS/Credential Guard, device health attestation) and common Intune compliance policies. Devices that support Secure Boot but have it disabled should be flagged during enrollment. Legacy BIOS devices (no Secure Boot capability) are excluded — the agent marks those with a note field when the SecureBoot registry state key is absent.",
       "severity": "warning",
       "category": "security",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": "Autopilot Monitor",
       "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
       "trigger": "single",
       "baseConfidence": 70,
       "preconditions": [

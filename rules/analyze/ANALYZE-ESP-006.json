@@ -5,8 +5,12 @@
   "description": "Detects the recovery story: the ESP reported a terminal failure (typically DeviceSetup/Apps), the user most likely pressed 'Try again' on the failure page, the failed step re-ran and completed successfully. The earlier failure did not stick — the enrollment continued past it.",
   "severity": "info",
   "category": "esp",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
   "baseConfidence": 85,
   "conditions": [
     {
@@ -71,8 +75,16 @@
     }
   ],
   "confidenceFactors": [
-    { "signal": "retry", "condition": "exists", "weight": 10 },
-    { "signal": "likelyCulpritApps", "condition": "exists", "weight": 5 }
+    {
+      "signal": "retry",
+      "condition": "exists",
+      "weight": 10
+    },
+    {
+      "signal": "likelyCulpritApps",
+      "condition": "exists",
+      "weight": 5
+    }
   ],
   "explanation": "The Enrollment Status Page reported a **failure** in the `{{category}}` phase (`{{failedSubcategory}}` subcategory, most likely app(s): `{{likelyCulpritApps}}`) — and then **recovered**: the failed step left its failed state and completed successfully about `{{minutesSinceFailure}}` min later.\n\nThat pattern is consistent with the user pressing **'Try again'** on the ESP failure page (the profile allows failure-page actions; the agent cannot observe the click itself). The failure the user saw was real, but it did not stick — the ESP re-ran the step, it succeeded, and the enrollment continued.\n\nRead the session timeline as one arc: `esp_failure_advisory` (the failure, with the likely culprit app) → `esp_failure_retry_detected` (the retry) → `esp_failure_recovered` (the recovery). If this pattern repeats across devices for the same app, that app's install is flaky on first attempt — fix the app rather than the devices. Any literal `{{…}}` placeholder means that detail was not recorded for this session.",
   "remediation": [
@@ -86,5 +98,12 @@
       ]
     }
   ],
-  "tags": ["esp", "recovery", "try-again", "retry", "continue-anyway", "enrollment"]
+  "tags": [
+    "esp",
+    "recovery",
+    "try-again",
+    "retry",
+    "continue-anyway",
+    "enrollment"
+  ]
 }

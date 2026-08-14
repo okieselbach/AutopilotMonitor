@@ -5,8 +5,12 @@
   "description": "Detects when memory usage stays above 90% across at least 3 performance snapshots during enrollment, indicating sustained memory pressure that can cause app installation failures or system instability.",
   "severity": "warning",
   "category": "device",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
   "baseConfidence": 55,
   "conditions": [
     {
@@ -38,8 +42,16 @@
     }
   ],
   "confidenceFactors": [
-    { "signal": "app_failed", "condition": "exists", "weight": 20 },
-    { "signal": "enrollment_failed", "condition": "exists", "weight": 15 }
+    {
+      "signal": "app_failed",
+      "condition": "exists",
+      "weight": 20
+    },
+    {
+      "signal": "enrollment_failed",
+      "condition": "exists",
+      "weight": 15
+    }
   ],
   "explanation": "Memory usage exceeded 90% in at least 3 performance snapshots during this enrollment — sustained pressure, not a single transient spike. Persistent high memory usage can cause app installation failures, system slowdowns, and ESP timeouts, especially on devices with 8 GB RAM installing several apps concurrently.",
   "remediation": [
@@ -53,5 +65,9 @@
       ]
     }
   ],
-  "tags": ["device", "memory", "performance"]
+  "tags": [
+    "device",
+    "memory",
+    "performance"
+  ]
 }

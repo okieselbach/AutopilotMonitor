@@ -5,8 +5,13 @@
   "description": "Detects when disk space is critically low during enrollment, which can cause app installation failures. Confidence increases when app installations actually failed while disk space was low.",
   "severity": "critical",
   "category": "apps",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed",
+    "on_event:app_install_failed"
+  ],
   "baseConfidence": 75,
   "conditions": [
     {
@@ -36,8 +41,16 @@
     }
   ],
   "confidenceFactors": [
-    { "signal": "app_failed", "condition": "exists", "weight": 15 },
-    { "signal": "enrollment_failed", "condition": "exists", "weight": 10 }
+    {
+      "signal": "app_failed",
+      "condition": "exists",
+      "weight": 15
+    },
+    {
+      "signal": "enrollment_failed",
+      "condition": "exists",
+      "weight": 10
+    }
   ],
   "explanation": "Performance monitoring shows disk free space dropped below 5 GB during enrollment. This can cause app installation failures, especially for large Win32 apps.\n\nIf app installations failed in the same session while free space was low, treat storage exhaustion as the likely contributing cause — the confidence score of this finding is raised accordingly. Verify the individual app failures for their concrete error codes before concluding storage was the only cause.",
   "remediation": [
@@ -58,5 +71,9 @@
       ]
     }
   ],
-  "tags": ["apps", "disk-space", "critical"]
+  "tags": [
+    "apps",
+    "disk-space",
+    "critical"
+  ]
 }

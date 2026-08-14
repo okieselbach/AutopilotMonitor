@@ -5,8 +5,12 @@
   "description": "Detects when a Win32 app detection script fails or returns unexpected results.",
   "severity": "warning",
   "category": "apps",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
   "baseConfidence": 60,
   "conditions": [
     {
@@ -34,5 +38,9 @@
       ]
     }
   ],
-  "tags": ["apps", "detection", "win32"]
+  "tags": [
+    "apps",
+    "detection",
+    "win32"
+  ]
 }

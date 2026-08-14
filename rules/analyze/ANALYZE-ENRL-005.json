@@ -5,9 +5,13 @@
   "description": "A Microsoft Entra hybrid join Autopilot deployment hit error 0x80004005 — a documented build-dependent known issue, resolved by KB5065789 (25H2, build >= 26200.6725), KB5065426 (24H2, build >= 26100.6584), and KB5070312 (23H2, build >= 22631.6276). Knowledge source: docs/agent/autopilot-ztd-diagnostics.md (error-code map).",
   "severity": "high",
   "category": "enrollment",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Autopilot Monitor",
   "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
   "trigger": "correlation",
   "baseConfidence": 25,
   "confidenceThreshold": 60,
@@ -59,10 +63,26 @@
     }
   ],
   "confidenceFactors": [
-    { "signal": "e_fail_esp_failure", "condition": "exists", "weight": 40 },
-    { "signal": "e_fail_esp_advisory", "condition": "exists", "weight": 35 },
-    { "signal": "e_fail_modern_deployment", "condition": "exists", "weight": 40 },
-    { "signal": "e_fail_error_detected", "condition": "exists", "weight": 35 }
+    {
+      "signal": "e_fail_esp_failure",
+      "condition": "exists",
+      "weight": 40
+    },
+    {
+      "signal": "e_fail_esp_advisory",
+      "condition": "exists",
+      "weight": 35
+    },
+    {
+      "signal": "e_fail_modern_deployment",
+      "condition": "exists",
+      "weight": 40
+    },
+    {
+      "signal": "e_fail_error_detected",
+      "condition": "exists",
+      "weight": 35
+    }
   ],
   "explanation": "This is a **Microsoft Entra hybrid join** deployment that hit error **0x80004005** — a documented, build-dependent Autopilot known issue where hybrid deployments time out.\n\nThe issue is fixed by Windows cumulative updates:\n\n- Windows 11 **25H2**: KB5065789 — fixed from build **26200.6725**\n- Windows 11 **24H2**: KB5065426 — fixed from build **26100.6584**\n- Windows 11 **23H2**: KB5070312 — fixed from build **22631.6276**\n\nCompare this session's OS build (see the Session Info card / os_info event) against the fixed-build threshold for its version. If the device booted with an older build, updating the deployment image (or installing quality updates during OOBE) resolves the timeout. Note that 0x80004005 is a generic failure code (E_FAIL) — if the build is already at or above the fixed threshold, investigate the Intune Connector for Active Directory and domain-controller connectivity instead.",
   "remediation": [
@@ -83,5 +103,11 @@
     }
   ],
   "markSessionAsFailedDefault": false,
-  "tags": ["enrollment", "hybrid-join", "known-issue", "windows-update", "esp"]
+  "tags": [
+    "enrollment",
+    "hybrid-join",
+    "known-issue",
+    "windows-update",
+    "esp"
+  ]
 }

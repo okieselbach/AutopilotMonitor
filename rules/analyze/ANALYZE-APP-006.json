@@ -5,8 +5,12 @@
   "description": "Detects when the same app installation is attempted 3 or more times during one enrollment — a retry loop caused by unhonored reboot requests, repeated failures, or detection mismatches.",
   "severity": "high",
   "category": "apps",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
   "baseConfidence": 70,
   "conditions": [
     {
@@ -31,5 +35,10 @@
       ]
     }
   ],
-  "tags": ["apps", "reboot", "retry", "loop"]
+  "tags": [
+    "apps",
+    "reboot",
+    "retry",
+    "loop"
+  ]
 }

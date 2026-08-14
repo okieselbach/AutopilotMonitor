@@ -5,8 +5,12 @@
   "description": "Optional kiosk allow-list for AutoLogon. Fires when AutoLogon is enabled for a default user that is NOT on your configured list of approved kiosk / shared-device accounts. Disabled until configured because a normal Autopilot enrollment leaves Windows' own ESP auto-logon for the enrolling user (AutoLogon enabled, a default user, no plaintext password) — so AutoLogon-enabled alone is not graded by default; only a plaintext DefaultPassword on disk (ANALYZE-SEC-003) is. Enable this rule with your expected kiosk account name(s) if you want to surface AutoLogon configured for any other user.",
   "severity": "warning",
   "category": "security",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled": false,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
   "trigger": "single",
   "baseConfidence": 80,
   "conditions": [
@@ -55,7 +59,13 @@
       "url": "https://learn.microsoft.com/en-us/troubleshoot/windows-server/user-profiles-and-logon/turn-on-automatic-logon"
     }
   ],
-  "tags": ["security", "autologon", "winlogon", "kiosk", "allow-list"],
+  "tags": [
+    "security",
+    "autologon",
+    "winlogon",
+    "kiosk",
+    "allow-list"
+  ],
   "templateVariables": [
     {
       "name": "allowed_autologon_users",

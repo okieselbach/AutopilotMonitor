@@ -6,6 +6,10 @@
   "severity": "warning",
   "category": "apps",
   "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
   "trigger": "correlation",
   "baseConfidence": 80,
   "conditions": [
@@ -34,7 +38,17 @@
     }
   ],
   "relatedDocs": [
-    { "title": "Win32 app return codes in Intune", "url": "https://learn.microsoft.com/en-us/mem/intune/apps/apps-win32-app-management#step-4-return-codes" }
+    {
+      "title": "Win32 app return codes in Intune",
+      "url": "https://learn.microsoft.com/en-us/mem/intune/apps/apps-win32-app-management#step-4-return-codes"
+    }
   ],
-  "tags": ["apps", "enforcement", "exit-code", "unmapped", "resolved"]
+  "tags": [
+    "apps",
+    "enforcement",
+    "exit-code",
+    "unmapped",
+    "resolved"
+  ],
+  "version": "1.1.0"
 }

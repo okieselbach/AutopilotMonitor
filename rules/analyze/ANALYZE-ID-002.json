@@ -5,9 +5,13 @@
   "description": "Detects when the LocalAdminAnalyzer flags unexpected local user accounts or profile directories on the device. This is a known Autopilot bypass technique where admin accounts are created before or during enrollment to gain persistent local admin access.",
   "severity": "high",
   "category": "identity",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Autopilot Monitor",
   "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
   "trigger": "single",
   "baseConfidence": 60,
   "conditions": [
@@ -81,5 +85,10 @@
     }
   ],
   "relatedDocs": [],
-  "tags": ["identity", "security", "local-admin", "bypass-detection"]
+  "tags": [
+    "identity",
+    "security",
+    "local-admin",
+    "bypass-detection"
+  ]
 }

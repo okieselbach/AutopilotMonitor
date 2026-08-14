@@ -5,8 +5,12 @@
   "description": "Detects provisioning packages (PPKG) that are not on the built-in allow-list. The agent emits one or more provisioning_package_scan events whose artifacts[] arrays list every PPKG (registry package, .ppkg file, or Recovery\\Customizations residue; a large set is split across several events). This rule iterates that array across all of them and fires for any artifact whose identity does not match the allow-list regex. The default allow-list covers the Windows OS-inbox packages (Cosa, Power.EnergyEstimationEngine, Power.Settings, SecureStart) plus common OEM factory-preload families (Intel PPM power profiles, AMD Power profiles, Lenovo ThinkPad power/battery packages, Microsoft Surface defaults and carrier packages) so clean factory devices stay quiet. OEM imaging leftovers (e.g. USMT.PPKG, InstallOrder.ini) and generically named packages deliberately still alert — on a pure-Autopilot device they are worth a look. To allow your own vendor/recovery packages, enable the template rule ANALYZE-SEC-006, extend its allow-list, then disable this rule.",
   "severity": "warning",
   "category": "security",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
   "baseConfidence": 80,
   "conditions": [
     {
@@ -34,5 +38,11 @@
       ]
     }
   ],
-  "tags": ["security", "provisioning-package", "ppkg", "allow-list", "tamper"]
+  "tags": [
+    "security",
+    "provisioning-package",
+    "ppkg",
+    "allow-list",
+    "tamper"
+  ]
 }

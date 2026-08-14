@@ -5,8 +5,12 @@
   "description": "Detects when the Enrollment Status Page failed on the Apps subcategory and the agent's AppX deployment log scan identified a suspected MSIX/Store package. Store/MSIX apps install outside the Win32 pipeline, so the regular per-app tracking sees nothing — this correlation names the likely culprit.",
   "severity": "warning",
   "category": "apps",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
   "baseConfidence": 75,
   "preconditions": [
     {
@@ -110,8 +114,21 @@
     }
   ],
   "relatedDocs": [
-    { "title": "Microsoft Learn: Troubleshoot Windows Autopilot ESP error codes", "url": "https://learn.microsoft.com/en-us/autopilot/troubleshoot-tsg" },
-    { "title": "Add Microsoft Store apps to Intune", "url": "https://learn.microsoft.com/en-us/mem/intune/apps/store-apps-microsoft" }
+    {
+      "title": "Microsoft Learn: Troubleshoot Windows Autopilot ESP error codes",
+      "url": "https://learn.microsoft.com/en-us/autopilot/troubleshoot-tsg"
+    },
+    {
+      "title": "Add Microsoft Store apps to Intune",
+      "url": "https://learn.microsoft.com/en-us/mem/intune/apps/store-apps-microsoft"
+    }
   ],
-  "tags": ["apps", "appx", "msix", "store", "esp", "0x80073cf9"]
+  "tags": [
+    "apps",
+    "appx",
+    "msix",
+    "store",
+    "esp",
+    "0x80073cf9"
+  ]
 }

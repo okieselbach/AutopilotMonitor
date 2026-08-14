@@ -5,8 +5,12 @@
   "description": "Informational: a Windows quality/cumulative update installed during the OOBE / ESP enrollment window (WindowsUpdateClient EventID 19). Surfaces updates applied mid-enrollment — useful context when correlating enrollment duration, reboots, or later issues with a specific KB.",
   "severity": "info",
   "category": "device",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
   "trigger": "single",
   "baseConfidence": 60,
   "confidenceThreshold": 50,
@@ -39,7 +43,11 @@
     }
   ],
   "confidenceFactors": [
-    { "signal": "reboot_pending", "condition": "exists", "weight": 15 }
+    {
+      "signal": "reboot_pending",
+      "condition": "exists",
+      "weight": 15
+    }
   ],
   "explanation": "One or more Windows updates installed during enrollment (e.g. **{{updateTitle}}**). This is normal when Windows Update runs during OOBE, but it extends enrollment time and can trigger a reboot mid-ESP. Track it when correlating enrollment duration or reboot count with a specific cumulative update, or when a device behaves differently after a particular KB landed during provisioning.",
   "remediation": [
@@ -53,5 +61,9 @@
     }
   ],
   "markSessionAsFailedDefault": false,
-  "tags": ["device", "windows-update", "oobe"]
+  "tags": [
+    "device",
+    "windows-update",
+    "oobe"
+  ]
 }

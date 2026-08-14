@@ -5,8 +5,13 @@
   "description": "Correlates an active proxy configuration with app content download failures (Delivery Optimization timeout or download error), suggesting the proxy is blocking or throttling Intune content delivery.",
   "severity": "high",
   "category": "apps",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed",
+    "on_event:app_install_failed"
+  ],
   "trigger": "correlation",
   "baseConfidence": 60,
   "conditions": [
@@ -30,8 +35,16 @@
     }
   ],
   "confidenceFactors": [
-    { "signal": "app_install_failed", "condition": "count >= 2", "weight": 15 },
-    { "signal": "enrollment_failed", "condition": "count >= 1", "weight": 10 }
+    {
+      "signal": "app_install_failed",
+      "condition": "count >= 2",
+      "weight": 15
+    },
+    {
+      "signal": "enrollment_failed",
+      "condition": "count >= 1",
+      "weight": 10
+    }
   ],
   "confidenceThreshold": 50,
   "explanation": "A proxy (explicit or PAC-based) is configured on this device and app content downloads failed (Delivery Optimization timeout or download content error). Proxies can block or throttle downloads from *.delivery.mp.microsoft.com and other Intune CDN endpoints.\n\nThis is a common root cause when app downloads fail consistently on proxy-connected corporate networks. Note this rule only fires when the failure is download-related — generic app install errors behind a proxy do not trigger it.",
@@ -54,5 +67,12 @@
       ]
     }
   ],
-  "tags": ["correlation", "apps", "proxy", "network", "download", "root-cause"]
+  "tags": [
+    "correlation",
+    "apps",
+    "proxy",
+    "network",
+    "download",
+    "root-cause"
+  ]
 }

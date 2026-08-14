@@ -7,7 +7,11 @@
   "category": "identity",
   "isCommunity": true,
   "enabled": false,
-  "version": "1.2.0",
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
+  "version": "1.3.0",
   "baseConfidence": 75,
   "conditions": [
     {
@@ -50,7 +54,12 @@
       ]
     }
   ],
-  "tags": ["identity", "certificates", "machine-store", "subject-check"],
+  "tags": [
+    "identity",
+    "certificates",
+    "machine-store",
+    "subject-check"
+  ],
   "templateVariables": [
     {
       "name": "cert_subject",

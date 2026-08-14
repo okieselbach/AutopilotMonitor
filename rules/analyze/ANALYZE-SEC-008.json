@@ -5,9 +5,13 @@
   "description": "Detects devices enrolling with Secure Boot turned off. Secure Boot is a firmware-level protection against boot-time malware and is a prerequisite for several Windows security features (VBS/Credential Guard, device health attestation) and common Intune compliance policies. Devices that support Secure Boot but have it disabled should be flagged during enrollment. Legacy BIOS devices (no Secure Boot capability) are excluded — the agent marks those with a note field when the SecureBoot registry state key is absent.",
   "severity": "warning",
   "category": "security",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Autopilot Monitor",
   "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
   "trigger": "single",
   "baseConfidence": 70,
   "preconditions": [
@@ -41,7 +45,11 @@
     }
   ],
   "confidenceFactors": [
-    { "signal": "physical_device", "condition": "exists", "weight": 20 }
+    {
+      "signal": "physical_device",
+      "condition": "exists",
+      "weight": 20
+    }
   ],
   "confidenceThreshold": 60,
   "explanation": "This device enrolled with **Secure Boot disabled**.\n\nThe firmware reports UEFI mode, but Secure Boot is turned off (`HKLM\\SYSTEM\\CurrentControlSet\\Control\\SecureBoot\\State\\UEFISecureBootEnabled = 0`). Without Secure Boot the boot chain is not verified, which:\n\n- Leaves the device exposed to bootkits and unsigned boot-time code\n- Blocks or weakens Virtualization-based Security (VBS), Credential Guard and Device Health Attestation\n- Typically makes the device **non-compliant** if an Intune compliance policy requires Secure Boot — Conditional Access may then block the user right after enrollment\n\nSecure Boot is usually disabled deliberately in firmware setup (e.g. for imaging, dual-boot or legacy CSM mode) and simply never re-enabled before the device was handed to Autopilot.",
@@ -74,5 +82,11 @@
       "url": "https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/disabling-secure-boot"
     }
   ],
-  "tags": ["security", "secureboot", "firmware", "uefi", "compliance"]
+  "tags": [
+    "security",
+    "secureboot",
+    "firmware",
+    "uefi",
+    "compliance"
+  ]
 }
