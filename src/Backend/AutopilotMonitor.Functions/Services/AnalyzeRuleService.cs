@@ -638,6 +638,22 @@ namespace AutopilotMonitor.Functions.Services
                     $"Invalid evaluateOn trigger(s): {string.Join(", ", invalid)}. " +
                     "Allowed: 'enrollment_end', 'whiteglove_sealed', 'on_event:<event_type>' (lowercase snake_case).");
             }
+
+            // Hard block, not a hint: high-frequency telemetry event types would enqueue an
+            // interim analyze run on effectively every ingest batch. The runtime additionally
+            // ignores blocked types (AnalyzeRuleTriggers.OnEventTypes), but rejecting the write
+            // keeps the author from persisting a trigger that silently never fires.
+            var blocked = rule.EvaluateOn
+                .Where(t => t != null && t.StartsWith(AnalyzeRuleTriggers.OnEventPrefix, StringComparison.OrdinalIgnoreCase))
+                .Select(t => t!.Substring(AnalyzeRuleTriggers.OnEventPrefix.Length).Trim())
+                .Where(AnalyzeRuleTriggers.IsBlockedOnEventType)
+                .ToList();
+            if (blocked.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    $"evaluateOn on_event trigger(s) blocked for high-frequency telemetry event type(s): {string.Join(", ", blocked)}. " +
+                    "These occur on nearly every ingest batch and would run analysis continuously — pick a rare, problem-indicating event type.");
+            }
         }
 
         /// <summary>

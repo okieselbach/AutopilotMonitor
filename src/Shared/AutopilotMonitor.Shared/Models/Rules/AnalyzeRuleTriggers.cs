@@ -23,6 +23,31 @@ namespace AutopilotMonitor.Shared.Models
         public const string OnEventPrefix = "on_event:";
 
         /// <summary>
+        /// HARD-BLOCKED on_event trigger types: telemetry-cadence events that occur on
+        /// effectively every ingest batch — an interim trigger keyed to one of these would turn
+        /// every batch into an analyze run (full event-stream read per batch, per session).
+        /// Enforcement is code-only by design (this set gates CRUD validation AND the runtime
+        /// matching in <see cref="OnEventTypes"/>, so a row that ever slips past validation is
+        /// still inert). rules/guardrails.json carries the display/pre-flight mirror consumed
+        /// by the MCP validate_rule lint; a parity test pins the two against drift.
+        /// </summary>
+        public static readonly IReadOnlyCollection<string> BlockedOnEventTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "performance_snapshot",
+            "agent_metrics_snapshot",
+            "download_progress",
+            "network_state_change",
+            "network_connectivity_check",
+            "log_entry",
+            "agent_trace",
+            "stall_probe_check",
+        };
+
+        /// <summary>True when the event type is hard-blocked as an on_event interim trigger.</summary>
+        public static bool IsBlockedOnEventType(string? eventType)
+            => !string.IsNullOrWhiteSpace(eventType) && BlockedOnEventTypes.Contains(eventType!.Trim());
+
+        /// <summary>
         /// The rule's effective trigger list: EvaluateOn, or the enrollment_end default when
         /// the field is absent/empty (legacy rules and rows predating the feature).
         /// </summary>
@@ -44,6 +69,9 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>
         /// The event types this rule wants an interim run for (empty when it has no
         /// on_event triggers). Types are returned lower-cased for set intersection.
+        /// Hard-blocked types (<see cref="BlockedOnEventTypes"/>) are silently dropped —
+        /// defense in depth: even a persisted row carrying one (pre-validation data, direct
+        /// table write) can never cause an interim run.
         /// </summary>
         public static IReadOnlyList<string> OnEventTypes(AnalyzeRule rule)
         {
@@ -51,7 +79,7 @@ namespace AutopilotMonitor.Shared.Models
                 .Where(t => t != null && t.StartsWith(OnEventPrefix, StringComparison.OrdinalIgnoreCase)
                             && t.Length > OnEventPrefix.Length)
                 .Select(t => t.Substring(OnEventPrefix.Length).Trim().ToLowerInvariant())
-                .Where(t => t.Length > 0)
+                .Where(t => t.Length > 0 && !IsBlockedOnEventType(t))
                 .ToList();
         }
 

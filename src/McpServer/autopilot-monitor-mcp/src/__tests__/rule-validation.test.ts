@@ -421,14 +421,23 @@ describe('evaluateOn (interim evaluation) lint', () => {
     expect(warnings(validateRuleDraft(terminalOnly).findings).some((m) => m.includes('passes trivially mid-run'))).toBe(false);
   });
 
-  it('unknown on_event types warn, high-frequency types warn explicitly', () => {
+  it('unknown on_event types warn, hard-blocked high-frequency types are ERRORS', () => {
     const unknown = validAnalyze();
     unknown.evaluateOn = ['enrollment_end', 'on_event:made_up_event'];
     expect(warnings(validateRuleDraft(unknown).findings).some((m) => m.includes('made_up_event'))).toBe(true);
 
-    const hot = validAnalyze();
-    hot.evaluateOn = ['enrollment_end', 'on_event:performance_snapshot'];
-    expect(warnings(validateRuleDraft(hot).findings).some((m) => m.includes('high-frequency'))).toBe(true);
+    // Every blocked type from the guardrails mirror must produce an ERROR (valid=false) —
+    // a warning would not stop an end user.
+    for (const blocked of [
+      'performance_snapshot', 'agent_metrics_snapshot', 'download_progress', 'network_state_change',
+      'network_connectivity_check', 'log_entry', 'agent_trace', 'stall_probe_check',
+    ]) {
+      const hot = validAnalyze();
+      hot.evaluateOn = ['enrollment_end', `on_event:${blocked}`];
+      const r = validateRuleDraft(hot);
+      expect(r.valid, blocked).toBe(false);
+      expect(errors(r.findings).some((m) => m.includes('HARD-BLOCKED')), blocked).toBe(true);
+    }
   });
 
   it('KO with interim-only triggers warns (the KO would never apply)', () => {

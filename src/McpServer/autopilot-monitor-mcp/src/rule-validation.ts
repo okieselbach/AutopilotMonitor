@@ -387,10 +387,10 @@ function lintAnalyzeRule(rule: Record<string, unknown>): ValidationFinding[] {
       if (trigger.startsWith('on_event:')) {
         const eventType = trigger.slice('on_event:'.length);
         findings.push(...checkEventTypeKnown(eventType, `evaluateOn "${trigger}"`));
-        if (HIGH_FREQUENCY_EVENT_TYPES.has(eventType)) {
+        if (BLOCKED_INTERIM_TRIGGER_EVENT_TYPES.has(eventType)) {
           findings.push({
-            level: 'warning',
-            message: `evaluateOn "${trigger}": ${eventType} is a high-frequency telemetry event — this would enqueue an interim analyze run on nearly every ingest batch. Pick a rare, problem-indicating event type instead.`,
+            level: 'error',
+            message: `evaluateOn "${trigger}": ${eventType} is a HARD-BLOCKED high-frequency telemetry event — it occurs on nearly every ingest batch and would run analysis continuously. The backend rejects this trigger on save and the runtime ignores it. Pick a rare, problem-indicating event type instead.`,
           });
         }
       }
@@ -430,18 +430,14 @@ function lintAnalyzeRule(rule: Record<string, unknown>): ValidationFinding[] {
 
 /**
  * Event types emitted on effectively every batch (telemetry cadence) — an on_event interim
- * trigger keyed to one of these would turn every ingest into an analyze run.
+ * trigger keyed to one of these would turn every ingest into an analyze run. Sourced from
+ * the baked guardrails mirror (rules/guardrails.json → RULE_GUARDRAILS); enforcement itself
+ * is code-only in the backend (AnalyzeRuleTriggers.BlockedOnEventTypes) with a parity test
+ * pinning the two sets.
  */
-const HIGH_FREQUENCY_EVENT_TYPES = new Set([
-  'performance_snapshot',
-  'agent_metrics_snapshot',
-  'download_progress',
-  'network_state_change',
-  'network_connectivity_check',
-  'log_entry',
-  'agent_trace',
-  'stall_probe_check',
-]);
+const BLOCKED_INTERIM_TRIGGER_EVENT_TYPES = new Set<string>(
+  ((RULE_GUARDRAILS as Record<string, unknown>).blockedInterimTriggerEventTypes as readonly string[] | undefined) ?? [],
+);
 
 // ── Gather-rule semantic lint ───────────────────────────────────────────────
 

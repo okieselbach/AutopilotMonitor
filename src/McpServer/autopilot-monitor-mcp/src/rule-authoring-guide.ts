@@ -220,8 +220,10 @@ export const RULE_AUTHORING_GUIDE = {
       'WHEN the rule is evaluated. Absent = ["enrollment_end"] — the terminal-only default. ' +
       'Interim triggers evaluate the rule BEFORE the session is terminal: "whiteglove_sealed" ' +
       '(first genuine WhiteGlove seal, technician still at the bench) and "on_event:<eventType>" ' +
-      '(an ingest batch contained that event type; pick a rare, problem-indicating type — never ' +
-      'high-frequency telemetry). Interim semantics: markSessionAsFailed is SUPPRESSED, no stats ' +
+      '(an ingest batch contained that event type; pick a rare, problem-indicating type — ' +
+      'high-frequency telemetry types are HARD-BLOCKED: the backend rejects them on save and the ' +
+      'runtime ignores them, see guardrails blockedInterimTriggerEventTypes). Interim semantics: ' +
+      'markSessionAsFailed is SUPPRESSED, no stats ' +
       'are recorded, findings notify once per (session, rule) and render as "preliminary" until ' +
       'the enrollment-end pass finalizes or resolves them. CRITICAL: interim-enabled rules need ' +
       'MONOTONIC conditions — a not_exists precondition on enrollment_complete / enrollment_failed ' +

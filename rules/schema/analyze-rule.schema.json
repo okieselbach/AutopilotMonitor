@@ -77,7 +77,7 @@
         },
         "evaluateOn": {
           "type": "array",
-          "description": "When this rule is evaluated. Absent = [\"enrollment_end\"] (terminal-only, the historical behavior). Interim triggers let the rule fire before the session is terminal: \"whiteglove_sealed\" (first genuine WhiteGlove seal) and \"on_event:<eventType>\" (an ingest batch contained that event type). Interim runs suppress markSessionAsFailed and record no stats; findings notify once per (session, rule). Interim-enabled rules need monotonic conditions — a not_exists precondition on enrollment_complete/enrollment_failed/session_timeout passes trivially mid-run.",
+          "description": "When this rule is evaluated. Absent = [\"enrollment_end\"] (terminal-only, the historical behavior). Interim triggers let the rule fire before the session is terminal: \"whiteglove_sealed\" (first genuine WhiteGlove seal) and \"on_event:<eventType>\" (an ingest batch contained that event type). High-frequency telemetry event types are HARD-BLOCKED as on_event triggers (guardrails blockedInterimTriggerEventTypes): the backend rejects them on save and the runtime ignores them. Interim runs suppress markSessionAsFailed and record no stats; findings notify once per (session, rule). Interim-enabled rules need monotonic conditions — a not_exists precondition on enrollment_complete/enrollment_failed/session_timeout passes trivially mid-run.",
           "items": {
             "type": "string",
             "pattern": "^(enrollment_end|whiteglove_sealed|on_event:[a-z0-9_]{1,128})$"

@@ -328,7 +328,7 @@ public class RuleEngineEvaluateOnTests
     }
 
     [Fact]
-    public void BuiltIn_catalog_evaluateOn_triggers_are_all_grammatical()
+    public void BuiltIn_catalog_evaluateOn_triggers_are_all_grammatical_and_unblocked()
     {
         foreach (var rule in BuiltInAnalyzeRules.GetAll())
         {
@@ -338,8 +338,72 @@ public class RuleEngineEvaluateOnTests
             {
                 Assert.True(AnalyzeRuleTriggers.IsValidTrigger(trigger),
                     $"Rule {rule.RuleId} ships invalid evaluateOn trigger '{trigger}'");
+
+                if (trigger.StartsWith("on_event:", StringComparison.OrdinalIgnoreCase))
+                {
+                    var eventType = trigger.Substring("on_event:".Length);
+                    Assert.False(AnalyzeRuleTriggers.IsBlockedOnEventType(eventType),
+                        $"Rule {rule.RuleId} ships hard-blocked evaluateOn trigger '{trigger}' — the runtime would silently drop it");
+                }
             }
         }
+    }
+
+    // ── Hard-blocked high-frequency trigger types ───────────────────────────
+
+    [Fact]
+    public void Blocked_on_event_types_are_dropped_by_the_runtime_matcher()
+    {
+        // Defense in depth: even a persisted row carrying a blocked trigger is inert.
+        var rule = new AnalyzeRule
+        {
+            EvaluateOn = new List<string> { "on_event:performance_snapshot", $"on_event:{ProbeEventType}" },
+        };
+        Assert.Equal(new[] { ProbeEventType }, AnalyzeRuleTriggers.OnEventTypes(rule));
+        Assert.False(AnalyzeRuleTriggers.MatchesOnEvent(rule, new[] { "performance_snapshot" }));
+    }
+
+    [Fact]
+    public async Task Create_rule_with_blocked_on_event_trigger_is_rejected()
+    {
+        var repo = new Mock<IRuleRepository>();
+        repo.Setup(r => r.GetAnalyzeRulesAsync(It.IsAny<string>())).ReturnsAsync(new List<AnalyzeRule>());
+        repo.Setup(r => r.GetRuleStatesAsync(It.IsAny<string>())).ReturnsAsync(new Dictionary<string, RuleState>());
+        repo.Setup(r => r.AnalyzeRuleExistsAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(false);
+        var service = new AnalyzeRuleService(repo.Object, NullLogger<AnalyzeRuleService>.Instance);
+
+        var rule = ProbeRule("ANALYZE-CUSTOM-901",
+            evaluateOn: new List<string> { "enrollment_end", "on_event:performance_snapshot" });
+        rule.IsBuiltIn = false;
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateRuleAsync(TenantId, rule));
+        Assert.Contains("blocked", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("performance_snapshot", ex.Message);
+        repo.Verify(r => r.StoreAnalyzeRuleAsync(It.IsAny<AnalyzeRule>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void Blocked_set_matches_the_guardrails_json_mirror()
+    {
+        // Enforcement is code-only (AnalyzeRuleTriggers.BlockedOnEventTypes); the JSON mirror
+        // feeds the MCP validate_rule pre-flight. This parity test keeps the two from drifting —
+        // an addition on either side fails here until the other side follows.
+        var guardrailsPath = Path.Combine(FindRepoRoot(), "rules", "guardrails.json");
+        var json = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(guardrailsPath));
+        var mirror = json["blockedInterimTriggerEventTypes"]!.ToObject<string[]>()!;
+
+        Assert.Equal(
+            AnalyzeRuleTriggers.BlockedOnEventTypes.OrderBy(t => t, StringComparer.Ordinal),
+            mirror.OrderBy(t => t, StringComparer.Ordinal));
+    }
+
+    private static string FindRepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "AutopilotMonitor.sln")))
+            dir = dir.Parent;
+        Assert.NotNull(dir);
+        return dir!.FullName;
     }
 
     // ── Fixture ─────────────────────────────────────────────────────────────

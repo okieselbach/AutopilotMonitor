@@ -272,5 +272,15 @@
     "Format-Volume",
     "Set-ExecutionPolicy"
   ],
-  "maxCommandLength": 2000
+  "maxCommandLength": 2000,
+  "blockedInterimTriggerEventTypes": [
+    "performance_snapshot",
+    "agent_metrics_snapshot",
+    "download_progress",
+    "network_state_change",
+    "network_connectivity_check",
+    "log_entry",
+    "agent_trace",
+    "stall_probe_check"
+  ]
 }

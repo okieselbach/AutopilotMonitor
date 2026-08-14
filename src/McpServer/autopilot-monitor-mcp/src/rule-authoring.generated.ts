@@ -319,7 +319,7 @@ export const ANALYZE_RULE_SCHEMA: Record<string, unknown> = {
         },
         "evaluateOn": {
           "type": "array",
-          "description": "When this rule is evaluated. Absent = [\"enrollment_end\"] (terminal-only, the historical behavior). Interim triggers let the rule fire before the session is terminal: \"whiteglove_sealed\" (first genuine WhiteGlove seal) and \"on_event:<eventType>\" (an ingest batch contained that event type). Interim runs suppress markSessionAsFailed and record no stats; findings notify once per (session, rule). Interim-enabled rules need monotonic conditions — a not_exists precondition on enrollment_complete/enrollment_failed/session_timeout passes trivially mid-run.",
+          "description": "When this rule is evaluated. Absent = [\"enrollment_end\"] (terminal-only, the historical behavior). Interim triggers let the rule fire before the session is terminal: \"whiteglove_sealed\" (first genuine WhiteGlove seal) and \"on_event:<eventType>\" (an ingest batch contained that event type). High-frequency telemetry event types are HARD-BLOCKED as on_event triggers (guardrails blockedInterimTriggerEventTypes): the backend rejects them on save and the runtime ignores them. Interim runs suppress markSessionAsFailed and record no stats; findings notify once per (session, rule). Interim-enabled rules need monotonic conditions — a not_exists precondition on enrollment_complete/enrollment_failed/session_timeout passes trivially mid-run.",
           "items": {
             "type": "string",
             "pattern": "^(enrollment_end|whiteglove_sealed|on_event:[a-z0-9_]{1,128})$"
@@ -1034,5 +1034,15 @@ export const RULE_GUARDRAILS = {
     "Format-Volume",
     "Set-ExecutionPolicy"
   ],
-  "maxCommandLength": 2000
+  "maxCommandLength": 2000,
+  "blockedInterimTriggerEventTypes": [
+    "performance_snapshot",
+    "agent_metrics_snapshot",
+    "download_progress",
+    "network_state_change",
+    "network_connectivity_check",
+    "log_entry",
+    "agent_trace",
+    "stall_probe_check"
+  ]
 } as const;
