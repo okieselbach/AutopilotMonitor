@@ -4,8 +4,10 @@ import {
   RuleForm, RuleCondition, RulePrecondition,
   CATEGORIES, SEVERITIES, TRIGGERS, OPERATORS, SOURCES, PRECONDITION_OPERATORS,
   EMPTY_CONDITION, EMPTY_FACTOR, EMPTY_PRECONDITION,
+  validateOnEventTypes,
 } from "../types";
 import { isReservedBuiltInRuleId, RESERVED_RULE_ID_MESSAGE } from "@/lib/ruleIdPolicy";
+import { BLOCKED_INTERIM_TRIGGER_EVENT_TYPES } from "@/utils/guardrails.generated";
 
 interface AnalyzeRuleFormFieldsProps {
   form: RuleForm;
@@ -67,6 +69,67 @@ export default function AnalyzeRuleFormFields({ form, setForm, showRuleId, exist
           <select value={form.trigger} onChange={(e) => setForm({ ...form, trigger: e.target.value })} className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500">
             {TRIGGERS.map((t) => (<option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>))}
           </select>
+        </div>
+      </div>
+
+      {/* Evaluation triggers (evaluateOn): WHEN the rule runs. Default = at enrollment end only. */}
+      <div className="border border-sky-200 bg-sky-50 rounded-lg p-3">
+        <label className="block text-sm font-semibold text-gray-700">Evaluation Triggers</label>
+        <p className="text-xs text-gray-500 mb-2">
+          When this rule is evaluated. Default is at enrollment end (session completed, failed or timed out).
+          Interim triggers additionally evaluate the rule while the enrollment is still running — findings
+          appear as &quot;Preliminary&quot; and are confirmed or resolved by the final analysis. Interim runs
+          never mark a session as failed and each finding notifies at most once.
+        </p>
+        <div className="space-y-2">
+          <label className="flex items-center space-x-2 text-sm text-gray-800">
+            <input
+              type="checkbox"
+              checked={form.evalAtEnrollmentEnd}
+              onChange={(e) => setForm({ ...form, evalAtEnrollmentEnd: e.target.checked })}
+              className="rounded border-gray-300 text-sky-600 focus:ring-sky-500"
+            />
+            <span>At enrollment end <span className="text-xs text-gray-500">(default — recommended for almost every rule)</span></span>
+          </label>
+          <label className="flex items-center space-x-2 text-sm text-gray-800">
+            <input
+              type="checkbox"
+              checked={form.evalAtWhitegloveSealed}
+              onChange={(e) => setForm({ ...form, evalAtWhitegloveSealed: e.target.checked })}
+              className="rounded border-gray-300 text-sky-600 focus:ring-sky-500"
+            />
+            <span>When WhiteGlove pre-provisioning completes <span className="text-xs text-gray-500">(technician still at the device)</span></span>
+          </label>
+          <div>
+            <label className="block text-sm text-gray-800 mb-1">When specific events arrive <span className="text-xs text-gray-500">(comma-separated event types, e.g. hybrid_login_pending)</span></label>
+            <input
+              type="text"
+              value={form.evalOnEventTypes}
+              onChange={(e) => setForm({ ...form, evalOnEventTypes: e.target.value })}
+              placeholder="e.g. hybrid_login_pending, esp_policy_provider_stalled"
+              autoComplete="off"
+              className={`w-full px-3 py-1.5 border rounded text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 ${
+                validateOnEventTypes(form.evalOnEventTypes, BLOCKED_INTERIM_TRIGGER_EVENT_TYPES)
+                  ? "border-red-400 focus:ring-red-300"
+                  : "border-sky-300 focus:ring-sky-500"
+              }`}
+            />
+            {validateOnEventTypes(form.evalOnEventTypes, BLOCKED_INTERIM_TRIGGER_EVENT_TYPES) && (
+              <p className="mt-1 text-xs text-red-600">
+                {validateOnEventTypes(form.evalOnEventTypes, BLOCKED_INTERIM_TRIGGER_EVENT_TYPES)}
+              </p>
+            )}
+          </div>
+          {!form.evalAtEnrollmentEnd && !form.evalAtWhitegloveSealed && form.evalOnEventTypes.trim().length === 0 && (
+            <p className="text-xs text-red-600">Select at least one evaluation trigger — a rule with none would never run.</p>
+          )}
+          {(form.evalAtWhitegloveSealed || form.evalOnEventTypes.trim().length > 0) && (
+            <p className="text-xs text-sky-700">
+              Interim tip: conditions should stay true once they became true (e.g. require repetition via
+              confidence factors). A precondition like &quot;enrollment_complete not_exists&quot; passes
+              trivially while the enrollment is still running.
+            </p>
+          )}
         </div>
       </div>
 

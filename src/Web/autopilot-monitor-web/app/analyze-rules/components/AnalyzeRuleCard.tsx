@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AnalyzeRule, RuleForm, getSeverityColor, getCategoryColor } from "../types";
+import { AnalyzeRule, RuleForm, getSeverityColor, getCategoryColor, interimTriggerLabels } from "../types";
 import { FormJsonToggle, JsonModeToggleButtons, ReadOnlyJsonView } from "@/components/rules/FormJsonToggle";
 import AnalyzeRuleFormFields from "./AnalyzeRuleFormFields";
 import { stripInternalFields } from "@/lib/rulePageHelpers";
@@ -206,6 +206,14 @@ export default function AnalyzeRuleCard({
           {isTemplate && (
             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 bg-amber-100 text-amber-800 border border-amber-200">
               Requires Setup
+            </span>
+          )}
+          {interimTriggerLabels(rule).length > 0 && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 bg-sky-100 text-sky-700 border border-sky-200"
+              title={`Also evaluated while the enrollment is still running: ${interimTriggerLabels(rule).join(", ")}. Findings appear as "Preliminary" until the final analysis at enrollment end confirms or resolves them.`}
+            >
+              Interim: {interimTriggerLabels(rule).join(", ")}
             </span>
           )}
           {isDerived && (

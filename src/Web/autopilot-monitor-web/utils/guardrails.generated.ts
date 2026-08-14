@@ -378,4 +378,17 @@ export const BLOCKED_COMMAND_PATTERNS: readonly string[] = [
   "Set-ExecutionPolicy",
 ];
 
+// High-frequency telemetry event types hard-blocked as analyze-rule evaluateOn
+// on_event triggers (backend rejects on save, runtime ignores them).
+export const BLOCKED_INTERIM_TRIGGER_EVENT_TYPES: readonly string[] = [
+  "performance_snapshot",
+  "agent_metrics_snapshot",
+  "download_progress",
+  "network_state_change",
+  "network_connectivity_check",
+  "log_entry",
+  "agent_trace",
+  "stall_probe_check",
+];
+
 export const MAX_COMMAND_LENGTH = 2000;

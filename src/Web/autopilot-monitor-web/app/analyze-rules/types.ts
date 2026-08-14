@@ -91,6 +91,11 @@ export interface AnalyzeRule {
   notify?: boolean | null;
   /** Tenant notification-channel ids targeted when this rule fires (requires effective notify). */
   notifyChannelIds?: string[];
+  /**
+   * When the rule is evaluated. Absent/empty = ["enrollment_end"] (terminal-only default).
+   * Interim triggers: "whiteglove_sealed" and "on_event:<eventType>".
+   */
+  evaluateOn?: string[] | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -110,6 +115,11 @@ export interface RuleForm {
   confidenceFactors: ConfidenceFactor[];
   remediation: RemediationStep[];
   relatedDocs: RelatedDoc[];
+  /** Evaluation triggers — structured form mirror of AnalyzeRule.evaluateOn. */
+  evalAtEnrollmentEnd: boolean;
+  evalAtWhitegloveSealed: boolean;
+  /** Comma-separated event types for on_event:<type> interim triggers. */
+  evalOnEventTypes: string;
 }
 
 export const CATEGORIES = ["network", "identity", "apps", "device", "esp", "enrollment"] as const;
@@ -190,9 +200,13 @@ export const EMPTY_FORM: RuleForm = {
   confidenceFactors: [],
   remediation: [],
   relatedDocs: [],
+  evalAtEnrollmentEnd: true,
+  evalAtWhitegloveSealed: false,
+  evalOnEventTypes: "",
 };
 
 export function ruleToForm(rule: AnalyzeRule): RuleForm {
+  const triggers = rule.evaluateOn && rule.evaluateOn.length > 0 ? rule.evaluateOn : ["enrollment_end"];
   return {
     ruleId: rule.ruleId,
     title: rule.title,
@@ -208,5 +222,57 @@ export function ruleToForm(rule: AnalyzeRule): RuleForm {
     confidenceFactors: rule.confidenceFactors.map(f => ({ ...f })),
     remediation: rule.remediation.map(r => ({ title: r.title, steps: [...r.steps] })),
     relatedDocs: rule.relatedDocs.map(d => ({ ...d })),
+    evalAtEnrollmentEnd: triggers.some(t => t.toLowerCase() === "enrollment_end"),
+    evalAtWhitegloveSealed: triggers.some(t => t.toLowerCase() === "whiteglove_sealed"),
+    evalOnEventTypes: triggers
+      .filter(t => t.toLowerCase().startsWith("on_event:"))
+      .map(t => t.slice("on_event:".length))
+      .join(", "),
   };
+}
+
+/**
+ * Builds the evaluateOn payload from the structured form fields. Returns undefined when the
+ * selection equals the default (enrollment_end only) so unchanged rules stay clean of the field.
+ */
+export function formToEvaluateOn(form: RuleForm): string[] | undefined {
+  const triggers: string[] = [];
+  if (form.evalAtEnrollmentEnd) triggers.push("enrollment_end");
+  if (form.evalAtWhitegloveSealed) triggers.push("whiteglove_sealed");
+  for (const raw of form.evalOnEventTypes.split(",")) {
+    const eventType = raw.trim().toLowerCase();
+    if (eventType) triggers.push(`on_event:${eventType}`);
+  }
+  if (triggers.length === 1 && triggers[0] === "enrollment_end") return undefined;
+  return triggers.length > 0 ? triggers : undefined;
+}
+
+/**
+ * Client-side pre-flight for the on_event list (the backend enforces the same rules on save):
+ * lowercase snake_case event types, none of the hard-blocked high-frequency telemetry types.
+ * Returns an error message or null.
+ */
+export function validateOnEventTypes(raw: string, blockedTypes: readonly string[]): string | null {
+  const types = raw.split(",").map(t => t.trim().toLowerCase()).filter(t => t.length > 0);
+  const malformed = types.filter(t => !/^[a-z0-9_]{1,128}$/.test(t));
+  if (malformed.length > 0) {
+    return `Invalid event type(s): ${malformed.join(", ")} — use lowercase snake_case (e.g. hybrid_login_pending).`;
+  }
+  const blocked = types.filter(t => blockedTypes.includes(t));
+  if (blocked.length > 0) {
+    return `Blocked high-frequency event type(s): ${blocked.join(", ")} — these occur on nearly every batch and cannot be used as interim triggers.`;
+  }
+  return null;
+}
+
+/** Human-readable interim-trigger labels for a rule card badge (empty when terminal-only). */
+export function interimTriggerLabels(rule: AnalyzeRule): string[] {
+  const triggers = rule.evaluateOn ?? [];
+  const labels: string[] = [];
+  for (const t of triggers) {
+    const lower = t.toLowerCase();
+    if (lower === "whiteglove_sealed") labels.push("WhiteGlove seal");
+    else if (lower.startsWith("on_event:")) labels.push(`on ${t.slice("on_event:".length)}`);
+  }
+  return labels;
 }

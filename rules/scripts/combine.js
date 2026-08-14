@@ -159,6 +159,12 @@ export const BLOCKED_COMMAND_PATTERNS: readonly string[] = [
 ${flatArray(guardrails.blockedCommandPatterns)}
 ];
 
+// High-frequency telemetry event types hard-blocked as analyze-rule evaluateOn
+// on_event triggers (backend rejects on save, runtime ignores them).
+export const BLOCKED_INTERIM_TRIGGER_EVENT_TYPES: readonly string[] = [
+${flatArray(guardrails.blockedInterimTriggerEventTypes ?? [])}
+];
+
 export const MAX_COMMAND_LENGTH = ${guardrails.maxCommandLength};
 `;
 

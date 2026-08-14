@@ -16,7 +16,18 @@ import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdmin
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 
 import { isTemplateRule } from "@/lib/analyzeRuleTabs";
-import { AnalyzeRule, RuleForm, EMPTY_FORM, EMPTY_CONDITION, ruleToForm } from "./types";
+import { AnalyzeRule, RuleForm, EMPTY_FORM, EMPTY_CONDITION, ruleToForm, formToEvaluateOn, validateOnEventTypes } from "./types";
+import { BLOCKED_INTERIM_TRIGGER_EVENT_TYPES } from "@/utils/guardrails.generated";
+
+/** Pre-flight for the evaluation-trigger form fields; returns an error message or null. */
+function validateEvaluateOnForm(form: RuleForm): string | null {
+  const onEventError = validateOnEventTypes(form.evalOnEventTypes, BLOCKED_INTERIM_TRIGGER_EVENT_TYPES);
+  if (onEventError) return onEventError;
+  if (!form.evalAtEnrollmentEnd && !form.evalAtWhitegloveSealed && form.evalOnEventTypes.trim().length === 0) {
+    return "Select at least one evaluation trigger — a rule with none would never run.";
+  }
+  return null;
+}
 import AnalyzeRuleFormFields from "./components/AnalyzeRuleFormFields";
 import AnalyzeRuleCard, { RuleTrendPoint, RuleRegressionInfo } from "./components/AnalyzeRuleCard";
 import TemplateConfigModal from "./components/TemplateConfigModal";
@@ -320,8 +331,15 @@ export default function AnalyzeRulesPage() {
       return;
     }
 
+    const evaluateOnError = validateEvaluateOnForm(form);
+    if (evaluateOnError) {
+      showError(evaluateOnError);
+      return;
+    }
+
     setCreating(true);
     const payload = {
+      evaluateOn: formToEvaluateOn(form),
       ruleId: form.ruleId.trim(),
       title: form.title.trim(),
       description: form.description.trim(),
@@ -370,9 +388,16 @@ export default function AnalyzeRulesPage() {
       return;
     }
 
+    const evaluateOnError = validateEvaluateOnForm(form);
+    if (evaluateOnError) {
+      showError(evaluateOnError);
+      return;
+    }
+
     setSaving(true);
     const payload = {
       ...rule,
+      evaluateOn: formToEvaluateOn(form) ?? null,
       title: form.title.trim(),
       description: form.description.trim(),
       severity: form.severity,
