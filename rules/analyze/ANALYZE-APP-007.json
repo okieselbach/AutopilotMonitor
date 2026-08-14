@@ -5,6 +5,7 @@
   "description": "Detects when the app tracking summary reports multiple failed app installations.",
   "severity": "high",
   "category": "apps",
+  "version": "1.1.0",
   "enabled": true,
   "baseConfidence": 75,
   "conditions": [
@@ -16,6 +17,14 @@
       "operator": "gte",
       "value": "2",
       "required": true
+    },
+    {
+      "signal": "enrollment_failed",
+      "source": "event_type",
+      "eventType": "enrollment_failed",
+      "operator": "exists",
+      "value": "",
+      "required": false
     }
   ],
   "confidenceFactors": [

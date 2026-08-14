@@ -108,4 +108,35 @@ public class RuleEngineDataPathResolverTests
 
         Assert.Null(RuleEngine.ResolveDotPath(data, "scan_summary.critical_cves"));
     }
+
+    [Fact]
+    public void TryFlatLookup_ListValue_FlattensToJoinedString()
+    {
+        // Regression: app_tracking_summary.pendingNames is a List<object> after DataJson
+        // deserialization. ToString() on it yields the .NET type name, which broke both
+        // contains-matching and {{pendingNames}} interpolation in ANALYZE-APP-015 findings.
+        var data = new Dictionary<string, object>
+        {
+            ["pendingNames"] = new List<object> { "Contoso VPN", "Fabrikam Agent" },
+        };
+
+        var ok = RuleEngine.TryFlatLookup(data, "pendingNames", out var value);
+
+        Assert.True(ok);
+        Assert.Equal("Contoso VPN, Fabrikam Agent", value);
+    }
+
+    [Fact]
+    public void ResolveDotPath_ListLeaf_FlattensToJoinedString()
+    {
+        var data = new Dictionary<string, object>
+        {
+            ["summary"] = new Dictionary<string, object>
+            {
+                ["names"] = new List<object> { "a", "b" },
+            },
+        };
+
+        Assert.Equal("a, b", RuleEngine.ResolveDotPath(data, "summary.names"));
+    }
 }

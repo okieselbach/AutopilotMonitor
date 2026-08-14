@@ -274,6 +274,7 @@
       "description": "Detects when the app tracking summary reports multiple failed app installations.",
       "severity": "high",
       "category": "apps",
+      "version": "1.1.0",
       "enabled": true,
       "baseConfidence": 75,
       "conditions": [
@@ -285,6 +286,14 @@
           "operator": "gte",
           "value": "2",
           "required": true
+        },
+        {
+          "signal": "enrollment_failed",
+          "source": "event_type",
+          "eventType": "enrollment_failed",
+          "operator": "exists",
+          "value": "",
+          "required": false
         }
       ],
       "confidenceFactors": [
@@ -559,7 +568,7 @@
       "description": "Detects when the Enrollment Status Page failed on the Apps subcategory and the agent's AppX deployment log scan identified a suspected MSIX/Store package. Store/MSIX apps install outside the Win32 pipeline, so the regular per-app tracking sees nothing — this correlation names the likely culprit.",
       "severity": "warning",
       "category": "apps",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "enabled": true,
       "baseConfidence": 75,
       "preconditions": [
@@ -588,6 +597,51 @@
           "dataField": "errorCode",
           "operator": "regex",
           "value": "^0x80073[cd]",
+          "required": false
+        },
+        {
+          "signal": "appx_esp_category",
+          "source": "event_data",
+          "eventType": "esp_appx_failure_analysis",
+          "dataField": "espCategory",
+          "operator": "exists",
+          "value": "",
+          "required": false
+        },
+        {
+          "signal": "appx_esp_errorcode",
+          "source": "event_data",
+          "eventType": "esp_appx_failure_analysis",
+          "dataField": "espErrorCode",
+          "operator": "exists",
+          "value": "",
+          "required": false
+        },
+        {
+          "signal": "appx_top_candidate_package",
+          "source": "event_data",
+          "eventType": "esp_appx_failure_analysis",
+          "dataField": "topCandidatePackage",
+          "operator": "exists",
+          "value": "",
+          "required": false
+        },
+        {
+          "signal": "appx_candidate_count",
+          "source": "event_data",
+          "eventType": "esp_appx_failure_analysis",
+          "dataField": "candidateCount",
+          "operator": "exists",
+          "value": "",
+          "required": false
+        },
+        {
+          "signal": "appx_scan_confidence",
+          "source": "event_data",
+          "eventType": "esp_appx_failure_analysis",
+          "dataField": "confidence",
+          "operator": "exists",
+          "value": "",
           "required": false
         }
       ],
@@ -1357,7 +1411,7 @@
       "description": "Detects when the enrollment session was force-failed by the server-side inactivity timeout (no agent telemetry for the configured SessionTimeoutHours window) without ever completing or explicitly failing.",
       "severity": "high",
       "category": "enrollment",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "enabled": true,
       "baseConfidence": 80,
       "preconditions": [
@@ -1382,6 +1436,15 @@
           "operator": "exists",
           "value": "",
           "required": true
+        },
+        {
+          "signal": "timeoutHours",
+          "source": "event_data",
+          "eventType": "session_timeout",
+          "dataField": "timeoutHours",
+          "operator": "exists",
+          "value": "",
+          "required": false
         },
         {
           "signal": "desktop_was_reached",

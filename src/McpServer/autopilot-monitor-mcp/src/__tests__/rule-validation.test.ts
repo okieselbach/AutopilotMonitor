@@ -384,6 +384,17 @@ describe('analyze semantic lint', () => {
     const bad = validAnalyze();
     bad.explanation = 'Value is {{nonexistent_token}}.';
     expect(warnings(validateRuleDraft(bad).findings).some((m) => m.includes('nonexistent_token'))).toBe(true);
+
+    // event_data_array evidence carries the matched element under field=itemField, so the
+    // engine interpolates {{itemField}} at runtime — the lint must not flag it (SEC-005/006).
+    const arrayRule = validAnalyze();
+    (arrayRule.conditions as Array<Record<string, unknown>>)[0] = {
+      signal: 'ppkg_not_allowlisted', source: 'event_data_array', eventType: 'provisioning_package_scan',
+      dataField: 'artifacts', itemField: 'identity', operator: 'not_regex',
+      value: '^(?:Microsoft\\.Windows\\.Cosa)\\b', required: true,
+    };
+    arrayRule.explanation = 'Unexpected package: {{identity}}';
+    expect(warnings(validateRuleDraft(arrayRule).findings).some((m) => m.includes('{{identity}}'))).toBe(false);
   });
 
   it('markSessionAsFailedDefault=true yields an info finding', () => {

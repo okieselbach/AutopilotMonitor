@@ -106,7 +106,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             => _storage.SaveRuleStatsEntryAsync(entry);
 
         public Task<List<RuleStatsEntry>> GetRuleStatsAsync(string? tenantId = null, string? startDate = null,
-            string? endDate = null, string? ruleType = null, int maxResults = 500)
+            string? endDate = null, string? ruleType = null, int maxResults = 10000)
             => _storage.GetRuleStatsAsync(tenantId, startDate, endDate, ruleType, maxResults);
 
         public Task<int> DeleteRuleStatsOlderThanAsync(DateTime cutoffDate)

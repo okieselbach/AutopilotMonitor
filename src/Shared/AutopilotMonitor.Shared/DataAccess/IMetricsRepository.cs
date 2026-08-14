@@ -92,8 +92,11 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task IncrementRuleStatAsync(string date, string tenantId, string ruleId, string ruleType,
             string ruleTitle, string category, string severity, bool fired, int? confidenceScore);
         Task<bool> SaveRuleStatsEntryAsync(RuleStatsEntry entry);
+        // maxResults is a runaway backstop, not a page size: a 31-day window easily holds
+        // 1400+ per-day rows (rules × days), and the scan runs date-ascending, so a low cap
+        // silently drops the NEWEST dates — newly added rules then vanish from stats entirely.
         Task<List<RuleStatsEntry>> GetRuleStatsAsync(string? tenantId = null, string? startDate = null,
-            string? endDate = null, string? ruleType = null, int maxResults = 500);
+            string? endDate = null, string? ruleType = null, int maxResults = 10000);
         Task<int> DeleteRuleStatsOlderThanAsync(DateTime cutoffDate);
 
         // --- F1 Time Attribution (insights spec §F1, PR2) ---

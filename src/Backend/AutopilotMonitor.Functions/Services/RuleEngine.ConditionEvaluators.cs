@@ -584,17 +584,33 @@ namespace AutopilotMonitor.Functions.Services
         {
             if (data.TryGetValue(key, out var raw))
             {
-                value = raw?.ToString();
+                value = StringifyDataValue(raw);
                 return true;
             }
             var hit = data.Keys.FirstOrDefault(k => k.Equals(key, StringComparison.OrdinalIgnoreCase));
             if (hit != null)
             {
-                value = data[hit]?.ToString();
+                value = StringifyDataValue(data[hit]);
                 return true;
             }
             value = null;
             return false;
+        }
+
+        /// <summary>
+        /// Collections deserialized from event DataJson (e.g. app_tracking_summary.pendingNames)
+        /// would otherwise stringify to their .NET type name ("System.Collections.Generic.List`1[…]"),
+        /// which breaks both operator matching (contains/regex) and {{token}} interpolation of the
+        /// evidence value. Flatten them to a comma-joined string; scalars keep plain ToString().
+        /// </summary>
+        internal static string? StringifyDataValue(object? raw)
+        {
+            if (raw == null) return null;
+            if (raw is string s) return s;
+            if (raw is System.Collections.IDictionary) return raw.ToString();
+            if (raw is System.Collections.IEnumerable seq)
+                return string.Join(", ", seq.Cast<object>().Select(o => o?.ToString()));
+            return raw.ToString();
         }
 
         internal static string? ResolveDotPath(Dictionary<string, object> root, string path)
@@ -649,7 +665,7 @@ namespace AutopilotMonitor.Functions.Services
             {
                 null => null,
                 JsonElement jel => jel.ValueKind == JsonValueKind.String ? jel.GetString() : jel.ToString(),
-                _ => current.ToString(),
+                _ => StringifyDataValue(current),
             };
         }
 

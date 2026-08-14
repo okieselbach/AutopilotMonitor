@@ -1377,7 +1377,7 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         public async Task<List<RuleStatsEntry>> GetRuleStatsAsync(
             string? tenantId = null, string? startDate = null, string? endDate = null,
-            string? ruleType = null, int maxResults = 500)
+            string? ruleType = null, int maxResults = 10000)
         {
             try
             {
@@ -1390,7 +1390,16 @@ namespace AutopilotMonitor.Functions.Services
                 await foreach (var entity in query)
                 {
                     results.Add(MapToRuleStatsEntry(entity));
-                    if (results.Count >= maxResults) break;
+                    if (results.Count >= maxResults)
+                    {
+                        // The scan walks PartitionKey (= date) ascending, so hitting the cap
+                        // drops the newest dates — callers would see recently added rules as
+                        // missing rather than a truncated window. Surface it loudly.
+                        _logger.LogWarning(
+                            "Rule stats query hit the {MaxResults}-row cap for {TenantId} ({StartDate}..{EndDate}, {RuleType}) — newest dates are missing from the result",
+                            maxResults, tenantId ?? "(all)", startDate, endDate, ruleType ?? "(all)");
+                        break;
+                    }
                 }
 
                 return results;

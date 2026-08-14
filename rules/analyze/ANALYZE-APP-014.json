@@ -5,7 +5,7 @@
   "description": "Detects when the Enrollment Status Page failed on the Apps subcategory and the agent's AppX deployment log scan identified a suspected MSIX/Store package. Store/MSIX apps install outside the Win32 pipeline, so the regular per-app tracking sees nothing — this correlation names the likely culprit.",
   "severity": "warning",
   "category": "apps",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled": true,
   "baseConfidence": 75,
   "preconditions": [
@@ -34,6 +34,51 @@
       "dataField": "errorCode",
       "operator": "regex",
       "value": "^0x80073[cd]",
+      "required": false
+    },
+    {
+      "signal": "appx_esp_category",
+      "source": "event_data",
+      "eventType": "esp_appx_failure_analysis",
+      "dataField": "espCategory",
+      "operator": "exists",
+      "value": "",
+      "required": false
+    },
+    {
+      "signal": "appx_esp_errorcode",
+      "source": "event_data",
+      "eventType": "esp_appx_failure_analysis",
+      "dataField": "espErrorCode",
+      "operator": "exists",
+      "value": "",
+      "required": false
+    },
+    {
+      "signal": "appx_top_candidate_package",
+      "source": "event_data",
+      "eventType": "esp_appx_failure_analysis",
+      "dataField": "topCandidatePackage",
+      "operator": "exists",
+      "value": "",
+      "required": false
+    },
+    {
+      "signal": "appx_candidate_count",
+      "source": "event_data",
+      "eventType": "esp_appx_failure_analysis",
+      "dataField": "candidateCount",
+      "operator": "exists",
+      "value": "",
+      "required": false
+    },
+    {
+      "signal": "appx_scan_confidence",
+      "source": "event_data",
+      "eventType": "esp_appx_failure_analysis",
+      "dataField": "confidence",
+      "operator": "exists",
+      "value": "",
       "required": false
     }
   ],

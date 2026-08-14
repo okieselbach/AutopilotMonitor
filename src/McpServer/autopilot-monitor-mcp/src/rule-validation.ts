@@ -232,6 +232,7 @@ interface DraftCondition {
   source?: string;
   eventType?: string;
   dataField?: string;
+  itemField?: string;
   operator?: string;
   value?: string;
   required?: boolean;
@@ -360,6 +361,9 @@ function lintAnalyzeRule(rule: Record<string, unknown>): ValidationFinding[] {
   for (const c of conditions) {
     if (c.dataField) resolvable.add(c.dataField);
     if (c.signal) resolvable.add(c.signal);
+    // event_data_array evidence carries the matched element under field=itemField,
+    // so {{itemField}} interpolates at runtime (see EvaluateEventDataArrayCondition).
+    if (c.itemField) resolvable.add(c.itemField);
   }
   for (const token of extractTokens(rule)) {
     if (!resolvable.has(token)) {
