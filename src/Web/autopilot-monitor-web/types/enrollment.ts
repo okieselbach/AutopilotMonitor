@@ -27,4 +27,10 @@ export interface RuleResult {
   relatedDocs: { title: string; url: string }[];
   matchedConditions: Record<string, unknown>;
   detectedAt: string;
+  // Evaluation lifecycle (evaluateOn interim triggers) — absent on legacy rows.
+  firstDetectedAt?: string | null;
+  lastEvaluatedAt?: string | null;
+  isInterim?: boolean;
+  resolvedAt?: string | null;
+  notifiedAt?: string | null;
 }

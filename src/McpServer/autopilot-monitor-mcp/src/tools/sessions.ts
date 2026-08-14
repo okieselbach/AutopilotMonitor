@@ -599,15 +599,22 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           // before mapping, so issues carry readable text not raw {{...}} tokens.
           interpolateAnalysisResults(analysisData);
           const a = analysisData as Record<string, unknown>;
-          const results = (a.results ?? []) as Array<Record<string, unknown>>;
+          const allResults = (a.results ?? []) as Array<Record<string, unknown>>;
+          // Resolved findings (session healed after an interim fire) stay in the raw
+          // /analysis response for audit but are not open issues; interim findings are
+          // preliminary until the enrollment-end pass finalizes them.
+          const results = allResults.filter((r) => !r.resolvedAt);
+          const resolvedCount = allResults.length - results.length;
           analysis = {
             totalIssues: a.totalIssues ?? results.length,
             criticalCount: a.criticalCount ?? 0,
             highCount: a.highCount ?? 0,
             warningCount: a.warningCount ?? 0,
+            ...(resolvedCount > 0 ? { resolvedCount } : {}),
             issues: results.map((r) => ({
               ruleTitle: r.ruleTitle ?? r.title,
               severity: r.severity,
+              ...(r.isInterim ? { isInterim: true } : {}),
               explanation: r.explanation,
               remediation: r.remediation,
             })),

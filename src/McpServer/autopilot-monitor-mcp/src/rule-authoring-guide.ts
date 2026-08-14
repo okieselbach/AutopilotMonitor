@@ -216,6 +216,17 @@ export const RULE_AUTHORING_GUIDE = {
       'markSessionAsFailedDefault=true escalates a firing rule to a terminal Failed session ' +
       'status (KO criterion). Use sparingly — only for findings that genuinely mean the ' +
       'enrollment failed.',
+    evaluateOn:
+      'WHEN the rule is evaluated. Absent = ["enrollment_end"] — the terminal-only default. ' +
+      'Interim triggers evaluate the rule BEFORE the session is terminal: "whiteglove_sealed" ' +
+      '(first genuine WhiteGlove seal, technician still at the bench) and "on_event:<eventType>" ' +
+      '(an ingest batch contained that event type; pick a rare, problem-indicating type — never ' +
+      'high-frequency telemetry). Interim semantics: markSessionAsFailed is SUPPRESSED, no stats ' +
+      'are recorded, findings notify once per (session, rule) and render as "preliminary" until ' +
+      'the enrollment-end pass finalizes or resolves them. CRITICAL: interim-enabled rules need ' +
+      'MONOTONIC conditions — a not_exists precondition on enrollment_complete / enrollment_failed ' +
+      '/ session_timeout passes trivially mid-run, so gate on repetition (count factors + a ' +
+      'threshold above baseConfidence) instead. validate_rule lints all of this.',
     template: {
       ruleId: 'ANALYZE-CUSTOM-101',
       title: 'Repeated install failures of the same app',
@@ -258,6 +269,7 @@ export const RULE_AUTHORING_GUIDE = {
     gatherCollectorTypes: ['registry', 'eventlog', 'wmi', 'file', 'json', 'xml', 'command_allowlisted', 'logparser'],
     gatherTriggers: ['startup', 'phase_change', 'phase_exit', 'interval', 'on_event'],
     analyzeConditionSources: ['event_type', 'event_data', 'event_data_array', 'phase_duration', 'event_count', 'app_install_duration', 'event_correlation'],
+    analyzeEvaluateOnTriggers: ['enrollment_end', 'whiteglove_sealed', 'on_event:<eventType>'],
   },
 
   commonPitfalls: [
@@ -270,5 +282,6 @@ export const RULE_AUTHORING_GUIDE = {
     'Running a plain-text log through the default cmtrace format — every line fails CMTrace parsing and nothing ever matches. Set parameters.format="text" (test_log_pattern reports this explicitly).',
     'Duplicate condition signals — evidence is keyed by signal, the second overwrites the first.',
     'Expecting gather events in sessions that ran BEFORE the gather rule was deployed — dry-run against a recent session.',
+    'Adding an interim evaluateOn trigger to a rule whose only suppression is a not_exists precondition on enrollment_complete — mid-run that gate passes trivially and the rule fires on healthy in-flight sessions.',
   ],
 } as const;

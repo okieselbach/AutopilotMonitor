@@ -70,7 +70,14 @@ namespace AutopilotMonitor.Functions.Services
                     ["RemediationJson"] = JsonConvert.SerializeObject(result.Remediation ?? new List<RemediationStep>()),
                     ["RelatedDocsJson"] = JsonConvert.SerializeObject(result.RelatedDocs ?? new List<RelatedDoc>()),
                     ["MatchedConditionsJson"] = matchedJson,
-                    ["DetectedAt"] = result.DetectedAt
+                    ["DetectedAt"] = result.DetectedAt,
+                    // Evaluation lifecycle (evaluateOn interim triggers). Nullable columns:
+                    // legacy rows without them read back as final/terminal results.
+                    ["FirstDetectedAt"] = result.FirstDetectedAt,
+                    ["LastEvaluatedAt"] = result.LastEvaluatedAt,
+                    ["IsInterim"] = result.IsInterim,
+                    ["ResolvedAt"] = result.ResolvedAt,
+                    ["NotifiedAt"] = result.NotifiedAt
                 };
 
                 await tableClient.UpsertEntityAsync(entity);
@@ -115,7 +122,12 @@ namespace AutopilotMonitor.Functions.Services
                         Remediation = DeserializeJson<List<RemediationStep>>(entity.GetString("RemediationJson")),
                         RelatedDocs = DeserializeJson<List<RelatedDoc>>(entity.GetString("RelatedDocsJson")),
                         MatchedConditions = DeserializeMatchedConditions(entity.GetString("MatchedConditionsJson")),
-                        DetectedAt = entity.GetDateTimeOffset("DetectedAt")?.UtcDateTime ?? DateTime.UtcNow
+                        DetectedAt = entity.GetDateTimeOffset("DetectedAt")?.UtcDateTime ?? DateTime.UtcNow,
+                        FirstDetectedAt = entity.GetDateTimeOffset("FirstDetectedAt")?.UtcDateTime,
+                        LastEvaluatedAt = entity.GetDateTimeOffset("LastEvaluatedAt")?.UtcDateTime,
+                        IsInterim = entity.GetBoolean("IsInterim") ?? false,
+                        ResolvedAt = entity.GetDateTimeOffset("ResolvedAt")?.UtcDateTime,
+                        NotifiedAt = entity.GetDateTimeOffset("NotifiedAt")?.UtcDateTime
                     });
                 }
 
@@ -504,6 +516,11 @@ namespace AutopilotMonitor.Functions.Services
                     ["IsCommunity"] = rule.IsCommunity,
                     ["Provenance"] = rule.Provenance ?? string.Empty,
                     ["Trigger"] = rule.Trigger ?? "single",
+                    // Null (absent evaluateOn) serializes as empty string, not "[]" — the mapper
+                    // must round-trip null so the enrollment_end default stays derived, not baked.
+                    ["EvaluateOnJson"] = rule.EvaluateOn is { Count: > 0 }
+                        ? JsonConvert.SerializeObject(rule.EvaluateOn)
+                        : string.Empty,
                     ["PreconditionsJson"] = JsonConvert.SerializeObject(rule.Preconditions ?? new List<RulePrecondition>()),
                     ["ConditionsJson"] = JsonConvert.SerializeObject(rule.Conditions ?? new List<RuleCondition>()),
                     ["BaseConfidence"] = rule.BaseConfidence,
@@ -644,6 +661,9 @@ namespace AutopilotMonitor.Functions.Services
                 // Absent column (pre-existing rows) → null → treated as "embedded" by RuleProvenance.
                 Provenance = string.IsNullOrEmpty(entity.GetString("Provenance")) ? null : entity.GetString("Provenance"),
                 Trigger = entity.GetString("Trigger") ?? "single",
+                EvaluateOn = string.IsNullOrEmpty(entity.GetString("EvaluateOnJson"))
+                    ? null
+                    : DeserializeJson<List<string>>(entity.GetString("EvaluateOnJson")),
                 Preconditions = DeserializeJson<List<RulePrecondition>>(entity.GetString("PreconditionsJson")),
                 Conditions = DeserializeJson<List<RuleCondition>>(entity.GetString("ConditionsJson")),
                 BaseConfidence = entity.GetInt32("BaseConfidence") ?? 50,

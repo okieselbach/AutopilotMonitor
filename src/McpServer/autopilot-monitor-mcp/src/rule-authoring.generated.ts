@@ -317,6 +317,16 @@ export const ANALYZE_RULE_SCHEMA: Record<string, unknown> = {
           ],
           "default": "single"
         },
+        "evaluateOn": {
+          "type": "array",
+          "description": "When this rule is evaluated. Absent = [\"enrollment_end\"] (terminal-only, the historical behavior). Interim triggers let the rule fire before the session is terminal: \"whiteglove_sealed\" (first genuine WhiteGlove seal) and \"on_event:<eventType>\" (an ingest batch contained that event type). Interim runs suppress markSessionAsFailed and record no stats; findings notify once per (session, rule). Interim-enabled rules need monotonic conditions — a not_exists precondition on enrollment_complete/enrollment_failed/session_timeout passes trivially mid-run.",
+          "items": {
+            "type": "string",
+            "pattern": "^(enrollment_end|whiteglove_sealed|on_event:[a-z0-9_]{1,128})$"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
         "conditions": {
           "type": "array",
           "description": "Conditions evaluated against the event stream. All required conditions must match for the rule to fire.",

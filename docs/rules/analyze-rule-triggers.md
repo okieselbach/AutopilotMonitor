@@ -1,15 +1,15 @@
 ---
 type: Concept
 title: Analyze Rule Evaluation Triggers (evaluateOn)
-description: "SPEC (not yet implemented): opt-in interim evaluation of analyze rules before a session is terminal — enrollment_end stays the default, whiteglove_sealed and on_event:<type> triggers close the WhiteGlove notification gap and the never-terminal stuck-session gap with one mechanism, backed by update-semantics on RuleResults instead of the permanent dedupe freeze."
+description: "Opt-in interim evaluation of analyze rules before a session is terminal — enrollment_end stays the default, whiteglove_sealed and on_event:<type> triggers close the WhiteGlove notification gap and the never-terminal stuck-session gap with one mechanism, backed by update-semantics on RuleResults instead of the permanent dedupe freeze."
 resource: backend/rule-engine
-tags: [rules, analyze, triggers, notifications, whiteglove, spec]
+tags: [rules, analyze, triggers, notifications, whiteglove]
 timestamp: 2026-08-14
 ---
 
 # Status
 
-**SPEC — approved direction, not yet implemented.** Written 2026-08-14. When implementation lands, this doc is updated in place (remove this marker, add citations to the shipped code).
+**IMPLEMENTED 2026-08-14** (same day the spec was approved). The open product decisions below were confirmed as "no" for v1. Key implementation anchors: `AnalyzeRuleTriggers` (Shared — grammar + matching helpers, shared by engine, ingest registry and CRUD validation), `AnalyzeRunContext` / `AnalysisOutcome.ResolvedResults` (RuleEngine), `InterimTriggerRegistry` (5-min-TTL per-tenant cache for the ingest hot path, fail-soft), `AnalyzeOnEnrollmentEndHandler` interim branch, `EvaluateOnJson` + five RuleResult lifecycle columns in `TableStorageService.Rules`. ANALYZE-ID-004 ships as the first interim-enabled rule (`on_event:hybrid_login_pending`, repetition-gated at threshold 75).
 
 # Problem
 
@@ -101,11 +101,11 @@ Interim evaluation changes what a rule's conditions mean mid-flight. Three new l
 - WG battery rule (sits-d): `evaluateOn: ["enrollment_end", "whiteglove_sealed"]` — technician gets the channel alert at the bench; Part-2 terminal pass finalizes or resolves the finding.
 - Hybrid-affinity stuck (esa): ANALYZE-ID-004 gets `evaluateOn: ["enrollment_end", "on_event:hybrid_login_pending"]` — the second overdue-login event (threshold 65) produces a live finding on the still-InProgress session. ANALYZE-APP-015 stays `enrollment_end`-only until its conditions are hardened (lint 1).
 
-# Open Decisions (product)
+# Product Decisions (settled 2026-08-14)
 
-1. Notify-on-resolve (a "finding healed" message)? Proposed: no (v1) — resolution is visible in UI/MCP.
-2. Re-notify on severity/confidence escalation of an existing finding? Proposed: no (v1) — one notification per finding.
-3. Should `whiteglove_sealed` runs allow KO rules to flip Pending → Failed? Proposed: no — the Pending state is the WhiteGlove contract; suppression is unconditional for interim.
+1. Notify-on-resolve (a "finding healed" message)? **No** (v1) — resolution is visible in UI/MCP.
+2. Re-notify on severity/confidence escalation of an existing finding? **No** (v1) — one notification per finding.
+3. `whiteglove_sealed` runs allowing KO rules to flip Pending → Failed? **No** — the Pending state is the WhiteGlove contract; suppression is unconditional for interim.
 
 # Citations
 

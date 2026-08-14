@@ -1,8 +1,12 @@
 # Log
 
+## 2026-08-14 (later)
+
+* **Update**: `rules/analyze-rule-triggers.md` — status SPEC → IMPLEMENTED. Shipped: `evaluateOn` on the analyze-rule schema (grammar-validated server-side and in validate_rule), `AnalyzeRunContext`-driven engine runs (Terminal/Interim/Reanalyze) with the RuleResult lifecycle columns (FirstDetectedAt/LastEvaluatedAt/IsInterim/ResolvedAt/NotifiedAt), interim rule filtering + KO/stat suppression, resolve/finalize update-semantics, the NotifiedAt one-send-per-(session,rule) notification dedupe (preserved across the manual reanalyze rebuild), the ingest-side `InterimTriggerRegistry` (5-min TTL, fail-soft) gating `interim_trigger` / `whiteglove_sealed` enqueues, the three MCP authoring lints, web preliminary/resolved rendering, and ANALYZE-ID-004 as the first interim-enabled rule.
+
 ## 2026-08-14
 
-* **Creation**: Added `rules/analyze-rule-triggers.md` — SPEC (not yet implemented) for opt-in `evaluateOn` interim evaluation of analyze rules: `enrollment_end` default preserves today's behavior, `whiteglove_sealed` + `on_event:<type>` close the WhiteGlove notification gap and the never-terminal stuck-session gap; RuleResults update-semantics (FirstDetectedAt/IsInterim/ResolvedAt/NotifiedAt) replace the permanent dedupe freeze; interim runs suppress KO + stats, notifications fire on first detection; three new validate_rule lints (terminal-precondition trap, unknown trigger type, KO-on-interim).
+* **Creation**: Added `rules/analyze-rule-triggers.md` — SPEC for opt-in `evaluateOn` interim evaluation of analyze rules: `enrollment_end` default preserves today's behavior, `whiteglove_sealed` + `on_event:<type>` close the WhiteGlove notification gap and the never-terminal stuck-session gap; RuleResults update-semantics (FirstDetectedAt/IsInterim/ResolvedAt/NotifiedAt) replace the permanent dedupe freeze; interim runs suppress KO + stats, notifications fire on first detection; three new validate_rule lints (terminal-precondition trap, unknown trigger type, KO-on-interim).
 
 ## 2026-08-13 (late evening)
 

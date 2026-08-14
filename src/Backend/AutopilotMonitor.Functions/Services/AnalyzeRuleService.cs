@@ -273,6 +273,8 @@ namespace AutopilotMonitor.Functions.Services
                 throw new InvalidOperationException($"A rule with ID '{rule.RuleId}' already exists.");
             }
 
+            ValidateEvaluateOn(rule);
+
             rule.IsBuiltIn = false;
             rule.IsCommunity = false;
             rule.CreatedAt = DateTime.UtcNow;
@@ -307,6 +309,8 @@ namespace AutopilotMonitor.Functions.Services
             {
                 throw new InvalidOperationException(RuleIdPolicy.ReservedMessage(rule.RuleId));
             }
+
+            ValidateEvaluateOn(rule);
 
             // Custom rules are fully tenant-owned: fold a notify override into the row default
             // (there is no separate RuleState for them) — mirrors how the UI edits Enabled.
@@ -614,6 +618,26 @@ namespace AutopilotMonitor.Functions.Services
                 Enum.GetValues<SunsetOutcome>()
                     .Where(o => counts.GetValueOrDefault(o) > 0)
                     .Select(o => $"{o}={counts[o]}"));
+        }
+
+        /// <summary>
+        /// Grammar gate for tenant-authored evaluateOn triggers (create + custom-rule update):
+        /// an unparseable trigger must never persist — it would silently never match and read
+        /// as "rule doesn't fire" to the author. Event-type EXISTENCE is checked by the MCP
+        /// authoring lint (catalog-aware); the server only enforces the shape.
+        /// </summary>
+        private static void ValidateEvaluateOn(AnalyzeRule rule)
+        {
+            if (rule.EvaluateOn is not { Count: > 0 })
+                return;
+
+            var invalid = rule.EvaluateOn.Where(t => !AnalyzeRuleTriggers.IsValidTrigger(t)).ToList();
+            if (invalid.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    $"Invalid evaluateOn trigger(s): {string.Join(", ", invalid)}. " +
+                    "Allowed: 'enrollment_end', 'whiteglove_sealed', 'on_event:<event_type>' (lowercase snake_case).");
+            }
         }
 
         /// <summary>

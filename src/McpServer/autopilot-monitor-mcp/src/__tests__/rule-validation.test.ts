@@ -393,6 +393,58 @@ describe('analyze semantic lint', () => {
   });
 });
 
+describe('evaluateOn (interim evaluation) lint', () => {
+  it('schema accepts the trigger grammar and rejects malformed triggers', () => {
+    const ok = validAnalyze();
+    ok.evaluateOn = ['enrollment_end', 'whiteglove_sealed', 'on_event:hybrid_login_pending'];
+    expect(errors(validateRuleDraft(ok).findings)).toEqual([]);
+
+    for (const bad of ['phase_exit:AccountSetup', 'on_event:', 'on_event:Not-Snake', 'always']) {
+      const r = validateRuleDraft({ ...validAnalyze(), evaluateOn: [bad] });
+      expect(r.valid, bad).toBe(false);
+    }
+  });
+
+  it('terminal-precondition trap warns when combined with an interim trigger', () => {
+    const trap = validAnalyze();
+    trap.evaluateOn = ['enrollment_end', 'on_event:hybrid_login_pending'];
+    trap.preconditions = [
+      { source: 'event_data', eventType: 'enrollment_complete', operator: 'not_exists' },
+    ];
+    expect(warnings(validateRuleDraft(trap).findings).some((m) => m.includes('passes trivially mid-run'))).toBe(true);
+
+    // Without an interim trigger the same precondition is fine — no warning.
+    const terminalOnly = validAnalyze();
+    terminalOnly.preconditions = [
+      { source: 'event_data', eventType: 'enrollment_complete', operator: 'not_exists' },
+    ];
+    expect(warnings(validateRuleDraft(terminalOnly).findings).some((m) => m.includes('passes trivially mid-run'))).toBe(false);
+  });
+
+  it('unknown on_event types warn, high-frequency types warn explicitly', () => {
+    const unknown = validAnalyze();
+    unknown.evaluateOn = ['enrollment_end', 'on_event:made_up_event'];
+    expect(warnings(validateRuleDraft(unknown).findings).some((m) => m.includes('made_up_event'))).toBe(true);
+
+    const hot = validAnalyze();
+    hot.evaluateOn = ['enrollment_end', 'on_event:performance_snapshot'];
+    expect(warnings(validateRuleDraft(hot).findings).some((m) => m.includes('high-frequency'))).toBe(true);
+  });
+
+  it('KO with interim-only triggers warns (the KO would never apply)', () => {
+    const ko = validAnalyze();
+    ko.markSessionAsFailedDefault = true;
+    ko.evaluateOn = ['on_event:hybrid_login_pending'];
+    expect(warnings(validateRuleDraft(ko).findings).some((m) => m.includes('never apply'))).toBe(true);
+
+    // With enrollment_end included the KO has a home — no warning.
+    const withTerminal = validAnalyze();
+    withTerminal.markSessionAsFailedDefault = true;
+    withTerminal.evaluateOn = ['enrollment_end', 'on_event:hybrid_login_pending'];
+    expect(warnings(validateRuleDraft(withTerminal).findings).some((m) => m.includes('never apply'))).toBe(false);
+  });
+});
+
 describe('reserved built-in namespace', () => {
   it('warns for numeric built-in-shaped IDs (backend rejects tenant creates with 409)', () => {
     const a = validateRuleDraft(validAnalyze()); // ANALYZE-APP-101

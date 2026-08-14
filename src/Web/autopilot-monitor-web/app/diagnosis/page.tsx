@@ -135,11 +135,15 @@ function DiagnosisContent() {
       if (response.ok) {
         const data = await response.json();
         if (data.results) {
+          // Resolved findings (no longer detected by a later evaluation) are audit-only —
+          // the diagnosis flow must not present them as the probable cause.
           setAnalysisResults(
-            data.results.sort(
-              (a: RuleResult, b: RuleResult) =>
-                b.confidenceScore - a.confidenceScore
-            )
+            data.results
+              .filter((r: RuleResult) => !r.resolvedAt)
+              .sort(
+                (a: RuleResult, b: RuleResult) =>
+                  b.confidenceScore - a.confidenceScore
+              )
           );
         }
       }

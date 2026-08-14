@@ -24,6 +24,10 @@ namespace AutopilotMonitor.Functions.Services.Analyze
     ///     correlation. Persist results + SignalR only; skip platform-stat and rule-fire stats
     ///     to match the legacy <c>ReanalyzeAfterVulnerabilityEmitAsync</c> behavior (avoids
     ///     double-counting eval rows on already-stat'd rules).</item>
+    ///   <item><c>whiteglove_sealed</c> / <c>interim_trigger</c> — evaluateOn-filtered interim
+    ///     runs before the session is terminal (docs/rules/analyze-rule-triggers.md): persist
+    ///     results + resolved rows, SignalR + channel notifications (NotifiedAt-deduped), skip
+    ///     platform-stat and rule-fire stats; the engine suppresses the KO escalation.</item>
     /// </list>
     /// </para>
     /// <para>
@@ -51,6 +55,8 @@ namespace AutopilotMonitor.Functions.Services.Analyze
         public const string ReasonEnrollmentComplete     = "enrollment_complete";
         public const string ReasonEnrollmentFailed       = "enrollment_failed";
         public const string ReasonVulnerabilityCorrelated = "vulnerability_correlated";
+        public const string ReasonWhitegloveSealed       = AnalyzeRunContext.ReasonWhitegloveSealed;
+        public const string ReasonInterimTrigger         = AnalyzeRunContext.ReasonInterimTrigger;
 
         public AnalyzeOnEnrollmentEndHandler(
             AnalyzeRuleService ruleService,
@@ -90,15 +96,25 @@ namespace AutopilotMonitor.Functions.Services.Analyze
             var sessionPrefix = $"[Session: {envelope.SessionId.Substring(0, Math.Min(8, envelope.SessionId.Length))}]";
             var isVulnerabilityRerun = string.Equals(
                 envelope.Reason, ReasonVulnerabilityCorrelated, StringComparison.OrdinalIgnoreCase);
+            var isWhitegloveSealed = string.Equals(
+                envelope.Reason, ReasonWhitegloveSealed, StringComparison.OrdinalIgnoreCase);
+            var isInterimTrigger = string.Equals(
+                envelope.Reason, ReasonInterimTrigger, StringComparison.OrdinalIgnoreCase);
+            var isInterim = isWhitegloveSealed || isInterimTrigger;
+
+            var context = isWhitegloveSealed ? AnalyzeRunContext.WhitegloveSealed()
+                : isInterimTrigger ? AnalyzeRunContext.InterimTrigger(envelope.TriggerEventTypes)
+                : AnalyzeRunContext.Terminal(envelope.Reason);
 
             // RuleEngine internally dedupes — a re-delivery of the same envelope (or a vuln-rerun
-            // arriving after the primary run) only re-evaluates rules that haven't stored results.
-            // Storage exceptions from rule loading or event reading propagate through and the
-            // worker leaves the message un-deleted for retry.
+            // arriving after the primary run) only re-evaluates rules without a settled result
+            // (interim rows are refreshed/finalized by design, idempotently). Storage exceptions
+            // from rule loading or event reading propagate through and the worker leaves the
+            // message un-deleted for retry.
             var ruleEngine = new RuleEngine(_ruleService, _ruleRepo, _sessionRepo, _logger);
-            var outcome = await ruleEngine.AnalyzeSessionAsync(envelope.TenantId, envelope.SessionId).ConfigureAwait(false);
+            var outcome = await ruleEngine.AnalyzeSessionAsync(envelope.TenantId, envelope.SessionId, context).ConfigureAwait(false);
 
-            foreach (var result in outcome.Results)
+            foreach (var result in outcome.Results.Concat(outcome.ResolvedResults))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var stored = await _ruleRepo.StoreRuleResultAsync(result).ConfigureAwait(false);
@@ -112,33 +128,39 @@ namespace AutopilotMonitor.Functions.Services.Analyze
                 }
             }
 
-            if (outcome.Results.Count > 0)
+            if (outcome.Results.Count > 0 || outcome.ResolvedResults.Count > 0)
             {
                 // Match historical log strings so existing diagnostic searches keep matching.
                 var label = isVulnerabilityRerun
                     ? "Vulnerability re-analysis (queue)"
-                    : "Enrollment-end analysis (queue)";
+                    : isInterim
+                        ? "Interim analysis (queue)"
+                        : "Enrollment-end analysis (queue)";
 
                 _logger.LogInformation(
-                    "{Prefix} {Label}: {Count} issue(s) detected (reason={Reason}, lagMs={Lag})",
-                    sessionPrefix, label, outcome.Results.Count, envelope.Reason,
+                    "{Prefix} {Label}: {Count} issue(s) detected, {Resolved} resolved (reason={Reason}, lagMs={Lag})",
+                    sessionPrefix, label, outcome.Results.Count, outcome.ResolvedResults.Count, envelope.Reason,
                     (long)(DateTime.UtcNow - envelope.EnqueuedAt).TotalMilliseconds);
 
                 await SafeNotifySignalRAsync(envelope, sessionPrefix, outcome.Results.Count).ConfigureAwait(false);
 
-                // Rule-level channel notifications. Anti-spam by construction: outcome.Results
-                // only contains NEWLY detected findings (the engine dedupes against stored
-                // results), and the manual "Analyze Now" reanalyze path never enters this
-                // handler. Vulnerability reruns are included — their findings are new too.
+                // Rule-level channel notifications. Anti-spam by construction: the NotifiedAt
+                // marker on the stored row gates each (session, rule) to exactly one send —
+                // interim refreshes, terminal finalization and even the manual reanalyze
+                // rebuild can never re-arm it. The manual "Analyze Now" path never enters
+                // this handler. Vulnerability reruns are included — their findings are new too.
                 await SafeNotifyRuleChannelsAsync(envelope, sessionPrefix, outcome).ConfigureAwait(false);
 
-                if (!isVulnerabilityRerun)
+                if (!isVulnerabilityRerun && !isInterim)
                 {
                     await SafeIncrementIssuesDetectedAsync(sessionPrefix, outcome.Results.Count).ConfigureAwait(false);
                 }
             }
 
-            if (!isVulnerabilityRerun)
+            // Stats stay terminal-only (success-rate convention + Rule Regression Radar
+            // baselines): interim passes record nothing; the terminal run re-evaluates
+            // interim-triggered rules and counts each of them exactly once.
+            if (!isVulnerabilityRerun && !isInterim)
             {
                 await SafeRecordAnalyzeRuleStatsAsync(envelope.TenantId, outcome).ConfigureAwait(false);
             }
@@ -157,9 +179,12 @@ namespace AutopilotMonitor.Functions.Services.Analyze
             {
                 // EvaluatedRules carries the tenant-merged rule objects (Notify/NotifyChannelIds
                 // applied from RuleStates) for exactly the rules evaluated this run.
+                // NotifiedAt-null filter = the one-notification-per-(session, rule) dedupe:
+                // refreshed/finalized findings carry their preserved marker and are skipped.
                 var rulesById = outcome.EvaluatedRules.ToDictionary(r => r.RuleId);
                 var candidates = outcome.Results
-                    .Where(result => rulesById.TryGetValue(result.RuleId, out var rule)
+                    .Where(result => result.NotifiedAt == null
+                        && rulesById.TryGetValue(result.RuleId, out var rule)
                         && (rule.Notify ?? rule.NotifyDefault)
                         && rule.NotifyChannelIds is { Count: > 0 })
                     .Select(result => (Result: result, Rule: rulesById[result.RuleId]))
@@ -196,6 +221,18 @@ namespace AutopilotMonitor.Functions.Services.Analyze
                     _logger.LogInformation(
                         "{Prefix} Rule-notify: {RuleId} → {ChannelCount} channel(s)",
                         sessionPrefix, rule.RuleId, targets.Count);
+
+                    // Stamp the dedupe marker AFTER the send so a send failure keeps the finding
+                    // eligible. A failed stamp risks (at worst) one duplicate notification on a
+                    // later re-evaluation — preferable to silently losing the alert.
+                    result.NotifiedAt = DateTime.UtcNow;
+                    var stamped = await _ruleRepo.StoreRuleResultAsync(result).ConfigureAwait(false);
+                    if (!stamped)
+                    {
+                        _logger.LogWarning(
+                            "{Prefix} Rule-notify: failed to persist NotifiedAt for {RuleId} — a later re-evaluation may send a duplicate",
+                            sessionPrefix, rule.RuleId);
+                    }
                 }
             }
             catch (Exception ex)

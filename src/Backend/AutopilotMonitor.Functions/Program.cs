@@ -256,6 +256,9 @@ builder.Services.AddSingleton<HealthCheckService>();
 builder.Services.AddSingleton<BackendBuildInfo>();
 builder.Services.AddSingleton<GatherRuleService>();
 builder.Services.AddSingleton<AnalyzeRuleService>();
+// Cached per-tenant evaluateOn trigger sets for the ingest-side interim analyze enqueue
+// (docs/rules/analyze-rule-triggers.md). Singleton so the 5-min TTL cache is shared.
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Analyze.InterimTriggerRegistry>();
 builder.Services.AddSingleton<ImeLogPatternService>();
 builder.Services.AddHttpClient<GitHubRuleRepository>()
     .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().ExternalDataApi);

@@ -41,6 +41,7 @@ namespace AutopilotMonitor.Functions.Services
         private readonly SlaBreachEvaluationService _slaBreachService;
         private readonly TelemetryClient _telemetryClient;
         private readonly AutopilotMonitor.Functions.Services.Analyze.IAnalyzeOnEnrollmentEndProducer _analyzeProducer;
+        private readonly AutopilotMonitor.Functions.Services.Analyze.InterimTriggerRegistry _interimTriggerRegistry;
         private readonly IVulnerabilityCorrelateProducer _vulnProducer;
 
         public EventIngestProcessor(
@@ -56,6 +57,7 @@ namespace AutopilotMonitor.Functions.Services
             SlaBreachEvaluationService slaBreachService,
             TelemetryClient telemetryClient,
             AutopilotMonitor.Functions.Services.Analyze.IAnalyzeOnEnrollmentEndProducer analyzeProducer,
+            AutopilotMonitor.Functions.Services.Analyze.InterimTriggerRegistry interimTriggerRegistry,
             IVulnerabilityCorrelateProducer vulnProducer)
         {
             _logger = logger;
@@ -70,6 +72,7 @@ namespace AutopilotMonitor.Functions.Services
             _slaBreachService = slaBreachService;
             _telemetryClient = telemetryClient;
             _analyzeProducer = analyzeProducer;
+            _interimTriggerRegistry = interimTriggerRegistry;
             _vulnProducer = vulnProducer;
         }
 
@@ -245,6 +248,39 @@ namespace AutopilotMonitor.Functions.Services
                         : AutopilotMonitor.Functions.Services.Analyze.AnalyzeOnEnrollmentEndHandler.ReasonEnrollmentFailed,
                     EnqueuedAt = DateTime.UtcNow,
                 });
+            }
+            else
+            {
+                // Interim analyze triggers (evaluateOn on_event rules): when this non-terminal
+                // batch contains an event type some active rule wants an interim run for,
+                // enqueue one interim envelope carrying the matched types. The registry read is
+                // cached (5-min TTL) and fail-soft, so the hot ingest path never pays a rules
+                // read per batch and never throws here. Terminal batches skip this — their
+                // enrollment-end envelope evaluates everything anyway.
+                var interimTriggers = await _interimTriggerRegistry.GetAsync(request.TenantId);
+                if (interimTriggers.OnEventTypes.Count > 0)
+                {
+                    var matchedTypes = storedEvents
+                        .Select(e => e.EventType)
+                        .Where(t => !string.IsNullOrEmpty(t) && interimTriggers.OnEventTypes.Contains(t))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    if (matchedTypes.Count > 0)
+                    {
+                        await _analyzeProducer.EnqueueAsync(new AutopilotMonitor.Shared.Models.AnalyzeOnEnrollmentEndEnvelope
+                        {
+                            TenantId = request.TenantId,
+                            SessionId = request.SessionId,
+                            Reason = AutopilotMonitor.Functions.Services.Analyze.AnalyzeOnEnrollmentEndHandler.ReasonInterimTrigger,
+                            TriggerEventTypes = matchedTypes,
+                            EnqueuedAt = DateTime.UtcNow,
+                        });
+                        _logger.LogInformation(
+                            "{SessionPrefix} Interim analyze enqueued (triggers: {Triggers})",
+                            sessionPrefix, string.Join(",", matchedTypes));
+                    }
+                }
             }
 
             var shutdownInventoryDetected = storedEvents.Any(e =>

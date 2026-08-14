@@ -5,12 +5,13 @@
   "description": "On a hybrid-joined device the real user reached the desktop, but the Autopilot provisioning placeholder stayed active in JoinInfo and the agent repeatedly reported the hybrid sign-in as overdue. The user session never establishes Entra user affinity (no PRT), so the Account Setup ESP re-runs on every logon and the enrollment never completes.",
   "severity": "high",
   "category": "identity",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Autopilot Monitor",
   "enabled": true,
   "trigger": "correlation",
+  "evaluateOn": ["enrollment_end", "on_event:hybrid_login_pending"],
   "baseConfidence": 60,
-  "confidenceThreshold": 65,
+  "confidenceThreshold": 75,
   "preconditions": [
     {
       "source": "event_data",

@@ -75,6 +75,16 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public string Trigger { get; set; } = "single";
 
+        /// <summary>
+        /// When this rule is evaluated. Null/empty = <c>["enrollment_end"]</c> — the historical
+        /// terminal-only behavior. Additional interim triggers let a rule fire before the session
+        /// is terminal: <c>"whiteglove_sealed"</c> (first genuine whiteglove_complete seal) and
+        /// <c>"on_event:&lt;eventType&gt;"</c> (an ingest batch contained that event type).
+        /// Interim runs suppress the KO path and record no stats — see
+        /// <see cref="AnalyzeRuleTriggers"/> and docs/rules/analyze-rule-triggers.md.
+        /// </summary>
+        public List<string>? EvaluateOn { get; set; }
+
         // ===== MATCHING CONDITIONS =====
 
         /// <summary>

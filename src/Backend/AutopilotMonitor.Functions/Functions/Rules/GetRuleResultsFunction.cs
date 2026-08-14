@@ -75,12 +75,18 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                 try
                 {
                     var ruleEngine = new RuleEngine(_analyzeRuleService, _ruleRepo, _sessionRepo, _logger);
+                    // Reanalyze context: every rule re-evaluated, but the engine merges the
+                    // lifecycle markers (FirstDetectedAt, NotifiedAt) from the existing rows it
+                    // loads BEFORE the delete below — so the rebuild can never re-arm a duplicate
+                    // channel notification. Rules that no longer fire come back as ResolvedResults
+                    // (kept for audit) instead of silently vanishing.
                     var outcome = await ruleEngine.AnalyzeSessionAsync(effectiveTenantId, sessionId, reanalyze: true);
 
-                    // Delete existing results so stale entries don't persist after re-analysis
+                    // Delete existing results so stale entries (e.g. rows from since-deleted or
+                    // disabled rules) don't persist after re-analysis
                     await _maintenanceRepo.DeleteSessionRuleResultsAsync(effectiveTenantId, sessionId);
 
-                    foreach (var result in outcome.Results)
+                    foreach (var result in outcome.Results.Concat(outcome.ResolvedResults))
                     {
                         var stored = await _ruleRepo.StoreRuleResultAsync(result);
                         if (!stored)
@@ -111,6 +117,11 @@ namespace AutopilotMonitor.Functions.Functions.Rules
 
             var results = await _ruleRepo.GetRuleResultsAsync(effectiveTenantId, sessionId);
 
+            // Resolved findings (session healed / no longer firing) are kept for audit and still
+            // returned in `results` (the UI hides them behind a toggle), but they no longer count
+            // as issues.
+            var openResults = results.Where(r => r.ResolvedAt == null).ToList();
+
             var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(new
             {
@@ -121,10 +132,10 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                 success = persistFailureRuleIds.Count == 0,
                 sessionId,
                 results,
-                totalIssues = results.Count,
-                criticalCount = results.Count(r => r.Severity == "critical"),
-                highCount = results.Count(r => r.Severity == "high"),
-                warningCount = results.Count(r => r.Severity == "warning"),
+                totalIssues = openResults.Count,
+                criticalCount = openResults.Count(r => r.Severity == "critical"),
+                highCount = openResults.Count(r => r.Severity == "high"),
+                warningCount = openResults.Count(r => r.Severity == "warning"),
                 persistFailureCount = persistFailureRuleIds.Count,
                 persistFailureRuleIds = persistFailureRuleIds.Count > 0 ? persistFailureRuleIds : null
             });

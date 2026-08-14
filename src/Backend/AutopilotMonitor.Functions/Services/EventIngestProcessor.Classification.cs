@@ -490,6 +490,27 @@ namespace AutopilotMonitor.Functions.Services
                 }
 
                 _logger.LogInformation("{SessionPrefix} Status: Pending (WhiteGlove pre-provisioning complete, transitioned={Transitioned})", sessionPrefix, whiteGloveStatusTransitioned);
+
+                // Interim analyze at the WhiteGlove seal (evaluateOn: whiteglove_sealed): the
+                // technician is still at the bench — this is the moment findings must alert.
+                // Only the FIRST genuine seal enqueues (whiteGloveStatusTransitioned=false on
+                // the duplicate whiteglove_complete), and only when the tenant actually has a
+                // rule asking for this trigger (cached registry read, fail-soft).
+                if (whiteGloveStatusTransitioned)
+                {
+                    var wgTriggers = await _interimTriggerRegistry.GetAsync(request.TenantId);
+                    if (wgTriggers.HasWhitegloveSealedRules)
+                    {
+                        await _analyzeProducer.EnqueueAsync(new AutopilotMonitor.Shared.Models.AnalyzeOnEnrollmentEndEnvelope
+                        {
+                            TenantId = request.TenantId,
+                            SessionId = request.SessionId,
+                            Reason = Analyze.AnalyzeOnEnrollmentEndHandler.ReasonWhitegloveSealed,
+                            EnqueuedAt = DateTime.UtcNow,
+                        });
+                        _logger.LogInformation("{SessionPrefix} Interim analyze enqueued (whiteglove_sealed)", sessionPrefix);
+                    }
+                }
             }
             else if (c.WhiteGloveResumedEvent != null)
             {

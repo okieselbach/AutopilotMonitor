@@ -377,8 +377,71 @@ function lintAnalyzeRule(rule: Record<string, unknown>): ValidationFinding[] {
     });
   }
 
+  // ── evaluateOn (interim evaluation) lints — docs/rules/analyze-rule-triggers.md ──
+  const evaluateOn = (Array.isArray(rule.evaluateOn) ? rule.evaluateOn : []).filter(
+    (t): t is string => typeof t === 'string',
+  );
+  const interimTriggers = evaluateOn.filter((t) => t !== 'enrollment_end');
+  if (interimTriggers.length > 0) {
+    for (const trigger of interimTriggers) {
+      if (trigger.startsWith('on_event:')) {
+        const eventType = trigger.slice('on_event:'.length);
+        findings.push(...checkEventTypeKnown(eventType, `evaluateOn "${trigger}"`));
+        if (HIGH_FREQUENCY_EVENT_TYPES.has(eventType)) {
+          findings.push({
+            level: 'warning',
+            message: `evaluateOn "${trigger}": ${eventType} is a high-frequency telemetry event — this would enqueue an interim analyze run on nearly every ingest batch. Pick a rare, problem-indicating event type instead.`,
+          });
+        }
+      }
+    }
+
+    // Terminal-precondition trap: mid-run these gates pass trivially (the session is not
+    // terminal yet), so a rule that relies on them as its only suppression will fire on
+    // healthy in-flight sessions. Interim-enabled rules need monotonic or repetition-gated
+    // conditions instead.
+    const terminalEventTypes = new Set(['enrollment_complete', 'enrollment_failed', 'session_timeout']);
+    const gates: Array<{ list: DraftCondition[]; label: string }> = [
+      { list: preconditions, label: 'preconditions' },
+      { list: conditions, label: 'conditions' },
+    ];
+    for (const { list, label } of gates) {
+      for (let i = 0; i < list.length; i++) {
+        const g = list[i];
+        if (g.operator === 'not_exists' && g.eventType && terminalEventTypes.has(g.eventType)) {
+          findings.push({
+            level: 'warning',
+            message: `${label}[${i}]: not_exists on "${g.eventType}" combined with an interim evaluateOn trigger passes trivially mid-run — the suppression only works at enrollment end. Make the rule's conditions monotonic (e.g. require repetition via a count factor/threshold) or drop the interim trigger.`,
+          });
+        }
+      }
+    }
+
+    if (rule.markSessionAsFailedDefault === true && !evaluateOn.includes('enrollment_end')) {
+      findings.push({
+        level: 'warning',
+        message: 'markSessionAsFailedDefault=true with interim-only evaluateOn triggers: the KO escalation is suppressed on interim runs and this rule never runs at enrollment end — the KO would never apply. Add "enrollment_end" to evaluateOn or drop the KO flag.',
+      });
+    }
+  }
+
   return findings;
 }
+
+/**
+ * Event types emitted on effectively every batch (telemetry cadence) — an on_event interim
+ * trigger keyed to one of these would turn every ingest into an analyze run.
+ */
+const HIGH_FREQUENCY_EVENT_TYPES = new Set([
+  'performance_snapshot',
+  'agent_metrics_snapshot',
+  'download_progress',
+  'network_state_change',
+  'network_connectivity_check',
+  'log_entry',
+  'agent_trace',
+  'stall_probe_check',
+]);
 
 // ── Gather-rule semantic lint ───────────────────────────────────────────────
 

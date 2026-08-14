@@ -21,6 +21,8 @@ public class AnalyzeOnEnrollmentEndEnvelopeSerializationTests
     [InlineData("enrollment_complete")]
     [InlineData("enrollment_failed")]
     [InlineData("vulnerability_correlated")]
+    [InlineData("whiteglove_sealed")]
+    [InlineData("interim_trigger")]
     public void Envelope_round_trips_through_newtonsoft_for_all_reasons(string reason)
     {
         var original = new AnalyzeOnEnrollmentEndEnvelope
@@ -41,6 +43,33 @@ public class AnalyzeOnEnrollmentEndEnvelopeSerializationTests
         Assert.Equal(SessionId,  restored.SessionId);
         Assert.Equal(reason,     restored.Reason);
         Assert.Equal(EnqueuedAt, restored.EnqueuedAt.ToUniversalTime());
+    }
+
+    [Fact]
+    public void Envelope_trigger_event_types_round_trip_and_default_to_null()
+    {
+        // interim_trigger envelopes carry the batch's matched trigger types; every other
+        // reason leaves the field null so legacy consumers see an unchanged shape.
+        var original = new AnalyzeOnEnrollmentEndEnvelope
+        {
+            TenantId          = TenantId,
+            SessionId         = SessionId,
+            Reason            = "interim_trigger",
+            TriggerEventTypes = new List<string> { "hybrid_login_pending", "custom_probe_signal" },
+            EnqueuedAt        = EnqueuedAt,
+        };
+
+        var restored = JsonConvert.DeserializeObject<AnalyzeOnEnrollmentEndEnvelope>(
+            JsonConvert.SerializeObject(original));
+
+        Assert.NotNull(restored);
+        Assert.Equal(new List<string> { "hybrid_login_pending", "custom_probe_signal" }, restored!.TriggerEventTypes);
+
+        // A legacy envelope without the field deserializes to null, not empty.
+        var legacy = JsonConvert.DeserializeObject<AnalyzeOnEnrollmentEndEnvelope>(
+            $"{{\"EnvelopeVersion\":\"1\",\"TenantId\":\"{TenantId}\",\"SessionId\":\"{SessionId}\",\"Reason\":\"enrollment_complete\"}}");
+        Assert.NotNull(legacy);
+        Assert.Null(legacy!.TriggerEventTypes);
     }
 
     [Fact]

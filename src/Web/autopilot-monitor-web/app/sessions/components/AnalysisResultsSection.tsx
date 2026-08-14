@@ -50,8 +50,14 @@ export default function AnalysisResultsSection({
   const { tenantId } = useTenant();
   const [ruleHitRates, setRuleHitRates] = useState<Record<string, number>>({});
   const [ruleRecentFires, setRuleRecentFires] = useState<Record<string, number>>({});
+  const [showResolved, setShowResolved] = useState(false);
 
   const crossTenant = !!sessionTenantId && !!tenantId && sessionTenantId !== tenantId;
+
+  // Resolved findings (a later evaluation no longer fired the rule — the session healed)
+  // are kept for audit but are not open issues; they hide behind a toggle.
+  const openResults = analysisResults.filter((r) => !r.resolvedAt);
+  const resolvedResults = analysisResults.filter((r) => !!r.resolvedAt);
 
   useEffect(() => {
     if (!tenantId || analysisResults.length === 0) return;
@@ -97,23 +103,31 @@ export default function AnalysisResultsSection({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
           </svg>
           <h2 className="text-xl font-semibold text-gray-900">Analysis Results</h2>
-          {analysisResults.length > 0 && (
+          {openResults.length > 0 && (
             <>
-              <span className="text-xs text-gray-400">({analysisResults.length} {analysisResults.length === 1 ? 'issue' : 'issues'})</span>
+              <span className="text-xs text-gray-400">({openResults.length} {openResults.length === 1 ? 'issue' : 'issues'})</span>
               <div className="flex items-center flex-wrap gap-2 text-xs">
-                {analysisResults.filter(r => r.severity === 'critical').length > 0 && (
+                {openResults.filter(r => r.severity === 'critical').length > 0 && (
                   <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">
-                    {analysisResults.filter(r => r.severity === 'critical').length} Critical
+                    {openResults.filter(r => r.severity === 'critical').length} Critical
                   </span>
                 )}
-                {analysisResults.filter(r => r.severity === 'high').length > 0 && (
+                {openResults.filter(r => r.severity === 'high').length > 0 && (
                   <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium">
-                    {analysisResults.filter(r => r.severity === 'high').length} High
+                    {openResults.filter(r => r.severity === 'high').length} High
                   </span>
                 )}
-                {analysisResults.filter(r => r.severity === 'warning').length > 0 && (
+                {openResults.filter(r => r.severity === 'warning').length > 0 && (
                   <span className="px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 font-medium">
-                    {analysisResults.filter(r => r.severity === 'warning').length} Warning
+                    {openResults.filter(r => r.severity === 'warning').length} Warning
+                  </span>
+                )}
+                {openResults.some(r => r.isInterim) && (
+                  <span
+                    className="px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 font-medium"
+                    title="Preliminary: detected by an interim analysis while the enrollment is still running; confirmed or resolved by the final analysis at enrollment end."
+                  >
+                    Preliminary
                   </span>
                 )}
               </div>
@@ -176,7 +190,7 @@ export default function AnalysisResultsSection({
           )}
           {loadingAnalysis && analysisResults.length === 0 ? (
             <div className="text-center py-4 text-gray-500">Running analysis...</div>
-          ) : analysisResults.length === 0 ? (
+          ) : openResults.length === 0 && resolvedResults.length === 0 ? (
             <div className="text-center py-4 text-gray-400 text-sm">
               {canReanalyze
                 ? 'No issues detected yet. Click "Analyze Now" to run analysis on the current events, or wait for enrollment to complete for automatic analysis.'
@@ -184,7 +198,7 @@ export default function AnalysisResultsSection({
             </div>
           ) : (
             <div className="space-y-3">
-              {analysisResults.map((result) => (
+              {openResults.map((result) => (
                 <AnalysisResultCard
                   key={result.ruleId}
                   result={result}
@@ -196,6 +210,38 @@ export default function AnalysisResultsSection({
                   })}
                 />
               ))}
+              {resolvedResults.length > 0 && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setShowResolved(!showResolved)}
+                    className="text-xs text-gray-500 hover:text-gray-700 flex items-center space-x-1"
+                  >
+                    <svg className={`w-3 h-3 transition-transform duration-200 ${showResolved ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                    <span>
+                      {resolvedResults.length} resolved {resolvedResults.length === 1 ? 'finding' : 'findings'} (no longer detected)
+                    </span>
+                  </button>
+                  {showResolved && (
+                    <div className="space-y-3 mt-3 opacity-60">
+                      {resolvedResults.map((result) => (
+                        <AnalysisResultCard
+                          key={result.ruleId}
+                          result={result}
+                          hitRate={ruleHitRates[result.ruleId]}
+                          recentFires={ruleRecentFires[result.ruleId]}
+                          sessionsHref={dashboardUrl({
+                            ruleId: result.ruleId,
+                            tenant: crossTenant ? sessionTenantId : undefined,
+                          })}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </>
@@ -244,6 +290,21 @@ function AnalysisResultCard({
             </span>
             <span className="text-xs font-mono text-gray-500">{result.ruleId}</span>
             <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">{result.category}</span>
+            {result.resolvedAt ? (
+              <span
+                className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500"
+                title="A later analysis no longer detected this issue — kept for audit."
+              >
+                Resolved
+              </span>
+            ) : result.isInterim ? (
+              <span
+                className="text-xs px-2 py-0.5 rounded-full bg-sky-100 text-sky-700"
+                title="Preliminary: detected while the enrollment is still running; confirmed or resolved by the final analysis at enrollment end."
+              >
+                Preliminary
+              </span>
+            ) : null}
           </div>
           <h3 className="font-medium text-gray-900">{result.ruleTitle}</h3>
           {/* flex-wrap: on narrow screens the fleet-context notes drop to their own
