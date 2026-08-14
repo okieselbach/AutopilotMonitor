@@ -32,6 +32,7 @@ https://docs.autopilotmonitor.com (separate repository).
 * [Gather Rule Phase Scoping, One-Shot Triggers & Emit-on-Change](rules/gather-rule-phase-scoping.md) - Restricting gather rules to enrollment phases (activePhases / activeFromPhase sticky latch), one-shot collection at a phase's start/end (phase_change / phase_exit), and emitMode "on_change" result-dedup.
 * [Gather Rule Guardrails](rules/gather-rule-guardrails.md) - Why the allowlists in rules/guardrails.json are enforced on the agent and nowhere else, which hard blocks survive unrestricted mode, and the rule that every collector must call a guard and emit security_warning on refusal.
 * [Rule Authoring Surface](rules/rule-authoring-surface.md) - How customer AIs author rules against the real contract: the baked MCP resources (guide/schemas/guardrails via combine.js), the MCP-local validate_rule pre-flight, and the side-effect-free POST rules/analyze/dryrun whose trace twin shares the production evaluators (parity + side-effect-freedom pinned by tests).
+* [Analyze Rule Evaluation Triggers](rules/analyze-rule-triggers.md) - SPEC (not yet implemented): opt-in `evaluateOn` interim triggers (`whiteglove_sealed`, `on_event:<type>`) so rules can fire before a session is terminal, with RuleResults update-semantics replacing the permanent dedupe freeze, KO/stat suppression on interim runs, and the authoring lints that keep interim rules monotonic.
 
 # Backend
 

@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-14
+
+* **Creation**: Added `rules/analyze-rule-triggers.md` — SPEC (not yet implemented) for opt-in `evaluateOn` interim evaluation of analyze rules: `enrollment_end` default preserves today's behavior, `whiteglove_sealed` + `on_event:<type>` close the WhiteGlove notification gap and the never-terminal stuck-session gap; RuleResults update-semantics (FirstDetectedAt/IsInterim/ResolvedAt/NotifiedAt) replace the permanent dedupe freeze; interim runs suppress KO + stats, notifications fire on first detection; three new validate_rule lints (terminal-precondition trap, unknown trigger type, KO-on-interim).
+
 ## 2026-08-13 (late evening)
 
 * **Creation**: Added `drift-guards.md` — the fragility-audit follow-up contracts (P5.x + P7): SignalR message-name catalog in `Constants.SignalRMessages`, exported through the shared manifest and typed into the web's `SignalRContext.on/off` union; the `RowKeyCodec` single encoder for inverted-tick RowKeys (persisted widths pinned, incl. UserActivity's legacy D20); `DeletionRowDump.Table` on tombstone rows with `DeletionTombstoneTables.Resolve` replacing the duplicated `Contains('_')` heuristic (legacy fallback retained one retention cycle); the shrink-only `OkAsyncBaselineGuardTests` per-file baseline (44 sites frozen); the Settings per-section PATCH (section field map + diff-based `config/{tenantId}/fields` writes on the TenantAdmin caller tier); and the web's `scopedApi` endpoint-pair builders, single admin-scope hook, `navVisibility` matrix and guard-consistency ratchet.
