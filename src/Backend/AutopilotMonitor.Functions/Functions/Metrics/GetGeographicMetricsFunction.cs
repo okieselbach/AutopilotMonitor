@@ -157,6 +157,10 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 // count so the location figure equals Σ(latency·requests)/Σ(requests) — the exact
                 // whole-population average, not an average of session averages. Sessions from
                 // agents predating the feature carry no data and drop out.
+                // The median (upper median, same convention as durations) is the display statistic:
+                // a single corrupt session average — e.g. one request spanning a sleep/hibernate
+                // gap counts hours of wall clock — inflates the weighted mean by orders of
+                // magnitude, while the median is unaffected.
                 var latencySessions = group
                     .Where(s => s.AvgApiLatencyMs is > 0 && s.ApiRequestCount is > 0)
                     .ToList();
@@ -164,6 +168,11 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var avgApiLatency = latencyRequestSum > 0
                     ? latencySessions.Sum(s => s.AvgApiLatencyMs!.Value * s.ApiRequestCount!.Value) / latencyRequestSum
                     : 0;
+                var sortedLatencies = latencySessions
+                    .Select(s => s.AvgApiLatencyMs!.Value)
+                    .OrderBy(v => v)
+                    .ToList();
+                var medianApiLatency = sortedLatencies.Count > 0 ? sortedLatencies[sortedLatencies.Count / 2] : 0;
 
                 locations.Add(new LocationMetrics
                 {
@@ -184,6 +193,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     AvgThroughputBytesPerSec = Math.Round(avgThroughput, 0),
                     TotalDownloadBytes = totalBytes,
                     AvgApiLatencyMs = Math.Round(avgApiLatency, 0),
+                    MedianApiLatencyMs = Math.Round(medianApiLatency, 0),
                     ApiLatencySessionCount = latencySessions.Count,
                     // Delivery Optimization
                     DoSessionCount = doSessionCount,
@@ -218,13 +228,21 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
             // Global API latency: request-weighted over ALL geo sessions (not location averages),
             // so big sites weigh in proportionally — same Σ(latency·requests)/Σ(requests) math as
-            // the per-location figure.
+            // the per-location figure. The median over the same session set is the robust display
+            // statistic and the comparison baseline for ApiLatencyVsGlobalPct.
             var globalLatencySessions = geoSessions
                 .Where(s => s.AvgApiLatencyMs is > 0 && s.ApiRequestCount is > 0)
                 .ToList();
             var globalLatencyRequestSum = globalLatencySessions.Sum(s => (double)s.ApiRequestCount!.Value);
             var globalAvgApiLatency = globalLatencyRequestSum > 0
                 ? globalLatencySessions.Sum(s => s.AvgApiLatencyMs!.Value * s.ApiRequestCount!.Value) / globalLatencyRequestSum
+                : 0;
+            var globalSortedLatencies = globalLatencySessions
+                .Select(s => s.AvgApiLatencyMs!.Value)
+                .OrderBy(v => v)
+                .ToList();
+            var globalMedianApiLatency = globalSortedLatencies.Count > 0
+                ? globalSortedLatencies[globalSortedLatencies.Count / 2]
                 : 0;
 
             // Global DO metrics (weighted by bytes, not simple average)
@@ -244,9 +262,10 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 loc.ThroughputVsGlobalPct = globalAvgThroughput > 0
                     ? Math.Round((loc.AvgThroughputBytesPerSec - globalAvgThroughput) / globalAvgThroughput * 100, 1) : 0;
 
-                // API latency vs global (positive = slower/farther from the backend region)
-                loc.ApiLatencyVsGlobalPct = globalAvgApiLatency > 0 && loc.AvgApiLatencyMs > 0
-                    ? Math.Round((loc.AvgApiLatencyMs - globalAvgApiLatency) / globalAvgApiLatency * 100, 1) : 0;
+                // API latency vs global (positive = slower/farther from the backend region) —
+                // median vs global median, so an outlier session skews neither side.
+                loc.ApiLatencyVsGlobalPct = globalMedianApiLatency > 0 && loc.MedianApiLatencyMs > 0
+                    ? Math.Round((loc.MedianApiLatencyMs - globalMedianApiLatency) / globalMedianApiLatency * 100, 1) : 0;
 
                 // AppLoadScore: normalize minutesPerApp to global median = 100
                 loc.AppLoadScore = globalMedianMinutesPerApp > 0
@@ -273,6 +292,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     AvgThroughputBytesPerSec = Math.Round(globalAvgThroughput, 0),
                     StdDevDurationMinutes = Math.Round(globalStdDev, 1),
                     AvgApiLatencyMs = Math.Round(globalAvgApiLatency, 0),
+                    MedianApiLatencyMs = Math.Round(globalMedianApiLatency, 0),
                     AvgDoPercentPeerCaching = Math.Round(globalDoPct, 1),
                     TotalDoBytesFromPeers = globalDoPeers,
                     TotalDoBytesFromHttp = globalDoHttp

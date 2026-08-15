@@ -43,6 +43,7 @@ interface LocationMetric {
   durationVsGlobalPct: number;
   throughputVsGlobalPct: number;
   avgApiLatencyMs: number;
+  medianApiLatencyMs: number;
   apiLatencySessionCount: number;
   apiLatencyVsGlobalPct: number;
   isOutlier: boolean;
@@ -64,6 +65,7 @@ interface GlobalAverages {
   avgThroughputBytesPerSec: number;
   stdDevDurationMinutes: number;
   avgApiLatencyMs: number;
+  medianApiLatencyMs: number;
   avgDoPercentPeerCaching: number;
   totalDoBytesFromPeers: number;
   totalDoBytesFromHttp: number;
@@ -80,7 +82,7 @@ interface GeographicMetricsResponse {
 }
 
 type GroupBy = "city" | "region" | "country";
-type SortBy = "sessionCount" | "avgDurationMinutes" | "appLoadScore" | "avgThroughputBytesPerSec" | "avgApiLatencyMs" | "avgDoPercentPeerCaching";
+type SortBy = "sessionCount" | "avgDurationMinutes" | "appLoadScore" | "avgThroughputBytesPerSec" | "medianApiLatencyMs" | "avgDoPercentPeerCaching";
 
 type TimeRange = "7d" | "30d" | "90d";
 
@@ -402,11 +404,11 @@ export default function GeographicPerformancePage() {
                       : "No data"}
                   </span>
                 </div>
-                <div title="Agent→backend HTTP round-trip, request-weighted across sessions with latency data">
+                <div title="Agent→backend HTTP round-trip: median across sessions with latency data (robust against outlier sessions)">
                   <span className="text-blue-600 font-medium">API Latency:</span>{" "}
                   <span className="text-blue-900">
-                    {geoMetrics.globalAverages.avgApiLatencyMs > 0
-                      ? `${Math.round(geoMetrics.globalAverages.avgApiLatencyMs)} ms`
+                    {geoMetrics.globalAverages.medianApiLatencyMs > 0
+                      ? `${Math.round(geoMetrics.globalAverages.medianApiLatencyMs)} ms`
                       : "No data"}
                   </span>
                 </div>
@@ -464,10 +466,10 @@ export default function GeographicPerformancePage() {
                         </th>
                         <th
                           className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
-                          onClick={() => handleSort("avgApiLatencyMs")}
-                          title="Agent→backend HTTP round-trip measured on the devices — high values indicate network distance to the backend region"
+                          onClick={() => handleSort("medianApiLatencyMs")}
+                          title="Agent→backend HTTP round-trip measured on the devices (median per location) — high values indicate network distance to the backend region"
                         >
-                          API Latency <SortIcon col="avgApiLatencyMs" sortBy={sortBy} sortDesc={sortDesc} />
+                          API Latency <SortIcon col="medianApiLatencyMs" sortBy={sortBy} sortDesc={sortDesc} />
                         </th>
                         <th
                           className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
@@ -570,10 +572,10 @@ export default function GeographicPerformancePage() {
                             {formatThroughput(loc.avgThroughputBytesPerSec)}
                           </td>
                           <td className="px-4 py-3 text-sm">
-                            {loc.avgApiLatencyMs > 0 ? (
-                              <div title={`${loc.apiLatencySessionCount} session(s) with latency data${loc.apiLatencyVsGlobalPct !== 0 ? ` · ${loc.apiLatencyVsGlobalPct > 0 ? "+" : ""}${loc.apiLatencyVsGlobalPct.toFixed(0)}% vs global` : ""}`}>
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${latencyColor(loc.avgApiLatencyMs)}`}>
-                                  {Math.round(loc.avgApiLatencyMs)} ms
+                            {loc.medianApiLatencyMs > 0 ? (
+                              <div title={`Median across ${loc.apiLatencySessionCount} session(s) with latency data · weighted avg ${Math.round(loc.avgApiLatencyMs)} ms${loc.apiLatencyVsGlobalPct !== 0 ? ` · ${loc.apiLatencyVsGlobalPct > 0 ? "+" : ""}${loc.apiLatencyVsGlobalPct.toFixed(0)}% vs global` : ""}`}>
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${latencyColor(loc.medianApiLatencyMs)}`}>
+                                  {Math.round(loc.medianApiLatencyMs)} ms
                                 </span>
                                 <span className="text-xs text-gray-400 ml-1">({loc.apiLatencySessionCount})</span>
                               </div>

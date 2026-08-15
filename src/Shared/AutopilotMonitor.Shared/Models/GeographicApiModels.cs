@@ -57,11 +57,18 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>
         /// Average agent→backend HTTP round-trip (ms) at this location, weighted per session by
         /// its request count. 0 when no session here carries latency data (pre-feature agents).
+        /// A single corrupt session average (e.g. a request spanning a sleep/hibernate) can
+        /// dominate this figure — use <see cref="MedianApiLatencyMs"/> as the display statistic.
         /// </summary>
         public double AvgApiLatencyMs { get; set; }
+        /// <summary>
+        /// Median of the per-session average agent→backend round-trips (ms) at this location —
+        /// robust against outlier sessions. 0 when no session here carries latency data.
+        /// </summary>
+        public double MedianApiLatencyMs { get; set; }
         /// <summary>Sessions at this location that carry API-latency data</summary>
         public int ApiLatencySessionCount { get; set; }
-        /// <summary>Percentage difference from global avg API latency (positive = slower/farther)</summary>
+        /// <summary>Percentage difference from global median API latency (positive = slower/farther)</summary>
         public double ApiLatencyVsGlobalPct { get; set; }
 
         public bool IsOutlier { get; set; }
@@ -189,6 +196,8 @@ namespace AutopilotMonitor.Shared.Models
         public double StdDevDurationMinutes { get; set; }
         /// <summary>Global request-weighted average agent→backend API latency (ms); 0 = no data yet</summary>
         public double AvgApiLatencyMs { get; set; }
+        /// <summary>Global median of per-session average API latency (ms), robust against outliers; 0 = no data yet</summary>
+        public double MedianApiLatencyMs { get; set; }
         /// <summary>Global weighted average peer caching percentage</summary>
         public double AvgDoPercentPeerCaching { get; set; }
         /// <summary>Total peer bytes across all locations with DO data</summary>

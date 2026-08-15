@@ -177,13 +177,15 @@ function LocationSessionsContent() {
             .map((s) => s.durationSeconds!);
           return durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length / 60) : 0;
         })(),
-        // Request-weighted API latency across sessions with latency data (matches region aggregate formula)
+        // Median API latency across sessions with latency data (matches region aggregate: robust
+        // against a single corrupt session average, unlike the request-weighted mean)
         latencySessions: data.sessions.filter((s) => (s.avgApiLatencyMs ?? 0) > 0 && (s.apiRequestCount ?? 0) > 0).length,
-        avgApiLatency: (() => {
-          const withLatency = data.sessions.filter((s) => (s.avgApiLatencyMs ?? 0) > 0 && (s.apiRequestCount ?? 0) > 0);
-          const totalRequests = withLatency.reduce((a, s) => a + s.apiRequestCount!, 0);
-          const weightedSum = withLatency.reduce((a, s) => a + s.avgApiLatencyMs! * s.apiRequestCount!, 0);
-          return totalRequests > 0 ? Math.round(weightedSum / totalRequests) : 0;
+        medianApiLatency: (() => {
+          const sorted = data.sessions
+            .filter((s) => (s.avgApiLatencyMs ?? 0) > 0 && (s.apiRequestCount ?? 0) > 0)
+            .map((s) => s.avgApiLatencyMs!)
+            .sort((a, b) => a - b);
+          return sorted.length > 0 ? Math.round(sorted[Math.floor(sorted.length / 2)]) : 0;
         })(),
         // Weighted peer-caching % across sessions with DO telemetry (matches region aggregate formula)
         doSessions: data.sessions.filter((s) => s.hasDoTelemetry).length,
@@ -254,10 +256,10 @@ function LocationSessionsContent() {
                 <div className="text-sm font-medium text-gray-500">Sessions</div>
                 <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
               </div>
-              <div className="bg-white rounded-lg shadow p-4" title="Agent→backend HTTP round-trip, request-weighted across sessions with latency data">
+              <div className="bg-white rounded-lg shadow p-4" title="Agent→backend HTTP round-trip: median across sessions with latency data (robust against outlier sessions)">
                 <div className="text-sm font-medium text-gray-500">API Latency</div>
-                <div className={`text-2xl font-bold ${stats.avgApiLatency > 0 ? "text-gray-900" : "text-gray-400"}`}>
-                  {stats.avgApiLatency > 0 ? `${stats.avgApiLatency} ms` : "—"}
+                <div className={`text-2xl font-bold ${stats.medianApiLatency > 0 ? "text-gray-900" : "text-gray-400"}`}>
+                  {stats.medianApiLatency > 0 ? `${stats.medianApiLatency} ms` : "—"}
                 </div>
                 <div className="text-xs text-gray-400">
                   {stats.latencySessions > 0 ? `${stats.latencySessions} session(s) with data` : "requires latency-reporting agent"}
