@@ -32,8 +32,57 @@ const CLIENT_ID: string = (() => {
   return v;
 })();
 const CLIENT_SECRET = process.env.AUTOPILOT_ENTRA_CLIENT_SECRET ?? '';
-const AUTHORITY = process.env.AUTOPILOT_ENTRA_AUTHORITY ?? `${ENTRA_LOGIN_BASE_URL}/organizations`;
+// Intentionally optional: a public-client app registration (PKCE only) needs no
+// secret. But if the Entra app is configured as a confidential client, a missing
+// secret fails EVERY token exchange (AADSTS7000218) — surface that at boot
+// instead of leaving it to be discovered one failed login at a time.
+if (!CLIENT_SECRET && process.env.NODE_ENV === 'production') {
+  console.error(
+    '[oauth] AUTOPILOT_ENTRA_CLIENT_SECRET is not set — token exchange runs as a ' +
+    'PUBLIC client (PKCE only). Correct only if the Entra app registration allows ' +
+    'public client flows; a confidential-client registration will reject every ' +
+    'token exchange with AADSTS7000218.',
+  );
+}
+
+/**
+ * Validates the Entra authority URL at boot. The authority receives the client
+ * secret and every authorization code, so a plain-http or unparseable value is
+ * a misconfiguration we refuse to run with (fail-fast, matching the
+ * AUTOPILOT_API_URL / MCP_PUBLIC_URL guards in config.ts). Deliberately NOT
+ * pinned to login.microsoftonline.com — sovereign clouds (.us, .cn) are
+ * legitimate authorities. Trailing slashes are stripped so the
+ * `${AUTHORITY}/oauth2/v2.0/...` joins below cannot produce double slashes.
+ */
+export function validateAuthority(raw: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`AUTOPILOT_ENTRA_AUTHORITY is not a valid URL: ${sanitizeForLog(raw)}`);
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error(
+      `AUTOPILOT_ENTRA_AUTHORITY must be an https:// URL (got ${sanitizeForLog(raw)}) — ` +
+      'the authority receives the client secret and all authorization codes.',
+    );
+  }
+  return raw.replace(/\/+$/, '');
+}
+
+const AUTHORITY = validateAuthority(
+  process.env.AUTOPILOT_ENTRA_AUTHORITY ?? `${ENTRA_LOGIN_BASE_URL}/organizations`,
+);
 const SCOPES = `api://${CLIENT_ID}/access_as_user openid profile offline_access`;
+
+/**
+ * Outbound budget for the Entra token exchange. Undici's defaults allow ~300 s
+ * of headers/body time — a hung Entra endpoint would pin sockets and Express
+ * handlers for 5 minutes each. 15 s is generous for a token endpoint (normally
+ * well under 1 s) while keeping a stall bounded. Same pattern as client.ts
+ * (API_TIMEOUT_MS) and access-guard.ts.
+ */
+const ENTRA_TOKEN_TIMEOUT_MS = 15_000;
 
 // Dynamic client registration (RFC 7591) is STATELESS: instead of a
 // server-side Map, the issued client_id is itself an HMAC-signed token that
@@ -56,6 +105,16 @@ const SCOPES = `api://${CLIENT_ID}/access_as_user openid profile offline_access`
 // downstream redirect_uri allowlist + per-client registry already block
 // hostile destinations, but signing the state is a cheap belt-and-suspenders
 // that also catches replay (via iat/exp) and detects accidental client bugs.
+//
+// ACCEPTED RESIDUAL RISK — no one-time-use guarantee: within the 10-minute
+// window the same signed state verifies more than once. True single-use would
+// need a shared nonce store (Redis/Table), reintroducing exactly the shared
+// state this design removed for scale-to-zero multi-replica operation. The
+// impact is bounded independently: /oauth/callback requires an authorization
+// code, Entra codes are single-use and bound to the original flow's PKCE
+// challenge, the redirectUri is re-validated against allowlist + client
+// binding on every callback, and the client validates its own originalState
+// exactly once. Decision reviewed 2026-08-15.
 //
 // HMAC key: prefer OAuthStateSigningKey from the environment so all replicas
 // agree on the signature; fall back to a per-instance random key when unset
@@ -785,6 +844,10 @@ export function createOAuthRouter(): Router {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: body.toString(),
+        // Bounded outbound budget — covers headers AND body consumption below.
+        // Without it, undici's ~300 s defaults let a hung Entra endpoint pin a
+        // socket and an Express handler for 5 minutes per request.
+        signal: AbortSignal.timeout(ENTRA_TOKEN_TIMEOUT_MS),
       });
 
       const data = await tokenResponse.json();
@@ -803,6 +866,17 @@ export function createOAuthRouter(): Router {
       }
       res.status(tokenResponse.status).json(data);
     } catch (err) {
+      // AbortSignal.timeout() rejects with a DOMException named 'TimeoutError'
+      // (see error-handler.ts) — report that as 504 so a stalled identity
+      // provider is distinguishable from a hard exchange failure (502).
+      if (err instanceof Error && err.name === 'TimeoutError') {
+        console.error(`[oauth/token] Entra token endpoint timed out after ${ENTRA_TOKEN_TIMEOUT_MS}ms`);
+        res.status(504).json({
+          error: 'token_exchange_timeout',
+          error_description: 'Identity provider did not respond in time',
+        });
+        return;
+      }
       console.error('[oauth] Token exchange failed:', err);
       res.status(502).json({ error: 'token_exchange_failed', error_description: 'Failed to exchange token with identity provider' });
     }

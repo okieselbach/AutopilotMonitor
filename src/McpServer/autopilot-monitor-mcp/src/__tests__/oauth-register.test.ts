@@ -11,7 +11,7 @@
  * would call Entra ID (the /oauth/authorize success case yields a 302 we read
  * with redirect:'manual'; the token error case returns before fetch).
  */
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -454,5 +454,58 @@ describe('/oauth/token — grant_type allowlist', () => {
     expect(res.status).toBe(400);
     // Reached the PKCE gate — i.e. the allowlist did not reject the listed grant.
     expect(String(res.json.error_description)).toMatch(/code_verifier is required/);
+  });
+});
+
+describe('/oauth/token — outbound Entra timeout', () => {
+  // The route passes AbortSignal.timeout() to the Entra fetch; a stalled
+  // identity provider must surface as 504 (distinguishable from a hard 502
+  // exchange failure) instead of pinning the handler for undici's ~300 s
+  // defaults. Stub global fetch for the Entra host only — the test's own
+  // request to the ephemeral server must keep using the real implementation.
+  const realFetch = globalThis.fetch;
+  afterEach(() => vi.unstubAllGlobals());
+
+  function stubEntraFetch(rejection: unknown, onCall?: (init?: RequestInit) => void) {
+    vi.stubGlobal('fetch', ((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('login.microsoftonline.com')) {
+        onCall?.(init);
+        return Promise.reject(rejection);
+      }
+      return realFetch(input, init);
+    }) as typeof fetch);
+  }
+
+  async function token(params: Record<string, string>) {
+    const res = await realFetch(`${baseUrl}/oauth/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(params).toString(),
+    });
+    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    return { status: res.status, json, cacheControl: res.headers.get('cache-control') };
+  }
+
+  it('maps a TimeoutError from the Entra fetch to 504 and passes an abort signal', async () => {
+    let sawAbortSignal = false;
+    // Exactly what fetch rejects with under AbortSignal.timeout() (see
+    // error-handler.ts): DOMException with NAME 'TimeoutError'.
+    stubEntraFetch(
+      new DOMException('The operation was aborted due to timeout', 'TimeoutError'),
+      (init) => { sawAbortSignal = init?.signal instanceof AbortSignal; },
+    );
+    const res = await token({ grant_type: 'authorization_code', code: 'abc', code_verifier: 'v'.repeat(43) });
+    expect(res.status).toBe(504);
+    expect(res.json.error).toBe('token_exchange_timeout');
+    // RFC 6749 §5.1 no-store must hold on the timeout path too.
+    expect(res.cacheControl).toBe('no-store');
+    expect(sawAbortSignal).toBe(true);
+  });
+
+  it('maps a non-timeout network failure to 502 token_exchange_failed (unchanged path)', async () => {
+    stubEntraFetch(new TypeError('fetch failed'));
+    const res = await token({ grant_type: 'authorization_code', code: 'abc', code_verifier: 'v'.repeat(43) });
+    expect(res.status).toBe(502);
+    expect(res.json.error).toBe('token_exchange_failed');
   });
 });

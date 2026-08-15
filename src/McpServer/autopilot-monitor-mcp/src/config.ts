@@ -64,7 +64,34 @@ export function parsePositiveInt(raw: string | undefined, fallback: number): num
  * minReplicas=0, so no container boots and this check never fires; the operator
  * then re-deploys with mcpPublicUrl pinned before any traffic arrives.
  */
-const MCP_PUBLIC_URL = process.env.MCP_PUBLIC_URL?.trim() || undefined;
+/**
+ * Validates a pinned public base URL. It becomes the OAuth issuer, the RFC 9207
+ * `iss` value, and the Entra redirect_uri — an http:// pin (a typo away) would
+ * advertise a downgrade-able issuer and get rejected by Entra's redirect_uri
+ * registration anyway. https is required; http is tolerated only for loopback
+ * hosts so a local dev pin like http://localhost:3000 keeps working. Trailing
+ * slashes are stripped — consumers do `${baseUrl}/mcp` string joins.
+ */
+export function validatePublicUrl(raw: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`MCP_PUBLIC_URL is not a valid URL: ${raw}`);
+  }
+  const host = parsed.hostname.toLowerCase();
+  const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+  if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLoopback)) {
+    throw new Error(
+      `MCP_PUBLIC_URL must be an https:// URL (got ${raw}) — it is published as the OAuth ` +
+      'issuer and redirect_uri base. http:// is allowed for loopback hosts only (local dev).',
+    );
+  }
+  return raw.replace(/\/+$/, '');
+}
+
+const rawPublicUrl = process.env.MCP_PUBLIC_URL?.trim() || undefined;
+const MCP_PUBLIC_URL = rawPublicUrl ? validatePublicUrl(rawPublicUrl) : undefined;
 if (!MCP_PUBLIC_URL && process.env.NODE_ENV === 'production') {
   throw new Error(
     'MCP_PUBLIC_URL must be set in production — refusing to derive the OAuth issuer / ' +
