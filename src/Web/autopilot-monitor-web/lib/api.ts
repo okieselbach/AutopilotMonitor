@@ -389,11 +389,14 @@ export const api = {
   },
 
   // ── Progress ──────────────────────────────────────────────────────────────
+  // Serial-knowledge model: there is NO tenant-wide session list at this tier. The lookup
+  // resolves at most one session server-side (roleless callers need the exact serial/device
+  // name), and the events route re-presents the serial as proof on every read.
   progress: {
-    sessions: (tenantId: string) =>
-      `${API_BASE_URL}/api/progress/sessions${qs({ tenantId })}`,
-    sessionEvents: (sessionId: string, tenantId: string) =>
-      `${API_BASE_URL}/api/progress/sessions/${sessionId}/events${qs({ tenantId })}`,
+    lookup: (tenantId: string, search: string) =>
+      `${API_BASE_URL}/api/progress/sessions/lookup${qs({ tenantId, search })}`,
+    sessionEvents: (sessionId: string, tenantId: string, serial: string) =>
+      `${API_BASE_URL}/api/progress/sessions/${sessionId}/events${qs({ tenantId, serial })}`,
   },
 
   // ── Bootstrap ─────────────────────────────────────────────────────────────

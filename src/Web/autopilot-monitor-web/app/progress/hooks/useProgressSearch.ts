@@ -37,7 +37,9 @@ export interface UseProgressSearchReturn {
 
 /**
  * Owns the progress page's serial-number search lifecycle:
- *  - fetches tenant-wide sessions list, finds best match by serial / device name
+ *  - resolves the session via the server-side lookup (exact serial/device-name match for
+ *    roleless end users — the serial IS the authorization proof; members keep fuzzy search
+ *    server-side; the tenant-wide list never reaches the browser)
  *  - exposes `setSession` so real-time refetch can replace the selected session
  *  - auto-collapses header on match, raises notFound on miss or error
  */
@@ -66,27 +68,13 @@ export function useProgressSearch({
 
     try {
       const response = await authenticatedFetch(
-        api.progress.sessions(tenantId),
+        api.progress.lookup(tenantId, serialInput.trim()),
         getAccessToken,
       );
 
       if (response.ok) {
         const data = await response.json();
-        const sessions: Session[] = data.sessions || [];
-
-        const query = serialInput.trim().toLowerCase();
-        const found = sessions
-          .filter(
-            (s) =>
-              s.serialNumber.toLowerCase() === query ||
-              s.serialNumber.toLowerCase().includes(query) ||
-              s.deviceName?.toLowerCase().includes(query),
-          )
-          .sort(
-            (a, b) =>
-              new Date(b.startedAt).getTime() -
-              new Date(a.startedAt).getTime(),
-          )[0];
+        const found: Session | null = data.found ? data.session : null;
 
         if (found) {
           setSession(found);

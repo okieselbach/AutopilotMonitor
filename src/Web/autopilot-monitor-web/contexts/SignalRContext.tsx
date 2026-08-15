@@ -12,6 +12,16 @@ import { useAuth } from './AuthContext';
 // consumer handlers keep their narrower parameter types without laundering here.
 type SignalRHandler = Parameters<signalR.HubConnection["on"]>[1];
 
+// Session-group joins by roleless Progress-Portal users must present the device's serial number
+// (server-side knowledge proof). The serial is remembered per group so the automatic re-join
+// after a reconnect carries it too — without that, live updates would silently die on the first
+// network blip. onDenied surfaces a join the server refused (403); the context otherwise only
+// logs it, and a silent join failure historically looked like a frozen page.
+export interface JoinGroupOptions {
+  serialNumber?: string;
+  onDenied?: (status: number) => void;
+}
+
 interface SignalRContextType {
   connection: signalR.HubConnection | null;
   connectionState: signalR.HubConnectionState;
@@ -21,7 +31,7 @@ interface SignalRContextType {
   on: (eventName: SignalRMessageName, callback: SignalRHandler) => void;
   off: (eventName: SignalRMessageName, callback: SignalRHandler) => void;
   invoke: (methodName: string, ...args: unknown[]) => Promise<unknown>;
-  joinGroup: (groupName: string) => Promise<void>;
+  joinGroup: (groupName: string, options?: JoinGroupOptions) => Promise<void>;
   leaveGroup: (groupName: string) => Promise<void>;
   isConnected: boolean;
   joinedGroups: string[];
@@ -50,6 +60,9 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
   const [connectionState, setConnectionState] = useState<signalR.HubConnectionState>(signalR.HubConnectionState.Disconnected);
   const connectionRef = useRef<signalR.HubConnection | null>(null);
   const joinedGroupsRef = useRef<Set<string>>(new Set());
+  // Serial-number proof per session group (see JoinGroupOptions). Kept across disconnects so the
+  // auto-rejoin after a reconnect can re-present it; entries are removed on a confirmed leave.
+  const joinSerialsRef = useRef<Map<string, string>>(new Map());
   const [joinedGroups, setJoinedGroups] = useState<string[]>([]);
   const retryCountRef = useRef(0);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -133,7 +146,13 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ connectionId, groupName })
+              // Re-present the stored serial proof for session groups — a roleless
+              // Progress-Portal user's rejoin is refused without it.
+              body: JSON.stringify({
+                connectionId,
+                groupName,
+                serialNumber: joinSerialsRef.current.get(groupName),
+              })
             }
           );
 
@@ -246,7 +265,7 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
     throw new Error('SignalR connection not established');
   };
 
-  const joinGroup = useCallback(async (groupName: string) => {
+  const joinGroup = useCallback(async (groupName: string, options?: JoinGroupOptions) => {
     if (!connection || connectionState !== signalR.HubConnectionState.Connected) {
       return;
     }
@@ -258,6 +277,9 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
 
     // Add to Set immediately to prevent race conditions with multiple simultaneous calls
     joinedGroupsRef.current.add(groupName);
+    if (options?.serialNumber) {
+      joinSerialsRef.current.set(groupName, options.serialNumber);
+    }
     syncJoinedGroups();
 
     try {
@@ -274,19 +296,29 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ connectionId, groupName })
+          body: JSON.stringify({
+            connectionId,
+            groupName,
+            serialNumber: options?.serialNumber,
+          })
         }
       );
 
       if (!response.ok) {
-        // Remove from Set if API call failed (so we can retry)
+        // Remove from Set if API call failed (so we can retry). A refused join must be
+        // VISIBLE: a silently swallowed 403 here historically left the page looking frozen
+        // (no live updates, no error) — see the c4dabeee regression.
+        console.warn(`[SignalR] Failed to join group ${groupName} (status ${response.status})`);
         joinedGroupsRef.current.delete(groupName);
+        joinSerialsRef.current.delete(groupName);
         syncJoinedGroups();
+        options?.onDenied?.(response.status);
       }
     } catch (error) {
       console.error(`[SignalR] Error joining group ${groupName}:`, error);
       // Remove from Set if API call failed (so we can retry)
       joinedGroupsRef.current.delete(groupName);
+      joinSerialsRef.current.delete(groupName);
       syncJoinedGroups();
     }
   }, [connection, connectionState, getAccessToken, syncJoinedGroups]);
@@ -325,6 +357,9 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
         // Re-add to Set if API call failed (so we can retry)
         joinedGroupsRef.current.add(groupName);
         syncJoinedGroups();
+      } else {
+        // Confirmed leave — drop the stored serial proof for this group.
+        joinSerialsRef.current.delete(groupName);
       }
     } catch (error) {
       console.error(`[SignalR] Error leaving group ${groupName}:`, error);

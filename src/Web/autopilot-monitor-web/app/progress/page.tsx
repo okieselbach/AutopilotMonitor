@@ -68,6 +68,7 @@ export default function ProgressPortalPage() {
     sessionRef,
     signalR,
     scheduleFetchEvents,
+    addNotification,
   });
 
   const { appSummary, currentDownload, currentInstall, installElapsedMs, overallProgress } =

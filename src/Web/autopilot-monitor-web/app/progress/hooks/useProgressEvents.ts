@@ -67,7 +67,7 @@ export function useProgressEvents({
       const fetchEvents = async () => {
         try {
           const response = await authenticatedFetch(
-            api.progress.sessionEvents(session.sessionId, tenantId),
+            api.progress.sessionEvents(session.sessionId, tenantId, session.serialNumber),
             getAccessToken,
           );
           if (response.ok) {
@@ -121,21 +121,24 @@ export function useProgressEvents({
         const currentSession = sessionRef.current;
         if (!currentSession) return;
         try {
-          const sessionsResponse = await authenticatedFetch(
-            api.progress.sessions(tenantId),
+          // Refresh the session summary via the serial lookup (the canonical serial from the
+          // session row always matches exactly). Guard on sessionId: the lookup returns the
+          // NEWEST session for the serial, which after a re-enrollment is a different session —
+          // the page must keep showing the one the user selected.
+          const lookupResponse = await authenticatedFetch(
+            api.progress.lookup(tenantId, currentSession.serialNumber),
             getAccessToken,
           );
-          if (sessionsResponse.ok) {
-            const sessionsData = await sessionsResponse.json();
-            const sessions: Session[] = sessionsData.sessions || [];
-            const updated = sessions.find(
-              (s) => s.sessionId === currentSession.sessionId,
-            );
-            if (updated) setSession(updated);
+          if (lookupResponse.ok) {
+            const lookupData = await lookupResponse.json();
+            const updated: Session | null = lookupData.found ? lookupData.session : null;
+            if (updated && updated.sessionId === currentSession.sessionId) {
+              setSession(updated);
+            }
           }
 
           const eventsResponse = await authenticatedFetch(
-            api.progress.sessionEvents(currentSession.sessionId, tenantId),
+            api.progress.sessionEvents(currentSession.sessionId, tenantId, currentSession.serialNumber),
             getAccessToken,
           );
           if (eventsResponse.ok) {
