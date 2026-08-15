@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 const tips = [
   "Auto-set the device timezone under Settings \u2192 Agent Settings.",
@@ -19,26 +19,33 @@ const tips = [
   "Spotted a session with the wrong status? Use Report Session to flag it to the team.",
 ];
 
-// One random tip per mount, read via useSyncExternalStore: the server snapshot is ""
-// (renders nothing, matching the prerendered HTML — Math.random() at build time would
+// One random tip index per mount, read via useSyncExternalStore: the server snapshot is
+// -1 (renders nothing, matching the prerendered HTML — Math.random() at build time would
 // freeze one tip and mismatch on hydration); the client re-render then shows the pick.
-let chosenTip: string | null = null;
+let chosenIndex: number | null = null;
 const subscribeNever = () => () => {};
-const getTipSnapshot = () => {
-  if (chosenTip === null) chosenTip = tips[Math.floor(Math.random() * tips.length)];
-  return chosenTip;
+const getTipIndexSnapshot = () => {
+  if (chosenIndex === null) chosenIndex = Math.floor(Math.random() * tips.length);
+  return chosenIndex;
 };
 
 export default function TipOfTheDay() {
-  const tip = useSyncExternalStore(subscribeNever, getTipSnapshot, () => "");
+  const startIndex = useSyncExternalStore(subscribeNever, getTipIndexSnapshot, () => -1);
+  // Hidden gimmick: clicking the tip cycles to the next one, without looking like a link.
+  const [clicks, setClicks] = useState(0);
 
   // Re-roll on the next mount so each dashboard visit gets a fresh tip.
-  useEffect(() => () => { chosenTip = null; }, []);
+  useEffect(() => () => { chosenIndex = null; }, []);
 
-  if (!tip) return null;
+  if (startIndex < 0) return null;
+
+  const tip = tips[(startIndex + clicks) % tips.length];
 
   return (
-    <div className="mt-3 mb-1 flex items-center justify-center gap-2 text-xs text-gray-400 dark:text-gray-500 select-none">
+    <div
+      className="mt-3 mb-1 flex items-center justify-center gap-2 text-xs text-gray-400 dark:text-gray-500 select-none cursor-pointer"
+      onClick={() => setClicks((c) => c + 1)}
+    >
       <svg
         className="w-3.5 h-3.5 text-amber-400 shrink-0"
         fill="none"
