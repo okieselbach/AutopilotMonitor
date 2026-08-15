@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.DataAccess;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Azure.Functions.Worker.Extensions.SignalRService;
@@ -13,13 +14,16 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
     {
         private readonly ILogger<SignalRAddToGroupFunction> _logger;
         private readonly DelegatedAdminService _delegatedAdminService;
+        private readonly ISessionRepository _sessionRepo;
 
         public SignalRAddToGroupFunction(
             ILogger<SignalRAddToGroupFunction> logger,
-            DelegatedAdminService delegatedAdminService)
+            DelegatedAdminService delegatedAdminService,
+            ISessionRepository sessionRepo)
         {
             _logger = logger;
             _delegatedAdminService = delegatedAdminService;
+            _sessionRepo = sessionRepo;
         }
 
         [Function("AddToGroup")]
@@ -150,6 +154,28 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                         await forbiddenResponse.WriteAsJsonAsync(new { success = false, message });
                         return new AddToGroupOutput { HttpResponse = forbiddenResponse };
                     }
+
+                    // Session groups stream one device's live enrollment telemetry. Members (and the
+                    // platform/delegated-scope callers admitted above) may join any of their tenant's
+                    // session groups — the same data is MemberRead at REST. A roleless Progress-Portal
+                    // end user must instead prove serial knowledge, mirroring the REST-side
+                    // lookup/events model: without this, a leaked/known sessionId alone would grant
+                    // the live event stream. Session missing, unparseable group name, and serial
+                    // mismatch all take the same deny path (fail-closed, no existence oracle).
+                    if (SignalRGroupHelper.RequiresSessionGroupSerialProof(request.GroupName, requestedTenantId, requestCtx))
+                    {
+                        var sessionId = SignalRGroupHelper.ExtractSessionIdFromGroupName(request.GroupName);
+                        var session = string.IsNullOrEmpty(sessionId)
+                            ? null
+                            : await _sessionRepo.GetSessionAsync(requestedTenantId!, sessionId);
+                        if (session == null || !SerialKnowledgeProof.Matches(session.SerialNumber, request.SerialNumber))
+                        {
+                            _logger.LogWarning($"User {userEmail} (role={requestCtx.UserRole}) denied session-group join without valid serial proof: {request.GroupName}");
+                            var forbiddenResponse = req.CreateResponse(HttpStatusCode.Forbidden);
+                            await forbiddenResponse.WriteAsJsonAsync(new { success = false, message = "Access denied: This session group requires the device's serial number" });
+                            return new AddToGroupOutput { HttpResponse = forbiddenResponse };
+                        }
+                    }
                 }
 
                 // Extract session ID from group name if it's a session-specific group
@@ -188,6 +214,13 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
     {
         public string? ConnectionId { get; set; }
         public string? GroupName { get; set; }
+        /// <summary>
+        /// Serial-number knowledge proof for session-group joins. Required only for roleless
+        /// same-tenant callers (Progress Portal end users) — see
+        /// <see cref="SignalRGroupHelper.RequiresSessionGroupSerialProof"/>. Member/GA/delegated
+        /// callers never need to send it, so all other join call sites are unaffected.
+        /// </summary>
+        public string? SerialNumber { get; set; }
     }
 
     public class AddToGroupOutput

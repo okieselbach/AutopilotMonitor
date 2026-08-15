@@ -86,6 +86,53 @@ public static class SignalRGroupHelper
         return !ctx.HasGlobalScope && !ctx.IsTenantMemberRole();
     }
 
+    /// <summary>True for a single-session live-update group ("session-{tenantId}-{sessionId}").</summary>
+    public static bool IsSessionGroup(string groupName)
+        => groupName.StartsWith("session-");
+
+    /// <summary>
+    /// Extracts the session ID from a "session-{tenantId}-{sessionId}" group name, or null when the
+    /// name is not a well-formed session group (both IDs are dashed GUIDs, so a valid name has
+    /// exactly 11 dash-separated parts). Strict on purpose: the serial-proof gate treats an
+    /// unparseable name as no-session → fail-closed deny for a roleless caller.
+    /// </summary>
+    public static string? ExtractSessionIdFromGroupName(string groupName)
+    {
+        if (!IsSessionGroup(groupName))
+            return null;
+
+        var parts = groupName.Split('-');
+        if (parts.Length != 11) // "session" + 5 GUID parts (tenant) + 5 GUID parts (session)
+            return null;
+
+        var sessionId = string.Join("-", parts.Skip(6).Take(5));
+        return Guid.TryParse(sessionId, out _) ? sessionId : null;
+    }
+
+    /// <summary>
+    /// Whether a SAME-TENANT join of a session group must present the device's serial number
+    /// (<see cref="SerialKnowledgeProof"/>). Session groups stream one device's live enrollment
+    /// telemetry; members may join any of their tenant's session groups (the same data is
+    /// MemberRead at REST), but a roleless Progress-Portal end user must prove serial knowledge —
+    /// mirroring the REST-side lookup/events model, so a leaked or guessed sessionId alone never
+    /// grants the live stream. Cross-tenant joins are NOT decided here: they must already have
+    /// passed the cross-tenant admission (platform scope, or delegated scope over the group's
+    /// tenant). Pure (no I/O) so it stays unit-testable; the session load + serial comparison
+    /// live in SignalRAddToGroupFunction.
+    /// </summary>
+    public static bool RequiresSessionGroupSerialProof(string groupName, string? requestedTenantId, RequestContext ctx)
+    {
+        if (!IsSessionGroup(groupName))
+            return false;
+
+        var sameTenant = !string.IsNullOrEmpty(requestedTenantId)
+            && string.Equals(requestedTenantId, ctx.TenantId, StringComparison.OrdinalIgnoreCase);
+        if (!sameTenant)
+            return false; // cross-tenant admission (platform/delegated scope) is enforced upstream
+
+        return !ctx.HasGlobalScope && !ctx.IsTenantMemberRole();
+    }
+
     /// <summary>
     /// True for the Admin-tier tenant notification group. Joining requires Tenant-Admin or Global-Admin.
     /// </summary>

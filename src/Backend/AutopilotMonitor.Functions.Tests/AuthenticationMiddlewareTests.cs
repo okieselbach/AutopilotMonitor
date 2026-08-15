@@ -59,7 +59,7 @@ public class AuthenticationMiddlewareTests
     [InlineData("GET", "/api/auth/me")]                    // AuthenticatedUser
     [InlineData("GET", "/api/auth/is-global-admin")]       // AuthenticatedUser
     [InlineData("POST", "/api/realtime/negotiate")]        // AuthenticatedUser
-    [InlineData("GET", "/api/progress/sessions")]          // AuthenticatedUser
+    [InlineData("GET", "/api/progress/sessions/lookup")]   // AuthenticatedUserWithRole
     [InlineData("GET", "/api/sessions")]                   // MemberRead
     [InlineData("GET", "/api/audit/logs")]                 // MemberRead
     [InlineData("PUT", "/api/config/11111111-1111-1111-1111-111111111111")] // TenantAdminOrGA

@@ -200,7 +200,8 @@ public static class EndpointAccessPolicyCatalog
         // group on HasGlobalScope (GA ∪ GlobalReader), the admin-tier notification group on
         // IsTenantAdmin (or GA), the member-tier notification group on tenant membership (or scope),
         // and the plain tenant-{tid} broadcast group on tenant membership (or scope) — roleless
-        // Progress-Portal users may only join their own session-{tid}-{sid} group.
+        // Progress-Portal users may only join a session-{tid}-{sid} group, and only by presenting
+        // that device's serial number (SerialKnowledgeProof — same model as the progress REST routes).
         // The Progress Portal is an END-USER feature: employees tracking their own device are
         // authenticated (JWT tid = their tenant) but are typically NOT tenant members (no
         // TenantAdmins row, no Entra app-role). Gating join at MemberRead let them load the
@@ -212,7 +213,15 @@ public static class EndpointAccessPolicyCatalog
         // GA/admin group joins. (Regression history: c4dabeee elevated these to MemberRead.)
         new("POST",   "realtime/groups/join",      EndpointPolicy.AuthenticatedUserWithRole),
         new("POST",   "realtime/groups/leave",     EndpointPolicy.AuthenticatedUserWithRole),
-        new("GET",    "progress/sessions",         EndpointPolicy.AuthenticatedUser),
+        // Progress Portal authorization model: serial-number knowledge proof, enforced in-function.
+        // There is deliberately NO tenant-wide session list at this tier — the lookup resolves at
+        // most ONE session server-side (roleless callers: exact serial/device-name match; members/GA
+        // keep substring search, which is why lookup is AuthenticatedUserWithRole — the function
+        // needs the resolved role flags). The events route re-checks the serial on every read
+        // (SerialKnowledgeProof) so a leaked sessionId is not an eternal bearer capability. Do NOT
+        // raise these to MemberRead — the portal's audience is roleless end users (see class doc on
+        // ProgressPortalFunction; regression history c4dabeee).
+        new("GET",    "progress/sessions/lookup",  EndpointPolicy.AuthenticatedUserWithRole, TenantScoping.QueryParam),
         new("GET",    "progress/sessions/{sessionId}/events", EndpointPolicy.AuthenticatedUser, TenantScoping.QueryParam),
         new("PUT",    "preview/notification-email", EndpointPolicy.AuthenticatedUser),
         new("GET",    "feedback/status",           EndpointPolicy.AuthenticatedUser),

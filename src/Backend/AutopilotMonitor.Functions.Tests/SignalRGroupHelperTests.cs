@@ -176,12 +176,90 @@ public class SignalRGroupHelperTests
     [Fact]
     public void BroadcastJoin_SessionAndNotifyGroups_NotCovered()
     {
-        // Session groups stay joinable for roleless users (Progress Portal); notify groups have their own
-        // gate (CheckNotifyGroupAccess).
+        // Session groups have their own gate (RequiresSessionGroupSerialProof — serial knowledge,
+        // not a role); notify groups have theirs (CheckNotifyGroupAccess).
         var ctx = new RequestContext { TenantId = HomeTenant };
         Assert.False(SignalRGroupHelper.IsTenantBroadcastJoinDenied(
             $"session-{HomeTenant}-{SessionId}", HomeTenant, ctx));
         Assert.False(SignalRGroupHelper.IsTenantBroadcastJoinDenied(MemberGroup(HomeTenant), HomeTenant, ctx));
         Assert.False(SignalRGroupHelper.IsTenantBroadcastJoinDenied(AdminGroup(HomeTenant), HomeTenant, ctx));
+    }
+
+    // ── Session-group parsing ────────────────────────────────────────────────
+
+    [Fact]
+    public void ExtractSessionId_ParsesWellFormedSessionGroup()
+    {
+        Assert.Equal(SessionId,
+            SignalRGroupHelper.ExtractSessionIdFromGroupName($"session-{TenantId}-{SessionId}"));
+    }
+
+    [Fact]
+    public void ExtractSessionId_RejectsMalformedNames()
+    {
+        // Strict on purpose: the serial-proof gate treats an unparseable name as no-session →
+        // fail-closed deny for a roleless caller.
+        Assert.Null(SignalRGroupHelper.ExtractSessionIdFromGroupName($"tenant-{TenantId}"));
+        Assert.Null(SignalRGroupHelper.ExtractSessionIdFromGroupName("global-admins"));
+        Assert.Null(SignalRGroupHelper.ExtractSessionIdFromGroupName($"session-{TenantId}"));               // no session part
+        Assert.Null(SignalRGroupHelper.ExtractSessionIdFromGroupName($"session-{TenantId}-not-a-guid"));    // wrong part count
+        Assert.Null(SignalRGroupHelper.ExtractSessionIdFromGroupName($"session-{TenantId}-{SessionId}-x")); // trailing junk
+        Assert.Null(SignalRGroupHelper.ExtractSessionIdFromGroupName(
+            $"session-{TenantId}-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeez")); // 11 parts but not a GUID
+    }
+
+    // ── RequiresSessionGroupSerialProof ──────────────────────────────────────
+    // Session groups stream one device's live enrollment telemetry. Members may join any of their
+    // tenant's session groups (the same data is MemberRead at REST); a roleless Progress-Portal end
+    // user must instead present the device's serial (SerialKnowledgeProof, checked in the function).
+
+    [Fact]
+    public void SessionSerialProof_RolelessSameTenantUser_Required()
+    {
+        // THE FIX: without this, any authenticated roleless employee could join any known/leaked
+        // session-{tid}-{sid} group of their tenant and stream that device's live events.
+        var ctx = new RequestContext { TenantId = HomeTenant };
+        Assert.True(SignalRGroupHelper.RequiresSessionGroupSerialProof(
+            $"session-{HomeTenant}-{SessionId}", HomeTenant, ctx));
+    }
+
+    [Fact]
+    public void SessionSerialProof_SameTenantMember_NotRequired()
+    {
+        // Regression guard for the admin pages (sessions detail, diagnosis, dashboard): member
+        // joins carry no serial and must keep working unchanged.
+        var ctx = new RequestContext { TenantId = HomeTenant, UserRole = Constants.TenantRoles.Viewer };
+        Assert.False(SignalRGroupHelper.RequiresSessionGroupSerialProof(
+            $"session-{HomeTenant}-{SessionId}", HomeTenant, ctx));
+    }
+
+    [Fact]
+    public void SessionSerialProof_GlobalScope_NotRequired()
+    {
+        var ga = new RequestContext { TenantId = HomeTenant, IsGlobalAdmin = true };
+        var reader = new RequestContext { TenantId = HomeTenant, IsGlobalReader = true };
+        Assert.False(SignalRGroupHelper.RequiresSessionGroupSerialProof(
+            $"session-{HomeTenant}-{SessionId}", HomeTenant, ga));
+        Assert.False(SignalRGroupHelper.RequiresSessionGroupSerialProof(
+            $"session-{HomeTenant}-{SessionId}", HomeTenant, reader));
+    }
+
+    [Fact]
+    public void SessionSerialProof_CrossTenant_NotDecidedHere()
+    {
+        // A cross-tenant join only reaches this check after the upstream cross-tenant admission
+        // (platform scope, or delegated scope over the group's tenant) — no serial demanded there.
+        var ctx = new RequestContext { TenantId = HomeTenant };
+        Assert.False(SignalRGroupHelper.RequiresSessionGroupSerialProof(
+            $"session-{ManagedTenant}-{SessionId}", ManagedTenant, ctx));
+    }
+
+    [Fact]
+    public void SessionSerialProof_NonSessionGroups_NotCovered()
+    {
+        var ctx = new RequestContext { TenantId = HomeTenant };
+        Assert.False(SignalRGroupHelper.RequiresSessionGroupSerialProof($"tenant-{HomeTenant}", HomeTenant, ctx));
+        Assert.False(SignalRGroupHelper.RequiresSessionGroupSerialProof(MemberGroup(HomeTenant), HomeTenant, ctx));
+        Assert.False(SignalRGroupHelper.RequiresSessionGroupSerialProof("global-admins", null, ctx));
     }
 }

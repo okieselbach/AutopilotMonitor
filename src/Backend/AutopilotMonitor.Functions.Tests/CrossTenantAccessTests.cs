@@ -238,6 +238,7 @@ public class CrossTenantAccessTests
     [InlineData("GET", "/api/bootstrap/sessions")]
     [InlineData("GET", "/api/diagnostics/download-url")]
     [InlineData("GET", "/api/progress/sessions/abc-123/events")]
+    [InlineData("GET", "/api/progress/sessions/lookup")]
     public void QueryParam_NoQueryTenant_DefaultsToJwt(string httpMethod, string path)
     {
         var (isBlocked, targetTenantId) = SimulateQueryParamCheck(httpMethod, path, TenantA, hasGlobalScope: false, queryTenantId: null);
@@ -254,6 +255,7 @@ public class CrossTenantAccessTests
     [InlineData("GET", "/api/bootstrap/sessions")]
     [InlineData("GET", "/api/diagnostics/download-url")]
     [InlineData("GET", "/api/progress/sessions/abc-123/events")]
+    [InlineData("GET", "/api/progress/sessions/lookup")]
     public void QueryParam_SameTenant_IsAllowed(string httpMethod, string path)
     {
         var (isBlocked, targetTenantId) = SimulateQueryParamCheck(httpMethod, path, TenantA, hasGlobalScope: false, queryTenantId: TenantA);
@@ -274,6 +276,7 @@ public class CrossTenantAccessTests
     [InlineData("DELETE", "/api/bootstrap/sessions/CODE123")]
     [InlineData("GET", "/api/diagnostics/download-url")]
     [InlineData("GET", "/api/progress/sessions/abc-123/events")]
+    [InlineData("GET", "/api/progress/sessions/lookup")]
     public void QueryParam_CrossTenant_NonGA_IsBlocked(string httpMethod, string path)
     {
         var (isBlocked, targetTenantId) = SimulateQueryParamCheck(httpMethod, path, TenantA, hasGlobalScope: false, queryTenantId: TenantB);
@@ -291,6 +294,7 @@ public class CrossTenantAccessTests
     [InlineData("GET", "/api/bootstrap/sessions")]
     [InlineData("GET", "/api/diagnostics/download-url")]
     [InlineData("GET", "/api/progress/sessions/abc-123/events")]
+    [InlineData("GET", "/api/progress/sessions/lookup")]
     public void QueryParam_CrossTenant_GlobalAdmin_IsAllowed(string httpMethod, string path)
     {
         var (isBlocked, targetTenantId) = SimulateQueryParamCheck(httpMethod, path, TenantA, hasGlobalScope: true, queryTenantId: TenantB);
@@ -316,6 +320,7 @@ public class CrossTenantAccessTests
     [InlineData("DELETE", "bootstrap/sessions/{code}")]
     [InlineData("GET", "diagnostics/download-url")]
     [InlineData("GET", "progress/sessions/{sessionId}/events")]
+    [InlineData("GET", "progress/sessions/lookup")]
     public void QueryParamRoutes_HaveCorrectScoping(string httpMethod, string routeTemplate)
     {
         var entry = EndpointAccessPolicyCatalog.Entries
