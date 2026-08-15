@@ -468,7 +468,9 @@ describe('/oauth/token — outbound Entra timeout', () => {
 
   function stubEntraFetch(rejection: unknown, onCall?: (init?: RequestInit) => void) {
     vi.stubGlobal('fetch', ((input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input).includes('login.microsoftonline.com')) {
+      // Exact hostname match, not a substring check (CodeQL alert #76): the
+      // stub must intercept only the Entra authority, never the test server.
+      if (new URL(String(input)).hostname === 'login.microsoftonline.com') {
         onCall?.(init);
         return Promise.reject(rejection);
       }
