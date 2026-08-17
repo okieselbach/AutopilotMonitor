@@ -2,7 +2,6 @@ using AutopilotMonitor.Shared;
 using System;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
@@ -13,15 +12,14 @@ namespace AutopilotMonitor.Functions.Security
 {
     /// <summary>
     /// Validates devices against Intune Corporate Device Identifiers via Microsoft Graph beta API.
-    /// Uses the importedDeviceIdentities/searchExistingIdentities endpoint with the
-    /// manufacturerModelSerial type — the only corporate-identifier type Windows supports.
-    /// Deliberately NOT probing the serial-only type: Intune ignores it for Windows, so a
-    /// serial-type entry is an admin misconfiguration on the Intune side and must not count
-    /// as authorization here (decision 2026-08-17, first WDP enrollment).
-    /// NOTE: searchExistingIdentities requires the DeviceManagementServiceConfig.ReadWrite.All
-    /// (or DeviceManagementServiceConfiguration.ReadWrite.All) application permission — a Graph
-    /// 401/403 means missing admin consent and is classified as a definitive failure, not
-    /// transient. Caches positive/negative lookups to reduce Graph traffic.
+    /// Reads /deviceManagement/importedDeviceIdentities (GET, DeviceManagementServiceConfig.Read.All
+    /// suffices) instead of the searchExistingIdentities action, which would require the heavy
+    /// ReadWrite.All scope the app deliberately does not hold (field case 2026-08-17: the action
+    /// 403'd in every tenant). Only the manufacturerModelSerial type counts — the sole
+    /// corporate-identifier type Windows supports; serial-only entries are an Intune-side admin
+    /// misconfiguration and must not authorize. A Graph 401/403 means missing admin consent and
+    /// is classified as a definitive failure, not transient. Caches positive/negative lookups to
+    /// reduce Graph traffic.
     /// </summary>
     public class CorporateIdentifierValidator
     {
@@ -121,89 +119,74 @@ namespace AutopilotMonitor.Functions.Security
                 var graphClient = _httpClientFactory.CreateClient();
                 graphClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokenResult.AccessToken);
 
-                // POST https://graph.microsoft.com/beta/deviceManagement/importedDeviceIdentities/searchExistingIdentities
+                // GET /beta/deviceManagement/importedDeviceIdentities — deliberately NOT the
+                // searchExistingIdentities action: the action requires the heavy
+                // DeviceManagementServiceConfig.ReadWrite.All scope, while listing works with
+                // Read.All, which the app already holds for windowsAutopilotDeviceIdentities.
+                // Mirrors AutopilotDeviceValidator: contains() for server-side narrowing (eq is
+                // unreliable on Intune endpoints), exact match client-side.
                 var identifier = $"{normalizedManufacturer},{normalizedModel},{normalizedSerial}";
-                var requestBody = new
+                var escapedSerial = normalizedSerial.Replace("'", "''");
+                var filter = Uri.EscapeDataString($"contains(importedDeviceIdentifier,'{escapedSerial}')");
+                var filteredUrl = $"{Constants.GraphBaseUrl}/beta/deviceManagement/importedDeviceIdentities?$top=100&$filter={filter}";
+
+                var scan = await ScanPagesForIdentifierAsync(graphClient, filteredUrl, identifier, tenantId, attempt, maxPages: 5);
+
+                if (scan.Outcome == ScanOutcome.FilterRejected)
                 {
-                    importedDeviceIdentities = new[]
-                    {
-                        new
-                        {
-                            importedDeviceIdentityType = "manufacturerModelSerial",
-                            importedDeviceIdentifier = identifier
-                        }
-                    }
-                };
-
-                var content = new StringContent(
-                    JsonConvert.SerializeObject(requestBody),
-                    Encoding.UTF8,
-                    "application/json");
-
-                var graphUrl = Constants.GraphBaseUrl + "/beta/deviceManagement/importedDeviceIdentities/searchExistingIdentities";
-                var response = await graphClient.PostAsync(graphUrl, content);
-                var responseBody = await response.Content.ReadAsStringAsync();
-
-                if (!response.IsSuccessStatusCode)
-                {
+                    // Fallback: the endpoint rejected the filter (400) — page the unfiltered list
+                    // and match client-side. 60 pages x 1000 covers the portal maximum of
+                    // 10 CSV files x 5000 identifiers.
                     _logger.LogWarning(
-                        "Corporate identifier validation Graph query failed for tenant {TenantId} (attempt {Attempt}). Status: {StatusCode}. Body: {ResponseBody}",
-                        tenantId, attempt, (int)response.StatusCode, responseBody);
+                        "Corporate identifier validation: contains() filter rejected by Graph for tenant {TenantId}; falling back to unfiltered scan.",
+                        tenantId);
+                    var unfilteredUrl = $"{Constants.GraphBaseUrl}/beta/deviceManagement/importedDeviceIdentities?$top=1000";
+                    scan = await ScanPagesForIdentifierAsync(graphClient, unfilteredUrl, identifier, tenantId, attempt, maxPages: 60);
+                }
 
-                    // 401/403 = missing application permission / admin consent for
-                    // searchExistingIdentities (requires DeviceManagementServiceConfig.ReadWrite.All
-                    // or DeviceManagementServiceConfiguration.ReadWrite.All). Retries can never
-                    // heal that, so it is a DEFINITIVE failure — a transient classification would
-                    // trap every agent in an endless 503 Retry-After loop (field case 2026-08-17).
-                    // Cached like a negative lookup (5 min) so a fleet of agents does not hammer
-                    // Graph while the consent is being fixed.
-                    if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized
-                        || response.StatusCode == System.Net.HttpStatusCode.Forbidden)
-                    {
+                switch (scan.Outcome)
+                {
+                    case ScanOutcome.Found:
+                        _logger.LogInformation(
+                            "Corporate identifier validation succeeded for tenant {TenantId}, session {SessionId}, identifier {Identifier}",
+                            tenantId, sessionId ?? "<none>", identifier);
+                        return CacheAndReturn(cacheKey, new CorporateIdentifierValidationResult
+                        {
+                            IsValid = true,
+                            Identifier = identifier
+                        }, isPositive: true);
+
+                    case ScanOutcome.NotFound:
+                        // Definitive: device not found — cache negative result
+                        return CacheAndReturn(cacheKey, new CorporateIdentifierValidationResult
+                        {
+                            IsValid = false,
+                            ErrorMessage = $"Device '{identifier}' is not registered as a Corporate Identifier (manufacturerModelSerial)"
+                        }, isPositive: false);
+
+                    case ScanOutcome.PermissionDenied:
+                        // 401/403 = missing application permission / admin consent. Retries can
+                        // never heal that, so it is a DEFINITIVE failure — a transient
+                        // classification would trap every agent in an endless 503 Retry-After
+                        // loop (field case 2026-08-17). Cached like a negative lookup (5 min) so
+                        // a fleet of agents does not hammer Graph while consent is being fixed.
                         return CacheAndReturn(cacheKey, new CorporateIdentifierValidationResult
                         {
                             IsValid = false,
                             ErrorMessage = "Corporate identifier lookup not permitted: the app registration lacks the "
-                                + "DeviceManagementServiceConfig.ReadWrite.All (or DeviceManagementServiceConfiguration.ReadWrite.All) "
-                                + "Graph permission or admin consent. Grant consent or disable ValidateCorporateIdentifier."
+                                + "DeviceManagementServiceConfig.Read.All (or ReadWrite.All) Graph permission or admin "
+                                + "consent. Grant consent or disable ValidateCorporateIdentifier."
                         }, isPositive: false);
-                    }
 
-                    // Other Graph errors (throttling, 5xx) are transient — do NOT cache
-                    return new CorporateIdentifierValidationResult
-                    {
-                        IsValid = false,
-                        IsTransient = true,
-                        ErrorMessage = $"Graph query failed with status {(int)response.StatusCode}"
-                    };
+                    default:
+                        // Transient (throttling, 5xx, page-cap exceeded) — do NOT cache
+                        return new CorporateIdentifierValidationResult
+                        {
+                            IsValid = false,
+                            IsTransient = true,
+                            ErrorMessage = scan.Error ?? "Graph query failed"
+                        };
                 }
-
-                var data = JsonConvert.DeserializeObject<JObject>(responseBody);
-                var identities = data?["value"] as JArray;
-
-                if (identities == null || identities.Count == 0)
-                {
-                    // Definitive: device not found — cache negative result
-                    return CacheAndReturn(cacheKey, new CorporateIdentifierValidationResult
-                    {
-                        IsValid = false,
-                        ErrorMessage = $"Device '{identifier}' is not registered as a Corporate Identifier (manufacturerModelSerial)"
-                    }, isPositive: false);
-                }
-
-                var result = new CorporateIdentifierValidationResult
-                {
-                    IsValid = true,
-                    Identifier = identifier
-                };
-
-                _logger.LogInformation(
-                    "Corporate identifier validation succeeded for tenant {TenantId}, session {SessionId}, identifier {Identifier}",
-                    tenantId,
-                    sessionId ?? "<none>",
-                    identifier);
-
-                return CacheAndReturn(cacheKey, result, isPositive: true);
             }
             catch (Exception ex)
             {
@@ -225,6 +208,75 @@ namespace AutopilotMonitor.Functions.Security
                     ErrorMessage = $"Error during corporate identifier validation: {ex.Message}"
                 };
             }
+        }
+
+        private enum ScanOutcome { Found, NotFound, PermissionDenied, FilterRejected, Transient }
+
+        private readonly record struct ScanResult(ScanOutcome Outcome, string? Error = null);
+
+        /// <summary>
+        /// Pages through an importedDeviceIdentities GET url (following @odata.nextLink) and
+        /// looks for a manufacturerModelSerial identity whose importedDeviceIdentifier equals
+        /// <paramref name="identifier"/> (case-insensitive — Intune's own matching is not
+        /// case-sensitive). Serial-only identities never match: Intune ignores them for Windows,
+        /// so they are an Intune-side misconfiguration, not authorization.
+        /// </summary>
+        private async Task<ScanResult> ScanPagesForIdentifierAsync(
+            HttpClient graphClient, string url, string identifier, string tenantId, int attempt, int maxPages)
+        {
+            for (var page = 0; page < maxPages && !string.IsNullOrEmpty(url); page++)
+            {
+                var response = await graphClient.GetAsync(url);
+                var responseBody = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning(
+                        "Corporate identifier validation Graph query failed for tenant {TenantId} (attempt {Attempt}, page {Page}). Status: {StatusCode}. Body: {ResponseBody}",
+                        tenantId, attempt, page + 1, (int)response.StatusCode, responseBody);
+
+                    return response.StatusCode switch
+                    {
+                        System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden
+                            => new ScanResult(ScanOutcome.PermissionDenied),
+                        // 400 on the first page = the $filter was rejected; mid-pagination a 400
+                        // is unexpected and treated as transient like any other Graph error.
+                        System.Net.HttpStatusCode.BadRequest when page == 0
+                            => new ScanResult(ScanOutcome.FilterRejected),
+                        _ => new ScanResult(ScanOutcome.Transient, $"Graph query failed with status {(int)response.StatusCode}"),
+                    };
+                }
+
+                var data = JsonConvert.DeserializeObject<JObject>(responseBody);
+                var identities = data?["value"] as JArray;
+                if (identities != null)
+                {
+                    foreach (var identity in identities)
+                    {
+                        var type = identity?["importedDeviceIdentityType"]?.ToString();
+                        var value = identity?["importedDeviceIdentifier"]?.ToString();
+                        if (string.Equals(type, "manufacturerModelSerial", StringComparison.OrdinalIgnoreCase)
+                            && string.Equals(value, identifier, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return new ScanResult(ScanOutcome.Found);
+                        }
+                    }
+                }
+
+                url = data?["@odata.nextLink"]?.ToString() ?? string.Empty;
+            }
+
+            if (!string.IsNullOrEmpty(url))
+            {
+                // Page cap exceeded with more data pending — treating this as "not found" could
+                // cache a false negative, so it is transient instead.
+                _logger.LogWarning(
+                    "Corporate identifier validation exceeded {MaxPages} pages for tenant {TenantId} without exhausting the list.",
+                    maxPages, tenantId);
+                return new ScanResult(ScanOutcome.Transient, "Corporate identifier list scan exceeded the page budget");
+            }
+
+            return new ScanResult(ScanOutcome.NotFound);
         }
 
         private static string BuildCacheKey(string tenantId, string manufacturer, string model, string serialNumber)
