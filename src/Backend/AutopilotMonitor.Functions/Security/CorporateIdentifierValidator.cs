@@ -2,6 +2,7 @@ using AutopilotMonitor.Shared;
 using System;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
@@ -17,9 +18,11 @@ namespace AutopilotMonitor.Functions.Security
     /// ReadWrite.All scope the app deliberately does not hold (field case 2026-08-17: the action
     /// 403'd in every tenant). Only the manufacturerModelSerial type counts — the sole
     /// corporate-identifier type Windows supports; serial-only entries are an Intune-side admin
-    /// misconfiguration and must not authorize. A Graph 401/403 means missing admin consent and
-    /// is classified as a definitive failure, not transient. Caches positive/negative lookups to
-    /// reduce Graph traffic.
+    /// misconfiguration and must not authorize. Matching happens in Intune's NORMALIZED space
+    /// (uppercase, non-alphanumerics stripped per component — see <see cref="NormalizeComponent"/>),
+    /// because that is the form the portal stores and matches at enrollment. A Graph 401/403
+    /// means missing admin consent and is classified as a definitive failure, not transient.
+    /// Caches positive/negative lookups to reduce Graph traffic.
     /// </summary>
     public class CorporateIdentifierValidator
     {
@@ -125,12 +128,21 @@ namespace AutopilotMonitor.Functions.Security
                 // Read.All, which the app already holds for windowsAutopilotDeviceIdentities.
                 // Mirrors AutopilotDeviceValidator: contains() for server-side narrowing (eq is
                 // unreliable on Intune endpoints), exact match client-side.
-                var identifier = $"{normalizedManufacturer},{normalizedModel},{normalizedSerial}";
-                var escapedSerial = normalizedSerial.Replace("'", "''");
-                var filter = Uri.EscapeDataString($"contains(importedDeviceIdentifier,'{escapedSerial}')");
+                //
+                // Intune NORMALIZES corporate identifiers on upload: uppercased, every
+                // non-alphanumeric character stripped per component — "Microsoft Corporation,
+                // Virtual Machine,7801-5131-…" is stored as "MICROSOFTCORPORATION,
+                // VIRTUALMACHINE,78015131…" (field-verified 2026-08-17: the portal list shows
+                // the normalized form and the device matched + enrolled against it). All
+                // matching therefore happens in normalized space — including the contains()
+                // narrowing, which with the raw dashed serial would never hit the stored value.
+                var rawIdentifier = $"{normalizedManufacturer},{normalizedModel},{normalizedSerial}";
+                var normalizedIdentifier = BuildNormalizedIdentifier(normalizedManufacturer, normalizedModel, normalizedSerial);
+                // Normalized serial is alphanumeric-only, so no OData quote-escaping is needed.
+                var filter = Uri.EscapeDataString($"contains(importedDeviceIdentifier,'{NormalizeComponent(normalizedSerial)}')");
                 var filteredUrl = $"{Constants.GraphBaseUrl}/beta/deviceManagement/importedDeviceIdentities?$top=100&$filter={filter}";
 
-                var scan = await ScanPagesForIdentifierAsync(graphClient, filteredUrl, identifier, tenantId, attempt, maxPages: 5);
+                var scan = await ScanPagesForIdentifierAsync(graphClient, filteredUrl, normalizedIdentifier, tenantId, attempt, maxPages: 5);
 
                 if (scan.Outcome == ScanOutcome.FilterRejected)
                 {
@@ -141,19 +153,19 @@ namespace AutopilotMonitor.Functions.Security
                         "Corporate identifier validation: contains() filter rejected by Graph for tenant {TenantId}; falling back to unfiltered scan.",
                         tenantId);
                     var unfilteredUrl = $"{Constants.GraphBaseUrl}/beta/deviceManagement/importedDeviceIdentities?$top=1000";
-                    scan = await ScanPagesForIdentifierAsync(graphClient, unfilteredUrl, identifier, tenantId, attempt, maxPages: 60);
+                    scan = await ScanPagesForIdentifierAsync(graphClient, unfilteredUrl, normalizedIdentifier, tenantId, attempt, maxPages: 60);
                 }
 
                 switch (scan.Outcome)
                 {
                     case ScanOutcome.Found:
                         _logger.LogInformation(
-                            "Corporate identifier validation succeeded for tenant {TenantId}, session {SessionId}, identifier {Identifier}",
-                            tenantId, sessionId ?? "<none>", identifier);
+                            "Corporate identifier validation succeeded for tenant {TenantId}, session {SessionId}, identifier {Identifier} (normalized {NormalizedIdentifier})",
+                            tenantId, sessionId ?? "<none>", rawIdentifier, normalizedIdentifier);
                         return CacheAndReturn(cacheKey, new CorporateIdentifierValidationResult
                         {
                             IsValid = true,
-                            Identifier = identifier
+                            Identifier = rawIdentifier
                         }, isPositive: true);
 
                     case ScanOutcome.NotFound:
@@ -161,7 +173,7 @@ namespace AutopilotMonitor.Functions.Security
                         return CacheAndReturn(cacheKey, new CorporateIdentifierValidationResult
                         {
                             IsValid = false,
-                            ErrorMessage = $"Device '{identifier}' is not registered as a Corporate Identifier (manufacturerModelSerial)"
+                            ErrorMessage = $"Device '{rawIdentifier}' (normalized '{normalizedIdentifier}') is not registered as a Corporate Identifier (manufacturerModelSerial)"
                         }, isPositive: false);
 
                     case ScanOutcome.PermissionDenied:
@@ -217,12 +229,13 @@ namespace AutopilotMonitor.Functions.Security
         /// <summary>
         /// Pages through an importedDeviceIdentities GET url (following @odata.nextLink) and
         /// looks for a manufacturerModelSerial identity whose importedDeviceIdentifier equals
-        /// <paramref name="identifier"/> (case-insensitive — Intune's own matching is not
-        /// case-sensitive). Serial-only identities never match: Intune ignores them for Windows,
-        /// so they are an Intune-side misconfiguration, not authorization.
+        /// <paramref name="normalizedIdentifier"/> after normalizing the stored value the same
+        /// way (both sides pass through <see cref="NormalizeStoredIdentifier"/>, so raw legacy
+        /// entries match too). Serial-only identities never match: they are an Intune-side
+        /// misconfiguration for Windows, not authorization.
         /// </summary>
         private async Task<ScanResult> ScanPagesForIdentifierAsync(
-            HttpClient graphClient, string url, string identifier, string tenantId, int attempt, int maxPages)
+            HttpClient graphClient, string url, string normalizedIdentifier, string tenantId, int attempt, int maxPages)
         {
             for (var page = 0; page < maxPages && !string.IsNullOrEmpty(url); page++)
             {
@@ -256,7 +269,8 @@ namespace AutopilotMonitor.Functions.Security
                         var type = identity?["importedDeviceIdentityType"]?.ToString();
                         var value = identity?["importedDeviceIdentifier"]?.ToString();
                         if (string.Equals(type, "manufacturerModelSerial", StringComparison.OrdinalIgnoreCase)
-                            && string.Equals(value, identifier, StringComparison.OrdinalIgnoreCase))
+                            && value != null
+                            && string.Equals(NormalizeStoredIdentifier(value), normalizedIdentifier, StringComparison.Ordinal))
                         {
                             return new ScanResult(ScanOutcome.Found);
                         }
@@ -277,6 +291,45 @@ namespace AutopilotMonitor.Functions.Security
             }
 
             return new ScanResult(ScanOutcome.NotFound);
+        }
+
+        /// <summary>
+        /// Normalizes one identifier component the way the Intune portal does on upload:
+        /// uppercase, every non-alphanumeric character removed ("Microsoft Corporation" →
+        /// "MICROSOFTCORPORATION", "7801-5131-…-18" → "78015131…18"). Field-verified 2026-08-17
+        /// against the portal's stored corporate identifier list.
+        /// </summary>
+        internal static string NormalizeComponent(string value)
+        {
+            var sb = new StringBuilder(value.Length);
+            foreach (var c in value)
+            {
+                if (char.IsLetterOrDigit(c))
+                    sb.Append(char.ToUpperInvariant(c));
+            }
+            return sb.ToString();
+        }
+
+        internal static string BuildNormalizedIdentifier(string manufacturer, string model, string serial) =>
+            $"{NormalizeComponent(manufacturer)},{NormalizeComponent(model)},{NormalizeComponent(serial)}";
+
+        /// <summary>
+        /// Normalizes a stored importedDeviceIdentifier for comparison: same per-character rule
+        /// as <see cref="NormalizeComponent"/> but keeps the comma separators. Stored values are
+        /// already normalized by the portal; running them through again is a no-op there and
+        /// makes raw-form entries (e.g. created via Graph directly) match as well.
+        /// </summary>
+        internal static string NormalizeStoredIdentifier(string value)
+        {
+            var sb = new StringBuilder(value.Length);
+            foreach (var c in value)
+            {
+                if (c == ',')
+                    sb.Append(c);
+                else if (char.IsLetterOrDigit(c))
+                    sb.Append(char.ToUpperInvariant(c));
+            }
+            return sb.ToString();
         }
 
         private static string BuildCacheKey(string tenantId, string manufacturer, string model, string serialNumber)

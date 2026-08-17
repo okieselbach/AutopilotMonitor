@@ -24,6 +24,10 @@ public class CorporateIdentifierValidatorTests
     private const string TenantId = "11111111-1111-1111-1111-111111111111";
     private const string Serial = "7801-5131-4473-3387-5637-4002-18";
     private const string MmsIdentifier = $"Microsoft Corporation,Virtual Machine,{Serial}";
+    // The form Intune actually stores (field-verified 2026-08-17 in the portal list):
+    // uppercased, spaces and dashes stripped per component.
+    private const string StoredIdentifier = "MICROSOFTCORPORATION,VIRTUALMACHINE,78015131447333875637400218";
+    private const string StoredSerial = "78015131447333875637400218";
 
     private sealed class SequenceHandler : HttpMessageHandler
     {
@@ -73,7 +77,7 @@ public class CorporateIdentifierValidatorTests
     }
 
     [Fact]
-    public async Task ValidateAsync_usesGet_withContainsFilterOnSerial()
+    public async Task ValidateAsync_usesGet_withContainsFilterOnNormalizedSerial()
     {
         var (sut, handler) = BuildSut(Json("""{"value":[]}"""));
 
@@ -84,14 +88,18 @@ public class CorporateIdentifierValidatorTests
         var url = request.RequestUri!.ToString();
         Assert.Contains("/beta/deviceManagement/importedDeviceIdentities", url);
         Assert.DoesNotContain("searchExistingIdentities", url);
-        Assert.Contains("contains(importedDeviceIdentifier", Uri.UnescapeDataString(url));
+        // The stored value is normalized (dashless), so filtering with the raw dashed serial
+        // could never hit — the filter must use the normalized serial.
+        Assert.Contains($"contains(importedDeviceIdentifier,'{StoredSerial}')", Uri.UnescapeDataString(url));
     }
 
     [Fact]
-    public async Task ValidateAsync_mmsIdentityMatch_isValid()
+    public async Task ValidateAsync_storedNormalizedIdentity_matchesRawDeviceValues()
     {
+        // THE field case: device reports "Microsoft Corporation" / "Virtual Machine" / dashed
+        // serial; Intune stores "MICROSOFTCORPORATION,VIRTUALMACHINE,<dashless>". Must match.
         var (sut, _) = BuildSut(Json($$"""
-            {"value":[{"importedDeviceIdentityType":"manufacturerModelSerial","importedDeviceIdentifier":"{{MmsIdentifier}}"}]}
+            {"value":[{"importedDeviceIdentityType":"manufacturerModelSerial","importedDeviceIdentifier":"{{StoredIdentifier}}"}]}
             """));
 
         var result = await sut.ValidateAsync(TenantId, "Microsoft Corporation", "Virtual Machine", Serial);
@@ -102,10 +110,12 @@ public class CorporateIdentifierValidatorTests
     }
 
     [Fact]
-    public async Task ValidateAsync_matchIsCaseInsensitive()
+    public async Task ValidateAsync_rawStoredIdentity_alsoMatches()
     {
+        // Entries created directly via Graph may be stored raw — both sides are normalized
+        // before comparison, so these match too.
         var (sut, _) = BuildSut(Json($$"""
-            {"value":[{"importedDeviceIdentityType":"manufacturerModelSerial","importedDeviceIdentifier":"{{MmsIdentifier.ToUpperInvariant()}}"}]}
+            {"value":[{"importedDeviceIdentityType":"manufacturerModelSerial","importedDeviceIdentifier":"{{MmsIdentifier}}"}]}
             """));
 
         var result = await sut.ValidateAsync(TenantId, "Microsoft Corporation", "Virtual Machine", Serial);
@@ -114,12 +124,25 @@ public class CorporateIdentifierValidatorTests
     }
 
     [Fact]
+    public async Task ValidateAsync_differentDevice_doesNotMatch()
+    {
+        var (sut, _) = BuildSut(Json("""
+            {"value":[{"importedDeviceIdentityType":"manufacturerModelSerial","importedDeviceIdentifier":"MICROSOFTCORPORATION,VIRTUALMACHINE,39260126318839370830655125"}]}
+            """));
+
+        var result = await sut.ValidateAsync(TenantId, "Microsoft Corporation", "Virtual Machine", Serial);
+
+        Assert.False(result.IsValid);
+        Assert.False(result.IsTransient);
+    }
+
+    [Fact]
     public async Task ValidateAsync_serialOnlyIdentity_doesNotAuthorize()
     {
-        // Serial-type corporate identifiers are unsupported for Windows — an Intune-side
-        // misconfiguration, deliberately not treated as authorization (decision 2026-08-17).
+        // Serial-type corporate identifiers are an Intune-side misconfiguration for Windows,
+        // deliberately not treated as authorization (decision 2026-08-17).
         var (sut, _) = BuildSut(Json($$"""
-            {"value":[{"importedDeviceIdentityType":"serialNumber","importedDeviceIdentifier":"{{Serial}}"}]}
+            {"value":[{"importedDeviceIdentityType":"serialNumber","importedDeviceIdentifier":"{{StoredSerial}}"}]}
             """));
 
         var result = await sut.ValidateAsync(TenantId, "Microsoft Corporation", "Virtual Machine", Serial);
@@ -132,8 +155,8 @@ public class CorporateIdentifierValidatorTests
     public async Task ValidateAsync_followsNextLink_untilMatch()
     {
         var (sut, handler) = BuildSut(
-            Json("""{"value":[{"importedDeviceIdentityType":"manufacturerModelSerial","importedDeviceIdentifier":"Dell,XPS,OTHER1"}],"@odata.nextLink":"https://graph.microsoft.com/beta/deviceManagement/importedDeviceIdentities?$skiptoken=abc"}"""),
-            Json($$"""{"value":[{"importedDeviceIdentityType":"manufacturerModelSerial","importedDeviceIdentifier":"{{MmsIdentifier}}"}]}"""));
+            Json("""{"value":[{"importedDeviceIdentityType":"manufacturerModelSerial","importedDeviceIdentifier":"DELL,XPS,OTHER1"}],"@odata.nextLink":"https://graph.microsoft.com/beta/deviceManagement/importedDeviceIdentities?$skiptoken=abc"}"""),
+            Json($$"""{"value":[{"importedDeviceIdentityType":"manufacturerModelSerial","importedDeviceIdentifier":"{{StoredIdentifier}}"}]}"""));
 
         var result = await sut.ValidateAsync(TenantId, "Microsoft Corporation", "Virtual Machine", Serial);
 
@@ -143,7 +166,7 @@ public class CorporateIdentifierValidatorTests
     }
 
     [Fact]
-    public async Task ValidateAsync_noMatch_isDefinitive()
+    public async Task ValidateAsync_noMatch_isDefinitive_andShowsBothForms()
     {
         var (sut, _) = BuildSut(Json("""{"value":[]}"""));
 
@@ -151,7 +174,10 @@ public class CorporateIdentifierValidatorTests
 
         Assert.False(result.IsValid);
         Assert.False(result.IsTransient);
+        // Both the raw and the normalized form must appear so a rejection log is diagnosable
+        // against the portal list (which shows only the normalized form).
         Assert.Contains(MmsIdentifier, result.ErrorMessage);
+        Assert.Contains(StoredIdentifier, result.ErrorMessage);
     }
 
     [Fact]
@@ -161,7 +187,7 @@ public class CorporateIdentifierValidatorTests
         // unfiltered list instead of failing.
         var (sut, handler) = BuildSut(
             Json("""{"error":{"code":"BadRequest","message":"filter not supported"}}""", HttpStatusCode.BadRequest),
-            Json($$"""{"value":[{"importedDeviceIdentityType":"manufacturerModelSerial","importedDeviceIdentifier":"{{MmsIdentifier}}"}]}"""));
+            Json($$"""{"value":[{"importedDeviceIdentityType":"manufacturerModelSerial","importedDeviceIdentifier":"{{StoredIdentifier}}"}]}"""));
 
         var result = await sut.ValidateAsync(TenantId, "Microsoft Corporation", "Virtual Machine", Serial);
 
@@ -169,6 +195,17 @@ public class CorporateIdentifierValidatorTests
         Assert.Equal(2, handler.Requests.Count);
         Assert.Contains("$filter", handler.Requests[0].RequestUri!.ToString());
         Assert.DoesNotContain("$filter", handler.Requests[1].RequestUri!.ToString());
+    }
+
+    [Theory]
+    [InlineData("Microsoft Corporation", "MICROSOFTCORPORATION")]
+    [InlineData("Virtual Machine", "VIRTUALMACHINE")]
+    [InlineData("7801-5131-4473-3387-5637-4002-18", "78015131447333875637400218")]
+    [InlineData("ThinkPad T14 Gen 3", "THINKPADT14GEN3")]
+    [InlineData("Serial.With.Periods", "SERIALWITHPERIODS")]
+    public void NormalizeComponent_matchesIntunePortalNormalization(string raw, string expected)
+    {
+        Assert.Equal(expected, CorporateIdentifierValidator.NormalizeComponent(raw));
     }
 
     [Theory]
