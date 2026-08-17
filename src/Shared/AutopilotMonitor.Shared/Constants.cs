@@ -417,6 +417,11 @@ namespace AutopilotMonitor.Shared
             public const string EspPhaseChanged           = "esp_phase_changed";
             public const string ImeAgentVersion           = "ime_agent_version";
             public const string ImeTokenFailure           = "ime_token_failure";     // Warning, once per distinct errorCode: IME token acquisition failed (IntuneTokenManager "Failed to get AAD token ... errorCode = N"). Complements IME-TOKEN-SUCCESS: an auth outage previously left every check-in silently doing nothing with no timeline evidence.
+            // Registry second pillar (ImeRegistryAppStateObserver, audit 2026-08-17): IME's authoritative
+            // per-app state read straight from HKLM\...\IntuneManagementExtension. Observability only —
+            // never consumed by the DecisionEngine.
+            public const string RegistryAppState          = "registry_app_state";        // Info, state-change-only (snapshot-diff vs silent startup baseline; capped 200/session, cap announced once as Warning): per-app EnforcementState/ErrorCode/ExitCode/StatusService status/ESP-tracking from the registry.
+            public const string AppStateReconciliation    = "app_state_reconciliation";  // Warning, once per app, immediate upload: registry terminal outcome (settled >= 90 s) diverges from the IME-log-derived app state — the built-in log-pattern drift alarm (registry = truth, logs = narrative).
             public const string ImeUserSessionCompleted   = "ime_user_session_completed";
             public const string DoTelemetry               = "do_telemetry";
             public const string AllAppsCompleted          = "all_apps_completed";

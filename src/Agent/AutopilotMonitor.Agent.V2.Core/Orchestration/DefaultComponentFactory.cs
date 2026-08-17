@@ -326,6 +326,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 clock: clock,
                 startupGate: _startupEventGate));
 
+            // Registry second pillar (audit 2026-08-17): IME's authoritative per-app state from
+            // HKLM\...\IntuneManagementExtension (Win32Apps EnforcementStateMessage,
+            // EspTrackingWin32Apps, StatusServiceReports) via snapshot-and-diff. Emits
+            // registry_app_state on real changes and app_state_reconciliation when the
+            // registry outcome diverges from the IME-log-derived state (= built-in pattern-drift
+            // alarm). Always-on observability host; the tracker probe is read-only.
+            hosts.Add(new ImeRegistryAppStateHost(
+                sessionId: sessionId,
+                tenantId: tenantId,
+                logger: logger,
+                ingress: ingress,
+                clock: clock,
+                trackerStateProbe: () => imeLogHost.AllKnownPackageStates));
+
             // Deterministic update corroboration — compares the persisted OS build (CurrentBuild.UBR)
             // across agent restarts and emits os_build_changed when it differs (session 7443317c:
             // build jump proved an OOBE quality update the WU channel never showed). Must be added

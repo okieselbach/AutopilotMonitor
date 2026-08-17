@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-18
+
+* **New**: `agent/registry-app-state-pillar.md` — the registry second pillar for IME app state (audit follow-up): snapshot-and-diff watcher on `HKLM\...\IntuneManagementExtension` (Win32Apps / EspTrackingWin32Apps / StatusServiceReports), `registry_app_state` + `app_state_reconciliation` events, silent startup baseline, WDP reuse notes.
+
 ## 2026-08-17
 
 * **Update**: `mcp/tool-telemetry.md` — the `tool_call` stderr line now carries `errorMessage` (capped at 300 chars; thrown message or the leading `toolError` text, absent on success), so error drilldowns name the failure class instead of guessing from args. Same change: `get_rule_stats` omits the per-rule daily `trend` rows by default (they drove 50% of calls over the response cap at platform scope); `includeTrends=true` opts back in, the response carries a `trendsNote` marker when stripped.
