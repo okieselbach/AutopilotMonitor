@@ -159,5 +159,3 @@ docs/~$Introduction-AutopilotMonitor.pptx
 # changes each run) and served at /version.json from the static export.
 src/Web/autopilot-monitor-web/public/version.json
 
-# Local IME reference working files - machine-local only, never committed.
-ime-files/
