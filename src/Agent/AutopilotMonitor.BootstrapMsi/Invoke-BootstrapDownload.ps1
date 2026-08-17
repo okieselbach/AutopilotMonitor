@@ -44,7 +44,9 @@ try {
     }
 
     Write-Log "Bootstrap script downloaded to $dest - executing."
-    & $dest *>> $log
+    # PS 5.1 file redirection (*>>) writes UTF-16LE, which garbles a log otherwise
+    # written via Add-Content (ANSI). Route through Add-Content for one encoding.
+    & $dest *>&1 | ForEach-Object { $_.ToString() } | Add-Content -Path $log
     Write-Log "Bootstrap script finished (exit code $LASTEXITCODE)."
     exit 0
 } catch {

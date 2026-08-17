@@ -172,12 +172,13 @@ namespace AutopilotMonitor.Agent.V2
 
                 logger.Info($"Scheduled Task '{taskName}' created/updated successfully.");
 
-                // Two-tier runtime-launch fallback chain:
+                // Two-tier runtime-launch fallback chain (order is token-aware, see below):
                 //
-                //   1. WMI Win32_Process.Create (first choice). Spawns the process from
-                //      the WBEM service context, outside the install-mode process tree
-                //      and outside Task Scheduler's queue (which defers /Run on battery
-                //      / OOBE — observed WinPE 2026-05-04, project_v2_install_runtime_handoff.md).
+                //   1. WMI Win32_Process.Create (first choice on a full token). Spawns the
+                //      process from the WBEM service context, outside the install-mode
+                //      process tree and outside Task Scheduler's queue (which defers /Run
+                //      on battery / OOBE — observed WinPE 2026-05-04,
+                //      project_v2_install_runtime_handoff.md).
                 //   2. schtasks /Run on the registered BootTrigger task (fallback).
                 //      Used when WMI is blocked, typically Defender ASR rule
                 //      d1e49aac-8f56-4280-b9ba-993a6d77406c ('Block process creations
@@ -190,6 +191,18 @@ namespace AutopilotMonitor.Agent.V2
                 //      the runtime via the Task Scheduler service — different
                 //      ATT&CK signature than either WMI or a manual schtasks /Run.
                 //
+                // Token-aware ordering (2026-08-17): WMI duplicates the CALLER's token onto
+                // the new process. MDM-originated install chains (Bootstrap MSI via
+                // EnterpriseDesktopAppManagement CSP → msiexec) carry a SYSTEM token with
+                // privileges REMOVED (SeTimeZonePrivilege, SeSystemEnvironmentPrivilege) —
+                // a WMI-launched runtime then runs degraded for its whole life (tzutil
+                // exit 5, firmware reads privilege_denied). The Task Scheduler service
+                // starts the task with a fresh full SYSTEM token, so on a stripped token
+                // the order flips: schtasks /Run first (verified via process poll, since
+                // /Run only reports "queued"), WMI as degraded-but-alive fallback. The
+                // battery/OOBE queue-defer that motivated WMI-first is mitigated by the
+                // hardened task XML (PR2: battery limits off, StartWhenAvailable, PT0S).
+                //
                 // Critical contract: --install returns 0 if deployment + task creation
                 // succeeded, even if both immediate launch paths failed. Returning 1
                 // here would make the bootstrap script throw, the next IME run would
@@ -197,11 +210,27 @@ namespace AutopilotMonitor.Agent.V2
                 // sit without a runtime until manual intervention. The bootstrap
                 // script's Get-Process probe is the canonical "no runtime came up"
                 // signal — see Install-AutopilotMonitor.ps1 ~line 280.
-                var wmi = TryStartRuntimeViaWmi(targetExePath, logger);
-                var launch = DecideRuntimeLaunchOutcome(
-                    wmiReturnValue: wmi.ReturnValue,
-                    wmiPid: wmi.Pid,
-                    trySchtasks: () => TryStartRuntimeViaSchtasks(taskName, logger));
+                RuntimeLaunchResult launch;
+                if (!TokenPrivilegeProbe.IsPrivilegeHeld(TokenPrivilegeProbe.TimeZonePrivilege))
+                {
+                    logger.Warning(
+                        "Install-mode process token does not hold SeTimeZonePrivilege — privilege-stripped " +
+                        "caller chain (typical: MDM LOB MSI install). WMI Win32_Process.Create would duplicate " +
+                        "this token onto the runtime, so the Scheduled Task launch (fresh full SYSTEM token from " +
+                        "the Task Scheduler service) is preferred for this install.");
+                    launch = DecideRestrictedTokenLaunchOutcome(
+                        trySchtasks: () => TryStartRuntimeViaSchtasks(taskName, logger),
+                        verifyRuntimePid: () => WaitForDetachedRuntimePid(targetExePath, logger),
+                        tryWmi: () => TryStartRuntimeViaWmi(targetExePath, logger));
+                }
+                else
+                {
+                    var wmi = TryStartRuntimeViaWmi(targetExePath, logger);
+                    launch = DecideRuntimeLaunchOutcome(
+                        wmiReturnValue: wmi.ReturnValue,
+                        wmiPid: wmi.Pid,
+                        trySchtasks: () => TryStartRuntimeViaSchtasks(taskName, logger));
+                }
 
                 switch (launch.Method)
                 {
@@ -211,7 +240,7 @@ namespace AutopilotMonitor.Agent.V2
                         break;
                     case RuntimeLaunchMethod.Schtasks:
                         logger.Info(
-                            $"Runtime process queued via schtasks /Run fallback on task '{taskName}'. exe={targetExePath}. {launch.Diagnostic}");
+                            $"Runtime start via schtasks /Run on task '{taskName}'. exe={targetExePath}. {launch.Diagnostic}");
                         break;
                     case RuntimeLaunchMethod.Deferred:
                         logger.Warning(
@@ -630,10 +659,112 @@ namespace AutopilotMonitor.Agent.V2
         }
 
         /// <summary>
+        /// Restricted-token variant of the launch orchestration — used when the install-mode
+        /// process token does not hold <c>SeTimeZonePrivilege</c> (privilege-stripped MDM/MSI
+        /// caller chain, observed 2026-08-17). WMI would duplicate the stripped token onto the
+        /// runtime, so the order flips: Scheduled Task first (fresh full SYSTEM token from the
+        /// Task Scheduler service), WMI only as degraded-but-alive fallback.
+        /// <para>
+        /// Contract:
+        /// <list type="bullet">
+        /// <item><description>Invoke <paramref name="trySchtasks"/>; on exit 0 invoke <paramref name="verifyRuntimePid"/> (schtasks /Run only reports "queued", never "launched"). A verified pid returns <see cref="RuntimeLaunchMethod.Schtasks"/> without touching WMI.</description></item>
+        /// <item><description>schtasks failed or no process appeared → invoke <paramref name="tryWmi"/>; a valid pid returns <see cref="RuntimeLaunchMethod.Wmi"/> with a diagnostic warning that the runtime runs on the restricted token.</description></item>
+        /// <item><description>Both paths fail → <see cref="RuntimeLaunchMethod.Deferred"/>; the BootTrigger start on next reboot gets a full token anyway.</description></item>
+        /// <item><description><paramref name="verifyRuntimePid"/> is only invoked after a successful schtasks queue — it costs up to the full poll window.</description></item>
+        /// </list>
+        /// </para>
+        /// </summary>
+        internal static RuntimeLaunchResult DecideRestrictedTokenLaunchOutcome(
+            Func<int> trySchtasks,
+            Func<int> verifyRuntimePid,
+            Func<WmiLaunchAttempt> tryWmi)
+        {
+            if (trySchtasks == null) throw new ArgumentNullException(nameof(trySchtasks));
+            if (verifyRuntimePid == null) throw new ArgumentNullException(nameof(verifyRuntimePid));
+            if (tryWmi == null) throw new ArgumentNullException(nameof(tryWmi));
+
+            var schtasksExit = trySchtasks();
+            if (schtasksExit == 0)
+            {
+                var pid = verifyRuntimePid();
+                if (pid > 0)
+                {
+                    return new RuntimeLaunchResult(
+                        method: RuntimeLaunchMethod.Schtasks,
+                        pid: pid,
+                        wmiReturnValue: 0u,
+                        schtasksExitCode: 0,
+                        diagnostic: $"Runtime launched via Scheduled Task (restricted install token — task provides a full SYSTEM token). Verified PID={pid}.");
+                }
+            }
+
+            var schtasksHint = schtasksExit == 0
+                ? "schtasks /Run was queued but no runtime process appeared within the verification window."
+                : $"schtasks /Run exit={schtasksExit}.";
+
+            var wmi = tryWmi();
+            if (wmi.ReturnValue == 0u && wmi.Pid > 0)
+            {
+                return new RuntimeLaunchResult(
+                    method: RuntimeLaunchMethod.Wmi,
+                    pid: wmi.Pid,
+                    wmiReturnValue: 0u,
+                    schtasksExitCode: schtasksExit,
+                    diagnostic: "Runtime launched via WMI fallback ON THE RESTRICTED TOKEN — privileged features " +
+                        "(timezone auto-set, firmware reads) stay degraded until the next BootTrigger start. " +
+                        $"{schtasksHint} PID={wmi.Pid}.");
+            }
+
+            return new RuntimeLaunchResult(
+                method: RuntimeLaunchMethod.Deferred,
+                pid: 0,
+                wmiReturnValue: wmi.ReturnValue,
+                schtasksExitCode: schtasksExit,
+                diagnostic: "Restricted-token launch: both Scheduled Task and WMI paths failed; deferring to " +
+                    $"BootTrigger on next reboot (full token there). {schtasksHint} WMI returnValue={wmi.ReturnValue}.");
+        }
+
+        /// <summary>
+        /// Polls for the detached runtime process after a <c>schtasks /Run</c> queue — same
+        /// 10s / 500ms contract as the bootstrap script's Get-Process probe. The install-mode
+        /// process shares the runtime's exe name, so the own pid is excluded; a pre-existing
+        /// foreign runtime cannot be running here because install mode bails earlier on the
+        /// Deployed marker.
+        /// </summary>
+        private static int WaitForDetachedRuntimePid(string exePath, AgentLogger logger)
+        {
+            var processName = Path.GetFileNameWithoutExtension(exePath);
+            var ownPid = Process.GetCurrentProcess().Id;
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < deadline)
+            {
+                try
+                {
+                    var candidates = Process.GetProcessesByName(processName);
+                    try
+                    {
+                        var runtime = candidates.FirstOrDefault(p => p.Id != ownPid);
+                        if (runtime != null) return runtime.Id;
+                    }
+                    finally
+                    {
+                        foreach (var p in candidates) p.Dispose();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.Debug($"Runtime verification poll failed transiently: {ex.GetType().Name}: {ex.Message}");
+                }
+                System.Threading.Thread.Sleep(500);
+            }
+            return 0;
+        }
+
+        /// <summary>
         /// Result of a single WMI <c>Win32_Process.Create</c> attempt. <see cref="Pid"/>
         /// is <c>0</c> on any non-zero <see cref="ReturnValue"/>.
         /// </summary>
-        private readonly struct WmiLaunchAttempt
+        internal readonly struct WmiLaunchAttempt
         {
             public WmiLaunchAttempt(uint returnValue, int pid)
             {
