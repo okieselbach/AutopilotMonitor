@@ -346,11 +346,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             }
         }
 
+        // Chicken-and-egg guard: the agent-log snapshot is zipped BEFORE packaging finishes, so
+        // packaging problems (blocked paths, missing files, failed copies) are invisible in the
+        // uploaded archive's own log. This manifest records every packaging decision and travels
+        // INSIDE the ZIP (field case: sessions a11102f4 / 3ae7528b, missing evtx undiagnosable).
+        private StringBuilder _manifest;
+
+        private void ManifestLine(string text)
+        {
+            _manifest?.AppendLine($"[{DateTime.UtcNow:HH:mm:ss.fff}Z] {text}");
+        }
+
         // Builds the diagnostics ZIP body in-memory. Extracted from CreateAndUploadAsync so
         // tests can assert archive contents without going through the upload path.
         internal virtual byte[] BuildArchiveBytes(bool? enrollmentSucceeded)
         {
             var tracker = new BudgetTracker(Budget);
+            _manifest = new StringBuilder();
             using (var ms = new MemoryStream())
             {
                 using (var archive = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
@@ -394,12 +406,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                         if (!DiagnosticsPathGuards.IsDiagnosticsPathAllowed(entry.Path, _configuration.UnrestrictedMode, userProfilePath))
                         {
                             _logger.Warning($"Diagnostics path blocked by guard: {entry.Path}");
+                            ManifestLine($"BLOCKED (path guard): {entry.Path}");
                             continue;
                         }
                         var expandedPath = UserProfileResolver.ExpandCustomTokens(entry.Path);
                         if (expandedPath == null)
                         {
                             _logger.Warning($"Diagnostics path skipped (no user session for token): {entry.Path}");
+                            ManifestLine($"SKIPPED (no user session for token): {entry.Path}");
                             continue;
                         }
                         var folder = Path.GetDirectoryName(expandedPath);
@@ -407,7 +421,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                         if (string.IsNullOrEmpty(folder)) continue;
                         if (string.IsNullOrEmpty(pattern) || !pattern.Contains(".")) pattern = "*";
                         var zipFolder = $"AdditionalLogs/{Path.GetFileName(folder)}";
+                        ManifestLine($"CONFIGURED PATH: '{entry.Path}' -> folder='{folder}' pattern='{pattern}'");
                         AddLogFiles(archive, folder, zipFolder, pattern, tracker, entry.IncludeSubfolders);
+                    }
+
+                    // Packaging manifest — always written, even when empty of problems, so its
+                    // absence itself is meaningful (archive predates the feature).
+                    try
+                    {
+                        var manifestEntry = archive.CreateEntry("package-manifest.txt", CompressionLevel.Optimal);
+                        using (var writer = new StreamWriter(manifestEntry.Open()))
+                            writer.Write(_manifest.ToString());
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Warning($"Failed to write package manifest: {ex.Message}");
                     }
 
                     // Always last: emit truncation report only if any file was skipped.
@@ -483,6 +511,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             if (!Directory.Exists(sourceFolder))
             {
                 _logger.Debug($"Log folder not found, skipping: {sourceFolder}");
+                ManifestLine($"FOLDER MISSING: {sourceFolder} (pattern '{searchPattern}')");
                 return;
             }
 
@@ -494,8 +523,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             catch (Exception ex)
             {
                 _logger.Warning($"Failed to enumerate log files in {sourceFolder}: {ex.Message}");
+                ManifestLine($"ENUMERATION FAILED: {sourceFolder} (pattern '{searchPattern}'): {ex.Message}");
                 return;
             }
+
+            if (files.Count == 0)
+                ManifestLine($"NO MATCH: {sourceFolder} pattern '{searchPattern}'");
 
             foreach (var file in files)
             {
@@ -514,6 +547,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                     {
                         _logger.Warning($"Skipping reparse-point file: {file}");
                         tracker.RecordSkip(file, "reparse", 0);
+                        ManifestLine($"SKIPPED (reparse point): {file}");
                         continue;
                     }
 
@@ -547,6 +581,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                             // the plain FileStream often still succeeds; if the channel IS active
                             // and locked, the existing per-file catch logs the failure.
                             _logger.Warning($"Event log export unavailable for {file} — attempting raw copy.");
+                            ManifestLine($"EVTX EXPORT FAILED (falling back to raw copy): {file}");
                         }
                     }
 
@@ -556,18 +591,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                         {
                             _logger.Warning($"Skipping oversized file ({length} bytes > {tracker.Budget.MaxSingleFileBytes} cap): {file}");
                             tracker.RecordSkip(file, "size", length);
+                            ManifestLine($"SKIPPED (single-file cap, {length} bytes): {file}");
                             continue;
                         }
                         if (tracker.WouldExceedCount())
                         {
                             _logger.Warning($"Skipping file (file-count cap {tracker.Budget.MaxFileCount} reached): {file}");
                             tracker.RecordSkip(file, "count", length);
+                            ManifestLine($"SKIPPED (file-count cap): {file}");
                             continue;
                         }
                         if (tracker.WouldExceedTotal(length))
                         {
                             _logger.Warning($"Skipping file (total-bytes cap {tracker.Budget.MaxTotalUncompressedBytes} reached): {file}");
                             tracker.RecordSkip(file, "total", length);
+                            ManifestLine($"SKIPPED (total-bytes cap): {file}");
                             continue;
                         }
 
@@ -586,6 +624,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
 
                         tracker.RecordIncluded(length);
                         _logger.Debug($"Added to diagnostics package: {entryName} ({length / 1024} KB)");
+                        ManifestLine($"ADDED: {entryName} ({length} bytes)");
                     }
                     finally
                     {
@@ -598,6 +637,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 catch (Exception ex)
                 {
                     _logger.Warning($"Failed to add log file to diagnostics package: {file} - {ex.Message}");
+                    ManifestLine($"FAILED (copy): {file}: {ex.Message}");
                 }
             }
         }
@@ -666,6 +706,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                     {
                         try { process.Kill(); } catch { }
                         _logger.Warning($"wevtutil export timed out for channel '{channel}'.");
+                        ManifestLine($"EVTX EXPORT TIMEOUT: channel '{channel}' ({evtxPath})");
                         try { File.Delete(tempPath); } catch { }
                         return null;
                     }
@@ -673,11 +714,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                     {
                         var stderr = process.StandardError.ReadToEnd();
                         _logger.Warning($"wevtutil export failed for channel '{channel}' (exit {process.ExitCode}): {stderr}");
+                        ManifestLine($"EVTX EXPORT ERROR: channel '{channel}' exit {process.ExitCode}: {stderr}");
                         try { File.Delete(tempPath); } catch { }
                         return null;
                     }
                 }
-                return File.Exists(tempPath) ? tempPath : null;
+                if (File.Exists(tempPath))
+                {
+                    ManifestLine($"EVTX EXPORTED: channel '{channel}' -> {evtxPath}");
+                    return tempPath;
+                }
+                return null;
             }
             catch (Exception ex)
             {

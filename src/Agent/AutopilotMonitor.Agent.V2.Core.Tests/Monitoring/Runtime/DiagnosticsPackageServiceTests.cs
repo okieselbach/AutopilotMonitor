@@ -46,7 +46,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Runtime
                 Directory.CreateDirectory(SpoolFolder);
             }
 
-            public DiagnosticsPackageService Build()
+            public DiagnosticsPackageService Build(System.Action<AgentConfiguration>? mutateConfig = null)
             {
                 // BackendApiClient is required by the public ctor but BuildArchiveBytes
                 // never touches it — construct with a throwaway HttpClient. Tests only
@@ -61,8 +61,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Runtime
                     bootstrapToken: null,
                     agentVersion: "0.0.0",
                     logger: Logger);
+                var cfg = Cfg();
+                mutateConfig?.Invoke(cfg);
                 return new DiagnosticsPackageService(
-                    Cfg(),
+                    cfg,
                     Logger,
                     apiClient,
                     agentLogFolderOverride: LogsTmp.Path,
@@ -129,6 +131,72 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Runtime
             var entries = ZipEntryNames(bytes);
             Assert.Contains("AgentMarkers/whiteglove.complete", entries);
             Assert.Contains("AgentMarkers/agent_clean_exit.marker", entries);
+        }
+
+        // ============================================================ package manifest ====
+        // The agent-log snapshot is zipped BEFORE packaging finishes, so packaging problems
+        // are invisible in the uploaded archive's own log (field case: missing evtx in
+        // sessions a11102f4/3ae7528b). The manifest travels INSIDE the ZIP instead.
+
+        private static string? ReadZipEntryText(byte[] bytes, string entryName)
+        {
+            using var ms = new MemoryStream(bytes);
+            using var archive = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Read);
+            var entry = archive.GetEntry(entryName);
+            if (entry == null) return null;
+            using var reader = new StreamReader(entry.Open());
+            return reader.ReadToEnd();
+        }
+
+        [Fact]
+        public void BuildArchiveBytes_always_writes_package_manifest_with_added_entries()
+        {
+            using var rig = new Rig();
+            File.WriteAllText(Path.Combine(rig.StateFolder, "snapshot.json"), "{}");
+
+            var bytes = rig.Build().BuildArchiveBytes(enrollmentSucceeded: true);
+
+            var manifest = ReadZipEntryText(bytes, "package-manifest.txt");
+            Assert.NotNull(manifest);
+            Assert.Contains("ADDED: AgentState/snapshot.json", manifest);
+            // Empty standard folders (e.g. ImeLogs) surface as NO MATCH lines — the silent
+            // nothing-found case is exactly what the manifest exists to make visible.
+            Assert.Contains("NO MATCH:", manifest);
+        }
+
+        [Fact]
+        public void BuildArchiveBytes_manifest_records_guard_blocked_additional_path()
+        {
+            using var rig = new Rig();
+            var blockedPath = @"C:\Windows\System32\config\SYSTEM";
+
+            var bytes = rig.Build(cfg => cfg.DiagnosticsLogPaths.Add(
+                new AutopilotMonitor.Shared.Models.DiagnosticsLogPath { Path = blockedPath }))
+                .BuildArchiveBytes(enrollmentSucceeded: true);
+
+            var manifest = ReadZipEntryText(bytes, "package-manifest.txt");
+            Assert.NotNull(manifest);
+            Assert.Contains($"BLOCKED (path guard): {blockedPath}", manifest);
+        }
+
+        [Fact]
+        public void BuildArchiveBytes_manifest_records_users_path_blocked_even_in_unrestricted()
+        {
+            using var rig = new Rig();
+            // The test temp dir lives under C:\Users — blocked by the always-on privacy guard
+            // even in unrestricted mode. The manifest must say so instead of staying silent.
+            var configuredPath = Path.Combine(rig.DataFolder, "does-not-exist.evtx");
+
+            var bytes = rig.Build(cfg =>
+                {
+                    cfg.UnrestrictedMode = true;
+                    cfg.DiagnosticsLogPaths.Add(new AutopilotMonitor.Shared.Models.DiagnosticsLogPath { Path = configuredPath });
+                })
+                .BuildArchiveBytes(enrollmentSucceeded: true);
+
+            var manifest = ReadZipEntryText(bytes, "package-manifest.txt");
+            Assert.NotNull(manifest);
+            Assert.Contains($"BLOCKED (path guard): {configuredPath}", manifest);
         }
 
         [Fact]
