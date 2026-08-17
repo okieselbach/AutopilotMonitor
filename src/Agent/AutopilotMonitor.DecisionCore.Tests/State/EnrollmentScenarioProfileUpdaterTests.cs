@@ -418,6 +418,21 @@ namespace AutopilotMonitor.DecisionCore.Tests.State
             Assert.Same(seed, profile);
         }
 
+        [Fact]
+        public void ImeUserSessionCompleted_devicePreparationMedium_isNoOp()
+        {
+            // WDP guard: the IME user channel runs on Device Preparation too, so this signal
+            // cannot discriminate Classic from WDP. The registry-deterministic v2 seed sits at
+            // only Medium confidence — without the explicit guard the High-confidence-only bail
+            // would let this signal silently reclassify every WDP session as Classic.
+            var seed = DevicePreparationSeed();
+            var signal = MakeSignal(DecisionSignalKind.ImeUserSessionCompleted, ordinal: 10, payload: null);
+
+            var profile = EnrollmentScenarioProfileUpdater.ApplyImeUserSessionCompleted(seed, signal);
+
+            Assert.Same(seed, profile);
+        }
+
         // ================================================================== ApplySelfDeployingDeadlineConfirmed
         // Plan v9 — ApplyDeviceSetupProvisioningComplete was removed (signal-time Mode promotion
         // caused false-positive SelfDeploying terminations on Classic flows, session 88a53223).
@@ -484,6 +499,19 @@ namespace AutopilotMonitor.DecisionCore.Tests.State
         }
 
         [Fact]
+        public void SelfDeployingDeadlineConfirmed_devicePreparationMedium_isNoOp()
+        {
+            // WDP guard mirror: the DeviceOnlyEspDetection deadline is ESP-derived and should be
+            // unreachable on WDP, but a misfire must not displace the registry v2 fact.
+            var seed = DevicePreparationSeed();
+            var signal = MakeSignal(DecisionSignalKind.DeadlineFired, ordinal: 6, payload: null);
+
+            var profile = EnrollmentScenarioProfileUpdater.ApplySelfDeployingDeadlineConfirmed(seed, signal);
+
+            Assert.Same(seed, profile);
+        }
+
+        [Fact]
         public void WhiteGloveSealingConfirmed_setsWhiteGloveHigh_andTechnicianSide()
         {
             var signal = MakeSignal(DecisionSignalKind.ClassifierVerdictIssued, ordinal: 15, payload: null);
@@ -495,6 +523,20 @@ namespace AutopilotMonitor.DecisionCore.Tests.State
             Assert.Equal(ProfileConfidence.High, profile.Confidence);
             Assert.Equal(PreProvisioningSide.Technician, profile.PreProvisioningSide);
             Assert.Equal("classifier_whiteglove_sealing_confirmed", profile.Reason);
+        }
+
+        [Fact]
+        public void WhiteGloveSealingConfirmed_devicePreparationMedium_isNoOp()
+        {
+            // WhiteGlove pre-provisioning is an ESP technician flow that cannot occur on WDP —
+            // a Confirmed sealing verdict against a v2-profiled session is a classifier misfire.
+            // This updater previously had NO guard at all, so it could overwrite any mode.
+            var seed = DevicePreparationSeed();
+            var signal = MakeSignal(DecisionSignalKind.ClassifierVerdictIssued, ordinal: 15, payload: null);
+
+            var profile = EnrollmentScenarioProfileUpdater.ApplyWhiteGloveSealingConfirmed(seed, signal);
+
+            Assert.Same(seed, profile);
         }
 
         // ================================================================== AadUserJoinedLate
@@ -607,6 +649,17 @@ namespace AutopilotMonitor.DecisionCore.Tests.State
             Assert.Equal(ProfileConfidence.High, profile.Confidence);
             Assert.Equal(EnrollmentScenarioProfileUpdater.CloudPcNoDeviceEspExpectedReason, profile.Reason);
         }
+
+        /// <summary>
+        /// Profile exactly as seeded by ApplyEnrollmentFactsObserved for enrollmentType "v2" —
+        /// the state the WDP downgrade-guards protect.
+        /// </summary>
+        private static EnrollmentScenarioProfile DevicePreparationSeed() =>
+            EnrollmentScenarioProfile.Empty.With(
+                mode: EnrollmentMode.DevicePreparation,
+                confidence: ProfileConfidence.Medium,
+                reason: "enrollment_facts_observed:v2",
+                evidenceOrdinal: 0);
 
         private static DecisionSignal MakeSignal(
             DecisionSignalKind kind,

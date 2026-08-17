@@ -292,7 +292,11 @@ namespace AutopilotMonitor.DecisionCore.State
         /// <see cref="DecisionSignalKind.ImeUserSessionCompleted"/> is a strong UserDriven-v1
         /// indicator. Upgrades Mode to <see cref="EnrollmentMode.Classic"/> at
         /// <see cref="ProfileConfidence.High"/>, UNLESS a prior signal has already confirmed a
-        /// different mode at High confidence (monotonic rule).
+        /// different mode at High confidence (monotonic rule), or the profile is already
+        /// <see cref="EnrollmentMode.DevicePreparation"/> — the IME user channel runs on WDP
+        /// too (the user is signed in from the start), so this signal cannot discriminate
+        /// Classic from WDP and must not displace the registry-deterministic v2 fact even
+        /// though that fact is seeded at only <see cref="ProfileConfidence.Medium"/>.
         /// </summary>
         public static EnrollmentScenarioProfile ApplyImeUserSessionCompleted(
             EnrollmentScenarioProfile current,
@@ -300,6 +304,11 @@ namespace AutopilotMonitor.DecisionCore.State
         {
             if (current == null) throw new ArgumentNullException(nameof(current));
             if (signal == null) throw new ArgumentNullException(nameof(signal));
+
+            if (current.Mode == EnrollmentMode.DevicePreparation)
+            {
+                return current;
+            }
 
             if (current.Confidence == ProfileConfidence.High && current.Mode != EnrollmentMode.Classic
                 && current.Mode != EnrollmentMode.Unknown)
@@ -339,6 +348,14 @@ namespace AutopilotMonitor.DecisionCore.State
             if (current == null) throw new ArgumentNullException(nameof(current));
             if (signal == null) throw new ArgumentNullException(nameof(signal));
 
+            // WDP guard (mirrors ApplyImeUserSessionCompleted): the DeviceOnlyEspDetection
+            // deadline is ESP-derived and should be unreachable on WDP, but if it ever fires
+            // against a v2-profiled session the registry-deterministic fact wins.
+            if (current.Mode == EnrollmentMode.DevicePreparation)
+            {
+                return current;
+            }
+
             if (current.Confidence == ProfileConfidence.High && current.Mode != EnrollmentMode.SelfDeploying
                 && current.Mode != EnrollmentMode.Unknown)
             {
@@ -360,6 +377,10 @@ namespace AutopilotMonitor.DecisionCore.State
         /// at <see cref="ProfileConfidence.High"/>, PreProvisioningSide=<see cref="PreProvisioningSide.Technician"/>
         /// (Part 1 is by definition the technician side). Non-Confirmed verdicts leave the profile
         /// alone — the verdict itself is stored in <see cref="ClassifierOutcomes.WhiteGloveSealing"/>.
+        /// A profile already classified <see cref="EnrollmentMode.DevicePreparation"/> is never
+        /// overwritten: WhiteGlove pre-provisioning is an ESP technician flow that cannot occur
+        /// on WDP, so a Confirmed verdict against a v2-profiled session is a classifier misfire
+        /// and the registry-deterministic fact wins.
         /// </summary>
         public static EnrollmentScenarioProfile ApplyWhiteGloveSealingConfirmed(
             EnrollmentScenarioProfile current,
@@ -367,6 +388,11 @@ namespace AutopilotMonitor.DecisionCore.State
         {
             if (current == null) throw new ArgumentNullException(nameof(current));
             if (signal == null) throw new ArgumentNullException(nameof(signal));
+
+            if (current.Mode == EnrollmentMode.DevicePreparation)
+            {
+                return current;
+            }
 
             return current.With(
                 mode: EnrollmentMode.WhiteGlove,

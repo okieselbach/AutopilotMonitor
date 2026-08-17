@@ -202,6 +202,72 @@ public class StoreSessionReregistrationPreserveTests
     }
 
     [Fact]
+    public async Task StoreSessionAsync_enrollmentType_isStickyV2_acrossReregistration()
+    {
+        // EnrollmentRegistryDetector defaults to "v1" whenever the AutopilotSettings key is
+        // momentarily unreadable, so a re-registration after such a degraded read must NOT
+        // downgrade an already-observed Device Preparation session — sticky-v2, same contract
+        // as the sticky-true booleans.
+        var existing = new TableEntity(TenantId, SessionId)
+        {
+            ["StartedAt"] = new DateTimeOffset(new DateTime(2026, 1, 1, 8, 0, 0, DateTimeKind.Utc)),
+            ["Status"] = "InProgress",
+            ["EnrollmentType"] = "v2",
+        };
+        existing.ETag = new ETag("0xEXISTING");
+        var harness = new Harness(existing);
+
+        var registration = new SessionRegistration
+        {
+            TenantId = TenantId,
+            SessionId = SessionId,
+            StartedAt = new DateTime(2026, 1, 1, 9, 0, 0, DateTimeKind.Utc),
+            SerialNumber = "SN-1",
+            Manufacturer = "Contoso",
+            Model = "Model-X",
+            DeviceName = "PC-1",
+            EnrollmentType = "v1", // degraded registry read on restart
+        };
+
+        var ok = await harness.Sut.StoreSessionAsync(registration);
+
+        Assert.True(ok);
+        Assert.Equal("v2", harness.Written!.GetString("EnrollmentType"));
+    }
+
+    [Fact]
+    public async Task StoreSessionAsync_enrollmentType_upgradesV1ToV2_onReregistration()
+    {
+        // Inverse direction: first registration read "v1" (key not yet populated), a later
+        // re-registration reads "v2" — the more informative value wins.
+        var existing = new TableEntity(TenantId, SessionId)
+        {
+            ["StartedAt"] = new DateTimeOffset(new DateTime(2026, 1, 1, 8, 0, 0, DateTimeKind.Utc)),
+            ["Status"] = "InProgress",
+            ["EnrollmentType"] = "v1",
+        };
+        existing.ETag = new ETag("0xEXISTING");
+        var harness = new Harness(existing);
+
+        var registration = new SessionRegistration
+        {
+            TenantId = TenantId,
+            SessionId = SessionId,
+            StartedAt = new DateTime(2026, 1, 1, 9, 0, 0, DateTimeKind.Utc),
+            SerialNumber = "SN-1",
+            Manufacturer = "Contoso",
+            Model = "Model-X",
+            DeviceName = "PC-1",
+            EnrollmentType = "v2",
+        };
+
+        var ok = await harness.Sut.StoreSessionAsync(registration);
+
+        Assert.True(ok);
+        Assert.Equal("v2", harness.Written!.GetString("EnrollmentType"));
+    }
+
+    [Fact]
     public async Task StoreSessionAsync_cloudPc_upgradesFalseToTrue_onReregistration()
     {
         var existing = new TableEntity(TenantId, SessionId)

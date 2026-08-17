@@ -463,6 +463,11 @@ namespace AutopilotMonitor.Functions.Services
                 bool isHybridJoin = registration.IsHybridJoin;
                 bool isSelfDeployingProfile = registration.IsSelfDeployingProfile;
                 bool isCloudPc = registration.IsCloudPc;
+                // Sticky-v2 (not plain preserve): EnrollmentRegistryDetector defaults to "v1"
+                // whenever the AutopilotSettings key is momentarily unreadable, so a
+                // re-registration after such a degraded read must not downgrade an
+                // already-observed Device Preparation session back to v1.
+                string enrollmentType = registration.EnrollmentType ?? "v1";
                 DateTime? lastEventAt = null;
                 int? durationSeconds = null;
                 string? diagnosticsBlobName = null;
@@ -514,6 +519,10 @@ namespace AutopilotMonitor.Functions.Services
                     // registry/service hiccup on a later re-registration must not clear an
                     // already-observed Cloud PC fact.
                     isCloudPc = (existingEntity.GetBoolean("IsCloudPc") ?? false) || isCloudPc;
+                    // Sticky-v2 (same contract as the booleans above): once observed "v2",
+                    // the enrollment rail stays "v2".
+                    if (string.Equals(existingEntity.GetString("EnrollmentType"), "v2", StringComparison.OrdinalIgnoreCase))
+                        enrollmentType = "v2";
                     lastEventAt = existingEntity.GetDateTimeOffset("LastEventAt")?.UtcDateTime;
                     durationSeconds = existingEntity.GetInt32("DurationSeconds");
                     diagnosticsBlobName = existingEntity.GetString("DiagnosticsBlobName");
@@ -584,7 +593,7 @@ namespace AutopilotMonitor.Functions.Services
                     ["IsCloudPc"] = isCloudPc,
                     ["StartedAt"] = EnsureUtc(startedAt),
                     ["AgentVersion"] = registration.AgentVersion ?? string.Empty,
-                    ["EnrollmentType"] = registration.EnrollmentType ?? "v1",
+                    ["EnrollmentType"] = enrollmentType,
                     ["CurrentPhase"] = currentPhase,
                     ["Status"] = status,
                     ["EventCount"] = eventCount,
