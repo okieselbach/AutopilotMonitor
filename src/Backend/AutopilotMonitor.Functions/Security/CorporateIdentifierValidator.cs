@@ -13,13 +13,15 @@ namespace AutopilotMonitor.Functions.Security
 {
     /// <summary>
     /// Validates devices against Intune Corporate Device Identifiers via Microsoft Graph beta API.
-    /// Uses the importedDeviceIdentities/searchExistingIdentities endpoint and probes BOTH
-    /// identifier types an admin can upload: manufacturerModelSerial (the documented Windows
-    /// path, CSV-only in the portal) and serialNumber. Intune itself ignores serial-only
-    /// identifiers for Windows ownership, but it is the only type the portal lets an admin
-    /// enter MANUALLY (no CSV) and the portal happily accepts a Windows serial there — so we
-    /// honor it as authorization intent instead of 403ing (field case: first WDP enrollment,
-    /// 2026-08-17). Caches positive/negative lookups to reduce Graph traffic.
+    /// Uses the importedDeviceIdentities/searchExistingIdentities endpoint with the
+    /// manufacturerModelSerial type — the only corporate-identifier type Windows supports.
+    /// Deliberately NOT probing the serial-only type: Intune ignores it for Windows, so a
+    /// serial-type entry is an admin misconfiguration on the Intune side and must not count
+    /// as authorization here (decision 2026-08-17, first WDP enrollment).
+    /// NOTE: searchExistingIdentities requires the DeviceManagementServiceConfig.ReadWrite.All
+    /// (or DeviceManagementServiceConfiguration.ReadWrite.All) application permission — a Graph
+    /// 401/403 means missing admin consent and is classified as a definitive failure, not
+    /// transient. Caches positive/negative lookups to reduce Graph traffic.
     /// </summary>
     public class CorporateIdentifierValidator
     {
@@ -120,9 +122,6 @@ namespace AutopilotMonitor.Functions.Security
                 graphClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokenResult.AccessToken);
 
                 // POST https://graph.microsoft.com/beta/deviceManagement/importedDeviceIdentities/searchExistingIdentities
-                // Two candidates in one round-trip: "manufacturer,model,serial" is the documented
-                // Windows type; bare serialNumber is probed additionally because it is the only
-                // type the portal offers for manual entry and admins land there by mistake.
                 var identifier = $"{normalizedManufacturer},{normalizedModel},{normalizedSerial}";
                 var requestBody = new
                 {
@@ -132,11 +131,6 @@ namespace AutopilotMonitor.Functions.Security
                         {
                             importedDeviceIdentityType = "manufacturerModelSerial",
                             importedDeviceIdentifier = identifier
-                        },
-                        new
-                        {
-                            importedDeviceIdentityType = "serialNumber",
-                            importedDeviceIdentifier = normalizedSerial
                         }
                     }
                 };
@@ -156,7 +150,26 @@ namespace AutopilotMonitor.Functions.Security
                         "Corporate identifier validation Graph query failed for tenant {TenantId} (attempt {Attempt}). Status: {StatusCode}. Body: {ResponseBody}",
                         tenantId, attempt, (int)response.StatusCode, responseBody);
 
-                    // Graph errors are transient — do NOT cache
+                    // 401/403 = missing application permission / admin consent for
+                    // searchExistingIdentities (requires DeviceManagementServiceConfig.ReadWrite.All
+                    // or DeviceManagementServiceConfiguration.ReadWrite.All). Retries can never
+                    // heal that, so it is a DEFINITIVE failure — a transient classification would
+                    // trap every agent in an endless 503 Retry-After loop (field case 2026-08-17).
+                    // Cached like a negative lookup (5 min) so a fleet of agents does not hammer
+                    // Graph while the consent is being fixed.
+                    if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized
+                        || response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                    {
+                        return CacheAndReturn(cacheKey, new CorporateIdentifierValidationResult
+                        {
+                            IsValid = false,
+                            ErrorMessage = "Corporate identifier lookup not permitted: the app registration lacks the "
+                                + "DeviceManagementServiceConfig.ReadWrite.All (or DeviceManagementServiceConfiguration.ReadWrite.All) "
+                                + "Graph permission or admin consent. Grant consent or disable ValidateCorporateIdentifier."
+                        }, isPositive: false);
+                    }
+
+                    // Other Graph errors (throttling, 5xx) are transient — do NOT cache
                     return new CorporateIdentifierValidationResult
                     {
                         IsValid = false,
@@ -174,24 +187,21 @@ namespace AutopilotMonitor.Functions.Security
                     return CacheAndReturn(cacheKey, new CorporateIdentifierValidationResult
                     {
                         IsValid = false,
-                        ErrorMessage = $"Device is not registered as a Corporate Identifier (searched manufacturerModelSerial '{identifier}' and serialNumber '{normalizedSerial}')"
+                        ErrorMessage = $"Device '{identifier}' is not registered as a Corporate Identifier (manufacturerModelSerial)"
                     }, isPositive: false);
                 }
 
-                var matchedIdentifier = identities[0]?["importedDeviceIdentifier"]?.ToString() ?? identifier;
-                var matchedType = identities[0]?["importedDeviceIdentityType"]?.ToString() ?? "manufacturerModelSerial";
                 var result = new CorporateIdentifierValidationResult
                 {
                     IsValid = true,
-                    Identifier = matchedIdentifier
+                    Identifier = identifier
                 };
 
                 _logger.LogInformation(
-                    "Corporate identifier validation succeeded for tenant {TenantId}, session {SessionId}, identifier {Identifier} (type {IdentifierType})",
+                    "Corporate identifier validation succeeded for tenant {TenantId}, session {SessionId}, identifier {Identifier}",
                     tenantId,
                     sessionId ?? "<none>",
-                    matchedIdentifier,
-                    matchedType);
+                    identifier);
 
                 return CacheAndReturn(cacheKey, result, isPositive: true);
             }

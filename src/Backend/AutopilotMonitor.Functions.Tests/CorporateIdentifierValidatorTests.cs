@@ -13,11 +13,12 @@ namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
 /// Graph contract tests for <see cref="CorporateIdentifierValidator"/>. Field case 2026-08-17
-/// (first live Device Preparation enrollment): the admin uploaded a SERIAL-type corporate
-/// identifier — the only type the portal allows for manual entry, though Intune itself ignores
-/// it for Windows — while the validator searched only manufacturerModelSerial, so the device
-/// 403'd as "not registered". The validator now probes both identifier types in a single
-/// searchExistingIdentities call and treats either match as authorization intent.
+/// (first live Device Preparation enrollment): searchExistingIdentities came back 403 because
+/// the app registration lacked DeviceManagementServiceConfig.ReadWrite.All — classified as
+/// transient, this trapped the agent in an endless 503 Retry-After loop. Graph 401/403 must be
+/// a DEFINITIVE failure with an actionable message. Windows-wise only the manufacturerModelSerial
+/// identifier type is searched (serial-only entries are an Intune-side misconfiguration for
+/// Windows and deliberately do not authorize).
 /// </summary>
 public class CorporateIdentifierValidatorTests
 {
@@ -28,11 +29,13 @@ public class CorporateIdentifierValidatorTests
     {
         private readonly HttpResponseMessage _response;
         public string? LastRequestBody { get; private set; }
+        public int RequestCount { get; private set; }
 
         public CapturingHandler(HttpResponseMessage response) => _response = response;
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            RequestCount++;
             LastRequestBody = request.Content is null ? null : await request.Content.ReadAsStringAsync(ct);
             return _response;
         }
@@ -71,44 +74,23 @@ public class CorporateIdentifierValidatorTests
     }
 
     [Fact]
-    public async Task ValidateAsync_sendsBothIdentifierTypes_inOneSearchCall()
+    public async Task ValidateAsync_searchesOnlyManufacturerModelSerial()
     {
+        // Serial-only corporate identifiers are not supported for Windows — a serial-type
+        // entry is an Intune-side misconfiguration and must NOT be probed as authorization.
         var (sut, handler) = BuildSut("""{"value":[]}""");
 
         await sut.ValidateAsync(TenantId, "Microsoft Corporation", "Virtual Machine", Serial);
 
         Assert.NotNull(handler.LastRequestBody);
         var candidates = (JArray)JObject.Parse(handler.LastRequestBody!)["importedDeviceIdentities"]!;
-        Assert.Collection(candidates,
-            mms =>
-            {
-                Assert.Equal("manufacturerModelSerial", mms["importedDeviceIdentityType"]?.ToString());
-                Assert.Equal($"Microsoft Corporation,Virtual Machine,{Serial}", mms["importedDeviceIdentifier"]?.ToString());
-            },
-            serialOnly =>
-            {
-                Assert.Equal("serialNumber", serialOnly["importedDeviceIdentityType"]?.ToString());
-                Assert.Equal(Serial, serialOnly["importedDeviceIdentifier"]?.ToString());
-            });
+        var only = Assert.Single(candidates);
+        Assert.Equal("manufacturerModelSerial", only["importedDeviceIdentityType"]?.ToString());
+        Assert.Equal($"Microsoft Corporation,Virtual Machine,{Serial}", only["importedDeviceIdentifier"]?.ToString());
     }
 
     [Fact]
-    public async Task ValidateAsync_serialNumberTypeMatch_isValid()
-    {
-        // Manual-portal-entry case: only a serial-type corporate identifier exists in Intune.
-        var (sut, _) = BuildSut($$"""
-            {"value":[{"importedDeviceIdentityType":"serialNumber","importedDeviceIdentifier":"{{Serial}}"}]}
-            """);
-
-        var result = await sut.ValidateAsync(TenantId, "Microsoft Corporation", "Virtual Machine", Serial);
-
-        Assert.True(result.IsValid);
-        Assert.False(result.IsTransient);
-        Assert.Equal(Serial, result.Identifier);
-    }
-
-    [Fact]
-    public async Task ValidateAsync_manufacturerModelSerialMatch_staysValid()
+    public async Task ValidateAsync_manufacturerModelSerialMatch_isValid()
     {
         var identifier = $"Microsoft Corporation,Virtual Machine,{Serial}";
         var (sut, _) = BuildSut($$"""
@@ -118,11 +100,12 @@ public class CorporateIdentifierValidatorTests
         var result = await sut.ValidateAsync(TenantId, "Microsoft Corporation", "Virtual Machine", Serial);
 
         Assert.True(result.IsValid);
+        Assert.False(result.IsTransient);
         Assert.Equal(identifier, result.Identifier);
     }
 
     [Fact]
-    public async Task ValidateAsync_noMatch_isDefinitive_andNamesBothSearchedForms()
+    public async Task ValidateAsync_noMatch_isDefinitive()
     {
         var (sut, _) = BuildSut("""{"value":[]}""");
 
@@ -130,14 +113,42 @@ public class CorporateIdentifierValidatorTests
 
         Assert.False(result.IsValid);
         Assert.False(result.IsTransient);
-        // The message must expose both searched identifier forms so a 403 is diagnosable
-        // from the rejection log alone (the 2026-08-17 WDP session was not).
         Assert.Contains($"Microsoft Corporation,Virtual Machine,{Serial}", result.ErrorMessage);
-        Assert.Contains($"serialNumber '{Serial}'", result.ErrorMessage);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Forbidden)]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    public async Task ValidateAsync_graphPermissionDenied_isDefinitive_withActionableMessage(HttpStatusCode status)
+    {
+        // The 2026-08-17 field case: missing DeviceManagementServiceConfig.ReadWrite.All consent.
+        // Transient classification would loop the agent on 503 Retry-After forever.
+        var (sut, _) = BuildSut("""{"error":{"code":"Forbidden","message":"Application is not authorized"}}""", status);
+
+        var result = await sut.ValidateAsync(TenantId, "Microsoft Corporation", "Virtual Machine", Serial);
+
+        Assert.False(result.IsValid);
+        Assert.False(result.IsTransient);
+        Assert.Contains("DeviceManagementServiceConfig.ReadWrite.All", result.ErrorMessage);
+        Assert.Contains("consent", result.ErrorMessage);
     }
 
     [Fact]
-    public async Task ValidateAsync_graphError_isTransient()
+    public async Task ValidateAsync_graphPermissionDenied_isCached_notRetried()
+    {
+        // Definitive permission failures are negative-cached so an agent retry storm does not
+        // hammer Graph while consent is being fixed; the in-call retry loop must not fire either.
+        var (sut, handler) = BuildSut("""{"error":{"code":"Forbidden"}}""", HttpStatusCode.Forbidden);
+
+        await sut.ValidateAsync(TenantId, "Microsoft Corporation", "Virtual Machine", Serial);
+        var second = await sut.ValidateAsync(TenantId, "Microsoft Corporation", "Virtual Machine", Serial);
+
+        Assert.False(second.IsValid);
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_graphServerError_isTransient()
     {
         var (sut, _) = BuildSut("""{"error":{"code":"InternalServerError"}}""", HttpStatusCode.InternalServerError);
 
