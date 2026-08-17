@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
 using AutopilotMonitor.Agent.V2.Core.SignalAdapters;
 using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
 using AutopilotMonitor.Agent.V2.Core.Tests.Orchestration;
@@ -485,6 +486,70 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             adapter.TriggerImeAgentVersionFromTest("1.101.109.0");
 
             Assert.Equal(2, f.InfoEvents(SharedEventTypes.ImeAgentVersion).Count);
+        }
+
+        [Fact]
+        public void ImeAgentVersion_enriches_with_csp_install_source_when_probe_matches()
+        {
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+            using var _probe = new ImeMsiInstallSourceProbe.ScopedOverride((v, _) =>
+                ImeMsiInstallSourceProbe.SelectBestMatch(
+                    new[]
+                    {
+                        new ImeMsiInstallSourceProbe.MsiEntry(
+                            "{6A7DFC50-0395-4E1E-BF84-ED1404E72051}",
+                            "1.104.102.0",
+                            "https://imeswdb-afd-secondary.manage.microsoft.com/IntuneWindowsAgent.msi"),
+                    },
+                    v));
+
+            adapter.TriggerImeAgentVersionFromTest("1.104.102.0");
+
+            var info = Assert.Single(f.InfoEvents(SharedEventTypes.ImeAgentVersion));
+            Assert.Equal("1.104.102.0", info.Payload!["agentVersion"]);
+            Assert.Equal(
+                "https://imeswdb-afd-secondary.manage.microsoft.com/IntuneWindowsAgent.msi",
+                info.Payload["msiDownloadUrl"]);
+            Assert.Equal("{6A7DFC50-0395-4E1E-BF84-ED1404E72051}", info.Payload["msiProductCode"]);
+            Assert.Equal("1.104.102.0", info.Payload["msiProductVersion"]);
+            Assert.Equal("productVersion", info.Payload["msiMatchedBy"]);
+        }
+
+        [Fact]
+        public void ImeAgentVersion_without_csp_match_omits_msi_keys()
+        {
+            // Assembly default (TestAssemblyInit) forces the probe to Empty.
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            adapter.TriggerImeAgentVersionFromTest("1.104.102.0");
+
+            var info = Assert.Single(f.InfoEvents(SharedEventTypes.ImeAgentVersion));
+            Assert.False(info.Payload!.ContainsKey("msiDownloadUrl"));
+            Assert.False(info.Payload.ContainsKey("msiProductCode"));
+            Assert.False(info.Payload.ContainsKey("msiProductVersion"));
+            Assert.False(info.Payload.ContainsKey("msiMatchedBy"));
+        }
+
+        [Fact]
+        public void ImeAgentVersion_probe_result_is_cached_per_version()
+        {
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+            int probeCalls = 0;
+            using var _probe = new ImeMsiInstallSourceProbe.ScopedOverride((_, _) =>
+            {
+                probeCalls++;
+                return ImeMsiInstallSource.Empty;
+            });
+
+            adapter.TriggerImeAgentVersionFromTest("1.104.102.0");
+            adapter.TriggerImeAgentVersionFromTest("1.104.102.0");
+            adapter.TriggerImeAgentVersionFromTest("1.105.0.0");
+
+            Assert.Equal(2, probeCalls); // one read per distinct version, not per event
+            Assert.Equal(3, f.InfoEvents(SharedEventTypes.ImeAgentVersion).Count);
         }
 
         [Fact]

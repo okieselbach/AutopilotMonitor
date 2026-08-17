@@ -36,6 +36,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Harness
         {
             EspSkipConfigurationProbe.TestOverride = _ => (null, null);
             EspSkipConfigurationProbe.FullTestOverride = _ => EspFirstSyncSnapshot.Empty;
+            // Same reasoning for the IME-install-source probe: a dev machine with real
+            // EnterpriseDesktopAppManagement CSP state would nondeterministically enrich
+            // ime_agent_version payloads in adapter tests.
+            ImeMsiInstallSourceProbe.TestOverride = (_, _) => ImeMsiInstallSource.Empty;
         }
     }
 }

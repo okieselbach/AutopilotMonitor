@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.Signals;
@@ -96,6 +97,12 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         // Fires once per session when a Platform Script stdout contains the Autopilot-Monitor
         // bootstrap marker line. Lets MCP report "which device runs which bootstrap version".
         private bool _bootstrapDetectedPosted;
+
+        // Cached EnterpriseDesktopAppManagement-CSP lookup for the IME install source — the
+        // version event fires more than once per session (V1 parity, no dedup) and the registry
+        // answer is stable per version, so the probe runs once per distinct version string.
+        private string? _msiSourceCachedForVersion;
+        private ImeMsiInstallSource _msiSourceCache;
 
         // One-shot: historic script replay detected (a previous enrollment's IME log content
         // surviving on disk) — its script events are suppressed, and a single
@@ -864,6 +871,19 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             var patternId = _tracker.LastMatchedPatternId;
             if (!string.IsNullOrEmpty(patternId))
                 data["patternId"] = patternId!;
+
+            // The EnterpriseDesktopAppManagement CSP records where it downloaded the IME MSI
+            // from — attach that install source so the event answers "which endpoint delivered
+            // exactly this build" (helps attribute bad builds to a CDN/AFD rollout ring).
+            var source = ResolveMsiInstallSource(version);
+            if (source.HasData)
+            {
+                if (!string.IsNullOrEmpty(source.DownloadUrl)) data["msiDownloadUrl"] = source.DownloadUrl;
+                if (!string.IsNullOrEmpty(source.ProductCode)) data["msiProductCode"] = source.ProductCode;
+                if (!string.IsNullOrEmpty(source.ProductVersion)) data["msiProductVersion"] = source.ProductVersion;
+                data["msiMatchedBy"] = source.MatchedByVersion ? "productVersion" : "fileName";
+            }
+
             TagDerivedTimestamp(data, derivedFromClock, rawSourceTs);
 
             _post.Emit(
@@ -874,7 +894,17 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 occurredAtUtc: now);
 
             // PR3-D4: fire-once and useful for compatibility-debugging — INFO level.
-            _logger?.Info($"ImeAdapter: IME agent version detected: {version}");
+            _logger?.Info(source.HasData && !string.IsNullOrEmpty(source.DownloadUrl)
+                ? $"ImeAdapter: IME agent version detected: {version} (CSP install source: {source.DownloadUrl})"
+                : $"ImeAdapter: IME agent version detected: {version}");
+        }
+
+        private ImeMsiInstallSource ResolveMsiInstallSource(string version)
+        {
+            if (_msiSourceCachedForVersion == version) return _msiSourceCache;
+            _msiSourceCache = ImeMsiInstallSourceProbe.Read(version, _logger);
+            _msiSourceCachedForVersion = version;
+            return _msiSourceCache;
         }
 
         private void EmitDoTelemetry(AppPackageState app, DateTime? sourceTimestampUtc)
