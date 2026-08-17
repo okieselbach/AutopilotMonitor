@@ -43,6 +43,7 @@ namespace AutopilotMonitor.Functions.Services
         private readonly AutopilotMonitor.Functions.Services.Analyze.IAnalyzeOnEnrollmentEndProducer _analyzeProducer;
         private readonly AutopilotMonitor.Functions.Services.Analyze.InterimTriggerRegistry _interimTriggerRegistry;
         private readonly IVulnerabilityCorrelateProducer _vulnProducer;
+        private readonly Ime.IImeMsiArchiveProducer _imeMsiArchiveProducer;
 
         public EventIngestProcessor(
             ILogger<EventIngestProcessor> logger,
@@ -58,7 +59,8 @@ namespace AutopilotMonitor.Functions.Services
             TelemetryClient telemetryClient,
             AutopilotMonitor.Functions.Services.Analyze.IAnalyzeOnEnrollmentEndProducer analyzeProducer,
             AutopilotMonitor.Functions.Services.Analyze.InterimTriggerRegistry interimTriggerRegistry,
-            IVulnerabilityCorrelateProducer vulnProducer)
+            IVulnerabilityCorrelateProducer vulnProducer,
+            Ime.IImeMsiArchiveProducer imeMsiArchiveProducer)
         {
             _logger = logger;
             _sessionRepo = sessionRepo;
@@ -74,6 +76,7 @@ namespace AutopilotMonitor.Functions.Services
             _analyzeProducer = analyzeProducer;
             _interimTriggerRegistry = interimTriggerRegistry;
             _vulnProducer = vulnProducer;
+            _imeMsiArchiveProducer = imeMsiArchiveProducer;
         }
 
         /// <summary>
@@ -129,6 +132,14 @@ namespace AutopilotMonitor.Functions.Services
                         .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
                             "ImeAgentVersion update failed (non-fatal)"), TaskContinuationOptions.OnlyOnFaulted);
 
+                    // Captured here (not inside the continuation) purely for clarity — the agent's
+                    // CSP-registry enrichment; absent on agent builds before 2026-08-17.
+                    string? msiDownloadUrl = null, msiMatchedBy = null;
+                    if (imeVersionEvent.Data.TryGetValue("msiDownloadUrl", out var urlObj))
+                        msiDownloadUrl = urlObj?.ToString();
+                    if (imeVersionEvent.Data.TryGetValue("msiMatchedBy", out var matchedByObj))
+                        msiMatchedBy = matchedByObj?.ToString();
+
                     _ = _sessionRepo.RecordImeVersionAsync(imeVersion, request.TenantId, request.SessionId)
                         .ContinueWith(async t =>
                         {
@@ -141,6 +152,19 @@ namespace AutopilotMonitor.Functions.Services
                             {
                                 await _opsEventService.RecordNewImeVersionDetectedAsync(
                                     imeVersion, request.TenantId, request.SessionId);
+
+                                // First fleet-wide sighting → archive the installer binary while
+                                // Microsoft's versionless CDN still serves exactly this build.
+                                // Producer is fail-soft; worker pauses on ImeMsiArchivingEnabled=false.
+                                await _imeMsiArchiveProducer.EnqueueAsync(new ImeMsiArchiveEnvelope
+                                {
+                                    Version = imeVersion,
+                                    MsiDownloadUrl = msiDownloadUrl,
+                                    MsiMatchedBy = msiMatchedBy,
+                                    TenantId = request.TenantId,
+                                    SessionId = request.SessionId,
+                                    EnqueuedAt = DateTime.UtcNow,
+                                });
                             }
                         }, TaskScheduler.Default);
                 }

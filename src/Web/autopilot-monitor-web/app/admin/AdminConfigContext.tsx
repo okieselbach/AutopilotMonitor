@@ -50,6 +50,10 @@ interface AdminConfigContextValue {
   setAutoApproveNewTenants: (value: boolean) => void;
   selfServiceAppHomingEnabled: boolean;
   setSelfServiceAppHomingEnabled: (value: boolean) => void;
+  imeMsiArchivingEnabled: boolean;
+  setImeMsiArchivingEnabled: (value: boolean) => void;
+  maxImeMsiDownloadSizeMB: number;
+  setMaxImeMsiDownloadSizeMB: (value: number) => void;
 
   // Diagnostics log paths
   globalDiagPaths: DiagnosticsLogPath[];
@@ -152,6 +156,8 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
   const [sessionDeletionKillSwitch, setSessionDeletionKillSwitch] = useState(false);
   const [autoApproveNewTenants, setAutoApproveNewTenants] = useState(false);
   const [selfServiceAppHomingEnabled, setSelfServiceAppHomingEnabled] = useState(false);
+  const [imeMsiArchivingEnabled, setImeMsiArchivingEnabled] = useState(true);
+  const [maxImeMsiDownloadSizeMB, setMaxImeMsiDownloadSizeMB] = useState(250);
 
   // Diagnostics Log Paths state
   const [globalDiagPaths, setGlobalDiagPaths] = useState<DiagnosticsLogPath[]>([]);
@@ -215,6 +221,8 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         setSessionDeletionKillSwitch(data.sessionDeletionKillSwitch ?? false);
         setAutoApproveNewTenants(data.autoApproveNewTenants ?? false);
         setSelfServiceAppHomingEnabled(data.selfServiceAppHomingEnabled ?? false);
+        setImeMsiArchivingEnabled(data.imeMsiArchivingEnabled ?? true);
+        setMaxImeMsiDownloadSizeMB(data.maxImeMsiDownloadSizeMB ?? 250);
         try {
           setGlobalDiagPaths(data.diagnosticsGlobalLogPathsJson ? JSON.parse(data.diagnosticsGlobalLogPathsJson) : []);
         } catch {
@@ -332,6 +340,8 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         sessionDeletionKillSwitch,
         autoApproveNewTenants,
         selfServiceAppHomingEnabled,
+        imeMsiArchivingEnabled,
+        maxImeMsiDownloadSizeMB,
       };
 
       const response = await authenticatedFetch(api.globalConfig.get(), getAccessToken, {
@@ -358,7 +368,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
     } finally {
       setSavingConfig(false);
     }
-  }, [isGlobalAdmin, adminConfig, globalRateLimit, userRateLimit, globalAdminRateLimit, platformStatsBlobSasUrl, agentMigrateApiBaseUrl, agentMigrateTenantOverridesJson, collectorIdleTimeoutMinutes, desktopDetectorNoCandidateTimeoutMinutes, opsEventRetentionDays, slaNotificationCooldownHours, allowAgentDowngrade, modernDeploymentHarmlessEventIds, enableIndexDualWrite, sessionDeletionKillSwitch, autoApproveNewTenants, selfServiceAppHomingEnabled, getAccessToken]);
+  }, [isGlobalAdmin, adminConfig, globalRateLimit, userRateLimit, globalAdminRateLimit, platformStatsBlobSasUrl, agentMigrateApiBaseUrl, agentMigrateTenantOverridesJson, collectorIdleTimeoutMinutes, desktopDetectorNoCandidateTimeoutMinutes, opsEventRetentionDays, slaNotificationCooldownHours, allowAgentDowngrade, modernDeploymentHarmlessEventIds, enableIndexDualWrite, sessionDeletionKillSwitch, autoApproveNewTenants, selfServiceAppHomingEnabled, imeMsiArchivingEnabled, maxImeMsiDownloadSizeMB, getAccessToken]);
 
   // Reset admin config
   const handleResetAdminConfig = useCallback(() => {
@@ -379,6 +389,8 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
     setSessionDeletionKillSwitch(adminConfig.sessionDeletionKillSwitch ?? false);
     setAutoApproveNewTenants(adminConfig.autoApproveNewTenants ?? false);
     setSelfServiceAppHomingEnabled(adminConfig.selfServiceAppHomingEnabled ?? false);
+    setImeMsiArchivingEnabled(adminConfig.imeMsiArchivingEnabled ?? true);
+    setMaxImeMsiDownloadSizeMB(adminConfig.maxImeMsiDownloadSizeMB ?? 250);
     try {
       setGlobalDiagPaths(adminConfig.diagnosticsGlobalLogPathsJson ? JSON.parse(adminConfig.diagnosticsGlobalLogPathsJson) : []);
     } catch {
@@ -525,6 +537,8 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
       sessionDeletionKillSwitch, setSessionDeletionKillSwitch,
       autoApproveNewTenants, setAutoApproveNewTenants,
       selfServiceAppHomingEnabled, setSelfServiceAppHomingEnabled,
+      imeMsiArchivingEnabled, setImeMsiArchivingEnabled,
+      maxImeMsiDownloadSizeMB, setMaxImeMsiDownloadSizeMB,
       globalDiagPaths, setGlobalDiagPaths, savingDiagPaths,
       opsAlertRules, setOpsAlertRules,
       opsAlertTelegramEnabled, setOpsAlertTelegramEnabled,

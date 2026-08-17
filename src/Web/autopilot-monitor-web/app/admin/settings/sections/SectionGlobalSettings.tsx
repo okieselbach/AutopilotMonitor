@@ -24,6 +24,8 @@ export function SectionGlobalSettings() {
     sessionDeletionKillSwitch, setSessionDeletionKillSwitch,
     autoApproveNewTenants, setAutoApproveNewTenants,
     selfServiceAppHomingEnabled, setSelfServiceAppHomingEnabled,
+    imeMsiArchivingEnabled, setImeMsiArchivingEnabled,
+    maxImeMsiDownloadSizeMB, setMaxImeMsiDownloadSizeMB,
     handleSaveAdminConfig, handleResetAdminConfig,
   } = useAdminConfig();
 
@@ -66,6 +68,10 @@ export function SectionGlobalSettings() {
         setAutoApproveNewTenants={setAutoApproveNewTenants}
         selfServiceAppHomingEnabled={selfServiceAppHomingEnabled}
         setSelfServiceAppHomingEnabled={setSelfServiceAppHomingEnabled}
+        imeMsiArchivingEnabled={imeMsiArchivingEnabled}
+        setImeMsiArchivingEnabled={setImeMsiArchivingEnabled}
+        maxImeMsiDownloadSizeMB={maxImeMsiDownloadSizeMB}
+        setMaxImeMsiDownloadSizeMB={setMaxImeMsiDownloadSizeMB}
         onSave={handleSaveAdminConfig}
         onReset={handleResetAdminConfig}
       />

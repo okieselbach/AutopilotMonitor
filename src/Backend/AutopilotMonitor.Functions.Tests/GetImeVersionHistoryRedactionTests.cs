@@ -40,6 +40,26 @@ public class GetImeVersionHistoryRedactionTests
     }
 
     /// <summary>
+    /// The MSI-archive columns (ImeMsiArchiver) are operator infrastructure — blob paths,
+    /// hashes and source URLs of the platform's own archive have no business in a tenant
+    /// member's payload. Pinned like the identifiers so the boundary survives refactors.
+    /// </summary>
+    [Fact]
+    public void NonGlobalCaller_DropsMsiArchiveFields()
+    {
+        var json = SerializeFor(hasGlobalScope: false, MakeEntry());
+
+        Assert.DoesNotContain("msiArchiveStatus", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("msiArchiveBlobPath", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("msiSha256", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("msiBytes", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("msiSourceUrl", json, StringComparison.OrdinalIgnoreCase);
+        // Values too, not just keys (same rationale as the identifier-value test below).
+        Assert.DoesNotContain("4d6b85fd3c49cf227ab4711308bca1f3c701cad9bff1799da4c6b6616066bb5e", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("imeswdb-afd-secondary", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// The values, not just the property names: a rename of the model property must not let the
     /// identifier survive under a different key. Asserting on the GUIDs catches that.
     /// </summary>
@@ -101,7 +121,12 @@ public class GetImeVersionHistoryRedactionTests
         var keys = doc.RootElement[0].EnumerateObject().Select(p => p.Name).OrderBy(n => n).ToArray();
 
         Assert.Equal(
-            new[] { "firstSeenAt", "firstSeenSessionId", "firstSeenTenantId", "lastSeenAt", "sessionCount", "version" },
+            new[]
+            {
+                "firstSeenAt", "firstSeenSessionId", "firstSeenTenantId", "lastSeenAt",
+                "msiArchiveBlobPath", "msiArchiveStatus", "msiBytes", "msiSha256", "msiSourceUrl",
+                "sessionCount", "version",
+            },
             keys);
     }
 
@@ -185,5 +210,10 @@ public class GetImeVersionHistoryRedactionTests
             FirstSeenTenantId = "57f34dd1-6a42-47f9-9bc0-b921fa6caa30",
             LastSeenAt = Last,
             SessionCount = 3109,
+            MsiArchiveStatus = "Archived",
+            MsiArchiveBlobPath = $"{version}/IntuneWindowsAgent.msi",
+            MsiSha256 = "4d6b85fd3c49cf227ab4711308bca1f3c701cad9bff1799da4c6b6616066bb5e",
+            MsiBytes = 13_107_200,
+            MsiSourceUrl = "https://imeswdb-afd-secondary.manage.microsoft.com/IntuneWindowsAgent.msi",
         };
 }

@@ -46,6 +46,8 @@
       "vulnerabilityCorrelationEnabled",
       "enableIndexDualWrite",
       "autoApproveNewTenants",
+      "imeMsiArchivingEnabled",
+      "maxImeMsiDownloadSizeMB",
       "selfServiceAppHomingEnabled",
       "sessionDeletionKillSwitch",
       "vulnerabilityDataLastSyncUtc",

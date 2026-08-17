@@ -461,6 +461,24 @@ namespace AutopilotMonitor.Shared.Models
         public bool AutoApproveNewTenants { get; set; } = false;
 
         /// <summary>
+        /// When true, the first fleet-wide sighting of a new IME version enqueues an
+        /// archive job (<c>ime-msi-archive</c> queue) that downloads the installer from the
+        /// CSP-reported URL into the <c>ime-archive</c> blob container. Roughly one download
+        /// per Microsoft IME release (~monthly). Default true — flip off to pause archiving
+        /// (queued messages then wait, they are not dropped). Round-tripped via the 4-file
+        /// web chain (memory <c>feedback_admin_config_ui_roundtrip</c>).
+        /// </summary>
+        public bool ImeMsiArchivingEnabled { get; set; } = true;
+
+        /// <summary>
+        /// Size cap for the IME installer download in MB (Content-Length preflight AND
+        /// streamed-byte guard). The MSI is ~12 MB today; the generous cap exists only so a
+        /// tampered/wrong URL cannot stream gigabytes into the archive while still never
+        /// missing a legitimately grown installer. 0 = no limit. Default: 250 MB.
+        /// </summary>
+        public int MaxImeMsiDownloadSizeMB { get; set; } = 250;
+
+        /// <summary>
         /// When true, the dual app-registration self-service homing flip is active: the Graph
         /// consent flow funnels legacy-homed tenants to the primary (new) app registration and
         /// auto-flips <c>TenantConfiguration.HomedAppClientId</c> once admin consent for the

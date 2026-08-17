@@ -36,6 +36,10 @@ interface AdminConfigSettingsSectionProps {
   setAutoApproveNewTenants: (value: boolean) => void;
   selfServiceAppHomingEnabled: boolean;
   setSelfServiceAppHomingEnabled: (value: boolean) => void;
+  imeMsiArchivingEnabled: boolean;
+  setImeMsiArchivingEnabled: (value: boolean) => void;
+  maxImeMsiDownloadSizeMB: number;
+  setMaxImeMsiDownloadSizeMB: (value: number) => void;
   onSave: () => Promise<void>;
   onReset: () => void;
 }
@@ -74,6 +78,10 @@ export function AdminConfigSettingsSection({
   setAutoApproveNewTenants,
   selfServiceAppHomingEnabled,
   setSelfServiceAppHomingEnabled,
+  imeMsiArchivingEnabled,
+  setImeMsiArchivingEnabled,
+  maxImeMsiDownloadSizeMB,
+  setMaxImeMsiDownloadSizeMB,
   onSave,
   onReset,
 }: AdminConfigSettingsSectionProps) {
@@ -372,6 +380,47 @@ export function AdminConfigSettingsSection({
                     Global Admins can switch tenants. Default <strong>off</strong>.
                   </p>
                 </span>
+              </label>
+            </div>
+
+            <div>
+              <label className="flex items-start space-x-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={imeMsiArchivingEnabled}
+                  onChange={(e) => setImeMsiArchivingEnabled(e.target.checked)}
+                  className="mt-1 h-5 w-5 rounded border-indigo-300 dark:border-indigo-600 text-indigo-600 accent-indigo-600 focus:ring-indigo-500"
+                />
+                <span>
+                  <span className="text-indigo-900 dark:text-indigo-100 font-medium">IME installer archiving</span>
+                  <p className="text-sm text-indigo-800 dark:text-gray-300 mt-1">
+                    When <strong>on</strong>, the first fleet-wide sighting of a new IME version downloads
+                    the installer (from the CSP-reported, allowlisted URL) into the permanent
+                    <code className="ml-1 text-xs bg-indigo-100 dark:bg-indigo-900 dark:text-indigo-200 px-1 rounded">ime-archive</code> blob
+                    container — roughly one small download per Microsoft IME release. The outcome is
+                    visible per version in the IME version history. When <strong>off</strong>, queued
+                    archive jobs wait (they are not dropped). Default <strong>on</strong>.
+                  </p>
+                </span>
+              </label>
+            </div>
+
+            <div>
+              <label className="block">
+                <span className="text-indigo-900 dark:text-indigo-100 font-medium">IME installer download size cap (MB)</span>
+                <p className="text-sm text-indigo-800 dark:text-gray-300 mb-2">
+                  Safety cap for the IME installer download (the MSI is ~12 MB today). Generous on
+                  purpose so a legitimately grown installer is never missed, while a wrong URL can
+                  still not stream gigabytes into the archive. 0 = unlimited. Default 250.
+                </p>
+                <input
+                  type="number"
+                  min="0"
+                  max="10000"
+                  value={maxImeMsiDownloadSizeMB}
+                  onChange={(e) => setMaxImeMsiDownloadSizeMB(parseInt(e.target.value) || 0)}
+                  className="mt-1 block w-full px-4 py-2 border border-indigo-300 dark:border-indigo-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
+                />
               </label>
             </div>
 

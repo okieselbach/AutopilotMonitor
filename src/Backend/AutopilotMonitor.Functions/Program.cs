@@ -334,6 +334,26 @@ builder.Services.AddSingleton<
 builder.Services.AddHostedService<
     AutopilotMonitor.Functions.Services.Vulnerability.VulnerabilityCorrelateQueueWorker>();
 
+// IME-installer archiving on first fleet-wide sighting of a new IME version (~monthly).
+// Producer sits in EventIngestProcessor's new-version continuation; the worker downloads
+// the MSI from the CSP-reported (allowlisted) URL into the permanent ime-archive container
+// and merges the outcome onto the ImeVersionHistory row. Typed HttpClient: no redirects
+// (SSRF posture — the allowlisted host must serve directly), long timeout owned by the
+// archiver's own CTS, transient retry via the shared external-data policy.
+builder.Services.AddHttpClient<AutopilotMonitor.Functions.Services.Ime.ImeMsiArchiver>()
+    .ConfigurePrimaryHttpMessageHandler(() => new System.Net.Http.SocketsHttpHandler
+    {
+        AllowAutoRedirect = false,
+        ConnectTimeout = TimeSpan.FromSeconds(10),
+    })
+    .ConfigureHttpClient(client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().ExternalDataApi);
+builder.Services.AddSingleton<
+    AutopilotMonitor.Functions.Services.Ime.IImeMsiArchiveProducer,
+    AutopilotMonitor.Functions.Services.Ime.AzureQueueImeMsiArchiveProducer>();
+builder.Services.AddHostedService<
+    AutopilotMonitor.Functions.Services.Ime.ImeMsiArchiveQueueWorker>();
+
 // Delayed tenant auto-approve (public availability). Producer fires at first-login signup
 // with a ~1-minute visibility delay; the worker activates the tenant via the shared
 // TenantApprovalService only if AdminConfiguration.AutoApproveNewTenants is enabled at

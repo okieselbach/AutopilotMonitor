@@ -575,5 +575,25 @@ namespace AutopilotMonitor.Shared.Models
         public string FirstSeenTenantId { get; set; } = string.Empty;
         public DateTime LastSeenAt { get; set; }
         public int SessionCount { get; set; }
+
+        /// <summary>
+        /// Outcome of the automatic installer archiving (<c>ImeMsiArchiver</c>):
+        /// <c>Archived</c> or a <c>Failed:*</c> status; null for versions sighted before the
+        /// feature existed or while the archive job is still queued. Like the FirstSeen*
+        /// identifiers, the archive fields are only serialized for Global Admin callers.
+        /// </summary>
+        public string? MsiArchiveStatus { get; set; }
+
+        /// <summary>Blob path inside the <c>ime-archive</c> container, e.g. <c>1.104.102.0/IntuneWindowsAgent.msi</c>.</summary>
+        public string? MsiArchiveBlobPath { get; set; }
+
+        /// <summary>SHA-256 of the archived installer (hex, lowercase).</summary>
+        public string? MsiSha256 { get; set; }
+
+        /// <summary>Size of the archived installer in bytes.</summary>
+        public long? MsiBytes { get; set; }
+
+        /// <summary>The URL the installer was downloaded from (CSP-reported or canonical fallback).</summary>
+        public string? MsiSourceUrl { get; set; }
     }
 }

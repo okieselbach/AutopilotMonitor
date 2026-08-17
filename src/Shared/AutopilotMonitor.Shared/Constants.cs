@@ -1295,6 +1295,19 @@ namespace AutopilotMonitor.Shared
             /// settings (Soft-Delete + Versioning) provide defence-in-depth.
             /// </summary>
             public const string CriticalTableBackups = "critical-table-backups";
+
+            /// <summary>
+            /// Permanent platform archive of IME (Intune Management Extension) installer
+            /// binaries, one virtual folder per version:
+            /// <c>{version}/IntuneWindowsAgent.msi</c> + <c>{version}/provenance.json</c>.
+            /// Written by <c>ImeMsiArchiver</c> when a new IME version is first seen across
+            /// the fleet (companion of <see cref="TableNames.ImeVersionHistory"/>, which is
+            /// equally KeptByDesign). NOT tenant-scoped — blob paths are version-keyed, so
+            /// tenant offboarding (Phase 2.E) deliberately never touches this container.
+            /// No lifecycle rule: the archive is the point (build-to-build diffs of
+            /// Microsoft's rollouts). Private by default (SDK CreateIfNotExists).
+            /// </summary>
+            public const string ImeArchive = "ime-archive";
         }
 
         /// <summary>
@@ -1392,6 +1405,18 @@ namespace AutopilotMonitor.Shared
 
             /// <summary>Poison sibling of <see cref="SessionDeletionMaintenance"/>.</summary>
             public const string SessionDeletionMaintenancePoison = "session-deletion-maintenance-poison";
+
+            /// <summary>
+            /// IME-MSI archive fan-out. Producer = <c>EventIngestProcessor</c> when
+            /// <c>RecordImeVersionAsync</c> reports a genuinely NEW IME version (first sighting
+            /// across the fleet — roughly monthly); consumer = <c>ImeMsiArchiveQueueWorker</c>,
+            /// which downloads the installer from the CSP-reported
+            /// <c>msiDownloadUrl</c> (host-allowlisted, size-capped) into
+            /// <see cref="BlobContainers.ImeArchive"/> and merges the outcome into the
+            /// <see cref="TableNames.ImeVersionHistory"/> row. Poison suffix <c>-poison</c>,
+            /// max-dequeue 5.
+            /// </summary>
+            public const string ImeMsiArchive = "ime-msi-archive";
         }
 
         /// <summary>

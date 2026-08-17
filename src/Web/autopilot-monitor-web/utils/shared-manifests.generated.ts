@@ -50,6 +50,8 @@ export const SHARED_MANIFEST = {
       "vulnerabilityCorrelationEnabled",
       "enableIndexDualWrite",
       "autoApproveNewTenants",
+      "imeMsiArchivingEnabled",
+      "maxImeMsiDownloadSizeMB",
       "selfServiceAppHomingEnabled",
       "sessionDeletionKillSwitch",
       "vulnerabilityDataLastSyncUtc",

@@ -99,6 +99,17 @@ export interface AdminConfiguration {
    * only Global Admins can flip while it is off. Default false.
    */
   selfServiceAppHomingEnabled?: boolean;
+  /**
+   * When true, the first fleet-wide sighting of a new IME version downloads the
+   * installer into the permanent ime-archive blob container (ime-msi-archive queue
+   * worker). When false, queued archive jobs wait — they are not dropped. Default true.
+   */
+  imeMsiArchivingEnabled?: boolean;
+  /**
+   * Size cap for the IME installer download in MB (preflight + mid-stream guard).
+   * 0 = unlimited. Default 250.
+   */
+  maxImeMsiDownloadSizeMB?: number;
 }
 
 export interface OpsAlertRule {

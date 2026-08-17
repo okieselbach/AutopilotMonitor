@@ -176,6 +176,14 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<bool> RecordImeVersionAsync(string version, string tenantId, string sessionId);
         Task<List<ImeVersionHistoryEntry>> GetImeVersionHistoryAsync();
 
+        /// <summary>
+        /// Merges the installer-archiving outcome (<c>ImeMsiArchiver</c>) into the version's
+        /// <c>ImeVersionHistory</c> row. Fail-soft: storage errors are logged, never thrown.
+        /// Blob path / hash / size / URL are only written on success (null leaves them absent).
+        /// </summary>
+        Task UpdateImeVersionArchiveInfoAsync(
+            string version, string status, string? blobPath, string? sha256, long? sizeBytes, string? sourceUrl);
+
         // --- Events ---
         Task<bool> StoreEventAsync(EnrollmentEvent evt);
         Task<List<EnrollmentEvent>> StoreEventsBatchAsync(List<EnrollmentEvent> events);

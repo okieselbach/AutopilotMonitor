@@ -172,6 +172,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<List<ImeVersionHistoryEntry>> GetImeVersionHistoryAsync()
             => _storage.GetImeVersionHistoryAsync();
 
+        public Task UpdateImeVersionArchiveInfoAsync(
+            string version, string status, string? blobPath, string? sha256, long? sizeBytes, string? sourceUrl)
+            => _storage.UpdateImeVersionArchiveInfoAsync(version, status, blobPath, sha256, sizeBytes, sourceUrl);
+
         public async Task<bool> StoreEventAsync(EnrollmentEvent evt)
         {
             var result = await _storage.StoreEventAsync(evt);

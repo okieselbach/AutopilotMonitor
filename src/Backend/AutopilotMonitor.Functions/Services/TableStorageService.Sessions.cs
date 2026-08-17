@@ -3316,7 +3316,12 @@ namespace AutopilotMonitor.Functions.Services
                         FirstSeenSessionId = entity.GetString("FirstSeenSessionId") ?? string.Empty,
                         FirstSeenTenantId = entity.GetString("FirstSeenTenantId") ?? string.Empty,
                         LastSeenAt = entity.GetDateTime("LastSeenAt") ?? DateTime.MinValue,
-                        SessionCount = entity.GetInt32("SessionCount") ?? 0
+                        SessionCount = entity.GetInt32("SessionCount") ?? 0,
+                        MsiArchiveStatus = entity.GetString("MsiArchiveStatus"),
+                        MsiArchiveBlobPath = entity.GetString("MsiArchiveBlobPath"),
+                        MsiSha256 = entity.GetString("MsiSha256"),
+                        MsiBytes = entity.GetInt64("MsiBytes"),
+                        MsiSourceUrl = entity.GetString("MsiSourceUrl")
                     });
                 }
             }
@@ -3326,6 +3331,38 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             return results.OrderByDescending(e => e.FirstSeenAt).ToList();
+        }
+
+        /// <summary>
+        /// Merges the installer-archiving outcome into the version's ImeVersionHistory row
+        /// (same Merge idiom as the LastSeen update above). Fail-soft: the archive job
+        /// already logged its own result; a lost status column must never fail the worker.
+        /// </summary>
+        public async Task UpdateImeVersionArchiveInfoAsync(
+            string version, string status, string? blobPath, string? sha256, long? sizeBytes, string? sourceUrl)
+        {
+            if (string.IsNullOrEmpty(version) || string.IsNullOrEmpty(status)) return;
+
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.ImeVersionHistory);
+                var mergeEntity = new TableEntity("Global", version)
+                {
+                    ["MsiArchiveStatus"] = status
+                };
+                if (!string.IsNullOrEmpty(blobPath)) mergeEntity["MsiArchiveBlobPath"] = blobPath;
+                if (!string.IsNullOrEmpty(sha256)) mergeEntity["MsiSha256"] = sha256;
+                if (sizeBytes.HasValue) mergeEntity["MsiBytes"] = sizeBytes.Value;
+                if (!string.IsNullOrEmpty(sourceUrl)) mergeEntity["MsiSourceUrl"] = sourceUrl;
+
+                await tableClient.UpsertEntityAsync(mergeEntity, TableUpdateMode.Merge);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to update ImeVersionHistory archive info for version {Version} (status {Status})",
+                    version, status);
+            }
         }
 
         #endregion
