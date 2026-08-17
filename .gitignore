@@ -159,3 +159,8 @@ docs/~$Introduction-AutopilotMonitor.pptx
 # changes each run) and served at /version.json from the static export.
 src/Web/autopilot-monitor-web/public/version.json
 
+
+# Local IME binaries scratch used by the /ime-decompile skill (MSI + msiexec-
+# extracted payload per version, for grepping in binaries). Decompilates live in
+# the private ime-decompiles repo, MSIs in the ime-archive blob - this stays local.
+ime-files/
