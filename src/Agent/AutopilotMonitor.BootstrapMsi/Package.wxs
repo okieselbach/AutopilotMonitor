@@ -1,0 +1,54 @@
+<!--
+  Autopilot Monitor Bootstrap MSI - thin MDM LOB delivery vehicle for WDP (Autopilot v2).
+
+  LOB MSIs are installed by the OMA-DM stack (EnterpriseDesktopAppManagement CSP) during
+  the first MDM sync, i.e. BEFORE/parallel to the Device Preparation SLDM app batch -
+  earlier than any IME-delivered script (Batch 2) or Win32 app can run. The MSI itself
+  carries no bootstrap logic: it installs one runner script and executes it once. The
+  runner downloads the CURRENT server-hosted Install-AutopilotMonitor.ps1, keeping all
+  real logic updatable without re-shipping the MSI.
+
+  Build: wix build Package.wxs -arch x64 -o bin\AutopilotMonitor-Bootstrap.msi
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Autopilot Monitor Bootstrap"
+           Manufacturer="Autopilot Monitor"
+           Version="1.0.0"
+           UpgradeCode="1fbe5515-d346-445c-b8b8-14ee79f97522"
+           Scope="perMachine"
+           Compressed="yes">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Autopilot Monitor Bootstrap is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="CompanyFolder" Name="AutopilotMonitor">
+        <Directory Id="INSTALLFOLDER" Name="Msi" />
+      </Directory>
+    </StandardDirectory>
+
+    <ComponentGroup Id="MainComponents" Directory="INSTALLFOLDER">
+      <Component Id="RunnerScript" Guid="8c8e8962-719f-458b-b291-dd99d3f1dc30">
+        <File Id="RunnerPs1" Source="Invoke-BootstrapDownload.ps1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="Main" Level="1">
+      <ComponentGroupRef Id="MainComponents" />
+    </Feature>
+
+    <!-- Deferred + no-impersonate: runs as SYSTEM after files land. Return=ignore keeps
+         the LOB install green even if the runner hits a transient error (the runner is
+         additionally fail-soft itself); diagnostics live in msi-bootstrap.log. -->
+    <CustomAction Id="RunBootstrap"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]Invoke-BootstrapDownload.ps1&quot;"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="RunBootstrap" After="InstallFiles" Condition="NOT Installed" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>
