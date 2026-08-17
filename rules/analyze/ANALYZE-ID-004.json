@@ -5,7 +5,7 @@
   "description": "On a hybrid-joined device the real user reached the desktop, but the Autopilot provisioning placeholder stayed active in JoinInfo and the agent repeatedly reported the hybrid sign-in as overdue. The user session never establishes Entra user affinity (no PRT), so the Account Setup ESP re-runs on every logon and the enrollment never completes.",
   "severity": "high",
   "category": "identity",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "Autopilot Monitor",
   "enabled": true,
   "trigger": "correlation",
@@ -51,7 +51,7 @@
     { "signal": "hybrid_login_pending", "condition": "count >= 3", "weight": 10 },
     { "signal": "aad_placeholder_user_detected", "condition": "count >= 3", "weight": 10 }
   ],
-  "explanation": "A real user signed in and reached the desktop, but the device kept reporting the **Autopilot provisioning placeholder** as the active identity in JoinInfo and the hybrid sign-in as **overdue** — across multiple reboots. This means the signed-in user never established **Microsoft Entra user affinity** (no Primary Refresh Token), so:\n\n- the Account Setup ESP page re-appears on every logon,\n- user-targeted required apps and policies cannot settle,\n- the enrollment never reaches completion.\n\nAfter this many hours this is not normal Entra Connect sync latency — something is structurally preventing the user (or the computer object) from registering:\n\n- the computer object's `userCertificate` attribute is not syncing to Entra ID (sync scope / OU filtering),\n- the signing-in user is not synced, or their UPN does not match a verified Entra domain,\n- the device has no line of sight to a domain controller **at logon time**, so the hybrid PRT flow cannot finish,\n- time skew or a proxy blocking `login.microsoftonline.com` / `enterpriseregistration.windows.net` from the user context.",
+  "explanation": "A real user signed in and reached the desktop, but the device kept reporting the **Autopilot provisioning placeholder** as the active identity in JoinInfo and the hybrid sign-in as **overdue** — across multiple reboots. This means the signed-in user never established **Microsoft Entra user affinity** (no Primary Refresh Token), so:\n\n- the Account Setup ESP page re-appears on every logon,\n- user-targeted required apps and policies cannot settle,\n- the enrollment never reaches completion.\n\nAfter this many hours this is not normal Entra Connect sync latency — something is structurally preventing the user (or the computer object) from registering:\n\n- the computer object's `userCertificate` attribute is not syncing to Entra ID (sync scope / OU filtering),\n- the signing-in user is not synced, or their UPN does not match a verified Entra domain,\n- the device has no line of sight to a domain controller **at logon time**, so the hybrid PRT flow cannot finish,\n- time skew or a proxy blocking `login.microsoftonline.com` / `enterpriseregistration.windows.net` from the user context.\n\nA frequent variant: the user's **first sign-in happens without domain-controller reachability** — for example when a pre-logon VPN tunnel (GlobalProtect, Always On VPN, Zscaler ZPA) is not established yet at the logon screen. Windows falls back to cached credentials, the hybrid PRT flow silently never runs, and later reboots do not fix it — sessions in this state typically show repeated reboots and network flapping while the placeholder identity stays active.\n\nA visible side effect: **the Windows Hello for Business wizard never appears**, because Hello provisioning requires an Entra user token (PRT). Hello is a downstream symptom here, not the cause.",
   "remediation": [
     {
       "title": "Verify user affinity on the device",
@@ -70,9 +70,23 @@
         "Ensure domain-controller line of sight at logon from the provisioning network/VLAN (hybrid PRT requires a reachable DC).",
         "Check proxy/firewall rules for login.microsoftonline.com, device.login.microsoftonline.com and enterpriseregistration.windows.net from the user context."
       ]
+    },
+    {
+      "title": "Address VPN and Windows Hello dependencies",
+      "steps": [
+        "If a VPN is required to reach a domain controller, it must be established before or at the logon screen (machine tunnel / pre-logon tunnel). A user-context tunnel that starts after sign-in is too late for the hybrid PRT flow.",
+        "If you deploy Windows Hello for Business to hybrid-joined devices, use cloud Kerberos trust — it removes the on-premises certificate/key-trust dependencies that commonly stall Hello on hybrid devices.",
+        "If you do not use Windows Hello, disable it explicitly via a device-scoped Intune policy instead of leaving it unconfigured — the enrollment then resolves the Hello step deterministically instead of waiting for a wizard that never comes.",
+        "Avoid feature/quality updates mid-enrollment where possible — an OS update with forced reboots during enrollment aggravates this pattern. Consider a short Windows Update deferral covering the enrollment window.",
+        "For hybrid deployments, pre-provisioning (White Glove) materially shrinks the user-facing phase: the device phase runs on a known-good technician network, and the user phase reduces to sign-in, user ESP, and Hello."
+      ]
     }
   ],
   "relatedDocs": [
+    {
+      "title": "Autopilot Monitor: Hybrid join — stuck in Account Setup (no user affinity)",
+      "url": "https://docs.autopilotmonitor.com/troubleshooting/hybrid-join-stuck-in-account-setup"
+    },
     {
       "title": "Autopilot Monitor: Hybrid join — late device registration",
       "url": "https://docs.autopilotmonitor.com/troubleshooting/hybrid-join-late-device-registration"
