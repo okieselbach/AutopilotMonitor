@@ -2,6 +2,7 @@
 
 import { sessionUrl } from "@/lib/routes";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import type { Route } from "next";
 import { useState, useEffect, useRef, useMemo, useDeferredValue } from "react";
 import { Session } from "../types";
@@ -709,6 +710,7 @@ export function SessionTable({
                     key={col.key}
                     columnKey={col.key}
                     session={session}
+                    href={linkFor(session)}
                     adminMode={adminMode}
                     globalAdminMode={globalAdminMode}
                     blockedDevicesSet={blockedDevicesSet}
@@ -782,9 +784,35 @@ export function SessionTable({
   );
 }
 
+/** Invisible cell-filling anchor so the browser's native context menu (open in new
+ * tab, copy link) and middle/ctrl+click work on session rows. Visually nothing — the
+ * row keeps its exact current look; navigation UX is unchanged because plain clicks
+ * still do an SPA push via Link. Cells with their own interactive content or title
+ * tooltips (status badges, tenant copy button, actions) must NOT render this overlay
+ * as it would sit above them and swallow their hover/click. aria-hidden + tabIndex -1
+ * keep it out of tab order and screen readers — the row's click target is unchanged. */
+function RowLinkOverlay({ href, session }: { href: Route; session: Session }) {
+  return (
+    <Link
+      href={href}
+      prefetch={false}
+      tabIndex={-1}
+      aria-hidden="true"
+      draggable={false}
+      className="absolute inset-0"
+      onClick={(e) => {
+        // Link handles the navigation itself; stop the row's onClick from double-pushing.
+        e.stopPropagation();
+        trackEvent("session_opened", { sessionId: session.sessionId, status: session.status ?? "" });
+      }}
+    />
+  );
+}
+
 function SessionCell({
   columnKey,
   session,
+  href,
   globalAdminMode,
   blockedDevicesSet,
   user,
@@ -795,6 +823,7 @@ function SessionCell({
 }: {
   columnKey: string;
   session: Session;
+  href: Route;
   adminMode: boolean;
   globalAdminMode: boolean;
   blockedDevicesSet: Set<string>;
@@ -808,7 +837,8 @@ function SessionCell({
   switch (columnKey) {
     case "device":
       return (
-        <td className="px-6 py-4 whitespace-nowrap">
+        <td className="relative px-6 py-4 whitespace-nowrap">
+          <RowLinkOverlay href={href} session={session} />
           <div className="text-sm font-medium text-gray-900">
             {session.deviceName || session.serialNumber}
           </div>
@@ -849,7 +879,8 @@ function SessionCell({
 
     case "model":
       return (
-        <td className="px-6 py-4 whitespace-nowrap">
+        <td className="relative px-6 py-4 whitespace-nowrap">
+          <RowLinkOverlay href={href} session={session} />
           <div className="text-sm font-medium text-gray-900">
             {session.manufacturer || "Unknown manufacturer"}
           </div>
@@ -907,14 +938,16 @@ function SessionCell({
 
     case "eventCount":
       return (
-        <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-500">
+        <td className="relative px-3 py-4 whitespace-nowrap text-sm text-gray-500">
+          <RowLinkOverlay href={href} session={session} />
           {session.eventCount}
         </td>
       );
 
     case "duration":
       return (
-        <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-500">
+        <td className="relative px-3 py-4 whitespace-nowrap text-sm text-gray-500">
+          <RowLinkOverlay href={href} session={session} />
           {Math.round(session.durationSeconds / 60)} min
         </td>
       );
@@ -923,7 +956,8 @@ function SessionCell({
       // Two-line date/time keeps the column narrow so more columns fit on one page.
       const started = new Date(session.startedAt);
       return (
-        <td className="px-3 py-4 whitespace-nowrap">
+        <td className="relative px-3 py-4 whitespace-nowrap">
+          <RowLinkOverlay href={href} session={session} />
           <div className="text-sm font-medium text-gray-900">{started.toLocaleDateString()}</div>
           <div className="text-sm text-gray-500">{started.toLocaleTimeString()}</div>
         </td>
@@ -985,35 +1019,40 @@ function SessionCell({
 
     case "osName":
       return (
-        <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-500">
+        <td className="relative px-3 py-4 whitespace-nowrap text-sm text-gray-500">
+          <RowLinkOverlay href={href} session={session} />
           {session.osName || <span className="text-gray-300">—</span>}
         </td>
       );
 
     case "osBuild":
       return (
-        <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
+        <td className="relative px-3 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
+          <RowLinkOverlay href={href} session={session} />
           {session.osBuild || <span className="text-gray-300">—</span>}
         </td>
       );
 
     case "osDisplayVersion":
       return (
-        <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-500">
+        <td className="relative px-3 py-4 whitespace-nowrap text-sm text-gray-500">
+          <RowLinkOverlay href={href} session={session} />
           {session.osDisplayVersion || <span className="text-gray-300">—</span>}
         </td>
       );
 
     case "osEdition":
       return (
-        <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-500">
+        <td className="relative px-3 py-4 whitespace-nowrap text-sm text-gray-500">
+          <RowLinkOverlay href={href} session={session} />
           {session.osEdition || <span className="text-gray-300">—</span>}
         </td>
       );
 
     case "osLanguage":
       return (
-        <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-500">
+        <td className="relative px-3 py-4 whitespace-nowrap text-sm text-gray-500">
+          <RowLinkOverlay href={href} session={session} />
           {session.osLanguage || <span className="text-gray-300">—</span>}
         </td>
       );
