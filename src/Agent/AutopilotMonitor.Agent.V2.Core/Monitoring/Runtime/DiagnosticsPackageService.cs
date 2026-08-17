@@ -534,14 +534,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                     if (file.EndsWith(".evtx", StringComparison.OrdinalIgnoreCase))
                     {
                         tempExport = TryExportEventLogChannel(file);
-                        if (tempExport == null)
+                        if (tempExport != null)
                         {
-                            tracker.RecordSkip(file, "evtx-export", length);
-                            continue;
+                            streamSource = tempExport;
+                            try { length = new FileInfo(tempExport).Length; }
+                            catch { /* keep original length estimate */ }
                         }
-                        streamSource = tempExport;
-                        try { length = new FileInfo(tempExport).Length; }
-                        catch { /* keep original length estimate */ }
+                        else
+                        {
+                            // Export failed (channel not resolvable / wevtutil error) — fall through
+                            // to the raw copy. Inactive or archived evtx files are not locked, so
+                            // the plain FileStream often still succeeds; if the channel IS active
+                            // and locked, the existing per-file catch logs the failure.
+                            _logger.Warning($"Event log export unavailable for {file} — attempting raw copy.");
+                        }
                     }
 
                     try
@@ -597,18 +603,53 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         }
 
         /// <summary>
+        /// Resolves the event-log CHANNEL that writes to the given .evtx file by matching the
+        /// registered channels' LogFilePath — never by guessing a naming convention: most
+        /// channels follow the "%4 encodes '/'" file naming, but not all do (field case
+        /// 2026-08-17: Microsoft-Autopilot-BootstrapperAgent/BootstrapperAgentServiceLogProvider
+        /// writes plain "BootstrapperAgentServiceLogProvider.evtx"). Falls back to the %4
+        /// convention only when no registered channel claims the file.
+        /// </summary>
+        internal static string ResolveChannelForEvtxFile(string evtxPath)
+        {
+            try
+            {
+                var target = Path.GetFullPath(evtxPath);
+                using (var session = new System.Diagnostics.Eventing.Reader.EventLogSession())
+                {
+                    foreach (var logName in session.GetLogNames())
+                    {
+                        try
+                        {
+                            var config = new System.Diagnostics.Eventing.Reader.EventLogConfiguration(logName, session);
+                            var logFile = config.LogFilePath;
+                            if (string.IsNullOrEmpty(logFile)) continue;
+                            var expanded = Path.GetFullPath(Environment.ExpandEnvironmentVariables(logFile));
+                            if (string.Equals(expanded, target, StringComparison.OrdinalIgnoreCase))
+                                return logName;
+                        }
+                        catch { /* individual channel unreadable — keep scanning */ }
+                    }
+                }
+            }
+            catch { /* enumeration unavailable — fall back to convention */ }
+
+            return Path.GetFileNameWithoutExtension(evtxPath).Replace("%4", "/");
+        }
+
+        /// <summary>
         /// Exports the event-log channel behind a winevt .evtx file to a temp copy via
-        /// <c>wevtutil epl</c>. Channel name is derived from the file name (%4 decodes to '/',
-        /// e.g. "Microsoft-Autopilot-BootstrapperAgent%4BootstrapperAgentServiceLogProvider.evtx"
-        /// → "Microsoft-Autopilot-BootstrapperAgent/BootstrapperAgentServiceLogProvider").
-        /// Returns the temp file path (caller deletes) or null when the export failed.
+        /// <c>wevtutil epl</c> (active channels hold their file exclusively locked, so a raw
+        /// copy fails). Channel resolution happens against the registered channels — see
+        /// <see cref="ResolveChannelForEvtxFile"/>. Returns the temp file path (caller deletes)
+        /// or null when the export failed.
         /// </summary>
         private string TryExportEventLogChannel(string evtxPath)
         {
             string tempPath = null;
             try
             {
-                var channel = Path.GetFileNameWithoutExtension(evtxPath).Replace("%4", "/");
+                var channel = ResolveChannelForEvtxFile(evtxPath);
                 tempPath = Path.Combine(Path.GetTempPath(), $"am-evtx-{Guid.NewGuid():N}.evtx");
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
