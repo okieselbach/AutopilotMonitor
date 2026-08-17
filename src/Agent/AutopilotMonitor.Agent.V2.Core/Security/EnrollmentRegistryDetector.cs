@@ -170,8 +170,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         /// <summary>
         /// Classifies the Autopilot flow based on the <c>AutopilotSettings</c> registry:
         /// <list type="bullet">
-        ///   <item><c>CloudAssignedDeviceRegistration == 2</c> → <c>"v2"</c> (Windows Device Preparation).</item>
-        ///   <item><c>CloudAssignedEspEnabled == 0</c> → <c>"v2"</c> (no ESP, WDP indicator).</item>
+        ///   <item><c>DevicePreparation\BootstrapperAgent</c> SUBKEY with a non-empty
+        ///     <c>ExecutionContext</c> → <c>"v2"</c>. This is the Device Preparation policy
+        ///     orchestration tree (ExecutionContext JSON carries the WDP policyId and the
+        ///     provider batch list). Field-verified 2026-08-17: present on a WDP device,
+        ///     absent on classic v1 — which only has ESP category VALUES named
+        ///     <c>DevicePreparation.*</c> on the AutopilotSettings key itself, hence the
+        ///     subkey probe, never a value-name probe.</item>
+        ///   <item><c>CloudAssignedDeviceRegistration == 2</c> → <c>"v2"</c> (legacy signal).</item>
+        ///   <item><c>CloudAssignedEspEnabled == 0</c> → <c>"v2"</c> (no ESP, legacy signal).
+        ///     Both CloudAssigned* values are profile-derived and structurally ABSENT on WDP
+        ///     (no Autopilot profile), so they never fire there — kept for defence in depth.</item>
         ///   <item>Anything else → <c>"v1"</c> (Classic Autopilot / ESP).</item>
         /// </list>
         /// Defaults to <c>"v1"</c> on any error so a flaky registry does not misclassify a
@@ -181,6 +190,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         {
             try
             {
+                using (var wdpKey = Registry.LocalMachine.OpenSubKey(
+                    AutopilotSettingsKey + @"\DevicePreparation\BootstrapperAgent"))
+                {
+                    var executionContext = wdpKey?.GetValue("ExecutionContext")?.ToString();
+                    if (!string.IsNullOrEmpty(executionContext)) return "v2";
+                }
+
                 using (var key = Registry.LocalMachine.OpenSubKey(AutopilotSettingsKey))
                 {
                     if (key == null) return "v1";
