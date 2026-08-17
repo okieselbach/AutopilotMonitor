@@ -13,7 +13,10 @@ namespace AutopilotMonitor.Functions.Security
 {
     /// <summary>
     /// Validates devices against Intune Corporate Device Identifiers via Microsoft Graph beta API.
-    /// Uses the importedDeviceIdentities/searchExistingIdentities endpoint with manufacturerModelSerial type.
+    /// Uses the importedDeviceIdentities/searchExistingIdentities endpoint and probes BOTH
+    /// identifier types an admin can upload: manufacturerModelSerial and serialNumber. The
+    /// serial-only type is the one the Autopilot Device Preparation (WDP) guidance uses, so
+    /// without it every WDP device whose admin followed the Microsoft docs fails validation.
     /// Caches positive/negative lookups to reduce Graph traffic.
     /// </summary>
     public class CorporateIdentifierValidator
@@ -115,6 +118,8 @@ namespace AutopilotMonitor.Functions.Security
                 graphClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokenResult.AccessToken);
 
                 // POST https://graph.microsoft.com/beta/deviceManagement/importedDeviceIdentities/searchExistingIdentities
+                // Two candidates in one round-trip: admins upload corporate identifiers either as
+                // "manufacturer,model,serial" or (per the WDP guidance) as bare serial number.
                 var identifier = $"{normalizedManufacturer},{normalizedModel},{normalizedSerial}";
                 var requestBody = new
                 {
@@ -124,6 +129,11 @@ namespace AutopilotMonitor.Functions.Security
                         {
                             importedDeviceIdentityType = "manufacturerModelSerial",
                             importedDeviceIdentifier = identifier
+                        },
+                        new
+                        {
+                            importedDeviceIdentityType = "serialNumber",
+                            importedDeviceIdentifier = normalizedSerial
                         }
                     }
                 };
@@ -161,21 +171,24 @@ namespace AutopilotMonitor.Functions.Security
                     return CacheAndReturn(cacheKey, new CorporateIdentifierValidationResult
                     {
                         IsValid = false,
-                        ErrorMessage = $"Device '{identifier}' is not registered as a Corporate Identifier"
+                        ErrorMessage = $"Device is not registered as a Corporate Identifier (searched manufacturerModelSerial '{identifier}' and serialNumber '{normalizedSerial}')"
                     }, isPositive: false);
                 }
 
+                var matchedIdentifier = identities[0]?["importedDeviceIdentifier"]?.ToString() ?? identifier;
+                var matchedType = identities[0]?["importedDeviceIdentityType"]?.ToString() ?? "manufacturerModelSerial";
                 var result = new CorporateIdentifierValidationResult
                 {
                     IsValid = true,
-                    Identifier = identifier
+                    Identifier = matchedIdentifier
                 };
 
                 _logger.LogInformation(
-                    "Corporate identifier validation succeeded for tenant {TenantId}, session {SessionId}, identifier {Identifier}",
+                    "Corporate identifier validation succeeded for tenant {TenantId}, session {SessionId}, identifier {Identifier} (type {IdentifierType})",
                     tenantId,
                     sessionId ?? "<none>",
-                    identifier);
+                    matchedIdentifier,
+                    matchedType);
 
                 return CacheAndReturn(cacheKey, result, isPositive: true);
             }

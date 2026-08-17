@@ -362,8 +362,13 @@ namespace AutopilotMonitor.Functions.Security
                 }
                 else
                 {
-                    deviceValidationError = corpResult.ErrorMessage;
-                    deviceValidationTransient = corpResult.IsTransient;
+                    // Accumulate instead of overwrite: with several validators enabled, only the
+                    // LAST failure used to surface in the 403 Details / rejection log, hiding why
+                    // the earlier (usually more relevant) lookups missed. Transient is sticky-OR:
+                    // if ANY validator failed transiently the device might actually be authorized,
+                    // so the caller must return 503 Retry-After rather than a definitive 403.
+                    deviceValidationError = CombineValidationErrors(deviceValidationError, corpResult.ErrorMessage);
+                    deviceValidationTransient |= corpResult.IsTransient;
                 }
             }
 
@@ -384,8 +389,8 @@ namespace AutopilotMonitor.Functions.Security
                 }
                 else
                 {
-                    deviceValidationError = cloudPcResult.ErrorMessage;
-                    deviceValidationTransient = cloudPcResult.IsTransient;
+                    deviceValidationError = CombineValidationErrors(deviceValidationError, cloudPcResult.ErrorMessage);
+                    deviceValidationTransient |= cloudPcResult.IsTransient;
                 }
             }
 
@@ -464,6 +469,18 @@ namespace AutopilotMonitor.Functions.Security
                 RateLimitResult = rateLimitResult,
                 ValidatedBy = validatedBy
             };
+        }
+
+        /// <summary>
+        /// Joins the per-validator failure messages so the 403 Details / rejection log carries
+        /// every miss in chain order (Autopilot | CorporateIdentifier | CloudPc), not just the
+        /// last validator's.
+        /// </summary>
+        internal static string? CombineValidationErrors(string? accumulated, string? next)
+        {
+            if (string.IsNullOrEmpty(next)) return accumulated;
+            if (string.IsNullOrEmpty(accumulated)) return next;
+            return accumulated + " | " + next;
         }
 
         /// <summary>

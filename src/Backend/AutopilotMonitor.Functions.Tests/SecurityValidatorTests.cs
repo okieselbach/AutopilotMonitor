@@ -141,4 +141,28 @@ public class SecurityValidatorTests
         Assert.False(SecurityValidator.TryGetIntuneDeviceIdFromCertSubject(
             "CN=hostname, CN=07623d56-1e77-4948-bff5-5bdac8167560", out _));
     }
+
+    // --- Device-validation error aggregation ---
+    // With several validators enabled, the 403 Details used to carry only the LAST failure
+    // (CloudPc), hiding why the Autopilot / CorporateIdentifier lookups missed — the exact
+    // trap during the first live WDP enrollment (2026-08-17).
+
+    [Fact]
+    public void CombineValidationErrors_joinsInChainOrder()
+    {
+        var combined = SecurityValidator.CombineValidationErrors("autopilot miss", "corp miss");
+        combined = SecurityValidator.CombineValidationErrors(combined, "cloudpc miss");
+
+        Assert.Equal("autopilot miss | corp miss | cloudpc miss", combined);
+    }
+
+    [Theory]
+    [InlineData(null, "only", "only")]
+    [InlineData("only", null, "only")]
+    [InlineData(null, null, null)]
+    [InlineData("", "only", "only")]
+    public void CombineValidationErrors_handlesMissingHalves(string? a, string? b, string? expected)
+    {
+        Assert.Equal(expected, SecurityValidator.CombineValidationErrors(a, b));
+    }
 }
