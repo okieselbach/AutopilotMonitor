@@ -12,11 +12,12 @@ using Xunit;
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Graph contract tests for <see cref="CorporateIdentifierValidator"/>. WDP regression
-/// (2026-08-17, first live Device Preparation enrollment): admins following the Device
-/// Preparation guidance upload SERIAL-type corporate identifiers, but the validator only
-/// searched the manufacturerModelSerial type — every WDP device 403'd as "not registered".
-/// The validator must probe both identifier types in a single searchExistingIdentities call.
+/// Graph contract tests for <see cref="CorporateIdentifierValidator"/>. Field case 2026-08-17
+/// (first live Device Preparation enrollment): the admin uploaded a SERIAL-type corporate
+/// identifier — the only type the portal allows for manual entry, though Intune itself ignores
+/// it for Windows — while the validator searched only manufacturerModelSerial, so the device
+/// 403'd as "not registered". The validator now probes both identifier types in a single
+/// searchExistingIdentities call and treats either match as authorization intent.
 /// </summary>
 public class CorporateIdentifierValidatorTests
 {
@@ -94,7 +95,7 @@ public class CorporateIdentifierValidatorTests
     [Fact]
     public async Task ValidateAsync_serialNumberTypeMatch_isValid()
     {
-        // The WDP case: only a serial-type corporate identifier exists in Intune.
+        // Manual-portal-entry case: only a serial-type corporate identifier exists in Intune.
         var (sut, _) = BuildSut($$"""
             {"value":[{"importedDeviceIdentityType":"serialNumber","importedDeviceIdentifier":"{{Serial}}"}]}
             """);

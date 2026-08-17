@@ -14,10 +14,12 @@ namespace AutopilotMonitor.Functions.Security
     /// <summary>
     /// Validates devices against Intune Corporate Device Identifiers via Microsoft Graph beta API.
     /// Uses the importedDeviceIdentities/searchExistingIdentities endpoint and probes BOTH
-    /// identifier types an admin can upload: manufacturerModelSerial and serialNumber. The
-    /// serial-only type is the one the Autopilot Device Preparation (WDP) guidance uses, so
-    /// without it every WDP device whose admin followed the Microsoft docs fails validation.
-    /// Caches positive/negative lookups to reduce Graph traffic.
+    /// identifier types an admin can upload: manufacturerModelSerial (the documented Windows
+    /// path, CSV-only in the portal) and serialNumber. Intune itself ignores serial-only
+    /// identifiers for Windows ownership, but it is the only type the portal lets an admin
+    /// enter MANUALLY (no CSV) and the portal happily accepts a Windows serial there — so we
+    /// honor it as authorization intent instead of 403ing (field case: first WDP enrollment,
+    /// 2026-08-17). Caches positive/negative lookups to reduce Graph traffic.
     /// </summary>
     public class CorporateIdentifierValidator
     {
@@ -118,8 +120,9 @@ namespace AutopilotMonitor.Functions.Security
                 graphClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokenResult.AccessToken);
 
                 // POST https://graph.microsoft.com/beta/deviceManagement/importedDeviceIdentities/searchExistingIdentities
-                // Two candidates in one round-trip: admins upload corporate identifiers either as
-                // "manufacturer,model,serial" or (per the WDP guidance) as bare serial number.
+                // Two candidates in one round-trip: "manufacturer,model,serial" is the documented
+                // Windows type; bare serialNumber is probed additionally because it is the only
+                // type the portal offers for manual entry and admins land there by mistake.
                 var identifier = $"{normalizedManufacturer},{normalizedModel},{normalizedSerial}";
                 var requestBody = new
                 {
