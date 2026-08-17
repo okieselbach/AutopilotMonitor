@@ -4,6 +4,6 @@
   "category": "currentPhase",
   "pattern": "\\[Win32App\\] ExecManager: processing targeted app.*?name\\W+(?<name>.*?)\\W+id\\W+{GUID}",
   "action": "updateName",
-  "description": "Captures the app name from ExecManager processing log (old format: name before id).",
-  "enabled": true
+  "description": "Captures the app name from ExecManager processing log (old format: name before id). DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
+  "enabled": false
 }

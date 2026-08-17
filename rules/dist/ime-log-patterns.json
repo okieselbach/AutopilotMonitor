@@ -4,12 +4,23 @@
     {
       "patternId": "HS-COMPLIANCE",
       "category": "always",
-      "pattern": "\\[HS\\] the (?<part>pre|post)-remdiation detection script compliance result for (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}) is (?<compliance>True|False)",
+      "pattern": "\\[HS\\] the (?<part>pre|post)-rem(?:e)?diation detection script compliance result for (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}) is (?<compliance>True|False)",
       "action": "healthScriptDetectionResult",
       "parameters": {
         "scriptType": "remediation"
       },
-      "description": "Early-signal fallback for health-script detection / post-detection results. Microsoft IME emits this line immediately after each detection script runs, ~30-90 seconds before the consolidated [HS] new result = JSON line is logged (which only fires after IME's batch-send to the Microsoft service). Short Autopilot enrollments often end inside that gap, so this pattern guarantees at least the compliance verdict is captured. The full data version arrives later via HS-NEW-RESULT and replaces this sparse entry through the UI dedupe (dataCompleteness scoring).",
+      "description": "Early-signal fallback for health-script detection / post-detection results. Microsoft IME emits this line immediately after each detection script runs, ~30-90 seconds before the consolidated [HS] new result = JSON line is logged (which only fires after IME's batch-send to the Microsoft service). Short Autopilot enrollments often end inside that gap, so this pattern guarantees at least the compliance verdict is captured. The full data version arrives later via HS-NEW-RESULT and replaces this sparse entry through the UI dedupe (dataCompleteness scoring). Tolerates both Microsoft's historical typo 'remdiation' and a future corrected 'remediation'. NOTE: IME 1.97 (Dec 2025) no longer emits the post- variant of this line; the post case is covered by HS-COMPLIANCE-POST.",
+      "enabled": true
+    },
+    {
+      "patternId": "HS-COMPLIANCE-POST",
+      "category": "always",
+      "pattern": "\\[HS\\] the (?<part>post) detection script result for (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}) is (?<compliance>True|False)",
+      "action": "healthScriptDetectionResult",
+      "parameters": {
+        "scriptType": "remediation"
+      },
+      "description": "Post-remediation detection result, current wording. IME 1.97 (Dec 2025) replaced the old '[HS] the post-remdiation detection script compliance result for ...' line (still covered by HS-COMPLIANCE for older logs) with '[HS] the post detection script result for <guid> is <True|False>' (ScriptProcessorV2.cs:721). The literal word 'post' in the line is captured as the part group so the handler classifies it as the post-detection phase.",
       "enabled": true
     },
     {
@@ -140,6 +151,14 @@
       "enabled": true
     },
     {
+      "patternId": "IME-CACHE-MISS",
+      "category": "always",
+      "pattern": "\\[Win32App\\] Content cache miss for app \\(id = {GUID}, name = (?<name>.*?)\\), start downloading",
+      "action": "updateName",
+      "description": "Captures 'Content cache miss for app (id = <guid>, name = <name>), start downloading...' (ContentManager.cs) as a secondary app-name source. Fires right before a real download begins, so it resolves names for exactly the apps that will produce download/install activity — a redundancy for IME-POLICIES-based naming after IME retired the old name-bearing processing lines.",
+      "enabled": true
+    },
+    {
       "patternId": "IME-DECRYPT-FAILED",
       "category": "currentPhase",
       "pattern": "Decryption is failed for appId {GUID}",
@@ -168,15 +187,15 @@
       "category": "currentPhase",
       "pattern": "\\[Win32App\\] Detected app {GUID} ",
       "action": "updateStateInstalled",
-      "description": "Detects when an app is detected as installed (old log format).",
-      "enabled": true
+      "description": "Detects when an app is detected as installed (old log format). DISABLED 2026-08-17: the standalone 'Detected app <guid> ' line no longer exists in IME 1.97.107; this regex instead matched the 'Detected app ... and intent is to install, skip applicability check' line, colliding with IME-SKIP-INSTALL-DETECTED and firing updateStateInstalled and updateStateSkipped on the same physical line (see tasks/ime-v1-code-audit-2026-08-17.md).",
+      "enabled": false
     },
     {
       "patternId": "IME-DETECTION-RESULT",
       "category": "always",
-      "pattern": "\\[Win32App\\]\\[DetectionActionHandler\\] Detection for policy with id: (?<id>{GUID}) resulted in action status: Success and detection state: (?<detection>Detected|NotDetected)",
+      "pattern": "\\[Win32App\\]\\[DetectionActionHandler\\] Detection for policy with id: (?<id>{GUID}) resulted in action status: Success and detection state: (?<detection>DetectedDifferentVersion|NotDetected|Detected)",
       "action": "captureDetectionResult",
-      "description": "Captures the detection rule result after IME runs detection for an app. 'Detected' means the detection rule matched (app is installed), 'NotDetected' means it did not. Excludes [SimulatedDetectionActionHandler] which fires during applicability pre-checks.",
+      "description": "Captures the detection rule result after IME runs detection for an app. 'Detected' means the detection rule matched (app is installed), 'NotDetected' means it did not, 'DetectedDifferentVersion' means a different version was found (supersedence / WinGet version mismatch). DetectedDifferentVersion must come first in the alternation so the unanchored regex does not mis-capture its 'Detected' prefix. Excludes [SimulatedDetectionActionHandler] which fires during applicability pre-checks.",
       "enabled": true
     },
     {
@@ -217,9 +236,9 @@
     {
       "patternId": "IME-ENFORCEMENT-SUCCESS",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Execution state for app with id: {GUID} has been updated\\. Report delta: \\{\"\"EnforcementState\"\":\\{\"\"OldValue\"\":\"\"InProgressDownloadCompleted\"\",\"\"NewValue\"\":\"\"Success\"\"",
+      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Execution state for app with id: {GUID} has been updated\\. Report delta: \\{\"\"EnforcementState\"\":\\{\"\"OldValue\"\":(?:\"\"\\w+\"\"|null),\"\"NewValue\"\":\"\"Success\"\"",
       "action": "updateStateInstalled",
-      "description": "Detects when an app's enforcement state transitions from InProgressDownloadCompleted to Success.",
+      "description": "Detects when an app's enforcement state transitions to Success in an Execution state report delta. OldValue is deliberately unpinned: besides InProgressDownloadCompleted it can be Error (retry succeeding in a later check-in), InProgressPendingReboot (post-reboot completion) or null (first write) — the previously pinned InProgressDownloadCompleted missed those legitimate success paths (IME 1.97 audit 2026-08-17).",
       "enabled": true
     },
     {
@@ -266,12 +285,12 @@
     {
       "patternId": "IME-ERROR-REPORT",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Execution state for app with id: {GUID} has been updated\\. Report delta: \\{\"\"EnforcementState\"\":\\{\"\"OldValue\"\":\"\"(?<from>\\w+)\"\",\"\"NewValue\"\":\"\"(?<to>\\w+)\"\"",
+      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Execution state for app with id: {GUID} has been updated\\. Report delta: \\{\"\"EnforcementState\"\":\\{\"\"OldValue\"\":(?:\"\"(?<from>\\w+)\"\"|null),\"\"NewValue\"\":\"\"(?<to>\\w+)\"\"",
       "action": "updateStateError",
       "parameters": {
         "checkTo": "true"
       },
-      "description": "Captures enforcement state transitions via ReportingManager. Only triggers error when 'to' value indicates an error state.",
+      "description": "Captures enforcement state transitions via ReportingManager. Only triggers error when 'to' value indicates an error state. OldValue may be the unquoted JSON literal null on the first-ever write of a reporting state — transitions straight from the initial state (e.g. first write directly to an error state) would otherwise be invisible (IME 1.97 audit 2026-08-17).",
       "enabled": true
     },
     {
@@ -294,6 +313,14 @@
       "enabled": true
     },
     {
+      "patternId": "IME-ESP-APP-REGISTERED",
+      "category": "always",
+      "pattern": "\\[Win32App\\]\\[EspManager\\] In EspPhase: \\w+\\. App {GUID} has been registered.*?App name: (?<name>.*?)$",
+      "action": "updateName",
+      "description": "Captures the ESP tracked-app registration line ('App <guid> has been registered[ for user <id>]. App name: <name>', EspManager.cs) as an app-name source. Primary replacement for the retired IME-UPDATE-NAME-1/2/3 whose emitters were removed with IME's old V1/V2 processing pipeline; also documents exactly which apps IME registered for ESP tracking. Category 'always' so names resolve even before the first ApplicationPoller EspPhase line is seen.",
+      "enabled": true
+    },
+    {
       "patternId": "IME-ESP-PHASE",
       "category": "always",
       "pattern": "\\[Win32App\\] (?:In|The) EspPhase: (?<espPhase>\\w+)",
@@ -304,9 +331,9 @@
     {
       "patternId": "IME-ESP-TRACK-STATUS",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[EspManager\\] Updating ESP tracked install status from (?<from>\\w+) to (?<to>\\w+) for application {GUID}\\.",
+      "pattern": "\\[Win32App\\]\\[EspManager\\] Updating ESP tracked install status from (?<from>\\w+) to (?<to>\\w+) for application {GUID}",
       "action": "espTrackStatus",
-      "description": "Captures ESP tracked install status transitions (e.g., InProgress to Installed) for a specific app.",
+      "description": "Captures ESP tracked install status transitions (e.g., InProgress to Installed) for a specific app. No trailing anchor: IME 1.97 (Dec 2025) appends ' with name: <appName>.' after the GUID (EspManager.cs), which broke the previous '\\.' suffix. 'from' can be the literal string 'null' on first tracking.",
       "enabled": true
     },
     {
@@ -318,6 +345,17 @@
         "useCurrentApp": "true"
       },
       "description": "Captures the installer exit code (lpExitCode) for the current app.",
+      "enabled": true
+    },
+    {
+      "patternId": "IME-EXITCODE-MAPPED-FAILED",
+      "category": "currentPhase",
+      "pattern": "\\[Win32App\\] lpExitCode is defined as Failed$",
+      "action": "updateStateError",
+      "parameters": {
+        "useCurrentApp": "true"
+      },
+      "description": "Marks the current app as failed when its exit code maps to Failed via the admin-defined return-code table ('[Win32App] lpExitCode is defined as <Failed|Success|SoftReboot|HardReboot|Retry>', Win32AppInstaller.cs). This is the NORMAL mapped-exit-code outcome; the previously matched 'Setting enforcementState as ... Error' line only fires on the rare no-mapping fallback path. The numeric exit code is captured separately by IME-EXITCODE, which precedes this line.",
       "enabled": true
     },
     {
@@ -423,6 +461,17 @@
       "enabled": true
     },
     {
+      "patternId": "IME-RESTART-STOP-PROCESSING",
+      "category": "currentPhase",
+      "pattern": "\\[Win32App\\]\\[V3Processor\\] A restart is required to continue processing apps\\. Stop processing\\.",
+      "action": "updateStatePostponed",
+      "parameters": {
+        "useCurrentApp": "true"
+      },
+      "description": "Detects IME aborting app processing because an app requires a restart ('A restart is required to continue processing apps. Stop processing.', SideCarV3AppProcessor.cs). Postpones the current app: remaining apps do nothing until after the reboot, which previously looked like an unexplained stall mid-ESP.",
+      "enabled": true
+    },
+    {
       "patternId": "IME-SESSION-CHANGE",
       "category": "always",
       "pattern": "OnSessionChange:? (?<change>.*?)$",
@@ -435,24 +484,24 @@
       "category": "always",
       "pattern": "\\[Win32App\\] ProcessAppWithDependencies starts for {GUID} with name",
       "action": "setCurrentApp",
-      "description": "Detects when IME begins processing an app with its dependency chain, setting it as the current app.",
-      "enabled": true
+      "description": "Detects when IME begins processing an app with its dependency chain, setting it as the current app. DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
+      "enabled": false
     },
     {
       "patternId": "IME-SET-CURRENT-2",
       "category": "always",
       "pattern": "\\[Win32App\\] ExecManager: processing targeted app.*?\\bid\\W+{GUID}",
       "action": "setCurrentApp",
-      "description": "Detects when the IME ExecManager starts processing a targeted app, setting it as current.",
-      "enabled": true
+      "description": "Detects when the IME ExecManager starts processing a targeted app, setting it as current. DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
+      "enabled": false
     },
     {
       "patternId": "IME-SET-CURRENT-3",
       "category": "always",
       "pattern": "\\[Win32App\\] ===Step=== Start to Present app {GUID}",
       "action": "setCurrentApp",
-      "description": "Detects the start of app presentation step in IME, setting the app as current.",
-      "enabled": true
+      "description": "Detects the start of app presentation step in IME, setting the app as current. DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
+      "enabled": false
     },
     {
       "patternId": "IME-SET-CURRENT-4",
@@ -478,24 +527,24 @@
       "category": "currentPhase",
       "pattern": "\\[Win32App\\] (?=.*?\\bapplicability\\b)(?=.*?NotMet\\b).*?\\bapp\\W+{GUID}\\b",
       "action": "updateStateSkipped",
-      "description": "Detects when an app's applicability check returns NotMet (old log format with lookaheads).",
-      "enabled": true
+      "description": "Detects when an app's applicability check returns NotMet (old log format with lookaheads). DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
+      "enabled": false
     },
     {
       "patternId": "IME-SKIP-DEPENDENCY-DETECT",
       "category": "currentPhase",
       "pattern": "\\[Win32App\\] app\\W+{GUID}\\b.*?\\bis a dependency\\b.*?\\bDetect Only mode\\b.*?\\bfinished processing",
       "action": "updateStateSkipped",
-      "description": "Detects when a dependency app in Detect Only mode finishes processing (no install needed).",
-      "enabled": true
+      "description": "Detects when a dependency app in Detect Only mode finishes processing (no install needed). DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
+      "enabled": false
     },
     {
       "patternId": "IME-SKIP-DETECTED",
       "category": "currentPhase",
       "pattern": "\\[Win32App\\] Detected app {GUID}.*?skip next step",
       "action": "updateStateSkipped",
-      "description": "Detects when an already-detected app is skipped for further processing steps (old log format).",
-      "enabled": true
+      "description": "Detects when an already-detected app is skipped for further processing steps (old log format). DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
+      "enabled": false
     },
     {
       "patternId": "IME-SKIP-FILTERS",
@@ -529,8 +578,8 @@
       "category": "currentPhase",
       "pattern": "\\[Win32App\\] NOT detected app {GUID}.*?skip un-installation",
       "action": "updateStateSkipped",
-      "description": "Detects when an app is not detected and uninstall is skipped (alternate old log format).",
-      "enabled": true
+      "description": "Detects when an app is not detected and uninstall is skipped (alternate old log format). DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
+      "enabled": false
     },
     {
       "patternId": "IME-STARTED",
@@ -538,6 +587,17 @@
       "pattern": "EMS Agent Started",
       "action": "imeStarted",
       "description": "Detects when the Intune Management Extension (IME) agent starts up.",
+      "enabled": true
+    },
+    {
+      "patternId": "IME-STOP-SIGNAL",
+      "category": "currentPhase",
+      "pattern": "EMS Agent received stop signal",
+      "action": "updateStatePostponed",
+      "parameters": {
+        "useCurrentApp": "true"
+      },
+      "description": "Detects an IME service stop ('EMS Agent received stop signal', EmsAgentService.OnStop) — fired on manual restarts and agent-updater restarts, unlike the OS-shutdown-only 'shutdown signal' line matched by IME-SHUTDOWN. Postpones the current app installation, mirroring IME-SHUTDOWN semantics.",
       "enabled": true
     },
     {
@@ -564,24 +624,24 @@
       "category": "currentPhase",
       "pattern": "\\[Win32App\\] ExecManager: processing targeted app.*?name\\W+(?<name>.*?)\\W+id\\W+{GUID}",
       "action": "updateName",
-      "description": "Captures the app name from ExecManager processing log (old format: name before id).",
-      "enabled": true
+      "description": "Captures the app name from ExecManager processing log (old format: name before id). DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
+      "enabled": false
     },
     {
       "patternId": "IME-UPDATE-NAME-2",
       "category": "currentPhase",
       "pattern": "\\[Win32App\\] ProcessAppWithDependencies starts for {GUID} with name (?<name>.*?)$",
       "action": "updateName",
-      "description": "Captures the app name from ProcessAppWithDependencies log entry.",
-      "enabled": true
+      "description": "Captures the app name from ProcessAppWithDependencies log entry. DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
+      "enabled": false
     },
     {
       "patternId": "IME-UPDATE-NAME-3",
       "category": "currentPhase",
       "pattern": "\\[Win32App\\] Processing app \\(id={GUID}, name = (?<name>.*?)\\)",
       "action": "updateName",
-      "description": "Captures the app name from the Processing app log entry.",
-      "enabled": true
+      "description": "Captures the app name from the Processing app log entry. DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
+      "enabled": false
     },
     {
       "patternId": "IME-USER-SESSION-COMPLETED",
@@ -605,6 +665,14 @@
       "pattern": "\\[Win32App\\] (?:Got|Set) (?:ESP )?win32App state (?<state>\\w+) for {GUID}",
       "action": "updateWin32AppState",
       "description": "Captures the Win32 app ESP state (e.g., Installed, InProgress) for a specific app.",
+      "enabled": true
+    },
+    {
+      "patternId": "IME-WINGET-ERROR",
+      "category": "currentPhase",
+      "pattern": "\\[WinGetMessageProcessor\\] Processing Progress for app = {GUID}.*?- Operation Phase = Error",
+      "action": "updateStateError",
+      "description": "Marks a WinGet (new Store) app as failed when its operation progress reports phase Error (WinGetOperationInstallPhase: Downloading/Installing/Queued/Finished/Error). Before this pattern only the Installing phase was matched, so WinGet failures never surfaced as app errors (IME 1.97 audit 2026-08-17).",
       "enabled": true
     },
     {

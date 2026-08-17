@@ -2,8 +2,8 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-ENFORCEMENT-SUCCESS",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\]\\[ReportingManager\\] Execution state for app with id: {GUID} has been updated\\. Report delta: \\{\"\"EnforcementState\"\":\\{\"\"OldValue\"\":\"\"InProgressDownloadCompleted\"\",\"\"NewValue\"\":\"\"Success\"\"",
+  "pattern": "\\[Win32App\\]\\[ReportingManager\\] Execution state for app with id: {GUID} has been updated\\. Report delta: \\{\"\"EnforcementState\"\":\\{\"\"OldValue\"\":(?:\"\"\\w+\"\"|null),\"\"NewValue\"\":\"\"Success\"\"",
   "action": "updateStateInstalled",
-  "description": "Detects when an app's enforcement state transitions from InProgressDownloadCompleted to Success.",
+  "description": "Detects when an app's enforcement state transitions to Success in an Execution state report delta. OldValue is deliberately unpinned: besides InProgressDownloadCompleted it can be Error (retry succeeding in a later check-in), InProgressPendingReboot (post-reboot completion) or null (first write) — the previously pinned InProgressDownloadCompleted missed those legitimate success paths (IME 1.97 audit 2026-08-17).",
   "enabled": true
 }

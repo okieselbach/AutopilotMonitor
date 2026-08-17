@@ -199,7 +199,9 @@ namespace AutopilotMonitor.Functions.Services
                     if (existingLookup.TryGetValue(pattern.PatternId, out var existing))
                     {
                         if (existing.Pattern != pattern.Pattern || existing.Action != pattern.Action
-                            || existing.Category != pattern.Category || existing.Description != pattern.Description)
+                            || existing.Category != pattern.Category || existing.Description != pattern.Description
+                            || existing.Enabled != pattern.Enabled
+                            || !ParametersEqual(existing.Parameters, pattern.Parameters))
                         {
                             await _ruleRepo.StoreImeLogPatternAsync(pattern, "global");
                             updated++;
@@ -219,6 +221,19 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             _seeded = true;
+        }
+
+        private static bool ParametersEqual(Dictionary<string, string>? a, Dictionary<string, string>? b)
+        {
+            if ((a?.Count ?? 0) != (b?.Count ?? 0)) return false;
+            if (a == null || b == null) return true;
+
+            foreach (var kv in a)
+            {
+                if (!b.TryGetValue(kv.Key, out var value) || value != kv.Value) return false;
+            }
+
+            return true;
         }
     }
 }

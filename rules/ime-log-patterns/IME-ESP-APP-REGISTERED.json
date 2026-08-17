@@ -1,0 +1,9 @@
+{
+  "$schema": "../schema/ime-log-pattern.schema.json",
+  "patternId": "IME-ESP-APP-REGISTERED",
+  "category": "always",
+  "pattern": "\\[Win32App\\]\\[EspManager\\] In EspPhase: \\w+\\. App {GUID} has been registered.*?App name: (?<name>.*?)$",
+  "action": "updateName",
+  "description": "Captures the ESP tracked-app registration line ('App <guid> has been registered[ for user <id>]. App name: <name>', EspManager.cs) as an app-name source. Primary replacement for the retired IME-UPDATE-NAME-1/2/3 whose emitters were removed with IME's old V1/V2 processing pipeline; also documents exactly which apps IME registered for ESP tracking. Category 'always' so names resolve even before the first ApplicationPoller EspPhase line is seen.",
+  "enabled": true
+}

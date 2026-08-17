@@ -1,0 +1,10 @@
+{
+  "$schema": "../schema/ime-log-pattern.schema.json",
+  "patternId": "IME-EXITCODE-MAPPED-FAILED",
+  "category": "currentPhase",
+  "pattern": "\\[Win32App\\] lpExitCode is defined as Failed$",
+  "action": "updateStateError",
+  "parameters": { "useCurrentApp": "true" },
+  "description": "Marks the current app as failed when its exit code maps to Failed via the admin-defined return-code table ('[Win32App] lpExitCode is defined as <Failed|Success|SoftReboot|HardReboot|Retry>', Win32AppInstaller.cs). This is the NORMAL mapped-exit-code outcome; the previously matched 'Setting enforcementState as ... Error' line only fires on the rare no-mapping fallback path. The numeric exit code is captured separately by IME-EXITCODE, which precedes this line.",
+  "enabled": true
+}

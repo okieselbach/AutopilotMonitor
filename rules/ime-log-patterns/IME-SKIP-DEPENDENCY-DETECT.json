@@ -4,6 +4,6 @@
   "category": "currentPhase",
   "pattern": "\\[Win32App\\] app\\W+{GUID}\\b.*?\\bis a dependency\\b.*?\\bDetect Only mode\\b.*?\\bfinished processing",
   "action": "updateStateSkipped",
-  "description": "Detects when a dependency app in Detect Only mode finishes processing (no install needed).",
-  "enabled": true
+  "description": "Detects when a dependency app in Detect Only mode finishes processing (no install needed). DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
+  "enabled": false
 }

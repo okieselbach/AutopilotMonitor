@@ -1,0 +1,9 @@
+{
+  "$schema": "../schema/ime-log-pattern.schema.json",
+  "patternId": "IME-WINGET-ERROR",
+  "category": "currentPhase",
+  "pattern": "\\[WinGetMessageProcessor\\] Processing Progress for app = {GUID}.*?- Operation Phase = Error",
+  "action": "updateStateError",
+  "description": "Marks a WinGet (new Store) app as failed when its operation progress reports phase Error (WinGetOperationInstallPhase: Downloading/Installing/Queued/Finished/Error). Before this pattern only the Installing phase was matched, so WinGet failures never surfaced as app errors (IME 1.97 audit 2026-08-17).",
+  "enabled": true
+}

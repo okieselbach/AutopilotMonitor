@@ -2,8 +2,8 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-ESP-TRACK-STATUS",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\]\\[EspManager\\] Updating ESP tracked install status from (?<from>\\w+) to (?<to>\\w+) for application {GUID}\\.",
+  "pattern": "\\[Win32App\\]\\[EspManager\\] Updating ESP tracked install status from (?<from>\\w+) to (?<to>\\w+) for application {GUID}",
   "action": "espTrackStatus",
-  "description": "Captures ESP tracked install status transitions (e.g., InProgress to Installed) for a specific app.",
+  "description": "Captures ESP tracked install status transitions (e.g., InProgress to Installed) for a specific app. No trailing anchor: IME 1.97 (Dec 2025) appends ' with name: <appName>.' after the GUID (EspManager.cs), which broke the previous '\\.' suffix. 'from' can be the literal string 'null' on first tracking.",
   "enabled": true
 }

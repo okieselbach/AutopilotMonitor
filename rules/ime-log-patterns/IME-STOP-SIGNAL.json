@@ -1,0 +1,10 @@
+{
+  "$schema": "../schema/ime-log-pattern.schema.json",
+  "patternId": "IME-STOP-SIGNAL",
+  "category": "currentPhase",
+  "pattern": "EMS Agent received stop signal",
+  "action": "updateStatePostponed",
+  "parameters": { "useCurrentApp": "true" },
+  "description": "Detects an IME service stop ('EMS Agent received stop signal', EmsAgentService.OnStop) — fired on manual restarts and agent-updater restarts, unlike the OS-shutdown-only 'shutdown signal' line matched by IME-SHUTDOWN. Postpones the current app installation, mirroring IME-SHUTDOWN semantics.",
+  "enabled": true
+}

@@ -2,9 +2,9 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-ERROR-REPORT",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\]\\[ReportingManager\\] Execution state for app with id: {GUID} has been updated\\. Report delta: \\{\"\"EnforcementState\"\":\\{\"\"OldValue\"\":\"\"(?<from>\\w+)\"\",\"\"NewValue\"\":\"\"(?<to>\\w+)\"\"",
+  "pattern": "\\[Win32App\\]\\[ReportingManager\\] Execution state for app with id: {GUID} has been updated\\. Report delta: \\{\"\"EnforcementState\"\":\\{\"\"OldValue\"\":(?:\"\"(?<from>\\w+)\"\"|null),\"\"NewValue\"\":\"\"(?<to>\\w+)\"\"",
   "action": "updateStateError",
   "parameters": { "checkTo": "true" },
-  "description": "Captures enforcement state transitions via ReportingManager. Only triggers error when 'to' value indicates an error state.",
+  "description": "Captures enforcement state transitions via ReportingManager. Only triggers error when 'to' value indicates an error state. OldValue may be the unquoted JSON literal null on the first-ever write of a reporting state — transitions straight from the initial state (e.g. first write directly to an error state) would otherwise be invisible (IME 1.97 audit 2026-08-17).",
   "enabled": true
 }

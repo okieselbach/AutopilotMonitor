@@ -4,6 +4,6 @@
   "category": "currentPhase",
   "pattern": "\\[Win32App\\] Detected app {GUID} ",
   "action": "updateStateInstalled",
-  "description": "Detects when an app is detected as installed (old log format).",
-  "enabled": true
+  "description": "Detects when an app is detected as installed (old log format). DISABLED 2026-08-17: the standalone 'Detected app <guid> ' line no longer exists in IME 1.97.107; this regex instead matched the 'Detected app ... and intent is to install, skip applicability check' line, colliding with IME-SKIP-INSTALL-DETECTED and firing updateStateInstalled and updateStateSkipped on the same physical line (see tasks/ime-v1-code-audit-2026-08-17.md).",
+  "enabled": false
 }
