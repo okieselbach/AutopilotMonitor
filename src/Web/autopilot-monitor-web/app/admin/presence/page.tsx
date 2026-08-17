@@ -111,8 +111,8 @@ export default function PresencePage() {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <header className="bg-white dark:bg-gray-800 shadow dark:shadow-gray-700">
         <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
               <h1 className="text-2xl font-normal text-gray-900 dark:text-white">Active Users</h1>
               <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                 Cross-tenant — web users who made a request within the selected window
@@ -121,7 +121,7 @@ export default function PresencePage() {
                 )}
               </p>
             </div>
-            <div className="flex items-center space-x-3">
+            <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap sm:shrink-0">
               <label className="text-sm text-gray-600 dark:text-gray-400">Window</label>
               <select
                 value={windowMinutes}
@@ -176,38 +176,40 @@ export default function PresencePage() {
 
         {/* User list */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead className="bg-gray-50 dark:bg-gray-700/50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">User</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Role</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Tenant</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last seen</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {users.length === 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-700/50">
                 <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center text-sm text-gray-500 dark:text-gray-400">
-                    {loading && !data ? "Loading…" : "No users active in this window."}
-                  </td>
+                  <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">User</th>
+                  <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Role</th>
+                  <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Tenant</th>
+                  <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">Last seen</th>
                 </tr>
-              ) : (
-                users.map((u) => (
-                  <tr key={`${u.tenantId}-${u.upn}`} className="hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors">
-                    <td className="px-6 py-3 text-sm font-medium text-gray-900 dark:text-white">{u.upn}</td>
-                    <td className="px-6 py-3 text-sm">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${roleBadgeClass(u.userRole)}`}>
-                        {u.userRole || "Authenticated"}
-                      </span>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                {users.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 sm:px-6 py-12 text-center text-sm text-gray-500 dark:text-gray-400">
+                      {loading && !data ? "Loading…" : "No users active in this window."}
                     </td>
-                    <td className="px-6 py-3 text-sm text-gray-500 dark:text-gray-400 font-mono text-xs">{u.tenantId}</td>
-                    <td className="px-6 py-3 text-sm text-gray-600 dark:text-gray-300">{formatAgo(u.secondsAgo)}</td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  users.map((u) => (
+                    <tr key={`${u.tenantId}-${u.upn}`} className="hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors">
+                      <td className="px-4 sm:px-6 py-3 text-sm font-medium text-gray-900 dark:text-white whitespace-nowrap">{u.upn}</td>
+                      <td className="px-4 sm:px-6 py-3 text-sm">
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${roleBadgeClass(u.userRole)}`}>
+                          {u.userRole || "Authenticated"}
+                        </span>
+                      </td>
+                      <td className="px-4 sm:px-6 py-3 text-sm text-gray-500 dark:text-gray-400 font-mono text-xs whitespace-nowrap">{u.tenantId}</td>
+                      <td className="px-4 sm:px-6 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">{formatAgo(u.secondsAgo)}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <p className="text-xs text-gray-400 dark:text-gray-500">
