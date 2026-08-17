@@ -25,6 +25,12 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     "MaintenanceLongRunning",
     "OpsEventCleanup",
     "SessionTimeouts",
+    // Hourly stalled-session sweep interleave (SessionSweepFunction, minute 30) — dual-register
+    // per memory feedback_ops_event_types_dual_register. Backend helpers
+    // RecordSessionSweep{Completed,Failed}Async. Completed is an hourly heartbeat (Info);
+    // Failed fires only when the sweep's tenant enumeration itself blows up (Error).
+    "SessionSweepCompleted",
+    "SessionSweepFailed",
     // Cascade-delete maintenance (PR6) — dual-register per memory feedback_ops_event_types_dual_register.
     // Dispatched by SessionDeletionMaintenanceFunction; backend helpers in OpsEventService.cs are
     // RecordSessionDeletionMaintenance{LongRunning,LongRunningSevere,Failed,Completed,FanoutSkipped}Async +

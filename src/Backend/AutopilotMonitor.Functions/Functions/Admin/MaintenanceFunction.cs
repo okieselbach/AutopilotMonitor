@@ -27,6 +27,8 @@ namespace AutopilotMonitor.Functions.Functions.Admin
         /// NCRONTAB format: {second} {minute} {hour} {day} {month} {day-of-week}
         /// Reduced from daily (2:00 UTC) to every 2 hours to catch stalled sessions faster.
         /// MarkStalledSessionsAsTimedOutAsync is idempotent (terminal states not overwritten).
+        /// The stalled-session sweep additionally runs hourly at minute 30 via the dedicated
+        /// SessionSweepFunction interleave — this chain keeps it as its first step regardless.
         /// </summary>
         [Function("Maintenance")]
         public async Task Run([TimerTrigger("0 0 */2 * * *")] object timer)

@@ -307,7 +307,16 @@ namespace AutopilotMonitor.Functions.Services
         /// Both stages run in the same 2h maintenance pass so no new timers are introduced
         /// (preserving Container App scale-to-zero).
         /// </summary>
-        private async Task MarkStalledSessionsAsTimedOutAsync()
+        /// <summary>
+        /// Outcome of one stalled-session sweep pass. <see cref="Error"/> is null on success;
+        /// on a catastrophic failure (e.g. the tenant enumeration itself failed) it carries the
+        /// exception message and the counters are 0 — per-tenant failures are caught inside the
+        /// loop and never surface here. Consumed by the hourly <c>SessionSweep</c> timer to emit
+        /// its Completed/Failed OpsEvent; the 2h maintenance chain ignores the result (fail-soft).
+        /// </summary>
+        internal sealed record SessionSweepResult(int StalledMarked, int TimedOut, string? Error = null);
+
+        internal async Task<SessionSweepResult> MarkStalledSessionsAsTimedOutAsync()
         {
             _logger.LogInformation("Checking for stalled sessions...");
             var stalledStart = Stopwatch.StartNew();
@@ -543,10 +552,12 @@ namespace AutopilotMonitor.Functions.Services
 
                 stalledStart.Stop();
                 _logger.LogInformation($"Stalled session check completed: {totalSessionsMarkedStalled} marked Stalled, {totalSessionsTimedOut} timed out in {stalledStart.ElapsedMilliseconds}ms");
+                return new SessionSweepResult(totalSessionsMarkedStalled, totalSessionsTimedOut);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to check for stalled sessions");
+                return new SessionSweepResult(0, 0, ex.Message);
             }
         }
 

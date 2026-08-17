@@ -83,6 +83,22 @@ namespace AutopilotMonitor.Functions.Services
                 $"Maintenance took {durationMs}ms (> {thresholdMinutes}min soft threshold; host aborts at 60min) — triggered by {triggeredBy}",
                 null, triggeredBy, new { durationMs, thresholdMinutes });
 
+        /// <summary>
+        /// Heartbeat of the hourly <c>SessionSweep</c> timer (the :30 interleave of the stalled-session
+        /// sweep — the 2h Maintenance chain still runs the same sweep at minute 0). Emitted every tick,
+        /// counts included, so a dead timer is detectable and dashboards can separate the interleave
+        /// from full maintenance runs.
+        /// </summary>
+        public Task RecordSessionSweepCompletedAsync(int stalledMarked, int timedOut, int durationMs)
+            => WriteAsync(OpsEventCategory.Maintenance, "SessionSweepCompleted", OpsEventSeverity.Info,
+                $"Hourly session sweep completed in {durationMs}ms — {stalledMarked} marked Stalled, {timedOut} terminalized",
+                null, "System.SessionSweep", new { stalledMarked, timedOut, durationMs });
+
+        public Task RecordSessionSweepFailedAsync(string error)
+            => WriteAsync(OpsEventCategory.Maintenance, "SessionSweepFailed", OpsEventSeverity.Error,
+                $"Hourly session sweep failed: {error}",
+                null, "System.SessionSweep", new { error });
+
         public Task RecordOpsEventCleanupAsync(int deletedCount, int retentionDays)
             => WriteAsync(OpsEventCategory.Maintenance, "OpsEventCleanup", OpsEventSeverity.Info,
                 $"Cleaned up {deletedCount} ops events older than {retentionDays} days",
