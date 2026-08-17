@@ -169,9 +169,9 @@
     {
       "patternId": "IME-DETECTED-INSTALLED-1",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Detection state for app with id: {GUID} has been updated\\. Report delta: \\{\"\"DetectionState\"\":\\{\"\"OldValue\"\":null,\"\"NewValue\"\":\"\"Installed\"\"",
+      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Detection state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}DetectionState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:null,\"{1,2}NewValue\"{1,2}:\"{1,2}Installed\"{1,2}",
       "action": "updateStateInstalled",
-      "description": "Detects when an app's detection state transitions to Installed (new ReportingManager format).",
+      "description": "Detects when an app's detection state transitions to Installed (new ReportingManager format). Quote-flexible since 2026-08-17: IME 1.104 serializes the report-delta JSON with single quotes ({\"Key\":...) where older versions logged doubled quotes ({\"\"Key\"\":...) - every literal quote in the delta is matched as \"{1,2} to cover both.",
       "enabled": true
     },
     {
@@ -236,9 +236,9 @@
     {
       "patternId": "IME-ENFORCEMENT-SUCCESS",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Execution state for app with id: {GUID} has been updated\\. Report delta: \\{\"\"EnforcementState\"\":\\{\"\"OldValue\"\":(?:\"\"\\w+\"\"|null),\"\"NewValue\"\":\"\"Success\"\"",
+      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Execution state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}EnforcementState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:(?:\"{1,2}\\w+\"{1,2}|null),\"{1,2}NewValue\"{1,2}:\"{1,2}Success\"{1,2}",
       "action": "updateStateInstalled",
-      "description": "Detects when an app's enforcement state transitions to Success in an Execution state report delta. OldValue is deliberately unpinned: besides InProgressDownloadCompleted it can be Error (retry succeeding in a later check-in), InProgressPendingReboot (post-reboot completion) or null (first write) — the previously pinned InProgressDownloadCompleted missed those legitimate success paths (IME 1.97 audit 2026-08-17).",
+      "description": "Detects when an app's enforcement state transitions to Success in an Execution state report delta. OldValue is deliberately unpinned: besides InProgressDownloadCompleted it can be Error (retry succeeding in a later check-in), InProgressPendingReboot (post-reboot completion) or null (first write) — the previously pinned InProgressDownloadCompleted missed those legitimate success paths (IME 1.97 audit 2026-08-17). Quote-flexible since 2026-08-17: IME 1.104 serializes the report-delta JSON with single quotes ({\"Key\":...) where older versions logged doubled quotes ({\"\"Key\"\":...) - every literal quote in the delta is matched as \"{1,2} to cover both.",
       "enabled": true
     },
     {
@@ -255,9 +255,9 @@
     {
       "patternId": "IME-ERROR-DOWNLOAD",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Download state for app with id: {GUID} has been updated\\. Report delta: \\{\"\"EnforcementState\"\":\\{\"\"OldValue\"\":\"\"InProgress\"\",\"\"NewValue\"\":\"\"ErrorDownloadingContent\"\"",
+      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Download state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}EnforcementState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:\"{1,2}InProgress\"{1,2},\"{1,2}NewValue\"{1,2}:\"{1,2}ErrorDownloadingContent\"{1,2}",
       "action": "updateStateError",
-      "description": "Detects when an app's enforcement state transitions to ErrorDownloadingContent.",
+      "description": "Detects when an app's enforcement state transitions to ErrorDownloadingContent. Quote-flexible since 2026-08-17: IME 1.104 serializes the report-delta JSON with single quotes ({\"Key\":...) where older versions logged doubled quotes ({\"\"Key\"\":...) - every literal quote in the delta is matched as \"{1,2} to cover both.",
       "enabled": true
     },
     {
@@ -285,12 +285,12 @@
     {
       "patternId": "IME-ERROR-REPORT",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Execution state for app with id: {GUID} has been updated\\. Report delta: \\{\"\"EnforcementState\"\":\\{\"\"OldValue\"\":(?:\"\"(?<from>\\w+)\"\"|null),\"\"NewValue\"\":\"\"(?<to>\\w+)\"\"",
+      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Execution state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}EnforcementState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:(?:\"{1,2}(?<from>\\w+)\"{1,2}|null),\"{1,2}NewValue\"{1,2}:\"{1,2}(?<to>\\w+)\"{1,2}",
       "action": "updateStateError",
       "parameters": {
         "checkTo": "true"
       },
-      "description": "Captures enforcement state transitions via ReportingManager. Only triggers error when 'to' value indicates an error state. OldValue may be the unquoted JSON literal null on the first-ever write of a reporting state — transitions straight from the initial state (e.g. first write directly to an error state) would otherwise be invisible (IME 1.97 audit 2026-08-17).",
+      "description": "Captures enforcement state transitions via ReportingManager. Only triggers error when 'to' value indicates an error state. OldValue may be the unquoted JSON literal null on the first-ever write of a reporting state — transitions straight from the initial state (e.g. first write directly to an error state) would otherwise be invisible (IME 1.97 audit 2026-08-17). Quote-flexible since 2026-08-17: IME 1.104 serializes the report-delta JSON with single quotes ({\"Key\":...) where older versions logged doubled quotes ({\"\"Key\"\":...) - every literal quote in the delta is matched as \"{1,2} to cover both.",
       "enabled": true
     },
     {
@@ -415,25 +415,25 @@
     {
       "patternId": "IME-NOT-APPLICABLE-2",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Applicability state for app with id: {GUID} has been updated\\. Report delta: \\{\"\"ApplicabilityState\"\":\\{\"\"OldValue\"\":null,\"\"NewValue\"\":\"\"ScriptRequirementRuleNotMet\"\"",
+      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Applicability state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}ApplicabilityState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:null,\"{1,2}NewValue\"{1,2}:\"{1,2}ScriptRequirementRuleNotMet\"{1,2}",
       "action": "updateStateSkipped",
-      "description": "Detects when an app's applicability state is set to ScriptRequirementRuleNotMet (PowerShell requirement script returned false).",
+      "description": "Detects when an app's applicability state is set to ScriptRequirementRuleNotMet (PowerShell requirement script returned false). Quote-flexible since 2026-08-17: IME 1.104 serializes the report-delta JSON with single quotes ({\"Key\":...) where older versions logged doubled quotes ({\"\"Key\"\":...) - every literal quote in the delta is matched as \"{1,2} to cover both.",
       "enabled": true
     },
     {
       "patternId": "IME-NOT-APPLICABLE-3",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Desired state for app with id: {GUID} has been updated\\. Report delta: \\{\"\"DesiredState\"\":\\{\"\"OldValue\"\":null,\"\"NewValue\"\":\"\"None\"\"",
+      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Desired state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}DesiredState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:null,\"{1,2}NewValue\"{1,2}:\"{1,2}None\"{1,2}",
       "action": "updateStateSkipped",
-      "description": "Detects when an app's desired state is set to None (not targeted or not applicable).",
+      "description": "Detects when an app's desired state is set to None (not targeted or not applicable). Quote-flexible since 2026-08-17: IME 1.104 serializes the report-delta JSON with single quotes ({\"Key\":...) where older versions logged doubled quotes ({\"\"Key\"\":...) - every literal quote in the delta is matched as \"{1,2} to cover both.",
       "enabled": true
     },
     {
       "patternId": "IME-NOT-APPLICABLE-4",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Desired state for app with id: {GUID} has been updated\\. Report delta: \\{\"\"DesiredState\"\":\\{\"\"OldValue\"\":null,\"\"NewValue\"\":\"\"NotPresent\"\"",
+      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Desired state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}DesiredState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:null,\"{1,2}NewValue\"{1,2}:\"{1,2}NotPresent\"{1,2}",
       "action": "updateStateSkipped",
-      "description": "Detects when an app's desired state is set to NotPresent (targeted for uninstall or not required).",
+      "description": "Detects when an app's desired state is set to NotPresent (targeted for uninstall or not required). Quote-flexible since 2026-08-17: IME 1.104 serializes the report-delta JSON with single quotes ({\"Key\":...) where older versions logged doubled quotes ({\"\"Key\"\":...) - every literal quote in the delta is matched as \"{1,2} to cover both.",
       "enabled": true
     },
     {

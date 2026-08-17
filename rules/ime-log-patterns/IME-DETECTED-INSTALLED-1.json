@@ -2,8 +2,8 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-DETECTED-INSTALLED-1",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\]\\[ReportingManager\\] Detection state for app with id: {GUID} has been updated\\. Report delta: \\{\"\"DetectionState\"\":\\{\"\"OldValue\"\":null,\"\"NewValue\"\":\"\"Installed\"\"",
+  "pattern": "\\[Win32App\\]\\[ReportingManager\\] Detection state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}DetectionState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:null,\"{1,2}NewValue\"{1,2}:\"{1,2}Installed\"{1,2}",
   "action": "updateStateInstalled",
-  "description": "Detects when an app's detection state transitions to Installed (new ReportingManager format).",
+  "description": "Detects when an app's detection state transitions to Installed (new ReportingManager format). Quote-flexible since 2026-08-17: IME 1.104 serializes the report-delta JSON with single quotes ({\"Key\":...) where older versions logged doubled quotes ({\"\"Key\"\":...) - every literal quote in the delta is matched as \"{1,2} to cover both.",
   "enabled": true
 }
