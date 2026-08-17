@@ -156,7 +156,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
         /// </summary>
         private (string enrollmentType, bool isHybridJoin, int? autopilotMode) CollectAutopilotProfile()
         {
-            var detectedType = "v1";
+            // Single source of truth for the rail classification — the SAME detector the
+            // session registration uses (incl. the WDP DevicePreparation subkey probe). The
+            // previous inline CloudAssigned*-only re-implementation kept reporting "v1" on
+            // Device Preparation devices while the session row already said "v2" (a11102f4).
+            var (detectedType, detectionRule) = AutopilotMonitor.Agent.V2.Core.Security.EnrollmentRegistryDetector.DetectEnrollmentTypeWithRule();
             var isHybridJoin = false;
             int? detectedAutopilotMode = null;
 
@@ -187,20 +191,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                                 data[valueName] = valueAsString;
                             }
                         }
-
-                        // Extract key values for enrollment type detection
-                        var deviceReg = data.ContainsKey("CloudAssignedDeviceRegistration")
-                            ? data["CloudAssignedDeviceRegistration"]?.ToString()
-                            : null;
-                        var espEnabled = data.ContainsKey("CloudAssignedEspEnabled")
-                            ? data["CloudAssignedEspEnabled"]?.ToString()
-                            : null;
-
-                        // Determine enrollment type: WDP if DeviceRegistration=2 or ESP explicitly disabled
-                        if (deviceReg == "2" || espEnabled == "0")
-                            detectedType = "v2";
-                        else
-                            detectedType = "v1";
 
                         // --- Interpret AutopilotMode (profile capability, not live state) ---
                         // 0 = User Driven, 1 = Self Deploying, 2 = Pre-Provisioning (White Glove)
@@ -377,11 +367,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                         { "enrollmentType", detectedType },
                         { "CloudAssignedDeviceRegistration", data.ContainsKey("CloudAssignedDeviceRegistration") ? data["CloudAssignedDeviceRegistration"] : "n/a" },
                         { "CloudAssignedEspEnabled", data.ContainsKey("CloudAssignedEspEnabled") ? data["CloudAssignedEspEnabled"] : "n/a" },
-                        { "detectionRule", detectedType == "v2"
-                            ? (data.ContainsKey("CloudAssignedDeviceRegistration") && data["CloudAssignedDeviceRegistration"]?.ToString() == "2"
-                                ? "CloudAssignedDeviceRegistration=2"
-                                : "CloudAssignedEspEnabled=0")
-                            : "default (no v2 indicators)" }
+                        { "detectionRule", detectionRule }
                     });
 
                 _logger.Info($"EnrollmentTracker: enrollment type detected: {detectedType}");

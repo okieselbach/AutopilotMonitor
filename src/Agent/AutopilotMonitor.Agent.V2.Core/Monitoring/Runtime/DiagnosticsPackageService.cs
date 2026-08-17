@@ -525,45 +525,127 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                         continue;
                     }
 
-                    if (length > tracker.Budget.MaxSingleFileBytes)
+                    // Active event-log channels hold their .evtx exclusively locked — a raw
+                    // FileStream open fails with a sharing violation. Export the channel via
+                    // wevtutil instead and stream the export (deleted below). Session a11102f4:
+                    // the tenant-configured BootstrapperAgent channel never made it into the ZIP.
+                    string streamSource = file;
+                    string tempExport = null;
+                    if (file.EndsWith(".evtx", StringComparison.OrdinalIgnoreCase))
                     {
-                        _logger.Warning($"Skipping oversized file ({length} bytes > {tracker.Budget.MaxSingleFileBytes} cap): {file}");
-                        tracker.RecordSkip(file, "size", length);
-                        continue;
-                    }
-                    if (tracker.WouldExceedCount())
-                    {
-                        _logger.Warning($"Skipping file (file-count cap {tracker.Budget.MaxFileCount} reached): {file}");
-                        tracker.RecordSkip(file, "count", length);
-                        continue;
-                    }
-                    if (tracker.WouldExceedTotal(length))
-                    {
-                        _logger.Warning($"Skipping file (total-bytes cap {tracker.Budget.MaxTotalUncompressedBytes} reached): {file}");
-                        tracker.RecordSkip(file, "total", length);
-                        continue;
-                    }
-
-                    // Preserve subfolder structure in the ZIP when includeSubfolders is enabled
-                    var relativePath = file.Substring(sourceFolder.Length).TrimStart(Path.DirectorySeparatorChar);
-                    var entryName = $"{zipFolder}/{relativePath.Replace(Path.DirectorySeparatorChar, '/')}";
-
-                    var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
-                    // Stream directly from disk into the entry — no per-file MemoryStream/byte[]
-                    // copy. FileShare.ReadWrite avoids locking conflicts with active log writers.
-                    using (var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                    using (var entryStream = entry.Open())
-                    {
-                        fs.CopyTo(entryStream);
+                        tempExport = TryExportEventLogChannel(file);
+                        if (tempExport == null)
+                        {
+                            tracker.RecordSkip(file, "evtx-export", length);
+                            continue;
+                        }
+                        streamSource = tempExport;
+                        try { length = new FileInfo(tempExport).Length; }
+                        catch { /* keep original length estimate */ }
                     }
 
-                    tracker.RecordIncluded(length);
-                    _logger.Debug($"Added to diagnostics package: {entryName} ({length / 1024} KB)");
+                    try
+                    {
+                        if (length > tracker.Budget.MaxSingleFileBytes)
+                        {
+                            _logger.Warning($"Skipping oversized file ({length} bytes > {tracker.Budget.MaxSingleFileBytes} cap): {file}");
+                            tracker.RecordSkip(file, "size", length);
+                            continue;
+                        }
+                        if (tracker.WouldExceedCount())
+                        {
+                            _logger.Warning($"Skipping file (file-count cap {tracker.Budget.MaxFileCount} reached): {file}");
+                            tracker.RecordSkip(file, "count", length);
+                            continue;
+                        }
+                        if (tracker.WouldExceedTotal(length))
+                        {
+                            _logger.Warning($"Skipping file (total-bytes cap {tracker.Budget.MaxTotalUncompressedBytes} reached): {file}");
+                            tracker.RecordSkip(file, "total", length);
+                            continue;
+                        }
+
+                        // Preserve subfolder structure in the ZIP when includeSubfolders is enabled
+                        var relativePath = file.Substring(sourceFolder.Length).TrimStart(Path.DirectorySeparatorChar);
+                        var entryName = $"{zipFolder}/{relativePath.Replace(Path.DirectorySeparatorChar, '/')}";
+
+                        var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
+                        // Stream directly from disk into the entry — no per-file MemoryStream/byte[]
+                        // copy. FileShare.ReadWrite avoids locking conflicts with active log writers.
+                        using (var fs = new FileStream(streamSource, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                        using (var entryStream = entry.Open())
+                        {
+                            fs.CopyTo(entryStream);
+                        }
+
+                        tracker.RecordIncluded(length);
+                        _logger.Debug($"Added to diagnostics package: {entryName} ({length / 1024} KB)");
+                    }
+                    finally
+                    {
+                        if (tempExport != null)
+                        {
+                            try { File.Delete(tempExport); } catch { }
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
                     _logger.Warning($"Failed to add log file to diagnostics package: {file} - {ex.Message}");
                 }
+            }
+        }
+
+        /// <summary>
+        /// Exports the event-log channel behind a winevt .evtx file to a temp copy via
+        /// <c>wevtutil epl</c>. Channel name is derived from the file name (%4 decodes to '/',
+        /// e.g. "Microsoft-Autopilot-BootstrapperAgent%4BootstrapperAgentServiceLogProvider.evtx"
+        /// → "Microsoft-Autopilot-BootstrapperAgent/BootstrapperAgentServiceLogProvider").
+        /// Returns the temp file path (caller deletes) or null when the export failed.
+        /// </summary>
+        private string TryExportEventLogChannel(string evtxPath)
+        {
+            string tempPath = null;
+            try
+            {
+                var channel = Path.GetFileNameWithoutExtension(evtxPath).Replace("%4", "/");
+                tempPath = Path.Combine(Path.GetTempPath(), $"am-evtx-{Guid.NewGuid():N}.evtx");
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = Path.Combine(Environment.SystemDirectory, "wevtutil.exe"),
+                    Arguments = $"epl \"{channel}\" \"{tempPath}\" /ow:true",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true,
+                };
+                using (var process = System.Diagnostics.Process.Start(psi))
+                {
+                    if (process == null) return null;
+                    if (!process.WaitForExit(30000))
+                    {
+                        try { process.Kill(); } catch { }
+                        _logger.Warning($"wevtutil export timed out for channel '{channel}'.");
+                        try { File.Delete(tempPath); } catch { }
+                        return null;
+                    }
+                    if (process.ExitCode != 0)
+                    {
+                        var stderr = process.StandardError.ReadToEnd();
+                        _logger.Warning($"wevtutil export failed for channel '{channel}' (exit {process.ExitCode}): {stderr}");
+                        try { File.Delete(tempPath); } catch { }
+                        return null;
+                    }
+                }
+                return File.Exists(tempPath) ? tempPath : null;
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"Event log export failed for {evtxPath}: {ex.Message}");
+                if (tempPath != null)
+                {
+                    try { File.Delete(tempPath); } catch { }
+                }
+                return null;
             }
         }
 

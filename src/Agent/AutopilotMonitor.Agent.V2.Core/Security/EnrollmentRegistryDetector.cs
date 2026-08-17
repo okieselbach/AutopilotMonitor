@@ -186,7 +186,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         /// Defaults to <c>"v1"</c> on any error so a flaky registry does not misclassify a
         /// classic session as WDP.
         /// </summary>
-        public static string DetectEnrollmentType()
+        public static string DetectEnrollmentType() => DetectEnrollmentTypeWithRule().enrollmentType;
+
+        /// <summary>
+        /// Same as <see cref="DetectEnrollmentType"/> but also returns WHICH rule fired, so the
+        /// enrollment_type_detected event can name its evidence instead of re-implementing the
+        /// detection (the duplicate inline logic in DeviceInfoCollector missed the WDP subkey
+        /// rule and kept reporting "v1" on Device Preparation devices — session a11102f4).
+        /// </summary>
+        public static (string enrollmentType, string detectionRule) DetectEnrollmentTypeWithRule()
         {
             try
             {
@@ -194,25 +202,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                     AutopilotSettingsKey + @"\DevicePreparation\BootstrapperAgent"))
                 {
                     var executionContext = wdpKey?.GetValue("ExecutionContext")?.ToString();
-                    if (!string.IsNullOrEmpty(executionContext)) return "v2";
+                    if (!string.IsNullOrEmpty(executionContext))
+                        return ("v2", @"DevicePreparation\BootstrapperAgent\ExecutionContext present");
                 }
 
                 using (var key = Registry.LocalMachine.OpenSubKey(AutopilotSettingsKey))
                 {
-                    if (key == null) return "v1";
+                    if (key == null) return ("v1", "AutopilotSettings key missing");
 
                     var deviceReg = key.GetValue("CloudAssignedDeviceRegistration")?.ToString();
-                    if (deviceReg == "2") return "v2";
+                    if (deviceReg == "2") return ("v2", "CloudAssignedDeviceRegistration=2");
 
                     var espEnabled = key.GetValue("CloudAssignedEspEnabled")?.ToString();
-                    if (espEnabled == "0") return "v2";
+                    if (espEnabled == "0") return ("v2", "CloudAssignedEspEnabled=0");
                 }
             }
             catch
             {
                 // Fall through to v1 default.
             }
-            return "v1";
+            return ("v1", "default (no v2 indicators)");
         }
     }
 }
