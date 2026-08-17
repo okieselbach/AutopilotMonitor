@@ -83,6 +83,8 @@ interface DownloadItem {
   downloadRateBps: number;
   lastUpdated: string;
   lastUpdatedMs: number;
+  startedMs: number;
+  completedMs: number | null;
   isComplete: boolean;
   isSkipped: boolean;
   firstSeenIndex: number;
@@ -116,6 +118,19 @@ function formatDoDuration(duration: string): string {
   const ms = parseDoDurationMs(duration);
   if (ms <= 0) return duration || "N/A";
   return formatDuration(Math.floor(ms / 1000));
+}
+
+// Per-app download duration. Prefers the DO-reported duration ([DO TEL] JSON,
+// present up to IME ~1.97); IME 1.104 removed that log line entirely, so fall
+// back to the observed event window: first download event -> first event that
+// marked the download complete.
+function effectiveDurationMs(dl: DownloadItem): number {
+  const doMs = dl.doStats?.downloadDuration ? parseDoDurationMs(dl.doStats.downloadDuration) : 0;
+  if (doMs > 0) return doMs;
+  if (dl.completedMs != null && Number.isFinite(dl.startedMs) && dl.completedMs > dl.startedMs) {
+    return dl.completedMs - dl.startedMs;
+  }
+  return 0;
 }
 
 export default function DownloadProgress({ events, summaryStats }: DownloadProgressProps) {
@@ -219,6 +234,8 @@ export default function DownloadProgress({ events, summaryStats }: DownloadProgr
         // memo-recompute would be an arbitrary base for event-time deltas
         // anyway (render must also stay pure — react-hooks/purity).
         lastUpdatedMs: Number.isFinite(eventTs) ? eventTs : (existing?.lastUpdatedMs ?? NaN),
+        startedMs: existing?.startedMs ?? (Number.isFinite(eventTs) ? eventTs : NaN),
+        completedMs: existing?.completedMs ?? (isComplete && Number.isFinite(eventTs) ? eventTs : null),
         isComplete,
         isSkipped: isSkippedEvent || (existing?.isSkipped ?? false),
         firstSeenIndex: existing?.firstSeenIndex ?? insertionIndex++,
@@ -237,18 +254,17 @@ export default function DownloadProgress({ events, summaryStats }: DownloadProgr
   const [expanded, setExpanded] = useState(true);
   const [showSkipped, setShowSkipped] = useState(false);
 
-  // Sum of individual download durations (from DO telemetry per app)
+  // Sum of individual download durations (DO telemetry when present, otherwise
+  // the observed start->complete event window per app).
   // Must be before the early return to keep hooks in stable order across renders.
   const totalDuration = useMemo(() => {
     let sum = 0;
     let hasAny = false;
     for (const dl of downloads) {
-      if (dl.doStats?.downloadDuration) {
-        const ms = parseDoDurationMs(dl.doStats.downloadDuration);
-        if (ms > 0) {
-          sum += ms;
-          hasAny = true;
-        }
+      const ms = effectiveDurationMs(dl);
+      if (ms > 0) {
+        sum += ms;
+        hasAny = true;
       }
     }
     return hasAny ? sum : null;
@@ -365,6 +381,7 @@ function DownloadItem({ download: dl, progressPercent }: { download: DownloadIte
   const [showDetails, setShowDetails] = useState(false);
   const [showDoStats, setShowDoStats] = useState(false);
   const hasKnownTotal = dl.bytesTotal > 0;
+  const durationMs = effectiveDurationMs(dl);
   const showProgressBar = !dl.isSkipped && (hasKnownTotal || dl.isComplete || !dl.isComplete);
 
   // Determine container styling
@@ -429,6 +446,9 @@ function DownloadItem({ download: dl, progressPercent }: { download: DownloadIte
                         : dl.isComplete
                           ? "Completed"
                           : `${formatBytes(dl.bytesDownloaded)} downloaded`}
+                      {dl.isComplete && durationMs > 0 && (
+                        <span className="text-gray-400"> in {formatDuration(Math.floor(durationMs / 1000))}</span>
+                      )}
                     </span>
                     <span>{progressPercent > 0 ? `${progressPercent.toFixed(0)}%` : "started"}</span>
                   </div>
@@ -479,7 +499,9 @@ function DownloadItem({ download: dl, progressPercent }: { download: DownloadIte
                       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600">
                         <div>
                           <span className="text-gray-500">Duration:</span>{" "}
-                          <span className="font-medium">{formatDoDuration(dl.doStats.downloadDuration)}</span>
+                          <span className="font-medium">
+                            {durationMs > 0 ? formatDuration(Math.floor(durationMs / 1000)) : formatDoDuration(dl.doStats.downloadDuration)}
+                          </span>
                         </div>
                         <div>
                           <span className="text-gray-500">File Size:</span>{" "}
