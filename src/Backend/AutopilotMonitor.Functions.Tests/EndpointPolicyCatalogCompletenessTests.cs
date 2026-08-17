@@ -175,6 +175,23 @@ public class EndpointPolicyCatalogCompletenessTests
     }
 
     /// <summary>
+    /// IME log pattern edits write GLOBAL patterns (all tenants) and the handler has no GA
+    /// re-gate, so the PUT must stay GlobalAdminOnly — a downgrade to TenantAdminOrGA would let
+    /// any customer tenant admin mutate platform-wide patterns via ?global=true.
+    /// </summary>
+    [Fact]
+    public void ImeLogPatternWrites_AreGlobalAdminOnly()
+    {
+        var putPattern = EndpointAccessPolicyCatalog.FindPolicy("PUT", "/api/rules/ime-log-patterns/IME-001");
+        var reseed = EndpointAccessPolicyCatalog.FindPolicy("POST", "/api/rules/ime-log-patterns/reseed");
+
+        Assert.NotNull(putPattern);
+        Assert.NotNull(reseed);
+        Assert.Equal(EndpointPolicy.GlobalAdminOnly, putPattern.Policy);
+        Assert.Equal(EndpointPolicy.GlobalAdminOnly, reseed.Policy);
+    }
+
+    /// <summary>
     /// Unregistered routes must return null (fail-closed).
     /// </summary>
     [Theory]

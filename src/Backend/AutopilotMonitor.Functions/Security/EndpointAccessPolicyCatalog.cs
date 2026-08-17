@@ -311,7 +311,6 @@ public static class EndpointAccessPolicyCatalog
         new("POST",   "rules/analyze/{ruleId}/create-from-template", EndpointPolicy.TenantAdminOrGA),
         new("PUT",    "rules/analyze/{ruleId}",    EndpointPolicy.TenantAdminOrGA),
         new("DELETE", "rules/analyze/{ruleId}",    EndpointPolicy.TenantAdminOrGA),
-        new("PUT",    "rules/ime-log-patterns/{patternId}", EndpointPolicy.TenantAdminOrGA),
         new("POST",   "sessions/{sessionId}/mark-failed",     EndpointPolicy.TenantAdminOrGA),
         new("POST",   "sessions/{sessionId}/mark-succeeded", EndpointPolicy.TenantAdminOrGA),
         // Operator tier so troubleshooting staff can queue request_diagnostics ("Collect Logs" in
@@ -541,6 +540,9 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "vulnerability/ignored-software", EndpointPolicy.GlobalReadOrAdmin),
         new("POST",   "vulnerability/ignored-software", EndpointPolicy.GlobalAdminOnly),
         new("DELETE", "vulnerability/ignored-software", EndpointPolicy.GlobalAdminOnly),
+        // Both routes mutate GLOBAL patterns (all tenants); there is no tenant-scoped variant yet,
+        // so PUT must not sit on the TenantAdminOrGA tier — the handler has no GA re-gate.
+        new("PUT",    "rules/ime-log-patterns/{patternId}", EndpointPolicy.GlobalAdminOnly),
         new("POST",   "rules/ime-log-patterns/reseed", EndpointPolicy.GlobalAdminOnly),
         new("GET",    "global/mcp-users",                     EndpointPolicy.GlobalReadOrAdmin),
         new("POST",   "global/mcp-users",                     EndpointPolicy.GlobalAdminOnly),
