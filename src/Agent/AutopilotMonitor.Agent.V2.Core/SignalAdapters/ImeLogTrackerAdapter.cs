@@ -76,6 +76,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private readonly Action<AppPackageState, DateTime?>? _prevOnDoTelemetryReceived;
         private readonly Action<ScriptExecutionState>? _prevOnScriptCompleted;
         private readonly Action<ScriptStartedInfo>? _prevOnScriptStarted;
+        private readonly Action<string, string>? _prevOnImeTokenFailure;
 
         // Our own delegate instances — stored once so Dispose can compare by reference.
         private readonly Action<string> _ourOnEspPhaseChanged;
@@ -86,6 +87,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private readonly Action<AppPackageState, DateTime?> _ourOnDoTelemetryReceived;
         private readonly Action<ScriptExecutionState> _ourOnScriptCompleted;
         private readonly Action<ScriptStartedInfo> _ourOnScriptStarted;
+        private readonly Action<string, string> _ourOnImeTokenFailure;
 
         // Dedup state for DecisionSignals.
         private string? _lastEspPhase;
@@ -175,6 +177,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _prevOnDoTelemetryReceived = _tracker.OnDoTelemetryReceived;
             _prevOnScriptCompleted = _tracker.OnScriptCompleted;
             _prevOnScriptStarted = _tracker.OnScriptStarted;
+            _prevOnImeTokenFailure = _tracker.OnImeTokenFailure;
 
             // Store our delegate instances once — implicit method-group conversions
             // create a new delegate each time, which would break Dispose's reference check.
@@ -186,6 +189,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _ourOnDoTelemetryReceived = OnDoTelemetryReceived;
             _ourOnScriptCompleted = OnScriptCompleted;
             _ourOnScriptStarted = OnScriptStarted;
+            _ourOnImeTokenFailure = OnImeTokenFailure;
 
             _tracker.OnEspPhaseChanged = _ourOnEspPhaseChanged;
             _tracker.OnUserSessionCompleted = _ourOnUserSessionCompleted;
@@ -195,6 +199,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _tracker.OnDoTelemetryReceived = _ourOnDoTelemetryReceived;
             _tracker.OnScriptCompleted = _ourOnScriptCompleted;
             _tracker.OnScriptStarted = _ourOnScriptStarted;
+            _tracker.OnImeTokenFailure = _ourOnImeTokenFailure;
         }
 
         public void Dispose()
@@ -217,6 +222,8 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 _tracker.OnScriptCompleted = _prevOnScriptCompleted;
             if (ReferenceEquals(_tracker.OnScriptStarted, _ourOnScriptStarted))
                 _tracker.OnScriptStarted = _prevOnScriptStarted;
+            if (ReferenceEquals(_tracker.OnImeTokenFailure, _ourOnImeTokenFailure))
+                _tracker.OnImeTokenFailure = _prevOnImeTokenFailure;
         }
 
         private void OnEspPhaseChanged(string phase)
@@ -267,6 +274,12 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             EmitScriptStarted(info);
         }
 
+        private void OnImeTokenFailure(string errorCode, string message)
+        {
+            _prevOnImeTokenFailure?.Invoke(errorCode, message);
+            EmitImeTokenFailure(errorCode, message);
+        }
+
         internal void TriggerEspPhaseFromTest(string phase) => EmitEspPhase(phase);
         internal void TriggerUserSessionCompletedFromTest() => EmitUserSessionCompleted();
         internal void TriggerAppStateFromTest(AppPackageState app, AppInstallationState oldState, AppInstallationState newState) =>
@@ -277,6 +290,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             EmitDoTelemetry(app, sourceTimestampUtc);
         internal void TriggerScriptCompletedFromTest(ScriptExecutionState script) => EmitScriptCompleted(script);
         internal void TriggerScriptStartedFromTest(ScriptStartedInfo info) => EmitScriptStarted(info);
+        internal void TriggerImeTokenFailureFromTest(string errorCode, string message) => EmitImeTokenFailure(errorCode, message);
 
         /// <summary>
         /// Prefer the CMTrace log entry timestamp recorded by the most recent pattern match
@@ -897,6 +911,34 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _logger?.Info(source.HasData && !string.IsNullOrEmpty(source.DownloadUrl)
                 ? $"ImeAdapter: IME agent version detected: {version} (CSP install source: {source.DownloadUrl})"
                 : $"ImeAdapter: IME agent version detected: {version}");
+        }
+
+        // IME token-acquisition failure ("Failed to get AAD token ... errorCode = N",
+        // IntuneTokenManager). Previously we only matched the success line — an outage
+        // (WAM broken, conditional access, network) was invisible while every check-in
+        // silently did nothing. Tracker-side dedup: once per distinct errorCode.
+        private void EmitImeTokenFailure(string errorCode, string message)
+        {
+            var now = ResolveOccurredAt(out var derivedFromClock, out var rawSourceTs);
+            var data = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["errorCode"] = string.IsNullOrEmpty(errorCode) ? "unknown" : errorCode,
+            };
+            if (!string.IsNullOrEmpty(message))
+                data["logLine"] = message;
+            var patternId = _tracker.LastMatchedPatternId;
+            if (!string.IsNullOrEmpty(patternId))
+                data["patternId"] = patternId!;
+
+            TagDerivedTimestamp(data, derivedFromClock, rawSourceTs);
+
+            _post.Emit(
+                eventType: SharedEventTypes.ImeTokenFailure,
+                source: SourceLabel,
+                message: $"IME token acquisition failed (errorCode={data["errorCode"]})",
+                data: data,
+                severity: EventSeverity.Warning,
+                occurredAtUtc: now);
         }
 
         private ImeMsiInstallSource ResolveMsiInstallSource(string version)

@@ -416,6 +416,7 @@ namespace AutopilotMonitor.Shared
             // IME log tracker — app / device / script telemetry (V2 single-rail plan §5.9)
             public const string EspPhaseChanged           = "esp_phase_changed";
             public const string ImeAgentVersion           = "ime_agent_version";
+            public const string ImeTokenFailure           = "ime_token_failure";     // Warning, once per distinct errorCode: IME token acquisition failed (IntuneTokenManager "Failed to get AAD token ... errorCode = N"). Complements IME-TOKEN-SUCCESS: an auth outage previously left every check-in silently doing nothing with no timeline evidence.
             public const string ImeUserSessionCompleted   = "ime_user_session_completed";
             public const string DoTelemetry               = "do_telemetry";
             public const string AllAppsCompleted          = "all_apps_completed";

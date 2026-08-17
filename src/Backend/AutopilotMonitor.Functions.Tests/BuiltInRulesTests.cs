@@ -171,7 +171,7 @@ public class BuiltInRulesTests
             "updateStatePostponed", "espPhaseDetected", "imeStarted",
             "policiesDiscovered", "ignoreCompletedApp", "imeAgentVersion",
             "espTrackStatus", "updateName", "updateWin32AppState",
-            "cancelStuckAndSetCurrent", "imeSessionChange", "imeImpersonation",
+            "cancelStuckAndSetCurrent", "imeSessionChange", "imeImpersonation", "imeTokenFailure",
             "enrollmentCompleted", "updateDoTelemetry", "scriptStarted",
             "scriptContext", "scriptExitCode", "scriptOutput", "scriptCompleted",
             "resetPlatformScriptContext",

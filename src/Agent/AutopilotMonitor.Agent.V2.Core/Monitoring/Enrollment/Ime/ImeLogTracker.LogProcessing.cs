@@ -214,6 +214,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             "capturedetectionresult", "esptrackstatus", "policiesdiscovered",
             "ignorecompletedapp", "updatename", "updatewin32appstate",
             "cancelstuckandsetcurrent", "updatedotelemetry",
+            // Not app-mutating, but a stale token-failure replayed from a previous
+            // enrollment's log would emit a misleading Warning for THIS session.
+            "imetokenfailure",
         };
 
         private void HandlePatternMatch(CompiledPattern pattern, Match match, string message, CmTraceLogEntry entry)
@@ -294,6 +297,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                         var version = match.Groups["agentVersion"]?.Value;
                         if (!string.IsNullOrEmpty(version))
                             OnImeAgentVersion?.Invoke(version);
+                        break;
+
+                    case "imetokenfailure":
+                        HandleImeTokenFailure(match.Groups["errorCode"]?.Value, message);
                         break;
 
                     case "imeimpersonation":

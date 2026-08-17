@@ -559,6 +559,7 @@ export const SHARED_MANIFEST = {
     "ime_agent_version",
     "ime_process_exited",
     "ime_session_change",
+    "ime_token_failure",
     "ime_user_session_completed",
     "ingress_backpressure",
     "integrity_bypass_analysis",

@@ -119,6 +119,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             "IntuneManagementExtension-????????-??????.log",
             "AppWorkload.log",
             "AppWorkload-????????-??????.log",
+            // Enforcement decision engine (V3 ActionProcessor). IME routes every
+            // [Win32App][ActionProcessor] line here (app.config TraceSource mapping) —
+            // NO-ACTION / NOT-TARGETED classifications and the GRS "will not be
+            // enforced" skips are ONLY visible in this file (audit 2026-08-17).
+            "AppActionProcessor.log",
+            "AppActionProcessor-????????-??????.log",
             // PowerShell script tracking
             "AgentExecutor.log",
             "AgentExecutor-????????-??????.log",
@@ -194,6 +200,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         public Action OnAllAppsCompleted { get; set; }
         public Action OnUserSessionCompleted { get; set; }
         public Action<string> OnImeSessionChange { get; set; }
+        // Args: errorCode (may be empty when IME logged none), raw failure line excerpt.
+        // Fired once per distinct errorCode per tracker lifetime (see HandleImeTokenFailure).
+        public Action<string, string> OnImeTokenFailure { get; set; }
         // Second arg: the [DO TEL] source log line's timestamp when the DO data came from a
         // log line, null when the DO collector observed the completion live via polling. The
         // consumer must stamp poll-driven telemetry with the clock — inheriting an unrelated

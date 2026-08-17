@@ -146,6 +146,7 @@ export const EVENT_TYPES_CATALOG = {
     'agent_shutdown',
     'agent_version_check',
     'ime_agent_version',
+    'ime_token_failure',
     'ime_user_session_completed',
     'ime_session_change',
     'ime_process_exited',

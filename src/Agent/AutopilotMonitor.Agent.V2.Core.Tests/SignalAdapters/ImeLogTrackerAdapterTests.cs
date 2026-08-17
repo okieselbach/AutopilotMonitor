@@ -463,6 +463,48 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
         }
 
         [Fact]
+        public void ImeTokenFailure_emits_warning_event_with_error_code()
+        {
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            adapter.TriggerImeTokenFailureFromTest("3399614467",
+                "Failed to get AAD token. len = 0 using client id x and resource id y, errorCode = 3399614467");
+
+            var info = Assert.Single(f.InfoEvents(SharedEventTypes.ImeTokenFailure));
+            Assert.Equal("ImeLogTracker", info.Payload![SignalPayloadKeys.Source]);
+            Assert.Equal("3399614467", info.Payload["errorCode"]);
+            Assert.Contains("errorCode=3399614467", info.Payload[SignalPayloadKeys.Message]);
+            Assert.Contains("Failed to get AAD token", info.Payload["logLine"]);
+        }
+
+        [Fact]
+        public void ImeTokenFailure_tracker_dedups_per_error_code()
+        {
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            f.Tracker.HandleImeTokenFailureForTest("100", "line a");
+            f.Tracker.HandleImeTokenFailureForTest("100", "line b"); // same code — suppressed
+            f.Tracker.HandleImeTokenFailureForTest("200", "line c"); // new code — emitted
+
+            Assert.Equal(2, f.InfoEvents(SharedEventTypes.ImeTokenFailure).Count);
+        }
+
+        [Fact]
+        public void ImeTokenFailure_empty_error_code_reports_unknown()
+        {
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+
+            adapter.TriggerImeTokenFailureFromTest("", null!);
+
+            var info = Assert.Single(f.InfoEvents(SharedEventTypes.ImeTokenFailure));
+            Assert.Equal("unknown", info.Payload!["errorCode"]);
+            Assert.False(info.Payload.ContainsKey("logLine"));
+        }
+
+        [Fact]
         public void ImeAgentVersion_null_or_empty_is_skipped()
         {
             using var f = new ImeLogTrackerAdapterFixture();

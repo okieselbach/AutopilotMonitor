@@ -25,6 +25,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private DateTime _impersonationLastRollupUtc = DateTime.MinValue;
         private static readonly TimeSpan ImpersonationRollupInterval = TimeSpan.FromSeconds(60);
 
+        // IME retries token acquisition on every check-in — dedup per distinct error
+        // code so an outage yields one Warning, not a timeline flood.
+        private readonly HashSet<string> _reportedTokenFailureCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        private void HandleImeTokenFailure(string errorCode, string message)
+        {
+            var code = string.IsNullOrEmpty(errorCode) ? "unknown" : errorCode.Trim();
+            if (!_reportedTokenFailureCodes.Add(code)) return;
+
+            var excerpt = message ?? string.Empty;
+            if (excerpt.Length > 300) excerpt = excerpt.Substring(0, 300);
+
+            _logger.Warning($"ImeLogTracker: IME token acquisition failure (errorCode={code})");
+            OnImeTokenFailure?.Invoke(code, excerpt);
+        }
+
+        // Test seam: drives HandleImeTokenFailure without the regex pipeline.
+        internal void HandleImeTokenFailureForTest(string errorCode, string message)
+            => HandleImeTokenFailure(errorCode, message);
+
         private void HandleImeImpersonation(string user)
         {
             var current = string.IsNullOrEmpty(user) ? "(unknown)" : user;

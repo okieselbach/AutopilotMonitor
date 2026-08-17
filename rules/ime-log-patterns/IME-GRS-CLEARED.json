@@ -1,0 +1,9 @@
+{
+  "$schema": "../schema/ime-log-pattern.schema.json",
+  "patternId": "IME-GRS-CLEARED",
+  "category": "currentPhase",
+  "pattern": "\\[Win32App\\]\\[ExecutionActionHandler\\] Encountered early subgraph termination\\. Clearing GRS for app with id: {GUID} so it can be retried during the next check-in\\.",
+  "action": "updateStatePostponed",
+  "description": "IME aborted the app's subgraph before enforcement finished and cleared its GRS entry so the app retries on the next check-in (ExecutionActionHandler, AppWorkload.log). Maps to Postponed: the install did not complete this pass but is scheduled to run again - previously this looked like an unexplained gap. Wording verified in IME 1.97 and 1.104.",
+  "enabled": true
+}
