@@ -105,16 +105,37 @@ describe('withToolTelemetry', () => {
     const errorResult = { isError: true, content: [{ type: 'text', text: 'Backend error' }] };
     const result = await withToolTelemetry('get_metrics', {}, () => errorResult);
     expect(result).toBe(errorResult);
-    expect(lastLoggedJson(spy).isError).toBe(true);
+    const line = lastLoggedJson(spy);
+    expect(line.isError).toBe(true);
+    expect(line.errorMessage).toBe('Backend error');
   });
 
-  it('marks thrown errors and rethrows them', async () => {
+  it('caps long soft-error texts in errorMessage', async () => {
+    const { withToolTelemetry } = await loadTelemetry(true);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const errorResult = { isError: true, content: [{ type: 'text', text: 'e'.repeat(1000) }] };
+    await withToolTelemetry('get_metrics', {}, () => errorResult);
+    const msg = lastLoggedJson(spy).errorMessage as string;
+    expect(msg.length).toBeLessThan(330);
+    expect(msg).toContain('…(+700)');
+  });
+
+  it('marks thrown errors, rethrows them and records the message', async () => {
     const { withToolTelemetry } = await loadTelemetry(true);
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     await expect(
       withToolTelemetry('get_session', {}, () => { throw new Error('boom'); }),
     ).rejects.toThrow('boom');
-    expect(lastLoggedJson(spy).isError).toBe(true);
+    const line = lastLoggedJson(spy);
+    expect(line.isError).toBe(true);
+    expect(line.errorMessage).toBe('boom');
+  });
+
+  it('omits errorMessage entirely on success', async () => {
+    const { withToolTelemetry } = await loadTelemetry(true);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await withToolTelemetry('get_metrics', {}, () => ({ content: [{ type: 'text', text: 'ok' }] }));
+    expect('errorMessage' in lastLoggedJson(spy)).toBe(false);
   });
 });
 

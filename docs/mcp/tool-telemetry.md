@@ -25,7 +25,10 @@ Three layers answer "are the MCP tools doing their job, and are tools missing?":
    Logs) — the layer that carries what the other two structurally cannot:
    - `tool_call`: duration, `isError` **including soft errors** (handlers never
      throw — `toolError` *returns* `isError: true`, so backend-only telemetry
-     records those calls as successes), `resultChars` + `overCap` (result
+     records those calls as successes), `errorMessage` (capped; the thrown
+     message or the first lines of the `toolError` text, which name the error
+     class — HTTP status / timeout / auth / not found; absent on success),
+     `resultChars` + `overCap` (result
      exceeds the tool's `anthropic/maxResultSizeChars` hint → the host truncates
      it; a frequently-overCap tool needs tighter defaults or projections), a
      size-bounded args summary, and the caller scope (ga/delegated/tenant).

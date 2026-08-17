@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-17
+
+* **Update**: `mcp/tool-telemetry.md` — the `tool_call` stderr line now carries `errorMessage` (capped at 300 chars; thrown message or the leading `toolError` text, absent on success), so error drilldowns name the failure class instead of guessing from args. Same change: `get_rule_stats` omits the per-rule daily `trend` rows by default (they drove 50% of calls over the response cap at platform scope); `includeTrends=true` opts back in, the response carries a `trendsNote` marker when stripped.
+
 ## 2026-08-14 (later)
 
 * **Update**: `rules/analyze-rule-triggers.md` — status SPEC → IMPLEMENTED. Shipped: `evaluateOn` on the analyze-rule schema (grammar-validated server-side and in validate_rule), `AnalyzeRunContext`-driven engine runs (Terminal/Interim/Reanalyze) with the RuleResult lifecycle columns (FirstDetectedAt/LastEvaluatedAt/IsInterim/ResolvedAt/NotifiedAt), interim rule filtering + KO/stat suppression, resolve/finalize update-semantics, the NotifiedAt one-send-per-(session,rule) notification dedupe (preserved across the manual reanalyze rebuild), the ingest-side `InterimTriggerRegistry` (5-min TTL, fail-soft) gating `interim_trigger` / `whiteglove_sealed` enqueues, the three MCP authoring lints, web preliminary/resolved rendering, and ANALYZE-ID-004 as the first interim-enabled rule.

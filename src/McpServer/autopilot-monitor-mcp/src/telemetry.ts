@@ -7,6 +7,7 @@ export const toolLoggingEnabled = process.env.MCP_TOOL_LOGGING === 'true';
 const ARG_VALUE_CAP = 200;
 const ARGS_TOTAL_CAP = 1500;
 const QUERY_CAP = 300;
+const ERROR_MESSAGE_CAP = 300;
 
 function cap(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + `…(+${s.length - max})` : s;
@@ -71,23 +72,33 @@ export async function withToolTelemetry<T>(
 
   const start = Date.now();
   let threw = false;
+  let thrownMessage: string | undefined;
   let result: T | undefined;
   try {
     result = await runWithToolName(toolName, fn);
     return result;
   } catch (err) {
     threw = true;
+    thrownMessage = err instanceof Error ? err.message : String(err);
     throw err;
   } finally {
     try {
       const r = result as ToolResultShape | undefined;
       const resultChars = r?.content?.reduce((sum, c) => sum + (c.text?.length ?? 0), 0) ?? 0;
       const capValue = Number(r?._meta?.['anthropic/maxResultSizeChars']);
+      const isError = threw || r?.isError === true;
+      // What actually failed — without this every error drilldown ends at
+      // guessing from args. Soft errors carry the toolError text (its first
+      // lines name the error class: HTTP status / timeout / auth / not found).
+      const errorMessage = !isError
+        ? undefined
+        : cap(thrownMessage ?? r?.content?.find((c) => c.type === 'text')?.text ?? '', ERROR_MESSAGE_CAP);
       console.error(JSON.stringify({
         type: 'tool_call',
         tool: toolName,
         durationMs: Date.now() - start,
-        isError: threw || r?.isError === true,
+        isError,
+        errorMessage,
         resultChars,
         // Result exceeds the inline-size hint → the host truncates it. A tool
         // that is frequently overCap needs tighter defaults or projections.

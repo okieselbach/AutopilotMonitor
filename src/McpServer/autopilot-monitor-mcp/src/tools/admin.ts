@@ -1307,14 +1307,17 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'intervals) incl. window/baseline counts and an optional dimension concentration — correlation ' +
         'only, never causal. ' +
         (ga ? 'Without tenantId returns global stats (cross-tenant; no regressions there). With tenantId returns tenant-specific stats. ' : '') +
-        'NOTE: default window is 30 days × every rule × per-day trend rows — for 20+ rules the response ' +
-        'easily exceeds 70 KB and can trip the response cap. Pass a tighter `startDate`/`endDate` window ' +
-        '(7 days is usually plenty) and/or `ruleType` filter to keep responses lean.',
+        'By default per-rule daily trend rows are OMITTED (they dominate response size: one row per rule ' +
+        'per day). Set includeTrends=true to get them — then also pass a tight `startDate`/`endDate` ' +
+        'window (7 days is usually plenty) and/or `ruleType`, or the response can trip the response cap.',
       inputSchema: {
         tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Filter by tenant ID. Omit for global (cross-tenant) stats.', 'Optional tenant ID. Defaults to your tenant.')),
         ruleType: z.enum(['analyze', 'gather']).optional().describe('Filter by rule type'),
         startDate: z.string().optional().describe('Start date (YYYY-MM-DD). Defaults to 30 days ago.'),
         endDate: z.string().optional().describe('End date (YYYY-MM-DD). Defaults to today.'),
+        includeTrends: z.boolean().optional().describe(
+          'Default false: include per-rule daily trend rows (date/fireCount/evaluationCount). ' +
+          'Combine with a narrow date window to stay under the response cap.'),
       },
       annotations: READ_ONLY,
     },
@@ -1328,7 +1331,17 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         };
         if (tenantId) params.tenantId = tenantId;
         const prefix = pickGlobalOrTenantPath('/api/global/metrics', '/api/metrics', tenantId);
-        const data = await apiFetch(`${prefix}/rule-stats${buildQuery(params)}`);
+        const data = await apiFetch(`${prefix}/rule-stats${buildQuery(params)}`) as {
+          rules?: Array<Record<string, unknown>>;
+          trendsNote?: string;
+        };
+        // The per-rule daily trend arrays are the size driver (one row per rule
+        // per day; a 30-day platform-scope response reaches 150k+ chars and gets
+        // host-truncated). Aggregates stay intact — trends only on request.
+        if (!args.includeTrends && Array.isArray(data?.rules)) {
+          for (const rule of data.rules) delete rule.trend;
+          data.trendsNote = 'Per-rule daily trend rows omitted. Re-call with includeTrends=true (plus a narrow startDate/endDate window) to include them.';
+        }
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('get_rule_stats', args, error);
