@@ -22,11 +22,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         // Pressure thresholds — once either is crossed within a session, a one-shot
         // `spool_pressure_detected` event is emitted with RequiresImmediateFlush=true
         // so the backend can surface the condition without waiting for the next snapshot
-        // to be queried out of Storage. Sized so a healthy 6h provisioning session never
-        // trips them; tripping is a strong "upload backlog is growing or downstream stalled"
-        // signal worth investigating in the field.
+        // to be queried out of Storage. Both measure the PENDING backlog (items not yet
+        // marked uploaded), never the append-only spool file size — a healthy long session
+        // grows the file past any fixed size while its backlog stays near zero (field data
+        // 2026-08: 99/100 pressure events were file-size-only false positives). Tripping is
+        // therefore a genuine "upload is stalled or falling behind" signal.
         internal const int PressurePendingItemThreshold = 2000;
-        internal const long PressureFileSizeBytesThreshold = 5L * 1024 * 1024; // 5 MB
+        internal const long PressurePendingBytesThreshold = 5L * 1024 * 1024; // 5 MB
 
         private readonly string _agentVersion;
         private readonly NetworkMetrics _networkMetrics;
@@ -77,11 +79,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
 
         protected override void Collect()
         {
-            // Full path writes 19 keys: agent_version + process metrics (5: cpu, ws, private,
-            // threads, handles) + spool stats (4) + network delta (9: requests, failures,
-            // bytes_up/down, avg_latency, total_up/down/requests/latency). cap=19 →
-            // HashHelpers.GetPrime(19)=23 buckets → no resize on the 19th key.
-            var data = new Dictionary<string, object>(capacity: 19, StringComparer.Ordinal)
+            // Full path writes 20 keys: agent_version + process metrics (5: cpu, ws, private,
+            // threads, handles) + spool stats (5) + network delta (9: requests, failures,
+            // bytes_up/down, avg_latency, total_up/down/requests/latency). cap=20 →
+            // HashHelpers.GetPrime(20)=23 buckets → no resize on the 20th key.
+            var data = new Dictionary<string, object>(capacity: 20, StringComparer.Ordinal)
             {
                 { "agent_version", _agentVersion }
             };
@@ -126,17 +128,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             // EnrollmentOrchestrator.Start into IComponentFactory.CreateCollectorHosts
             // (ARCH-F4). Null only on test fakes that don't construct a real spool.
             int pendingItemCount = 0;
+            long pendingBytes = 0L;
             long spoolFileSizeBytes = 0L;
             if (_telemetrySpool != null)
             {
                 try
                 {
                     pendingItemCount = _telemetrySpool.PendingItemCount;
+                    pendingBytes = _telemetrySpool.PendingBytes;
                     spoolFileSizeBytes = _telemetrySpool.SpoolFileSizeBytes;
                     var peakPending = _telemetrySpool.PeakPendingItemCount;
                     var totalEnqueued = _telemetrySpool.LastAssignedItemId + 1; // -1 sentinel → 0
 
                     data["spool_pending_item_count"] = pendingItemCount;
+                    data["spool_pending_bytes"] = pendingBytes;
                     data["spool_peak_pending_item_count"] = peakPending;
                     data["spool_file_size_bytes"] = spoolFileSizeBytes;
                     data["spool_total_enqueued_count"] = totalEnqueued;
@@ -194,20 +199,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                 });
             }
 
-            // One-shot pressure event \u2014 fires once per session when the spool grows past
-            // either threshold. ImmediateUpload=true so it shows up promptly on the
-            // backend without waiting for the next batch drain.
+            // One-shot pressure event \u2014 fires once per session when the pending backlog
+            // grows past either threshold. ImmediateUpload=true so it shows up promptly on
+            // the backend without waiting for the next batch drain.
             if (_telemetrySpool != null
                 && (pendingItemCount > PressurePendingItemThreshold
-                    || spoolFileSizeBytes > PressureFileSizeBytesThreshold)
+                    || pendingBytes > PressurePendingBytesThreshold)
                 && Interlocked.CompareExchange(ref _pressureEmitted, 1, 0) == 0)
             {
                 var pressureData = new Dictionary<string, object>(capacity: 8, StringComparer.Ordinal)
                 {
                     { "pendingItemCount", pendingItemCount },
-                    { "fileSizeBytes", spoolFileSizeBytes },
+                    { "pendingBytes", pendingBytes },
+                    { "fileSizeBytes", spoolFileSizeBytes },   // informational only, not a trigger
                     { "pendingThreshold", PressurePendingItemThreshold },
-                    { "fileSizeThresholdBytes", PressureFileSizeBytesThreshold },
+                    { "pendingBytesThreshold", PressurePendingBytesThreshold },
                     { "totalEnqueuedCount", _telemetrySpool.LastAssignedItemId + 1 },
                     { "lastUploadedItemId", _telemetrySpool.LastUploadedItemId },
                     { "ImmediateUpload", true }
@@ -222,15 +228,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                     Severity = EventSeverity.Warning,
                     Source = "AgentSelfMetricsCollector",
                     Phase = EnrollmentPhase.Unknown,
-                    Message = $"Telemetry spool pressure detected: pending={pendingItemCount}, " +
-                              $"fileBytes={spoolFileSizeBytes} \u2014 upload may be stalled or session " +
-                              $"is unusually long.",
+                    Message = $"Telemetry spool pressure detected: pending={pendingItemCount} items / " +
+                              $"{pendingBytes} bytes not yet uploaded \u2014 upload is stalled or " +
+                              $"falling behind.",
                     Data = pressureData
                 });
 
                 Logger.Warning(
                     $"AgentSelfMetricsCollector: spool pressure detected " +
-                    $"(pending={pendingItemCount}, fileBytes={spoolFileSizeBytes}). " +
+                    $"(pending={pendingItemCount}, pendingBytes={pendingBytes}). " +
                     $"Emitted spool_pressure_detected (one-shot per session).");
             }
         }

@@ -60,9 +60,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
         int PeakPendingItemCount { get; }
 
         /// <summary>
+        /// Serialized on-disk byte size of the pending (not-yet-uploaded) tail — the actual
+        /// upload backlog. Unlike <see cref="SpoolFileSizeBytes"/>, which grows append-only
+        /// over the whole session regardless of upload progress, this shrinks back to 0 as
+        /// <see cref="MarkUploaded"/> advances the cursor, so it is the correct input for
+        /// back-pressure thresholds.
+        /// </summary>
+        long PendingBytes { get; }
+
+        /// <summary>
         /// Current size of the on-disk <c>spool.jsonl</c> file in bytes. Returns 0 when the
         /// file does not yet exist. Cheap (single <c>FileInfo.Length</c> call) and safe to
-        /// poll from periodic collectors.
+        /// poll from periodic collectors. Append-only cumulative — informational only, NOT a
+        /// backlog measure (use <see cref="PendingBytes"/> for that).
         /// </summary>
         long SpoolFileSizeBytes { get; }
 

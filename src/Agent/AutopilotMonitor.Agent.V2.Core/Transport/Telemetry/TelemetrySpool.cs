@@ -56,9 +56,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
         // Populated from disk in the ctor and kept in sync by Enqueue / MarkUploaded. Peek
         // reads from here so the periodic drain loop is O(batchSize) instead of O(N) per
         // call. Disk JSONL stays the source of truth — the cache is rebuilt on every
-        // process start.
-        private readonly LinkedList<TelemetryItem> _pending = new LinkedList<TelemetryItem>();
+        // process start. Each entry carries its on-disk line length (incl. trailing \n) so
+        // MarkUploaded can decrement _pendingBytes exactly.
+        private readonly LinkedList<PendingEntry> _pending = new LinkedList<PendingEntry>();
         private int _peakPendingCount;
+        private long _pendingBytes;
+
+        private readonly struct PendingEntry
+        {
+            public PendingEntry(TelemetryItem item, int byteLength)
+            {
+                Item = item;
+                ByteLength = byteLength;
+            }
+
+            public TelemetryItem Item { get; }
+            public int ByteLength { get; }
+        }
 
         public TelemetrySpool(string directoryPath, IClock clock, Logging.AgentLogger? logger = null)
         {
@@ -103,6 +117,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
         public int PeakPendingItemCount
         {
             get { lock (_lock) return _peakPendingCount; }
+        }
+
+        public long PendingBytes
+        {
+            get { lock (_lock) return _pendingBytes; }
         }
 
         public long SpoolFileSizeBytes
@@ -171,7 +190,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                 }
 
                 _lastAssignedItemId = itemId;
-                _pending.AddLast(item);
+                _pending.AddLast(new PendingEntry(item, bytes.Length));
+                _pendingBytes += bytes.Length;
                 if (_pending.Count > _peakPendingCount)
                     _peakPendingCount = _pending.Count;
 
@@ -209,7 +229,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                 var node = _pending.First;
                 while (node != null && batch.Count < max)
                 {
-                    batch.Add(node.Value);
+                    batch.Add(node.Value.Item);
                     node = node.Next;
                 }
                 return batch;
@@ -233,25 +253,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                 // Trim the in-memory tail. The list is in TelemetryItemId-monotonic order
                 // (Enqueue only appends), so we can drop from the front until the first
                 // remaining item is past the cursor.
-                while (_pending.First != null && _pending.First.Value.TelemetryItemId <= upToItemIdInclusive)
+                while (_pending.First != null && _pending.First.Value.Item.TelemetryItemId <= upToItemIdInclusive)
                 {
+                    _pendingBytes -= _pending.First.Value.ByteLength;
                     _pending.RemoveFirst();
                 }
             }
         }
 
         /// <summary>
-        /// Single-pass scan of <c>spool.jsonl</c>: returns the highest <c>TelemetryItemId</c>
-        /// found AND populates <see cref="_pending"/> with every item past
-        /// <see cref="_lastUploadedItemId"/>. Called once from the ctor — replaces the
-        /// previous per-Peek <c>File.ReadAllLines</c> hot path.
+        /// Single-pass streaming scan of <c>spool.jsonl</c> (<c>File.ReadLines</c> — never
+        /// materializes the whole file): returns the highest <c>TelemetryItemId</c> found AND
+        /// populates <see cref="_pending"/> / <see cref="_pendingBytes"/> with every item past
+        /// <see cref="_lastUploadedItemId"/>. Called once from the ctor.
         /// </summary>
         private long ScanSpoolAndRehydratePending()
         {
             if (!File.Exists(_spoolPath)) return -1;
 
             long highest = -1;
-            foreach (var line in File.ReadAllLines(_spoolPath, Encoding.UTF8))
+            foreach (var line in File.ReadLines(_spoolPath, Encoding.UTF8))
             {
                 if (string.IsNullOrWhiteSpace(line)) continue;
                 TelemetryItem item;
@@ -270,7 +291,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                 if (item.TelemetryItemId > highest) highest = item.TelemetryItemId;
                 if (item.TelemetryItemId > _lastUploadedItemId)
                 {
-                    _pending.AddLast(item);
+                    // +1 = the trailing \n Enqueue writes after every line, so the rehydrated
+                    // byte count matches what Enqueue would have accumulated.
+                    var byteLength = Encoding.UTF8.GetByteCount(line) + 1;
+                    _pending.AddLast(new PendingEntry(item, byteLength));
+                    _pendingBytes += byteLength;
                 }
             }
             return highest;

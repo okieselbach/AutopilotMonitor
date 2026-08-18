@@ -222,6 +222,81 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
         }
 
         [Fact]
+        public void PendingBytes_tracks_enqueue_and_shrinks_to_zero_when_all_uploaded()
+        {
+            using var tmp = new TempDirectory();
+            var spool = new TelemetrySpool(tmp.Path, Clock());
+            Assert.Equal(0, spool.PendingBytes);
+
+            spool.Enqueue(EventDraft("a"));
+            spool.Enqueue(EventDraft("b"));
+            spool.Enqueue(EventDraft("c"));
+
+            // PendingBytes must equal the full file size while nothing is uploaded yet
+            // (every line written by Enqueue is still pending).
+            Assert.Equal(spool.SpoolFileSizeBytes, spool.PendingBytes);
+
+            spool.MarkUploaded(2);
+            Assert.Equal(0, spool.PendingBytes);
+            // File keeps its append-only size — the two measures MUST diverge here,
+            // otherwise the pressure trigger regresses to the file-size false positive.
+            Assert.True(spool.SpoolFileSizeBytes > 0);
+        }
+
+        [Fact]
+        public void PendingBytes_after_partial_upload_equals_remaining_tail_line_bytes()
+        {
+            using var tmp = new TempDirectory();
+            var spool = new TelemetrySpool(tmp.Path, Clock());
+            spool.Enqueue(EventDraft("a"));
+            spool.Enqueue(EventDraft("b"));
+            spool.Enqueue(EventDraft("c-longer-rowkey-for-distinct-length"));
+
+            spool.MarkUploaded(1);
+
+            // Expected = on-disk byte length of the last line incl. its trailing \n.
+            var lines = File.ReadAllLines(Path.Combine(tmp.Path, "spool.jsonl"), Encoding.UTF8);
+            var expected = Encoding.UTF8.GetByteCount(lines[2]) + 1;
+            Assert.Equal(expected, spool.PendingBytes);
+        }
+
+        [Fact]
+        public void PendingBytes_is_rehydrated_on_restart_from_pending_tail_only()
+        {
+            using var tmp = new TempDirectory();
+            var s1 = new TelemetrySpool(tmp.Path, Clock());
+            s1.Enqueue(EventDraft("a"));
+            s1.Enqueue(EventDraft("b"));
+            s1.Enqueue(EventDraft("c"));
+            s1.MarkUploaded(1);
+            var expectedPendingBytes = s1.PendingBytes;
+            Assert.True(expectedPendingBytes > 0);
+
+            // Restart: rehydrated PendingBytes must match the pre-restart value exactly
+            // (uploaded prefix excluded), not the full file size.
+            var s2 = new TelemetrySpool(tmp.Path, Clock());
+            Assert.Equal(expectedPendingBytes, s2.PendingBytes);
+            Assert.True(s2.PendingBytes < s2.SpoolFileSizeBytes);
+        }
+
+        [Fact]
+        public void PendingBytes_rehydrate_ignores_corrupt_tail_line()
+        {
+            using var tmp = new TempDirectory();
+            var s1 = new TelemetrySpool(tmp.Path, Clock());
+            s1.Enqueue(EventDraft("a"));
+            var cleanPendingBytes = s1.PendingBytes;
+
+            File.AppendAllText(
+                Path.Combine(tmp.Path, "spool.jsonl"),
+                "{\"Kind\":\"Event\",\"PartitionKey\":\"corrupt-no-",
+                Encoding.UTF8);
+
+            var s2 = new TelemetrySpool(tmp.Path, Clock());
+            Assert.Equal(cleanPendingBytes, s2.PendingBytes);
+        }
+
+        [Fact]
         public void Enqueue_without_RequiresImmediateFlush_does_not_raise_ImmediateFlushRequested()
         {
             // Batched items (performance_snapshot, routine signal/transition JSONL) must not
