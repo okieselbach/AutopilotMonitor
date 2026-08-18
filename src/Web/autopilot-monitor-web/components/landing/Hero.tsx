@@ -1,6 +1,15 @@
 import { HeroShots } from "./HeroShots";
 import { DOCS_URL } from "@/utils/config";
 
+const SCENARIOS = [
+  "User-driven",
+  "Pre-provisioning",
+  "Self-deploying",
+  "Device Preparation",
+  "Windows 365",
+  "Entra ID & Hybrid join",
+];
+
 export function Hero() {
   return (
     <header className="pt-16 sm:pt-20 pb-0 px-6">
@@ -40,6 +49,27 @@ export function Hero() {
               Free &amp; open source · no infrastructure on your side
             </p>
           </div>
+        </div>
+
+        {/* Scenario coverage — quiet chips, no competition with the CTAs */}
+        <div className="mt-7 flex flex-wrap items-center gap-x-4 gap-y-2">
+          {SCENARIOS.map((scenario) => (
+            <span
+              key={scenario}
+              className="inline-flex items-center gap-1.5 text-[13px] text-[var(--lp-ink-soft)]"
+            >
+              <svg
+                className="w-3.5 h-3.5 text-[var(--lp-accent-ink)] shrink-0"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={3}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              {scenario}
+            </span>
+          ))}
         </div>
 
         {/* The portal, front and center */}

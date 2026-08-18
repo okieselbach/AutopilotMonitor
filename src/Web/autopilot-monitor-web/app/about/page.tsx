@@ -226,7 +226,7 @@ export default function AboutPage() {
                 items: [
                   ".NET binary — lightweight, low-overhead monitoring",
                   "Runs via scheduled task (no Windows service — easy, residue-free removal)",
-                  "Deployed via an Intune platform script (PowerShell bootstrapper)",
+                  "Deployed via an Intune platform script (PowerShell bootstrapper); for Autopilot Device Preparation additionally as a thin MSI line-of-business app",
                   "Mutual TLS using the existing Intune MDM device certificate",
                   "Self-destruct on enrollment completion (on by default — removes task and files)",
                 ],
