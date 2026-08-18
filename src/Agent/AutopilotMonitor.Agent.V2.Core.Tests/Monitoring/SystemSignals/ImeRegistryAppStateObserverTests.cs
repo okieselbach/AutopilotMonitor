@@ -120,6 +120,40 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
         }
 
         [Fact]
+        public void NonEmpty_baseline_emits_one_summary_with_counts()
+        {
+            var (sink, clock, observer) = CreateObserver(trackerApps: null);
+            var current = Snapshot((App1, 1000, 0), (App2, 5003, 101));
+
+            using (new ImeRegistryAppStateObserver.ScopedSnapshotOverride(() => current))
+            {
+                observer.Tick("baseline");
+                observer.Tick("periodic"); // summary is one-shot, not per tick
+            }
+
+            var summary = Assert.Single(Events(sink, SharedEventTypes.RegistryAppBaseline));
+            Assert.Equal("2", summary.Payload!["totalApps"]);
+            Assert.Equal("1", summary.Payload["successCount"]);
+            Assert.Equal("1", summary.Payload["errorCount"]);
+            // The baseline stays silent on the diff rail.
+            Assert.Empty(Events(sink, SharedEventTypes.RegistryAppState));
+        }
+
+        [Fact]
+        public void Empty_baseline_emits_no_summary()
+        {
+            var (sink, clock, observer) = CreateObserver(trackerApps: null);
+            var current = new ImeRegistrySnapshot();
+
+            using (new ImeRegistryAppStateObserver.ScopedSnapshotOverride(() => current))
+            {
+                observer.Tick("baseline");
+            }
+
+            Assert.Empty(Events(sink, SharedEventTypes.RegistryAppBaseline));
+        }
+
+        [Fact]
         public void Unchanged_snapshot_emits_nothing()
         {
             var (sink, clock, observer) = CreateObserver(trackerApps: null);

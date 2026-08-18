@@ -148,6 +148,7 @@ export const EVENT_TYPES_CATALOG = {
     'ime_agent_version',
     'ime_token_failure',
     'registry_app_state',
+    'registry_app_baseline',
     'app_state_reconciliation',
     'ime_user_session_completed',
     'ime_session_change',

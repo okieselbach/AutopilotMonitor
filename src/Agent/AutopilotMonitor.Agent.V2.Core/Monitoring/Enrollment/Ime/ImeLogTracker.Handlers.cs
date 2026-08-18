@@ -25,25 +25,70 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private DateTime _impersonationLastRollupUtc = DateTime.MinValue;
         private static readonly TimeSpan ImpersonationRollupInterval = TimeSpan.FromSeconds(60);
 
-        // IME retries token acquisition on every check-in — dedup per distinct error
-        // code so an outage yields one Warning, not a timeline flood.
+        // "Failed to get AAD token" is logged ROUTINELY during the device phase (no user
+        // token exists yet — field-confirmed: the line appears en masse in every enrollment,
+        // Oliver 2026-08-18). A failure is therefore only meaningful when NO token success
+        // follows: the failure is held pending, any IME-TOKEN-SUCCESS match clears it, and
+        // the Warning fires only after the grace window elapses without a success. Genuine
+        // auth outages (WAM broken, conditional access, network) run long enough to hit it.
+        // Not persisted across restarts — failures keep arriving, the window re-arms.
+        internal static readonly TimeSpan TokenFailureGraceWindow = TimeSpan.FromMinutes(30);
+
+        private sealed class PendingTokenFailure
+        {
+            public string Code = "unknown";
+            public string Excerpt = string.Empty;
+            public DateTime FirstFailureUtc;
+        }
+
+        private PendingTokenFailure _pendingTokenFailure;
+        // Dedup per distinct error code so a persistent outage yields one Warning total.
         private readonly HashSet<string> _reportedTokenFailureCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         private void HandleImeTokenFailure(string errorCode, string message)
         {
-            var code = string.IsNullOrEmpty(errorCode) ? "unknown" : errorCode.Trim();
-            if (!_reportedTokenFailureCodes.Add(code)) return;
+            if (_pendingTokenFailure != null) return; // earliest unresolved failure wins
 
+            var code = string.IsNullOrEmpty(errorCode) ? "unknown" : errorCode.Trim();
             var excerpt = message ?? string.Empty;
             if (excerpt.Length > 300) excerpt = excerpt.Substring(0, 300);
 
-            _logger.Warning($"ImeLogTracker: IME token acquisition failure (errorCode={code})");
-            OnImeTokenFailure?.Invoke(code, excerpt);
+            _pendingTokenFailure = new PendingTokenFailure
+            {
+                Code = code,
+                Excerpt = excerpt,
+                // Source-line time so a late-starting agent replaying an ongoing outage
+                // ages the window correctly; a success later in the same log still clears
+                // before the expiry check runs (lines are drained first, expiry after).
+                FirstFailureUtc = LastMatchedLogTimestamp ?? DateTime.UtcNow,
+            };
         }
 
-        // Test seam: drives HandleImeTokenFailure without the regex pipeline.
+        private void ClearPendingTokenFailure()
+        {
+            if (_pendingTokenFailure == null) return;
+            _logger.Debug($"ImeLogTracker: token success observed — pending token failure (errorCode={_pendingTokenFailure.Code}) cleared");
+            _pendingTokenFailure = null;
+        }
+
+        /// <summary>Called once per poll cycle after the log drain (and testable directly).</summary>
+        internal void CheckPendingTokenFailure(DateTime nowUtc)
+        {
+            var pending = _pendingTokenFailure;
+            if (pending == null) return;
+            if (nowUtc - pending.FirstFailureUtc < TokenFailureGraceWindow) return;
+
+            _pendingTokenFailure = null; // next failure line re-arms a fresh window
+            if (!_reportedTokenFailureCodes.Add(pending.Code)) return;
+
+            _logger.Warning($"ImeLogTracker: IME token acquisition failing for >= {TokenFailureGraceWindow.TotalMinutes:0} min without a success (errorCode={pending.Code})");
+            OnImeTokenFailure?.Invoke(pending.Code, pending.Excerpt);
+        }
+
+        // Test seams: drive the pending/clear/expiry cycle without the regex pipeline.
         internal void HandleImeTokenFailureForTest(string errorCode, string message)
             => HandleImeTokenFailure(errorCode, message);
+        internal void NoteTokenSuccessForTest() => ClearPendingTokenFailure();
 
         private void HandleImeImpersonation(string user)
         {

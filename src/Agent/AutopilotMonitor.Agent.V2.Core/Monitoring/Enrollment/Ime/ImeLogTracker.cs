@@ -607,6 +607,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                         // line never arrived within the grace period. Runs on this same loop
                         // thread (no locking) so it observes the buffer right after parsing.
                         FlushStalePlatformScriptResults(DateTime.UtcNow);
+
+                        // Token-failure grace window: fires only when the failure stayed
+                        // unresolved (no IME-TOKEN-SUCCESS) for the whole window. Runs after
+                        // the drain so a success later in the same batch clears first.
+                        CheckPendingTokenFailure(DateTime.UtcNow);
                     }
                     catch (OperationCanceledException) { break; }
                     catch (Exception ex)

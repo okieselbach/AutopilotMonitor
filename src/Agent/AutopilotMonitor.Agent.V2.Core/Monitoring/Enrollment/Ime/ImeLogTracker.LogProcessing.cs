@@ -244,6 +244,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 return;
             }
 
+            // A token success resolves any pending token failure (grace-window model, see
+            // HandleImeTokenFailure). Matched on our own stable pattern ID — the line also
+            // drives espPhaseDetected, whose handler must stay unaware of token semantics.
+            // Placed after the staleness gate so a success replayed from a previous
+            // enrollment's log cannot clear a genuine current outage.
+            if (!isStaleReplayLine && string.Equals(pattern.PatternId, "IME-TOKEN-SUCCESS", StringComparison.OrdinalIgnoreCase))
+                ClearPendingTokenFailure();
+
             try
             {
                 var id = match.Groups["id"]?.Value;

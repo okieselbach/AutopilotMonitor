@@ -421,6 +421,7 @@ namespace AutopilotMonitor.Shared
             // per-app state read straight from HKLM\...\IntuneManagementExtension. Observability only —
             // never consumed by the DecisionEngine.
             public const string RegistryAppState          = "registry_app_state";        // Info, state-change-only (snapshot-diff vs silent startup baseline; capped 200/session, cap announced once as Warning): per-app EnforcementState/ErrorCode/ExitCode/StatusService status/ESP-tracking from the registry.
+            public const string RegistryAppBaseline       = "registry_app_baseline";     // Info, one-shot at agent start (only when non-empty): summary of the Win32Apps state that PREDATES this agent run. Closes the WDP pre-agent gap — DPP-policy apps install in Batch 1 before the bootstrap-script agent exists, so their outcomes live only in this baseline (typed payload capped at 50 apps).
             public const string AppStateReconciliation    = "app_state_reconciliation";  // Warning, once per app, immediate upload: registry terminal outcome (settled >= 90 s) diverges from the IME-log-derived app state — the built-in log-pattern drift alarm (registry = truth, logs = narrative).
             public const string ImeUserSessionCompleted   = "ime_user_session_completed";
             public const string DoTelemetry               = "do_telemetry";

@@ -119,9 +119,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
                     if (_last == null)
                     {
-                        // Silent baseline — see class doc.
+                        // Silent baseline for the DIFF stream — see class doc. But the baseline
+                        // itself is valuable evidence: on WDP the DPP-policy apps install in
+                        // Batch 1 BEFORE the agent (bootstrap = Batch 2), so their terminal
+                        // states exist ONLY here. One capped summary event closes that
+                        // pre-agent gap without any log backfill (Oliver, 2026-08-18).
                         _last = snapshot;
                         _logger?.Info($"RegistryAppState: baseline captured ({snapshot.Entries.Count} app entries, trigger={reason})");
+                        if (snapshot.Entries.Count > 0)
+                            EmitBaselineSummary(snapshot, nowUtc);
                         return;
                     }
 
@@ -181,6 +187,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     var entry = snapshot.GetOrAdd(userName, appId);
                     entry.ExitCode = TryReadInt(appKey.GetValue("ExitCode"));
                     entry.Intent = TryReadInt(appKey.GetValue("Intent"));
+                    entry.LastUpdatedUtc = appKey.GetValue("LastUpdatedTimeUtc") as string;
 
                     using var esm = appKey.OpenSubKey("EnforcementStateMessage");
                     var json = esm?.GetValue("EnforcementStateMessage") as string;
@@ -452,6 +459,64 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 occurredAtUtc: nowUtc);
         }
 
+        // Baseline entries in the summary's typed payload are capped — a long-lived device
+        // with many historical Win32Apps entries must not produce an oversized event.
+        internal const int MaxBaselineSummaryApps = 50;
+
+        private void EmitBaselineSummary(ImeRegistrySnapshot snapshot, DateTime nowUtc)
+        {
+            int success = 0, error = 0, inProgress = 0, other = 0;
+            var apps = new List<Dictionary<string, string>>();
+            foreach (var entry in snapshot.Entries.Values)
+            {
+                var cls = entry.EnforcementState is int es ? ClassifyEnforcementState(es) : null;
+                switch (cls)
+                {
+                    case "success": success++; break;
+                    case "error": error++; break;
+                    case "inProgress": inProgress++; break;
+                    default: other++; break;
+                }
+
+                if (apps.Count >= MaxBaselineSummaryApps) continue;
+                var app = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["appId"] = entry.AppId,
+                    ["userContext"] = entry.UserContext,
+                };
+                if (entry.EnforcementState is int state)
+                {
+                    app["enforcementState"] = state.ToString(CultureInfo.InvariantCulture);
+                    app["enforcementClass"] = ClassifyEnforcementState(state);
+                }
+                if (entry.ErrorCode is long ec) app["errorCode"] = ec.ToString(CultureInfo.InvariantCulture);
+                if (entry.ExitCode is int xc) app["exitCode"] = xc.ToString(CultureInfo.InvariantCulture);
+                if (!string.IsNullOrEmpty(entry.LastUpdatedUtc)) app["lastUpdatedUtc"] = entry.LastUpdatedUtc!;
+                if (entry.EspTracked) app["espTracked"] = "true";
+                apps.Add(app);
+            }
+
+            var data = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["totalApps"] = snapshot.Entries.Count.ToString(CultureInfo.InvariantCulture),
+                ["successCount"] = success.ToString(CultureInfo.InvariantCulture),
+                ["errorCount"] = error.ToString(CultureInfo.InvariantCulture),
+                ["inProgressCount"] = inProgress.ToString(CultureInfo.InvariantCulture),
+                ["otherCount"] = other.ToString(CultureInfo.InvariantCulture),
+            };
+            if (snapshot.Entries.Count > MaxBaselineSummaryApps)
+                data["appListTruncated"] = "true";
+
+            _post.Emit(
+                eventType: SharedEventTypes.RegistryAppBaseline,
+                source: SourceLabel,
+                message: $"Registry app baseline at agent start: {snapshot.Entries.Count} apps ({success} success, {error} error, {inProgress} in progress) — state that predates this agent run",
+                severity: EventSeverity.Info,
+                data: data,
+                occurredAtUtc: nowUtc,
+                typedPayload: new { apps });
+        }
+
         private void TrackTerminalTransitions(ImeRegistrySnapshot snapshot, DateTime nowUtc)
         {
             foreach (var kv in snapshot.Entries)
@@ -552,6 +617,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         public string Key { get; }
         public string UserContext { get; }
         public string AppId { get; }
+        public string? LastUpdatedUtc { get; set; }
         public int? EnforcementState { get; set; }
         public long? ErrorCode { get; set; }
         public int? ExitCode { get; set; }

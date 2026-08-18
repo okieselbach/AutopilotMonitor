@@ -604,6 +604,7 @@ export const SHARED_MANIFEST = {
     "realmjoin_resolved",
     "realmjoin_timeout",
     "reboot_triggered",
+    "registry_app_baseline",
     "registry_app_state",
     "remote_config_fetch_failed",
     "script_completed",

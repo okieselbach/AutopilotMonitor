@@ -479,16 +479,32 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
         }
 
         [Fact]
-        public void ImeTokenFailure_tracker_dedups_per_error_code()
+        public void ImeTokenFailure_grace_window_emits_only_without_token_success()
         {
+            // "Failed to get AAD token" appears routinely during the device phase (no user
+            // token yet) — the Warning must fire only when NO success follows for the whole
+            // grace window.
             using var f = new ImeLogTrackerAdapterFixture();
             using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+            var t0 = DateTime.UtcNow;
 
+            // Failure resolved by a token success: never emitted, not even after the window.
             f.Tracker.HandleImeTokenFailureForTest("100", "line a");
-            f.Tracker.HandleImeTokenFailureForTest("100", "line b"); // same code — suppressed
-            f.Tracker.HandleImeTokenFailureForTest("200", "line c"); // new code — emitted
+            f.Tracker.NoteTokenSuccessForTest();
+            f.Tracker.CheckPendingTokenFailure(t0 + ImeLogTracker.TokenFailureGraceWindow + TimeSpan.FromMinutes(1));
+            Assert.Empty(f.InfoEvents(SharedEventTypes.ImeTokenFailure));
 
-            Assert.Equal(2, f.InfoEvents(SharedEventTypes.ImeTokenFailure).Count);
+            // Unresolved failure: silent before the window, one Warning after it.
+            f.Tracker.HandleImeTokenFailureForTest("100", "line b");
+            f.Tracker.CheckPendingTokenFailure(t0 + TimeSpan.FromMinutes(5));
+            Assert.Empty(f.InfoEvents(SharedEventTypes.ImeTokenFailure));
+            f.Tracker.CheckPendingTokenFailure(t0 + ImeLogTracker.TokenFailureGraceWindow + TimeSpan.FromHours(1));
+            Assert.Single(f.InfoEvents(SharedEventTypes.ImeTokenFailure));
+
+            // Same code again: re-armed window expires but the per-code dedup suppresses.
+            f.Tracker.HandleImeTokenFailureForTest("100", "line c");
+            f.Tracker.CheckPendingTokenFailure(t0 + TimeSpan.FromHours(3));
+            Assert.Single(f.InfoEvents(SharedEventTypes.ImeTokenFailure));
         }
 
         [Fact]

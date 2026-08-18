@@ -4,6 +4,6 @@
   "category": "always",
   "pattern": "Failed to get AAD token\\..*?errorCode = (?<errorCode>.*?)$",
   "action": "imeTokenFailure",
-  "description": "IME token acquisition failure ('Failed to get AAD token. len = N using client id ... and resource id ..., errorCode = N', IntuneTokenManager, IntuneManagementExtension.log). Complements IME-TOKEN-SUCCESS: an auth outage (WAM broken, conditional access, network) previously left every check-in silently doing nothing with no timeline evidence. errorCode can be empty when IME logged none; the agent dedups to one Warning per distinct code. Verified against IME 1.97 and 1.104 decompiled sources.",
+  "description": "IME token acquisition failure ('Failed to get AAD token. len = N using client id ... and resource id ..., errorCode = N', IntuneTokenManager, IntuneManagementExtension.log). This line appears ROUTINELY during the device phase (no user token exists yet), so the agent holds the failure pending: any IME-TOKEN-SUCCESS match clears it, and the ime_token_failure Warning fires only when no success follows for the whole 30-min grace window (then deduped to one Warning per distinct errorCode). A genuine auth outage (WAM broken, conditional access, network) runs long enough to hit the window. Verified against IME 1.97 and 1.104 decompiled sources.",
   "enabled": true
 }
