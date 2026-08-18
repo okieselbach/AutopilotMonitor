@@ -64,6 +64,7 @@ const FLAG_LABELS: Record<string, string> = {
   BlockingSetUnknown: "ESP blocking set unknown",
   BlockingSetTruncated: "ESP blocking list truncated",
   WhiteGloveAnchorsIncomplete: "Pre-provisioning window estimated",
+  PriorEnrollmentResidue: "Device re-enrolled without wipe — phase timing unreliable",
 };
 
 function formatDuration(totalSeconds: number): string {

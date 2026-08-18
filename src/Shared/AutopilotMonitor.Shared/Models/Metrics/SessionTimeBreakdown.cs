@@ -61,7 +61,17 @@ namespace AutopilotMonitor.Shared.Models
         /// event, missing ResumedAt, or a derived part-1 length that contradicts the stored
         /// combined duration) — the two-window split is best-effort rather than event-anchored.
         /// </summary>
-        WhiteGloveAnchorsIncomplete = 16
+        WhiteGloveAnchorsIncomplete = 16,
+
+        /// <summary>
+        /// The device carries state from a previous enrollment (<c>historic_ime_replay_detected</c>:
+        /// the IME log on disk predates this enrollment by more than the staleness threshold — the
+        /// machine was re-enrolled without a wipe). Pre-installed apps then complete as instant
+        /// detections, which pulls the phase anchors far ahead of the real ESP page (session
+        /// f475e697: the AccountSetup anchor fired 6.5 min before device setup actually finished),
+        /// so the segment durations misrepresent the enrollment.
+        /// </summary>
+        PriorEnrollmentResidue = 32
     }
 
     /// <summary>
@@ -74,7 +84,8 @@ namespace AutopilotMonitor.Shared.Models
     {
         /// <summary>
         /// Flags that make the SEGMENT DURATIONS themselves untrustworthy — dropped anchors,
-        /// underobserved early phases, best-effort WhiteGlove window boundaries. Only these
+        /// underobserved early phases, best-effort WhiteGlove window boundaries, phase anchors
+        /// distorted by prior-enrollment residue. Only these
         /// exclude a breakdown from fleet segment statistics. The blocking-set flags
         /// (<see cref="TimeAttributionFlags.BlockingSetUnknown"/> / BlockingSetTruncated) say
         /// nothing about the measured spans — they only limit per-app blocking evidence, which
@@ -85,7 +96,8 @@ namespace AutopilotMonitor.Shared.Models
         public const TimeAttributionFlags DurationCriticalFlags =
             TimeAttributionFlags.ClockSkewDropped |
             TimeAttributionFlags.PartialObservation |
-            TimeAttributionFlags.WhiteGloveAnchorsIncomplete;
+            TimeAttributionFlags.WhiteGloveAnchorsIncomplete |
+            TimeAttributionFlags.PriorEnrollmentResidue;
 
         /// <summary>True when the breakdown's segment durations are unfit for fleet statistics.</summary>
         public static bool ExcludesFromFleetStats(TimeAttributionFlags flags)

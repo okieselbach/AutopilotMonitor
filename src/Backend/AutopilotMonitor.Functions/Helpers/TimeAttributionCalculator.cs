@@ -70,7 +70,9 @@ public sealed class TimeAttributionInput
 public static class TimeAttributionCalculator
 {
     /// <summary>Bump on any semantic change so aggregates never mix definitions (truthfulness rule 8).</summary>
-    public const int CurrentVersion = 1;
+    // v2: PriorEnrollmentResidue flag — sessions whose phase anchors are distorted by
+    // pre-enrollment state on disk are now flagged and excluded from fleet segment stats.
+    public const int CurrentVersion = 2;
 
     /// <summary>
     /// Enrollment class for fleet aggregation — classes are NEVER mixed in one aggregate (a
@@ -163,6 +165,15 @@ public static class TimeAttributionCalculator
 
         if (events.Any(e => e.EventType == Constants.EventTypes.AgentLateStart))
             flags |= TimeAttributionFlags.PartialObservation;
+
+        // Prior-enrollment residue (session f475e697): an IME log predating this enrollment
+        // means the disk was not wiped — pre-installed apps complete as instant detections and
+        // pull the phase anchors ahead of the real ESP page, so the segment durations lie.
+        // historic_ime_replay_detected is the ONLY trigger on purpose: registry_app_baseline
+        // with successes is by-design normal for WDP (DPP Batch-1 apps install before the
+        // agent exists) and would starve that class's aggregates (see DurationCriticalFlags).
+        if (events.Any(e => e.EventType == Constants.EventTypes.HistoricImeReplayDetected))
+            flags |= TimeAttributionFlags.PriorEnrollmentResidue;
 
         return new SessionTimeBreakdown
         {

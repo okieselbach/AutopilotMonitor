@@ -58,6 +58,21 @@ timestamp runs backward are dropped (`ClockSkewDropped`).
 | Complete, `desktop_arrived` event | `desktop_handoff` |
 | Failed | attribution ends — tail stays unattributed |
 
+## Quality flags (AttributionVersion 2)
+
+Duration-critical flags (`ClockSkewDropped`, `PartialObservation`,
+`WhiteGloveAnchorsIncomplete`, `PriorEnrollmentResidue`) exclude a breakdown from fleet
+segment statistics with a disclosed count; the blocking-set flags (`BlockingSetUnknown`,
+`BlockingSetTruncated`) only limit per-app evidence and never gate fleet stats.
+
+`PriorEnrollmentResidue` (v2) fires on `historic_ime_replay_detected`: the IME log on disk
+predates the enrollment, so the device was re-enrolled without a wipe — pre-installed apps
+complete as instant detections and pull the phase anchors ahead of the real ESP page
+(session f475e697: AccountSetup anchor 6.5 min early, 457 s misattributed to
+`identity_hello`). `registry_app_baseline` successes are deliberately NOT a trigger — they
+are by-design normal for Windows Device Preparation (DPP Batch-1 apps install before the
+agent exists) and would starve that class's aggregates.
+
 ## ESP-blocking apps (positive evidence only)
 
 Per-app intervals use EVENT timestamps (first started/download event → LAST terminal
@@ -117,7 +132,7 @@ gap before the first part-2 phase declaration is unattributed, not guessed.
 
 # Citations
 
-* `src/Backend/AutopilotMonitor.Functions/Helpers/TimeAttributionCalculator.cs` — calculator + semantics (AttributionVersion 1).
+* `src/Backend/AutopilotMonitor.Functions/Helpers/TimeAttributionCalculator.cs` — calculator + semantics (AttributionVersion 2).
 * `src/Backend/AutopilotMonitor.Functions/Services/TableStorageService.TimeAttribution.cs` — persistence.
 * `src/Backend/AutopilotMonitor.Functions/Services/MaintenanceService.Aggregation.cs` — sweep + aggregation.
 * `src/Backend/AutopilotMonitor.Functions.Tests/TimeAttributionCalculatorTests.cs` — golden fixtures pinning the invariant.

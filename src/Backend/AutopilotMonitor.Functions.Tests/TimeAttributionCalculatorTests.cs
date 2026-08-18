@@ -197,6 +197,53 @@ public class TimeAttributionCalculatorTests
         Assert.True(b.QualityFlags.HasFlag(TimeAttributionFlags.PartialObservation));
     }
 
+    // ── prior-enrollment residue ────────────────────────────────────────────
+
+    [Fact]
+    public void HistoricImeReplay_SetsPriorEnrollmentResidue_AndExcludesFromFleetStats()
+    {
+        // Re-enrollment without a wipe (session f475e697): the surviving IME log pulls the
+        // phase anchors ahead of the real ESP page — the segments must be flagged as unfit.
+        var events = new List<EnrollmentEvent>
+        {
+            Evt(T0, "agent_started", EnrollmentPhase.DeviceSetup),
+            Evt(T0.AddSeconds(2), "historic_ime_replay_detected"),
+            Evt(T0.AddMinutes(1), "esp_phase_changed", EnrollmentPhase.AppsDevice),
+            Evt(T0.AddMinutes(10), "enrollment_complete"),
+        };
+
+        var b = TimeAttributionCalculator.Compute(
+            Input(events, completedAt: T0.AddMinutes(10), durationSeconds: 600))!;
+
+        AssertExactPartition(b);
+        Assert.True(b.QualityFlags.HasFlag(TimeAttributionFlags.PriorEnrollmentResidue));
+        Assert.True(TimeAttributionFlagQuality.ExcludesFromFleetStats(b.QualityFlags));
+    }
+
+    [Fact]
+    public void RegistryAppBaseline_Alone_DoesNotSetResidueFlag()
+    {
+        // A registry_app_baseline with successes is by-design normal for WDP (DPP Batch-1
+        // apps install before the agent exists) — treating it as residue would starve the
+        // device_preparation class's fleet aggregates. Only the IME-log replay signal counts.
+        var events = new List<EnrollmentEvent>
+        {
+            Evt(T0, "agent_started", EnrollmentPhase.DeviceSetup),
+            Evt(T0.AddSeconds(2), "registry_app_baseline", data: new Dictionary<string, object>
+            {
+                ["totalApps"] = "3", ["successCount"] = "3",
+                ["errorCount"] = "0", ["inProgressCount"] = "0",
+            }),
+            Evt(T0.AddMinutes(10), "enrollment_complete"),
+        };
+
+        var b = TimeAttributionCalculator.Compute(
+            Input(events, completedAt: T0.AddMinutes(10), durationSeconds: 600))!;
+
+        AssertExactPartition(b);
+        Assert.False(b.QualityFlags.HasFlag(TimeAttributionFlags.PriorEnrollmentResidue));
+    }
+
     // ── WhiteGlove: two windows in ONE session, pause never attributed ──────
 
     [Fact]

@@ -107,7 +107,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private bool _deviceSetupProvisioningCompleteFired;
         // Fire-once guard for AccountSetupProvisioningComplete event (session 330f73f3 fix)
         private bool _accountSetupProvisioningCompleteFired;
-        // WhiteGlove confirmation: DeviceSetup registry contains SaveWhiteGloveSuccessResult=succeeded
+        // DeviceSetup registry contains SaveWhiteGloveSuccessResult=succeeded. NOT a WhiteGlove
+        // indicator on Win11 25H2+ (see HasSaveWhiteGloveSuccessResult) — observability only.
         private bool _saveWhiteGloveSuccessResultSeen;
         // Track SaveWhiteGloveSuccessResult state transitions for observability (null → notStarted → succeeded)
         private string _lastSaveWhiteGloveState;
@@ -226,8 +227,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         /// <summary>
         /// True when DeviceSetup registry JSON contains a SaveWhiteGloveSuccessResult property
-        /// with subcategoryState=succeeded. This is a definitive WhiteGlove (Pre-Provisioning)
-        /// confirmation signal — Windows only writes this property during White Glove flows.
+        /// with subcategoryState=succeeded. NOT a WhiteGlove indicator: on Win11 25H2 (build
+        /// 26200+) Windows writes this property as a trivially-succeeding step in EVERY
+        /// enrollment (validated 2026-08-18 — user-driven sessions f475e697/c601a24b/4219203f
+        /// all carry it). Kept for observability only (whiteglove_signal_* raw dumps); must not
+        /// be used for classification. Reliable WhiteGlove anchors are ModernDeployment
+        /// EventID 509 and the Shell-Core WhiteGlove-success events.
         /// </summary>
         public bool HasSaveWhiteGloveSuccessResult
         {
@@ -891,10 +896,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     string categoryStatusMessage = SafeGetString(root, "categoryStatusMessage");
                     var subcategories = ParseSubcategories(root);
 
-                    // Detect WhiteGlove signal in DeviceSetup category.
-                    // SaveWhiteGloveSuccessResult is NOT a *Subcategory-suffixed property, so
-                    // ParseSubcategories skips it. We scan the raw JSON explicitly.
-                    // Track state transitions for full observability (notStarted → succeeded).
+                    // Track the SaveWhiteGloveSuccessResult transitions in the DeviceSetup
+                    // category (observability only — NOT a WhiteGlove indicator on 25H2+, see
+                    // HasSaveWhiteGloveSuccessResult). It is NOT a *Subcategory-suffixed
+                    // property, so ParseSubcategories skips it; we scan the raw JSON explicitly.
                     if (string.Equals(categoryLabel, "DeviceSetup", StringComparison.OrdinalIgnoreCase))
                     {
                         foreach (var prop in root.EnumerateObject())
@@ -919,7 +924,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                                     {
                                         _saveWhiteGloveSuccessResultSeen = true;
                                         _logger.Info("ProvisioningStatusTracker: SaveWhiteGloveSuccessResult=succeeded " +
-                                                     "— WhiteGlove confirmation signal");
+                                                     "(observability only — not a WhiteGlove indicator on 25H2+)");
                                     }
                                 }
                                 break;

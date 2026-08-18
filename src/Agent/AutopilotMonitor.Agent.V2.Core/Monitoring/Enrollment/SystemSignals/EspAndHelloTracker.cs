@@ -194,7 +194,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         /// <summary>
         /// True when DeviceSetup contains a SaveWhiteGloveSuccessResult subcategory with state "succeeded".
-        /// This is a definitive WhiteGlove (Pre-Provisioning) confirmation signal from the ESP registry.
+        /// NOT a WhiteGlove indicator on Win11 25H2+ — Windows writes it in every enrollment
+        /// (see <see cref="ProvisioningStatusTracker.HasSaveWhiteGloveSuccessResult"/>). Observability only.
         /// </summary>
         public bool HasSaveWhiteGloveSuccessResult => _provisioningTracker?.HasSaveWhiteGloveSuccessResult ?? false;
 

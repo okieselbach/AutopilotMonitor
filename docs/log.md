@@ -2,6 +2,7 @@
 
 ## 2026-08-18
 
+* **Update**: `backend/time-attribution.md` — AttributionVersion 1 → 2: new duration-critical quality flag `PriorEnrollmentResidue` (fires on `historic_ime_replay_detected`; a re-enrollment without wipe pulls the phase anchors ahead of the real ESP page, so the segments are excluded from fleet stats; `registry_app_baseline` successes deliberately not a trigger — by-design normal for WDP). Added the quality-flags section.
 * **Update**: `agent/logs-and-persistence.md`, `agent/overview.md`, `agent/gather-rule-debug-log.md` — log files renamed to unified kebab-case: `agent.log` (date rotation dropped; size segments `agent-NNN.log`), `bootstrap-script.log` (was `bootstrap_agent.log`), `bootstrap-msi.log` (was `msi-bootstrap.log`), `crash-*.log`, `gather-rules-debug.log`, `ime-pattern-matches.log`. Old names still appear in archives from pre-rename agents.
 * **New**: `agent/registry-app-state-pillar.md` — the registry second pillar for IME app state (audit follow-up): snapshot-and-diff watcher on `HKLM\...\IntuneManagementExtension` (Win32Apps / EspTrackingWin32Apps / StatusServiceReports), `registry_app_state` + `app_state_reconciliation` events, silent startup baseline, WDP reuse notes.
 
