@@ -62,6 +62,41 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.DeviceInfo
         }
 
         [Fact]
+        public void NoEspEvidenceAtAll_SuppressesTheEvent()
+        {
+            // afee7ae0 (WDP / plain Entra join): FirstSync has no values and the ESP tracking
+            // key does not exist — an event saying only "SkipUser=unknown, SkipDevice=unknown"
+            // is noise and must not be emitted (mirrors the orchestrator bootstrap's null-gate).
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
+            var ingress = new FakeSignalIngressSink();
+            var clock = new VirtualClock(T0);
+            var collector = new DeviceInfoCollector(
+                "session-nullgate", "tenant-1",
+                new InformationalEventPost(ingress, clock), logger,
+                signalIngress: null, clock: clock,
+                startupGate: new StartupEventGate(tmp.Path, logger));
+
+            using var skip = new EspSkipConfigurationProbe.ScopedFullOverride(
+                _ => new EspFirstSyncSnapshot(
+                    skipUser: null, skipDevice: null,
+                    blockInStatusPage: null, syncFailureTimeoutMinutes: null));
+            using (new EspTrackingInfoProbe.ScopedOverride(_ => default))
+            {
+                collector.CollectEspConfiguration();
+            }
+
+            Assert.Empty(EspConfigEvents(ingress));
+
+            // A later refresh where real evidence appeared must still emit normally.
+            using (new EspTrackingInfoProbe.ScopedOverride(_ => Snapshot(new[] { DeviceApp1 }, Array.Empty<string>())))
+            {
+                collector.RefreshEspConfiguration(DeviceInfoHost.EspConfigTriggerAppsDevice);
+            }
+            Assert.Single(EspConfigEvents(ingress));
+        }
+
+        [Fact]
         public void Refresh_reemits_when_lists_grew_and_stays_silent_when_unchanged()
         {
             using var tmp = new TempDirectory();

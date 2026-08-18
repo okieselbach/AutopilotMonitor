@@ -70,6 +70,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             int modernDeploymentBackfillLookbackMinutes,
             int[]? modernDeploymentHarmlessEventIds,
             string stateDirectory,
+            bool isDevicePreparation = false,
             Func<bool>? userEspAppsSettledProbe = null,
             Func<System.Collections.Generic.IReadOnlyList<Monitoring.Enrollment.Ime.AppPackageState>>? starvedUserEspAppsProbe = null,
             Func<System.Collections.Generic.IReadOnlyList<Monitoring.Enrollment.Ime.AppPackageState>>? packageStatesProbe = null)
@@ -89,6 +90,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 modernDeploymentBackfillLookbackMinutes: modernDeploymentBackfillLookbackMinutes,
                 stateDirectory: stateDirectory,
                 modernDeploymentHarmlessEventIds: modernDeploymentHarmlessEventIds,
+                isDevicePreparation: isDevicePreparation,
                 userEspAppsSettledProbe: userEspAppsSettledProbe,
                 starvedUserEspAppsProbe: starvedUserEspAppsProbe,
                 packageStatesProbe: packageStatesProbe);

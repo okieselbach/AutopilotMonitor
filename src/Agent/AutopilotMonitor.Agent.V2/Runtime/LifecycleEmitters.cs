@@ -306,7 +306,12 @@ namespace AutopilotMonitor.Agent.V2.Runtime
         {
             try
             {
-                var enrollmentType = EnrollmentRegistryDetector.DetectEnrollmentType();
+                var (enrollmentType, detectionRule) = EnrollmentRegistryDetector.DetectEnrollmentTypeWithRule();
+                // High-confidence WDP seed only for the deterministic marker — the
+                // CloudAssigned* fallback rules keep the Medium seed (see the payload
+                // key's doc on SignalPayloadKeys.EnrollmentTypeDeterministic).
+                var deterministicWdp = enrollmentType == "v2"
+                    && detectionRule == EnrollmentRegistryDetector.DevicePreparationExecutionContextRule;
                 var isHybridJoin = EnrollmentRegistryDetector.DetectHybridJoin();
                 var isSelfDeploying = EnrollmentRegistryDetector.DetectSelfDeployingProfile();
                 var isCloudPc = CloudPcDetector.DetectIsCloudPc();
@@ -314,6 +319,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 var payload = new Dictionary<string, string>(StringComparer.Ordinal)
                 {
                     ["enrollmentType"] = enrollmentType,
+                    ["enrollmentTypeDeterministic"] = deterministicWdp ? "true" : "false",
                     ["isHybridJoin"] = isHybridJoin ? "true" : "false",
                     ["isSelfDeployingProfile"] = isSelfDeploying ? "true" : "false",
                     ["isCloudPc"] = isCloudPc ? "true" : "false",

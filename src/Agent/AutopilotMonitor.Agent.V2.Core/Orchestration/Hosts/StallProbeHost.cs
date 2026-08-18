@@ -57,7 +57,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             int[]? traceIndices,
             string[]? sources,
             int sessionStalledAfterProbeIndex,
-            int[]? harmlessModernDeploymentEventIds)
+            int[]? harmlessModernDeploymentEventIds,
+            bool isDevicePreparation = false)
         {
             if (ingress == null) throw new ArgumentNullException(nameof(ingress));
             if (clock == null) throw new ArgumentNullException(nameof(clock));
@@ -72,7 +73,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 traceIndices: traceIndices ?? new[] { 2 },
                 sources: sources ?? new[] { "provisioning_registry", "diagnostics_registry", "eventlog", "appworkload_log" },
                 sessionStalledAfterProbeIndex: sessionStalledAfterProbeIndex,
-                harmlessModernDeploymentEventIds: harmlessModernDeploymentEventIds);
+                harmlessModernDeploymentEventIds: harmlessModernDeploymentEventIds,
+                isDevicePreparation: isDevicePreparation);
 
             _adapter = new StallProbeCollectorAdapter(_collector, ingress, clock);
             _observableIngress = ingress as SignalIngress;

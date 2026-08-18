@@ -189,6 +189,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         public static string DetectEnrollmentType() => DetectEnrollmentTypeWithRule().enrollmentType;
 
         /// <summary>
+        /// Rule string returned when the deterministic Device Preparation marker fired
+        /// (the WDP policy orchestration tree — see <see cref="DetectEnrollmentTypeWithRule"/>).
+        /// </summary>
+        public const string DevicePreparationExecutionContextRule =
+            @"DevicePreparation\BootstrapperAgent\ExecutionContext present";
+
+        /// <summary>
+        /// True only when the deterministic Device Preparation marker (BootstrapperAgent
+        /// ExecutionContext) is present. Scenario gates that DISABLE Autopilot/ESP-only
+        /// machinery must use this instead of the "v2" string: the CloudAssigned* fallback
+        /// rules describe a real Autopilot profile (just without ESP) where that machinery
+        /// still has data to observe — gates fail toward Classic behavior by design.
+        /// </summary>
+        public static bool IsDeterministicDevicePreparation()
+        {
+            var (enrollmentType, detectionRule) = DetectEnrollmentTypeWithRule();
+            return enrollmentType == "v2" && detectionRule == DevicePreparationExecutionContextRule;
+        }
+
+        /// <summary>
         /// Same as <see cref="DetectEnrollmentType"/> but also returns WHICH rule fired, so the
         /// enrollment_type_detected event can name its evidence instead of re-implementing the
         /// detection (the duplicate inline logic in DeviceInfoCollector missed the WDP subkey
@@ -203,7 +223,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                 {
                     var executionContext = wdpKey?.GetValue("ExecutionContext")?.ToString();
                     if (!string.IsNullOrEmpty(executionContext))
-                        return ("v2", @"DevicePreparation\BootstrapperAgent\ExecutionContext present");
+                        return ("v2", DevicePreparationExecutionContextRule);
                 }
 
                 using (var key = Registry.LocalMachine.OpenSubKey(AutopilotSettingsKey))

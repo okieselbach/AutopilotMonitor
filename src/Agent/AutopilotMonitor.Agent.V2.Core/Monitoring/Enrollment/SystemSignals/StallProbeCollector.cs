@@ -52,6 +52,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private readonly HashSet<string> _sources;
         private readonly int _sessionStalledAfterProbeIndex;
         private readonly HashSet<int> _harmlessModernDeploymentEventIds;
+        private readonly bool _isDevicePreparation;
 
         private readonly object _stateLock = new object();
         private readonly HashSet<int> _firedProbeIndices = new HashSet<int>();
@@ -151,7 +152,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             int[] traceIndices,
             string[] sources,
             int sessionStalledAfterProbeIndex,
-            int[] harmlessModernDeploymentEventIds = null)
+            int[] harmlessModernDeploymentEventIds = null,
+            bool isDevicePreparation = false)
         {
             _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
             _tenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId));
@@ -161,10 +163,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             _traceIndices = new HashSet<int>(traceIndices ?? new int[0]);
             _sources = new HashSet<string>(sources ?? new string[0], StringComparer.OrdinalIgnoreCase);
             _sessionStalledAfterProbeIndex = sessionStalledAfterProbeIndex;
+            _isDevicePreparation = isDevicePreparation;
             _harmlessModernDeploymentEventIds = new HashSet<int>(
                 harmlessModernDeploymentEventIds != null && harmlessModernDeploymentEventIds.Length > 0
                     ? harmlessModernDeploymentEventIds
                     : DefaultHarmlessModernDeploymentEventIds);
+
+            // WDP gate (afee7ae0): the structural WDP noise IDs (417/418 duplicate-workload
+            // chatter, 1005 WIL storm, ...) must never count as stall anomalies on Device
+            // Preparation, independent of what the tenant-configured harmless list contains.
+            // The channels themselves stay scanned — WDP's provisioning stack logs genuine
+            // diagnostics (e.g. 408) into the very same Autopilot channel.
+            if (_isDevicePreparation)
+            {
+                _harmlessModernDeploymentEventIds.UnionWith(ModernDeploymentTracker.DevicePreparationNoiseEventIds);
+            }
         }
 
         /// <summary>
@@ -368,6 +381,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         private void ScanProvisioningRegistry(ProbeResult result)
         {
+            // Device Preparation writes no ESP category values — the three Status JSONs
+            // below are ESP-only constructs, so the scan can never find anything there.
+            if (_isDevicePreparation)
+                return;
+
             using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Provisioning\AutopilotSettings", writable: false))
             {
                 if (key == null)

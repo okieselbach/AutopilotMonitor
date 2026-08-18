@@ -657,12 +657,27 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // HelloResolved arrives.
             builder.WithStage(state.Stage);
 
+            // WDP completion backstop (afee7ae0): no ESP → HelloSafety / AdvisoryCompletion can
+            // never arm on Device Preparation, so a Hello that never resolves would park the
+            // session until the max-lifetime watchdog. Desktop is here, Hello is not — bound
+            // the wait. Armed once (name-keyed dedupe is belt; the explicit check keeps the
+            // audit trail free of re-arm noise on duplicate desktop signals).
+            var effects = new List<DecisionEffect>(2);
+            if (state.ScenarioProfile.Mode == EnrollmentMode.DevicePreparation
+                && !HasDevicePrepCompletionDeadline(state))
+            {
+                var backstop = BuildDevicePrepCompletionDeadline(state, signal);
+                builder.AddDeadline(backstop);
+                effects.Add(new DecisionEffect(DecisionEffectKind.ScheduleDeadline, deadline: backstop));
+            }
+
             // Liveness plan PR2: Desktop is in but completion is still blocked (Hello pending,
             // or the Hello-disabled fast-path's strong gate is not satisfied) — surface the
             // missing prerequisites. Covers both the gate-false fast-path and the plain
             // desktop-first ordering; the fingerprint dedupes against earlier emissions.
             var waitingEffect = BuildCompletionWaitingEffect(
                 state, builder, signal, trigger: nameof(DecisionSignalKind.DesktopArrived));
+            if (waitingEffect != null) effects.Add(waitingEffect);
 
             var newState = builder.Build();
 
@@ -676,7 +691,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
             return new DecisionStep(
                 newState,
                 transition,
-                waitingEffect != null ? new[] { waitingEffect } : Array.Empty<DecisionEffect>());
+                effects.Count > 0 ? effects.ToArray() : Array.Empty<DecisionEffect>());
         }
 
         /// <summary>

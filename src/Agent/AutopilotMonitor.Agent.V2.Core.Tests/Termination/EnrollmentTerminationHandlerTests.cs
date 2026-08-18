@@ -1498,6 +1498,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
         }
 
         [Fact]
+        public void StarvedApps_skipped_on_device_preparation()
+        {
+            // afee7ae0: WDP has no ESP apps gate — post-desktop installs are the designed
+            // order, so the sweep would report every pending app as noise (10+ events on a
+            // normal session). The per-app data still travels via app_tracking_summary.
+            using var rig = new Rig();
+            rig.State = DevicePrepState(SessionStage.Completed);
+            rig.StarvedAppsOverride = new[]
+            {
+                BuildStarvedApp("app-pending-1", "Contoso Backgrounds"),
+                BuildStarvedApp("app-pending-2", "Contoso Tools"),
+            };
+
+            rig.Build().Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.Completed));
+
+            Assert.DoesNotContain("app_install_starved", rig.EmittedEventTypes);
+        }
+
+        [Fact]
         public void PromoteActiveInstalls_skipped_on_effect_infrastructure_failure()
         {
             // Monitor-notbremse path: EnrollmentFailed outcome but trigger is not ESP.

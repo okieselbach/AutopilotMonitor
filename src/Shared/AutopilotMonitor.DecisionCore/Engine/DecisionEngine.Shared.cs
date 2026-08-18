@@ -362,6 +362,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     return HandleRealmJoinTimeoutDeadlineFired(state, signal);
                 case DeadlineNames.AdvisoryCompletion:
                     return HandleAdvisoryCompletionDeadlineFired(state, signal);
+                case DeadlineNames.DevicePrepCompletion:
+                    return HandleDevicePrepCompletionDeadlineFired(state, signal);
                 default:
                     // Deadline name not recognized in this sub-milestone. Cancel it from state
                     // and record a neutral taken transition — M3.3+ adds handlers for
@@ -780,6 +782,16 @@ namespace AutopilotMonitor.DecisionCore.Engine
             if (state.AccountSetupEnteredUtc != null
                 && (espFinalExitInFlight || IsPostAccountSetupFinalExit(state))
                 && IsImeUserSessionGenuine(state)
+                && (desktopArrivedInFlight || state.DesktopArrivedUtc != null))
+            {
+                return true;
+            }
+            // Arm D (afee7ae0, 2026-08-18) — Device Preparation: there is no ESP, so arms A–C
+            // are unsatisfiable by construction (no provisioning categories, no Shell-Core
+            // final exit, IME anchors are incidental pattern hits). The DAD-validated
+            // real-user desktop IS the end of WDP provisioning — the DPP page has closed and
+            // the user is signed in; only the Hello gate remains after this promotion.
+            if (state.ScenarioProfile.Mode == EnrollmentMode.DevicePreparation
                 && (desktopArrivedInFlight || state.DesktopArrivedUtc != null))
             {
                 return true;

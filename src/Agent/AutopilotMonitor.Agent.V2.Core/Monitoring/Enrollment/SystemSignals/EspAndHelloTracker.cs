@@ -37,6 +37,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private readonly int _modernDeploymentBackfillLookbackMinutes;
         private readonly string _stateDirectory;
         private readonly int[] _modernDeploymentHarmlessEventIds;
+        private readonly bool _isDevicePreparation;
         private readonly Func<(bool? skipUser, bool? skipDevice)> _skipConfigProbe;
         private readonly Func<bool> _accountSetupActivityProbe;
         private readonly Func<bool> _userEspAppsSettledProbe;
@@ -211,6 +212,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             int modernDeploymentBackfillLookbackMinutes = 30,
             string stateDirectory = null,
             int[] modernDeploymentHarmlessEventIds = null,
+            bool isDevicePreparation = false,
             Func<(bool? skipUser, bool? skipDevice)> skipConfigProbe = null,
             Func<bool> accountSetupActivityProbe = null,
             Func<bool> userEspAppsSettledProbe = null,
@@ -228,6 +230,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             _modernDeploymentBackfillLookbackMinutes = modernDeploymentBackfillLookbackMinutes;
             _stateDirectory = stateDirectory != null ? Environment.ExpandEnvironmentVariables(stateDirectory) : null;
             _modernDeploymentHarmlessEventIds = modernDeploymentHarmlessEventIds;
+            _isDevicePreparation = isDevicePreparation;
             // Test seam: allow injection of a fake skip-config reader; defaults to the real
             // registry probe so production never has to think about this parameter.
             _skipConfigProbe = skipConfigProbe ?? (() => EspSkipConfigurationProbe.Read(_logger));
@@ -348,16 +351,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             _shellCoreTracker.HelloWizardStarted += OnHelloWizardStarted;
             _shellCoreTracker.Start();
 
-            _provisioningTracker = new ProvisioningStatusTracker(
-                _sessionId,
-                _tenantId,
-                _post,
-                _logger,
-                packageStatesProbe: _packageStatesProbe);
-            _provisioningTracker.EspFailureDetected += OnProvisioningEspFailureDetected;
-            _provisioningTracker.DeviceSetupProvisioningComplete += OnDeviceSetupProvisioningComplete;
-            _provisioningTracker.AccountSetupProvisioningComplete += OnAccountSetupProvisioningComplete;
-            _provisioningTracker.Start();
+            // WDP gate (afee7ae0, 2026-08-18): Device Preparation writes its BootstrapperAgent
+            // progress under the very AutopilotSettings key this tracker subtree-watches, so on
+            // WDP the watcher woke up on every provisioning write only to read three ESP
+            // category values that never exist there. The ESP categories are the tracker's
+            // ONLY subject — skip it entirely. All consumers already null-guard the tracker.
+            if (!_isDevicePreparation)
+            {
+                _provisioningTracker = new ProvisioningStatusTracker(
+                    _sessionId,
+                    _tenantId,
+                    _post,
+                    _logger,
+                    packageStatesProbe: _packageStatesProbe);
+                _provisioningTracker.EspFailureDetected += OnProvisioningEspFailureDetected;
+                _provisioningTracker.DeviceSetupProvisioningComplete += OnDeviceSetupProvisioningComplete;
+                _provisioningTracker.AccountSetupProvisioningComplete += OnAccountSetupProvisioningComplete;
+                _provisioningTracker.Start();
+            }
+            else
+            {
+                _logger.Info("EspAndHelloTracker: Device Preparation session — ProvisioningStatusTracker (ESP categories) not started");
+            }
 
             if (_modernDeploymentWatcherEnabled)
             {
@@ -370,7 +385,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     _modernDeploymentBackfillEnabled,
                     _modernDeploymentBackfillLookbackMinutes,
                     _stateDirectory,
-                    _modernDeploymentHarmlessEventIds);
+                    _modernDeploymentHarmlessEventIds,
+                    _isDevicePreparation);
                 _modernDeploymentTracker.Start();
             }
         }

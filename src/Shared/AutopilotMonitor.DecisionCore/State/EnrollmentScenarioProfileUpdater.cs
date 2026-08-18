@@ -99,8 +99,19 @@ namespace AutopilotMonitor.DecisionCore.State
 
                     if (string.Equals(rawType, "v2", StringComparison.OrdinalIgnoreCase))
                     {
+                        // Deterministic WDP marker (BootstrapperAgent ExecutionContext) seeds
+                        // High — the marker is as registry-deterministic as the self-deploying
+                        // OobeConfig bits below, and a High seed lets the generic monotonic
+                        // guard protect the mode instead of relying solely on the explicit
+                        // DevicePreparation checks in the downstream promotion handlers.
+                        // The CloudAssigned* fallback rules stay Medium (ESP-less classic
+                        // profiles could in principle trip them).
+                        var deterministic = signal.Payload.TryGetValue(SignalPayloadKeys.EnrollmentTypeDeterministic, out var rawDeterministic)
+                            && bool.TryParse(rawDeterministic, out var isDeterministic)
+                            && isDeterministic;
+
                         mode = EnrollmentMode.DevicePreparation;
-                        confidence = Max(confidence, ProfileConfidence.Medium);
+                        confidence = Max(confidence, deterministic ? ProfileConfidence.High : ProfileConfidence.Medium);
                         reason = newReason;
                         changed = true;
                     }

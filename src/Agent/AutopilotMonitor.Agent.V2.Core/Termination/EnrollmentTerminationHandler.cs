@@ -228,7 +228,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                     // Runs on every outcome; the live (esp_exited) path's dedupe set is
                     // consulted so no app is reported twice. Promoted likely-stuck apps are
                     // Error by now and excluded by the probe itself.
-                    EmitStarvedUserEspApps(args);
+                    EmitStarvedUserEspApps(state, args);
 
                     // Session 6b4993e5 / fc48c71a — on an ESP terminal Apps-subcategory failure,
                     // name the in-flight device app(s) (e.g. stuck Downloading at 0%) as the likely
@@ -557,7 +557,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         /// wording; Failed/TimedOut keep the Warning + "starved" verdict.
         /// </para>
         /// </summary>
-        private void EmitStarvedUserEspApps(EnrollmentTerminatedEventArgs args)
+        private void EmitStarvedUserEspApps(DecisionState state, EnrollmentTerminatedEventArgs args)
         {
             if (_post == null) return;
 
@@ -565,6 +565,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             {
                 var starved = _appTracking.GetStarvedUserEspApps();
                 if (starved == null || starved.Count == 0) return;
+
+                // Device Preparation has no ESP apps gate — installing after the desktop is
+                // the DESIGNED order there (only DPP-policy apps run during provisioning, the
+                // rest follow via IME). Reporting every pending app as "starved" turned a
+                // normal WDP session into 10+ noise events (afee7ae0); the same per-app data
+                // still reaches the backend via app_tracking_summary and final-status.json.
+                if (state?.ScenarioProfile.Mode == EnrollmentMode.DevicePreparation)
+                {
+                    _logger.Info(
+                        $"EnrollmentTerminationHandler: {starved.Count} app(s) pending at termination on a " +
+                        "DevicePreparation session — expected post-desktop install order, app_install_starved sweep skipped.");
+                    return;
+                }
 
                 var succeeded = args.Outcome == EnrollmentTerminationOutcome.Succeeded;
 

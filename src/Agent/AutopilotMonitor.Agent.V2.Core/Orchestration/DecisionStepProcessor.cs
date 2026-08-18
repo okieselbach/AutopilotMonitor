@@ -404,12 +404,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         {
             if (state.Stage.IsTerminal()) return false;
             if (state.Stage == SessionStage.Unknown || state.Stage == SessionStage.SessionStarted) return false;
-            if (state.AccountSetupEnteredUtc == null) return false;
+
+            // WDP (afee7ae0): Device Preparation has no ESP, so neither the AccountSetup
+            // anchor nor an ESP final exit is guaranteed to exist — its dead-end zone
+            // begins at the real-user desktop instead (from there only Hello or a deadline
+            // can move the session). Normally the DevicePrepCompletion backstop armed at
+            // desktop arrival satisfies the invariant; this branch makes a regression visible.
+            var isDevicePreparation = state.ScenarioProfile.Mode == EnrollmentMode.DevicePreparation;
+            if (state.AccountSetupEnteredUtc == null && !isDevicePreparation) return false;
 
             var deadEndZoneEntered =
                 state.EspAdvisoryFailureRecordedUtc != null
-                || (state.EspFinalExitUtc != null
-                    && state.EspFinalExitUtc.Value >= state.AccountSetupEnteredUtc.Value);
+                || (state.AccountSetupEnteredUtc != null
+                    && state.EspFinalExitUtc != null
+                    && state.EspFinalExitUtc.Value >= state.AccountSetupEnteredUtc.Value)
+                || (isDevicePreparation && state.DesktopArrivedUtc != null);
             if (!deadEndZoneEntered) return false;
 
             foreach (var deadline in state.Deadlines)
@@ -431,8 +440,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     ["stage"] = state.Stage.ToString(),
                     ["stepIndex"] = state.StepIndex.ToString(CultureInfo.InvariantCulture),
                     ["signalOrdinal"] = signal.SessionSignalOrdinal.ToString(CultureInfo.InvariantCulture),
-                    ["accountSetupEnteredUtc"] = state.AccountSetupEnteredUtc!.Value
-                        .ToString("o", CultureInfo.InvariantCulture),
+                    // Null on the WDP branch of IsParkedWithoutDeadline (no ESP anchor there).
+                    ["accountSetupEnteredUtc"] = state.AccountSetupEnteredUtc?.Value
+                        .ToString("o", CultureInfo.InvariantCulture) ?? "",
                     ["signalsSeen"] = string.Join(",", census.SignalsSeen),
                     ["armedDeadlines"] = string.Join(",", state.Deadlines.Select(d => d.Name)),
                     ["dwellSeconds"] = _parkedTripwireDwell.TotalSeconds.ToString("F0", CultureInfo.InvariantCulture),

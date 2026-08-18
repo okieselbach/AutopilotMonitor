@@ -109,6 +109,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             var hosts = new List<ICollectorHost>();
             var collectors = _remoteConfig.Collectors ?? CollectorConfiguration.CreateDefault();
 
+            // WDP scenario gate (afee7ae0, 2026-08-18): Device Preparation has no ESP, so the
+            // ESP-only machinery below (provisioning-status registry watcher, ESP policy-provider
+            // stall tripwire, Autopilot-channel noise) burns cycles on registry keys that never
+            // exist there — or worse, wakes up on every WDP progress write. Gated on the
+            // DETERMINISTIC WDP marker only (BootstrapperAgent ExecutionContext, present before
+            // the agent starts); the CloudAssigned* fallback rules keep full Classic behavior.
+            var isDevicePreparation = Security.EnrollmentRegistryDetector.IsDeterministicDevicePreparation();
+            if (isDevicePreparation)
+            {
+                logger.Info("DefaultComponentFactory: Device Preparation session (deterministic marker) — ESP-only hosts and Autopilot-channel noise are gated");
+            }
+
             // ----- Kernel hosts (always-on; they produce decision signals) --------------------
 
             // Single-rail refactor (plan §5.8) — DeviceInfoCollector existed in V2.Core but had
@@ -151,6 +163,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 modernDeploymentBackfillLookbackMinutes: collectors.ModernDeploymentBackfillLookbackMinutes,
                 modernDeploymentHarmlessEventIds: collectors.ModernDeploymentHarmlessEventIds,
                 stateDirectory: _stateDirectory,
+                isDevicePreparation: isDevicePreparation,
                 userEspAppsSettledProbe: () => imeLogHostRef?.AreUserEspAppsSettled() == true,
                 // Liveness plan PR3: starved-apps probe over the same lazily-assigned IME host.
                 starvedUserEspAppsProbe: () =>
@@ -308,7 +321,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     traceIndices: collectors.StallProbeTraceIndices,
                     sources: collectors.StallProbeSources,
                     sessionStalledAfterProbeIndex: collectors.SessionStalledAfterProbeIndex,
-                    harmlessModernDeploymentEventIds: collectors.ModernDeploymentHarmlessEventIds));
+                    harmlessModernDeploymentEventIds: collectors.ModernDeploymentHarmlessEventIds,
+                    isDevicePreparation: isDevicePreparation));
             }
 
             // ESP policy-provider stall tripwire — always-on kernel host (no config gate, like
@@ -317,14 +331,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // TrackingPoliciesCreated=1 the ESP ignores foreign provider names), parks the user
             // ESP at "Apps (Identifying)" WITHOUT any OS timeout. Wall-clock dwell, deliberately
             // outside the StallProbe gate: the idle clock there resets on any session activity,
-            // and the stall must accrue regardless of it.
-            hosts.Add(new EspPolicyProviderStallHost(
-                sessionId: sessionId,
-                tenantId: tenantId,
-                logger: logger,
-                ingress: ingress,
-                clock: clock,
-                startupGate: _startupEventGate));
+            // and the stall must accrue regardless of it. Not created on Device Preparation —
+            // the EnrollmentStatusTracking key it polls every 60s is an ESP-only construct.
+            if (!isDevicePreparation)
+            {
+                hosts.Add(new EspPolicyProviderStallHost(
+                    sessionId: sessionId,
+                    tenantId: tenantId,
+                    logger: logger,
+                    ingress: ingress,
+                    clock: clock,
+                    startupGate: _startupEventGate));
+            }
 
             // Registry second pillar (audit 2026-08-17): IME's authoritative per-app state from
             // HKLM\...\IntuneManagementExtension (Win32Apps EnforcementStateMessage,

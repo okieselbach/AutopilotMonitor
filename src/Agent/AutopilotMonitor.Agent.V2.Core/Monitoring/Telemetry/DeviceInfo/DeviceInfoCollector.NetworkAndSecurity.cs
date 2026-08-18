@@ -275,14 +275,34 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                 // Include enrollment type in autopilot_profile event data
                 data["enrollmentType"] = detectedType;
 
-                // Second diagnostic surface (independent of AutopilotPolicyCache): Microsoft's
-                // documented Diagnostics\Autopilot key (IsAutopilotDisabled, TenantMatched,
-                // CloudAssignedTenantDomain/Id, ...). See docs/agent/autopilot-ztd-diagnostics.md.
-                var diagnosticsRegistry = ZtdEvidence.ReadDiagnosticsRegistry(_logger);
-                if (diagnosticsRegistry != null)
-                    data["diagnosticsRegistry"] = diagnosticsRegistry;
+                // Device Preparation (WDP) has no Autopilot deployment profile by design:
+                // Windows still runs the ZTD policy download during OOBE and caches the 807
+                // ZtdDeviceIsNotRegistered answer, so without this gate every WDP session
+                // emits an autopilot_profile dump plus a misleading "no deployment profile
+                // was assigned" warning and burns a ZTD event-log query + HTTP probe on
+                // evidence that answers a question nobody asked (afee7ae0). Gated on the
+                // deterministic WDP rule only — the CloudAssigned* fallback rules imply a
+                // real profile (just ESP-less), where the dump stays meaningful. The
+                // enrollment_type_detected event below still carries the rail decision.
+                var isDevicePreparation = detectionRule ==
+                    AutopilotMonitor.Agent.V2.Core.Security.EnrollmentRegistryDetector.DevicePreparationExecutionContextRule;
 
-                EmitDeviceInfoEvent(Constants.EventTypes.AutopilotProfile, "Autopilot profile configuration", data);
+                Dictionary<string, object> diagnosticsRegistry = null;
+                if (!isDevicePreparation)
+                {
+                    // Second diagnostic surface (independent of AutopilotPolicyCache): Microsoft's
+                    // documented Diagnostics\Autopilot key (IsAutopilotDisabled, TenantMatched,
+                    // CloudAssignedTenantDomain/Id, ...). See docs/agent/autopilot-ztd-diagnostics.md.
+                    diagnosticsRegistry = ZtdEvidence.ReadDiagnosticsRegistry(_logger);
+                    if (diagnosticsRegistry != null)
+                        data["diagnosticsRegistry"] = diagnosticsRegistry;
+
+                    EmitDeviceInfoEvent(Constants.EventTypes.AutopilotProfile, "Autopilot profile configuration", data);
+                }
+                else
+                {
+                    _logger.Info("EnrollmentTracker: Device Preparation session — skipping autopilot_profile/ZTD evidence (no deployment profile exists on WDP)");
+                }
 
                 // ProfileAvailable=0 means the ZTD service returned no profile for this device
                 // during OOBE. Sessions only exist after the backend's device-registration
@@ -293,7 +313,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                 // Autopilot session — surface the edge case explicitly, with a ZTD verdict
                 // backed by the ModernDeployment Autopilot event log plus an endpoint probe
                 // (see docs/agent/autopilot-ztd-diagnostics.md for the evidence model).
-                if (IsAutopilotProfileMissing(data))
+                if (!isDevicePreparation && IsAutopilotProfileMissing(data))
                 {
                     // On Windows 365 Cloud PCs a missing profile is the expected state — Cloud PCs
                     // are provisioned by the Windows 365 service, not by Autopilot — so the event
@@ -787,10 +807,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                     data["espTrackedModernCount"] = tracking.ModernCount;
                 }
 
-                var summary = BuildSummary(snapshot, tracking);
-                _logger.Info($"EnrollmentTracker: ESP configuration detected — {summary}");
-                EmitDeviceInfoEvent(Constants.EventTypes.EspConfigDetected, $"ESP configuration: {summary}", data);
-                PostEspConfigDetectedSignal(snapshot);
+                // No FirstSync value and no ESP tracking list means there is no ESP evidence at
+                // all (Device Preparation, plain Entra join, pre-sync timing) — an event that
+                // says nothing but "unknown/unknown" is noise, so skip it. Mirrors the null-gate
+                // the orchestrator bootstrap already applies to the decision signal
+                // (EnrollmentOrchestrator.PostEspConfigDetectedBootstrap).
+                var hasAnyEspEvidence = snapshot.SkipUser.HasValue
+                    || snapshot.SkipDevice.HasValue
+                    || snapshot.BlockInStatusPage.HasValue
+                    || snapshot.SyncFailureTimeoutMinutes.HasValue
+                    || tracking.HasData;
+                if (hasAnyEspEvidence)
+                {
+                    var summary = BuildSummary(snapshot, tracking);
+                    _logger.Info($"EnrollmentTracker: ESP configuration detected — {summary}");
+                    EmitDeviceInfoEvent(Constants.EventTypes.EspConfigDetected, $"ESP configuration: {summary}", data);
+                    PostEspConfigDetectedSignal(snapshot);
+                }
+                else
+                {
+                    _logger.Debug("EnrollmentTracker: no ESP configuration evidence (FirstSync empty, no tracking lists) — esp_config_detected suppressed");
+                }
             }
             catch (Exception ex)
             {

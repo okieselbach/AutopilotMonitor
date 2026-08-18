@@ -64,6 +64,18 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// of failing.
         /// </summary>
         public const string AdvisoryCompletion = "advisory_completion";
+
+        /// <summary>
+        /// Device Preparation completion backstop (afee7ae0, 2026-08-18). WDP has no ESP,
+        /// so none of the ESP-derived resolution deadlines (HelloSafety, AdvisoryCompletion)
+        /// can ever arm there — a WDP session whose Hello never resolves would park until
+        /// the agent max-lifetime watchdog with no verdict. Armed by
+        /// <c>HandleDesktopArrivedV1</c> when the desktop arrives on a DevicePreparation
+        /// session without completing in the same step; on fire the session resolves like
+        /// the HelloSafety timeout (synthetic <c>HelloOutcome=Timeout</c> + completion —
+        /// the desktop is present by construction of the arming site).
+        /// </summary>
+        public const string DevicePrepCompletion = "device_prep_completion";
     }
 
     /// <summary>
@@ -129,6 +141,15 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
         /// <summary>On <c>SessionStarted</c>: literal "v1" / "v2" from <c>EnrollmentRegistryDetector.DetectEnrollmentType()</c>.</summary>
         public const string EnrollmentType = "enrollmentType";
+
+        /// <summary>
+        /// On <c>EnrollmentFactsObserved</c>: "true" when the v2 verdict came from the
+        /// deterministic Device Preparation marker (BootstrapperAgent ExecutionContext)
+        /// rather than the CloudAssigned* fallback rules. Lifts the DevicePreparation
+        /// profile seed to High confidence — the fallback rules stay Medium because they
+        /// can in principle fire on ESP-less classic profiles.
+        /// </summary>
+        public const string EnrollmentTypeDeterministic = "enrollmentTypeDeterministic";
 
         /// <summary>On <c>SessionStarted</c>: "true" / "false" from <c>EnrollmentRegistryDetector.DetectHybridJoin()</c>.</summary>
         public const string IsHybridJoin = "isHybridJoin";

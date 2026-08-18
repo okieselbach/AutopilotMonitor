@@ -67,6 +67,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         internal const string AutopilotErrorBackfillStateFileName = "autopilot-error-backfill.json";
 
         /// <summary>
+        /// EventIDs that are STRUCTURAL noise on a Device Preparation session and are
+        /// suppressed there entirely (afee7ae0: 900+ occurrences of 1005 plus 400+ of
+        /// 417/418 in a nine-minute session, all expected): 100 "Autopilot policy not
+        /// found" (no deployment profile exists on WDP by design), 417/418 "duplicate
+        /// deployment workload/batch" (BootstrapperAgent SLDM progress-poll chatter),
+        /// 1005 ManagementService WIL error storm. Genuine WDP diagnostics (e.g. 408
+        /// provisioning warnings) keep flowing; Critical (level 1) records are never
+        /// suppressed. Classic sessions are unaffected — they keep the configurable
+        /// harmless-downgrade + rollup path instead.
+        /// </summary>
+        internal static readonly HashSet<int> DevicePreparationNoiseEventIds = new HashSet<int> { 100, 417, 418, 1005 };
+
+        /// <summary>
         /// Per-EventId emission caps for harmless-downgraded events (session 8bc1180f,
         /// 2026-06-12). Windows can dump hundreds of identical EventID-100 "Autopilot policy
         /// not found" records in a single minute (observed: 689/min → signal-ingress queue
@@ -93,6 +106,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private readonly int _backfillLookbackMinutes;
         private readonly string _stateDirectory;
         private readonly HashSet<int> _harmlessEventIds;
+        private readonly bool _isDevicePreparation;
 
         private EventLogWatcher _autopilotWatcher;
         private EventLogWatcher _managementWatcher;
@@ -131,7 +145,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             bool backfillEnabled = true,
             int backfillLookbackMinutes = 30,
             string stateDirectory = null,
-            int[] harmlessEventIds = null)
+            int[] harmlessEventIds = null,
+            bool isDevicePreparation = false)
         {
             _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
             _tenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId));
@@ -140,6 +155,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             _logLevelMax = logLevelMax;
             _backfillEnabled = backfillEnabled;
             _backfillLookbackMinutes = backfillLookbackMinutes;
+            _isDevicePreparation = isDevicePreparation;
             _stateDirectory = stateDirectory != null ? Environment.ExpandEnvironmentVariables(stateDirectory) : null;
             _harmlessEventIds = harmlessEventIds != null && harmlessEventIds.Length > 0
                 ? new HashSet<int>(harmlessEventIds)
@@ -166,7 +182,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             if (_backfillEnabled)
             {
                 BackfillTargetedEvents();
-                BackfillAutopilotErrors();
+                // WDP gate (afee7ae0): the error backfill replays ZTD registration /
+                // attestation errors (807/809/815/908) — on Device Preparation the 807
+                // ZtdDeviceIsNotRegistered answer is the EXPECTED state, not a failure.
+                if (!_isDevicePreparation)
+                {
+                    BackfillAutopilotErrors();
+                }
+                else
+                {
+                    _logger.Info("ModernDeployment: Device Preparation session — Autopilot error backfill skipped (ZTD errors are structural there)");
+                }
             }
             else
             {
@@ -393,6 +419,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             }
 
             var effectiveLevel = level ?? 4;
+
+            // WDP structural-noise gate — see DevicePreparationNoiseEventIds. Sits before
+            // the severity mapping so suppressed records also skip FormatDescription().
+            // Critical (1) and LogAlways (0) records always pass.
+            if (_isDevicePreparation
+                && effectiveLevel >= 2
+                && DevicePreparationNoiseEventIds.Contains(eventId))
+            {
+                return EventVerdict.Suppress;
+            }
             switch (effectiveLevel)
             {
                 case 1:

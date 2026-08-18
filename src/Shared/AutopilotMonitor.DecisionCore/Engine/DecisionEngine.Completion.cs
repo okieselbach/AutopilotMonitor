@@ -226,7 +226,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     state.AccountSetupEnteredUtc,
                     state.EspFinalExitUtc,
                     state.ImeUserSessionCompletedUtc,
-                    state.DesktopArrivedUtc));
+                    state.DesktopArrivedUtc),
+                devicePreparation: state.ScenarioProfile.Mode == EnrollmentMode.DevicePreparation);
 
         /// <summary>
         /// Arm C of <c>ShouldTransitionToAwaitingHello</c> (session a4537c36) restated over raw
@@ -257,10 +258,16 @@ namespace AutopilotMonitor.DecisionCore.Engine
             bool helloPolicyDisabled,
             bool desktopArrived,
             bool realmJoinGateOpen,
-            bool postEspUserSessionEvidence = false)
+            bool postEspUserSessionEvidence = false,
+            bool devicePreparation = false)
         {
             var missing = new List<string>(4);
-            if (!accountSetupProvisioned && !skipUserEsp && !postEspUserSessionEvidence)
+            // Device Preparation has no ESP: AccountSetupCategory.Status is never written
+            // there, so the provisioning gate is unsatisfiable by construction and must not
+            // be reported as a missing prerequisite (afee7ae0 — mirrors the skipUserEsp
+            // exemption; completion on WDP rides on Hello + Desktop, see arm D of
+            // ShouldTransitionToAwaitingHello and the DevicePrepCompletion backstop).
+            if (!accountSetupProvisioned && !skipUserEsp && !postEspUserSessionEvidence && !devicePreparation)
                 missing.Add(CompletionPrerequisites.AccountSetupProvisioningComplete);
             if (!helloResolved && !helloPolicyDisabled)
                 missing.Add(CompletionPrerequisites.HelloResolution);
@@ -302,7 +309,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     builder.AccountSetupEnteredUtc,
                     builder.EspFinalExitUtc,
                     builder.ImeUserSessionCompletedUtc,
-                    builder.DesktopArrivedUtc));
+                    builder.DesktopArrivedUtc),
+                devicePreparation: builder.ScenarioProfile.Mode == EnrollmentMode.DevicePreparation);
             if (missing.Count == 0) return null;
 
             var fingerprint = string.Join(",", missing);
