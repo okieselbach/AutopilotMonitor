@@ -37,6 +37,18 @@ namespace AutopilotMonitor.Functions.Services.Ime
             _queueClient = queueFactory.Create(Constants.QueueNames.ImeMsiArchive);
         }
 
+        /// <summary>
+        /// Test seam: construct directly with a mock <see cref="QueueClient"/>. Mirrors
+        /// <see cref="Deletion.SessionDeletionProducer"/>'s internal test ctor.
+        /// </summary>
+        internal AzureQueueImeMsiArchiveProducer(
+            QueueClient queueClient,
+            ILogger<AzureQueueImeMsiArchiveProducer> logger)
+        {
+            _queueClient = queueClient;
+            _logger = logger;
+        }
+
         public async Task EnqueueAsync(ImeMsiArchiveEnvelope envelope, CancellationToken cancellationToken = default)
         {
             if (envelope is null) return;

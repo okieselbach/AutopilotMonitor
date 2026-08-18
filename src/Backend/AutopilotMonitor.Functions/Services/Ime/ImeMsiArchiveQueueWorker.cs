@@ -39,6 +39,26 @@ namespace AutopilotMonitor.Functions.Services.Ime
             _adminConfigService = adminConfigService ?? throw new ArgumentNullException(nameof(adminConfigService));
         }
 
+        /// <summary>
+        /// Test seam: construct directly with mock <see cref="Azure.Storage.Queues.QueueClient"/>
+        /// instances so the poll loop can be exercised without Azurite. Mirrors
+        /// <see cref="Deletion.SessionDeletionWorker"/>'s internal test ctor.
+        /// </summary>
+        internal ImeMsiArchiveQueueWorker(
+            Azure.Storage.Queues.QueueClient mainQueue,
+            Azure.Storage.Queues.QueueClient poisonQueue,
+            ImeMsiArchiver archiver,
+            ISessionRepository sessionRepo,
+            AdminConfigurationService adminConfigService,
+            ILogger<ImeMsiArchiveQueueWorker> logger,
+            TimeSpan? pollInterval = null)
+            : base(mainQueue, poisonQueue, logger, pollInterval)
+        {
+            _archiver = archiver ?? throw new ArgumentNullException(nameof(archiver));
+            _sessionRepo = sessionRepo ?? throw new ArgumentNullException(nameof(sessionRepo));
+            _adminConfigService = adminConfigService ?? throw new ArgumentNullException(nameof(adminConfigService));
+        }
+
         /// <summary>Download can legitimately take minutes — extend visibility while working.</summary>
         protected override bool UseHeartbeat => true;
 

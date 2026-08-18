@@ -34,7 +34,9 @@ namespace AutopilotMonitor.Functions.Services.Ime
     /// <c>IntuneWindowsAgent.msi</c> are accepted; anything else falls back to the canonical
     /// versionless CDN URL — safe for a NEW version, because "new" is by definition what
     /// that URL currently serves. The blob write uses If-None-Match:* so a queue re-delivery
-    /// can never overwrite an existing archive entry.
+    /// can never overwrite an existing archive entry; the 409 path additionally heals a
+    /// provenance sidecar the first attempt failed to write (see
+    /// <see cref="CompleteExistingArchiveAsync"/>).
     /// </para>
     /// </summary>
     public class ImeMsiArchiver
@@ -179,34 +181,18 @@ namespace AutopilotMonitor.Functions.Services.Ime
                     catch (RequestFailedException ex) when (ex.Status == 409)
                     {
                         // Queue re-delivery after a successful upload: the archive already has
-                        // this version — that IS the desired end state.
-                        _logger.LogInformation(
-                            "ImeMsiArchiver: blob {BlobPath} already exists — treating re-delivery as archived",
-                            blobPath);
-                        return new ImeMsiArchiveResult(true, Statuses.Archived, Retryable: false,
-                            blobPath, null, null, sourceUrl);
+                        // this version — that IS the desired end state. But if the first
+                        // attempt died between the MSI and the provenance upload, the sidecar
+                        // is missing and this 409 pre-empts the happy path's provenance write
+                        // on every future retry — so it must be healed here.
+                        return await CompleteExistingArchiveAsync(
+                            envelope, version, blobPath, sourceUrl, linked.Token);
                     }
                     sha256 = guarded.Sha256Hex;
                     totalBytes = guarded.TotalBytes;
                 }
 
-                var provenance = new
-                {
-                    version,
-                    url = sourceUrl,
-                    urlFromEvent = sourceUrl != CanonicalMsiUrl,
-                    msiMatchedBy = envelope.MsiMatchedBy,
-                    sha256,
-                    msiBytes = totalBytes,
-                    firstSeenTenantId = envelope.TenantId,
-                    firstSeenSessionId = envelope.SessionId,
-                    archivedAtUtc = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
-                };
-                await UploadProvenanceAsync(
-                    $"{version}/provenance.json",
-                    System.Text.Json.JsonSerializer.Serialize(provenance,
-                        new System.Text.Json.JsonSerializerOptions { WriteIndented = true }),
-                    linked.Token);
+                await WriteProvenanceAsync(envelope, version, sourceUrl, sha256, totalBytes, linked.Token);
 
                 _logger.LogInformation(
                     "ImeMsiArchiver: archived {Version} ({SizeBytes} bytes, sha256 {Sha256}) from {SourceUrl}",
@@ -247,6 +233,72 @@ namespace AutopilotMonitor.Functions.Services.Ime
             }
         }
 
+        /// <summary>
+        /// Re-delivery landed on an already-archived version (409 on the write-once MSI
+        /// upload). Normally the provenance sidecar exists too and there is nothing to do —
+        /// but when the first attempt died between the MSI and the provenance upload
+        /// (transient storage failure, host shutdown), the sidecar would otherwise be lost
+        /// FOREVER: the 409 short-circuit pre-empts the happy path's provenance write on
+        /// every retry. Hash and size are recomputed from the ARCHIVED bytes, not this
+        /// attempt's re-download, so the provenance describes the blob it sits next to.
+        /// Failures propagate into the caller's catch ladder (retryable), so the queue
+        /// retries the heal until it lands.
+        /// </summary>
+        private async Task<ImeMsiArchiveResult> CompleteExistingArchiveAsync(
+            ImeMsiArchiveEnvelope envelope, string version, string blobPath, string sourceUrl,
+            CancellationToken cancellationToken)
+        {
+            if (await ProvenanceExistsAsync($"{version}/provenance.json", cancellationToken))
+            {
+                _logger.LogInformation(
+                    "ImeMsiArchiver: blob {BlobPath} already exists — treating re-delivery as archived",
+                    blobPath);
+                return new ImeMsiArchiveResult(true, Statuses.Archived, Retryable: false,
+                    blobPath, null, null, sourceUrl);
+            }
+
+            string sha256;
+            long totalBytes;
+            using (var archived = await OpenArchivedMsiAsync(blobPath, cancellationToken))
+            using (var hashing = new HashingCappedReadStream(archived, maxBytes: 0))
+            {
+                await hashing.CopyToAsync(Stream.Null, cancellationToken);
+                sha256 = hashing.Sha256Hex;
+                totalBytes = hashing.TotalBytes;
+            }
+
+            await WriteProvenanceAsync(envelope, version, sourceUrl, sha256, totalBytes, cancellationToken);
+
+            _logger.LogInformation(
+                "ImeMsiArchiver: healed missing provenance for already-archived {Version} ({SizeBytes} bytes, sha256 {Sha256})",
+                version, totalBytes, sha256);
+            return new ImeMsiArchiveResult(true, Statuses.Archived, Retryable: false,
+                blobPath, sha256, totalBytes, sourceUrl);
+        }
+
+        private async Task WriteProvenanceAsync(
+            ImeMsiArchiveEnvelope envelope, string version, string sourceUrl,
+            string sha256, long totalBytes, CancellationToken cancellationToken)
+        {
+            var provenance = new
+            {
+                version,
+                url = sourceUrl,
+                urlFromEvent = sourceUrl != CanonicalMsiUrl,
+                msiMatchedBy = envelope.MsiMatchedBy,
+                sha256,
+                msiBytes = totalBytes,
+                firstSeenTenantId = envelope.TenantId,
+                firstSeenSessionId = envelope.SessionId,
+                archivedAtUtc = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+            };
+            await UploadProvenanceAsync(
+                $"{version}/provenance.json",
+                System.Text.Json.JsonSerializer.Serialize(provenance,
+                    new System.Text.Json.JsonSerializerOptions { WriteIndented = true }),
+                cancellationToken);
+        }
+
         // -------- Test seams (production defaults hit Azure / the network) --------
 
         /// <summary>Fetches the platform admin configuration (size cap).</summary>
@@ -278,6 +330,20 @@ namespace AutopilotMonitor.Functions.Services.Ime
                 HttpHeaders = new BlobHttpHeaders { ContentType = "application/octet-stream" },
                 Conditions = new BlobRequestConditions { IfNoneMatch = ETag.All }
             }, cancellationToken);
+        }
+
+        /// <summary>True when the provenance sidecar already exists in the archive container.</summary>
+        protected virtual async Task<bool> ProvenanceExistsAsync(string blobPath, CancellationToken cancellationToken)
+        {
+            var containerClient = _blobStorage.GetContainerClient(Constants.BlobContainers.ImeArchive);
+            return (await containerClient.GetBlobClient(blobPath).ExistsAsync(cancellationToken)).Value;
+        }
+
+        /// <summary>Opens the already-archived installer blob for the provenance-heal rehash.</summary>
+        protected virtual async Task<Stream> OpenArchivedMsiAsync(string blobPath, CancellationToken cancellationToken)
+        {
+            var containerClient = _blobStorage.GetContainerClient(Constants.BlobContainers.ImeArchive);
+            return await containerClient.GetBlobClient(blobPath).OpenReadAsync(cancellationToken: cancellationToken);
         }
 
         /// <summary>Uploads the provenance sidecar (overwrite allowed — it is derived data).</summary>

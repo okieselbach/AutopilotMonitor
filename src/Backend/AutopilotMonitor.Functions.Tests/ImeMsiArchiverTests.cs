@@ -194,6 +194,7 @@ public class ImeMsiArchiverTests
         var archiver = new RecordingArchiver
         {
             UploadException = new RequestFailedException(409, "BlobAlreadyExists"),
+            ProvenanceExists = true,
         };
 
         var result = await archiver.ArchiveAsync(Envelope());
@@ -202,6 +203,101 @@ public class ImeMsiArchiverTests
         Assert.Equal(ImeMsiArchiver.Statuses.Archived, result.Status);
         Assert.False(result.Retryable);
         Assert.Equal($"{Version}/IntuneWindowsAgent.msi", result.BlobPath);
+        // Sidecar already there — the re-delivery must not rewrite it.
+        Assert.Equal(0, archiver.ProvenanceCalls);
+    }
+
+    // =========================================================================
+    // Provenance-write gap (daily review 2026-08-18): MSI upload is write-once,
+    // so a first attempt that dies between the MSI and the provenance upload
+    // funnels every retry into the 409 path — which must heal the sidecar.
+    // =========================================================================
+
+    [Fact]
+    public async Task ArchiveAsync_ProvenanceUploadFails_RetryableError()
+    {
+        var archiver = new RecordingArchiver
+        {
+            ProvenanceException = new RequestFailedException(500, "storage hiccup"),
+        };
+
+        var result = await archiver.ArchiveAsync(Envelope());
+
+        Assert.False(result.Success);
+        Assert.Equal(ImeMsiArchiver.Statuses.FailedError, result.Status);
+        Assert.True(result.Retryable);
+    }
+
+    [Fact]
+    public async Task ArchiveAsync_RedeliveryWithMissingProvenance_HealsSidecarFromArchivedBytes()
+    {
+        // The archived blob's content deliberately differs from this attempt's re-download —
+        // the healed provenance must describe the ARCHIVED bytes, not the fresh download.
+        var archivedPayload = new byte[1024];
+        new Random(7).NextBytes(archivedPayload);
+        var expectedSha = Convert.ToHexString(SHA256.HashData(archivedPayload)).ToLowerInvariant();
+        var archiver = new RecordingArchiver
+        {
+            UploadException = new RequestFailedException(409, "BlobAlreadyExists"),
+            ProvenanceExists = false,
+            ArchivedPayload = archivedPayload,
+        };
+
+        var result = await archiver.ArchiveAsync(Envelope());
+
+        Assert.True(result.Success);
+        Assert.Equal(ImeMsiArchiver.Statuses.Archived, result.Status);
+        Assert.False(result.Retryable);
+        Assert.Equal(expectedSha, result.Sha256);
+        Assert.Equal(archivedPayload.Length, result.SizeBytes);
+        Assert.Equal(1, archiver.ProvenanceCalls);
+        Assert.Equal($"{Version}/provenance.json", archiver.ProvenanceLastPath);
+        Assert.Contains(expectedSha, archiver.ProvenanceLastJson);
+        Assert.Contains(Version, archiver.ProvenanceLastJson);
+    }
+
+    [Fact]
+    public async Task ArchiveAsync_ProvenanceFailure_ThenRedelivery_EndsHealed()
+    {
+        // THE regression scenario end to end on one instance: attempt 1 uploads the MSI but
+        // the provenance write dies; attempt 2 (queue re-delivery) gets 409 on the write-once
+        // MSI and must still produce the sidecar.
+        var archiver = new RecordingArchiver
+        {
+            ProvenanceException = new RequestFailedException(500, "storage hiccup"),
+        };
+        var first = await archiver.ArchiveAsync(Envelope());
+        Assert.False(first.Success);
+        Assert.True(first.Retryable);
+
+        archiver.ProvenanceException = null;
+        archiver.UploadException = new RequestFailedException(409, "BlobAlreadyExists");
+        archiver.ProvenanceExists = false; // attempt 1 never landed the sidecar
+        var second = await archiver.ArchiveAsync(Envelope());
+
+        Assert.True(second.Success);
+        Assert.Equal(ImeMsiArchiver.Statuses.Archived, second.Status);
+        Assert.Equal($"{Version}/provenance.json", archiver.ProvenanceLastPath);
+        Assert.NotNull(second.Sha256);
+    }
+
+    [Fact]
+    public async Task ArchiveAsync_HealFails_RetryableError()
+    {
+        // Heal errors ride the normal retry ladder — the next re-delivery tries again.
+        var archiver = new RecordingArchiver
+        {
+            UploadException = new RequestFailedException(409, "BlobAlreadyExists"),
+            ProvenanceExists = false,
+            ArchivedOpenException = new RequestFailedException(500, "read failed"),
+        };
+
+        var result = await archiver.ArchiveAsync(Envelope());
+
+        Assert.False(result.Success);
+        Assert.Equal(ImeMsiArchiver.Statuses.FailedError, result.Status);
+        Assert.True(result.Retryable);
+        Assert.Equal(0, archiver.ProvenanceCalls);
     }
 
     // =========================================================================
@@ -288,6 +384,10 @@ public class ImeMsiArchiverTests
         public int MaxDownloadSizeMB { get; set; } = 250;
         public Exception? DownloadException { get; set; }
         public Exception? UploadException { get; set; }
+        public Exception? ProvenanceException { get; set; }
+        public bool ProvenanceExists { get; set; } = true;
+        public byte[]? ArchivedPayload { get; set; }
+        public Exception? ArchivedOpenException { get; set; }
 
         public int DownloadCalls { get; private set; }
         public string? DownloadLastUrl { get; private set; }
@@ -326,10 +426,20 @@ public class ImeMsiArchiverTests
 
         protected override Task UploadProvenanceAsync(string blobPath, string json, CancellationToken cancellationToken)
         {
+            if (ProvenanceException is not null) throw ProvenanceException;
             ProvenanceCalls++;
             ProvenanceLastPath = blobPath;
             ProvenanceLastJson = json;
             return Task.CompletedTask;
+        }
+
+        protected override Task<bool> ProvenanceExistsAsync(string blobPath, CancellationToken cancellationToken)
+            => Task.FromResult(ProvenanceExists);
+
+        protected override Task<Stream> OpenArchivedMsiAsync(string blobPath, CancellationToken cancellationToken)
+        {
+            if (ArchivedOpenException is not null) throw ArchivedOpenException;
+            return Task.FromResult<Stream>(new MemoryStream(ArchivedPayload ?? Payload));
         }
     }
 }

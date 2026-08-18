@@ -59,6 +59,71 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
         public void ClassifyEnforcementState_bands(int state, string expected)
             => Assert.Equal(expected, ImeRegistryAppStateObserver.ClassifyEnforcementState(state));
 
+        [Theory]
+        [InlineData(1000, "installed")]
+        [InlineData(1999, "installed")]
+        [InlineData(3000, "failed")]
+        [InlineData(2000, "notApplicable")]
+        [InlineData(2999, "notApplicable")]
+        [InlineData(0, null)]
+        [InlineData(999, null)]
+        [InlineData(3001, null)]
+        [InlineData(4000, null)]
+        public void ClassifyStatusServiceStatus_bands(int status, string? expected)
+            => Assert.Equal(expected, ImeRegistryAppStateObserver.ClassifyStatusServiceStatus(status));
+
+        [Fact]
+        public void TerminalOutcome_prefers_enforcement_state_then_status_service()
+        {
+            // Enforcement state alone decides when terminal.
+            Assert.Equal("success", ImeRegistryAppStateObserver.TerminalOutcome(Entry(enforcementState: 1000)));
+            Assert.Equal("error", ImeRegistryAppStateObserver.TerminalOutcome(Entry(enforcementState: 5003)));
+            // Non-terminal enforcement bands defer to the StatusService pillar.
+            Assert.Null(ImeRegistryAppStateObserver.TerminalOutcome(Entry(enforcementState: 2009)));
+            Assert.Equal("error", ImeRegistryAppStateObserver.TerminalOutcome(
+                Entry(enforcementState: 2009, statusServiceStatus: 3000)));
+            Assert.Equal("success", ImeRegistryAppStateObserver.TerminalOutcome(Entry(statusServiceStatus: 1000)));
+            Assert.Equal("error", ImeRegistryAppStateObserver.TerminalOutcome(Entry(statusServiceStatus: 3000)));
+            // requirementsNotMet / notApplicable / empty entries are not judgeable.
+            Assert.Null(ImeRegistryAppStateObserver.TerminalOutcome(Entry(enforcementState: 3000)));
+            Assert.Null(ImeRegistryAppStateObserver.TerminalOutcome(Entry(statusServiceStatus: 2500)));
+            Assert.Null(ImeRegistryAppStateObserver.TerminalOutcome(Entry()));
+        }
+
+        [Fact]
+        public void ChangedFields_reports_each_field_and_ignores_espPhase_casing()
+        {
+            var prev = Entry(enforcementState: 2009, errorCode: null, exitCode: null,
+                statusServiceStatus: null, espTracked: false, espPhase: "DevicePreparation");
+            var next = Entry(enforcementState: 1000, errorCode: 0, exitCode: 0,
+                statusServiceStatus: 1000, espTracked: true, espPhase: "devicepreparation");
+
+            var changed = ImeRegistryAppStateObserver.ChangedFields(prev, next);
+
+            Assert.Equal(
+                new[] { "enforcementState", "errorCode", "exitCode", "statusServiceStatus", "espTracked" },
+                changed);
+            // Case-only espPhase difference is not a change; identity diffs to empty.
+            Assert.DoesNotContain("espPhase", changed);
+            Assert.Empty(ImeRegistryAppStateObserver.ChangedFields(next, next));
+        }
+
+        [Fact]
+        public void ChangedFields_null_previous_reports_populated_fields_of_new_entry()
+        {
+            var fresh = Entry(enforcementState: 2000, espTracked: true, espPhase: "AccountSetup");
+
+            var changed = ImeRegistryAppStateObserver.ChangedFields(null, fresh);
+
+            Assert.Contains("enforcementState", changed);
+            Assert.Contains("espTracked", changed);
+            Assert.Contains("espPhase", changed);
+            // Fields that are null on both sides are not "changes" for a brand-new entry.
+            Assert.DoesNotContain("errorCode", changed);
+            Assert.DoesNotContain("exitCode", changed);
+            Assert.DoesNotContain("statusServiceStatus", changed);
+        }
+
         [Fact]
         public void DiffSnapshots_reports_only_changed_fields()
         {
@@ -262,6 +327,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
                 clock: clock,
                 trackerStateProbe: trackerApps == null ? null : () => trackerApps);
             return (sink, clock, observer);
+        }
+
+        private static AppRegistryEntry Entry(
+            int? enforcementState = null, long? errorCode = null, int? exitCode = null,
+            int? statusServiceStatus = null, bool espTracked = false, string? espPhase = null)
+        {
+            var entry = new AppRegistryEntry($"{ImeRegistrySnapshot.DeviceContext}|{App1}", ImeRegistrySnapshot.DeviceContext, App1);
+            entry.EnforcementState = enforcementState;
+            entry.ErrorCode = errorCode;
+            entry.ExitCode = exitCode;
+            entry.StatusServiceStatus = statusServiceStatus;
+            entry.EspTracked = espTracked;
+            entry.EspPhase = espPhase;
+            return entry;
         }
 
         private static ImeRegistrySnapshot Snapshot(params (string appId, int enforcementState, long? errorCode)[] apps)

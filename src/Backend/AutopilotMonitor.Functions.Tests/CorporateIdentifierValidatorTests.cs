@@ -247,4 +247,64 @@ public class CorporateIdentifierValidatorTests
         Assert.False(result.IsValid);
         Assert.True(result.IsTransient);
     }
+
+    [Theory]
+    [InlineData(null, "Virtual Machine", Serial)]
+    [InlineData("Microsoft Corporation", null, Serial)]
+    [InlineData("Microsoft Corporation", "Virtual Machine", null)]
+    [InlineData("", "Virtual Machine", Serial)]
+    [InlineData("Microsoft Corporation", "", Serial)]
+    [InlineData("Microsoft Corporation", "Virtual Machine", "")]
+    [InlineData("   ", "Virtual Machine", Serial)]
+    [InlineData("Microsoft Corporation", "Virtual Machine", "   ")]
+    public async Task ValidateAsync_missingHeaderComponent_isDefinitive_withoutGraphCall(
+        string? manufacturer, string? model, string? serial)
+    {
+        // Agents that fail to read a hardware property send the header empty — that is a
+        // definitive rejection (retries cannot conjure the value), and Graph must not be hit.
+        var (sut, handler) = BuildSut(Json("""{"value":[]}"""));
+
+        var result = await sut.ValidateAsync(TenantId, manufacturer, model, serial);
+
+        Assert.False(result.IsValid);
+        Assert.False(result.IsTransient);
+        Assert.Contains("not provided", result.ErrorMessage);
+        Assert.Empty(handler.Requests);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_specialCharsInSerial_neverReachOdataFilter()
+    {
+        // The contains() narrowing uses the NORMALIZED (alphanumeric-only) serial, so an
+        // OData-breaking quote in a raw serial can neither corrupt nor inject into the filter.
+        const string hostileSerial = "O'Brien-123'&$top=9999";
+        var (sut, handler) = BuildSut(Json("""{"value":[]}"""));
+
+        var result = await sut.ValidateAsync(TenantId, "Microsoft Corporation", "Virtual Machine", hostileSerial);
+
+        Assert.False(result.IsValid);
+        var url = Uri.UnescapeDataString(Assert.Single(handler.Requests).RequestUri!.ToString());
+        Assert.Contains("contains(importedDeviceIdentifier,'OBRIEN123TOP9999')", url);
+        Assert.DoesNotContain("O'Brien", url);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_pageCapExceeded_isTransient_andNotCached()
+    {
+        // Stopping mid-list must NOT be classified "not found" — a cached false negative would
+        // block a legitimately registered device for the negative-cache TTL.
+        var (sut, handler) = BuildSut(Json("""
+            {"value":[{"importedDeviceIdentityType":"manufacturerModelSerial","importedDeviceIdentifier":"DELL,XPS,OTHER1"}],
+             "@odata.nextLink":"https://graph.microsoft.com/beta/deviceManagement/importedDeviceIdentities?$skiptoken=more"}
+            """));
+
+        var result = await sut.ValidateAsync(TenantId, "Microsoft Corporation", "Virtual Machine", Serial);
+
+        Assert.False(result.IsValid);
+        Assert.True(result.IsTransient);
+        Assert.Contains("page budget", result.ErrorMessage);
+        // Filtered scan pages up to its cap of 5, and the in-call retry runs a second sweep —
+        // proof the transient path went through the retry loop instead of caching.
+        Assert.Equal(10, handler.Requests.Count);
+    }
 }
