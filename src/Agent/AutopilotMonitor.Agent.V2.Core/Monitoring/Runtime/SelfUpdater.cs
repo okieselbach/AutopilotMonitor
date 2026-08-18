@@ -972,7 +972,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
 
         /// <summary>
         /// Appends a log line to the main agent log file (logger isn't initialized yet at update time).
-        /// Uses the same date-based naming and format as AgentLogger: agent_YYYYMMDD.log
+        /// Uses the same naming and format as AgentLogger: agent.log
         /// </summary>
         private static void LogToFile(string message)
         {
@@ -980,8 +980,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             {
                 var logDir = Environment.ExpandEnvironmentVariables(Constants.LogDirectory);
                 Directory.CreateDirectory(logDir);
-                var logFileName = $"agent_{DateTime.Now:yyyyMMdd}.log";
-                var logPath = Path.Combine(logDir, logFileName);
+                var logPath = Path.Combine(logDir, "agent.log");
                 File.AppendAllText(logPath, $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}] [INFO] {message}{Environment.NewLine}");
             }
             catch

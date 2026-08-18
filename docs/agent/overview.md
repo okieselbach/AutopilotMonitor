@@ -146,7 +146,7 @@ snapshots) are executed by the `EffectRunner` — the reducer itself is pure. De
 | `\Agent\` | deployed binaries |
 | `\State\` | decision persistence (SignalLog, Journal, Snapshot), `enrollment-complete.marker`, `final-status.json`, self-update state, `.quarantine/`, `.part1-<ts>/` |
 | `\Spool\` | telemetry spool (offline queue) |
-| `\Logs\` | agent trace log, `crash_*.log`, `ime_pattern_matches.log` |
+| `\Logs\` | agent trace log (`agent.log`), `crash-*.log`, `ime-pattern-matches.log` |
 | `\Config\` | `remote-config.json` cache |
 | `\Agent-Update\`, `\Updates\` | self-update staging/download |
 

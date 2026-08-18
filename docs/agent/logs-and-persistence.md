@@ -53,7 +53,7 @@ every line; the spool fsyncs only items flagged `RequiresImmediateFlush`.
 | Event sequence | `State\event-sequence.json` | `{ LastAssignedSequence }` | atomic | none; survives WhiteGlove Part-2 resume |
 | Spool | `Spool\spool.jsonl` | JSONL (`TelemetryItem`/line) | only `RequiresImmediateFlush` items | none — never truncated, cursor skips uploaded items |
 | Upload cursor | `Spool\upload-cursor.json` | `{ LastUploadedItemId }` | atomic | idempotent, never regresses |
-| Agent trace log | `Logs\agent_YYYYMMDD[_NNN].log` | text `[utc] [LEVEL] msg` | no | 50 MB → suffix rotation; consumed by `/diag-agent-log` |
+| Agent trace log | `Logs\agent.log` (segments `agent-NNN.log`) | text `[utc] [LEVEL] msg` | no | 50 MB → suffix rotation; consumed by `/diag-agent-log` |
 | Crash dump + record | `Crashes\<stem>.dmp` + `.json` | MiniDump + JSON | n/a (process dying) | 5 files / 7 days |
 | Startup-event gate | `State\startup-event-state.json` | JSON dict | no (atomic) | cross-reboot dedup of one-shot probes |
 | Bandwidth state | `State\bandwidth-state.json` | JSON samples/counters | no (atomic) | reboot-survivor for the DO bandwidth estimate |

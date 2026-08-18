@@ -15,7 +15,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Logging
     /// </summary>
     public sealed class AgentLoggerTests
     {
-        private static string TodayBaseName => $"agent_{DateTime.Now:yyyyMMdd}";
+        private const string BaseName = "agent";
 
         [Fact]
         public void Log_writes_to_unsuffixed_base_file_when_dir_is_empty()
@@ -25,7 +25,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Logging
 
             logger.Info("hello");
 
-            var basePath = Path.Combine(tmp.Path, TodayBaseName + ".log");
+            var basePath = Path.Combine(tmp.Path, BaseName + ".log");
             Assert.True(File.Exists(basePath), $"expected base file at {basePath}");
             Assert.Contains("hello", File.ReadAllText(basePath));
         }
@@ -39,17 +39,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Logging
 
             // Each line ~80 bytes after timestamp/severity envelope; 30 lines clears 1 KB
             // even at the smallest payload. The first lines fill the base file; once the
-            // FileInfo.Length read sees >= 1024 the next call rotates to _002.
+            // FileInfo.Length read sees >= 1024 the next call rotates to -002.
             for (int i = 0; i < 60; i++)
             {
                 logger.Info($"line-{i:D4}-padded-with-some-extra-context-to-cross-1KB-quickly");
             }
 
-            var files = Directory.GetFiles(tmp.Path, TodayBaseName + "*.log").OrderBy(s => s).ToArray();
+            var files = Directory.GetFiles(tmp.Path, BaseName + "*.log").OrderBy(s => s).ToArray();
             Assert.True(files.Length >= 2, $"expected at least 2 segments, got: {string.Join(",", files.Select(Path.GetFileName))}");
 
-            // The unsuffixed file is the first segment; rotated segments use _002 onward.
-            var rotated = files.FirstOrDefault(p => Path.GetFileNameWithoutExtension(p).EndsWith("_002"));
+            // The unsuffixed file is the first segment; rotated segments use -002 onward.
+            var rotated = files.FirstOrDefault(p => Path.GetFileNameWithoutExtension(p).EndsWith("-002"));
             Assert.NotNull(rotated);
         }
 
@@ -64,8 +64,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Logging
                 logger.Info($"pad-{i:D4}-content-content-content-content-content-content");
             }
 
-            var rotatedPath = Path.Combine(tmp.Path, TodayBaseName + "_002.log");
-            Assert.True(File.Exists(rotatedPath), "expected agent_YYYYMMDD_002.log to exist");
+            var rotatedPath = Path.Combine(tmp.Path, BaseName + "-002.log");
+            Assert.True(File.Exists(rotatedPath), "expected agent-002.log to exist");
             var first = File.ReadAllLines(rotatedPath).FirstOrDefault();
             Assert.NotNull(first);
             Assert.Contains("AgentLogger: rotated", first);
@@ -75,23 +75,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Logging
         public void Log_continues_existing_rotation_on_restart_without_overwriting()
         {
             using var tmp = new TempDirectory();
-            // Pre-seed: looks like an earlier process already rotated up to _003.
-            File.WriteAllText(Path.Combine(tmp.Path, TodayBaseName + ".log"), "older-base\n");
-            File.WriteAllText(Path.Combine(tmp.Path, TodayBaseName + "_002.log"), "older-002\n");
-            File.WriteAllText(Path.Combine(tmp.Path, TodayBaseName + "_003.log"), "older-003\n");
+            // Pre-seed: looks like an earlier process already rotated up to -003.
+            File.WriteAllText(Path.Combine(tmp.Path, BaseName + ".log"), "older-base\n");
+            File.WriteAllText(Path.Combine(tmp.Path, BaseName + "-002.log"), "older-002\n");
+            File.WriteAllText(Path.Combine(tmp.Path, BaseName + "-003.log"), "older-003\n");
 
             var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info, maxFileSizeBytes: 1024L * 1024);
             logger.Info("after-restart");
 
-            // New entries must land in the highest existing segment (_003), not in a fresh
+            // New entries must land in the highest existing segment (-003), not in a fresh
             // base file. Older content in _003 must be preserved.
-            var resumed = File.ReadAllText(Path.Combine(tmp.Path, TodayBaseName + "_003.log"));
+            var resumed = File.ReadAllText(Path.Combine(tmp.Path, BaseName + "-003.log"));
             Assert.Contains("older-003", resumed);
             Assert.Contains("after-restart", resumed);
 
             // Older segments are left alone.
-            Assert.Equal("older-base\n", File.ReadAllText(Path.Combine(tmp.Path, TodayBaseName + ".log")));
-            Assert.Equal("older-002\n", File.ReadAllText(Path.Combine(tmp.Path, TodayBaseName + "_002.log")));
+            Assert.Equal("older-base\n", File.ReadAllText(Path.Combine(tmp.Path, BaseName + ".log")));
+            Assert.Equal("older-002\n", File.ReadAllText(Path.Combine(tmp.Path, BaseName + "-002.log")));
         }
 
         [Fact]
@@ -105,7 +105,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Logging
             // as plain ASCII, while genuine non-ASCII payload stays untouched.
             logger.Info("check failed \u2014 range 1\u20132 \u2192 done\u2026 \u2018a\u2019 \u201Cb\u201D nb\u00A0sp f\u00FCr M\u00FCller");
 
-            var text = File.ReadAllText(Path.Combine(tmp.Path, TodayBaseName + ".log"));
+            var text = File.ReadAllText(Path.Combine(tmp.Path, BaseName + ".log"));
             Assert.Contains("check failed - range 1-2 -> done... 'a' \"b\" nb sp f\u00FCr M\u00FCller", text);
         }
 
@@ -115,8 +115,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Logging
             using var tmp = new TempDirectory();
             var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info, maxFileSizeBytes: 1024L * 1024);
 
-            // Hold an exclusive lock on today's file to force AppendAllText to throw.
-            var lockedPath = Path.Combine(tmp.Path, TodayBaseName + ".log");
+            // Hold an exclusive lock on the log file to force AppendAllText to throw.
+            var lockedPath = Path.Combine(tmp.Path, BaseName + ".log");
             File.WriteAllText(lockedPath, ""); // ensure exists
             using var holder = new FileStream(lockedPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
 

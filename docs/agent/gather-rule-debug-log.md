@@ -44,7 +44,7 @@ tenant-config report.
 
 `RemoteConfigMerger` projects the bool onto a runtime path (same pattern as
 `EnableImeMatchLog`): `true` → `Constants.GatherRuleDebugLogPath` =
-`%ProgramData%\AutopilotMonitor\Logs\gather_rules_debug.log`; `false` → null, unless a
+`%ProgramData%\AutopilotMonitor\Logs\gather-rules-debug.log`; `false` → null, unless a
 `--gather-debug-log <path>` CLI override supplied a non-default path. The field is not
 security-sensitive and deliberately **survives the offline config cache**.
 

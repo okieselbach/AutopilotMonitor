@@ -53,7 +53,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
             using var tmp = new TempDirectory();
             var logDir = Path.Combine(tmp.Path, "logs");
             Directory.CreateDirectory(logDir);
-            var crashPath = Path.Combine(logDir, "crash_20260421_100000.log");
+            var crashPath = Path.Combine(logDir, "crash-20260421-100000.log");
             File.WriteAllText(crashPath, "[2026-04-21T10:00:00Z] FATAL: InvalidOperationException: simulated crash");
 
             var summary = AutopilotMonitor.Agent.V2.Program.DetectPreviousExit(tmp.Path, logDir);
@@ -312,7 +312,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
 
             AutopilotMonitor.Agent.V2.Program.WriteCrashLog(logDir, new InvalidOperationException("boom"));
 
-            var files = Directory.GetFiles(logDir, "crash_*.log");
+            var files = Directory.GetFiles(logDir, "crash-*.log");
             Assert.Single(files);
             var content = File.ReadAllText(files[0]);
             Assert.Contains("FATAL:", content);

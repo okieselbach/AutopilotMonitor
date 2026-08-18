@@ -32,7 +32,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Gather
         {
             Directory.CreateDirectory(_outsideUsers);
             var logger = new AgentLogger(_tmp.Path, AgentLogLevel.Info);
-            _debugLogPath = Path.Combine(_tmp.Path, "gather_rules_debug.log");
+            _debugLogPath = Path.Combine(_tmp.Path, "gather-rules-debug.log");
             _context = new GatherRuleContext(
                 logger, "sess", "tenant",
                 evt => _events.Add(evt),

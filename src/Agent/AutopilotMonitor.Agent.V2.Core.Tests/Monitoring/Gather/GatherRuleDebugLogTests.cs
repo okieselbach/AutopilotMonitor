@@ -25,7 +25,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Gather
 
         public void Dispose() => _tmp.Dispose();
 
-        private string LogPath => Path.Combine(_tmp.Path, "sub", "gather_rules_debug.log");
+        private string LogPath => Path.Combine(_tmp.Path, "sub", "gather-rules-debug.log");
 
         [Fact]
         public void Write_produces_pipe_delimited_line_and_creates_directory_lazily()
@@ -73,7 +73,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Gather
             for (int i = 0; i < 20; i++)
                 log.Write("RULE-1", GatherRuleDebugLog.StageExec, new string('x', 100));
 
-            var oldPath = Path.Combine(Path.GetDirectoryName(LogPath), "gather_rules_debug.old.log");
+            var oldPath = Path.Combine(Path.GetDirectoryName(LogPath), "gather-rules-debug.old.log");
             Assert.True(File.Exists(oldPath), "expected one .old rotation generation");
             Assert.True(File.Exists(LogPath));
             Assert.Contains("-- rotated", File.ReadAllText(LogPath) + File.ReadAllText(oldPath));

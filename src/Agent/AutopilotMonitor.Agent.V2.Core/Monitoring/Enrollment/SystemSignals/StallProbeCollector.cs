@@ -244,7 +244,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
             result.DurationMs = (int)(DateTime.UtcNow - started).TotalMilliseconds;
 
-            // Always log locally for diagnostics — the agent_YYYYMMDD.log is the always-on observability.
+            // Always log locally for diagnostics — agent.log is the always-on observability.
             var anomaliesStr = result.Anomalies.Count > 0
                 ? $"anomalies=[{string.Join(",", result.Anomalies)}]"
                 : "quiet";

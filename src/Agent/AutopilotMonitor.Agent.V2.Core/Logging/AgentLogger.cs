@@ -34,9 +34,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Logging
 
         private readonly long _maxFileSizeBytes;
         private readonly string _logDirectory;
-        private readonly string _logFileBaseName;   // "agent_20260425"
-        private string _logFilePath;                // mutable — rotates to "_002", "_003" ...
-        private int _rotationSuffix;                // 0 = base file, 2+ = "_002" etc.
+        private readonly string _logFileBaseName;   // "agent"
+        private string _logFilePath;                // mutable — rotates to "-002", "-003" ...
+        private int _rotationSuffix;                // 0 = base file, 2+ = "-002" etc.
 
         /// <summary>
         /// When true, log entries are also written to Console.Out (same format as the log file).
@@ -55,14 +55,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Logging
                 Directory.CreateDirectory(logDirectory);
             }
 
-            _logFileBaseName = $"agent_{DateTime.Now:yyyyMMdd}";
+            // One canonical name, no date: the agent only lives for the duration of an
+            // enrollment, and a date-based split rotates at local midnight — which can fall
+            // mid-enrollment (local time may still be on the OOBE default timezone). Size
+            // rotation below bounds pathological growth. Legacy `agent_YYYYMMDD*.log` files
+            // from a pre-rename agent are ignored by the suffix probe and left in place.
+            _logFileBaseName = "agent";
             _rotationSuffix = ProbeNextRotationSuffix(logDirectory, _logFileBaseName);
             _logFilePath = BuildLogFilePath();
         }
 
-        // Picks up the highest existing rotation suffix on the same day so a process restart
-        // doesn't overwrite previous segments. Returns 0 when no log file exists yet — the
-        // first segment uses the unsuffixed name `agent_YYYYMMDD.log`.
+        // Picks up the highest existing rotation suffix so a process restart doesn't
+        // overwrite previous segments. Returns 0 when no log file exists yet — the
+        // first segment uses the unsuffixed name `agent.log`.
         private static int ProbeNextRotationSuffix(string dir, string baseName)
         {
             if (!Directory.Exists(dir)) return 0;
@@ -80,7 +85,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Logging
                     continue;
                 }
                 if (name.Length > baseName.Length + 1 &&
-                    name.StartsWith(baseName + "_", StringComparison.OrdinalIgnoreCase) &&
+                    name.StartsWith(baseName + "-", StringComparison.OrdinalIgnoreCase) &&
                     int.TryParse(name.Substring(baseName.Length + 1), out var suffix) &&
                     suffix > max)
                 {
@@ -97,7 +102,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Logging
         {
             var name = _rotationSuffix < 2
                 ? $"{_logFileBaseName}.log"
-                : $"{_logFileBaseName}_{_rotationSuffix:D3}.log";
+                : $"{_logFileBaseName}-{_rotationSuffix:D3}.log";
             return Path.Combine(_logDirectory, name);
         }
 

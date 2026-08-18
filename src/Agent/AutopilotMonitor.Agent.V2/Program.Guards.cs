@@ -26,7 +26,7 @@ namespace AutopilotMonitor.Agent.V2
     ///     cleanup and exit.</item>
     ///   <item><b>Session-age emergency break</b> — absolute cap (<c>AbsoluteMaxSessionHours</c>)
     ///     across restarts prevents zombie agents from persisting forever.</item>
-    ///   <item><b>Crash log writer</b> — writes a last-resort crash_*.log next to the agent log
+    ///   <item><b>Crash log writer</b> — writes a last-resort crash-*.log next to the agent log
     ///     directory when an uncaught exception escapes <c>Main</c>.</item>
     /// </list>
     /// </summary>
@@ -34,7 +34,10 @@ namespace AutopilotMonitor.Agent.V2
     {
         internal const string CleanExitMarkerFileName = "clean-exit.marker";
         internal const string EnrollmentCompleteMarkerFileName = "enrollment-complete.marker";
-        private const string CrashLogPrefix = "crash_";
+        private const string CrashLogPrefix = "crash-";
+        // Pre-rename agents (< 2026-08-18) wrote crash_*.log; still detected once so an
+        // in-place self-update does not lose a pending crash classification.
+        private const string LegacyCrashLogPrefix = "crash_";
 
         // ----------------------------------------------------------------- Multi-instance guard
 
@@ -102,7 +105,7 @@ namespace AutopilotMonitor.Agent.V2
         }
 
         /// <summary>
-        /// Reads <c>clean-exit.marker</c> + <c>crash_*.log</c> + session files + (if needed) the
+        /// Reads <c>clean-exit.marker</c> + <c>crash-*.log</c> + session files + (if needed) the
         /// Windows event log to classify the previous exit. Deletes the marker and crash logs so
         /// the next cycle starts fresh. Legacy parity — same rules, same outputs.
         /// </summary>
@@ -114,6 +117,8 @@ namespace AutopilotMonitor.Agent.V2
             var hadCleanExit = File.Exists(cleanExitMarker);
             var crashLogs = Directory.Exists(logDirectory)
                 ? Directory.GetFiles(logDirectory, CrashLogPrefix + "*.log")
+                    .Concat(Directory.GetFiles(logDirectory, LegacyCrashLogPrefix + "*.log"))
+                    .ToArray()
                 : Array.Empty<string>();
 
             if (hadCleanExit)
@@ -406,7 +411,7 @@ namespace AutopilotMonitor.Agent.V2
             try
             {
                 Directory.CreateDirectory(logDirectory);
-                var crashPath = Path.Combine(logDirectory, $"{CrashLogPrefix}{DateTime.UtcNow:yyyyMMdd_HHmmss}.log");
+                var crashPath = Path.Combine(logDirectory, $"{CrashLogPrefix}{DateTime.UtcNow:yyyyMMdd-HHmmss}.log");
                 File.WriteAllText(crashPath, $"[{DateTime.UtcNow:u}] FATAL: {ex}");
             }
             catch { /* nowhere left to log */ }

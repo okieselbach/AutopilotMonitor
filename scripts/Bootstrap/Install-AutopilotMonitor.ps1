@@ -95,6 +95,8 @@
                       Organizations). SKIP-safe when the API is absent (< 1809).
                       Removed legacy Content-MD5 fallback; SHA-256 manifest verification is
                       now mandatory (no hash -> bootstrap aborts, no unverified install).
+    2026-08-18  v2.4  Renamed log file bootstrap_agent.log -> bootstrap-script.log
+                      (unified kebab-case log naming across the agent log directory).
     2026-05-09  v2.0  Generic bootstrap: agent owns its own defaults (e.g. 600 s
                       TenantId-wait), so the script only calls `--install` plain.
                       Hardened post-install with a 10 s runtime-process verify.
@@ -126,13 +128,13 @@ param(
 )
 
 # Script version (bump on meaningful changes; see .CHANGELOG above)
-$ScriptVersion = "2.3"
+$ScriptVersion = "2.4"
 
 # Configuration - Everything in ProgramData for easy cleanup
 $AgentBasePath = "$env:ProgramData\AutopilotMonitor"
 $AgentBinPath = "$AgentBasePath\Agent"
 $AgentLogPath = "$AgentBasePath\Logs"
-$LogFile = "$AgentLogPath\bootstrap_agent.log"
+$LogFile = "$AgentLogPath\bootstrap-script.log"
 
 # Write-Host (NOT Write-Output): log calls happen inside functions that return
 # decision objects; Write-Output would leak every log line into those return values.

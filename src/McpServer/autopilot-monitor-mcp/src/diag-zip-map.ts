@@ -28,8 +28,8 @@ export const DIAG_ZIP_MAP = {
       appliesTo: 'v2',
     },
     {
-      path: 'AgentLogs/agent_YYYYMMDD.log',
-      what: 'Full client chronology: startup → config → collectors → enrollment tracking → completion → upload. Rotated per day on multi-day enrollments — read every dated file.',
+      path: 'AgentLogs/agent.log',
+      what: 'Full client chronology: startup → config → collectors → enrollment tracking → completion → upload. Size-rotated segments agent-002.log onward. Pre-2026-08-18 agents wrote date-rotated agent_YYYYMMDD.log instead — glob agent*.log to catch both.',
       read: 'grep-errors-first',
       grepHints: ['"\\[WARN\\]\\|\\[ERROR\\]"', '-A 5 -B 2 "\\[ERROR\\]"', '"DecisionStep: ord="', '"EventUploadService"', '"EnrollmentTracker"', '"DiagnosticsCollector"'],
       priority: 2,
@@ -57,7 +57,7 @@ export const DIAG_ZIP_MAP = {
       appliesTo: 'v2',
     },
     {
-      path: 'AgentLogs/ime_pattern_matches.log (v2) / ime-matches.log (v1)',
+      path: 'AgentLogs/ime-pattern-matches.log (older v2 agents: ime_pattern_matches.log; v1: ime-matches.log)',
       what: 'IME pattern matches. Format: [sourceFileName] [patternId] rawLogLine. Read when the question is about apps / ESP phases / IME patterns.',
       read: 'full',
       priority: 6,
@@ -113,5 +113,6 @@ export const DIAG_ZIP_MAP = {
     'V1 agent archives have NO AgentState/ or AgentSpool/ folders (DecisionCore is v2-only).',
     'Pre-provisioned (White Glove) blobs carry a -preprov suffix — that is normal.',
     'No archive ≠ a problem: upload mode may be Off or OnFailure (so successful sessions have none).',
+    'Log naming is kebab-case since 2026-08-18: agent.log, bootstrap-script.log (was bootstrap_agent.log), bootstrap-msi.log (was msi-bootstrap.log), crash-*.log (was crash_*.log), gather-rules-debug.log, ime-pattern-matches.log. Archives from older agents/bootstraps carry the old names.',
   ],
 } as const;

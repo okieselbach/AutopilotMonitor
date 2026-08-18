@@ -39,7 +39,7 @@
 
     <!-- Deferred + no-impersonate: runs as SYSTEM after files land. Return=ignore keeps
          the LOB install green even if the runner hits a transient error (the runner is
-         additionally fail-soft itself); diagnostics live in msi-bootstrap.log. -->
+         additionally fail-soft itself); diagnostics live in bootstrap-msi.log. -->
     <CustomAction Id="RunBootstrap"
                   Directory="INSTALLFOLDER"
                   ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]Invoke-BootstrapDownload.ps1&quot;"

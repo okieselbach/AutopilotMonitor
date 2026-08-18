@@ -194,7 +194,7 @@ export default function AgentSettingsSection({
               <p className="font-medium text-gray-900">IME Pattern Match Log</p>
               <p className="text-sm text-gray-500">
                 Write every matched IME log line to a local file for diagnostics
-                {enableImeMatchLog && <span className="block text-xs text-gray-400 mt-0.5 font-mono">%ProgramData%\AutopilotMonitor\Logs\ime_pattern_matches.log</span>}
+                {enableImeMatchLog && <span className="block text-xs text-gray-400 mt-0.5 font-mono">%ProgramData%\AutopilotMonitor\Logs\ime-pattern-matches.log</span>}
               </p>
             </div>
             <button onClick={() => setEnableImeMatchLog(!enableImeMatchLog)}
@@ -209,7 +209,7 @@ export default function AgentSettingsSection({
               <p className="font-medium text-gray-900">Gather Rule Debug Log</p>
               <p className="text-sm text-gray-500">
                 Trace gather rule evaluation to a local file to diagnose rules that produce no timeline events. The trace never leaves the device.
-                {enableGatherRuleDebugLog && <span className="block text-xs text-gray-400 mt-0.5 font-mono">%ProgramData%\AutopilotMonitor\Logs\gather_rules_debug.log</span>}
+                {enableGatherRuleDebugLog && <span className="block text-xs text-gray-400 mt-0.5 font-mono">%ProgramData%\AutopilotMonitor\Logs\gather-rules-debug.log</span>}
               </p>
             </div>
             <button onClick={() => setEnableGatherRuleDebugLog(!enableGatherRuleDebugLog)}

@@ -60,14 +60,14 @@ namespace AutopilotMonitor.Shared
         /// <summary>
         /// Default path for the IME pattern match log file (debugging/diagnostics)
         /// </summary>
-        public const string ImeMatchLogPath = @"%ProgramData%\AutopilotMonitor\Logs\ime_pattern_matches.log";
+        public const string ImeMatchLogPath = @"%ProgramData%\AutopilotMonitor\Logs\ime-pattern-matches.log";
 
         /// <summary>
         /// Default path for the gather rule debug trace file (debugging/diagnostics).
         /// Written when the tenant enables EnableGatherRuleDebugLog; explains every
         /// gather-rule evaluation decision, including outcomes that produce no event.
         /// </summary>
-        public const string GatherRuleDebugLogPath = @"%ProgramData%\AutopilotMonitor\Logs\gather_rules_debug.log";
+        public const string GatherRuleDebugLogPath = @"%ProgramData%\AutopilotMonitor\Logs\gather-rules-debug.log";
 
         /// <summary>
         /// Scheduled Task name used to run the agent as SYSTEM

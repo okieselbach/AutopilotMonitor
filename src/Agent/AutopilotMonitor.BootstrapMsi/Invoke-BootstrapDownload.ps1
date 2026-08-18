@@ -7,14 +7,14 @@
 # server-updatable without re-shipping the MSI.
 #
 # Fail-soft by design: the runner always exits 0 so a transient network failure never
-# marks the LOB install as failed; diagnostics go to msi-bootstrap.log.
+# marks the LOB install as failed; diagnostics go to bootstrap-msi.log.
 # ASCII only - no special characters in this file.
 
 $ErrorActionPreference = 'Stop'
 $baseDir = Join-Path $env:ProgramData 'AutopilotMonitor'
 $logDir  = Join-Path $baseDir 'Logs'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-$log = Join-Path $logDir 'msi-bootstrap.log'
+$log = Join-Path $logDir 'bootstrap-msi.log'
 
 function Write-Log([string]$message) {
     Add-Content -Path $log -Value ("[{0}] {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $message)

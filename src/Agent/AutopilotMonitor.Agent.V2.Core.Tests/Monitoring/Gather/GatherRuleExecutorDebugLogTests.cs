@@ -28,7 +28,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Gather
         public GatherRuleExecutorDebugLogTests()
         {
             var logger = new AgentLogger(_tmp.Path, AgentLogLevel.Info);
-            _debugLogPath = Path.Combine(_tmp.Path, "gather_rules_debug.log");
+            _debugLogPath = Path.Combine(_tmp.Path, "gather-rules-debug.log");
             _executor = new GatherRuleExecutor(
                 "sess", "tenant", _ => { }, logger,
                 debugLogPath: _debugLogPath)
