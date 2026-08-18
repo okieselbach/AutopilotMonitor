@@ -180,8 +180,12 @@ export default function EventTimeline({
         <div className="bg-white shadow rounded-lg p-4">
           <h2 className="text-sm font-semibold text-gray-700 mb-3">Raw Events ({sortedBySequence.length})</h2>
           <div className="divide-y divide-gray-100">
-            {sortedBySequence.map((ev) => (
-              <RawEventRow key={ev.eventId || `${ev.sessionId}-${ev.sequence}`} event={ev} />
+            {sortedBySequence.map((ev, i) => (
+              <RawEventRow
+                key={ev.eventId || `${ev.sessionId}-${ev.sequence}`}
+                event={ev}
+                prevDisplayTime={i > 0 ? getDisplayTime(sortedBySequence[i - 1]) : null}
+              />
             ))}
           </div>
         </div>
@@ -341,11 +345,12 @@ function PhaseSection({
 
       {isExpanded && (
         <div className="space-y-3">
-          {events.map((event) => (
+          {events.map((event, i) => (
             <EventRow
               key={event.eventId || `${event.sessionId}-${event.sequence}`}
               event={event}
               showScriptOutput={showScriptOutput}
+              prevDisplayTime={i > 0 ? getDisplayTime(events[i - 1]) : null}
             />
           ))}
         </div>
@@ -372,7 +377,32 @@ const BACKFILL_TOOLTIP =
   "If enrollment progressed afterwards, this error was already resolved by a retry. " +
   "The timestamp shown is the original event-log time.";
 
-function EventRow({ event, showScriptOutput }: { event: EnrollmentEvent; showScriptOutput?: boolean }) {
+// Display timestamp of a row: backfilled events show the original event-log time.
+function getDisplayTime(event: EnrollmentEvent): Date {
+  return getBackfillInfo(event).recordedAt ?? new Date(event.timestamp);
+}
+
+// Rows render time-of-day only, so a multi-hour/multi-day gap to the previous row
+// (and the date change it implies) is invisible without expanding event details.
+// Shown on the row AFTER the gap; hover reveals the full date.
+function GapBadge({ prevTime, eventTime }: { prevTime: Date | null; eventTime: Date }) {
+  if (!prevTime) return null;
+  const gapMs = eventTime.getTime() - prevTime.getTime();
+  if (gapMs < 60 * 60 * 1000) return null;
+  const label = gapMs >= 48 * 60 * 60 * 1000
+    ? `+${Math.round(gapMs / (24 * 60 * 60 * 1000))}d`
+    : `+${Math.round(gapMs / (60 * 60 * 1000))}h`;
+  return (
+    <span
+      className="px-1.5 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-700 whitespace-nowrap flex-shrink-0"
+      title={`${label} after the previous event — ${eventTime.toLocaleString()}`}
+    >
+      ⏱ {label}
+    </span>
+  );
+}
+
+function EventRow({ event, showScriptOutput, prevDisplayTime }: { event: EnrollmentEvent; showScriptOutput?: boolean; prevDisplayTime?: Date | null }) {
   const [showDetails, setShowDetails] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -458,6 +488,7 @@ function EventRow({ event, showScriptOutput }: { event: EnrollmentEvent; showScr
                 <span className="text-gray-400 font-sans"> (reported {new Date(event.timestamp).toLocaleTimeString()})</span>
               )}
             </span>
+            <GapBadge prevTime={prevDisplayTime ?? null} eventTime={recordedAt ?? new Date(event.timestamp)} />
             <SeverityBadge severity={event.severity} />
             {isBackfilled && (
               <span
@@ -786,7 +817,7 @@ function EventRow({ event, showScriptOutput }: { event: EnrollmentEvent; showScr
   );
 }
 
-function RawEventRow({ event }: { event: EnrollmentEvent }) {
+function RawEventRow({ event, prevDisplayTime }: { event: EnrollmentEvent; prevDisplayTime?: Date | null }) {
   const [expanded, setExpanded] = useState(false);
   const detailData = useMemo(() => normalizeEventDataForDisplay(event.data), [event.data]);
   const hasDetails = detailData && Object.keys(detailData).length > 0;
@@ -806,6 +837,7 @@ function RawEventRow({ event }: { event: EnrollmentEvent }) {
       <div className="flex items-start gap-2">
         <span className="text-gray-400 w-8 text-right flex-shrink-0">{event.sequence}</span>
         <span className="text-gray-500 flex-shrink-0">{(recordedAt ?? new Date(event.timestamp)).toLocaleTimeString()}</span>
+        <GapBadge prevTime={prevDisplayTime ?? null} eventTime={recordedAt ?? new Date(event.timestamp)} />
         <span className={`flex-shrink-0 w-14 ${sevColor[event.severity] || "text-gray-500"}`}>{event.severity}</span>
         {isBackfilled && (
           <span className="text-slate-500 flex-shrink-0" title={BACKFILL_TOOLTIP}>⟲</span>
