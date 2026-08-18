@@ -13,7 +13,7 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="Autopilot Monitor Bootstrap"
            Manufacturer="Autopilot Monitor"
-           Version="1.0.0"
+           Version="1.0.1"
            UpgradeCode="1fbe5515-d346-445c-b8b8-14ee79f97522"
            Scope="perMachine"
            Compressed="yes">
