@@ -68,7 +68,12 @@ jobs:
       - name: Build MSI
         shell: pwsh
         run: |
-          wix build "$env:MSI_PROJECT_DIR/Package.wxs" -arch x64 -o $env:STABLE_MSI
+          # wix resolves File/@Source relative to the working directory, not the wxs —
+          # build from inside the project dir (same as the local build documented in the wxs).
+          $out = Join-Path (Get-Location) $env:STABLE_MSI
+          Push-Location $env:MSI_PROJECT_DIR
+          wix build Package.wxs -arch x64 -o $out
+          Pop-Location
           if (-not (Test-Path $env:STABLE_MSI)) { Write-Error "wix build produced no MSI"; exit 1 }
           $sha256 = (Get-FileHash $env:STABLE_MSI -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Host "Built $env:STABLE_MSI ($([math]::Round((Get-Item $env:STABLE_MSI).Length / 1KB)) KB)"
