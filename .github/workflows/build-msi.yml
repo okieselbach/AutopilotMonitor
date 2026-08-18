@@ -1,0 +1,134 @@
+name: Build & Publish Bootstrap MSI
+
+# Thin MDM LOB delivery vehicle for WDP (Autopilot v2) — see
+# src/Agent/AutopilotMonitor.BootstrapMsi/Package.wxs. The MSI carries no bootstrap
+# logic (only the runner script that downloads the CURRENT server-hosted
+# Install-AutopilotMonitor.ps1), so it is rebuilt rarely: only when the runner script
+# or the WiX package changes. Version lives in Package.wxs — bump it there before
+# dispatching so Intune LOB update detection sees a new ProductVersion.
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_blob:
+        description: 'Upload to blob (customer-facing via download.autopilotmonitor.com/agent/)'
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write      # keyless Sigstore signing (artifact attestation)
+  attestations: write  # store the provenance attestation
+
+env:
+  MSI_PROJECT_DIR: src/Agent/AutopilotMonitor.BootstrapMsi
+  RUNNER_SCRIPT: src/Agent/AutopilotMonitor.BootstrapMsi/Invoke-BootstrapDownload.ps1
+  STABLE_MSI: AutopilotMonitor-Bootstrap.msi
+
+jobs:
+  build:
+    runs-on: windows-latest
+    name: Build Bootstrap MSI
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      # The runner executes as SYSTEM on every enrolling device — a parse error or
+      # non-ASCII mojibake (PS 5.1 codepage roulette) must fail the build, not the fleet.
+      - name: Validate runner script (parse + ASCII-only)
+        shell: pwsh
+        run: |
+          $errs = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $env:RUNNER_SCRIPT), [ref]$null, [ref]$errs) | Out-Null
+          if ($errs) { $errs | ForEach-Object { Write-Error $_.ToString() }; exit 1 }
+          if ((Get-Content $env:RUNNER_SCRIPT -Raw) -match '[^\x00-\x7F]') {
+            Write-Error "Runner script contains non-ASCII characters"
+            exit 1
+          }
+          Write-Host "Runner script parse + ASCII check passed"
+
+      - name: Read MSI version from Package.wxs
+        id: version
+        shell: pwsh
+        run: |
+          $wxs = Get-Content "$env:MSI_PROJECT_DIR/Package.wxs" -Raw
+          if ($wxs -notmatch 'Version="(\d+\.\d+\.\d+)"') {
+            Write-Error "Could not parse Version from Package.wxs"
+            exit 1
+          }
+          $version = $Matches[1]
+          Write-Host "MSI version (from Package.wxs): $version"
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Install WiX toolset
+        run: dotnet tool install --global wix --version "5.*"
+
+      - name: Build MSI
+        shell: pwsh
+        run: |
+          wix build "$env:MSI_PROJECT_DIR/Package.wxs" -arch x64 -o $env:STABLE_MSI
+          if (-not (Test-Path $env:STABLE_MSI)) { Write-Error "wix build produced no MSI"; exit 1 }
+          $sha256 = (Get-FileHash $env:STABLE_MSI -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "Built $env:STABLE_MSI ($([math]::Round((Get-Item $env:STABLE_MSI).Length / 1KB)) KB)"
+          Write-Host "SHA-256: $sha256"
+
+      - name: Upload to Azure Blob Storage
+        if: inputs.upload_blob
+        shell: pwsh
+        run: |
+          $containerUrl = "https://autopilotmonitoreu.blob.core.windows.net/agent"
+          $sasToken = "${{ secrets.AZURE_BLOB_AGENT_SAS_TOKEN }}".TrimStart('?')
+          $version = "${{ steps.version.outputs.version }}"
+
+          # Same Send-Blob contract as build-agent.yml: no-cache on every blob because the
+          # stable name rotates in place behind the download alias. No legacy mirror — the
+          # MSI channel never existed on the legacy account.
+          function Send-Blob {
+            param([string]$Local, [string]$BlobName)
+            $bytes = [System.IO.File]::ReadAllBytes($Local)
+            $headers = @{
+              "x-ms-blob-type" = "BlockBlob"
+              "Content-Type" = "application/octet-stream"
+              "x-ms-blob-cache-control" = "no-cache"
+            }
+            $md5 = [System.Security.Cryptography.MD5]::Create()
+            $headers["Content-MD5"] = [Convert]::ToBase64String($md5.ComputeHash($bytes))
+            $md5.Dispose()
+            Write-Host "Uploading $BlobName ($([math]::Round($bytes.Length / 1KB)) KB)..."
+            Invoke-RestMethod -Uri "$containerUrl/$BlobName`?$sasToken" -Method Put -Headers $headers -Body $bytes
+            Write-Host "  uploaded $BlobName"
+          }
+
+          # Versioned copy for provenance/rollback + stable customer-facing name.
+          Send-Blob -Local $env:STABLE_MSI -BlobName "AutopilotMonitor-Bootstrap-v$version.msi"
+          Send-Blob -Local $env:STABLE_MSI -BlobName $env:STABLE_MSI
+
+      # E2E: the Front Door route /agent/* must serve the fresh bytes on the public alias.
+      - name: Verify download alias serves the MSI
+        if: inputs.upload_blob
+        shell: pwsh
+        run: |
+          $localSize = (Get-Item $env:STABLE_MSI).Length
+          $resp = Invoke-WebRequest -Uri "https://download.autopilotmonitor.com/agent/$env:STABLE_MSI" -Method Head -UseBasicParsing
+          if ($resp.StatusCode -ne 200) { Write-Error "Alias HEAD returned $($resp.StatusCode)"; exit 1 }
+          $remoteSize = [long]$resp.Headers['Content-Length'][0]
+          if ($remoteSize -ne $localSize) {
+            Write-Error "Size mismatch: alias serves $remoteSize bytes, local MSI is $localSize bytes"
+            exit 1
+          }
+          Write-Host "Alias verified: https://download.autopilotmonitor.com/agent/$env:STABLE_MSI ($remoteSize bytes)"
+
+      # Sigstore keyless provenance, same as the agent ZIP. Verify:
+      # gh attestation verify AutopilotMonitor-Bootstrap.msi --repo okieselbach/AutopilotMonitor
+      - name: Attest build provenance (MSI)
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: ${{ env.STABLE_MSI }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: AutopilotMonitor-Bootstrap-v${{ steps.version.outputs.version }}
+          path: ${{ env.STABLE_MSI }}
