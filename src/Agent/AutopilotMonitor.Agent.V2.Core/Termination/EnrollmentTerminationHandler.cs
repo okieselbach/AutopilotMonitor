@@ -8,6 +8,7 @@ using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Interop;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Agent.V2.Core.Runtime;
 using AutopilotMonitor.Agent.V2.Core.Security;
@@ -56,6 +57,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
     public sealed class EnrollmentTerminationHandler
     {
         private static readonly TimeSpan DefaultLateEventGrace = TimeSpan.FromMilliseconds(2000);
+
+        /// <summary>
+        /// Session bc803955 — on DevicePreparation the IME user-context app sync starts only
+        /// after desktop arrival and its log lines reach disk with 10-20s flush latency, so the
+        /// dialog snapshot raced it and rendered an empty Applications section 9 seconds before
+        /// the tracker learned about 12 pending apps. Bounded settle wait before the summary
+        /// build; DevicePrep-only and only while the tracker has zero packages, so Classic (data
+        /// long settled) and populated DevicePrep sessions pay nothing. Installs are never
+        /// delayed — this only holds the dialog snapshot.
+        /// </summary>
+        private static readonly TimeSpan DefaultDevicePrepAppSettleWait = TimeSpan.FromSeconds(20);
+        private static readonly TimeSpan AppSettlePollInterval = TimeSpan.FromMilliseconds(250);
         // Option 1 (WG Part 1 graceful-exit hardening, 2026-04-30): poll cadence for the
         // active spool-empty drain. 50ms is short enough that we exit the bounded wait
         // within ~one cadence after the last upload is acknowledged, but long enough that
@@ -90,6 +103,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         private readonly AgentAnalyzerManager _analyzerManager;
         private readonly InformationalEventPost _post;
         private readonly TimeSpan _lateEventGracePeriod;
+        private readonly TimeSpan _devicePrepAppSettleWait;
 
         // L4 (delta review 2026-07-02): epoch anchor for boot-time derivation. Captured as a
         // (monotonic tick, wall clock) pair at construction so the boot timestamp used by the
@@ -113,7 +127,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             AgentAnalyzerManager analyzerManager = null,
             InformationalEventPost post = null,
             Action stopPeripheralCollectors = null,
-            TimeSpan? lateEventGracePeriod = null)
+            TimeSpan? lateEventGracePeriod = null,
+            TimeSpan? devicePrepAppSettleWait = null)
         {
             _session = session ?? throw new ArgumentNullException(nameof(session));
             _appTracking = appTracking ?? throw new ArgumentNullException(nameof(appTracking));
@@ -126,6 +141,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             _post = post;
             _stopPeripheralCollectors = stopPeripheralCollectors;
             _lateEventGracePeriod = lateEventGracePeriod ?? DefaultLateEventGrace;
+            _devicePrepAppSettleWait = devicePrepAppSettleWait ?? DefaultDevicePrepAppSettleWait;
 
             _configuration = session.Configuration;
             _stateDirectory = session.StateDirectory;
@@ -182,6 +198,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                     }
                     else
                     {
+                        // Session bc803955 — give the IME user-context app wave a bounded chance
+                        // to land BEFORE the dialog snapshot, the starved sweep and the
+                        // app_tracking_summary below all read package states. DevicePrep-only,
+                        // no-op when the tracker already has data.
+                        WaitForImeAppSettleIfDevicePrep(state);
                         RunBuildAndLaunchDialog(state, args);
                     }
                 }
@@ -378,6 +399,59 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             }
         }
 
+        /// <summary>
+        /// Bounded settle wait for the IME app wave on DevicePreparation sessions (see
+        /// <see cref="DefaultDevicePrepAppSettleWait"/>). Returns immediately for every other
+        /// scenario mode and whenever the tracker already reports packages. Poll is cheap
+        /// (in-memory read-model access), so a fine 250ms interval keeps the early exit tight.
+        /// </summary>
+        private void WaitForImeAppSettleIfDevicePrep(DecisionState state)
+        {
+            try
+            {
+                if (state == null || _devicePrepAppSettleWait <= TimeSpan.Zero) return;
+                if (state.ScenarioProfile.Mode != EnrollmentMode.DevicePreparation) return;
+
+                var packages = TryGetPackageStates();
+                if (packages != null && packages.Count > 0) return;
+
+                _logger.Info(
+                    $"EnrollmentTerminationHandler: DevicePreparation session with no IME app data yet — waiting up to " +
+                    $"{_devicePrepAppSettleWait.TotalSeconds:0}s for the user-context app wave before building the summary " +
+                    "(installs are not delayed; this only holds the dialog snapshot).");
+
+                var deadline = DateTime.UtcNow + _devicePrepAppSettleWait;
+                while (DateTime.UtcNow < deadline)
+                {
+                    Thread.Sleep(AppSettlePollInterval);
+                    packages = TryGetPackageStates();
+                    if (packages != null && packages.Count > 0)
+                    {
+                        _logger.Info($"EnrollmentTerminationHandler: IME app data arrived during settle wait ({packages.Count} package(s)).");
+                        return;
+                    }
+                }
+
+                _logger.Info("EnrollmentTerminationHandler: app settle wait elapsed without IME app data — summary reflects Office/CSP state only.");
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"EnrollmentTerminationHandler: app settle wait failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Fail-soft read of the Office C2R lifecycle state persisted by
+        /// <see cref="OfficeInstallDetector"/> — feeds the summary dialog's synthetic
+        /// "Microsoft 365 Apps" row (Office CSP installs never flow through the IME Win32
+        /// pipeline, so the package-state list cannot represent them).
+        /// </summary>
+        private OfficeInstallStateData TryLoadOfficeInstallState()
+        {
+            try { return new OfficeInstallStatePersistence(_stateDirectory, _logger).Load(); }
+            catch { return null; }
+        }
+
         private void RunBuildAndLaunchDialog(DecisionState state, EnrollmentTerminatedEventArgs args)
         {
             try
@@ -385,7 +459,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 var packages = TryGetPackageStates();
                 var timings = TryGetAppTimings();
                 var status = FinalStatusBuilder.Build(state, args, packages, _agentStartTimeUtc, timings,
-                    deviceBootUtc: ObservationCoverage.DeviceBootUtc(_bootAnchorTickMs, _bootAnchorUtc));
+                    deviceBootUtc: ObservationCoverage.DeviceBootUtc(_bootAnchorTickMs, _bootAnchorUtc),
+                    officeState: TryLoadOfficeInstallState());
                 SummaryDialogLauncher.WriteAndLaunch(status, _configuration, _stateDirectory, _logger, _dialogExePathOverride);
 
                 if (_configuration.ShowEnrollmentSummary)

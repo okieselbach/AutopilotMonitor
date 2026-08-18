@@ -1,8 +1,10 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Agent.V2.Core.Termination;
 using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
@@ -507,6 +509,121 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
                 packageStates: null, agentStartTimeUtc: StartUtc);
 
             Assert.Null(status.SignalTimestamps);
+        }
+
+        // ---- Session bc803955 — synthetic Office row from the C2R detector's persisted state ----
+
+        private static FinalStatus BuildWithOffice(OfficeInstallStateData? officeState, IReadOnlyList<AppPackageState>? packages = null) =>
+            FinalStatusBuilder.Build(StateWith(SessionStage.Completed),
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.Completed),
+                packageStates: packages, agentStartTimeUtc: StartUtc, officeState: officeState);
+
+        [Fact]
+        public void Build_office_completed_adds_device_row_with_duration_and_counts()
+        {
+            var office = new OfficeInstallStateData
+            {
+                State = OfficeInstallStateData.StateCompleted,
+                StartedAtUtc = StartUtc.AddMinutes(1),
+                CompletedAtUtc = StartUtc.AddMinutes(4).AddSeconds(22),
+                VersionReached = "16.0.20228.20190",
+            };
+
+            var status = BuildWithOffice(office);
+
+            var row = Assert.Single(status.PackageStatesByPhase["Device"]);
+            Assert.Equal("Microsoft 365 Apps (16.0.20228.20190)", row.AppName);
+            Assert.Equal("Installed", row.State);
+            Assert.True(row.IsCompleted);
+            Assert.False(row.IsError);
+            Assert.Equal(202, row.DurationSeconds);
+            Assert.Equal(office.StartedAtUtc.Value.ToString("o"), row.StartedAt);
+
+            Assert.Equal(1, status.AppSummary.TotalApps);
+            Assert.Equal(1, status.AppSummary.CompletedApps);
+            Assert.Equal(0, status.AppSummary.ErrorCount);
+            Assert.Equal(1, status.AppSummary.AppsByPhase["Device"]);
+        }
+
+        [Fact]
+        public void Build_office_active_row_is_installing_without_completion()
+        {
+            var office = new OfficeInstallStateData
+            {
+                State = OfficeInstallStateData.StateActive,
+                StartedAtUtc = StartUtc.AddMinutes(1),
+            };
+
+            var status = BuildWithOffice(office);
+
+            var row = Assert.Single(status.PackageStatesByPhase["Device"]);
+            Assert.Equal("Microsoft 365 Apps", row.AppName);
+            Assert.Equal("Installing", row.State);
+            Assert.False(row.IsCompleted);
+            Assert.Null(row.DurationSeconds);
+            Assert.Equal(1, status.AppSummary.TotalApps);
+            Assert.Equal(0, status.AppSummary.CompletedApps);
+        }
+
+        [Fact]
+        public void Build_office_failed_row_counts_device_error()
+        {
+            var office = new OfficeInstallStateData
+            {
+                State = OfficeInstallStateData.StateFailed,
+                StartedAtUtc = StartUtc.AddMinutes(1),
+                CompletedAtUtc = StartUtc.AddMinutes(2),
+            };
+
+            var status = BuildWithOffice(office);
+
+            var row = Assert.Single(status.PackageStatesByPhase["Device"]);
+            Assert.Equal("Error", row.State);
+            Assert.True(row.IsError);
+            Assert.True(row.IsCompleted); // Error is terminal — mirrors IsCompleted()
+            Assert.Equal(1, status.AppSummary.ErrorCount);
+            Assert.Equal(1, status.AppSummary.DeviceErrors);
+        }
+
+        [Theory]
+        [InlineData(OfficeInstallStateData.StatePreinstalled)]
+        [InlineData("garbage")]
+        [InlineData(null)]
+        public void Build_office_preinstalled_or_unknown_adds_no_row(string? state)
+        {
+            var office = state == null ? null : new OfficeInstallStateData { State = state };
+
+            var status = BuildWithOffice(office);
+
+            Assert.Empty(status.PackageStatesByPhase);
+            Assert.Equal(0, status.AppSummary.TotalApps);
+        }
+
+        [Fact]
+        public void Build_office_row_is_prepended_before_ime_device_apps()
+        {
+            using var tmp = new TempDirectory();
+            var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
+            var list = new AppPackageStateList(logger);
+            var imeApp = new AppPackageState("app-1", 0);
+            imeApp.UpdateState(AppInstallationState.Installed);
+            TestHelpers.SetTargeted(imeApp, AppTargeted.Device);
+            list.Add(imeApp);
+
+            var office = new OfficeInstallStateData
+            {
+                State = OfficeInstallStateData.StateCompleted,
+                StartedAtUtc = StartUtc,
+                CompletedAtUtc = StartUtc.AddMinutes(3),
+            };
+
+            var status = BuildWithOffice(office, list);
+
+            Assert.Equal(2, status.PackageStatesByPhase["Device"].Count);
+            Assert.StartsWith("Microsoft 365 Apps", status.PackageStatesByPhase["Device"][0].AppName);
+            Assert.Equal(2, status.AppSummary.TotalApps);
+            Assert.Equal(2, status.AppSummary.CompletedApps);
+            Assert.Equal(2, status.AppSummary.AppsByPhase["Device"]);
         }
     }
 

@@ -165,6 +165,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
             public IReadOnlyCollection<string> StarvedAlreadyReportedOverride { get; set; } = Array.Empty<string>();
             public List<string> TerminationActionLog { get; } = new List<string>();
             public TimeSpan SpoolDrainPeriodOverride { get; set; } = TimeSpan.Zero;
+            // Session bc803955 — DevicePrep app-wave settle wait. Zero (default) disables the
+            // wait so the existing timing-sensitive tests stay untouched; the dedicated settle
+            // tests opt in with a real budget.
+            public TimeSpan DevicePrepAppSettleWaitOverride { get; set; } = TimeSpan.Zero;
             // WG Part-1 straggler-ordering fix — the production wiring passes
             // orchestrator.StopCollectorHosts, whose collectors emit their one-shot
             // stop-time stragglers (network_bandwidth_estimate, …) through Post during
@@ -210,7 +214,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
                     stopPeripheralCollectors: StopPeripheralCollectorsHook,
                     // Zero out the timing ceremony for tests — production paths are covered by
                     // the dedicated V1-parity tests below which opt back in via their own Rig.
-                    lateEventGracePeriod: TimeSpan.Zero);
+                    lateEventGracePeriod: TimeSpan.Zero,
+                    devicePrepAppSettleWait: DevicePrepAppSettleWaitOverride);
             }
 
             public void Dispose() => Tmp.Dispose();
@@ -315,6 +320,91 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
 
             var statusPath = Path.Combine(rig.StateDir, SummaryDialogLauncher.FinalStatusFileName);
             Assert.True(File.Exists(statusPath), "final-status.json should be written even when ShowEnrollmentSummary=false");
+        }
+
+        // ---- Session bc803955 — DevicePrep app-wave settle wait ----
+
+        private static DecisionState DevicePrepState(SessionStage stage) =>
+            new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1"))
+            {
+                Stage = stage,
+                ScenarioProfile = new EnrollmentScenarioProfile(
+                    mode: EnrollmentMode.DevicePreparation,
+                    joinMode: EnrollmentJoinMode.Unknown,
+                    espConfig: EspConfig.Unknown,
+                    preProvisioningSide: PreProvisioningSide.None,
+                    confidence: ProfileConfidence.Medium,
+                    evidenceOrdinal: 1,
+                    reason: "test"),
+            }.Build();
+
+        [Fact]
+        public void Handle_devicePrep_settle_wait_catches_late_app_wave_for_dialog()
+        {
+            using var rig = new Rig();
+            rig.State = DevicePrepState(SessionStage.Completed);
+            rig.DevicePrepAppSettleWaitOverride = TimeSpan.FromSeconds(10);
+
+            // Simulate the IME user-context sync landing AFTER termination handling began
+            // (AppWorkload.log flush latency) — the wave arrives 500ms in, well before the
+            // 10s budget; the settle loop must pick it up and the dialog must render it.
+            var waveThread = new Thread(() =>
+            {
+                Thread.Sleep(500);
+                var app = new AppPackageState("app-late", 0);
+                app.UpdateState(AppInstallationState.Downloading);
+                TestHelpers.SetTargeted(app, AppTargeted.User);
+                rig.Packages.Add(app);
+            });
+            waveThread.Start();
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            rig.Build().Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.Completed));
+            sw.Stop();
+            waveThread.Join();
+
+            var statusJson = File.ReadAllText(Path.Combine(rig.StateDir, SummaryDialogLauncher.FinalStatusFileName));
+            Assert.Contains("\"totalApps\": 1", statusJson);
+            // Early exit: the wave arrived at ~500ms — the handler must not sit out the full 10s.
+            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(8),
+                $"settle wait should exit early once packages arrive (took {sw.Elapsed.TotalSeconds:0.0}s)");
+        }
+
+        [Fact]
+        public void Handle_devicePrep_settle_wait_is_bounded_when_no_apps_arrive()
+        {
+            using var rig = new Rig();
+            rig.State = DevicePrepState(SessionStage.Completed);
+            rig.DevicePrepAppSettleWaitOverride = TimeSpan.FromMilliseconds(600);
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            rig.Build().Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.Completed));
+            sw.Stop();
+
+            // Budget elapsed (>=600ms) and the dialog still rendered — just without app data.
+            Assert.True(sw.Elapsed >= TimeSpan.FromMilliseconds(600),
+                $"bounded wait should consume its budget when no data arrives (took {sw.Elapsed.TotalMilliseconds:0}ms)");
+            var statusJson = File.ReadAllText(Path.Combine(rig.StateDir, SummaryDialogLauncher.FinalStatusFileName));
+            Assert.Contains("\"totalApps\": 0", statusJson);
+        }
+
+        [Fact]
+        public void Handle_non_devicePrep_does_not_wait_even_with_empty_packages()
+        {
+            using var rig = new Rig();
+            // Classic/unknown mode + empty package list — the settle wait must not engage.
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1")) { Stage = SessionStage.Completed }.Build();
+            rig.DevicePrepAppSettleWaitOverride = TimeSpan.FromSeconds(10);
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            rig.Build().Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.Completed));
+            sw.Stop();
+
+            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(8),
+                $"non-DevicePrep termination must not settle-wait (took {sw.Elapsed.TotalSeconds:0.0}s)");
         }
 
         [Fact]

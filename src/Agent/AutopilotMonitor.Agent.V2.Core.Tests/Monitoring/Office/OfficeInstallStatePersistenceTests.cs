@@ -57,6 +57,42 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Office
         }
 
         [Fact]
+        public void Save_then_load_roundtrips_terminal_metadata()
+        {
+            // Session bc803955 — CompletedAtUtc/VersionReached feed the summary dialog's
+            // synthetic Office row (duration + version).
+            using var tmp = new TempDirectory();
+            var sut = new OfficeInstallStatePersistence(tmp.Path, NewLogger(tmp.Path));
+            var completedAt = new DateTime(2026, 6, 8, 12, 3, 22, DateTimeKind.Utc);
+
+            sut.Save(new OfficeInstallStateData
+            {
+                State = OfficeInstallStateData.StateCompleted,
+                CompletedAtUtc = completedAt,
+                VersionReached = "16.0.20228.20190",
+            });
+
+            var loaded = sut.Load();
+            Assert.Equal(completedAt, loaded!.CompletedAtUtc);
+            Assert.Equal("16.0.20228.20190", loaded.VersionReached);
+        }
+
+        [Fact]
+        public void Load_tolerates_state_files_from_older_agents_without_terminal_metadata()
+        {
+            using var tmp = new TempDirectory();
+            var sut = new OfficeInstallStatePersistence(tmp.Path, NewLogger(tmp.Path));
+            // Pre-terminal-metadata wire format (verbatim shape from a live 2.0.1404 session).
+            File.WriteAllText(sut.StateFilePath,
+                "{\"State\":\"Completed\",\"StartedAtUtc\":\"2026-08-18T07:56:16.8208141Z\",\"StartedTrigger\":\"registry\"}");
+
+            var loaded = sut.Load();
+            Assert.Equal(OfficeInstallStateData.StateCompleted, loaded!.State);
+            Assert.Null(loaded.CompletedAtUtc);
+            Assert.Null(loaded.VersionReached);
+        }
+
+        [Fact]
         public void Save_overwrites_a_previous_state()
         {
             using var tmp = new TempDirectory();

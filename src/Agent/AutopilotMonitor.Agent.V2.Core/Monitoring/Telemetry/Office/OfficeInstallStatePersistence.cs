@@ -105,6 +105,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
         public DateTime? StartedAtUtc { get; set; }
         public string? StartedTrigger { get; set; }
 
+        /// <summary>Stamped only on the two terminal persists (Completed/Failed) — basis for the
+        /// summary dialog's Office row duration. Null on Active/Preinstalled and on state files
+        /// written by older agents (fail-soft deserialization).</summary>
+        public DateTime? CompletedAtUtc { get; set; }
+
+        /// <summary>Office build reached at the terminal transition (snapshot's VersionToReport).
+        /// Null when the snapshot had none or on older state files.</summary>
+        public string? VersionReached { get; set; }
+
         /// <summary>Highest-bytes DO sample seen — basis for the doSummary on a resumed completion.</summary>
         public OfficeDoPeakData? PeakDo { get; set; }
 

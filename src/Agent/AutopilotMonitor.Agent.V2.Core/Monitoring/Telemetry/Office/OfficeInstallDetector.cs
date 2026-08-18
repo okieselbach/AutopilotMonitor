@@ -300,7 +300,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
                 {
                     _state = DetectorState.Terminal;
                     EmitLifecycle(Constants.EventTypes.OfficeInstallCompleted, snap, EventSeverity.Info, "Completed", isTerminal: true, coreBinariesPresent: true);
-                    PersistState(OfficeInstallStateData.StateCompleted);
+                    PersistState(OfficeInstallStateData.StateCompleted, snap);
                     return CompletionOutcome.Completed;
                 }
 
@@ -405,7 +405,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
             if (_state == DetectorState.Terminal) return;
             _state = DetectorState.Terminal;
             EmitLifecycle(Constants.EventTypes.OfficeInstallFailed, snap, EventSeverity.Error, "Failed", isTerminal: true);
-            PersistState(OfficeInstallStateData.StateFailed);
+            PersistState(OfficeInstallStateData.StateFailed, snap);
         }
 
         /// <summary>
@@ -444,15 +444,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office
         /// (the resume is what delivers a completion missed across a mid-install reboot).
         /// Caller holds the lock.
         /// </summary>
-        private void PersistState(string state)
+        private void PersistState(string state, OfficeC2RSnapshot? snap = null)
         {
             if (_statePersistence == null) return;
             _lastStatePersistUtc = _clock.UtcNow;
+            var isTerminal = state == OfficeInstallStateData.StateCompleted
+                || state == OfficeInstallStateData.StateFailed;
             _statePersistence.Save(new OfficeInstallStateData
             {
                 State = state,
                 StartedAtUtc = _startedAtUtc,
                 StartedTrigger = _startedTrigger,
+                // Terminal-only metadata for the summary dialog's Office row (duration + version).
+                CompletedAtUtc = isTerminal ? _clock.UtcNow : (DateTime?)null,
+                VersionReached = isTerminal ? snap?.VersionToReport : null,
                 PeakDo = OfficeDoPeakData.FromSample(_peakDo),
             });
         }

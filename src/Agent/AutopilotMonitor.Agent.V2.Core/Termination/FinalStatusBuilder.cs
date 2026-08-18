@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.State;
@@ -30,7 +31,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             IReadOnlyList<AppPackageState>? packageStates,
             DateTime agentStartTimeUtc,
             IReadOnlyDictionary<string, AppInstallTiming>? appTimings = null,
-            DateTime? deviceBootUtc = null)
+            DateTime? deviceBootUtc = null,
+            OfficeInstallStateData? officeState = null)
         {
             if (state == null) throw new ArgumentNullException(nameof(state));
             if (terminated == null) throw new ArgumentNullException(nameof(terminated));
@@ -78,7 +80,83 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 PackageStatesByPhase = BuildPackageStatesByPhase(packageStates, timings),
             };
 
+            AddOfficeRow(status, officeState);
+
             return status;
+        }
+
+        /// <summary>
+        /// Session bc803955 — the Office C2R install (Office CSP app type / M365 "CSP" package)
+        /// never flows through the IME Win32 pipeline, so <see cref="BuildAppSummary"/> cannot see
+        /// it and a DevicePreparation session whose only app activity is Office rendered
+        /// "No application data available". Synthesize one package row from the
+        /// <see cref="OfficeInstallDetector"/>'s persisted lifecycle state instead. Preinstalled
+        /// is deliberately skipped — that state marks resident OEM/consumer Office, not an
+        /// enrollment install.
+        /// </summary>
+        private static void AddOfficeRow(FinalStatus status, OfficeInstallStateData? officeState)
+        {
+            if (officeState == null) return;
+
+            string rowState;
+            bool isCompleted = false, isError = false;
+            switch (officeState.State)
+            {
+                case OfficeInstallStateData.StateActive:
+                    rowState = AppInstallationState.Installing.ToString();
+                    break;
+                case OfficeInstallStateData.StateCompleted:
+                    rowState = AppInstallationState.Installed.ToString();
+                    isCompleted = true;
+                    break;
+                case OfficeInstallStateData.StateFailed:
+                    rowState = AppInstallationState.Error.ToString();
+                    isError = true;
+                    isCompleted = true; // mirrors IsCompleted(): Error counts as terminal
+                    break;
+                default:
+                    return; // Preinstalled / unknown — not an enrollment install
+            }
+
+            double? duration = officeState.StartedAtUtc.HasValue && officeState.CompletedAtUtc.HasValue
+                ? Math.Max(0, (officeState.CompletedAtUtc.Value - officeState.StartedAtUtc.Value).TotalSeconds)
+                : (double?)null;
+
+            var name = string.IsNullOrEmpty(officeState.VersionReached)
+                ? "Microsoft 365 Apps"
+                : $"Microsoft 365 Apps ({officeState.VersionReached})";
+
+            var row = new FinalStatusPackageInfo
+            {
+                AppName = name,
+                State = rowState,
+                IsError = isError,
+                IsCompleted = isCompleted,
+                Targeted = AppTargeted.Device.ToString(),
+                StartedAt = officeState.StartedAtUtc?.ToString("o"),
+                CompletedAt = officeState.CompletedAtUtc?.ToString("o"),
+                DurationSeconds = duration,
+            };
+
+            var phaseKey = AppTargeted.Device.ToString();
+            if (!status.PackageStatesByPhase.TryGetValue(phaseKey, out var bucket))
+            {
+                bucket = new List<FinalStatusPackageInfo>();
+                status.PackageStatesByPhase[phaseKey] = bucket;
+            }
+            // Office installs during device prep / device ESP — before any IME-tracked app.
+            bucket.Insert(0, row);
+
+            var summary = status.AppSummary;
+            summary.TotalApps++;
+            if (isCompleted) summary.CompletedApps++;
+            if (isError)
+            {
+                summary.ErrorCount++;
+                summary.DeviceErrors++;
+            }
+            if (!summary.AppsByPhase.TryGetValue(phaseKey, out var cnt)) cnt = 0;
+            summary.AppsByPhase[phaseKey] = cnt + 1;
         }
 
         /// <summary>
